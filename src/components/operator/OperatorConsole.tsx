@@ -25,6 +25,8 @@ import type { InternetMetadataCard } from "./AIAssistantPanel";
 import { OutputStack } from "./OutputStack";
 import { BottomTray } from "./BottomTray";
 import { EndServiceButton } from "./EndServiceButton";
+import { OperatorShell } from "./OperatorShell";
+import type { OperatorShellCtx } from "./shell/types";
 
 type Cursor = { itemIdx: number; slideIdx: number };
 
@@ -766,188 +768,88 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
     : "";
   const liveItemIdx = plan.items.findIndex((it) => it.slides.some((s) => JSON.stringify(s) === JSON.stringify(live)));
 
+  // Phase 5C: build ctx bag for the new operator shell
+  const sendLowerThird = useCallback((line1: string, line2: string) => {
+    const state: OutputState = {
+      live, next: nextSlideForStage,
+      itemTitle: plan.items[preview.itemIdx]?.title || "",
+      slideNumber: `${preview.slideIdx + 1} / ${plan.items[preview.itemIdx]?.slides.length || 0}`,
+      aspectRatio, fitMode, safeArea,
+      operatorMessage: null,
+      lowerThird: (line1 || line2) ? { line1, line2 } : null,
+      countdownEndsAt,
+    };
+    safePost(chRef.current, { type: "output", state });
+    toast.success(line1 || line2 ? "Lower third sent" : "Lower third cleared");
+  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt]);
+
+  const startCountdown = useCallback((seconds: number) => {
+    const target = Date.now() + seconds * 1000;
+    setCountdownEndsAt(target);
+    toast.success(`Countdown started (${seconds}s)`);
+  }, []);
+
+  const currentBankIdx = bank.findIndex((b) => currentBankRef && b.id === currentBankRef.id);
+  const shellCtx: OperatorShellCtx = {
+    plan,
+    previewSlide,
+    liveSlide: live,
+    previewItemIdx: preview.itemIdx,
+    previewSlideIdx: preview.slideIdx,
+    liveItemIdx,
+    aspectRatio, fitMode, safeArea,
+    onAspectChange: setAspectRatio,
+    onFitChange: setFitMode,
+    onSafeAreaToggle: () => setSafeArea((v) => !v),
+    autopilotMode, onAutopilotModeChange: setAutopilotMode,
+    autoApproveOn: autoApprove.enabled,
+    autoSendToLive: autoApprove.autoSendToLive,
+    audio,
+    onListenToggle: () => audio.listening ? stopAudio() : startAudio(),
+    confidenceThreshold,
+    defaultTranslationCode,
+    onJumpSlide: jumpTo,
+    onSetPreviewItem: (i) => jumpTo(i, 0),
+    onSendToLive: sendPreview,
+    onBlank: goBlank, onLogo: goLogo, onKill: clearLive,
+    onClearSlide: clearSlide, onClearMedia: clearMedia,
+    onClearLowerThird: clearLowerThird, onStageMessage: stageMessage,
+    onSendLowerThird: sendLowerThird,
+    onStartCountdown: startCountdown,
+    countdownEndsAt,
+    onOpenProjector: openProjector,
+    onOpenStage: openStageDisplay,
+    onOpenStream: openLivestream,
+    planId: plan.id,
+    endServiceHasTranscript: audio.transcript.length > 0,
+    bank,
+    currentBankIdx: currentBankIdx >= 0 ? currentBankIdx : null,
+    onRecallBanked: recallBanked,
+    onApproveDetection: approveDetection,
+    onRejectDetection: rejectDetection,
+    onApproveSong: approveSong,
+    onRejectSong: rejectSong,
+    onEditSong: editSong,
+    onApproveCommand: approveCommand,
+    onRejectCommand: rejectCommand,
+    onEditCommand: editCommand,
+    onPreviewUnified: previewUnified,
+    onSendLiveUnified: sendLiveUnified,
+    onQueueUnified: queueUnified,
+    onRejectUnified: rejectUnified,
+    onImportSong: importSong,
+    internetMatches,
+    onInternetSearchLibrary: internetSearchLibrary,
+    onInternetImport: internetImport,
+    onInternetCreateDraft: internetCreateDraft,
+    onInternetReject: internetReject,
+    onSimulate: simulateTranscript,
+    historyKey,
+  };
+
   return (
-    <div className="h-screen flex flex-col" style={{ background: "var(--color-app-bg)", color: "var(--color-foreground)" }}>
-      {/* Top bar */}
-      <div className="h-14 border-b flex items-center justify-between px-4 shrink-0"
-        style={{ borderColor: "var(--color-border)", background: "var(--color-panel)" }}>
-        <div className="flex items-center gap-3">
-          <Link href={`/services/${plan.id}`} className="text-[color:var(--color-muted-foreground)] hover:text-[color:var(--color-foreground)]">
-            <ArrowLeft className="w-4 h-4" />
-          </Link>
-          <div>
-            <div className="eyebrow">Operator</div>
-            <div className="text-sm font-semibold">{plan.title}</div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {autoApprove.enabled && (
-            <span
-              title={autoApprove.autoSendToLive
-                ? `AUTOPILOT: high-confidence detections auto-approve AND auto-send to Live (floor ${autoApprove.confidenceFloor}%). Manual controls remain functional.`
-                : `AUTOPILOT: high-confidence detections auto-stage to Preview (floor ${autoApprove.confidenceFloor}%). You still hit SEND TO LIVE.`}
-              className={cn(
-                "inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-[10px] font-bold uppercase tracking-wider border transition-colors",
-                autoApprove.autoSendToLive
-                  ? "border-destructive text-destructive bg-destructive/10 animate-pulse"
-                  : "border-warning text-warning bg-warning/10",
-              )}>
-              <Zap className="w-3 h-3" />
-              Autopilot{autoApprove.autoSendToLive ? " → Live" : " → Preview"}
-              <span className="opacity-70 font-mono normal-case">{autoApprove.confidenceFloor}%</span>
-            </span>
-          )}
-          <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
-            <input type="checkbox" checked={autoSend} onChange={(e) => setAutoSend(e.target.checked)} />
-            Auto-send on next
-          </label>
-          <EndServiceButton planId={plan.id} hasTranscript={audio.transcript.length > 0} />
-          <AutopilotModePicker mode={autopilotMode} onChange={setAutopilotMode} />
-          <ListeningToggle listening={audio.listening} onToggle={() => audio.listening ? stopAudio() : startAudio()} />
-          <button onClick={openProjector}
-            className="inline-flex items-center gap-1.5 h-8 px-3 border border-border rounded-md text-xs font-semibold hover:bg-accent">
-            <Monitor className="w-3.5 h-3.5" /> Open projector window
-          </button>
-          <button onClick={() => setAiPanelOpen((v) => !v)}
-            title={aiPanelOpen ? "Hide AI Assistant" : "Show AI Assistant"}
-            className="inline-flex items-center justify-center h-8 w-8 border border-border rounded-md text-muted-foreground hover:bg-accent">
-            {aiPanelOpen ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
-          </button>
-        </div>
-      </div>
-
-      {/* Autopilot banner (Phase 5) — visible when armed or active. Sits
-         directly above the workspace so it visually caps the Preview column. */}
-      {(autopilotMode === "armed" || autopilotMode === "active") && (
-        <div
-          className={cn(
-            "px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 border-b",
-            autopilotMode === "active"
-              ? "bg-destructive/10 text-destructive border-destructive/40 animate-pulse"
-              : "bg-warning/10 text-warning border-warning/40"
-          )}
-        >
-          <Zap className="w-3 h-3" />
-          {autopilotMode === "active"
-            ? "Autopilot Active — auto-staging high-confidence scripture"
-            : "Autopilot Armed — next high-confidence detection will auto-stage when moved to Active"}
-        </div>
-      )}
-
-      {/* Main cockpit: 3 columns × 2 rows.
-         Row 1: Rail | Workspace | OutputStack + AI panel
-         Row 2 (full-width): Bottom safety tray */}
-      <div className="flex-1 flex min-h-0">
-        <ProductionRail
-          items={plan.items}
-          activeItemIdx={preview.itemIdx}
-          liveItemIdx={liveItemIdx >= 0 ? liveItemIdx : null}
-          activeSection={railSection}
-          onActiveChange={setRailSection}
-          onJump={(i) => jumpTo(i, 0)}
-        />
-
-        {SHELL_SECTIONS.includes(railSection) ? (
-          <div className="flex-1 min-w-0 min-h-0 flex flex-col" style={{ background: "var(--color-app-bg)" }}>
-            {railSection === "timers" && (
-              <TimersShell onStartCountdown={(sec) => {
-                const target = Date.now() + sec * 1000;
-                setCountdownEndsAt(target);
-                toast.success(`Countdown started (${sec}s)`);
-              }} />
-            )}
-            {railSection === "lower_thirds" && (
-              <LowerThirdsShell onSend={(l1, l2) => {
-                const state: OutputState = {
-                  live, next: nextSlideForStage,
-                  itemTitle: plan.items[preview.itemIdx]?.title || "",
-                  slideNumber: `${preview.slideIdx + 1} / ${plan.items[preview.itemIdx]?.slides.length || 0}`,
-                  aspectRatio, fitMode, safeArea,
-                  operatorMessage: null,
-                  lowerThird: { line1: l1, line2: l2 },
-                  countdownEndsAt,
-                };
-                safePost(chRef.current, { type: "output", state });
-                toast.success("Lower third sent");
-              }} />
-            )}
-            {railSection === "stage" && <StageDisplayShell onOpen={openStageDisplay} />}
-            {railSection === "livestream" && <LivestreamShell onOpen={openLivestream} />}
-            {railSection === "imports" && <ImportsShell />}
-            {railSection === "archive" && <ArchiveShell churchArchiveHref="/archive" />}
-            {railSection === "settings" && <SettingsShell />}
-          </div>
-        ) : (
-        <WorkspaceTabs
-          mode={workspaceMode}
-          onModeChange={setWorkspaceMode}
-          items={plan.items}
-          activeItemIdx={preview.itemIdx}
-          activeSlideIdx={preview.slideIdx}
-          onJumpSlide={jumpTo}
-          previewSlide={previewSlide}
-          onSendPreviewSlide={(s) => setStagedAISlide(s)}
-          onSendLiveSlide={(s) => send(s)}
-          defaultTranslationCode={defaultTranslationCode}
-          listening={audio.listening}
-          transcriptText={audio.transcript.slice(-8).map((t) => t.text).join(" ") + " " + audio.interim}
-          autopilotActive={autopilotMode === "active"}
-        />
-        )}
-
-        <OutputStack
-          previewSlide={previewSlide}
-          liveSlide={live}
-          previewLabel={previewItemLabel}
-          liveLabel={liveItemIdx >= 0 ? plan.items[liveItemIdx].title : ""}
-          previewSlideInfo={previewSlideInfo}
-          liveSlideInfo=""
-          aspectRatio={aspectRatio}
-          fitMode={fitMode}
-          safeArea={safeArea}
-          onAspectChange={setAspectRatio}
-          onFitChange={setFitMode}
-          onSafeAreaToggle={() => setSafeArea((v) => !v)}
-          onOpenProjector={openProjector}
-          onOpenStage={openStageDisplay}
-          onOpenStream={openLivestream}
-          liveIsLive={live.kind !== "empty"}
-        />
-
-        {aiPanelOpen && (
-          <AIAssistantPanel
-            audio={audio}
-            onApprove={approveDetection}
-            onReject={rejectDetection}
-            onApproveSong={approveSong}
-            onRejectSong={rejectSong}
-            onApproveCommand={approveCommand}
-            onRejectCommand={rejectCommand}
-            confidenceThreshold={confidenceThreshold}
-            bank={bank}
-            currentBankIdx={bank.findIndex((b) => currentBankRef && b.id === currentBankRef.id)}
-            onRecall={recallBanked}
-            autoApproveOn={autoApprove.enabled}
-            onEditSong={editSong}
-            onEditCommand={editCommand}
-            bibleSourceLabel={`Bible ${defaultTranslationCode.toUpperCase()}`}
-            onSimulate={simulateTranscript}
-            onPreviewUnified={previewUnified}
-            onSendLiveUnified={sendLiveUnified}
-            onQueueUnified={queueUnified}
-            onRejectUnified={rejectUnified}
-            onImportSong={importSong}
-            internetMatches={internetMatches}
-            onInternetSearchLibrary={internetSearchLibrary}
-            onInternetImport={internetImport}
-            onInternetCreateDraft={internetCreateDraft}
-            onInternetReject={internetReject}
-          />
-        )}
-      </div>
-      <div className="shrink-0 border-t" style={{ borderColor: "var(--color-border)" }}>
-        <SuggestionHistory planId={plan.id} refreshKey={historyKey} />
-      </div>
+    <>
+      <OperatorShell ctx={shellCtx} />
       <ImportSongModal
         open={importModal !== null}
         initialTitle={importModal?.title || ""}
@@ -960,24 +862,11 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
         onClose={() => setEditing(null)}
         onSaved={onSuggestionEdited}
       />
-
-      <BottomTray
-        activeItem={plan.items[preview.itemIdx]}
-        activeSlideIdx={preview.slideIdx}
-        onJumpSlide={(s) => jumpTo(preview.itemIdx, s)}
-        onSendPreview={sendPreview}
-        onBlank={goBlank}
-        onLogo={goLogo}
-        onKill={clearLive}
-        onClearSlide={clearSlide}
-        onClearMedia={clearMedia}
-        onClearLowerThird={clearLowerThird}
-        onStageMessage={stageMessage}
-        autopilotOn={autoApprove.enabled}
-      />
-    </div>
+    </>
   );
 }
+
+// Legacy full-layout return kept for reference / rollback. Not used.
 
 function AutopilotModePicker({ mode, onChange }: { mode: AutopilotMode; onChange: (m: AutopilotMode) => void }) {
   const items: { key: AutopilotMode; label: string; title: string }[] = [
