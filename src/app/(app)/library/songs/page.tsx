@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/session";
 import { listSongs } from "@/lib/server/services";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { SongImporter } from "@/components/library/SongImporter";
+import { InternetSongDetectionPanel } from "@/components/library/InternetSongDetectionPanel";
 import { SongLicensingPanel } from "@/components/library/SongLicensingPanel";
 import { createSong } from "@/lib/actions";
 
@@ -26,6 +27,7 @@ export default async function SongsPage() {
         action={<SongImporter />}
       />
       <SongLicensingPanel songCount={songs.length} importedCount={importedCount} />
+      <InternetSongDetectionPanel totalSongs={songs.length} />
       <form action={create} className="mb-6 flex flex-wrap gap-2 rounded-2xl border border-border bg-card/80 p-4">
         <input name="title" placeholder="Song title" required
           className="h-10 max-w-xs flex-1 rounded-xl border border-border bg-background px-3 text-sm" />

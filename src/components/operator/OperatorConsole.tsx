@@ -61,15 +61,21 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
   // --- Four-mode autopilot (Phase 5) ---------------------------------------
   // On page load we ALWAYS downgrade "active" to "armed" as a safety
   // measure — the operator must consciously re-arm live-firing every session.
-  const [autopilotMode, setAutopilotModeInner] = useState<AutopilotMode>(() => {
-    if (typeof window === "undefined") return autoApproveProp.enabled ? "armed" : "suggestion";
+  // Always init deterministically for SSR + first client render; hydrate from
+  // localStorage post-mount to avoid hydration mismatch.
+  const [autopilotMode, setAutopilotModeInner] = useState<AutopilotMode>(
+    autoApproveProp.enabled ? "armed" : "suggestion"
+  );
+  useEffect(() => {
     try {
       const raw = window.localStorage.getItem(AUTOPILOT_MODE_KEY);
-      if (raw === "manual" || raw === "suggestion" || raw === "armed") return raw;
-      if (raw === "active") return "armed"; // safety downgrade on reload
+      if (raw === "manual" || raw === "suggestion" || raw === "armed") {
+        setAutopilotModeInner(raw);
+      } else if (raw === "active") {
+        setAutopilotModeInner("armed"); // safety downgrade on reload
+      }
     } catch { /* noop */ }
-    return autoApproveProp.enabled ? "armed" : "suggestion";
-  });
+  }, []);
   const setAutopilotMode = useCallback((next: AutopilotMode) => {
     setAutopilotModeInner((prev) => {
       if (prev === next) return prev;

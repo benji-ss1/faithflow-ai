@@ -427,16 +427,20 @@ function SegPill<T extends string>({ value, onChange, options }: {
 }
 
 export function useInspectorTab(): [InspectorTab, (t: InspectorTab) => void] {
-  const [tab, setTab] = useState<InspectorTab>(() => {
-    if (typeof window === "undefined") return "output";
+  // Always init to "output" so SSR + first client render match. Hydrate from
+  // localStorage in a post-mount effect to avoid hydration mismatch.
+  const [tab, setTab] = useState<InspectorTab>("output");
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
     try {
       const raw = window.localStorage.getItem(TAB_KEY);
-      if (raw && TABS.some((t) => t.key === raw)) return raw as InspectorTab;
+      if (raw && TABS.some((t) => t.key === raw)) setTab(raw as InspectorTab);
     } catch { /* noop */ }
-    return "output";
-  });
+    setHydrated(true);
+  }, []);
   useEffect(() => {
+    if (!hydrated) return;
     try { window.localStorage.setItem(TAB_KEY, tab); } catch { /* noop */ }
-  }, [tab]);
+  }, [tab, hydrated]);
   return [tab, setTab];
 }

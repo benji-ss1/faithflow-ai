@@ -31,6 +31,12 @@ export type NavGroup = {
   items: NavItem[];
 };
 
+export type ActiveNavMatch = {
+  group: string;
+  item: NavItem;
+  section: "workspace" | "account";
+};
+
 export const workspaceNav: NavGroup[] = [
   {
     label: "Workspace",
@@ -103,4 +109,24 @@ export function getRouteMeta(pathname: string) {
       subtitle: "Calm, premium controls for the broader account and dashboard workspace.",
     }
   );
+}
+
+export function getActiveNavMatch(pathname: string): ActiveNavMatch | null {
+  const sources: Array<{ section: "workspace" | "account"; groups: NavGroup[] }> = [
+    { section: "workspace", groups: workspaceNav },
+    { section: "account", groups: accountNav },
+  ];
+
+  for (const source of sources) {
+    for (const group of source.groups) {
+      for (const item of group.items) {
+        if (!item.href) continue;
+        if (pathname === item.href || pathname.startsWith(item.href + "/")) {
+          return { group: group.label, item, section: source.section };
+        }
+      }
+    }
+  }
+
+  return null;
 }

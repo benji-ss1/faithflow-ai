@@ -19,14 +19,17 @@ const TABS: { key: DrawerTab; label: string; icon: typeof ImageIcon }[] = [
 const KEY = "faithflow.drawer.expanded";
 
 export function BottomDrawer({ ctx }: { ctx: OperatorShellCtx }) {
-  const [expanded, setExpanded] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
-    try { const raw = window.localStorage.getItem(KEY); if (raw !== null) return raw === "1"; } catch { /* noop */ }
-    return true;
-  });
+  // Hydrate from localStorage post-mount so SSR + first client render agree.
+  const [expanded, setExpanded] = useState<boolean>(true);
+  const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
+    try { const raw = window.localStorage.getItem(KEY); if (raw !== null) setExpanded(raw === "1"); } catch { /* noop */ }
+    setHydrated(true);
+  }, []);
+  useEffect(() => {
+    if (!hydrated) return;
     try { window.localStorage.setItem(KEY, expanded ? "1" : "0"); } catch { /* noop */ }
-  }, [expanded]);
+  }, [expanded, hydrated]);
   const [tab, setTab] = useState<DrawerTab>("media");
   const [view, setView] = useState<"grid" | "list">("grid");
   const [filter, setFilter] = useState("");

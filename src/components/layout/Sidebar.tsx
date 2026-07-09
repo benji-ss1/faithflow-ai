@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  ArrowUpRight,
   ChevronLeft,
   ChevronRight,
   LockKeyhole,
@@ -12,7 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
-import { accountNav, workspaceNav } from "@/components/layout/navigation";
+import { accountNav, getActiveNavMatch, getRouteMeta, workspaceNav } from "@/components/layout/navigation";
 
 type SidebarProps = {
   mobileOpen: boolean;
@@ -69,8 +70,8 @@ function NavSection({
             );
 
             const className = cn(
-              "group flex items-center gap-3 rounded-2xl border px-3 text-sm font-medium transition-all duration-200",
-              collapsed ? "h-11 justify-center px-0" : "h-11",
+              "group relative flex items-center gap-3 overflow-hidden rounded-2xl border px-3 text-sm font-medium transition-all duration-200",
+              collapsed ? "h-10 justify-center px-0" : "h-10",
               active
                 ? "border-[rgba(111,224,194,0.28)] bg-[linear-gradient(180deg,rgba(255,255,255,0.09),rgba(255,255,255,0.04))] text-foreground shadow-[0_18px_45px_rgba(0,0,0,0.22)]"
                 : "border-transparent text-sidebar-fg hover:border-white/10 hover:bg-white/[0.045]",
@@ -81,6 +82,7 @@ function NavSection({
               return (
                 <div key={item.label} title={item.badge ? `${item.label} — ${item.badge}` : `${item.label} — coming later`}
                   className={className} aria-disabled>
+                  {active ? <span className={cn("absolute left-0 top-2 bottom-2 rounded-full bg-[var(--color-primary)]", collapsed ? "w-1 left-1.5" : "w-1")} /> : null}
                   {content}
                 </div>
               );
@@ -93,7 +95,9 @@ function NavSection({
                 title={collapsed ? item.label : undefined}
                 className={className}
                 onClick={onNavigate}
+                aria-current={active ? "page" : undefined}
               >
+                {active ? <span className={cn("absolute left-0 top-2 bottom-2 rounded-full bg-[var(--color-primary)]", collapsed ? "w-1 left-1.5" : "w-1")} /> : null}
                 {content}
               </Link>
             );
@@ -106,13 +110,25 @@ function NavSection({
 
 export function Sidebar({ mobileOpen, onMobileOpenChange }: SidebarProps) {
   const pathname = usePathname();
+  const route = getRouteMeta(pathname);
+  const activeMatch = getActiveNavMatch(pathname);
+  const ActiveIcon = activeMatch?.item.icon || Sparkles;
   const [collapsed, setCollapsed] = useState(false);
   const [unlocked, setUnlocked] = useState<string[] | null>(null);
 
   useEffect(() => {
     function read() {
       const raw = localStorage.getItem("ff_tutorial_unlocked");
-      setUnlocked(raw ? (JSON.parse(raw) as string[]) : null);
+      if (!raw) {
+        setUnlocked(null);
+        return;
+      }
+      try {
+        const parsed = JSON.parse(raw);
+        setUnlocked(Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : null);
+      } catch {
+        setUnlocked(null);
+      }
     }
     read();
     window.addEventListener("ff-tutorial-update", read);
@@ -177,6 +193,56 @@ export function Sidebar({ mobileOpen, onMobileOpenChange }: SidebarProps) {
       </div>
 
       <div className={cn("flex-1 space-y-7 overflow-y-auto py-5", collapsed ? "px-3" : "px-4")}>
+        <div
+          className={cn(
+            "overflow-hidden rounded-[1.35rem] border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.025))] shadow-[0_16px_40px_rgba(0,0,0,0.18)]",
+            collapsed ? "px-0 py-3" : "p-4"
+          )}
+          title={collapsed ? `${route.title} — ${activeMatch?.group || "Workspace"}` : undefined}
+        >
+          {collapsed ? (
+            <div className="flex flex-col items-center gap-2">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04]">
+                <ActiveIcon className="h-4.5 w-4.5 text-[var(--color-primary)]" />
+              </div>
+              <span className="inline-flex rounded-full border border-[rgba(111,224,194,0.25)] bg-[rgba(111,224,194,0.08)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--color-primary)]">
+                Active
+              </span>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Active workspace</div>
+                  <div className="mt-1 truncate text-sm font-semibold text-foreground">{route.title}</div>
+                  <div className="mt-1 text-xs leading-5 text-muted-foreground">{route.subtitle}</div>
+                </div>
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04]">
+                  <ActiveIcon className="h-4.5 w-4.5 text-[var(--color-primary)]" />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex rounded-full border border-[rgba(111,224,194,0.25)] bg-[rgba(111,224,194,0.08)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--color-primary)]">
+                  {activeMatch?.group || "Workspace"}
+                </span>
+                <span className="inline-flex rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  {activeMatch?.section || "workspace"}
+                </span>
+              </div>
+
+              <Link
+                href={activeMatch?.item.href || "/dashboard"}
+                className="inline-flex items-center gap-2 text-xs font-medium text-foreground transition hover:text-[var(--color-primary)]"
+                onClick={() => onMobileOpenChange(false)}
+              >
+                Open current section
+                <ArrowUpRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
+          )}
+        </div>
+
         <NavSection
           collapsed={collapsed}
           pathname={pathname}
@@ -229,7 +295,10 @@ export function Sidebar({ mobileOpen, onMobileOpenChange }: SidebarProps) {
             </>
           ) : (
             <>
-              <div className="text-xs text-muted-foreground">Theme</div>
+              <div>
+                <div className="text-xs text-muted-foreground">Theme</div>
+                <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">Cmd/Ctrl + / toggles sidebar</div>
+              </div>
               <ThemeToggle compact />
             </>
           )}
