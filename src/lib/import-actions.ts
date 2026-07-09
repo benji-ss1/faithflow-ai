@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "./session";
 import { getDb } from "./db/client";
-import { songs, songSlides, mediaAssets, settings } from "./db/schema";
+import { songs, songSlides, mediaAssets, settings, migrationJobs } from "./db/schema";
 import { runImportPipeline, type PipelineOutput } from "./importers/pipeline";
 import { presignPut, isS3Configured, s3, BUCKET } from "./s3";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
@@ -129,4 +129,79 @@ export async function importDrop(input: {
       perParser: output.byParser,
     },
   };
+}
+
+/**
+ * Finalize a migration job produced by POST /api/imports/parse. Reads the
+ * stored ParseResult from `summaryJson`, writes songs + slides to the DB
+ * (dedupe by title within the church), uploads media buffers to S3, and
+ * marks the migrationJob complete.
+ */
+export async function finalizeImport(migrationJobId: string): Promise<Result<{
+  added: { songs: number; media: number };
+  skipped: number;
+}>> {
+  const user = await requireUser();
+  const db = getDb();
+
+  const [job] = await db.select().from(migrationJobs)
+    .where(and(eq(migrationJobs.id, migrationJobId), eq(migrationJobs.churchId, user.churchId)))
+    .limit(1);
+  if (!job) return { ok: false, error: "Migration job not found" };
+  if (job.status !== "ready") return { ok: false, error: `Job is ${job.status}, not ready to finalize` };
+
+  const summary = (job.summaryJson || {}) as {
+    songs?: { title: string; artist?: string | null; slides: string[] }[];
+    media?: { fileName: string; mimeType: string; b64: string }[];
+  };
+  const parsedSongs = Array.isArray(summary.songs) ? summary.songs : [];
+  const parsedMedia = Array.isArray(summary.media) ? summary.media : [];
+
+  let songsAdded = 0, songsSkipped = 0;
+  for (const s of parsedSongs) {
+    try {
+      const title = (s.title || "").trim();
+      if (!title || !Array.isArray(s.slides) || s.slides.length === 0) { songsSkipped++; continue; }
+      const [dup] = await db.select().from(songs)
+        .where(and(eq(songs.churchId, user.churchId), eq(songs.title, title)))
+        .limit(1);
+      if (dup) { songsSkipped++; continue; }
+      const [row] = await db.insert(songs).values({
+        churchId: user.churchId, title, artist: s.artist ?? null, source: "imported",
+      }).returning();
+      await db.insert(songSlides).values(s.slides.map((lyrics, i) => ({ songId: row.id, order: i, lyrics })));
+      songsAdded++;
+    } catch {
+      songsSkipped++;
+    }
+  }
+
+  let mediaAdded = 0;
+  if (parsedMedia.length > 0 && isS3Configured()) {
+    for (const m of parsedMedia) {
+      try {
+        const buf = Buffer.from(m.b64, "base64");
+        const ext = m.fileName.split(".").pop() || "bin";
+        const key = `${user.churchId}/media/${randomUUID()}.${ext}`;
+        await putBuffer(key, buf, m.mimeType);
+        const kind = m.mimeType.startsWith("video/") ? "video" as const : "image" as const;
+        await db.insert(mediaAssets).values({
+          churchId: user.churchId, kind, fileName: m.fileName, s3Key: key,
+          mimeType: m.mimeType, sizeBytes: buf.length,
+        });
+        mediaAdded++;
+      } catch { /* per-file media failures don't fail the whole import */ }
+    }
+  }
+
+  await db.update(migrationJobs)
+    .set({ status: "ready", completedAt: new Date(), summaryJson: {
+      ...(job.summaryJson as Record<string, unknown>),
+      finalized: { songsAdded, songsSkipped, mediaAdded, at: new Date().toISOString() },
+    } })
+    .where(eq(migrationJobs.id, migrationJobId));
+
+  revalidatePath("/library/songs");
+  revalidatePath("/library/media");
+  return { ok: true, data: { added: { songs: songsAdded, media: mediaAdded }, skipped: songsSkipped } };
 }
