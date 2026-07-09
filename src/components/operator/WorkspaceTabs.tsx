@@ -26,6 +26,7 @@ export function WorkspaceTabs({
   mode, onModeChange,
   items, activeItemIdx, activeSlideIdx, onJumpSlide, previewSlide,
   onSendPreviewSlide, onSendLiveSlide, defaultTranslationCode,
+  listening = false, transcriptText = "", autopilotActive = false,
 }: {
   mode: WorkspaceMode;
   onModeChange: (m: WorkspaceMode) => void;
@@ -37,6 +38,9 @@ export function WorkspaceTabs({
   onSendPreviewSlide: (slide: SlidePayload) => void;
   onSendLiveSlide: (slide: SlidePayload) => void;
   defaultTranslationCode: string;
+  listening?: boolean;
+  transcriptText?: string;
+  autopilotActive?: boolean;
 }) {
   const activeItem = items[activeItemIdx];
 
@@ -76,7 +80,8 @@ export function WorkspaceTabs({
         {mode === "sermon" && <SermonDeckMode
           item={activeItem} activeSlideIdx={activeSlideIdx}
           onJumpSlide={(s) => onJumpSlide(activeItemIdx, s)}
-          onSendPreview={onSendPreviewSlide} onSendLive={onSendLiveSlide} />}
+          onSendPreview={onSendPreviewSlide} onSendLive={onSendLiveSlide}
+          listening={listening} transcriptText={transcriptText} autopilotActive={autopilotActive} />}
         {mode === "media" && <MediaBinMode
           onSendPreview={onSendPreviewSlide} onSendLive={onSendLiveSlide} />}
       </div>

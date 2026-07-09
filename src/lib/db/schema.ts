@@ -167,6 +167,29 @@ export const pptxSlides = pgTable("pptx_slides", {
   imageS3Key: text("image_s3_key").notNull(),
   widthPx: integer("width_px"),
   heightPx: integer("height_px"),
+  // Phase 6: text-layer extraction for transcript-to-slide matching. Both
+  // are NULL for image-only slides; extraction failure never fails the
+  // conversion pipeline.
+  slideText: text("slide_text"),
+  notesText: text("notes_text"),
+  embedding: vector("embedding", { dimensions: 384 }),
+}, (t) => [
+  index("idx_pptx_slides_embedding").using("hnsw", t.embedding.op("vector_cosine_ops")),
+]);
+
+// Phase 6: sermon deck metadata — one row per pptx import.
+export const sermonMetadata = pgTable("sermon_metadata", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  pptxImportId: uuid("pptx_import_id").references(() => pptxImports.id, { onDelete: "cascade" }).notNull().unique(),
+  churchId: uuid("church_id").references(() => churches.id, { onDelete: "cascade" }).notNull(),
+  sermonTitle: text("sermon_title"),
+  speakerName: text("speaker_name"),
+  series: text("series"),
+  mainScripture: text("main_scripture"),
+  notes: text("notes"),
+  serviceDate: date("service_date"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 export const settings = pgTable("settings", {

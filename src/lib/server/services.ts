@@ -12,6 +12,7 @@ export type ExpandedItem = {
   type: "song" | "scripture" | "media" | "sermon" | "blank" | "logo";
   title: string;
   slides: SlidePayload[];
+  pptxImportId?: string; // present for sermon items — enables /api/sermon/match
 };
 
 export type ExpandedPlan = {
@@ -61,7 +62,9 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
     }
 
     if (slides.length === 0) slides = [{ kind: "blank", bgColor: blankBgColor }];
-    expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides });
+    const extra: { pptxImportId?: string } = {};
+    if (it.type === "sermon" && typeof payload.pptxImportId === "string") extra.pptxImportId = payload.pptxImportId;
+    expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides, ...extra });
   }
 
   return { id: plan.id, title: plan.title, items: expanded, logoUrl, blankBgColor };

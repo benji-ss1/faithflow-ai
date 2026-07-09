@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireUser } from "@/lib/session";
 import { listPptxImports } from "@/lib/server/services";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -24,12 +25,13 @@ export default async function ImportsPage() {
           {imports.map((p) => (
             <li key={p.id} className="p-4 flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <div className="font-medium truncate">{p.originalFileName}</div>
+                <Link href={`/library/imports/${p.id}`} className="font-medium truncate hover:underline block">{p.originalFileName}</Link>
                 {p.errorMessage && <div className="text-xs text-destructive mt-1">{p.errorMessage}</div>}
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 {p.status === "failed" && <PptxRetryButton importId={p.id} />}
                 <div className={`eyebrow ${STATUS_COLOR[p.status] || ""}`}>{p.status}</div>
+                <Link href={`/library/imports/${p.id}`} className="eyebrow underline text-muted-foreground hover:text-foreground">Metadata</Link>
               </div>
             </li>
           ))}

@@ -2,7 +2,7 @@
 import { revalidatePath } from "next/cache";
 import { eq, and, asc, sql } from "drizzle-orm";
 import { getDb } from "./db/client";
-import { servicePlans, serviceItems, songs, songSlides, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churchPreferences, aiSuggestions } from "./db/schema";
+import { servicePlans, serviceItems, songs, songSlides, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments } from "./db/schema";
 import { requireUser } from "./session";
 import { deleteObject } from "./s3";
 
@@ -383,4 +383,111 @@ export async function updatePreferences(data: {
   }
   revalidatePath("/settings");
   return { ok: true };
+}
+
+// Phase 6: sermon deck metadata --------------------------------------------
+export async function upsertSermonMetadata(input: {
+  pptxImportId: string;
+  sermonTitle?: string | null;
+  speakerName?: string | null;
+  series?: string | null;
+  mainScripture?: string | null;
+  notes?: string | null;
+  serviceDate?: string | null; // YYYY-MM-DD
+}): Promise<Result<{ id: string }>> {
+  const user = await requireUser();
+  const db = getDb();
+  const [imp] = await db.select().from(pptxImports)
+    .where(and(eq(pptxImports.id, input.pptxImportId), eq(pptxImports.churchId, user.churchId)))
+    .limit(1);
+  if (!imp) return { ok: false, error: "Import not found" };
+
+  const [existing] = await db.select().from(sermonMetadata)
+    .where(eq(sermonMetadata.pptxImportId, input.pptxImportId)).limit(1);
+
+  const patch = {
+    sermonTitle: input.sermonTitle ?? null,
+    speakerName: input.speakerName ?? null,
+    series: input.series ?? null,
+    mainScripture: input.mainScripture ?? null,
+    notes: input.notes ?? null,
+    serviceDate: input.serviceDate ?? null,
+  };
+
+  if (existing) {
+    await db.update(sermonMetadata).set({ ...patch, updatedAt: new Date() }).where(eq(sermonMetadata.id, existing.id));
+    revalidatePath("/library/imports");
+    return { ok: true, data: { id: existing.id } };
+  }
+  const [row] = await db.insert(sermonMetadata).values({
+    pptxImportId: input.pptxImportId,
+    churchId: user.churchId,
+    ...patch,
+  }).returning({ id: sermonMetadata.id });
+  revalidatePath("/library/imports");
+  return { ok: true, data: { id: row.id } };
+}
+
+// Phase 6: scaffold post-service archive. Non-destructive upsert.
+export async function scaffoldSermonArchive(planId: string): Promise<Result<{ id: string }>> {
+  const user = await requireUser();
+  const db = getDb();
+  const [plan] = await db.select().from(servicePlans)
+    .where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, user.churchId)))
+    .limit(1);
+  if (!plan) return { ok: false, error: "Plan not found" };
+
+  const segments = await db.select().from(transcriptSegments)
+    .where(eq(transcriptSegments.servicePlanId, planId))
+    .orderBy(asc(transcriptSegments.ts));
+  if (segments.length === 0) return { ok: false, error: "No transcript segments yet — start the service before archiving." };
+  const fullText = segments.map((s) => s.text).join(" ").trim();
+  const wordCount = fullText.split(/\s+/).filter(Boolean).length;
+
+  const refsRes = await db.execute(sql`
+    SELECT dr.book, dr.chapter, dr.verse_start AS "verseStart", dr.verse_end AS "verseEnd"
+    FROM detected_references dr
+    JOIN transcript_segments ts ON ts.id = dr.transcript_segment_id
+    WHERE ts.service_plan_id = ${planId}
+      AND dr.status IN ('approved', 'pending')
+    GROUP BY dr.book, dr.chapter, dr.verse_start, dr.verse_end
+    ORDER BY dr.book, dr.chapter, dr.verse_start
+  `);
+  const scriptureList = refsRes.rows as { book: string; chapter: number; verseStart: number; verseEnd: number }[];
+
+  const sermonItems = await db.select().from(serviceItems)
+    .where(and(eq(serviceItems.servicePlanId, planId), eq(serviceItems.type, "sermon")));
+  const slideNote = sermonItems.length > 0
+    ? ` Deck references: ${sermonItems.map((s) => s.title).join(", ")}.`
+    : "";
+
+  const stubOverview = `Auto-generated scaffold from ${segments.length} transcript segment${segments.length === 1 ? "" : "s"} (${wordCount} words) and ${scriptureList.length} scripture reference${scriptureList.length === 1 ? "" : "s"}.${slideNote} Run "Regenerate summary" to produce the final AI overview.`;
+
+  const [existing] = await db.select().from(sermonSummaries)
+    .where(eq(sermonSummaries.servicePlanId, planId)).limit(1);
+
+  if (existing) {
+    await db.update(sermonSummaries).set({
+      overview: stubOverview,
+      scriptureList,
+      wordCount,
+      generatedAt: new Date(),
+      model: "scaffold",
+    }).where(eq(sermonSummaries.id, existing.id));
+    revalidatePath("/archive");
+    return { ok: true, data: { id: existing.id } };
+  }
+  const [row] = await db.insert(sermonSummaries).values({
+    servicePlanId: planId,
+    title: plan.title || "Untitled sermon",
+    overview: stubOverview,
+    keyPoints: [],
+    scriptureList,
+    notableQuotes: [],
+    actionPoints: [],
+    wordCount,
+    model: "scaffold",
+  }).returning({ id: sermonSummaries.id });
+  revalidatePath("/archive");
+  return { ok: true, data: { id: row.id } };
 }

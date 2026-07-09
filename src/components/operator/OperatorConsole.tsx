@@ -20,6 +20,7 @@ import { ProductionRail, type RailSection } from "./ProductionRail";
 import { WorkspaceTabs, type WorkspaceMode } from "./WorkspaceTabs";
 import { OutputStack } from "./OutputStack";
 import { BottomTray } from "./BottomTray";
+import { EndServiceButton } from "./EndServiceButton";
 
 type Cursor = { itemIdx: number; slideIdx: number };
 
@@ -613,6 +614,7 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
             <input type="checkbox" checked={autoSend} onChange={(e) => setAutoSend(e.target.checked)} />
             Auto-send on next
           </label>
+          <EndServiceButton planId={plan.id} hasTranscript={audio.transcript.length > 0} />
           <AutopilotModePicker mode={autopilotMode} onChange={setAutopilotMode} />
           <ListeningToggle listening={audio.listening} onToggle={() => audio.listening ? stopAudio() : startAudio()} />
           <button onClick={openProjector}
@@ -669,6 +671,9 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
           onSendPreviewSlide={(s) => setStagedAISlide(s)}
           onSendLiveSlide={(s) => send(s)}
           defaultTranslationCode={defaultTranslationCode}
+          listening={audio.listening}
+          transcriptText={audio.transcript.slice(-8).map((t) => t.text).join(" ") + " " + audio.interim}
+          autopilotActive={autopilotMode === "active"}
         />
 
         <OutputStack

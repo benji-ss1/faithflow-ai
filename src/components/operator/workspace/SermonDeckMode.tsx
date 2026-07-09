@@ -5,15 +5,20 @@ import { cn } from "@/lib/utils";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import type { ExpandedItem } from "@/lib/server/services";
 import type { SlidePayload } from "@/lib/broadcast";
+import { SermonFollowPanel } from "./SermonFollowPanel";
 
 export function SermonDeckMode({
   item, activeSlideIdx, onJumpSlide, onSendPreview, onSendLive,
+  listening = false, transcriptText = "", autopilotActive = false,
 }: {
   item: ExpandedItem | undefined;
   activeSlideIdx: number;
   onJumpSlide: (s: number) => void;
   onSendPreview: (slide: SlidePayload) => void;
   onSendLive: (slide: SlidePayload) => void;
+  listening?: boolean;
+  transcriptText?: string;
+  autopilotActive?: boolean;
 }) {
   const [notesOpen, setNotesOpen] = useState(false);
 
@@ -60,7 +65,7 @@ export function SermonDeckMode({
       </div>
 
       {/* Main preview area */}
-      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+      <div className="flex-1 min-w-0 flex flex-col overflow-hidden relative">
         <div className="h-12 shrink-0 border-b flex items-center gap-2 px-3" style={{ borderColor: "var(--color-border)" }}>
           <span className="text-xs text-[color:var(--color-muted-foreground)] font-mono">
             Slide {activeSlideIdx + 1} / {item.slides.length}
@@ -113,6 +118,17 @@ export function SermonDeckMode({
             </aside>
           )}
         </div>
+        <SermonFollowPanel
+          pptxImportId={item.pptxImportId ?? null}
+          slides={item.slides}
+          listening={listening}
+          transcriptText={transcriptText}
+          currentSlideIdx={activeSlideIdx}
+          autopilotActive={autopilotActive}
+          onJumpSlide={onJumpSlide}
+          onSendPreview={onSendPreview}
+          onSendLive={onSendLive}
+        />
       </div>
     </div>
   );
