@@ -1,0 +1,13 @@
+node_modules
+.next
+.env.local
+.env*.local
+*.log
+.DS_Store
+dist
+build
+drizzle
+.minio-data
+tsconfig.tsbuildinfo
+next-env.d.ts
+.next-corrupt-*

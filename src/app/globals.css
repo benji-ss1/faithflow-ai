@@ -1,0 +1,189 @@
+@import "tailwindcss";
+
+/*
+ * FaithFlow AI — dark-first production console.
+ *
+ * Layered dark neutrals around #232b2b (slate-teal). We do NOT flood the
+ * UI in one flat tone: `app-bg` is darker than `panel`, `panel` darker
+ * than `raised-shell`, giving physical depth without shadows. Cyan/teal
+ * accent for AI + status; restrained glow; crisp borders.
+ *
+ * Light mode = `.light` on <html>. Same token names, inverted structure.
+ */
+
+@theme {
+  /* Structural layers — dark default (aligned to dashboard redesign brief) */
+  --color-app-bg:        #151919;
+  --color-panel:         #1b2121;
+  --color-raised-shell:  #232b2b;
+  --color-elevated:      #2b3434;
+  --color-shell:         #111414;
+  --color-shell-edge:    rgba(255,255,255,0.05);
+  --color-overlay-soft:  rgba(255,255,255,0.03);
+  --color-glow:          rgba(111,224,194,0.16);
+
+  /* Backwards compat with existing tailwind classes */
+  --color-background:    #151919;
+  --color-card:          #232b2b;
+  --color-popover:       #232b2b;
+  --color-muted:         #1b2121;
+
+  /* Text */
+  --color-foreground:            #eef3f2;
+  --color-card-foreground:       #eef3f2;
+  --color-popover-foreground:    #eef3f2;
+  --color-muted-foreground:      #8c9797;
+  --color-primary:               #6fe0c2;
+  --color-primary-foreground:    #151919;
+  --color-secondary:             #2b3434;
+  --color-secondary-foreground:  #eef3f2;
+  --color-accent:                #7bc7ff;
+  --color-accent-foreground:     #151919;
+
+  /* Semantic accents — restrained, no neon */
+  --color-brand:          #6fe0c2;
+  --color-brand-muted:    #2d8f7a;
+  --color-success:        #4fd18b;
+  --color-warning:        #f0b35a;
+  --color-destructive:    #f26d6d;
+  --color-destructive-foreground: #151919;
+
+  /* Borders and inputs */
+  --color-border:  #394444;
+  --color-input:   #394444;
+  --color-ring:    #6fe0c2;
+
+  /* Sidebar-specific */
+  --color-sidebar-bg:         #151919;
+  --color-sidebar-item-hover: #232b2b;
+  --color-sidebar-item-active:#2b3434;
+  --color-sidebar-fg:         #d7dede;
+  --color-sidebar-fg-muted:   #6f7c7c;
+
+  /* AI + audio status tokens */
+  --color-ai-idle:      #6f7c7c;
+  --color-ai-listening: #6fe0c2;
+  --color-ai-processing:#f0b35a;
+  --color-ai-approved:  #4fd18b;
+
+  --font-sans:    ui-sans-serif, system-ui, -apple-system, "SF Pro Text", "Inter", "Segoe UI", Roboto, sans-serif;
+  --font-display: ui-sans-serif, system-ui, -apple-system, "SF Pro Display", "Inter", "Segoe UI", Roboto, sans-serif;
+  --font-mono:    ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+}
+
+html {
+  color-scheme: dark;
+  background: var(--color-app-bg);
+}
+html, body {
+  background: var(--color-app-bg);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  letter-spacing: -0.005em;
+}
+body { min-height: 100vh; }
+
+h1, h2, h3, .font-display { letter-spacing: -0.02em; font-family: var(--font-display); }
+::selection { background: color-mix(in oklab, var(--color-brand) 30%, transparent); color: var(--color-foreground); }
+
+.eyebrow { font-family: var(--font-mono); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; color: var(--color-muted-foreground); }
+
+/* Focus ring — subtle cyan */
+:focus-visible { outline: none; box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-brand) 42%, transparent); border-radius: inherit; }
+
+/* Subtle scrollbars in dark UI */
+* { scrollbar-color: var(--color-border) transparent; scrollbar-width: thin; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 4px; }
+*::-webkit-scrollbar-thumb:hover { background: var(--color-muted-foreground); }
+
+/*
+ * Light mode — inverted structure with same token contract.
+ * Warm off-white; slate-tinged neutrals; same cyan accent for continuity.
+ */
+html.light {
+  color-scheme: light;
+
+  --color-app-bg:        #f5f6f6;
+  --color-panel:         #ffffff;
+  --color-raised-shell:  #ffffff;
+  --color-elevated:      #f0f2f2;
+  --color-shell:         #e8eded;
+  --color-shell-edge:    rgba(15,22,22,0.06);
+  --color-overlay-soft:  rgba(15,22,22,0.03);
+  --color-glow:          rgba(13,156,156,0.14);
+
+  --color-background: #f5f6f6;
+  --color-card:       #ffffff;
+  --color-popover:    #ffffff;
+  --color-muted:      #eef0f0;
+
+  --color-foreground:            #0f1616;
+  --color-card-foreground:       #0f1616;
+  --color-popover-foreground:    #0f1616;
+  --color-muted-foreground:      #647070;
+  --color-primary:               #0d9c9c;
+  --color-primary-foreground:    #ffffff;
+  --color-secondary:             #eef0f0;
+  --color-secondary-foreground:  #0f1616;
+  --color-accent:                #cfe7f8;
+  --color-accent-foreground:     #0f1616;
+
+  --color-brand:       #0d9c9c;
+  --color-brand-muted: #0e7777;
+
+  --color-border: #d6dddd;
+  --color-input:  #d6dddd;
+  --color-ring:   #0d9c9c;
+
+  --color-sidebar-bg:         #f5f6f6;
+  --color-sidebar-item-hover: #eaeeee;
+  --color-sidebar-item-active:#dfe4e4;
+  --color-sidebar-fg:         #1a2020;
+  --color-sidebar-fg-muted:   #647070;
+
+  --color-ai-idle:      #647070;
+  --color-ai-listening: #0d9c9c;
+  --color-ai-processing:#c2780e;
+  --color-ai-approved:  #159a5c;
+}
+
+/*
+ * Legacy `.dark` class still supported for the older cookie-based toggle.
+ * When `.dark` is present, we're using the default dark tokens above.
+ * (No override needed — dark is default.)
+ */
+
+/* Utility: subtle raised card surface */
+.surface-panel  { background: var(--color-panel); border: 1px solid var(--color-border); }
+.surface-shell  { background: var(--color-raised-shell); border: 1px solid var(--color-border); }
+.surface-elev   { background: var(--color-elevated); border: 1px solid var(--color-border); }
+.ff-card-premium {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.02)),
+    linear-gradient(135deg, color-mix(in oklab, var(--color-raised-shell) 92%, white), var(--color-panel));
+  border: 1px solid color-mix(in oklab, var(--color-border) 80%, white);
+  box-shadow:
+    0 20px 55px rgba(0,0,0,0.22),
+    inset 0 1px 0 rgba(255,255,255,0.04);
+}
+.ff-card-premium:hover {
+  border-color: color-mix(in oklab, var(--color-border) 70%, var(--color-brand));
+  box-shadow:
+    0 28px 72px rgba(0,0,0,0.28),
+    0 0 0 1px rgba(111,224,194,0.06),
+    inset 0 1px 0 rgba(255,255,255,0.05);
+}
+
+/* Waveform micro-status — used inside AI panel header */
+@keyframes ff-wave { 0%,100% { transform: scaleY(0.35); } 50% { transform: scaleY(1); } }
+.ff-wave-bar { display: inline-block; width: 2px; height: 12px; margin-right: 2px; background: var(--color-brand); border-radius: 1px; transform-origin: bottom; animation: ff-wave 900ms ease-in-out infinite; }
+.ff-wave-bar:nth-child(2) { animation-delay: 120ms; }
+.ff-wave-bar:nth-child(3) { animation-delay: 240ms; }
+.ff-wave-bar:nth-child(4) { animation-delay: 360ms; }
+.ff-wave-bar:nth-child(5) { animation-delay: 480ms; }
+.ff-wave-bar:nth-child(6) { animation-delay: 600ms; }

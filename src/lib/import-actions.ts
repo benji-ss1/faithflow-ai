@@ -1,0 +1,132 @@
+"use server";
+import { and, eq } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
+import { requireUser } from "./session";
+import { getDb } from "./db/client";
+import { songs, songSlides, mediaAssets, settings } from "./db/schema";
+import { runImportPipeline, type PipelineOutput } from "./importers/pipeline";
+import { presignPut, isS3Configured, s3, BUCKET } from "./s3";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { randomUUID } from "node:crypto";
+
+type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
+
+const MAX_TOTAL_BYTES = 250 * 1024 * 1024; // 250 MB total drop
+
+export type FileDrop = { path: string; b64: string };
+
+async function putBuffer(key: string, body: Buffer, contentType: string) {
+  await s3().send(new PutObjectCommand({ Bucket: BUCKET(), Key: key, Body: body, ContentType: contentType }));
+}
+
+/**
+ * Bulk-import from a batch of files (client already unzipped folders /
+ * flattened the drop). All files are base64 to survive server-action
+ * transport. This action never fails the whole batch on one bad file —
+ * it collects warnings and reports them.
+ */
+export async function importDrop(input: {
+  drop: FileDrop[];
+  applyLogo?: string; // filename of the logo the user picked, optional
+}): Promise<Result<{
+  added: number; skipped: number;
+  mediaAdded: number;
+  logoApplied: boolean;
+  logoCandidates: { fileName: string; confidence: number }[];
+  warnings: { file: string; warnings: string[] }[];
+  perParser: Record<string, { examined: number; imported: number; skipped: number }>;
+}>> {
+  const user = await requireUser();
+
+  const total = input.drop.reduce((sum, f) => sum + Math.ceil(f.b64.length * 0.75), 0);
+  if (total > MAX_TOTAL_BYTES) {
+    return { ok: false, error: `Drop is too large (${Math.round(total / 1024 / 1024)} MB). Split into smaller batches.` };
+  }
+  if (input.drop.length === 0) return { ok: false, error: "No files provided" };
+  if (input.drop.length > 5000) return { ok: false, error: "Too many files in one drop (max 5000)" };
+
+  const buffers = input.drop.map((f) => ({ path: f.path, contents: Buffer.from(f.b64, "base64") }));
+  const output: PipelineOutput = runImportPipeline(buffers);
+
+  const db = getDb();
+  let added = 0, skipped = 0;
+
+  for (const song of output.songs) {
+    const [dup] = await db.select().from(songs)
+      .where(and(eq(songs.churchId, user.churchId), eq(songs.title, song.title)))
+      .limit(1);
+    if (dup) { skipped++; continue; }
+    const [row] = await db.insert(songs).values({
+      churchId: user.churchId, title: song.title, artist: song.artist, source: "imported",
+    }).returning();
+    if (song.slides.length > 0) {
+      await db.insert(songSlides).values(song.slides.map((lyrics, i) => ({ songId: row.id, order: i, lyrics })));
+    }
+    added++;
+  }
+
+  // Media upload — only if S3 is configured. Anything else surfaces as a
+  // warning rather than silently dropping.
+  let mediaAdded = 0;
+  if (output.mediaAssets.length > 0) {
+    if (!isS3Configured()) {
+      output.warnings.push({ file: "*", warnings: [`${output.mediaAssets.length} media file(s) not uploaded — S3 is not configured`] });
+    } else {
+      for (const m of output.mediaAssets) {
+        try {
+          const ext = m.fileName.split(".").pop() || "bin";
+          const key = `${user.churchId}/media/${randomUUID()}.${ext}`;
+          await putBuffer(key, m.contents, m.mimeType);
+          const kind = m.mimeType.startsWith("video/") ? "video" as const : "image" as const;
+          await db.insert(mediaAssets).values({
+            churchId: user.churchId,
+            kind,
+            fileName: m.fileName,
+            s3Key: key,
+            mimeType: m.mimeType,
+            sizeBytes: m.contents.length,
+          });
+          mediaAdded++;
+        } catch (e) {
+          output.warnings.push({ file: m.fileName, warnings: [e instanceof Error ? e.message : "Upload failed"] });
+        }
+      }
+    }
+  }
+
+  // Logo application — only if user picked one AND S3 is configured
+  let logoApplied = false;
+  if (input.applyLogo && isS3Configured()) {
+    const logo = output.logoCandidates.find((l) => l.fileName === input.applyLogo);
+    if (logo) {
+      try {
+        const ext = logo.fileName.split(".").pop() || "png";
+        const key = `${user.churchId}/branding/logo.${ext}`;
+        await putBuffer(key, logo.contents, logo.mimeType);
+        // Upsert into settings
+        const [existing] = await db.select().from(settings).where(eq(settings.churchId, user.churchId)).limit(1);
+        if (existing) {
+          await db.update(settings).set({ logoS3Key: key, updatedAt: new Date() }).where(eq(settings.id, existing.id));
+        } else {
+          await db.insert(settings).values({ churchId: user.churchId, logoS3Key: key });
+        }
+        logoApplied = true;
+      } catch (e) {
+        output.warnings.push({ file: logo.fileName, warnings: [e instanceof Error ? e.message : "Logo upload failed"] });
+      }
+    }
+  }
+
+  revalidatePath("/library/songs");
+  revalidatePath("/library/media");
+  revalidatePath("/settings");
+  return {
+    ok: true,
+    data: {
+      added, skipped, mediaAdded, logoApplied,
+      logoCandidates: output.logoCandidates.map((l) => ({ fileName: l.fileName, confidence: l.confidence })),
+      warnings: output.warnings,
+      perParser: output.byParser,
+    },
+  };
+}
