@@ -1,8 +1,9 @@
 "use client";
-import { Mic, MicOff, Check, X, Sparkles, AlertCircle, Music, Terminal, Activity, Bookmark, Zap, Pencil } from "lucide-react";
+import { Mic, MicOff, Check, X, Sparkles, AlertCircle, Music, Terminal, Activity, Bookmark, Zap, Pencil, BookOpen, Radio, Plus, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { AudioStreamState, Detection, SongSuggestion, CommandSuggestion, PipelineStage } from "./useAudioStream";
+import type { AudioStreamState, Detection, SongSuggestion, CommandSuggestion, PipelineStage, UnifiedSuggestion } from "./useAudioStream";
 import type { BankedVerse } from "./useVerseBank";
+import { SimulatePhraseInput } from "./SimulatePhraseInput";
 
 const STAGE_ORDER: PipelineStage[] = [
   "requesting_ticket", "ticket_ok", "opening_ws", "ws_open",
@@ -62,6 +63,13 @@ export function AIAssistantPanel({
   onEditDetection,
   onEditSong,
   onEditCommand,
+  bibleSourceLabel,
+  onSimulate,
+  onPreviewUnified,
+  onSendLiveUnified,
+  onQueueUnified,
+  onRejectUnified,
+  onImportSong,
 }: {
   audio: AudioStreamState;
   onApprove: (d: Detection) => Promise<void> | void;
@@ -78,6 +86,13 @@ export function AIAssistantPanel({
   onEditDetection?: (d: Detection) => void;
   onEditSong?: (s: SongSuggestion) => void;
   onEditCommand?: (c: CommandSuggestion) => void;
+  bibleSourceLabel?: string; // e.g. "Bible KJV", "Bible WEB"
+  onSimulate?: (text: string) => void;
+  onPreviewUnified?: (s: UnifiedSuggestion) => void;
+  onSendLiveUnified?: (s: UnifiedSuggestion) => void;
+  onQueueUnified?: (s: UnifiedSuggestion) => void;
+  onRejectUnified?: (s: UnifiedSuggestion) => void;
+  onImportSong?: (title: string) => void;
 }) {
   return (
     <div className="w-80 shrink-0 border-l border-border bg-background flex flex-col h-full">
@@ -190,16 +205,42 @@ export function AIAssistantPanel({
       {/* Detections */}
       <div className="px-4 py-3 border-b border-border max-h-[35%] overflow-y-auto">
         <div className="eyebrow text-muted-foreground mb-2">Detected references</div>
-        {audio.detections.length === 0 ? (
+        {audio.detections.length === 0 && audio.suggestions.filter((s) => s.type === "scripture").length === 0 ? (
           <p className="text-xs text-muted-foreground">Bible references you speak will appear here.</p>
         ) : (
           <ul className="space-y-2">
             {audio.detections.map((d) => (
-              <DetectionCard key={d.id} d={d} threshold={confidenceThreshold} onApprove={onApprove} onReject={onReject} onEdit={onEditDetection} />
+              <DetectionCard key={d.id} d={d} threshold={confidenceThreshold} onApprove={onApprove} onReject={onReject} onEdit={onEditDetection} sourceLabel={bibleSourceLabel} />
             ))}
           </ul>
         )}
       </div>
+
+      {/* Song / Lyric — Phase 5A unified section */}
+      {audio.suggestions.filter((s) => s.type === "song" || s.type === "lyric" || s.type === "section").length > 0 && (
+        <div className="px-4 py-3 border-b border-border max-h-[40%] overflow-y-auto">
+          <div className="eyebrow text-muted-foreground mb-2 flex items-center gap-1.5">
+            <Music className="w-3 h-3" /> Song / Lyric
+          </div>
+          <ul className="space-y-2">
+            {audio.suggestions
+              .filter((s) => s.type === "song" || s.type === "lyric" || s.type === "section")
+              .map((s) => (
+                <UnifiedCard
+                  key={s.id}
+                  s={s}
+                  threshold={confidenceThreshold}
+                  autopilotOn={autoApproveOn}
+                  onPreview={onPreviewUnified}
+                  onSendLive={onSendLiveUnified}
+                  onQueue={onQueueUnified}
+                  onReject={onRejectUnified}
+                  onImportSong={onImportSong}
+                />
+              ))}
+          </ul>
+        </div>
+      )}
 
       {/* Song suggestions */}
       {audio.songSuggestions.length > 0 && (
@@ -212,6 +253,9 @@ export function AIAssistantPanel({
           </ul>
         </div>
       )}
+
+      {/* Simulate phrase (Phase 5A testing helper) */}
+      {onSimulate && <SimulatePhraseInput onSimulate={onSimulate} />}
 
       {/* Transcript */}
       <div className="flex-1 overflow-y-auto px-4 py-3">
@@ -233,7 +277,7 @@ export function AIAssistantPanel({
   );
 }
 
-function DetectionCard({ d, threshold, onApprove, onReject, onEdit }: { d: Detection; threshold: number; onApprove: (d: Detection) => void | Promise<void>; onReject: (d: Detection) => void | Promise<void>; onEdit?: (d: Detection) => void }) {
+function DetectionCard({ d, threshold, onApprove, onReject, onEdit, sourceLabel }: { d: Detection; threshold: number; onApprove: (d: Detection) => void | Promise<void>; onReject: (d: Detection) => void | Promise<void>; onEdit?: (d: Detection) => void; sourceLabel?: string }) {
   const low = d.confidence < threshold;
   return (
     <li className={cn(
@@ -248,6 +292,13 @@ function DetectionCard({ d, threshold, onApprove, onReject, onEdit }: { d: Detec
           {d.confidence}%
         </span>
       </div>
+      {sourceLabel && (
+        <div className="mb-1">
+          <span className="inline-flex items-center gap-1 text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm border border-border bg-muted/30 text-muted-foreground">
+            <BookOpen className="w-2.5 h-2.5" /> {sourceLabel}
+          </span>
+        </div>
+      )}
       <div className="text-[11px] text-muted-foreground italic mb-2 line-clamp-1">
         “{d.matchedText}”
       </div>
@@ -340,6 +391,125 @@ function CommandCard({ c, threshold, onApprove, onReject, onEdit }: { c: Command
           className="mt-1 w-full h-7 rounded-md border border-border text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent inline-flex items-center justify-center gap-1">
           <Pencil className="w-2.5 h-2.5" /> Edit
         </button>
+      )}
+    </li>
+  );
+}
+
+function UnifiedCard({
+  s, threshold, autopilotOn, onPreview, onSendLive, onQueue, onReject, onImportSong,
+}: {
+  s: UnifiedSuggestion;
+  threshold: number;
+  autopilotOn: boolean;
+  onPreview?: (s: UnifiedSuggestion) => void;
+  onSendLive?: (s: UnifiedSuggestion) => void;
+  onQueue?: (s: UnifiedSuggestion) => void;
+  onReject?: (s: UnifiedSuggestion) => void;
+  onImportSong?: (title: string) => void;
+}) {
+  // Hidden below 60% (see Phase 5A auto-accept rules)
+  if (s.confidence < 60) return null;
+  const low = s.confidence < threshold;
+
+  if (s.type === "section") {
+    return (
+      <li className={cn("border rounded-md p-2 text-xs bg-card", "border-border")}>
+        <div className="flex items-center justify-between mb-1">
+          <span className="font-semibold text-sm capitalize">Jump to {s.section}{s.index !== undefined ? ` ${s.index}` : ""}</span>
+          <span className="font-mono text-[10px] text-muted-foreground">{s.confidence}%</span>
+        </div>
+        <div className="text-[11px] text-muted-foreground italic mb-2 line-clamp-1">“{s.matchedText}”</div>
+        <div className="grid grid-cols-2 gap-1.5">
+          <button onClick={() => onPreview?.(s)}
+            className="h-8 rounded-md border-2 border-success text-success bg-success/5 hover:bg-success/10 text-[11px] font-bold uppercase tracking-wider">
+            <Check className="w-3 h-3 inline mr-1" /> Approve
+          </button>
+          <button onClick={() => onReject?.(s)}
+            className="h-8 rounded-md border border-border text-muted-foreground hover:bg-accent text-[11px] font-semibold uppercase tracking-wider">
+            <X className="w-3 h-3 inline mr-1" /> Reject
+          </button>
+        </div>
+      </li>
+    );
+  }
+
+  // song / lyric
+  if (s.type === "scripture") return null; // scripture handled elsewhere
+  const match = s.match;
+  const sourceLabel = match.source === "playlist" ? "Playlist" : match.source === "local_library" ? "Library" : "Public Domain";
+  const sourceClass = match.source === "playlist" ? "border-success/50 bg-success/10 text-success" : match.source === "public_domain" ? "border-border bg-muted/30 text-muted-foreground" : "border-border bg-muted/30 text-muted-foreground";
+  const hasLyrics = match.previewPayload.kind === "text" && !!(match.previewPayload).text?.trim();
+  // SAFETY: no lyrics ⇒ no Send Live button, show Import Song instead.
+  // (In practice matchSongCue already gates this, but belt-and-brace.)
+  const isStub = !hasLyrics;
+  const showAutoPreviewHint = autopilotOn && s.confidence >= 90 && s.confidence < 95;
+  const showAutoActiveHint = autopilotOn && s.confidence >= 95;
+
+  return (
+    <li className={cn("border rounded-md p-2 text-xs bg-card", low ? "border-warning/60" : "border-border")}>
+      <div className="text-[11px] text-muted-foreground italic mb-1 line-clamp-1">“{s.matchedText}”</div>
+      <div className="flex items-center justify-between mb-1">
+        <span className="font-semibold text-sm">
+          {match.title}
+          {match.matchedSection && <span className="text-muted-foreground text-xs ml-1">· {match.matchedSection}</span>}
+        </span>
+        <span className={cn("font-mono text-[10px]", low ? "text-warning" : "text-muted-foreground")}>{s.confidence}%</span>
+      </div>
+      <div className="flex items-center gap-1.5 mb-2">
+        <span className={cn("inline-flex items-center gap-1 text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm border", sourceClass)}>
+          <Music className="w-2.5 h-2.5" /> {sourceLabel}
+        </span>
+        {s.type === "lyric" && <span className="text-[9px] uppercase tracking-wider text-muted-foreground">lyric fragment</span>}
+        {s.type === "song" && <span className="text-[9px] uppercase tracking-wider text-muted-foreground">title cue</span>}
+      </div>
+      {isStub ? (
+        <div className="space-y-1.5">
+          <p className="text-[10px] text-warning italic">
+            No local/licensed match found — Import Song / Search Library
+          </p>
+          <button
+            onClick={() => onImportSong?.(match.title)}
+            className="w-full h-8 rounded-md border border-border text-[11px] font-semibold uppercase tracking-wider hover:bg-accent"
+          >
+            <Plus className="w-3 h-3 inline mr-1" /> Import Song
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-1.5">
+            <button onClick={() => onPreview?.(s)}
+              title="Stage to Preview only"
+              className="h-8 rounded-md border-2 border-success text-success bg-success/5 hover:bg-success/10 text-[11px] font-bold uppercase tracking-wider flex items-center justify-center gap-1">
+              <Eye className="w-3 h-3" /> Preview
+            </button>
+            <button onClick={() => onSendLive?.(s)}
+              title="Send this slide to Live"
+              className="h-8 rounded-md border-2 border-orange-500 text-orange-600 bg-orange-500/5 hover:bg-orange-500/10 text-[11px] font-bold uppercase tracking-wider flex items-center justify-center gap-1">
+              <Radio className="w-3 h-3" /> Send Live
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-1.5 mt-1">
+            <button onClick={() => onQueue?.(s)}
+              className="h-7 rounded-md border border-border text-[10px] font-semibold uppercase tracking-wider hover:bg-accent flex items-center justify-center gap-1">
+              <Bookmark className="w-2.5 h-2.5" /> Queue
+            </button>
+            <button onClick={() => onReject?.(s)}
+              className="h-7 rounded-md border border-border text-muted-foreground hover:bg-accent text-[10px] font-semibold uppercase tracking-wider flex items-center justify-center gap-1">
+              <X className="w-2.5 h-2.5" /> Reject
+            </button>
+          </div>
+        </>
+      )}
+      {(showAutoPreviewHint || showAutoActiveHint) && (
+        <div className="mt-1 text-[10px] text-warning flex items-center gap-1">
+          <Zap className="w-2.5 h-2.5" /> {showAutoActiveHint ? "Auto-staged to Preview (song/lyric never auto-Live)" : "Auto-Preview-eligible"}
+        </div>
+      )}
+      {low && s.confidence >= 60 && s.confidence < 80 && (
+        <div className="mt-1 text-[10px] text-warning flex items-center gap-1">
+          <AlertCircle className="w-2.5 h-2.5" /> Below confidence threshold — manual only
+        </div>
       )}
     </li>
   );

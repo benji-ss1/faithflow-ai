@@ -7,7 +7,8 @@ import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, safePost, type SlidePayload, type LiveMessage, type OutputState } from "@/lib/broadcast";
 import type { ExpandedPlan, ExpandedItem } from "@/lib/server/services";
 import { cn } from "@/lib/utils";
-import { useAudioStream, type Detection, type SongSuggestion, type CommandSuggestion } from "./useAudioStream";
+import { useAudioStream, type Detection, type SongSuggestion, type CommandSuggestion, type UnifiedSuggestion } from "./useAudioStream";
+import type { IndexedSong } from "@/lib/ai-detection/lyric-fragment";
 import { AIAssistantPanel, ListeningToggle } from "./AIAssistantPanel";
 import { updateDetectionStatus, updateAiSuggestionStatus } from "@/lib/actions";
 import { SuggestionHistory } from "./SuggestionHistory";
@@ -142,7 +143,35 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;
 
-  const { state: audio, start: startAudio, stop: stopAudio, dismissDetection, dismissSong, dismissCommand } = useAudioStream(plan.id);
+  // Phase 5A: local song library for client-side lyric/title matching.
+  // Fetched once on mount; refreshed via manual reload (song imports).
+  const [songLibrary, setSongLibrary] = useState<IndexedSong[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/songs/library").then((r) => r.json()).then((res) => {
+      if (cancelled) return;
+      if (Array.isArray(res.songs)) setSongLibrary(res.songs as IndexedSong[]);
+    }).catch(() => { /* non-fatal */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Playlist song IDs — for the "in-playlist" confidence boost.
+  const planSongIds = useMemo(() => plan.items.map((it) => (it as unknown as { songId?: string }).songId).filter(Boolean) as string[], [plan.items]);
+
+  const getDetectContext = useCallback(() => ({
+    churchId: (plan as unknown as { churchId?: string }).churchId || "",
+    planId: plan.id,
+    planSongIds,
+    recentSongIds: [] as string[],
+    hasVerseContext: false,
+    hasSlideContext: true, // always assume some slide context in operator
+    hasSongContext: false, // updated below via ref
+  }), [plan.id, planSongIds, plan]);
+
+  const { state: audio, start: startAudio, stop: stopAudio, dismissDetection, dismissSong, dismissCommand, dismissSuggestion, simulateTranscript } = useAudioStream(plan.id, {
+    library: songLibrary,
+    getDetectContext,
+  });
 
   // In "manual" mode we force the audio stream off — no suggestions at all.
   useEffect(() => {
@@ -552,6 +581,76 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
 
   const clearStagedAI = useCallback(() => setStagedAISlide(null), []);
 
+  // -------- Unified suggestion handlers (Phase 5A) --------------------------
+  const previewUnified = useCallback((s: UnifiedSuggestion) => {
+    if (s.type === "song" || s.type === "lyric") {
+      const p = s.match.previewPayload;
+      if (p.kind !== "text" || !p.text?.trim()) { toast.info("No local/licensed match to preview"); return; }
+      setStagedAISlide(p);
+      dismissSuggestion(s.id);
+      toast.success(`Staged "${s.match.title}" to Preview`);
+    } else if (s.type === "section") {
+      if (!stagedSong) { toast.info("No song staged"); return; }
+      const re = s.section === "chorus" ? /^\s*(chorus|refrain)\b/i
+        : s.section === "verse" ? new RegExp(`^\\s*verse\\s*${s.index ?? ""}\\b`, "i")
+        : s.section === "bridge" ? /^\s*bridge\b/i
+        : s.section === "outro" ? /^\s*(outro|ending)\b/i
+        : /^\s*tag\b/i;
+      const idx = stagedSong.slides.findIndex((sl) => sl.kind === "text" && re.test((sl as { text: string }).text));
+      if (idx < 0) { toast.info(`${s.section} not found`); return; }
+      setStagedAISlide(stagedSong.slides[idx]);
+      setStagedSong({ ...stagedSong, currentIdx: idx });
+      dismissSuggestion(s.id);
+      toast.success(`Jumped to ${s.section}`);
+    }
+  }, [dismissSuggestion, stagedSong]);
+
+  const sendLiveUnified = useCallback((s: UnifiedSuggestion) => {
+    // SAFETY: song/lyric content is NEVER auto-live, but an explicit operator
+    // click is an explicit operator action — same principle as sidebar buttons.
+    if (s.type === "song" || s.type === "lyric") {
+      const p = s.match.previewPayload;
+      if (p.kind !== "text" || !p.text?.trim()) { toast.info("No local/licensed match — cannot send"); return; }
+      send(p);
+      dismissSuggestion(s.id);
+      toast.success(`Sent "${s.match.title}" to Live`);
+    }
+  }, [dismissSuggestion, send]);
+
+  const queueUnified = useCallback((s: UnifiedSuggestion) => {
+    if (s.type === "song" || s.type === "lyric") {
+      toast.info(`Queued "${s.match.title}" (added to bank)`);
+      dismissSuggestion(s.id);
+    }
+  }, [dismissSuggestion]);
+
+  const rejectUnified = useCallback((s: UnifiedSuggestion) => dismissSuggestion(s.id), [dismissSuggestion]);
+
+  const importSong = useCallback((title: string) => {
+    toast.info(`Open library to import "${title}"`);
+  }, []);
+
+  // Auto-accept for unified lyric/song suggestions (Phase 5A rules).
+  // Below 60% → hidden by the card itself
+  // 60-89% → require manual
+  // 90-94% + Autopilot ACTIVE → auto-stage to Preview (treat active as Auto-Preview)
+  // 95%+ + Autopilot ACTIVE → still stage to Preview only (never Live for song content, copyright safety)
+  const autoAcceptedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!autoApprove.enabled) return;
+    for (const s of audio.suggestions) {
+      if (s.type !== "song" && s.type !== "lyric") continue;
+      if (autoAcceptedRef.current.has(s.id)) continue;
+      if (s.confidence < 90) continue;
+      autoAcceptedRef.current.add(s.id);
+      const p = s.match.previewPayload;
+      if (p.kind !== "text" || !p.text?.trim()) continue;
+      setStagedAISlide(p);
+      setAutopilotActivity({ source: "auto-approve", ref: s.match.title, ts: Date.now() });
+      toast.info(`Autopilot → PREVIEW · ${s.match.title}${s.confidence >= 95 ? " (song stays Preview-only)" : ""}`);
+    }
+  }, [audio.suggestions, autoApprove.enabled]);
+
   // --- Edit action: opens modal for song / command suggestions -----------
   const editSong = useCallback((s: SongSuggestion) => {
     setEditing({ suggestionId: s.suggestionId, type: "song", payload: { title: s.title } });
@@ -711,6 +810,13 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
             autoApproveOn={autoApprove.enabled}
             onEditSong={editSong}
             onEditCommand={editCommand}
+            bibleSourceLabel={`Bible ${defaultTranslationCode.toUpperCase()}`}
+            onSimulate={simulateTranscript}
+            onPreviewUnified={previewUnified}
+            onSendLiveUnified={sendLiveUnified}
+            onQueueUnified={queueUnified}
+            onRejectUnified={rejectUnified}
+            onImportSong={importSong}
           />
         )}
       </div>

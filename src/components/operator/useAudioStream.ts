@@ -1,5 +1,8 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { detectAll, SuggestionDedupe, type DetectAllResult } from "@/lib/ai-detection";
+import type { IndexedSong } from "@/lib/ai-detection/lyric-fragment";
+import type { SongMatchResult } from "@/lib/ai-detection/song-match";
 
 export type Detection = {
   id: string;
@@ -39,6 +42,17 @@ export type CommandSuggestion = {
 
 export type TranscriptChunk = { id: string; text: string; final: boolean; ts: number };
 
+/**
+ * Unified suggestion — Phase 5A. Runs client-side on every transcript
+ * finalization. Lives alongside detections/songSuggestions/commandSuggestions
+ * so existing UI flows keep working.
+ */
+export type UnifiedSuggestion =
+  | { id: string; type: "scripture"; segmentId: string; ts: number; confidence: number; matchedText: string; ref: { book: string; chapter: number; verseStart: number; verseEnd: number } }
+  | { id: string; type: "song"; segmentId: string; ts: number; confidence: number; matchedText: string; match: SongMatchResult }
+  | { id: string; type: "lyric"; segmentId: string; ts: number; confidence: number; matchedText: string; match: SongMatchResult }
+  | { id: string; type: "section"; segmentId: string; ts: number; confidence: number; matchedText: string; section: "chorus" | "verse" | "bridge" | "outro" | "tag"; index?: number };
+
 export type PipelineStage =
   | "idle"                    // not started
   | "requesting_ticket"       // POST /api/audio/ticket
@@ -64,6 +78,7 @@ export type AudioStreamState = {
   detections: Detection[];
   songSuggestions: SongSuggestion[];
   commandSuggestions: CommandSuggestion[];
+  suggestions: UnifiedSuggestion[]; // Phase 5A unified layer
   stage: PipelineStage;
   stageHistory: { stage: PipelineStage; ts: number }[];
   chunksSent: number;
@@ -74,12 +89,91 @@ export type AudioStreamState = {
  * Client-side mic capture → WebSocket bridge to Deepgram.
  * Captures 16kHz linear16 PCM via AudioWorklet + downsampling.
  */
-export function useAudioStream(planId: string) {
+export type DetectContextProvider = () => {
+  churchId: string;
+  planId?: string;
+  planSongIds?: string[];
+  recentSongIds?: string[];
+  hasVerseContext: boolean;
+  hasSlideContext: boolean;
+  hasSongContext: boolean;
+};
+
+export function useAudioStream(planId: string, opts?: { library?: IndexedSong[]; getDetectContext?: DetectContextProvider }) {
   const [state, setState] = useState<AudioStreamState>({
     listening: false, ready: false, error: null, transcript: [], interim: "",
-    detections: [], songSuggestions: [], commandSuggestions: [],
+    detections: [], songSuggestions: [], commandSuggestions: [], suggestions: [],
     stage: "idle", stageHistory: [], chunksSent: 0, dgMessagesReceived: 0,
   });
+
+  // Dedupe primitive: 30s cooldown per (type, key), refresh on +10 confidence.
+  const dedupeRef = useRef(new SuggestionDedupe(30_000));
+  const libraryRef = useRef<IndexedSong[]>(opts?.library || []);
+  const getCtxRef = useRef<DetectContextProvider | undefined>(opts?.getDetectContext);
+  useEffect(() => { libraryRef.current = opts?.library || []; }, [opts?.library]);
+  useEffect(() => { getCtxRef.current = opts?.getDetectContext; }, [opts?.getDetectContext]);
+
+  const runDetectAll = useCallback(async (segmentId: string, text: string) => {
+    const provider = getCtxRef.current;
+    const base = provider ? provider() : { churchId: "", hasVerseContext: false, hasSlideContext: false, hasSongContext: false };
+    let result: DetectAllResult;
+    try {
+      result = await detectAll(text, { ...base, library: libraryRef.current });
+    } catch (e) {
+      console.warn("[faithflow-detect] detectAll failed", e);
+      return;
+    }
+    const ts = Date.now();
+    const newSuggestions: UnifiedSuggestion[] = [];
+
+    const push = (s: UnifiedSuggestion, key: string) => {
+      const decision = dedupeRef.current.shouldEmit(s.type, key, s.confidence, ts);
+      if (decision === "suppress") return;
+      newSuggestions.push(s);
+      // "refresh" is handled by the reducer below (replace-in-place)
+      (s as UnifiedSuggestion & { _refresh?: boolean })._refresh = decision === "refresh";
+    };
+
+    for (const r of result.scripture) {
+      const id = `sc-${segmentId}-${r.book}-${r.chapter}-${r.verseStart}-${r.verseEnd}`;
+      const key = `${r.book} ${r.chapter}:${r.verseStart}-${r.verseEnd}`;
+      push({ id, type: "scripture", segmentId, ts, confidence: r.confidence, matchedText: r.matchedText, ref: { book: r.book, chapter: r.chapter, verseStart: r.verseStart, verseEnd: r.verseEnd } }, key);
+    }
+    for (const m of result.song) {
+      const id = `sg-${segmentId}-${m.songId}`;
+      push({ id, type: "song", segmentId, ts, confidence: m.confidence, matchedText: m.matchedLine || m.title, match: m }, m.songId);
+    }
+    for (const m of result.lyric) {
+      const id = `ly-${segmentId}-${m.songId}`;
+      push({ id, type: "lyric", segmentId, ts, confidence: m.confidence, matchedText: m.matchedLine || m.title, match: m }, `lyric:${m.songId}`);
+    }
+    for (const s of result.section) {
+      const id = `se-${segmentId}-${s.section}-${s.index ?? "x"}`;
+      const key = `${s.section}:${s.index ?? ""}`;
+      push({ id, type: "section", segmentId, ts, confidence: s.confidence, matchedText: s.matchedText, section: s.section, index: s.index }, key);
+    }
+
+    if (newSuggestions.length === 0) return;
+    setState((prev) => {
+      const merged = [...prev.suggestions];
+      for (const n of newSuggestions) {
+        const refresh = (n as UnifiedSuggestion & { _refresh?: boolean })._refresh;
+        // Same-key updater
+        const keyOf = (x: UnifiedSuggestion) => {
+          if (x.type === "scripture") return `scripture:${x.ref.book} ${x.ref.chapter}:${x.ref.verseStart}-${x.ref.verseEnd}`;
+          if (x.type === "song") return `song:${x.match.songId}`;
+          if (x.type === "lyric") return `lyric:${x.match.songId}`;
+          return `section:${x.section}:${x.index ?? ""}`;
+        };
+        const nk = keyOf(n);
+        const existingIdx = merged.findIndex((m) => keyOf(m) === nk);
+        if (refresh && existingIdx >= 0) merged[existingIdx] = n;
+        else if (existingIdx >= 0) merged[existingIdx] = n; // update in place
+        else merged.unshift(n);
+      }
+      return { ...prev, suggestions: merged.slice(0, 40) };
+    });
+  }, []);
 
   const setStage = useCallback((stage: PipelineStage) => {
     setState((s) => ({
@@ -141,11 +235,15 @@ export function useAudioStream(planId: string) {
         if (msg.type === "detection" || msg.type === "song" || msg.type === "command") log(`9 ${msg.type}`);
         if (msg.type === "ready") setState((s) => ({ ...s, ready: true }));
         else if (msg.type === "interim") setState((s) => ({ ...s, interim: msg.text }));
-        else if (msg.type === "final") setState((s) => ({
-          ...s,
-          interim: "",
-          transcript: [...s.transcript, { id: msg.segmentId, text: msg.text, final: true, ts: Date.now() }].slice(-100),
-        }));
+        else if (msg.type === "final") {
+          setState((s) => ({
+            ...s,
+            interim: "",
+            transcript: [...s.transcript, { id: msg.segmentId, text: msg.text, final: true, ts: Date.now() }].slice(-100),
+          }));
+          // Phase 5A: run unified detection client-side. Fire-and-forget.
+          runDetectAll(msg.segmentId, msg.text);
+        }
         else if (msg.type === "detection") setState((s) => ({ ...s, detections: [msg.detection, ...s.detections].slice(0, 50) }));
         else if (msg.type === "song") setState((s) => ({ ...s, songSuggestions: [msg.song, ...s.songSuggestions].slice(0, 30) }));
         else if (msg.type === "command") setState((s) => ({ ...s, commandSuggestions: [msg.command, ...s.commandSuggestions].slice(0, 30) }));
@@ -239,5 +337,22 @@ export function useAudioStream(planId: string) {
     setState((s) => ({ ...s, commandSuggestions: s.commandSuggestions.filter((x) => x.suggestionId !== id) }));
   }, []);
 
-  return { state, start, stop, dismissDetection, dismissSong, dismissCommand };
+  const dismissSuggestion = useCallback((id: string) => {
+    setState((s) => ({ ...s, suggestions: s.suggestions.filter((x) => x.id !== id) }));
+  }, []);
+
+  /**
+   * Simulate a transcript segment locally — no audio, no network. Used by
+   * the Simulate Phrase input in the AI Assistant panel for testing.
+   */
+  const simulateTranscript = useCallback((text: string) => {
+    const segmentId = `sim-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setState((s) => ({
+      ...s,
+      transcript: [...s.transcript, { id: segmentId, text, final: true, ts: Date.now() }].slice(-100),
+    }));
+    runDetectAll(segmentId, text);
+  }, [runDetectAll]);
+
+  return { state, start, stop, dismissDetection, dismissSong, dismissCommand, dismissSuggestion, simulateTranscript };
 }
