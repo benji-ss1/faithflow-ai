@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
@@ -39,7 +39,7 @@ export function Topbar({ user, churchName, onOpenNavigation }: TopbarProps) {
     [user.email, user.name]
   );
 
-  useState(() => {
+  useEffect(() => {
     function onWindowClick(event: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setMenuOpen(false);
@@ -47,7 +47,7 @@ export function Topbar({ user, churchName, onOpenNavigation }: TopbarProps) {
     }
     window.addEventListener("mousedown", onWindowClick);
     return () => window.removeEventListener("mousedown", onWindowClick);
-  });
+  }, []);
 
   return (
     <header className="sticky top-0 z-40 border-b border-white/8 bg-[linear-gradient(180deg,rgba(21,25,25,0.92),rgba(21,25,25,0.8))] backdrop-blur-xl">

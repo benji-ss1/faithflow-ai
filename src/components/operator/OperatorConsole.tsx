@@ -29,12 +29,63 @@ export type AutoApproveConfig = {
   autoSendToLive: boolean;   // if true + enabled, skip Preview altogether
 };
 
-export function OperatorConsole({ plan, defaultTranslationCode, confidenceThreshold, autoApprove }: {
+/**
+ * Four-mode autopilot state (Phase 5). The existing AutoApproveConfig
+ * boolean maps onto this: mode === "active"  ⇒  enabled = true.
+ *
+ *   manual     — no AI listening, no suggestions
+ *   suggestion — AI listens, suggestions shown, EVERY action needs approval
+ *   armed      — autopilot primed but not firing; warns operator that
+ *                promoting to "active" WILL auto-approve the next
+ *                high-confidence scripture detection
+ *   active     — high-confidence scripture detections auto-stage (and
+ *                optionally auto-send when autoSendToLive is on)
+ */
+export type AutopilotMode = "manual" | "suggestion" | "armed" | "active";
+
+const AUTOPILOT_MODE_KEY = "faithflow.autopilot.mode";
+
+export function OperatorConsole({ plan, defaultTranslationCode, confidenceThreshold, autoApprove: autoApproveProp }: {
   plan: ExpandedPlan;
   defaultTranslationCode: string;
   confidenceThreshold: number;
   autoApprove: AutoApproveConfig;
 }) {
+  // --- Four-mode autopilot (Phase 5) ---------------------------------------
+  // On page load we ALWAYS downgrade "active" to "armed" as a safety
+  // measure — the operator must consciously re-arm live-firing every session.
+  const [autopilotMode, setAutopilotModeInner] = useState<AutopilotMode>(() => {
+    if (typeof window === "undefined") return autoApproveProp.enabled ? "armed" : "suggestion";
+    try {
+      const raw = window.localStorage.getItem(AUTOPILOT_MODE_KEY);
+      if (raw === "manual" || raw === "suggestion" || raw === "armed") return raw;
+      if (raw === "active") return "armed"; // safety downgrade on reload
+    } catch { /* noop */ }
+    return autoApproveProp.enabled ? "armed" : "suggestion";
+  });
+  const setAutopilotMode = useCallback((next: AutopilotMode) => {
+    setAutopilotModeInner((prev) => {
+      if (prev === next) return prev;
+      // Confirm transition into "active"
+      if (next === "active") {
+        const ok = typeof window !== "undefined"
+          ? window.confirm("Turn on AUTOPILOT ACTIVE?\n\nHigh-confidence scripture detections will auto-approve without operator input. Continue?")
+          : true;
+        if (!ok) return prev;
+        toast.warning("Autopilot ACTIVE — next high-confidence detection will auto-stage.", { duration: 4000 });
+      }
+      try { window.localStorage.setItem(AUTOPILOT_MODE_KEY, next); } catch { /* noop */ }
+      return next;
+    });
+  }, []);
+  // Derived AutoApproveConfig — only "active" enables the existing
+  // auto-approve pipeline. Everything else is enabled=false so approvals
+  // stay in operator hands.
+  const autoApprove = useMemo<AutoApproveConfig>(() => ({
+    enabled: autopilotMode === "active",
+    confidenceFloor: autoApproveProp.confidenceFloor,
+    autoSendToLive: autoApproveProp.autoSendToLive,
+  }), [autopilotMode, autoApproveProp.confidenceFloor, autoApproveProp.autoSendToLive]);
   const [preview, setPreview] = useState<Cursor>({ itemIdx: 0, slideIdx: 0 });
   const [live, setLive] = useState<SlidePayload>({ kind: "empty" });
   const [autoSend, setAutoSend] = useState(false);
@@ -42,6 +93,13 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
   // here. When non-null it OVERRIDES the preview cursor's slide, but never
   // reaches Live unless the operator hits the orange SEND TO LIVE button.
   const [stagedAISlide, setStagedAISlide] = useState<SlidePayload | null>(null);
+  // Phase 5 — track staged song so voice commands ("show chorus", "go to
+  // verse 2") can jump within it. Populated by approveSong; cleared when
+  // stagedAISlide is manually cleared.
+  const [stagedSong, setStagedSong] = useState<{ slides: SlidePayload[]; currentIdx: number } | null>(null);
+  // Countdown target — piggybacks OutputState.countdownEndsAt. Declared here
+  // so the OutputState effect below can reference it.
+  const [countdownEndsAt, setCountdownEndsAt] = useState<number | null>(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(true);
   // --- Cockpit UI state (Phase 1/2) ----------------------------------------
   const [railSection, setRailSection] = useState<RailSection>("service");
@@ -74,16 +132,22 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
       safeArea,
       operatorMessage: null,
       lowerThird: null,
-      countdownEndsAt: null,
+      countdownEndsAt,
     };
     safePost(chRef.current, { type: "output", state });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items]);
+  }, [live, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt]);
   const chRef = useRef<BroadcastChannel | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;
 
   const { state: audio, start: startAudio, stop: stopAudio, dismissDetection, dismissSong, dismissCommand } = useAudioStream(plan.id);
+
+  // In "manual" mode we force the audio stream off — no suggestions at all.
+  useEffect(() => {
+    if (autopilotMode === "manual" && audio.listening) stopAudio();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autopilotMode, audio.listening]);
 
   // Verse bank: per-service history of approved refs + ±5 preload window
   const { bank, currentRef: currentBankRef, addReference: bankAdd, advanceOne: bankAdvance, jumpTo: bankJumpTo, clear: bankClear, bankedToSlide } = useVerseBank(defaultTranslationCode);
@@ -201,7 +265,7 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
   // new cockpit-style safety row is fully functional today. "Clear" variants
   // that don't have data yet (lower thirds, media overlays) fire toasts so
   // the button still gives feedback.
-  const clearSlide = useCallback(() => setStagedAISlide(null), []);
+  const clearSlide = useCallback(() => { setStagedAISlide(null); setStagedSong(null); }, []);
   const clearMedia = useCallback(() => {
     setLive({ kind: "empty" });
     chRef.current?.postMessage({ type: "clear" } as LiveMessage);
@@ -303,7 +367,8 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
     processedSegments.current.add(last.id);
     const hasVerseContext = currentBankRef !== null;
     const hasSlideContext = live.kind !== "empty" || previewSlide.kind !== "empty";
-    const cmd = parseContextCommand(last.text, { hasVerseContext, hasSlideContext });
+    const hasSongContext = stagedSong !== null;
+    const cmd = parseContextCommand(last.text, { hasVerseContext, hasSlideContext, hasSongContext });
     if (!cmd) return;
     (async () => {
       // Verse commands go through the bank + auto-send config
@@ -350,6 +415,64 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
       // BLANK / CLEAR buttons themselves. Do NOT auto-send anything else.
       if (cmd.verb === "blank_screen") { goBlank(); toast.info("Screen blanked"); return; }
       if (cmd.verb === "clear_screen") { clearLive(); toast.info("Screen cleared"); return; }
+
+      // --- Phase 5 dangerous verbs — ALWAYS approval-gated regardless of mode ---
+      if (cmd.verb === "start_countdown") {
+        const seconds = Number((cmd.payload as { seconds?: number } | undefined)?.seconds) || 300;
+        toast(`Voice: start countdown ${seconds}s?`, {
+          action: { label: "Approve", onClick: () => {
+            const target = Date.now() + seconds * 1000;
+            setCountdownEndsAt(target);
+            toast.success(`Countdown started (${seconds}s)`);
+          }},
+        });
+        return;
+      }
+      if (cmd.verb === "captions_on") {
+        toast("Voice: turn captions on?", {
+          action: { label: "Approve", onClick: () => toast.info("Captions on (placeholder — full captions land later)") },
+        });
+        return;
+      }
+      if (cmd.verb === "captions_off") {
+        toast("Voice: turn captions off?", {
+          action: { label: "Approve", onClick: () => toast.info("Captions off (placeholder)") },
+        });
+        return;
+      }
+      if (cmd.verb === "show_chorus") {
+        toast("Voice: jump to chorus?", {
+          action: { label: "Approve", onClick: () => {
+            if (!stagedSong) { toast.info("No song staged"); return; }
+            const idx = stagedSong.slides.findIndex((s) => s.kind === "text" && /^\s*(chorus|refrain)\b/i.test((s as { text: string }).text));
+            if (idx < 0) { toast.info("No chorus slide found in current song"); return; }
+            setStagedAISlide(stagedSong.slides[idx]);
+            setStagedSong({ ...stagedSong, currentIdx: idx });
+            toast.success("Jumped to chorus");
+          }},
+        });
+        return;
+      }
+      if (cmd.verb === "goto_verse") {
+        const n = Number((cmd.payload as { index?: number } | undefined)?.index);
+        if (!Number.isFinite(n) || n < 1) return;
+        toast(`Voice: go to verse ${n}?`, {
+          action: { label: "Approve", onClick: () => {
+            if (!stagedSong) { toast.info("No song staged"); return; }
+            const re = new RegExp(`^\\s*verse\\s*${n}\\b`, "i");
+            let idx = stagedSong.slides.findIndex((s) => s.kind === "text" && re.test((s as { text: string }).text));
+            if (idx < 0) {
+              // Fall back: assume slide index N-1 within the song
+              if (n - 1 < stagedSong.slides.length) idx = n - 1;
+            }
+            if (idx < 0) { toast.info(`Verse ${n} not found`); return; }
+            setStagedAISlide(stagedSong.slides[idx]);
+            setStagedSong({ ...stagedSong, currentIdx: idx });
+            toast.success(`Jumped to verse ${n}`);
+          }},
+        });
+        return;
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audio.transcript.length]);
@@ -364,6 +487,7 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
       if (slides.length === 0) throw new Error("Song has no slides");
       // ⚠️ SAFETY: stage first slide to Preview. Never call send().
       setStagedAISlide(slides[0]);
+      setStagedSong({ slides, currentIdx: 0 });
       dismissSong(s.suggestionId);
       await updateAiSuggestionStatus(s.suggestionId, "approved", { actionTaken: "manual_approved" }); bumpHistory();
       toast.success(`"${s.title}" staged to Preview`);
@@ -489,6 +613,7 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
             <input type="checkbox" checked={autoSend} onChange={(e) => setAutoSend(e.target.checked)} />
             Auto-send on next
           </label>
+          <AutopilotModePicker mode={autopilotMode} onChange={setAutopilotMode} />
           <ListeningToggle listening={audio.listening} onToggle={() => audio.listening ? stopAudio() : startAudio()} />
           <button onClick={openProjector}
             className="inline-flex items-center gap-1.5 h-8 px-3 border border-border rounded-md text-xs font-semibold hover:bg-accent">
@@ -501,6 +626,24 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
           </button>
         </div>
       </div>
+
+      {/* Autopilot banner (Phase 5) — visible when armed or active. Sits
+         directly above the workspace so it visually caps the Preview column. */}
+      {(autopilotMode === "armed" || autopilotMode === "active") && (
+        <div
+          className={cn(
+            "px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 border-b",
+            autopilotMode === "active"
+              ? "bg-destructive/10 text-destructive border-destructive/40 animate-pulse"
+              : "bg-warning/10 text-warning border-warning/40"
+          )}
+        >
+          <Zap className="w-3 h-3" />
+          {autopilotMode === "active"
+            ? "Autopilot Active — auto-staging high-confidence scripture"
+            : "Autopilot Armed — next high-confidence detection will auto-stage when moved to Active"}
+        </div>
+      )}
 
       {/* Main cockpit: 3 columns × 2 rows.
          Row 1: Rail | Workspace | OutputStack + AI panel
@@ -590,6 +733,40 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
         onStageMessage={stageMessage}
         autopilotOn={autoApprove.enabled}
       />
+    </div>
+  );
+}
+
+function AutopilotModePicker({ mode, onChange }: { mode: AutopilotMode; onChange: (m: AutopilotMode) => void }) {
+  const items: { key: AutopilotMode; label: string; title: string }[] = [
+    { key: "manual",     label: "Manual",     title: "No AI listening, no suggestions" },
+    { key: "suggestion", label: "Suggestion", title: "AI listens; every action requires operator approval" },
+    { key: "armed",      label: "Armed",      title: "Autopilot primed but not firing — approval still required" },
+    { key: "active",     label: "Active",     title: "High-confidence scripture detections auto-approve" },
+  ];
+  return (
+    <div className="inline-flex items-center rounded-md border border-border overflow-hidden text-[10px] font-bold uppercase tracking-wider h-8">
+      {items.map((it) => {
+        const on = it.key === mode;
+        const danger = it.key === "active";
+        const warn = it.key === "armed";
+        return (
+          <button
+            key={it.key}
+            title={it.title}
+            onClick={() => onChange(it.key)}
+            className={cn(
+              "px-2.5 h-full border-r border-border last:border-r-0 transition-colors",
+              on && danger && "bg-destructive text-destructive-foreground",
+              on && warn && "bg-warning/20 text-warning",
+              on && !danger && !warn && "bg-foreground text-background",
+              !on && "text-muted-foreground hover:bg-accent",
+            )}
+          >
+            {it.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
