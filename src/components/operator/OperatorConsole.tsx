@@ -19,6 +19,9 @@ import { parseContextCommand } from "@/lib/context-parser";
 import { Bookmark, Zap } from "lucide-react";
 import { ProductionRail, type RailSection } from "./ProductionRail";
 import { WorkspaceTabs, type WorkspaceMode } from "./WorkspaceTabs";
+import { TimersShell, LowerThirdsShell, StageDisplayShell, LivestreamShell, ImportsShell, ArchiveShell, SettingsShell, SHELL_SECTIONS, railSectionToWorkspaceMode } from "./RailWorkspaceShells";
+import { ImportSongModal } from "./ImportSongModal";
+import type { InternetMetadataCard } from "./AIAssistantPanel";
 import { OutputStack } from "./OutputStack";
 import { BottomTray } from "./BottomTray";
 import { EndServiceButton } from "./EndServiceButton";
@@ -104,8 +107,16 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
   const [countdownEndsAt, setCountdownEndsAt] = useState<number | null>(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(true);
   // --- Cockpit UI state (Phase 1/2) ----------------------------------------
-  const [railSection, setRailSection] = useState<RailSection>("service");
+  const [railSection, setRailSectionInner] = useState<RailSection>("service");
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("flow");
+  const [internetMatches, setInternetMatches] = useState<InternetMetadataCard[]>([]);
+  const [importModal, setImportModal] = useState<{ title: string; artist?: string } | null>(null);
+  const setRailSection = useCallback((s: RailSection) => {
+    setRailSectionInner(s);
+    const mapped = railSectionToWorkspaceMode(s);
+    if (mapped) setWorkspaceMode(mapped);
+  }, []);
+  const internetLookupFiredRef = useRef<Set<string>>(new Set());
   const [aspectRatio, setAspectRatio] = useState<"16:9" | "4:3" | "custom">("16:9");
   const [fitMode, setFitMode] = useState<"contain" | "fill" | "crop">("contain");
   const [safeArea, setSafeArea] = useState(false);
@@ -651,6 +662,83 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
     }
   }, [audio.suggestions, autoApprove.enabled]);
 
+  // --- Internet metadata lookup (title/artist ONLY, NEVER lyrics) --------
+  // When a song cue is detected but local library has no strong match, we
+  // fire /api/ai/lookup-song-metadata to identify the song by title/artist.
+  // The card that renders has NO Preview / NO Send Live buttons — only
+  // Search Library / Import Song / Create Song Draft / Reject.
+  useEffect(() => {
+    // Use the raw song cue detector on the most recent transcript segment.
+    const lastFinal = [...audio.transcript].reverse().find((t) => t.final);
+    if (!lastFinal) return;
+    if (internetLookupFiredRef.current.has(lastFinal.id)) return;
+    // Check: was there a local song/lyric match ≥ 60% for this segment?
+    const strongLocal = audio.suggestions.some((s) =>
+      (s.type === "song" || s.type === "lyric") && s.segmentId === lastFinal.id && s.confidence >= 60,
+    );
+    if (strongLocal) return;
+    // Detect cue on this segment
+    import("@/lib/ai-detection/song-cue").then(async ({ detectSongCues }) => {
+      const cues = detectSongCues(lastFinal.text);
+      if (cues.length === 0) return;
+      const candidate = cues[0].candidateTitle?.trim();
+      if (!candidate || candidate.length < 3) return;
+      internetLookupFiredRef.current.add(lastFinal.id);
+      try {
+        const res = await fetch("/api/ai/lookup-song-metadata", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: candidate }),
+        });
+        if (!res.ok) return;
+        const body = await res.json();
+        if (!body.match) return;
+        const m = body.match as { title: string; artist: string; source: "musicbrainz" | "degraded_stub"; externalId?: string; confidence: number; url?: string; degraded?: boolean };
+        const card: InternetMetadataCard = {
+          id: `im-${lastFinal.id}`,
+          title: m.title,
+          artist: m.artist,
+          source: m.source,
+          externalId: m.externalId,
+          confidence: m.confidence,
+          url: m.url,
+          degraded: m.degraded,
+          matchedText: lastFinal.text.slice(0, 120),
+        };
+        setInternetMatches((prev) => {
+          if (prev.some((p) => p.title.toLowerCase() === card.title.toLowerCase())) return prev;
+          return [card, ...prev].slice(0, 5);
+        });
+      } catch { /* non-fatal */ }
+    }).catch(() => { /* non-fatal */ });
+  }, [audio.transcript, audio.suggestions]);
+
+  const internetSearchLibrary = useCallback((m: InternetMetadataCard) => {
+    setInternetMatches((prev) => prev.filter((p) => p.id !== m.id));
+    window.open(`/library/songs?q=${encodeURIComponent(m.title)}`, "_blank");
+  }, []);
+  const internetImport = useCallback((m: InternetMetadataCard) => {
+    setImportModal({ title: m.title, artist: m.artist });
+    setInternetMatches((prev) => prev.filter((p) => p.id !== m.id));
+  }, []);
+  const internetCreateDraft = useCallback(async (m: InternetMetadataCard) => {
+    setInternetMatches((prev) => prev.filter((p) => p.id !== m.id));
+    try {
+      const fd = new FormData();
+      fd.set("title", m.title);
+      if (m.artist) fd.set("artist", m.artist);
+      const { createSong } = await import("@/lib/actions");
+      const res = await createSong(fd);
+      if (res.ok) toast.success(`Draft created for "${m.title}"`);
+      else toast.error(res.error || "Draft creation failed");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Draft creation failed");
+    }
+  }, []);
+  const internetReject = useCallback((m: InternetMetadataCard) => {
+    setInternetMatches((prev) => prev.filter((p) => p.id !== m.id));
+  }, []);
+
   // --- Edit action: opens modal for song / command suggestions -----------
   const editSong = useCallback((s: SongSuggestion) => {
     setEditing({ suggestionId: s.suggestionId, type: "song", payload: { title: s.title } });
@@ -759,6 +847,37 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
           onJump={(i) => jumpTo(i, 0)}
         />
 
+        {SHELL_SECTIONS.includes(railSection) ? (
+          <div className="flex-1 min-w-0 min-h-0 flex flex-col" style={{ background: "var(--color-app-bg)" }}>
+            {railSection === "timers" && (
+              <TimersShell onStartCountdown={(sec) => {
+                const target = Date.now() + sec * 1000;
+                setCountdownEndsAt(target);
+                toast.success(`Countdown started (${sec}s)`);
+              }} />
+            )}
+            {railSection === "lower_thirds" && (
+              <LowerThirdsShell onSend={(l1, l2) => {
+                const state: OutputState = {
+                  live, next: nextSlideForStage,
+                  itemTitle: plan.items[preview.itemIdx]?.title || "",
+                  slideNumber: `${preview.slideIdx + 1} / ${plan.items[preview.itemIdx]?.slides.length || 0}`,
+                  aspectRatio, fitMode, safeArea,
+                  operatorMessage: null,
+                  lowerThird: { line1: l1, line2: l2 },
+                  countdownEndsAt,
+                };
+                safePost(chRef.current, { type: "output", state });
+                toast.success("Lower third sent");
+              }} />
+            )}
+            {railSection === "stage" && <StageDisplayShell onOpen={openStageDisplay} />}
+            {railSection === "livestream" && <LivestreamShell onOpen={openLivestream} />}
+            {railSection === "imports" && <ImportsShell />}
+            {railSection === "archive" && <ArchiveShell churchArchiveHref="/archive" />}
+            {railSection === "settings" && <SettingsShell />}
+          </div>
+        ) : (
         <WorkspaceTabs
           mode={workspaceMode}
           onModeChange={setWorkspaceMode}
@@ -774,6 +893,7 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
           transcriptText={audio.transcript.slice(-8).map((t) => t.text).join(" ") + " " + audio.interim}
           autopilotActive={autopilotMode === "active"}
         />
+        )}
 
         <OutputStack
           previewSlide={previewSlide}
@@ -817,12 +937,23 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
             onQueueUnified={queueUnified}
             onRejectUnified={rejectUnified}
             onImportSong={importSong}
+            internetMatches={internetMatches}
+            onInternetSearchLibrary={internetSearchLibrary}
+            onInternetImport={internetImport}
+            onInternetCreateDraft={internetCreateDraft}
+            onInternetReject={internetReject}
           />
         )}
       </div>
       <div className="shrink-0 border-t" style={{ borderColor: "var(--color-border)" }}>
         <SuggestionHistory planId={plan.id} refreshKey={historyKey} />
       </div>
+      <ImportSongModal
+        open={importModal !== null}
+        initialTitle={importModal?.title || ""}
+        initialArtist={importModal?.artist || ""}
+        onClose={() => setImportModal(null)}
+      />
       <EditSuggestionModal
         open={editing !== null}
         suggestion={editing}

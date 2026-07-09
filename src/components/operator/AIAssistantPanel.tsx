@@ -1,9 +1,21 @@
 "use client";
-import { Mic, MicOff, Check, X, Sparkles, AlertCircle, Music, Terminal, Activity, Bookmark, Zap, Pencil, BookOpen, Radio, Plus, Eye } from "lucide-react";
+import { Mic, MicOff, Check, X, Sparkles, AlertCircle, Music, Terminal, Activity, Bookmark, Zap, Pencil, BookOpen, Radio, Plus, Eye, Globe, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AudioStreamState, Detection, SongSuggestion, CommandSuggestion, PipelineStage, UnifiedSuggestion } from "./useAudioStream";
 import type { BankedVerse } from "./useVerseBank";
 import { SimulatePhraseInput } from "./SimulatePhraseInput";
+
+export type InternetMetadataCard = {
+  id: string;
+  title: string;
+  artist: string;
+  source: "musicbrainz" | "degraded_stub";
+  externalId?: string;
+  confidence: number;
+  url?: string;
+  degraded?: boolean;
+  matchedText: string;
+};
 
 const STAGE_ORDER: PipelineStage[] = [
   "requesting_ticket", "ticket_ok", "opening_ws", "ws_open",
@@ -70,6 +82,11 @@ export function AIAssistantPanel({
   onQueueUnified,
   onRejectUnified,
   onImportSong,
+  internetMatches = [],
+  onInternetSearchLibrary,
+  onInternetImport,
+  onInternetCreateDraft,
+  onInternetReject,
 }: {
   audio: AudioStreamState;
   onApprove: (d: Detection) => Promise<void> | void;
@@ -93,6 +110,11 @@ export function AIAssistantPanel({
   onQueueUnified?: (s: UnifiedSuggestion) => void;
   onRejectUnified?: (s: UnifiedSuggestion) => void;
   onImportSong?: (title: string) => void;
+  internetMatches?: InternetMetadataCard[];
+  onInternetSearchLibrary?: (m: InternetMetadataCard) => void;
+  onInternetImport?: (m: InternetMetadataCard) => void;
+  onInternetCreateDraft?: (m: InternetMetadataCard) => void;
+  onInternetReject?: (m: InternetMetadataCard) => void;
 }) {
   return (
     <div className="w-80 shrink-0 border-l border-border bg-background flex flex-col h-full">
@@ -238,6 +260,58 @@ export function AIAssistantPanel({
                   onImportSong={onImportSong}
                 />
               ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Internet metadata (song identified online, no lyrics available locally) */}
+      {internetMatches.length > 0 && (
+        <div className="px-4 py-3 border-b border-border max-h-[30%] overflow-y-auto">
+          <div className="eyebrow text-muted-foreground mb-2 flex items-center gap-1.5">
+            <Globe className="w-3 h-3" /> Internet metadata
+          </div>
+          <ul className="space-y-2">
+            {internetMatches.map((m) => (
+              <li key={m.id} className="border rounded-md p-2 text-xs bg-card border-border">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-semibold text-sm">{m.title}</span>
+                  <span className="font-mono text-[10px] text-muted-foreground">{m.confidence}%</span>
+                </div>
+                <div className="text-[11px] text-muted-foreground mb-1">by {m.artist}</div>
+                <div className="text-[11px] text-muted-foreground italic mb-2 line-clamp-1">"{m.matchedText}"</div>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <span className="inline-flex items-center gap-1 text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm border border-border bg-muted/30 text-muted-foreground">
+                    <Globe className="w-2.5 h-2.5" /> Internet metadata
+                  </span>
+                  {m.degraded && (
+                    <span className="inline-flex items-center gap-1 text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm border border-warning/40 bg-warning/10 text-warning">
+                      Lookup unavailable
+                    </span>
+                  )}
+                </div>
+                <p className="text-[10px] text-warning italic mb-2">
+                  Song identified online — lyrics not available in your local or licensed library
+                </p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button onClick={() => onInternetSearchLibrary?.(m)}
+                    className="h-8 rounded-md border border-border text-[10px] font-semibold uppercase tracking-wider hover:bg-accent flex items-center justify-center gap-1">
+                    <Search className="w-2.5 h-2.5" /> Search Library
+                  </button>
+                  <button onClick={() => onInternetImport?.(m)}
+                    className="h-8 rounded-md border-2 border-success text-success bg-success/5 hover:bg-success/10 text-[10px] font-semibold uppercase tracking-wider flex items-center justify-center gap-1">
+                    <Plus className="w-2.5 h-2.5" /> Import Song
+                  </button>
+                  <button onClick={() => onInternetCreateDraft?.(m)}
+                    className="h-8 rounded-md border border-border text-[10px] font-semibold uppercase tracking-wider hover:bg-accent flex items-center justify-center gap-1">
+                    <Pencil className="w-2.5 h-2.5" /> Create Draft
+                  </button>
+                  <button onClick={() => onInternetReject?.(m)}
+                    className="h-8 rounded-md border border-border text-muted-foreground hover:bg-accent text-[10px] font-semibold uppercase tracking-wider flex items-center justify-center gap-1">
+                    <X className="w-2.5 h-2.5" /> Reject
+                  </button>
+                </div>
+              </li>
+            ))}
           </ul>
         </div>
       )}
