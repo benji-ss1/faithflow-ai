@@ -2,7 +2,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { openLiveChannel, type SlidePayload, type LiveMessage } from "@/lib/broadcast";
+import { openLiveChannel, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec } from "@/lib/broadcast";
+import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
+import { TransitionWrapper } from "@/components/live/TransitionWrapper";
 
 if (typeof window !== "undefined" && !(window as unknown as { __ffLivestreamGuarded?: boolean }).__ffLivestreamGuarded) {
   (window as unknown as { __ffLivestreamGuarded: boolean }).__ffLivestreamGuarded = true;
@@ -29,6 +31,9 @@ if (typeof window !== "undefined" && !(window as unknown as { __ffLivestreamGuar
 export default function LivestreamPage() {
   const [slide, setSlide] = useState<SlidePayload>({ kind: "empty" });
   const [lowerThird, setLowerThird] = useState<{ line1: string; line2: string } | null>(null);
+  const [announcement, setAnnouncement] = useState<AnnouncementPayload | null>(null);
+  const [transition, setTransition] = useState<TransitionSpec | null>(null);
+  const [transitionsEnabled, setTransitionsEnabled] = useState(false);
   const [connected, setConnected] = useState(false);
   const [showHelp, setShowHelp] = useState(true);
   const lastMsgAt = useRef<number>(Date.now());
@@ -40,6 +45,7 @@ export default function LivestreamPage() {
     const p = new URLSearchParams(window.location.search);
     setTransparent(p.get("bg") === "transparent");
     if (p.get("mode") === "lower_third") setMode("lower_third");
+    if (p.get("transitions") === "1") setTransitionsEnabled(true);
   }, []);
 
   useEffect(() => {
@@ -67,6 +73,8 @@ export default function LivestreamPage() {
         else if (msg.type === "output") {
           setSlide(msg.state.live);
           setLowerThird(msg.state.lowerThird);
+          setAnnouncement(msg.state.announcement ?? null);
+          setTransition(msg.state.transition ?? null);
         }
       } catch (err) {
         console.warn("[livestream] message handler error:", err instanceof Error ? err.message : String(err));
@@ -120,7 +128,14 @@ export default function LivestreamPage() {
     >
       {mode === "full" && (
         <>
-          <SlideRenderer slide={slide} />
+          {transitionsEnabled ? (
+            <TransitionWrapper identityKey={liveIdentity(slide)} transition={transition}>
+              <SlideRenderer slide={slide} />
+            </TransitionWrapper>
+          ) : (
+            <SlideRenderer slide={slide} />
+          )}
+          <AnnouncementLayer ann={announcement} />
           {lowerThird && (
             <div className="absolute bottom-16 left-16 right-16 max-w-[70%]">
               <div className="bg-black/70 backdrop-blur-sm border-l-4 border-[color:var(--color-brand)] p-5">
@@ -157,4 +172,13 @@ export default function LivestreamPage() {
       )}
     </div>
   );
+}
+
+function liveIdentity(s: SlidePayload): string {
+  if (s.kind === "text") return `t:${s.text}`;
+  if (s.kind === "image") return `i:${s.url}`;
+  if (s.kind === "video") return `v:${s.url}`;
+  if (s.kind === "blank") return `b:${s.bgColor ?? ""}`;
+  if (s.kind === "logo") return `l:${s.url ?? ""}`;
+  return "e";
 }

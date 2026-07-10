@@ -2,7 +2,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { openLiveChannel, type SlidePayload, type LiveMessage } from "@/lib/broadcast";
+import { openLiveChannel, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec } from "@/lib/broadcast";
+import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
+import { TransitionWrapper } from "@/components/live/TransitionWrapper";
 
 if (typeof window !== "undefined" && !(window as unknown as { __ffStageGuarded?: boolean }).__ffStageGuarded) {
   (window as unknown as { __ffStageGuarded: boolean }).__ffStageGuarded = true;
@@ -32,6 +34,8 @@ export default function StagePage() {
   const [next, setNext] = useState<SlidePayload | null>(null);
   const [operatorMessage, setOperatorMessage] = useState<string | null>(null);
   const [countdownEndsAt, setCountdownEndsAt] = useState<number | null>(null);
+  const [announcement, setAnnouncement] = useState<AnnouncementPayload | null>(null);
+  const [transition, setTransition] = useState<TransitionSpec | null>(null);
   const [connected, setConnected] = useState(false);
   // null on server + first client render to avoid hydration mismatch on the clock.
   const [now, setNow] = useState<Date | null>(null);
@@ -69,6 +73,8 @@ export default function StagePage() {
           setNext(msg.state.next);
           setOperatorMessage(msg.state.operatorMessage);
           setCountdownEndsAt(msg.state.countdownEndsAt);
+          setAnnouncement(msg.state.announcement ?? null);
+          setTransition(msg.state.transition ?? null);
         }
       } catch (err) {
         console.warn("[stage] message handler error:", err instanceof Error ? err.message : String(err));
@@ -153,7 +159,10 @@ export default function StagePage() {
       <div className="flex-1 grid grid-cols-2 min-h-0">
         <div className="border-r border-white/10 relative">
           <div className="absolute top-3 left-4 text-[10px] font-mono uppercase tracking-widest text-white/60 z-10">Current</div>
-          <SlideRenderer slide={current} />
+          <TransitionWrapper identityKey={stageIdentity(current)} transition={transition}>
+            <SlideRenderer slide={current} />
+          </TransitionWrapper>
+          <AnnouncementLayer ann={announcement} />
         </div>
         <div className="relative">
           <div className="absolute top-3 left-4 text-[10px] font-mono uppercase tracking-widest text-white/40 z-10">Next</div>
@@ -196,6 +205,15 @@ export default function StagePage() {
       )}
     </div>
   );
+}
+
+function stageIdentity(s: SlidePayload): string {
+  if (s.kind === "text") return `t:${s.text}`;
+  if (s.kind === "image") return `i:${s.url}`;
+  if (s.kind === "video") return `v:${s.url}`;
+  if (s.kind === "blank") return `b:${s.bgColor ?? ""}`;
+  if (s.kind === "logo") return `l:${s.url ?? ""}`;
+  return "e";
 }
 
 function formatCountdown(ms: number): string {

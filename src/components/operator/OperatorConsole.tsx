@@ -128,6 +128,9 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
   const [aspectRatio, setAspectRatio] = useState<"16:9" | "4:3" | "custom">("16:9");
   const [fitMode, setFitMode] = useState<"contain" | "fill" | "crop">("contain");
   const [safeArea, setSafeArea] = useState(false);
+  // Phase 5D-2: projector-level layers
+  const [announcement, setAnnouncement] = useState<import("@/lib/broadcast").AnnouncementPayload | null>(null);
+  const [transitionSpec, setTransitionSpec] = useState<import("@/lib/broadcast").TransitionSpec | null>(null);
 
   // Compute next-slide payload for /stage
   const nextSlideForStage: SlidePayload | null = (() => {
@@ -154,10 +157,12 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
       operatorMessage: null,
       lowerThird: null,
       countdownEndsAt,
+      announcement,
+      transition: transitionSpec,
     };
     safePost(chRef.current, { type: "output", state });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt]);
+  }, [live, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec]);
   const chRef = useRef<BroadcastChannel | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;
@@ -851,6 +856,12 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
     onInternetReject: internetReject,
     onSimulate: simulateTranscript,
     historyKey,
+    // Phase 5D-2
+    announcement,
+    onSetAnnouncement: setAnnouncement,
+    transitionSpec,
+    onSetTransitionSpec: setTransitionSpec,
+    churchId: (plan as unknown as { churchId?: string }).churchId ?? "",
   };
 
   return (

@@ -2,7 +2,7 @@
 import { revalidatePath } from "next/cache";
 import { eq, and, asc, sql } from "drizzle-orm";
 import { getDb } from "./db/client";
-import { servicePlans, serviceItems, songs, songSlides, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments } from "./db/schema";
+import { servicePlans, serviceItems, songs, songSlides, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes } from "./db/schema";
 import { requireUser } from "./session";
 import { deleteObject } from "./s3";
 
@@ -630,4 +630,245 @@ export async function scaffoldSermonArchive(planId: string): Promise<Result<{ id
   }).returning({ id: sermonSummaries.id });
   revalidatePath("/archive");
   return { ok: true, data: { id: row.id } };
+}
+
+// ============================================================================
+// Phase 5D-2 — Announcements
+// ============================================================================
+
+type AnnouncementInput = {
+  name: string;
+  line1: string;
+  line2?: string | null;
+  position?: "lower_third" | "top_banner" | "ticker" | "center_card";
+  fontFamily?: string;
+  fontSizePx?: number;
+  fontWeight?: number;
+  textColor?: string;
+  bgColor?: string;
+  bgOpacity?: number;
+  padding?: number;
+  borderRadius?: number;
+  align?: "left" | "center" | "right";
+};
+
+export async function createAnnouncement(input: AnnouncementInput): Promise<Result<{ id: string }>> {
+  const user = await requireUser();
+  if (!input.name?.trim() || !input.line1?.trim()) return { ok: false, error: "Name and line1 required" };
+  const db = getDb();
+  const [row] = await db.insert(announcements).values({
+    churchId: user.churchId,
+    name: input.name.trim(),
+    line1: input.line1,
+    line2: input.line2 ?? null,
+    position: input.position ?? "lower_third",
+    fontFamily: input.fontFamily ?? "Inter",
+    fontSizePx: input.fontSizePx ?? 32,
+    fontWeight: input.fontWeight ?? 600,
+    textColor: input.textColor ?? "#ffffff",
+    bgColor: input.bgColor ?? "#000000",
+    bgOpacity: input.bgOpacity ?? 70,
+    padding: input.padding ?? 20,
+    borderRadius: input.borderRadius ?? 8,
+    align: input.align ?? "left",
+  }).returning({ id: announcements.id });
+  return { ok: true, data: { id: row.id } };
+}
+
+export async function updateAnnouncement(id: string, patch: Partial<AnnouncementInput>): Promise<Result> {
+  const user = await requireUser();
+  const db = getDb();
+  const updates: Record<string, unknown> = { updatedAt: new Date() };
+  for (const k of Object.keys(patch) as (keyof AnnouncementInput)[]) {
+    if (patch[k] !== undefined) updates[k] = patch[k];
+  }
+  await db.update(announcements).set(updates)
+    .where(and(eq(announcements.id, id), eq(announcements.churchId, user.churchId)));
+  return { ok: true };
+}
+
+export async function deleteAnnouncement(id: string): Promise<Result> {
+  const user = await requireUser();
+  const db = getDb();
+  await db.delete(announcements)
+    .where(and(eq(announcements.id, id), eq(announcements.churchId, user.churchId)));
+  return { ok: true };
+}
+
+export async function saveAnnouncementPreset(name: string, config: Record<string, unknown>): Promise<Result<{ id: string }>> {
+  const user = await requireUser();
+  if (!name?.trim()) return { ok: false, error: "Preset name required" };
+  const db = getDb();
+  const [row] = await db.insert(announcementPresets).values({
+    churchId: user.churchId,
+    name: name.trim(),
+    config,
+  }).returning({ id: announcementPresets.id });
+  return { ok: true, data: { id: row.id } };
+}
+
+export async function deleteAnnouncementPreset(id: string): Promise<Result> {
+  const user = await requireUser();
+  const db = getDb();
+  await db.delete(announcementPresets)
+    .where(and(eq(announcementPresets.id, id), eq(announcementPresets.churchId, user.churchId)));
+  return { ok: true };
+}
+
+// ============================================================================
+// Phase 5D-2 — Themes
+// ============================================================================
+
+type ThemeConfig = {
+  bgColor?: string;
+  bgImageUrl?: string;
+  fontFamily?: string;
+  fontSizePx?: number;
+  fontWeight?: number;
+  textColor?: string;
+  align?: "left" | "center" | "right";
+  safeArea?: boolean;
+  transition?: { effectId: string; durationMs: number; easing: string };
+};
+
+const THEME_ALLOWED_KEYS: (keyof ThemeConfig)[] = [
+  "bgColor", "bgImageUrl", "fontFamily", "fontSizePx", "fontWeight",
+  "textColor", "align", "safeArea", "transition",
+];
+
+function sanitizeThemeConfig(input: unknown): { config: ThemeConfig; rejected: string[] } {
+  const rejected: string[] = [];
+  const out: ThemeConfig = {};
+  if (!input || typeof input !== "object") return { config: out, rejected };
+  const obj = input as Record<string, unknown>;
+  for (const k of Object.keys(obj)) {
+    if ((THEME_ALLOWED_KEYS as string[]).includes(k)) {
+      (out as Record<string, unknown>)[k] = obj[k];
+    } else {
+      rejected.push(k);
+    }
+  }
+  return { config: out, rejected };
+}
+
+export async function createTheme(name: string, config: ThemeConfig): Promise<Result<{ id: string }>> {
+  const user = await requireUser();
+  if (!name?.trim()) return { ok: false, error: "Theme name required" };
+  const db = getDb();
+  const { config: clean } = sanitizeThemeConfig(config);
+  const [row] = await db.insert(themes).values({
+    churchId: user.churchId, name: name.trim(), config: clean,
+  }).returning({ id: themes.id });
+  return { ok: true, data: { id: row.id } };
+}
+
+export async function updateTheme(id: string, patch: { name?: string; config?: ThemeConfig }): Promise<Result> {
+  const user = await requireUser();
+  const db = getDb();
+  const updates: Record<string, unknown> = { updatedAt: new Date() };
+  if (patch.name !== undefined) updates.name = patch.name;
+  if (patch.config !== undefined) updates.config = sanitizeThemeConfig(patch.config).config;
+  await db.update(themes).set(updates)
+    .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId)));
+  return { ok: true };
+}
+
+export async function duplicateTheme(id: string): Promise<Result<{ id: string }>> {
+  const user = await requireUser();
+  const db = getDb();
+  const [existing] = await db.select().from(themes)
+    .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId))).limit(1);
+  if (!existing) return { ok: false, error: "Theme not found" };
+  const [row] = await db.insert(themes).values({
+    churchId: user.churchId,
+    name: `${existing.name} copy`,
+    config: existing.config as Record<string, unknown>,
+  }).returning({ id: themes.id });
+  return { ok: true, data: { id: row.id } };
+}
+
+export async function deleteTheme(id: string): Promise<Result> {
+  const user = await requireUser();
+  const db = getDb();
+  await db.delete(themes)
+    .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId)));
+  return { ok: true };
+}
+
+export async function exportTheme(id: string): Promise<Result<{ name: string; config: ThemeConfig }>> {
+  const user = await requireUser();
+  const db = getDb();
+  const [row] = await db.select().from(themes)
+    .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId))).limit(1);
+  if (!row) return { ok: false, error: "Theme not found" };
+  return { ok: true, data: { name: row.name, config: (row.config as ThemeConfig) ?? {} } };
+}
+
+export async function importTheme(json: unknown): Promise<Result<{ id: string; rejectedFields: string[] }>> {
+  const user = await requireUser();
+  if (!json || typeof json !== "object") return { ok: false, error: "Invalid theme JSON" };
+  const obj = json as { name?: unknown; config?: unknown };
+  const name = typeof obj.name === "string" && obj.name.trim() ? obj.name.trim() : "Imported theme";
+  const { config, rejected } = sanitizeThemeConfig(obj.config);
+  if (rejected.length > 0) console.warn("[importTheme] rejected fields:", rejected);
+  const db = getDb();
+  const [row] = await db.insert(themes).values({
+    churchId: user.churchId, name, config,
+  }).returning({ id: themes.id });
+  return { ok: true, data: { id: row.id, rejectedFields: rejected } };
+}
+
+export async function applyThemeToSong(themeId: string, songId: string): Promise<Result<{ slidesUpdated: number }>> {
+  const user = await requireUser();
+  const db = getDb();
+  const [theme] = await db.select().from(themes)
+    .where(and(eq(themes.id, themeId), eq(themes.churchId, user.churchId))).limit(1);
+  if (!theme) return { ok: false, error: "Theme not found" };
+  const [song] = await db.select().from(songs)
+    .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId))).limit(1);
+  if (!song) return { ok: false, error: "Song not found" };
+  const cfg = (theme.config as ThemeConfig) ?? {};
+  const slides = await db.select().from(songSlides).where(eq(songSlides.songId, songId));
+  let updated = 0;
+  for (const s of slides) {
+    const raw = (s.objectsJson as Record<string, unknown> | null) ?? {};
+    const objects = Array.isArray(raw.objects) ? (raw.objects as Record<string, unknown>[]) : [];
+    // Merge theme into slide bg + text-object defaults (do not overwrite explicit values already set)
+    const merged: Record<string, unknown> = {
+      ...raw,
+      bgColor: raw.bgColor ?? cfg.bgColor,
+      bgImageUrl: raw.bgImageUrl ?? cfg.bgImageUrl,
+      transition: raw.transition ?? cfg.transition,
+      objects: objects.map((o) => {
+        if (o?.kind !== "text") return o;
+        return {
+          ...o,
+          fontFamily: o.fontFamily ?? cfg.fontFamily,
+          fontSize: o.fontSize ?? cfg.fontSizePx,
+          fontWeight: o.fontWeight ?? cfg.fontWeight,
+          color: o.color ?? cfg.textColor,
+          align: o.align ?? cfg.align,
+        };
+      }),
+    };
+    await db.update(songSlides).set({ objectsJson: merged }).where(eq(songSlides.id, s.id));
+    updated += 1;
+  }
+  // Track applied theme id on the song
+  const prevSettings = (song.settings as Record<string, unknown>) ?? {};
+  await db.update(songs).set({
+    settings: { ...prevSettings, appliedThemeId: themeId },
+  }).where(eq(songs.id, songId));
+  return { ok: true, data: { slidesUpdated: updated } };
+}
+
+export async function updateSongSettings(songId: string, patch: Record<string, unknown>): Promise<Result> {
+  const user = await requireUser();
+  const db = getDb();
+  const [song] = await db.select().from(songs)
+    .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId))).limit(1);
+  if (!song) return { ok: false, error: "Song not found" };
+  const prev = (song.settings as Record<string, unknown>) ?? {};
+  await db.update(songs).set({ settings: { ...prev, ...patch } }).where(eq(songs.id, songId));
+  return { ok: true };
 }

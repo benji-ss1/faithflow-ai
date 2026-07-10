@@ -2,7 +2,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { openLiveChannel, safePost, type SlidePayload, type LiveMessage } from "@/lib/broadcast";
+import { openLiveChannel, safePost, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec } from "@/lib/broadcast";
+import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
+import { TransitionWrapper } from "@/components/live/TransitionWrapper";
 
 // Module-scope, capture-phase suppressor. Runs before React/Next dev-overlay
 // listeners so a stray DOM Event rejection (autoplay block, fullscreen deny,
@@ -38,6 +40,8 @@ if (typeof window !== "undefined" && !(window as unknown as { __ffLiveGuarded?: 
  */
 export default function LivePage() {
   const [slide, setSlide] = useState<SlidePayload>({ kind: "empty" });
+  const [announcement, setAnnouncement] = useState<AnnouncementPayload | null>(null);
+  const [transition, setTransition] = useState<TransitionSpec | null>(null);
   const [connected, setConnected] = useState(false);
   const [showHelp, setShowHelp] = useState(true);
   const [warning, setWarning] = useState<string | null>(null);
@@ -74,6 +78,11 @@ export default function LivePage() {
         if (msg.type === "set") setSlide(msg.slide);
         else if (msg.type === "clear") setSlide({ kind: "empty" });
         else if (msg.type === "pong") setSlide(msg.slide);
+        else if (msg.type === "output") {
+          setSlide(msg.state.live);
+          setAnnouncement(msg.state.announcement ?? null);
+          setTransition(msg.state.transition ?? null);
+        }
       } catch (err) {
         console.warn("[live] message handler error:", err instanceof Error ? err.message : String(err));
       }
@@ -148,7 +157,10 @@ export default function LivePage() {
       style={{ margin: 0, padding: 0 }}
       onDoubleClick={goFullscreen}
     >
-      <SlideRenderer slide={slide} />
+      <TransitionWrapper identityKey={slideIdentity(slide)} transition={transition}>
+        <SlideRenderer slide={slide} />
+      </TransitionWrapper>
+      <AnnouncementLayer ann={announcement} />
 
       {showHelp && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/80 text-white text-xs px-3 py-2 rounded-md flex items-center gap-3 cursor-pointer pointer-events-auto"
@@ -175,4 +187,13 @@ export default function LivePage() {
       )}
     </div>
   );
+}
+
+function slideIdentity(s: SlidePayload): string {
+  if (s.kind === "text") return `t:${s.text}`;
+  if (s.kind === "image") return `i:${s.url}`;
+  if (s.kind === "video") return `v:${s.url}`;
+  if (s.kind === "blank") return `b:${s.bgColor ?? ""}`;
+  if (s.kind === "logo") return `l:${s.url ?? ""}`;
+  return "e";
 }

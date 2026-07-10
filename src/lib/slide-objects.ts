@@ -43,11 +43,19 @@ export type ImageObject = {
 
 export type SlideObject = TextObject | ShapeObject | ImageObject;
 
+export type SlideTransition = {
+  effectId: string;
+  durationMs: number;
+  easing: string;
+};
+
 export type EditableSlide = {
   id: string;
   bgColor?: string;
   bgImageUrl?: string;
   objects: SlideObject[];
+  // Phase 5D-2 — optional per-slide default transition
+  transition?: SlideTransition;
   // Legacy fallback — if objects is empty, we render this as one full-slide
   // text object so pre-Phase-5D song slides still work.
   lyrics?: string;
@@ -114,6 +122,7 @@ export function normalizeEditableSlide(row: {
       bgColor: raw.bgColor,
       bgImageUrl: raw.bgImageUrl,
       objects: raw.objects as SlideObject[],
+      transition: raw.transition,
       lyrics: row.lyrics,
     };
   }

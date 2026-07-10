@@ -82,9 +82,17 @@ export type OperatorShellCtx = {
   onSimulate: (text: string) => void;
 
   historyKey: number;
+
+  // Phase 5D-2 additions
+  announcement: import("@/lib/broadcast").AnnouncementPayload | null;
+  onSetAnnouncement: (a: import("@/lib/broadcast").AnnouncementPayload | null) => void;
+  transitionSpec: import("@/lib/broadcast").TransitionSpec | null;
+  onSetTransitionSpec: (t: import("@/lib/broadcast").TransitionSpec | null) => void;
+  churchId: string;
 };
 
 export type InspectorTab =
   | "output" | "messages" | "props" | "audio"
   | "layers" | "ai" | "stage" | "status"
-  | "slide" | "text" | "shape";
+  | "slide" | "text" | "shape"
+  | "announce" | "effects" | "theme";

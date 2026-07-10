@@ -1,8 +1,9 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Monitor, MessageSquare, Package, Volume2, Layers, Sparkles, Radio, Activity,
   Trash2, ChevronDown, ChevronRight, Layout, Type as TypeIcon, Square,
+  Megaphone, Wand2, Palette,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
@@ -12,12 +13,22 @@ import { isVerseLikelyMisheard, getChapterVerseCount } from "@/lib/bible-chapter
 import type { OperatorShellCtx, InspectorTab } from "./types";
 import { useSlideEditorCtx } from "../editor/SlideEditorContext";
 import type { SlideObject, TextObject, ShapeObject } from "@/lib/slide-objects";
+import { EFFECTS, ensureEffectKeyframes, getEffect, type EffectId, type Effect } from "@/lib/effects";
+import type { AnnouncementPayload, AnnouncementPosition, AnnouncementStyle, TransitionSpec } from "@/lib/broadcast";
+import {
+  createAnnouncement, saveAnnouncementPreset, deleteAnnouncementPreset,
+  createTheme, updateTheme, duplicateTheme, deleteTheme, exportTheme, importTheme, applyThemeToSong,
+} from "@/lib/actions";
+import { toast } from "sonner";
 
 const TABS: { key: InspectorTab; label: string; icon: typeof Monitor }[] = [
   { key: "output",   label: "Output",   icon: Monitor },
   { key: "slide",    label: "Slide",    icon: Layout },
   { key: "text",     label: "Text",     icon: TypeIcon },
   { key: "shape",    label: "Shape",    icon: Square },
+  { key: "announce", label: "Announce", icon: Megaphone },
+  { key: "effects",  label: "Effects",  icon: Wand2 },
+  { key: "theme",    label: "Theme",    icon: Palette },
   { key: "messages", label: "Messages", icon: MessageSquare },
   { key: "props",    label: "Props",    icon: Package },
   { key: "audio",    label: "Audio",    icon: Volume2 },
@@ -76,6 +87,9 @@ export function RightInspector({ ctx, tab, onTabChange }: {
         {tab === "slide"    && <SlideTab />}
         {tab === "text"     && <TextTab />}
         {tab === "shape"    && <ShapeTab />}
+        {tab === "announce" && <AnnounceTab ctx={ctx} />}
+        {tab === "effects"  && <EffectsTab ctx={ctx} />}
+        {tab === "theme"    && <ThemeTab ctx={ctx} />}
         {tab === "messages" && <MessagesTab ctx={ctx} />}
         {tab === "props"    && <PropsTab />}
         {tab === "audio"    && <AudioTab ctx={ctx} />}
@@ -450,7 +464,11 @@ function SlideTab() {
       </Section>
 
       <Section label="Transition">
-        <div className="text-[11px] text-zinc-500 italic">Transitions ship in Run 2.</div>
+        <SlideTransitionPicker
+          value={slide.transition ?? null}
+          onChange={(t) => editor.updateSlideDirect({ transition: t ?? undefined })}
+          disabled={disabled}
+        />
       </Section>
 
       <Section label="Enabled">
@@ -742,4 +760,672 @@ export function useInspectorTab(): [InspectorTab, (t: InspectorTab) => void] {
     try { window.localStorage.setItem(TAB_KEY, tab); } catch { /* noop */ }
   }, [tab, hydrated]);
   return [tab, setTab];
+}
+
+// ============================================================================
+// Phase 5D-2 — Announce / Effects / Theme tabs
+// ============================================================================
+
+const ANN_POSITIONS: { key: AnnouncementPosition; label: string }[] = [
+  { key: "lower_third", label: "Lower 3rd" },
+  { key: "top_banner",  label: "Top" },
+  { key: "ticker",      label: "Ticker" },
+  { key: "center_card", label: "Center" },
+];
+
+const DEFAULT_ANN_STYLE: AnnouncementStyle = {
+  fontFamily: "Inter",
+  fontSizePx: 32,
+  fontWeight: 600,
+  textColor: "#ffffff",
+  bgColor: "#000000",
+  bgOpacity: 70,
+  padding: 20,
+  borderRadius: 8,
+  align: "left",
+};
+
+type PresetRow = { id: string; name: string; config: unknown };
+
+function AnnounceTab({ ctx }: { ctx: OperatorShellCtx }) {
+  const [name, setName] = useState("");
+  const [line1, setLine1] = useState("");
+  const [line2, setLine2] = useState("");
+  const [position, setPosition] = useState<AnnouncementPosition>("lower_third");
+  const [style, setStyle] = useState<AnnouncementStyle>(DEFAULT_ANN_STYLE);
+  const [presets, setPresets] = useState<PresetRow[] | null>(null);
+  const [presetId, setPresetId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const churchId = ctx.churchId;
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/announcements/presets?churchId=${encodeURIComponent(churchId)}`).then((r) => r.json()).then((res) => {
+      if (cancelled) return;
+      if (Array.isArray(res.presets)) setPresets(res.presets);
+      else setPresets([]);
+    }).catch(() => { if (!cancelled) setPresets([]); });
+    return () => { cancelled = true; };
+  }, [churchId]);
+
+  const payload: AnnouncementPayload = { line1, line2: line2 || undefined, position, style };
+
+  const patchStyle = (p: Partial<AnnouncementStyle>) => setStyle((s) => ({ ...s, ...p }));
+
+  const showLive = () => { ctx.onSetAnnouncement(payload); toast.success("Announcement live"); };
+  const hideLive = () => { ctx.onSetAnnouncement(null); toast("Announcement hidden"); };
+  const preview = () => { ctx.onSetAnnouncement(payload); };
+
+  const savePreset = async () => {
+    if (!name.trim()) { toast.error("Give the preset a name"); return; }
+    setSaving(true);
+    try {
+      const res = await saveAnnouncementPreset(name.trim(), { line1, line2, position, style });
+      if (res.ok) {
+        toast.success("Preset saved");
+        const r = await fetch(`/api/announcements/presets?churchId=${encodeURIComponent(churchId)}`).then((r) => r.json());
+        if (Array.isArray(r.presets)) setPresets(r.presets);
+      } else toast.error(res.error);
+    } finally { setSaving(false); }
+  };
+
+  const loadPreset = (id: string) => {
+    setPresetId(id);
+    const p = presets?.find((x) => x.id === id);
+    if (!p) return;
+    const c = (p.config as Partial<{ line1: string; line2: string; position: AnnouncementPosition; style: AnnouncementStyle }>) ?? {};
+    if (c.line1 !== undefined) setLine1(c.line1);
+    if (c.line2 !== undefined) setLine2(c.line2);
+    if (c.position) setPosition(c.position);
+    if (c.style) setStyle({ ...DEFAULT_ANN_STYLE, ...c.style });
+  };
+
+  const delPreset = async () => {
+    if (!presetId) return;
+    const res = await deleteAnnouncementPreset(presetId);
+    if (res.ok) {
+      setPresets((prev) => (prev ?? []).filter((p) => p.id !== presetId));
+      setPresetId("");
+      toast("Preset removed");
+    }
+  };
+
+  return (
+    <div className="p-3 space-y-3">
+      {/* Live preview strip */}
+      <div className="relative w-full h-16 rounded-md overflow-hidden border" style={{ borderColor: "#2a3232", background: "#0a0a0a" }}>
+        <div className="absolute inset-0 flex items-center justify-center text-[10px] text-zinc-600">preview</div>
+        <div className="absolute inset-0 pointer-events-none">
+          <div style={{
+            position: "absolute",
+            bottom: position === "lower_third" ? 6 : position === "ticker" ? 0 : "auto",
+            top: position === "top_banner" ? 0 : position === "center_card" ? "50%" : "auto",
+            left: position === "center_card" ? "50%" : 6,
+            transform: position === "center_card" ? "translate(-50%, -50%)" : undefined,
+            right: position === "top_banner" || position === "ticker" ? 0 : "auto",
+            padding: Math.min(style.padding, 8),
+            borderRadius: style.borderRadius,
+            background: hexAlpha(style.bgColor, style.bgOpacity / 100),
+            color: style.textColor,
+            fontFamily: style.fontFamily,
+            fontWeight: style.fontWeight,
+            fontSize: Math.min(style.fontSizePx * 0.4, 14),
+            textAlign: style.align,
+            maxWidth: "80%",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}>
+            {line1 || "Announcement preview"}
+          </div>
+        </div>
+      </div>
+
+      <Section label="Name">
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Guest speaker card"
+          className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 placeholder:text-zinc-500 border focus:outline-none"
+          style={{ background: "#1a2020", borderColor: "#2a3232" }} />
+      </Section>
+
+      <Section label="Line 1">
+        <input value={line1} onChange={(e) => setLine1(e.target.value)} placeholder="Pastor John Smith"
+          className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 placeholder:text-zinc-500 border focus:outline-none"
+          style={{ background: "#1a2020", borderColor: "#2a3232" }} />
+      </Section>
+
+      <Section label="Line 2 (optional)">
+        <input value={line2} onChange={(e) => setLine2(e.target.value)} placeholder="Guest speaker"
+          className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 placeholder:text-zinc-500 border focus:outline-none"
+          style={{ background: "#1a2020", borderColor: "#2a3232" }} />
+      </Section>
+
+      <Section label="Position">
+        <SegPill<AnnouncementPosition> value={position} onChange={setPosition} options={ANN_POSITIONS} />
+      </Section>
+
+      <Section label="Font family">
+        <select value={style.fontFamily} onChange={(e) => patchStyle({ fontFamily: e.target.value })}
+          className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
+          style={{ background: "#1a2020", borderColor: "#2a3232" }}>
+          {SAFE_FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
+        </select>
+      </Section>
+
+      <Section label="Font size (px)">
+        <input type="number" min={10} max={120} value={style.fontSizePx}
+          onChange={(e) => patchStyle({ fontSizePx: Math.max(10, Math.min(120, Number(e.target.value) || 32)) })}
+          className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
+          style={{ background: "#1a2020", borderColor: "#2a3232" }} />
+      </Section>
+
+      <Section label="Weight">
+        <div className="inline-flex rounded-md border" style={{ borderColor: "#2a3232" }}>
+          {[400, 500, 600, 700].map((w) => {
+            const on = style.fontWeight === w;
+            return (
+              <button key={w} onClick={() => patchStyle({ fontWeight: w })}
+                className={cn(
+                  "h-7 px-2 text-[10px] font-bold border-r last:border-r-0",
+                  on ? "bg-teal-500/15 text-teal-200" : "text-zinc-400 hover:text-zinc-100 hover:bg-white/5",
+                )}
+                style={{ borderColor: "#2a3232" }}>{w}</button>
+            );
+          })}
+        </div>
+      </Section>
+
+      <Section label="Text color">
+        <div className="flex items-center gap-2">
+          <input type="color" value={style.textColor} onChange={(e) => patchStyle({ textColor: e.target.value })}
+            className="h-8 w-12 rounded-md border cursor-pointer"
+            style={{ borderColor: "#2a3232", background: "#1a2020" }} />
+          <input type="text" value={style.textColor} onChange={(e) => patchStyle({ textColor: e.target.value })}
+            className="flex-1 h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
+            style={{ background: "#1a2020", borderColor: "#2a3232" }} />
+        </div>
+      </Section>
+
+      <Section label="Background color">
+        <div className="flex items-center gap-2">
+          <input type="color" value={style.bgColor} onChange={(e) => patchStyle({ bgColor: e.target.value })}
+            className="h-8 w-12 rounded-md border cursor-pointer"
+            style={{ borderColor: "#2a3232", background: "#1a2020" }} />
+          <input type="text" value={style.bgColor} onChange={(e) => patchStyle({ bgColor: e.target.value })}
+            className="flex-1 h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
+            style={{ background: "#1a2020", borderColor: "#2a3232" }} />
+        </div>
+      </Section>
+
+      <Section label={`Background opacity — ${style.bgOpacity}%`}>
+        <input type="range" min={0} max={100} value={style.bgOpacity}
+          onChange={(e) => patchStyle({ bgOpacity: Number(e.target.value) })}
+          className="w-full" />
+      </Section>
+
+      <Section label={`Padding — ${style.padding}px`}>
+        <input type="range" min={0} max={64} value={style.padding}
+          onChange={(e) => patchStyle({ padding: Number(e.target.value) })} className="w-full" />
+      </Section>
+
+      <Section label={`Border radius — ${style.borderRadius}px`}>
+        <input type="range" min={0} max={48} value={style.borderRadius}
+          onChange={(e) => patchStyle({ borderRadius: Number(e.target.value) })} className="w-full" />
+      </Section>
+
+      <Section label="Align">
+        <SegPill<AnnouncementStyle["align"]> value={style.align} onChange={(a) => patchStyle({ align: a })}
+          options={[{ key: "left", label: "Left" }, { key: "center", label: "Center" }, { key: "right", label: "Right" }]} />
+      </Section>
+
+      <Section label="Actions">
+        <div className="flex flex-wrap gap-1.5">
+          <button onClick={preview} disabled={!line1}
+            className="h-7 px-2 rounded-md border text-[10px] font-bold uppercase text-zinc-200 hover:bg-white/5 disabled:opacity-40"
+            style={{ borderColor: "#2a3232", background: "#1a2020" }}>Preview</button>
+          <button onClick={showLive} disabled={!line1}
+            className="h-7 px-3 rounded-md bg-teal-500/20 border border-teal-500/60 text-teal-200 text-[10px] font-bold uppercase disabled:opacity-40">Show</button>
+          <button onClick={hideLive}
+            className="h-7 px-2 rounded-md border text-[10px] font-bold uppercase text-red-300 border-red-500/40 hover:bg-red-500/10">Hide</button>
+          <button onClick={savePreset} disabled={saving || !name.trim()}
+            className="h-7 px-2 rounded-md border text-[10px] font-bold uppercase text-zinc-200 hover:bg-white/5 disabled:opacity-40"
+            style={{ borderColor: "#2a3232", background: "#1a2020" }}>{saving ? "…" : "Save preset"}</button>
+        </div>
+      </Section>
+
+      <Section label="Presets">
+        {presets === null ? (
+          <div className="text-[11px] text-zinc-500 italic">Loading…</div>
+        ) : presets.length === 0 ? (
+          <div className="text-[11px] text-zinc-500 italic">No presets yet. Fill the form then click Save preset.</div>
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <select value={presetId} onChange={(e) => loadPreset(e.target.value)}
+              className="flex-1 h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
+              style={{ background: "#1a2020", borderColor: "#2a3232" }}>
+              <option value="">Load preset…</option>
+              {presets.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <button onClick={delPreset} disabled={!presetId}
+              title={presetId ? "Delete selected preset" : "Select a preset first"}
+              className="h-8 w-8 grid place-items-center rounded-md border text-red-300 border-red-500/40 hover:bg-red-500/10 disabled:opacity-40">
+              <Trash2 className="w-3 h-3" />
+            </button>
+          </div>
+        )}
+      </Section>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Effects tab
+// -----------------------------------------------------------------------------
+
+function SlideTransitionPicker({
+  value, onChange, disabled,
+}: { value: TransitionSpec | null; onChange: (v: TransitionSpec | null) => void; disabled?: boolean }) {
+  const cur = value ?? { effectId: "", durationMs: 500, easing: "ease" };
+  return (
+    <div className="space-y-2">
+      <select
+        value={cur.effectId}
+        onChange={(e) => {
+          const id = e.target.value;
+          if (!id) onChange(null);
+          else onChange({ effectId: id, durationMs: cur.durationMs, easing: cur.easing });
+        }}
+        disabled={disabled}
+        className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none disabled:opacity-40"
+        style={{ background: "#1a2020", borderColor: "#2a3232" }}
+      >
+        <option value="">— none —</option>
+        {EFFECTS.map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}
+      </select>
+      {value && (
+        <>
+          <div className="text-[10px] text-zinc-500">Duration: {value.durationMs}ms</div>
+          <input type="range" min={0} max={5000} step={50} value={value.durationMs} disabled={disabled}
+            onChange={(e) => onChange({ ...value, durationMs: Number(e.target.value) })}
+            className="w-full" />
+          <select value={value.easing} disabled={disabled}
+            onChange={(e) => onChange({ ...value, easing: e.target.value })}
+            className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none disabled:opacity-40"
+            style={{ background: "#1a2020", borderColor: "#2a3232" }}>
+            {["linear", "ease", "ease-in", "ease-out", "ease-in-out"].map((k) => <option key={k} value={k}>{k}</option>)}
+          </select>
+        </>
+      )}
+    </div>
+  );
+}
+
+function EffectsTab({ ctx }: { ctx: OperatorShellCtx }) {
+  const editor = useSlideEditorCtx();
+  const [selectedId, setSelectedId] = useState<EffectId | "">("");
+  const [durationMs, setDurationMs] = useState(500);
+  const [easing, setEasing] = useState("ease");
+  const [previewNonce, setPreviewNonce] = useState(0);
+
+  useEffect(() => { ensureEffectKeyframes(); }, []);
+
+  const eff = selectedId ? getEffect(selectedId) : null;
+  const previewCss = eff ? eff.css(durationMs, easing).in : undefined;
+
+  const previewOnCanvas = () => {
+    if (!selectedId) { toast("Pick an effect first"); return; }
+    // Broadcast to /live so the operator's projector demo plays it
+    ctx.onSetTransitionSpec({ effectId: selectedId, durationMs, easing });
+    setPreviewNonce((n) => n + 1);
+    toast(`Previewing ${eff?.label}`);
+  };
+
+  const setAsSlideDefault = () => {
+    if (!editor || !editor.currentSlide) { toast.error("No slide selected"); return; }
+    if (!selectedId) { toast("Pick an effect first"); return; }
+    editor.updateSlideDirect({ transition: { effectId: selectedId, durationMs, easing } });
+    toast.success("Slide default set");
+  };
+
+  return (
+    <div className="p-3 space-y-3">
+      <Section label="Duration (ms)">
+        <input type="range" min={0} max={5000} step={50} value={durationMs}
+          onChange={(e) => setDurationMs(Number(e.target.value))} className="w-full" />
+        <div className="text-[10px] text-zinc-500">{durationMs} ms ({(durationMs / 1000).toFixed(2)}s)</div>
+      </Section>
+
+      <Section label="Easing">
+        <select value={easing} onChange={(e) => setEasing(e.target.value)}
+          className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
+          style={{ background: "#1a2020", borderColor: "#2a3232" }}>
+          {["linear", "ease", "ease-in", "ease-out", "ease-in-out"].map((k) => <option key={k} value={k}>{k}</option>)}
+        </select>
+      </Section>
+
+      <Section label="Catalog">
+        <div className="grid grid-cols-2 gap-1.5">
+          {EFFECTS.map((e) => (
+            <EffectCard key={e.id} effect={e} selected={selectedId === e.id}
+              durationMs={durationMs} easing={easing}
+              onSelect={() => setSelectedId(e.id)} />
+          ))}
+        </div>
+      </Section>
+
+      <Section label="Preview area">
+        {editor?.currentSlide ? (
+          <div className="relative h-16 rounded-md border overflow-hidden" style={{ borderColor: "#2a3232", background: "#0a0a0a" }}>
+            <div key={previewNonce}
+              className="absolute inset-0 flex items-center justify-center text-teal-200 text-[13px] font-bold"
+              style={{ animation: previewCss }}>
+              {eff?.label ?? "Select an effect"}
+            </div>
+          </div>
+        ) : (
+          <div className="text-[11px] text-zinc-500 italic">Select a slide to preview effects.</div>
+        )}
+      </Section>
+
+      <Section label="Actions">
+        <div className="flex flex-wrap gap-1.5">
+          <button onClick={previewOnCanvas} disabled={!selectedId}
+            className="h-7 px-2 rounded-md border text-[10px] font-bold uppercase text-zinc-200 hover:bg-white/5 disabled:opacity-40"
+            style={{ borderColor: "#2a3232", background: "#1a2020" }}>Preview on canvas</button>
+          <button onClick={setAsSlideDefault}
+            disabled={!selectedId || !editor?.currentSlide}
+            title={!editor?.currentSlide ? "Select a slide first" : ""}
+            className="h-7 px-2 rounded-md border text-[10px] font-bold uppercase text-zinc-200 hover:bg-white/5 disabled:opacity-40"
+            style={{ borderColor: "#2a3232", background: "#1a2020" }}>Set default for slide</button>
+          <button
+            disabled
+            title="Per-deck default requires song-context: coming when Effects tab is opened from a song item"
+            className="h-7 px-2 rounded-md border text-[10px] font-bold uppercase opacity-40"
+            style={{ borderColor: "#2a3232", background: "#1a2020", color: "#e4e4e7" }}>Set default for deck</button>
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+function EffectCard({ effect, selected, durationMs, easing, onSelect }: {
+  effect: Effect; selected: boolean; durationMs: number; easing: string; onSelect: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const [nonce, setNonce] = useState(0);
+  useEffect(() => { if (hovered) setNonce((n) => n + 1); }, [hovered]);
+  const anim = hovered ? effect.css(Math.min(durationMs, 800), easing).in : undefined;
+  return (
+    <button onClick={onSelect}
+      onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
+      className={cn(
+        "text-left h-14 rounded-md border p-1.5 relative overflow-hidden",
+        selected ? "border-teal-500/60 bg-teal-500/10" : "hover:bg-white/5",
+      )}
+      style={{ borderColor: selected ? undefined : "#2a3232", background: selected ? undefined : "#1a2020" }}>
+      <div className="text-[10px] font-bold uppercase tracking-wide text-zinc-200">{effect.label}</div>
+      <div className="text-[9px] text-zinc-500">{effect.category}</div>
+      <div key={nonce} className="absolute right-1 bottom-1 h-5 px-1.5 grid place-items-center rounded-sm bg-black/40 text-[9px] text-teal-200"
+        style={{ animation: anim }}>
+        aa
+      </div>
+    </button>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Theme tab
+// -----------------------------------------------------------------------------
+
+type ThemeRow = { id: string; name: string; config: Record<string, unknown> };
+
+function ThemeTab({ ctx }: { ctx: OperatorShellCtx }) {
+  const [themes, setThemes] = useState<ThemeRow[] | null>(null);
+  const [sel, setSel] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const churchId = ctx.churchId;
+
+  const refresh = async () => {
+    try {
+      const res = await fetch(`/api/themes?churchId=${encodeURIComponent(churchId)}`).then((r) => r.json());
+      if (Array.isArray(res.themes)) setThemes(res.themes);
+      else setThemes([]);
+    } catch { setThemes([]); }
+  };
+
+  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [churchId]);
+
+  const current = themes?.find((t) => t.id === sel) ?? null;
+
+  const doNew = async () => {
+    setBusy(true);
+    try {
+      const r = await createTheme("New theme", { bgColor: "#0b0b0b", fontFamily: "Inter", fontSizePx: 96, fontWeight: 600, textColor: "#ffffff", align: "center" });
+      if (r.ok && r.data) { await refresh(); setSel(r.data.id); toast.success("Theme created"); }
+      else if (!r.ok) toast.error(r.error);
+    } finally { setBusy(false); }
+  };
+  const doDuplicate = async () => {
+    if (!sel) return;
+    const r = await duplicateTheme(sel);
+    if (r.ok && r.data) { await refresh(); setSel(r.data.id); }
+  };
+  const doDelete = async () => {
+    if (!sel) return;
+    const r = await deleteTheme(sel);
+    if (r.ok) { await refresh(); setSel(""); toast("Theme deleted"); }
+  };
+  const doExport = async () => {
+    if (!sel || !current) return;
+    const r = await exportTheme(sel);
+    if (!r.ok) { toast.error(r.error); return; }
+    const blob = new Blob([JSON.stringify(r.data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `${(r.data?.name ?? "theme").replace(/\W+/g, "_")}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  };
+  const doImportClick = () => fileRef.current?.click();
+  const doImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    try {
+      const text = await f.text();
+      const parsed = JSON.parse(text);
+      const r = await importTheme(parsed);
+      if (r.ok && r.data) {
+        toast.success(r.data.rejectedFields.length ? `Imported (skipped: ${r.data.rejectedFields.join(", ")})` : "Imported");
+        await refresh();
+        setSel(r.data.id);
+      } else if (!r.ok) toast.error(r.error);
+    } catch (err) {
+      toast.error("Invalid theme JSON: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  const patchConfig = async (p: Record<string, unknown>) => {
+    if (!current) return;
+    const cfg = { ...current.config, ...p };
+    setThemes((prev) => (prev ?? []).map((t) => t.id === current.id ? { ...t, config: cfg } : t));
+    await updateTheme(current.id, { config: cfg });
+  };
+  const patchName = async (name: string) => {
+    if (!current) return;
+    setThemes((prev) => (prev ?? []).map((t) => t.id === current.id ? { ...t, name } : t));
+    await updateTheme(current.id, { name });
+  };
+
+  const cfg = (current?.config ?? {}) as {
+    bgColor?: string; bgImageUrl?: string; fontFamily?: string; fontSizePx?: number;
+    fontWeight?: number; textColor?: string; align?: "left" | "center" | "right";
+    safeArea?: boolean; transition?: TransitionSpec;
+  };
+
+  // Determine the selected song (from currently selected service item) to enable "apply to song".
+  const editor = useSlideEditorCtx();
+  const currentSongId = editor?.songId ?? null;
+
+  const doApply = async () => {
+    if (!current || !currentSongId) return;
+    setBusy(true);
+    try {
+      const r = await applyThemeToSong(current.id, currentSongId);
+      if (r.ok) toast.success(`Applied to ${r.data?.slidesUpdated ?? 0} slide(s). Reload to see changes.`);
+      else toast.error(r.error);
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="p-3 space-y-3">
+      <input ref={fileRef} type="file" accept="application/json" className="hidden" onChange={doImportFile} />
+
+      <Section label="Themes">
+        {themes === null ? (
+          <div className="text-[11px] text-zinc-500 italic">Loading…</div>
+        ) : themes.length === 0 ? (
+          <div className="space-y-2">
+            <div className="text-[11px] text-zinc-500 italic">No themes yet. Click New to create one.</div>
+            <button onClick={doNew} disabled={busy}
+              className="h-7 px-3 rounded-md bg-teal-500/20 border border-teal-500/60 text-teal-200 text-[10px] font-bold uppercase disabled:opacity-40">
+              New theme
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {themes.map((t) => (
+              <button key={t.id} onClick={() => setSel(t.id)}
+                className={cn("w-full flex items-center gap-2 h-8 px-2 rounded-md border text-left",
+                  sel === t.id ? "border-teal-500/60 bg-teal-500/10" : "hover:bg-white/5")}
+                style={{ borderColor: sel === t.id ? undefined : "#2a3232", background: sel === t.id ? undefined : "#1a2020" }}>
+                <span className="w-3 h-3 rounded-sm border border-white/20" style={{ background: (t.config as { bgColor?: string })?.bgColor || "#0b0b0b" }} />
+                <span className="text-[11px] text-zinc-200 flex-1 truncate">{t.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </Section>
+
+      <Section label="Actions">
+        <div className="flex flex-wrap gap-1.5">
+          <button onClick={doNew} disabled={busy}
+            className="h-7 px-2 rounded-md border text-[10px] font-bold uppercase text-zinc-200 hover:bg-white/5"
+            style={{ borderColor: "#2a3232", background: "#1a2020" }}>New</button>
+          <button onClick={doDuplicate} disabled={!sel}
+            className="h-7 px-2 rounded-md border text-[10px] font-bold uppercase text-zinc-200 hover:bg-white/5 disabled:opacity-40"
+            style={{ borderColor: "#2a3232", background: "#1a2020" }}>Duplicate</button>
+          <button onClick={doDelete} disabled={!sel}
+            className="h-7 px-2 rounded-md border text-[10px] font-bold uppercase text-red-300 border-red-500/40 hover:bg-red-500/10 disabled:opacity-40">Delete</button>
+          <button onClick={doImportClick}
+            className="h-7 px-2 rounded-md border text-[10px] font-bold uppercase text-zinc-200 hover:bg-white/5"
+            style={{ borderColor: "#2a3232", background: "#1a2020" }}>Import</button>
+          <button onClick={doExport} disabled={!sel}
+            className="h-7 px-2 rounded-md border text-[10px] font-bold uppercase text-zinc-200 hover:bg-white/5 disabled:opacity-40"
+            style={{ borderColor: "#2a3232", background: "#1a2020" }}>Export</button>
+        </div>
+      </Section>
+
+      {current && (
+        <>
+          <Section label="Name">
+            <input value={current.name} onChange={(e) => patchName(e.target.value)}
+              className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
+              style={{ background: "#1a2020", borderColor: "#2a3232" }} />
+          </Section>
+
+          <Section label="Background color">
+            <div className="flex items-center gap-2">
+              <input type="color" value={cfg.bgColor || "#0b0b0b"} onChange={(e) => patchConfig({ bgColor: e.target.value })}
+                className="h-8 w-12 rounded-md border cursor-pointer" style={{ borderColor: "#2a3232", background: "#1a2020" }} />
+              <input type="text" value={cfg.bgColor || ""} onChange={(e) => patchConfig({ bgColor: e.target.value })}
+                className="flex-1 h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
+                style={{ background: "#1a2020", borderColor: "#2a3232" }} />
+            </div>
+          </Section>
+
+          <Section label="Background image URL">
+            <input value={cfg.bgImageUrl || ""} onChange={(e) => patchConfig({ bgImageUrl: e.target.value })}
+              className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
+              style={{ background: "#1a2020", borderColor: "#2a3232" }} />
+          </Section>
+
+          <Section label="Font family">
+            <select value={cfg.fontFamily || "Inter"} onChange={(e) => patchConfig({ fontFamily: e.target.value })}
+              className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
+              style={{ background: "#1a2020", borderColor: "#2a3232" }}>
+              {SAFE_FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
+            </select>
+          </Section>
+
+          <Section label="Font size (px)">
+            <input type="number" min={10} max={200} value={cfg.fontSizePx ?? 96}
+              onChange={(e) => patchConfig({ fontSizePx: Number(e.target.value) || 96 })}
+              className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
+              style={{ background: "#1a2020", borderColor: "#2a3232" }} />
+          </Section>
+
+          <Section label="Weight">
+            <div className="inline-flex rounded-md border" style={{ borderColor: "#2a3232" }}>
+              {[400, 500, 600, 700].map((w) => {
+                const on = (cfg.fontWeight ?? 600) === w;
+                return (
+                  <button key={w} onClick={() => patchConfig({ fontWeight: w })}
+                    className={cn("h-7 px-2 text-[10px] font-bold border-r last:border-r-0",
+                      on ? "bg-teal-500/15 text-teal-200" : "text-zinc-400 hover:text-zinc-100 hover:bg-white/5")}
+                    style={{ borderColor: "#2a3232" }}>{w}</button>
+                );
+              })}
+            </div>
+          </Section>
+
+          <Section label="Text color">
+            <div className="flex items-center gap-2">
+              <input type="color" value={cfg.textColor || "#ffffff"} onChange={(e) => patchConfig({ textColor: e.target.value })}
+                className="h-8 w-12 rounded-md border cursor-pointer" style={{ borderColor: "#2a3232", background: "#1a2020" }} />
+              <input type="text" value={cfg.textColor || ""} onChange={(e) => patchConfig({ textColor: e.target.value })}
+                className="flex-1 h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
+                style={{ background: "#1a2020", borderColor: "#2a3232" }} />
+            </div>
+          </Section>
+
+          <Section label="Align">
+            <SegPill<"left" | "center" | "right"> value={cfg.align ?? "center"}
+              onChange={(a) => patchConfig({ align: a })}
+              options={[{ key: "left", label: "Left" }, { key: "center", label: "Center" }, { key: "right", label: "Right" }]} />
+          </Section>
+
+          <Section label="Safe area">
+            <button onClick={() => patchConfig({ safeArea: !cfg.safeArea })}
+              className={cn("h-7 px-3 rounded-md border text-[10px] font-bold uppercase",
+                cfg.safeArea ? "bg-teal-500/15 border-teal-500/60 text-teal-200" : "text-zinc-400")}
+              style={{ borderColor: cfg.safeArea ? undefined : "#2a3232", background: cfg.safeArea ? undefined : "#1a2020" }}>
+              {cfg.safeArea ? "On" : "Off"}
+            </button>
+          </Section>
+
+          <Section label="Default transition">
+            <SlideTransitionPicker value={cfg.transition ?? null}
+              onChange={(t) => patchConfig({ transition: t ?? undefined })} />
+          </Section>
+
+          <Section label="Apply">
+            <button onClick={doApply}
+              disabled={busy || !currentSongId}
+              title={currentSongId ? "" : "Select a song item to enable"}
+              className="h-8 px-3 rounded-md bg-teal-500/20 border border-teal-500/60 text-teal-200 text-[11px] font-bold uppercase disabled:opacity-40">
+              Apply to current song
+            </button>
+          </Section>
+        </>
+      )}
+    </div>
+  );
+}
+
+function hexAlpha(hex: string, alpha: number): string {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!m) return `rgba(0,0,0,${alpha})`;
+  return `rgba(${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)},${alpha})`;
 }

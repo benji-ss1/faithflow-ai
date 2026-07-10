@@ -125,6 +125,8 @@ export const songs = pgTable("songs", {
   title: text("title").notNull(),
   artist: text("artist"),
   source: songSourceEnum("source").notNull().default("church"),
+  // Phase 5D-2: per-song settings (default transition, applied theme id, etc)
+  settings: jsonb("settings").notNull().default({}),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -334,6 +336,49 @@ export const sermonSummaries = pgTable("sermon_summaries", {
 }, (t) => [
   index("idx_sermon_summaries_embedding").using("hnsw", t.embedding.op("vector_cosine_ops")),
 ]);
+
+// Phase 5D-2: announcements, themes, effects presets --------------------------
+export const announcementPositionEnum = pgEnum("announcement_position", [
+  "lower_third", "top_banner", "ticker", "center_card",
+]);
+export const announcementAlignEnum = pgEnum("announcement_align", ["left", "center", "right"]);
+
+export const announcements = pgTable("announcements", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  line1: text("line1").notNull(),
+  line2: text("line2"),
+  position: announcementPositionEnum("position").notNull().default("lower_third"),
+  fontFamily: text("font_family").notNull().default("Inter"),
+  fontSizePx: integer("font_size_px").notNull().default(32),
+  fontWeight: integer("font_weight").notNull().default(600),
+  textColor: text("text_color").notNull().default("#ffffff"),
+  bgColor: text("bg_color").notNull().default("#000000"),
+  bgOpacity: integer("bg_opacity").notNull().default(70),
+  padding: integer("padding").notNull().default(20),
+  borderRadius: integer("border_radius").notNull().default(8),
+  align: announcementAlignEnum("align").notNull().default("left"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const announcementPresets = pgTable("announcement_presets", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  config: jsonb("config").notNull().default({}),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const themes = pgTable("themes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  config: jsonb("config").notNull().default({}),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
 
 export const servicePlanRelations = relations(servicePlans, ({ many }) => ({ items: many(serviceItems) }));
 export const serviceItemRelations = relations(serviceItems, ({ one }) => ({ plan: one(servicePlans, { fields: [serviceItems.servicePlanId], references: [servicePlans.id] }) }));
