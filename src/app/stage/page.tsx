@@ -33,7 +33,9 @@ export default function StagePage() {
   const [operatorMessage, setOperatorMessage] = useState<string | null>(null);
   const [countdownEndsAt, setCountdownEndsAt] = useState<number | null>(null);
   const [connected, setConnected] = useState(false);
-  const [now, setNow] = useState(new Date());
+  // null on server + first client render to avoid hydration mismatch on the clock.
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => { setNow(new Date()); }, []);
   const [showHelp, setShowHelp] = useState(true);
   const lastMsgAt = useRef<number>(Date.now());
 
@@ -120,7 +122,7 @@ export default function StagePage() {
     return () => window.removeEventListener("unhandledrejection", onUnhandled);
   }, []);
 
-  const countdownStr = countdownEndsAt ? formatCountdown(countdownEndsAt - now.getTime()) : null;
+  const countdownStr = countdownEndsAt && now ? formatCountdown(countdownEndsAt - now.getTime()) : null;
 
   return (
     <div
@@ -132,7 +134,7 @@ export default function StagePage() {
       <div className="h-24 shrink-0 border-b border-white/10 flex items-stretch">
         <div className="flex-1 flex items-center justify-center border-r border-white/10">
           <div className="text-6xl font-mono font-light tracking-tight" style={{ color: "var(--color-brand)" }}>
-            {now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
+            {now ? now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }) : "--:--:--"}
           </div>
         </div>
         {countdownStr ? (
