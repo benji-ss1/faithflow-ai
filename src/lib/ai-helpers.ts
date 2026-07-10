@@ -1,8 +1,8 @@
 // Phase 5D-3 — server-only AI helpers, exposed via /api/ai/helpers/[action].
 //
-// xAI (Grok) provider. OpenAI-compatible /v1/chat/completions.
+// Groq is the ONLY provider (per user global CLAUDE.md). No fallback.
 // Every helper:
-//   • throws MissingApiKeyError if XAI_API_KEY is not set,
+//   • throws MissingApiKeyError if GROQ_API_KEY is not set,
 //   • uses a 6s AbortController timeout,
 //   • requests json_object response format,
 //   • retries once on 5xx.
@@ -13,23 +13,23 @@
 import type { EditableSlide, SlideObject } from "./slide-objects";
 import type { EffectId } from "./effects";
 
-const XAI_URL = "https://api.x.ai/v1/chat/completions";
-const XAI_MODEL = process.env.XAI_MODEL || "grok-4";
+const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
+const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
 const TIMEOUT_MS = 6000;
 
 export class MissingApiKeyError extends Error {
   code = "MISSING_API_KEY" as const;
-  constructor() { super("XAI_API_KEY is not configured"); this.name = "MissingApiKeyError"; }
+  constructor() { super("GROQ_API_KEY is not configured"); this.name = "MissingApiKeyError"; }
 }
 
 type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
-async function llmJson<T>(messages: ChatMessage[], temperature = 0.2): Promise<T> {
-  const key = process.env.XAI_API_KEY;
+async function groqJson<T>(messages: ChatMessage[], temperature = 0.2): Promise<T> {
+  const key = process.env.GROQ_API_KEY;
   if (!key) throw new MissingApiKeyError();
 
   const body = {
-    model: XAI_MODEL,
+    model: GROQ_MODEL,
     messages,
     temperature,
     max_tokens: 800,
@@ -40,7 +40,7 @@ async function llmJson<T>(messages: ChatMessage[], temperature = 0.2): Promise<T
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
     try {
-      return await fetch(XAI_URL, {
+      return await fetch(GROQ_URL, {
         method: "POST",
         headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -55,13 +55,13 @@ async function llmJson<T>(messages: ChatMessage[], temperature = 0.2): Promise<T
   }
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
-    throw new Error(`xAI ${res.status}: ${errText.slice(0, 200)}`);
+    throw new Error(`Groq ${res.status}: ${errText.slice(0, 200)}`);
   }
   const data = await res.json() as { choices?: { message?: { content?: string } }[] };
   const raw = data.choices?.[0]?.message?.content;
-  if (!raw) throw new Error("xAI returned empty response");
+  if (!raw) throw new Error("Groq returned empty response");
   try { return JSON.parse(raw) as T; }
-  catch { throw new Error("xAI returned invalid JSON"); }
+  catch { throw new Error("Groq returned invalid JSON"); }
 }
 
 // ---------- Helpers ---------------------------------------------------------
@@ -73,7 +73,7 @@ export async function improveReadability(text: string): Promise<{ suggestions: s
     { role: "system", content: "You improve slide text readability for large-screen worship display. Return JSON {\"suggestions\":[\"...\",\"...\"],\"reason\":\"...\"}. suggestions is up to 3 rewritten versions of the text, each optimised for on-screen readability (short lines, active voice, clear breaks). reason is one sentence." },
     { role: "user", content: trimmed },
   ];
-  const out = await llmJson<{ suggestions?: unknown; reason?: unknown }>(messages);
+  const out = await groqJson<{ suggestions?: unknown; reason?: unknown }>(messages);
   const suggestions = Array.isArray(out.suggestions)
     ? out.suggestions.filter((s): s is string => typeof s === "string").slice(0, 3)
     : [];
@@ -88,7 +88,7 @@ export async function formatLyrics(text: string): Promise<{ formatted: string; s
     { role: "system", content: "You format worship song lyrics that the user already owns. Return JSON {\"formatted\":\"...\",\"sections\":[{\"name\":\"Verse 1\",\"lines\":[\"...\"]}]}. Do NOT invent lyrics — only reformat what you were given. Split into sections (Verse, Chorus, Bridge, Tag) using visible structure or repetition. Keep original words." },
     { role: "user", content: trimmed },
   ];
-  const out = await llmJson<{ formatted?: unknown; sections?: unknown }>(messages);
+  const out = await groqJson<{ formatted?: unknown; sections?: unknown }>(messages);
   const formatted = typeof out.formatted === "string" ? out.formatted : trimmed;
   const sections = Array.isArray(out.sections)
     ? out.sections.filter((s): s is { name: string; lines: string[] } => {
@@ -115,7 +115,7 @@ export async function suggestEffect(slideDescription: { textPreview: string; the
     { role: "system", content: `You choose a slide transition effect for a worship display. Valid effect ids: ${EFFECT_IDS.join(", ")}. Return JSON {"effectId":"<id>","reason":"<one sentence>","alt":["<id>","<id>"]}. Prefer subtle effects (fade_in, cross_fade, soft_rise) for worship/scripture; use zoom_in / scale_pop only for celebratory content.` },
     { role: "user", content: JSON.stringify(slideDescription).slice(0, 1000) },
   ];
-  const out = await llmJson<{ effectId?: unknown; reason?: unknown; alt?: unknown }>(messages);
+  const out = await groqJson<{ effectId?: unknown; reason?: unknown; alt?: unknown }>(messages);
   const isEffect = (v: unknown): v is EffectId => typeof v === "string" && (EFFECT_IDS as string[]).includes(v);
   const effectId: EffectId = isEffect(out.effectId) ? out.effectId : "fade_in";
   const reason = typeof out.reason === "string" ? out.reason : "Default subtle fade.";
@@ -129,7 +129,7 @@ export async function draftAnnouncement(topic: string, tone: "warm" | "formal" |
     { role: "system", content: `You draft a two-line lower-third church announcement. Tone: ${tone}. Return JSON {"line1":"...","line2":"...","reason":"..."}. line1 <= 50 chars, line2 <= 80 chars. No emojis unless tone is celebratory.` },
     { role: "user", content: trimmed || "General announcement" },
   ];
-  const out = await llmJson<{ line1?: unknown; line2?: unknown; reason?: unknown }>(messages);
+  const out = await groqJson<{ line1?: unknown; line2?: unknown; reason?: unknown }>(messages);
   return {
     line1: typeof out.line1 === "string" ? out.line1.slice(0, 60) : "",
     line2: typeof out.line2 === "string" ? out.line2.slice(0, 100) : "",
@@ -151,7 +151,7 @@ export async function fixSlide(slide: EditableSlide): Promise<{ patch: Partial<E
     { role: "system", content: "You review a worship slide for on-screen readability. Return JSON {\"patch\":{},\"reason\":\"...\",\"warnings\":[\"...\"]}. patch is a SHALLOW partial EditableSlide — you may set bgColor. You may NOT change objects (the client will apply per-object suggestions separately in a later phase). warnings is a short list of specific issues you found (contrast, overflow, whitespace). If nothing to fix, return {\"patch\":{},\"reason\":\"Slide looks good.\",\"warnings\":[]}." },
     { role: "user", content: JSON.stringify(summary).slice(0, 2000) },
   ];
-  const out = await llmJson<{ patch?: unknown; reason?: unknown; warnings?: unknown }>(messages);
+  const out = await groqJson<{ patch?: unknown; reason?: unknown; warnings?: unknown }>(messages);
   const patchIn = (out.patch && typeof out.patch === "object") ? out.patch as Record<string, unknown> : {};
   const patch: Partial<EditableSlide> = {};
   if (typeof patchIn.bgColor === "string") patch.bgColor = patchIn.bgColor;

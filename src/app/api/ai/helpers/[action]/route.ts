@@ -2,9 +2,9 @@
 //
 // action ∈ { improve_readability | format_lyrics | suggest_effect | draft_announcement | fix_slide }
 //
-// All actions go through xAI server-side (see src/lib/ai-helpers.ts).
-// If XAI_API_KEY is missing, we respond 200 with { ok:false, code:"MISSING_API_KEY" }
-// so the client can render a clear "xAI API key required" disabled state.
+// All actions go through Groq server-side (see src/lib/ai-helpers.ts).
+// If GROQ_API_KEY is missing, we respond 200 with { ok:false, code:"MISSING_API_KEY" }
+// so the client can render a clear "Groq API key required" disabled state.
 
 import { NextResponse } from "next/server";
 import { apiUser } from "@/lib/session";
@@ -93,7 +93,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ action: string
         return err("BAD_INPUT", `Unknown action: ${action}`);
     }
   } catch (e) {
-    if (e instanceof MissingApiKeyError) return err("MISSING_API_KEY", "xAI API key required");
+    if (e instanceof MissingApiKeyError) return err("MISSING_API_KEY", "Groq API key required");
     const msg = e instanceof Error ? e.message : String(e);
     return err("UPSTREAM", msg.slice(0, 200), 502);
   }
