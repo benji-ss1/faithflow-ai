@@ -25,10 +25,13 @@ export type ParsedProSong = {
   warnings: string[];
 };
 
+// XXE-safe: `processEntities: false` prevents external and expanded entity
+// resolution when parsing untrusted .pro6 XML.
 const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: "@_",
   parseAttributeValue: false,
+  processEntities: false,
   isArray: () => false,
 });
 

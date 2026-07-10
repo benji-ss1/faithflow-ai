@@ -152,7 +152,10 @@ export async function finalizeImport(migrationJobId: string): Promise<Result<{
 
   const summary = (job.summaryJson || {}) as {
     songs?: { title: string; artist?: string | null; slides: string[] }[];
-    media?: { fileName: string; mimeType: string; b64: string }[];
+    // Media is stored as S3 metadata ONLY — buffers live in S3 under s3Key.
+    // Legacy `b64` payloads are still accepted for jobs created before the
+    // CP1 fix pass, but new jobs never write b64 into summaryJson.
+    media?: { fileName: string; mimeType: string; sizeBytes?: number; s3Key?: string; b64?: string }[];
   };
   const parsedSongs = Array.isArray(summary.songs) ? summary.songs : [];
   const parsedMedia = Array.isArray(summary.media) ? summary.media : [];
@@ -180,16 +183,30 @@ export async function finalizeImport(migrationJobId: string): Promise<Result<{
   if (parsedMedia.length > 0 && isS3Configured()) {
     for (const m of parsedMedia) {
       try {
-        const buf = Buffer.from(m.b64, "base64");
-        const ext = m.fileName.split(".").pop() || "bin";
-        const key = `${user.churchId}/media/${randomUUID()}.${ext}`;
-        await putBuffer(key, buf, m.mimeType);
         const kind = m.mimeType.startsWith("video/") ? "video" as const : "image" as const;
-        await db.insert(mediaAssets).values({
-          churchId: user.churchId, kind, fileName: m.fileName, s3Key: key,
-          mimeType: m.mimeType, sizeBytes: buf.length,
-        });
-        mediaAdded++;
+        // New path: media was already streamed to S3 during parse. We just
+        // reference the same s3Key from the mediaAssets row — no re-upload,
+        // no re-encoding. Simplest safe path.
+        if (m.s3Key) {
+          await db.insert(mediaAssets).values({
+            churchId: user.churchId, kind, fileName: m.fileName, s3Key: m.s3Key,
+            mimeType: m.mimeType, sizeBytes: m.sizeBytes ?? 0,
+          });
+          mediaAdded++;
+          continue;
+        }
+        // Legacy path: pre-CP1-fix summaries embedded b64.
+        if (m.b64) {
+          const buf = Buffer.from(m.b64, "base64");
+          const ext = m.fileName.split(".").pop() || "bin";
+          const key = `${user.churchId}/media/${randomUUID()}.${ext}`;
+          await putBuffer(key, buf, m.mimeType);
+          await db.insert(mediaAssets).values({
+            churchId: user.churchId, kind, fileName: m.fileName, s3Key: key,
+            mimeType: m.mimeType, sizeBytes: buf.length,
+          });
+          mediaAdded++;
+        }
       } catch { /* per-file media failures don't fail the whole import */ }
     }
   }

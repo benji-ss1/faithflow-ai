@@ -23,6 +23,8 @@ import { getDb } from "@/lib/db/client";
 import { migrationJobs } from "@/lib/db/schema";
 import { getParser, type ParseResult } from "@/lib/parsers";
 import { sanitizeFileName, withTimeout, PER_FILE_PARSE_TIMEOUT_MS } from "@/lib/parsers/safety";
+import { putBuffer, isS3Configured } from "@/lib/s3";
+import { decideTerminalStatus } from "@/lib/parsers/terminal-status";
 
 const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB per file
 const MAX_TOTAL_BYTES = 250 * 1024 * 1024;
@@ -89,12 +91,14 @@ export async function POST(req: Request) {
   // Per-file parse with a hard 10s timeout. If a file times out, we record
   // it in skipped[] with a clear reason and keep going.
   const aggregate: ParseResult = { songs: [], media: [], skipped: [] };
+  let anyParserRan = false;
   for (const f of files) {
     try {
       const perFile = await withTimeout(parser.parse([f]), PER_FILE_PARSE_TIMEOUT_MS);
       aggregate.songs.push(...perFile.songs);
       aggregate.media.push(...perFile.media);
       aggregate.skipped.push(...perFile.skipped);
+      anyParserRan = true;
     } catch (e) {
       const reason = e instanceof Error && e.message.includes("parse exceeded")
         ? e.message
@@ -103,11 +107,44 @@ export async function POST(req: Request) {
     }
   }
 
+  // Stream media buffers to S3 immediately — NEVER embed buffers in summaryJson.
+  // Failing to upload a media asset does NOT fail the whole parse (it's added
+  // to skipped[]), but every successful upload is recorded as metadata only.
+  const { eq } = await import("drizzle-orm");
+  const uploadedMedia: { s3Key: string; fileName: string; mimeType: string; sizeBytes: number; sourceFile: string }[] = [];
+  const s3Ready = isS3Configured();
+  for (const m of aggregate.media) {
+    const fileName = sanitizeFileName(m.fileName);
+    const s3Key = `imports/${user.churchId}/${job.id}/${fileName}`;
+    if (!s3Ready) {
+      aggregate.skipped.push({ file: fileName, reason: "S3 not configured — media asset dropped rather than embedded in JSONB" });
+      continue;
+    }
+    try {
+      await putBuffer(s3Key, m.buffer, m.mimeType);
+      uploadedMedia.push({ s3Key, fileName, mimeType: m.mimeType, sizeBytes: m.buffer.length, sourceFile: m.sourceFile });
+    } catch (e) {
+      aggregate.skipped.push({ file: fileName, reason: `Media upload failed: ${e instanceof Error ? e.message : "unknown"}` });
+    }
+  }
+
+  // Determine terminal status: parser ran and produced at least one song or
+  // media OR skipped[] contains parser-level info → status "ready". If every
+  // file blew up (no successful parse output) → status "failed".
+  const { status: terminalStatus, errorMessage } = decideTerminalStatus({
+    parserId: parser.id,
+    fileCount: files.length,
+    anyParserRan,
+    songsProduced: aggregate.songs.length,
+    mediaProduced: uploadedMedia.length,
+    skipped: aggregate.skipped,
+  });
+
   const summary = {
     parserId: parser.id,
     counts: {
       songs: aggregate.songs.length,
-      media: aggregate.media.length,
+      media: uploadedMedia.length,
       skipped: aggregate.skipped.length,
     },
     songs: aggregate.songs.map((s) => ({
@@ -118,31 +155,28 @@ export async function POST(req: Request) {
       warnings: s.warnings,
       sourceFile: s.sourceFile,
     })),
-    media: aggregate.media.map((m) => ({
-      fileName: sanitizeFileName(m.fileName),
-      mimeType: m.mimeType,
-      sizeBytes: m.buffer.length,
-      b64: m.buffer.toString("base64"),
-      sourceFile: m.sourceFile,
-    })),
+    // Metadata ONLY — no buffers, no base64. Media bytes live in S3.
+    media: uploadedMedia,
     skipped: aggregate.skipped,
+    ...(errorMessage ? { errorMessage } : {}),
   };
 
-  const { eq } = await import("drizzle-orm");
   await db.update(migrationJobs)
-    .set({ status: "ready", summaryJson: summary })
+    .set({ status: terminalStatus, summaryJson: summary, ...(errorMessage ? { errorMessage } : {}) })
     .where(eq(migrationJobs.id, job.id));
 
   // Client-facing summary omits the base64 media blobs so the review page
   // doesn't get hit with a huge payload.
   return NextResponse.json({
     migrationJobId: job.id,
+    status: terminalStatus,
     summary: {
       parserId: summary.parserId,
       counts: summary.counts,
       songs: summary.songs.map((s) => ({ title: s.title, artist: s.artist, slideCount: s.slideCount, sourceFile: s.sourceFile })),
       media: summary.media.map((m) => ({ fileName: m.fileName, mimeType: m.mimeType, sizeBytes: m.sizeBytes })),
       skipped: summary.skipped,
+      ...(errorMessage ? { errorMessage } : {}),
     },
   });
 }
