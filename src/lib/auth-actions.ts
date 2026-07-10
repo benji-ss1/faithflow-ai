@@ -1,5 +1,6 @@
 "use server";
 import { eq } from "drizzle-orm";
+import { headers } from "next/headers";
 import bcrypt from "bcryptjs";
 import { getDb } from "./db/client";
 import { users } from "./db/schema";
@@ -10,7 +11,38 @@ type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// In-memory rate limit: 5 signUps per IP per hour. Same pattern re-used across
+// the codebase (see comment on song-parser rate-limit map). Not durable across
+// process restarts by design — protects against burst floods, not persistent
+// attackers (that's the DB-level constraint on unique email + hashed tokens).
+const SIGNUP_LIMIT = 5;
+const SIGNUP_WINDOW_MS = 60 * 60 * 1000;
+const signUpHits = new Map<string, { count: number; resetAt: number }>();
+
+async function checkSignUpRateLimit(): Promise<boolean> {
+  let ip = "unknown";
+  try {
+    const h = await headers();
+    ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "unknown";
+  } catch {
+    // Called outside a request (e.g. from a test) — skip rate limiting.
+    return true;
+  }
+  const now = Date.now();
+  const cur = signUpHits.get(ip);
+  if (!cur || cur.resetAt < now) {
+    signUpHits.set(ip, { count: 1, resetAt: now + SIGNUP_WINDOW_MS });
+    return true;
+  }
+  if (cur.count >= SIGNUP_LIMIT) return false;
+  cur.count++;
+  return true;
+}
+
 export async function signUp(input: { email: string; password: string; name: string }): Promise<Result<{ userId: string }>> {
+  if (!(await checkSignUpRateLimit())) {
+    return { ok: false, error: "Too many sign-up attempts from this network. Please wait an hour and try again." };
+  }
   const email = input.email.trim().toLowerCase();
   const name = input.name.trim();
   if (!EMAIL_RE.test(email)) return { ok: false, error: "Enter a valid email address" };

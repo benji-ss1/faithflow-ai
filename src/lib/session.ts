@@ -64,10 +64,10 @@ export async function requireUser(): Promise<CurrentUser> {
     try { await signOut({ redirect: false }); } catch { /* ignore */ }
     redirect("/login?reason=stale-session");
   }
-  // Signed up, but hasn't finished the onboarding wizard. Send them there
-  // rather than into a protected route where they'd hit missing-church
-  // errors on every write.
-  if (!partial.churchId) redirect("/onboarding");
+  // Signed up, but hasn't finished the onboarding wizard. Send them to the
+  // church-details step (CP5) rather than into a protected route where
+  // they'd hit missing-church errors on every write.
+  if (!partial.churchId) redirect("/onboarding/church");
   return { id: partial.id, email: partial.email, name: partial.name, churchId: partial.churchId, role: partial.role };
 }
 
