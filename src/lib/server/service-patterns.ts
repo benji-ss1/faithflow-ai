@@ -17,7 +17,7 @@
 //
 // Overclaiming here would be dishonest — this is a starting foundation.
 
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../db/client";
 import { servicePlans, serviceItems, churchServicePatterns, songs } from "../db/schema";
 
@@ -98,7 +98,7 @@ export async function recomputeChurchPatterns(churchId: string): Promise<Pattern
     .slice(0, 10);
   if (topSongIds.length > 0) {
     const rows = await db.select({ id: songs.id, title: songs.title }).from(songs)
-      .where(and(eq(songs.churchId, churchId), sql`${songs.id} = ANY(${topSongIds.map(([id]) => id)})`));
+      .where(and(eq(songs.churchId, churchId), inArray(songs.id, topSongIds.map(([id]) => id))));
     const idToTitle = new Map(rows.map((r) => [r.id, r.title]));
     summary.topSongs = topSongIds
       .map(([id, count]) => ({ title: idToTitle.get(id) || "(deleted song)", count }))

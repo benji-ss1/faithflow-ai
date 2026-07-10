@@ -11,5 +11,6 @@ export async function GET(req: Request) {
   const planId = url.searchParams.get("planId");
   if (!planId) return NextResponse.json({ error: "planId required" }, { status: 400 });
   const rows = await listSuggestionHistory(planId, user.churchId);
+  if (rows === null) return NextResponse.json({ error: "Plan not found" }, { status: 404 });
   return NextResponse.json({ rows });
 }

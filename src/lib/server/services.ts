@@ -107,13 +107,15 @@ export type SuggestionHistoryRow = {
   resolvedAt: Date | null;
 };
 
-export async function listSuggestionHistory(planId: string, churchId: string, limit = 50): Promise<SuggestionHistoryRow[]> {
+export async function listSuggestionHistory(planId: string, churchId: string, limit = 50): Promise<SuggestionHistoryRow[] | null> {
   const db = getDb();
   const [plan] = await db.select({ id: servicePlans.id })
     .from(servicePlans)
     .where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, churchId)))
     .limit(1);
-  if (!plan) return [];
+  // Return null (not empty array) to let callers distinguish "cross-church access"
+  // from "own plan with zero history" — the API route surfaces this as 404.
+  if (!plan) return null;
   const rows = await db.select().from(aiSuggestions)
     .where(eq(aiSuggestions.servicePlanId, planId))
     .orderBy(desc(aiSuggestions.createdAt))

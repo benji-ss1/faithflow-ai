@@ -17,9 +17,13 @@ export default async function ServicesPage() {
   return (
     <div>
       <PageHeader eyebrow="Services" title="Service plans" />
-      <form action={create} className="flex gap-2 mb-6">
+      <form action={create} className="flex flex-wrap gap-2 mb-6 items-center">
         <input name="title" placeholder="New service title (e.g. Sunday Morning)" required
           className="flex-1 max-w-md h-9 px-3 border border-border rounded-md bg-background text-sm" />
+        <label className="text-xs text-muted-foreground inline-flex items-center gap-1.5 select-none">
+          <input type="checkbox" name="applySuggestion" value="1" className="h-3.5 w-3.5" />
+          Suggest structure from your history
+        </label>
         <button className="h-9 px-4 bg-foreground text-background rounded-md text-sm font-semibold hover:opacity-90">Create</button>
       </form>
       {plans.length === 0 ? (
