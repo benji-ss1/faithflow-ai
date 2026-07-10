@@ -2,7 +2,7 @@
 // Phase 5D-3 — compact "AI helpers" section that lives inside the AI tab.
 // Five cards, each surfaces a `reason` string so the operator understands
 // WHY the suggestion was made. All requests go through /api/ai/helpers/*.
-// If GROQ_API_KEY is missing, every card shows a graceful disabled state.
+// If XAI_API_KEY is missing, every card shows a graceful disabled state.
 
 import { useState } from "react";
 import { Wand2, Sparkles, Type as TypeIcon, Megaphone, Wrench, Loader2, AlertCircle, Check } from "lucide-react";
@@ -121,7 +121,7 @@ function ErrorLine({ code, error }: { code: string; error: string }) {
     return (
       <div className="text-[10px] text-amber-300 flex items-start gap-1">
         <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />
-        <span>Groq API key required.{" "}
+        <span>xAI API key required.{" "}
           <a href="/settings" className="underline">Add it in Settings</a>.
         </span>
       </div>
