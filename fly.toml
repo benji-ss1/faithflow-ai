@@ -1,0 +1,40 @@
+# Fly.io config for the FaithFlow audio WebSocket bridge.
+# Deploy: fly launch --copy-config --no-deploy   (first time)
+#         fly deploy                              (subsequent)
+#
+# This runs scripts/audio-server.ts as a long-lived Node process on port
+# 3001, with TLS termination on 443 handled by Fly's edge. The Vercel
+# app talks to this host via NEXT_PUBLIC_AUDIO_WS_URL=wss://<app-name>.fly.dev
+
+app = "faithflow-audio"
+primary_region = "lhr"     # London — closest to demo cohort. Change if you prefer.
+kill_signal = "SIGTERM"
+kill_timeout = 10
+
+[build]
+  dockerfile = "Dockerfile.audio"
+
+[env]
+  NODE_ENV = "production"
+  AUDIO_WS_PORT = "3001"
+
+[[services]]
+  internal_port = 3001
+  protocol = "tcp"
+  auto_stop_machines = "off"     # audio bridge must stay warm
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [[services.tcp_checks]]
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "30s"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512

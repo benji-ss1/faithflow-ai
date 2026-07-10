@@ -1,0 +1,29 @@
+# Dockerfile for the audio WebSocket bridge deployed to Fly.io.
+# Runs only scripts/audio-server.ts — no Next.js server. TLS is terminated
+# by Fly's edge proxy on 443; this container listens on 3001 internally.
+
+FROM node:20-slim
+
+WORKDIR /app
+
+# Copy manifest first for cache efficiency
+COPY package.json package-lock.json* ./
+RUN npm ci --omit=dev --ignore-scripts && npm i tsx
+
+# Copy source. We need:
+#   - scripts/audio-server.ts
+#   - src/lib/db/*         (Drizzle client + schema)
+#   - src/lib/bible-parser.ts, song-parser.ts, command-parser.ts
+#   - src/lib/server/bible.ts (semantic search)
+#   - src/lib/embeddings.ts   (if referenced)
+# Simplest: copy everything the script imports transitively.
+COPY scripts ./scripts
+COPY src ./src
+COPY tsconfig.json ./
+COPY drizzle.config.ts ./
+
+ENV NODE_ENV=production
+EXPOSE 3001
+
+# tsx handles TS transpile on the fly — no separate build step needed.
+CMD ["npx", "tsx", "scripts/audio-server.ts"]
