@@ -217,6 +217,7 @@ export const bibleTranslations = pgTable("bible_translations", {
   code: text("code").notNull().unique(),
   name: text("name").notNull(),
   isPublicDomain: boolean("is_public_domain").notNull().default(true),
+  licenseRequired: boolean("license_required").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

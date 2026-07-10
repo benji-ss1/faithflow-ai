@@ -7,6 +7,8 @@ export const runtime = "nodejs";
 export async function GET() {
   const user = await apiUser();
   if (!user) return NextResponse.json({ translations: [] }); // don't reveal auth state on a shared read
-  const translations = await listTranslations();
+  // Only public-domain translations are exposed here. Licensed slots have no
+  // verses stored and MUST NOT appear in the operator picker.
+  const translations = (await listTranslations()).filter((t) => !t.licenseRequired);
   return NextResponse.json({ translations });
 }

@@ -11,7 +11,9 @@ import { BibleTranslationGrid } from "@/components/library/BibleTranslationGrid"
 export default async function BiblePage() {
   const user = await requireUser();
   const db = getDb();
-  const translations = await listTranslations();
+  const allTranslations = await listTranslations();
+  const translations = allTranslations.filter((t) => !t.licenseRequired);
+  const licensedSlots = allTranslations.filter((t) => t.licenseRequired);
   const connectedLicensed = await db.select().from(licensedTranslations).where(eq(licensedTranslations.churchId, user.churchId));
   if (translations.length === 0) {
     return (
@@ -36,7 +38,7 @@ export default async function BiblePage() {
         title="Bible Library"
         description="Public-domain translations are built in for MVP. Licensed translations stay visible, but locked, until a provider or church-owned rights path is connected."
       />
-      <BibleTranslationGrid publicTranslations={translations} licensedTranslations={connectedLicensed} />
+      <BibleTranslationGrid publicTranslations={translations} licensedSlots={licensedSlots} licensedTranslations={connectedLicensed} />
       <BibleBrowser
         translations={translations}
         initialTranslationId={defaultT.id}

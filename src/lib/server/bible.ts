@@ -6,16 +6,30 @@ import { getDb } from "../db/client";
 import { bibleTranslations, bibleVerses } from "../db/schema";
 import { embed, toVectorLiteral } from "../embeddings";
 
-export type Translation = { id: string; code: string; name: string; isPublicDomain: boolean };
+export type Translation = { id: string; code: string; name: string; isPublicDomain: boolean; licenseRequired: boolean };
 export type Verse = { id: string; book: string; bookOrder: number; chapter: number; verse: number; text: string };
+
+/**
+ * Server-side invariant: any read that returns verse text must be gated on
+ * this check. Licensed translations (NIV/ESV/NKJV) MUST NOT return content
+ * through any code path — they have no verses stored, but we hard-guard
+ * anyway to prevent accidental future leakage.
+ */
+async function isLicensedTranslation(translationId: string): Promise<boolean> {
+  const db = getDb();
+  const [row] = await db.select({ licenseRequired: bibleTranslations.licenseRequired })
+    .from(bibleTranslations).where(eq(bibleTranslations.id, translationId)).limit(1);
+  return !!row?.licenseRequired;
+}
 
 export async function listTranslations(): Promise<Translation[]> {
   const db = getDb();
   const rows = await db.select().from(bibleTranslations).orderBy(asc(bibleTranslations.code));
-  return rows.map((r) => ({ id: r.id, code: r.code, name: r.name, isPublicDomain: r.isPublicDomain }));
+  return rows.map((r) => ({ id: r.id, code: r.code, name: r.name, isPublicDomain: r.isPublicDomain, licenseRequired: r.licenseRequired }));
 }
 
 export async function listBooks(translationId: string): Promise<{ book: string; bookOrder: number; chapters: number }[]> {
+  if (await isLicensedTranslation(translationId)) return [];
   const db = getDb();
   const rows = (await db.execute(sql`
     SELECT book, book_order AS "bookOrder", MAX(chapter) AS chapters
@@ -26,6 +40,7 @@ export async function listBooks(translationId: string): Promise<{ book: string; 
 }
 
 export async function getChapter(translationId: string, book: string, chapter: number): Promise<Verse[]> {
+  if (await isLicensedTranslation(translationId)) return [];
   const db = getDb();
   const rows = await db.select().from(bibleVerses).where(
     and(eq(bibleVerses.translationId, translationId), eq(bibleVerses.book, book), eq(bibleVerses.chapter, chapter))
@@ -34,6 +49,7 @@ export async function getChapter(translationId: string, book: string, chapter: n
 }
 
 export async function lookupReference(translationId: string, book: string, chapter: number, verseStart: number, verseEnd: number): Promise<Verse[]> {
+  if (await isLicensedTranslation(translationId)) return [];
   const db = getDb();
   const rows = (await db.execute(sql`
     SELECT id, book, book_order AS "bookOrder", chapter, verse, text
@@ -57,6 +73,7 @@ export async function lookupReference(translationId: string, book: string, chapt
  * < 1 or verseEnd+windowSize > max chapter verse, it returns what exists.
  */
 export async function lookupReferenceWithWindow(translationId: string, book: string, chapter: number, verseStart: number, verseEnd: number, windowSize = 5): Promise<{ primary: Verse[]; before: Verse[]; after: Verse[] }> {
+  if (await isLicensedTranslation(translationId)) return { primary: [], before: [], after: [] };
   const db = getDb();
   const winStart = Math.max(1, verseStart - windowSize);
   const winEnd = verseEnd + windowSize;
@@ -79,6 +96,7 @@ export async function lookupReferenceWithWindow(translationId: string, book: str
 export type SearchHit = Verse & { distance: number };
 
 export async function semanticSearch(translationId: string, query: string, limit = 20): Promise<SearchHit[]> {
+  if (await isLicensedTranslation(translationId)) return [];
   const db = getDb();
   const vec = await embed(query);
   const lit = toVectorLiteral(vec);

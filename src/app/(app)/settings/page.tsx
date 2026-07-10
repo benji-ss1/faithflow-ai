@@ -5,6 +5,7 @@ import { settings, churchPreferences } from "@/lib/db/schema";
 import { listTranslations } from "@/lib/server/bible";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { SettingsForm } from "@/components/settings/SettingsForm";
+import { TranslationsPanel } from "@/components/settings/TranslationsPanel";
 
 export default async function SettingsPage() {
   const user = await requireUser();
@@ -34,8 +35,11 @@ export default async function SettingsPage() {
           autoApproveThreshold: prefs?.autoApproveThreshold ?? 90,
           autoSendToLive: prefs?.autoSendToLive ?? false,
         }}
-        translations={translations}
+        translations={translations.filter((t) => !t.licenseRequired)}
       />
+      <div className="mt-10">
+        <TranslationsPanel translations={translations} />
+      </div>
     </div>
   );
 }
