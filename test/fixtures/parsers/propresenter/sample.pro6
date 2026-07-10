@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RVPresentationDocument CCLISongTitle="Amazing Grace" CCLIAuthor="John Newton" CCLISongNumber="22025" versionNumber="600" docType="0" category="Song">
+  <groups>
+    <RVSlideGrouping name="Verse 1">
+      <slides>
+        <RVDisplaySlide UUID="s1">
+          <displayElements>
+            <RVTextElement displayName="TextElement" RTFData="e1xydGYxIEFtYXppbmcgZ3JhY2UgaG93IHN3ZWV0IHRoZSBzb3VuZApUaGF0IHNhdmVkIGEgd3JldGNoIGxpa2UgbWV9"/>
+          </displayElements>
+        </RVDisplaySlide>
+        <RVDisplaySlide UUID="s2">
+          <displayElements>
+            <RVTextElement displayName="TextElement" RTFData="e1xydGYxIEkgb25jZSB3YXMgbG9zdCBidXQgbm93IGFtIGZvdW5kCldhcyBibGluZCBidXQgbm93IEkgc2VlfQ=="/>
+          </displayElements>
+        </RVDisplaySlide>
+      </slides>
+    </RVSlideGrouping>
+  </groups>
+</RVPresentationDocument>

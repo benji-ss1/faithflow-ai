@@ -1,8 +1,18 @@
-// WorshipTools / Worship Extreme parser — STUB.
-//
-// WorshipTools (worshiptools.com) — SongShow / Worship Extreme — uses
-// .wtx or .wtt files, undocumented proprietary format. This parser only
-// detects and reports; the user should export as CSV/plain text.
+/**
+ * WorshipTools / Worship Extreme parser — DETECTION-ONLY STUB.
+ *
+ * Target format:
+ *   - `.wtx`, `.wtt` — proprietary WorshipTools / SongShow / Worship
+ *     Extreme files. Undocumented; no community parser exists.
+ *
+ * Format source: no public spec.
+ *
+ * CAN parse: nothing.
+ * CANNOT parse: `.wtx`, `.wtt`.
+ *
+ * Safety: never throws; detected files are surfaced as skipped[] entries
+ * with guidance to export as CSV / plain text.
+ */
 
 import type { Parser, ParseResult } from "./index";
 

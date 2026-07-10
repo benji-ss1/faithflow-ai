@@ -1,18 +1,43 @@
-// Proclaim (Faithlife) parser.
-//
-// Proclaim exports individual service items as JSON files, or bulk-exports
-// whole presentations as .zip archives containing a `manifest.json`. This
-// parser handles both:
-//   - Raw .json with `type === "song"` (or nested `kind: "song"`) is parsed
-//     for `title`, `author`, and slides in `stanzas[]` / `slides[]` / `content`.
-//   - .zip archives are unpacked and each internal .json is parsed the same way.
-//
-// The Proclaim JSON schema is not officially published, so we best-effort
-// map common fields and record everything else as a warning. Bad files are
-// skipped (never crash).
+/**
+ * Proclaim (Faithlife) parser.
+ *
+ * Target format:
+ *   - Extensions: `.json` (per-item), `.proclaim` or `.zip` (bulk archive)
+ *   - Container: ZIP archives typically contain a `manifest.json` and
+ *     one JSON file per service item.
+ *   - Encoding: UTF-8 JSON.
+ *
+ * Format source: Faithlife has not published an official schema for the
+ * Proclaim export JSON. Our field mapping is derived from real exports
+ * shared by community users (title/name, author/artist, stanzas[]/slides[],
+ * type=="song"). All mapping is best-effort.
+ *
+ * CAN parse:
+ *   - Single `.json` files whose top-level type is a song (or that expose
+ *     a `stanzas[]` / `slides[]` / `content` payload).
+ *   - `.zip` / `.proclaim` archives — every internal `.json` is inspected
+ *     and merged into the result.
+ *
+ * CANNOT parse:
+ *   - Media assets (extracted separately by the wizard).
+ *   - Non-song service items (announcements, videos) — silently ignored.
+ *
+ * Field verification:
+ *   - title, slides: best-effort (not verified against an official schema).
+ *   - artist: best-effort (falls back to null).
+ *
+ * Safety:
+ *   - Every zip passes through `inspectZip` (entry cap, uncompressed cap,
+ *     path traversal).
+ *   - JSON is decoded via `safeJsonParse` which rejects prototype-pollution
+ *     payloads (`__proto__`, `constructor`, `prototype` keys).
+ *   - Strict UTF-8 decoding.
+ *   - Never throws; per-entry failures land in skipped[].
+ */
 
 import type { Parser, ParseResult, ParsedSong } from "./index";
 import AdmZip from "adm-zip";
+import { inspectZip, safeJsonParse, decodeUtf8Strict } from "./safety";
 
 type LooseSong = {
   type?: string;
@@ -83,32 +108,56 @@ export const proclaimParser: Parser = {
     for (const f of files) {
       try {
         if (/\.zip$|\.proclaim$/i.test(f.name)) {
-          // Attempt to unzip and read internal .json files.
-          const zip = new AdmZip(f.buffer);
-          const entries = zip.getEntries();
+          let zip: AdmZip;
+          try {
+            zip = new AdmZip(f.buffer);
+          } catch (e) {
+            skipped.push({ file: f.name, reason: `Invalid zip: ${e instanceof Error ? e.message : "unknown"}` });
+            continue;
+          }
+          const inspect = inspectZip(zip);
+          if (!inspect.ok) {
+            skipped.push({ file: f.name, reason: inspect.reason });
+            continue;
+          }
           let parsedAny = false;
-          for (const e of entries) {
+          for (const e of inspect.entries) {
             if (e.isDirectory) continue;
             if (!/\.json$/i.test(e.entryName)) continue;
+            let text: string;
             try {
-              const text = e.getData().toString("utf8");
-              const parsed = JSON.parse(text);
-              const song = extractSong(parsed, `${f.name}:${e.entryName}`);
-              if (song) { songs.push(song); parsedAny = true; }
+              text = decodeUtf8Strict(e.getData());
             } catch {
-              skipped.push({ file: `${f.name}:${e.entryName}`, reason: "Invalid JSON inside archive" });
+              skipped.push({ file: `${f.name}:${e.entryName}`, reason: "Entry is not valid UTF-8" });
+              continue;
             }
+            const parsedJson = safeJsonParse(text);
+            if (!parsedJson.ok) {
+              skipped.push({ file: `${f.name}:${e.entryName}`, reason: parsedJson.reason });
+              continue;
+            }
+            const song = extractSong(parsedJson.value, `${f.name}:${e.entryName}`);
+            if (song) { songs.push(song); parsedAny = true; }
           }
           if (!parsedAny) {
             skipped.push({ file: f.name, reason: "No song JSON entries recognized inside archive" });
           }
         } else if (/\.json$/i.test(f.name)) {
-          const parsed = JSON.parse(f.buffer.toString("utf8"));
-          const song = extractSong(parsed, f.name);
+          let text: string;
+          try {
+            text = decodeUtf8Strict(f.buffer);
+          } catch {
+            skipped.push({ file: f.name, reason: "File is not valid UTF-8" });
+            continue;
+          }
+          const parsedJson = safeJsonParse(text);
+          if (!parsedJson.ok) {
+            skipped.push({ file: f.name, reason: parsedJson.reason });
+            continue;
+          }
+          const song = extractSong(parsedJson.value, f.name);
           if (song) songs.push(song);
           else skipped.push({ file: f.name, reason: "JSON did not match Proclaim song shape" });
-        } else {
-          // Non-JSON, non-zip — silently ignore
         }
       } catch (e) {
         skipped.push({ file: f.name, reason: e instanceof Error ? e.message : "Parse failed" });

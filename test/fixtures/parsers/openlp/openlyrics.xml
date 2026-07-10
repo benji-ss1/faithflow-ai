@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<song xmlns="http://openlyrics.info/namespace/2009/song" version="0.9">
+  <properties>
+    <titles>
+      <title>Blessed Assurance</title>
+    </titles>
+    <authors>
+      <author>Fanny Crosby</author>
+    </authors>
+  </properties>
+  <lyrics>
+    <verse name="v1">
+      <lines>Blessed assurance Jesus is mine<br/>O what a foretaste of glory divine</lines>
+    </verse>
+    <verse name="c">
+      <lines>This is my story this is my song<br/>Praising my Savior all the day long</lines>
+    </verse>
+  </lyrics>
+</song>

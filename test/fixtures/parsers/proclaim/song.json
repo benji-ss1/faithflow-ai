@@ -1,0 +1,9 @@
+{
+  "type": "song",
+  "title": "It Is Well With My Soul",
+  "author": "Horatio Spafford",
+  "stanzas": [
+    { "text": "When peace like a river attendeth my way" },
+    { "text": "When sorrows like sea billows roll" }
+  ]
+}

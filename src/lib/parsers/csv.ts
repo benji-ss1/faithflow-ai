@@ -1,12 +1,32 @@
-// CSV / plain-text parser.
-//
-// Supports the same two shapes as `importSongsCsv` in ../actions.ts:
-//   1) CSV: title,artist,slide1,slide2,...
-//   2) Plain text: sections separated by lines of "---" or "===";
-//      first non-blank line is title; second (if it starts with "by ")
-//      is artist; rest is split into slides on blank lines.
+/**
+ * CSV / plain-text parser.
+ *
+ * Target format:
+ *   - Extensions: `.csv`, `.txt`
+ *   - Container: plain UTF-8 text
+ *
+ * Format source: our own convention (documented in the import wizard and in
+ * `../actions.ts#importSongsCsv`). Two shapes are supported:
+ *   1) CSV: `title,artist,slide1,slide2,...` — one song per line.
+ *   2) Plain text: sections separated by lines of `---` or `===`.
+ *      The first non-blank line of each section is the title. If the second
+ *      line matches `by <name>` it's treated as artist. Everything else is
+ *      split into slides on blank lines.
+ *
+ * CAN parse:
+ *   - Both shapes above, mixed inside a single upload (per-file).
+ *
+ * CANNOT parse:
+ *   - Quoted CSV cells containing commas (naive comma split).
+ *   - Excel `.xlsx` binaries — user must export as CSV.
+ *
+ * Safety:
+ *   - Strict UTF-8 decoding.
+ *   - Never throws; malformed files land in skipped[] with a reason.
+ */
 
 import type { Parser, ParseResult, ParsedSong } from "./index";
+import { decodeUtf8Strict } from "./safety";
 
 function parseOne(text: string, sourceFile: string): ParsedSong[] {
   const src = text.replace(/\r/g, "").trim();
@@ -65,7 +85,14 @@ export const csvParser: Parser = {
     for (const f of files) {
       try {
         if (!/\.(csv|txt)$/i.test(f.name)) continue;
-        const parsed = parseOne(f.buffer.toString("utf8"), f.name);
+        let text: string;
+        try {
+          text = decodeUtf8Strict(f.buffer);
+        } catch {
+          skipped.push({ file: f.name, reason: "File is not valid UTF-8" });
+          continue;
+        }
+        const parsed = parseOne(text, f.name);
         if (parsed.length === 0) {
           skipped.push({ file: f.name, reason: "No songs recognized in file" });
         } else {

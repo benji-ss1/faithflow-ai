@@ -1,9 +1,19 @@
-// MediaShout parser — STUB.
-//
-// MediaShout uses a proprietary .msh (script) file plus a database backend
-// (SQL Server in older versions, SQLite in newer). The .msh format is
-// undocumented binary. We only detect + skip with a clear message so the
-// wizard remains usable and the user knows what to expect.
+/**
+ * MediaShout parser — DETECTION-ONLY STUB.
+ *
+ * Target format:
+ *   - `.msh` (MediaShout script) — proprietary binary; no public spec.
+ *   - Backend database — SQL Server (older) or SQLite (newer).
+ *
+ * Format source: no public spec. MediaShout has never published a format
+ * reference and there is no community-maintained parser we can build on.
+ *
+ * CAN parse: nothing.
+ * CANNOT parse: `.msh`, MediaShout DB files.
+ *
+ * Safety: never throws; detected files are surfaced as skipped[] entries.
+ * The wizard tells the user to export as CSV / plain text.
+ */
 
 import type { Parser, ParseResult } from "./index";
 
