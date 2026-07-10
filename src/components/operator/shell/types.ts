@@ -86,4 +86,5 @@ export type OperatorShellCtx = {
 
 export type InspectorTab =
   | "output" | "messages" | "props" | "audio"
-  | "layers" | "ai" | "stage" | "status";
+  | "layers" | "ai" | "stage" | "status"
+  | "slide" | "text" | "shape";

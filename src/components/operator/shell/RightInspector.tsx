@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import {
   Monitor, MessageSquare, Package, Volume2, Layers, Sparkles, Radio, Activity,
-  Trash2, ChevronDown, ChevronRight,
+  Trash2, ChevronDown, ChevronRight, Layout, Type as TypeIcon, Square,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
@@ -10,9 +10,14 @@ import { AIAssistantPanel } from "../AIAssistantPanel";
 import { SuggestionHistory } from "../SuggestionHistory";
 import { isVerseLikelyMisheard, getChapterVerseCount } from "@/lib/bible-chapter-verses";
 import type { OperatorShellCtx, InspectorTab } from "./types";
+import { useSlideEditorCtx } from "../editor/SlideEditorContext";
+import type { SlideObject, TextObject, ShapeObject } from "@/lib/slide-objects";
 
 const TABS: { key: InspectorTab; label: string; icon: typeof Monitor }[] = [
   { key: "output",   label: "Output",   icon: Monitor },
+  { key: "slide",    label: "Slide",    icon: Layout },
+  { key: "text",     label: "Text",     icon: TypeIcon },
+  { key: "shape",    label: "Shape",    icon: Square },
   { key: "messages", label: "Messages", icon: MessageSquare },
   { key: "props",    label: "Props",    icon: Package },
   { key: "audio",    label: "Audio",    icon: Volume2 },
@@ -68,6 +73,9 @@ export function RightInspector({ ctx, tab, onTabChange }: {
       {/* Tab body */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         {tab === "output"   && <OutputTab ctx={ctx} />}
+        {tab === "slide"    && <SlideTab />}
+        {tab === "text"     && <TextTab />}
+        {tab === "shape"    && <ShapeTab />}
         {tab === "messages" && <MessagesTab ctx={ctx} />}
         {tab === "props"    && <PropsTab />}
         {tab === "audio"    && <AudioTab ctx={ctx} />}
@@ -389,6 +397,297 @@ function StatusTab({ ctx }: { ctx: OperatorShellCtx }) {
           <span className="text-[10px] font-mono text-zinc-500">{r.ok ? "OK" : "IDLE"}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ------------------------- Phase 5D editor tabs -------------------------
+
+const SAFE_FONTS = ["Inter", "Helvetica Neue", "Arial", "Georgia", "Times New Roman", "Courier New"];
+
+function SlideTab() {
+  const editor = useSlideEditorCtx();
+  if (!editor) return <div className="p-3 text-[11px] text-zinc-500">Editor unavailable.</div>;
+  if (!editor.currentSlide) {
+    return <div className="p-3 text-[11px] text-zinc-500 italic">No slide selected.</div>;
+  }
+  const slide = editor.currentSlide;
+  const disabled = !editor.isEditable;
+  return (
+    <div className="p-3 space-y-3">
+      <Section label="Background color">
+        <div className="flex items-center gap-2">
+          <input
+            type="color"
+            value={slide.bgColor || "#0b0b0b"}
+            onChange={(e) => editor.setBg({ bgColor: e.target.value })}
+            disabled={disabled}
+            className="h-8 w-12 rounded-md border cursor-pointer disabled:opacity-40"
+            style={{ borderColor: "#2a3232", background: "#1a2020" }}
+          />
+          <input
+            type="text"
+            value={slide.bgColor || ""}
+            placeholder="#0b0b0b"
+            onChange={(e) => editor.setBg({ bgColor: e.target.value })}
+            disabled={disabled}
+            className="flex-1 h-8 px-2 rounded-md text-[12px] text-zinc-100 placeholder:text-zinc-500 border focus:outline-none disabled:opacity-40"
+            style={{ background: "#1a2020", borderColor: "#2a3232" }}
+          />
+        </div>
+      </Section>
+
+      <Section label="Background image URL">
+        <input
+          type="text"
+          value={slide.bgImageUrl || ""}
+          placeholder="https://…"
+          onChange={(e) => editor.setBg({ bgImageUrl: e.target.value || undefined })}
+          disabled={disabled}
+          className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 placeholder:text-zinc-500 border focus:outline-none disabled:opacity-40"
+          style={{ background: "#1a2020", borderColor: "#2a3232" }}
+        />
+      </Section>
+
+      <Section label="Transition">
+        <div className="text-[11px] text-zinc-500 italic">Transitions ship in Run 2.</div>
+      </Section>
+
+      <Section label="Enabled">
+        <button
+          disabled
+          title="Enable / hotkey wiring ships in Run 2"
+          className="h-7 px-2 rounded-md border text-[10px] font-bold uppercase tracking-wider opacity-40"
+          style={{ borderColor: "#2a3232", background: "#1a2020", color: "#e4e4e7" }}
+        >
+          On
+        </button>
+      </Section>
+
+      <Section label="Hotkey">
+        <input
+          type="text"
+          placeholder="e.g. F5"
+          disabled
+          title="Hotkey wiring ships in Run 2"
+          className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 placeholder:text-zinc-500 border focus:outline-none opacity-40"
+          style={{ background: "#1a2020", borderColor: "#2a3232" }}
+        />
+      </Section>
+
+      <Section label="Add object">
+        <div className="flex gap-1.5 flex-wrap">
+          <button
+            onClick={editor.addTextObject}
+            disabled={disabled}
+            className="h-7 px-2 rounded-md border text-[10px] font-bold uppercase tracking-wider disabled:opacity-40"
+            style={{ borderColor: "#2a3232", background: "#1a2020", color: "#e4e4e7" }}
+          >
+            + Text
+          </button>
+          <button
+            onClick={() => editor.addShape("rect")}
+            disabled={disabled}
+            className="h-7 px-2 rounded-md border text-[10px] font-bold uppercase tracking-wider disabled:opacity-40"
+            style={{ borderColor: "#2a3232", background: "#1a2020", color: "#e4e4e7" }}
+          >
+            + Rect
+          </button>
+          <button
+            onClick={() => editor.addShape("ellipse")}
+            disabled={disabled}
+            className="h-7 px-2 rounded-md border text-[10px] font-bold uppercase tracking-wider disabled:opacity-40"
+            style={{ borderColor: "#2a3232", background: "#1a2020", color: "#e4e4e7" }}
+          >
+            + Ellipse
+          </button>
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+function TextTab() {
+  const editor = useSlideEditorCtx();
+  if (!editor) return <div className="p-3 text-[11px] text-zinc-500">Editor unavailable.</div>;
+  const sel = editor.selectedObjectId
+    ? editor.currentSlide?.objects.find((o) => o.id === editor.selectedObjectId)
+    : null;
+  if (!sel || sel.kind !== "text") {
+    return (
+      <div className="p-3 text-[11px] text-zinc-500 italic leading-relaxed">
+        Select a text object to edit its font, color, alignment and content.
+      </div>
+    );
+  }
+  const t = sel as TextObject;
+  const patch = (p: Partial<SlideObject>) => editor.updateObject(t.id, p);
+
+  return (
+    <div className="p-3 space-y-3">
+      <Section label="Text content">
+        <textarea
+          value={t.text}
+          onChange={(e) => patch({ text: e.target.value })}
+          rows={4}
+          className="w-full px-2 py-1.5 rounded-md text-[12px] text-zinc-100 border focus:outline-none resize-y"
+          style={{ background: "#1a2020", borderColor: "#2a3232" }}
+        />
+      </Section>
+
+      <Section label="Font family">
+        <select
+          value={t.fontFamily || "Inter"}
+          onChange={(e) => patch({ fontFamily: e.target.value })}
+          className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
+          style={{ background: "#1a2020", borderColor: "#2a3232" }}
+        >
+          {SAFE_FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
+        </select>
+      </Section>
+
+      <Section label="Weight">
+        <div className="inline-flex items-center rounded-md border" style={{ borderColor: "#2a3232" }}>
+          {[400, 500, 600, 700].map((w) => {
+            const on = (t.fontWeight ?? 600) === w;
+            return (
+              <button key={w} onClick={() => patch({ fontWeight: w })}
+                className={cn(
+                  "h-7 px-2 text-[10px] font-bold border-r last:border-r-0",
+                  on ? "bg-teal-500/15 text-teal-200" : "text-zinc-400 hover:text-zinc-100 hover:bg-white/5",
+                )}
+                style={{ borderColor: "#2a3232" }}>
+                {w}
+              </button>
+            );
+          })}
+        </div>
+      </Section>
+
+      <Section label="Size (px)">
+        <input
+          type="number"
+          min={8}
+          value={t.fontSize ?? 96}
+          onChange={(e) => patch({ fontSize: Number(e.target.value) || 0 })}
+          className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
+          style={{ background: "#1a2020", borderColor: "#2a3232" }}
+        />
+      </Section>
+
+      <Section label="Color">
+        <div className="flex items-center gap-2">
+          <input type="color" value={t.color || "#ffffff"} onChange={(e) => patch({ color: e.target.value })}
+            className="h-8 w-12 rounded-md border cursor-pointer"
+            style={{ borderColor: "#2a3232", background: "#1a2020" }} />
+          <input type="text" value={t.color || ""} onChange={(e) => patch({ color: e.target.value })}
+            className="flex-1 h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
+            style={{ background: "#1a2020", borderColor: "#2a3232" }} />
+        </div>
+      </Section>
+
+      <Section label="Align">
+        <div className="inline-flex items-center rounded-md border" style={{ borderColor: "#2a3232" }}>
+          {(["left", "center", "right"] as const).map((a) => {
+            const on = (t.align ?? "center") === a;
+            return (
+              <button key={a} onClick={() => patch({ align: a })}
+                className={cn(
+                  "h-7 px-2 text-[10px] font-bold uppercase border-r last:border-r-0",
+                  on ? "bg-teal-500/15 text-teal-200" : "text-zinc-400 hover:text-zinc-100 hover:bg-white/5",
+                )}
+                style={{ borderColor: "#2a3232" }}>
+                {a}
+              </button>
+            );
+          })}
+        </div>
+      </Section>
+
+      <Section label="Style">
+        <div className="flex gap-1.5">
+          <button onClick={() => patch({ italic: !t.italic })}
+            className={cn(
+              "h-7 px-2 rounded-md border text-[10px] font-bold italic",
+              t.italic ? "bg-teal-500/15 border-teal-500/60 text-teal-200" : "text-zinc-400",
+            )}
+            style={{ borderColor: t.italic ? undefined : "#2a3232", background: t.italic ? undefined : "#1a2020" }}
+          >I</button>
+          <button onClick={() => patch({ underline: !t.underline })}
+            className={cn(
+              "h-7 px-2 rounded-md border text-[10px] font-bold underline",
+              t.underline ? "bg-teal-500/15 border-teal-500/60 text-teal-200" : "text-zinc-400",
+            )}
+            style={{ borderColor: t.underline ? undefined : "#2a3232", background: t.underline ? undefined : "#1a2020" }}
+          >U</button>
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+function ShapeTab() {
+  const editor = useSlideEditorCtx();
+  if (!editor) return <div className="p-3 text-[11px] text-zinc-500">Editor unavailable.</div>;
+  const sel = editor.selectedObjectId
+    ? editor.currentSlide?.objects.find((o) => o.id === editor.selectedObjectId)
+    : null;
+  if (!sel || sel.kind !== "shape") {
+    return (
+      <div className="p-3 text-[11px] text-zinc-500 italic leading-relaxed">
+        Select a shape object to edit fill, stroke, and radius.
+      </div>
+    );
+  }
+  const s = sel as ShapeObject;
+  const patch = (p: Partial<SlideObject>) => editor.updateObject(s.id, p);
+
+  return (
+    <div className="p-3 space-y-3">
+      <Section label="Fill">
+        <div className="flex items-center gap-2">
+          <input type="color" value={s.fill || "#14b8a6"} onChange={(e) => patch({ fill: e.target.value })}
+            className="h-8 w-12 rounded-md border cursor-pointer"
+            style={{ borderColor: "#2a3232", background: "#1a2020" }} />
+          <input type="text" value={s.fill || ""} onChange={(e) => patch({ fill: e.target.value })}
+            className="flex-1 h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
+            style={{ background: "#1a2020", borderColor: "#2a3232" }} />
+        </div>
+      </Section>
+
+      <Section label="Stroke">
+        <div className="flex items-center gap-2">
+          <input type="color" value={s.stroke || "#0f766e"} onChange={(e) => patch({ stroke: e.target.value })}
+            className="h-8 w-12 rounded-md border cursor-pointer"
+            style={{ borderColor: "#2a3232", background: "#1a2020" }} />
+          <input type="text" value={s.stroke || ""} onChange={(e) => patch({ stroke: e.target.value })}
+            className="flex-1 h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
+            style={{ background: "#1a2020", borderColor: "#2a3232" }} />
+        </div>
+      </Section>
+
+      <Section label="Stroke width (px)">
+        <input type="number" min={0} value={s.strokeWidth ?? 0}
+          onChange={(e) => patch({ strokeWidth: Number(e.target.value) || 0 })}
+          className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
+          style={{ background: "#1a2020", borderColor: "#2a3232" }} />
+      </Section>
+
+      <Section label="Corner radius (px)">
+        <input type="number" min={0} value={s.radius ?? 0}
+          onChange={(e) => patch({ radius: Number(e.target.value) || 0 })}
+          disabled={s.shape === "ellipse"}
+          title={s.shape === "ellipse" ? "Ellipse is fully rounded" : ""}
+          className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none disabled:opacity-40"
+          style={{ background: "#1a2020", borderColor: "#2a3232" }} />
+      </Section>
+
+      <Section label="Opacity">
+        <input type="number" min={0} max={1} step={0.05} value={s.opacity ?? 1}
+          onChange={(e) => patch({ opacity: Math.max(0, Math.min(1, Number(e.target.value))) })}
+          className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 border focus:outline-none"
+          style={{ background: "#1a2020", borderColor: "#2a3232" }} />
+      </Section>
     </div>
   );
 }

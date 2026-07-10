@@ -133,6 +133,10 @@ export const songSlides = pgTable("song_slides", {
   songId: uuid("song_id").references(() => songs.id, { onDelete: "cascade" }).notNull(),
   order: integer("order").notNull(),
   lyrics: text("lyrics").notNull(),
+  // Phase 5D — rich slide object model (nullable for backward compat).
+  // When present + non-empty, this is the source of truth; when null,
+  // the legacy `lyrics` string renders as a single full-canvas text object.
+  objectsJson: jsonb("objects_json"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

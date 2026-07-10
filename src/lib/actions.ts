@@ -112,6 +112,146 @@ export async function updateSongSlides(songId: string, slides: { lyrics: string 
   return { ok: true };
 }
 
+// --- Phase 5D: rich slide editing ------------------------------------------
+// Verify the slide belongs to a song owned by the caller's church. Two-hop
+// join: song_slides → songs → churches.
+async function assertSlideOwned(db: ReturnType<typeof getDb>, slideId: string, churchId: string) {
+  const [row] = await db.select({ id: songSlides.id, songId: songSlides.songId })
+    .from(songSlides)
+    .innerJoin(songs, eq(songs.id, songSlides.songId))
+    .where(and(eq(songSlides.id, slideId), eq(songs.churchId, churchId)))
+    .limit(1);
+  return row ?? null;
+}
+
+async function assertSongOwned(db: ReturnType<typeof getDb>, songId: string, churchId: string) {
+  const [row] = await db.select().from(songs)
+    .where(and(eq(songs.id, songId), eq(songs.churchId, churchId)))
+    .limit(1);
+  return row ?? null;
+}
+
+type EditableSlideInput = {
+  bgColor?: string;
+  bgImageUrl?: string;
+  objects: unknown[];
+  lyrics?: string;
+};
+
+export async function saveSlideObjects(slideId: string, editable: EditableSlideInput): Promise<Result> {
+  const user = await requireUser();
+  const db = getDb();
+  const owned = await assertSlideOwned(db, slideId, user.churchId);
+  if (!owned) return { ok: false, error: "Slide not found" };
+  // Regenerate lyrics from text objects so downstream matching stays healthy.
+  const textObjects = Array.isArray(editable.objects)
+    ? editable.objects.filter((o): o is { kind: string; text?: string } => typeof o === "object" && o !== null && (o as { kind?: unknown }).kind === "text")
+    : [];
+  const derivedLyrics = textObjects
+    .map((o) => (typeof o.text === "string" ? o.text.trim() : ""))
+    .filter(Boolean)
+    .join("\n") || editable.lyrics || "";
+  await db.update(songSlides).set({
+    objectsJson: {
+      bgColor: editable.bgColor,
+      bgImageUrl: editable.bgImageUrl,
+      objects: editable.objects,
+    },
+    lyrics: derivedLyrics,
+  }).where(eq(songSlides.id, slideId));
+  revalidatePath(`/library/songs/${owned.songId}`);
+  return { ok: true };
+}
+
+export async function createSongSlide(songId: string, atIndex?: number, initial?: EditableSlideInput): Promise<Result<{ id: string }>> {
+  const user = await requireUser();
+  const db = getDb();
+  const song = await assertSongOwned(db, songId, user.churchId);
+  if (!song) return { ok: false, error: "Song not found" };
+  const existing = await db.select({ id: songSlides.id, order: songSlides.order })
+    .from(songSlides).where(eq(songSlides.songId, songId)).orderBy(asc(songSlides.order));
+  const idx = typeof atIndex === "number" ? Math.max(0, Math.min(atIndex, existing.length)) : existing.length;
+  // Shift subsequent orders up by 1 to make room.
+  for (let i = existing.length - 1; i >= idx; i--) {
+    await db.update(songSlides).set({ order: i + 1 }).where(eq(songSlides.id, existing[i].id));
+  }
+  const objects = initial?.objects ?? [];
+  const textObjects = objects.filter((o): o is { kind: string; text?: string } =>
+    typeof o === "object" && o !== null && (o as { kind?: unknown }).kind === "text");
+  const derivedLyrics = textObjects
+    .map((o) => (typeof o.text === "string" ? o.text.trim() : ""))
+    .filter(Boolean)
+    .join("\n") || initial?.lyrics || "";
+  const [row] = await db.insert(songSlides).values({
+    songId,
+    order: idx,
+    lyrics: derivedLyrics,
+    objectsJson: objects.length > 0 ? {
+      bgColor: initial?.bgColor,
+      bgImageUrl: initial?.bgImageUrl,
+      objects,
+    } : null,
+  }).returning({ id: songSlides.id });
+  revalidatePath(`/library/songs/${songId}`);
+  return { ok: true, data: { id: row.id } };
+}
+
+export async function deleteSongSlide(slideId: string): Promise<Result> {
+  const user = await requireUser();
+  const db = getDb();
+  const owned = await assertSlideOwned(db, slideId, user.churchId);
+  if (!owned) return { ok: false, error: "Slide not found" };
+  await db.delete(songSlides).where(eq(songSlides.id, slideId));
+  // Re-pack order.
+  const rest = await db.select({ id: songSlides.id })
+    .from(songSlides).where(eq(songSlides.songId, owned.songId)).orderBy(asc(songSlides.order));
+  for (let i = 0; i < rest.length; i++) {
+    await db.update(songSlides).set({ order: i }).where(eq(songSlides.id, rest[i].id));
+  }
+  revalidatePath(`/library/songs/${owned.songId}`);
+  return { ok: true };
+}
+
+export async function duplicateSongSlide(slideId: string): Promise<Result<{ id: string }>> {
+  const user = await requireUser();
+  const db = getDb();
+  const owned = await assertSlideOwned(db, slideId, user.churchId);
+  if (!owned) return { ok: false, error: "Slide not found" };
+  const [src] = await db.select().from(songSlides).where(eq(songSlides.id, slideId)).limit(1);
+  if (!src) return { ok: false, error: "Slide not found" };
+  // Shift subsequent orders up.
+  const rest = await db.select({ id: songSlides.id, order: songSlides.order })
+    .from(songSlides).where(eq(songSlides.songId, src.songId)).orderBy(asc(songSlides.order));
+  const srcIdx = rest.findIndex((r) => r.id === slideId);
+  for (let i = rest.length - 1; i > srcIdx; i--) {
+    await db.update(songSlides).set({ order: rest[i].order + 1 }).where(eq(songSlides.id, rest[i].id));
+  }
+  const [row] = await db.insert(songSlides).values({
+    songId: src.songId,
+    order: src.order + 1,
+    lyrics: src.lyrics,
+    objectsJson: src.objectsJson,
+  }).returning({ id: songSlides.id });
+  revalidatePath(`/library/songs/${owned.songId}`);
+  return { ok: true, data: { id: row.id } };
+}
+
+export async function reorderSongSlides(songId: string, orderedIds: string[]): Promise<Result> {
+  const user = await requireUser();
+  const db = getDb();
+  const song = await assertSongOwned(db, songId, user.churchId);
+  if (!song) return { ok: false, error: "Song not found" };
+  const existing = await db.select({ id: songSlides.id }).from(songSlides).where(eq(songSlides.songId, songId));
+  const existingSet = new Set(existing.map((e) => e.id));
+  for (const id of orderedIds) if (!existingSet.has(id)) return { ok: false, error: "Slide not part of this song" };
+  for (let i = 0; i < orderedIds.length; i++) {
+    await db.update(songSlides).set({ order: i })
+      .where(and(eq(songSlides.id, orderedIds[i]), eq(songSlides.songId, songId)));
+  }
+  revalidatePath(`/library/songs/${songId}`);
+  return { ok: true };
+}
+
 export async function importPro6Files(files: { name: string; content: string }[]): Promise<Result<{ added: number; skipped: number; warnings: { file: string; warnings: string[] }[] }>> {
   const user = await requireUser();
   const db = getDb();

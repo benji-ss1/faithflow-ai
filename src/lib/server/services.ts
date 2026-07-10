@@ -13,6 +13,11 @@ export type ExpandedItem = {
   title: string;
   slides: SlidePayload[];
   pptxImportId?: string; // present for sermon items — enables /api/sermon/match
+  // Phase 5D: song-editor needs the underlying song ID + raw slide rows
+  // (with objectsJson) to enable per-slide object editing. Populated only
+  // for song items.
+  songId?: string;
+  songSlideRows?: { id: string; lyrics: string; objectsJson: unknown }[];
 };
 
 export type ExpandedPlan = {
@@ -38,8 +43,12 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
     const payload = (it.payload || {}) as Record<string, unknown>;
     let slides: SlidePayload[] = [];
 
+    let songId: string | undefined;
+    let songSlideRows: { id: string; lyrics: string; objectsJson: unknown }[] | undefined;
     if (it.type === "song" && payload.songId) {
-      const rows = await db.select().from(songSlides).where(eq(songSlides.songId, String(payload.songId))).orderBy(asc(songSlides.order));
+      songId = String(payload.songId);
+      const rows = await db.select().from(songSlides).where(eq(songSlides.songId, songId)).orderBy(asc(songSlides.order));
+      songSlideRows = rows.map((r) => ({ id: r.id, lyrics: r.lyrics, objectsJson: r.objectsJson }));
       slides = rows.map((r) => ({ kind: "text" as const, text: r.lyrics }));
     } else if (it.type === "scripture") {
       const scriptureSlides = Array.isArray(payload.slides) ? (payload.slides as { text: string }[]) : [];
@@ -64,7 +73,7 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
     if (slides.length === 0) slides = [{ kind: "blank", bgColor: blankBgColor }];
     const extra: { pptxImportId?: string } = {};
     if (it.type === "sermon" && typeof payload.pptxImportId === "string") extra.pptxImportId = payload.pptxImportId;
-    expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides, ...extra });
+    expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides, ...extra, songId, songSlideRows });
   }
 
   return { id: plan.id, title: plan.title, items: expanded, logoUrl, blankBgColor };
