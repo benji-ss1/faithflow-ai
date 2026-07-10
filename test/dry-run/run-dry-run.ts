@@ -144,8 +144,8 @@ function matchesCommand(expectedCmd: string, result: DetectAllResult): boolean {
   // Also allow: raw section words found in cue results
   if (e === "chorus" && result.section.some((s) => s.section === "chorus")) return true;
   if (e.startsWith("verse") && result.section.some((s) => s.section === "verse")) return true;
-  if (e.includes("next") && result.command.some((c) => c.verb === "next" || c.verb === "goto")) return true;
-  if (e.includes("fade") && result.command.some((c) => c.verb === "fade" || c.verb === "transition")) return true;
+  if (e.includes("next") && result.command.some((c) => String(c.verb).startsWith("next"))) return true;
+  if (e.includes("fade") && result.command.some((c) => String(c.verb).includes("fade") || String(c.verb).includes("transition"))) return true;
   return false;
 }
 
