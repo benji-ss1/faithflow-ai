@@ -141,7 +141,7 @@ function ObjectView({
     top: `${(obj.y / CANVAS_H) * 100}%`,
     width: `${(obj.w / CANVAS_W) * 100}%`,
     height: `${(obj.h / CANVAS_H) * 100}%`,
-    cursor: readOnly ? "default" : "move",
+    cursor: readOnly ? "default" : "grab",
   };
 
   let inner: React.ReactNode = null;

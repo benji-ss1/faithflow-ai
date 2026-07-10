@@ -6,6 +6,7 @@ import { SlideRenderer } from "@/components/live/SlideRenderer";
 import type { OperatorShellCtx } from "./types";
 import { useSlideEditorCtx } from "../editor/SlideEditorContext";
 import { SlideCanvas, SlideThumb } from "../editor/SlideCanvas";
+import { CanvasWarnings } from "../editor/CanvasWarnings";
 
 export function CenterWorkspace({ ctx }: { ctx: OperatorShellCtx }) {
   const editor = useSlideEditorCtx();
@@ -89,6 +90,7 @@ export function CenterWorkspace({ ctx }: { ctx: OperatorShellCtx }) {
             <ReadOnlyPreview item={item} slideIdx={editor.currentIndex} />
           )}
         </div>
+        {isSong && <CanvasWarnings slide={editor.currentSlide} />}
       </div>
     </div>
   );

@@ -8,6 +8,7 @@ import {
 import { cn } from "@/lib/utils";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { AIAssistantPanel } from "../AIAssistantPanel";
+import { AIHelpersPanel } from "../AIHelpersPanel";
 import { SuggestionHistory } from "../SuggestionHistory";
 import { isVerseLikelyMisheard, getChapterVerseCount } from "@/lib/bible-chapter-verses";
 import type { OperatorShellCtx, InspectorTab } from "./types";
@@ -65,13 +66,13 @@ export function RightInspector({ ctx, tab, onTabChange }: {
       </div>
 
       {/* Tab strip */}
-      <div className="shrink-0 border-b flex items-center gap-0 px-1 overflow-x-auto" style={{ borderColor: "#2a3232" }}>
+      <div className="shrink-0 border-b flex items-center gap-0 px-1 overflow-x-auto sticky top-0 z-10" style={{ borderColor: "#2a3232", background: "#1e2525" }}>
         {TABS.map(({ key, label, icon: Icon }) => {
           const on = tab === key;
           return (
             <button key={key} title={label} onClick={() => onTabChange(key)}
               className={cn(
-                "h-8 px-2 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider shrink-0 border-b-2",
+                "h-8 px-2 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider shrink-0 border-b-2 focus-visible:ring-1 focus-visible:ring-teal-400/50 focus-visible:outline-none",
                 on ? "border-teal-400 text-teal-200" : "border-transparent text-zinc-400 hover:text-zinc-100",
               )}>
               <Icon className="w-3 h-3" />
@@ -341,9 +342,11 @@ function AITab({ ctx }: { ctx: OperatorShellCtx }) {
         onInternetReject={ctx.onInternetReject}
       />
 
+      <AIHelpersPanel />
+
       <div className="border-t px-3 py-2" style={{ borderColor: "#2a3232" }}>
         <button onClick={() => setHistoryOpen((v) => !v)}
-          className="w-full flex items-center gap-1 text-[10px] uppercase tracking-[0.16em] text-zinc-400 hover:text-zinc-100">
+          className="w-full flex items-center gap-1 text-[10px] uppercase tracking-[0.16em] text-zinc-400 hover:text-zinc-100 focus-visible:ring-1 focus-visible:ring-teal-400/50 focus-visible:outline-none">
           {historyOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
           Suggestion history
         </button>
