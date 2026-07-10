@@ -1,5 +1,6 @@
 import {
   Archive,
+  BarChart3,
   BookOpen,
   Bot,
   Building2,
@@ -10,6 +11,7 @@ import {
   Library,
   MonitorSmartphone,
   Music4,
+  Palette,
   Presentation,
   Settings,
   Sparkles,
@@ -24,6 +26,7 @@ export type NavItem = {
   icon: LucideIcon;
   badge?: string;
   disabled?: boolean;
+  children?: NavItem[];
 };
 
 export type NavGroup = {
@@ -49,12 +52,20 @@ export const workspaceNav: NavGroup[] = [
   {
     label: "Content",
     items: [
-      { href: "/library/songs", label: "Songs", icon: Music4 },
-      { href: "/library/bible", label: "Bible Library", icon: BookOpen },
-      { href: "/library/media", label: "Media Library", icon: GalleryVerticalEnd },
+      {
+        label: "Library",
+        icon: Library,
+        children: [
+          { href: "/library/songs", label: "Songs", icon: Music4 },
+          { href: "/library/bible", label: "Bible", icon: BookOpen },
+          { href: "/library/media", label: "Media", icon: GalleryVerticalEnd },
+          { href: "/library/imports", label: "Imports", icon: FolderInput },
+          { href: "/library/themes", label: "Themes", icon: Palette },
+        ],
+      },
       { href: "/archive", label: "Sermon Archive", icon: Archive },
+      { href: "/analytics", label: "Analytics", icon: BarChart3 },
       { label: "AI Assistant", icon: Bot, badge: "Soon", disabled: true },
-      { href: "/library/imports", label: "Imports & Migration", icon: FolderInput },
     ],
   },
   {
@@ -92,6 +103,8 @@ const routeTitleMap: Array<{ match: RegExp; title: string; subtitle: string }> =
   { match: /^\/library\/media/, title: "Media Library", subtitle: "Manage stills, videos, and supporting presentation assets." },
   { match: /^\/library\/imports/, title: "Imports & Migration", subtitle: "Review queued imports and migration cleanup work." },
   { match: /^\/archive/, title: "Sermon Archive", subtitle: "Browse summaries, exports, and archive history." },
+  { match: /^\/analytics/, title: "Analytics", subtitle: "Attendance, engagement, and content signals across services." },
+  { match: /^\/library\/themes/, title: "Themes", subtitle: "Presentation themes, colour palettes, and slide styling." },
   { match: /^\/applications/, title: "Applications", subtitle: "FaithFlow modules, status, and future product surfaces." },
   { match: /^\/organization/, title: "Church Profile", subtitle: "Identity, worship defaults, and organization details." },
   { match: /^\/settings\/team/, title: "Team", subtitle: "Members, invitations, and role ownership." },
@@ -120,9 +133,15 @@ export function getActiveNavMatch(pathname: string): ActiveNavMatch | null {
   for (const source of sources) {
     for (const group of source.groups) {
       for (const item of group.items) {
-        if (!item.href) continue;
-        if (pathname === item.href || pathname.startsWith(item.href + "/")) {
+        if (item.href && (pathname === item.href || pathname.startsWith(item.href + "/"))) {
           return { group: group.label, item, section: source.section };
+        }
+        if (item.children) {
+          for (const child of item.children) {
+            if (child.href && (pathname === child.href || pathname.startsWith(child.href + "/"))) {
+              return { group: group.label, item: child, section: source.section };
+            }
+          }
         }
       }
     }

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   ArrowUpRight,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   LockKeyhole,
@@ -19,6 +20,95 @@ type SidebarProps = {
   mobileOpen: boolean;
   onMobileOpenChange: (open: boolean) => void;
 };
+
+function ChildGroup({
+  item,
+  active,
+  collapsed,
+  pathname,
+  onNavigate,
+}: {
+  item: { label: string; icon: React.ComponentType<{ className?: string; strokeWidth?: number }>; children?: Array<{ label: string; href?: string; icon: React.ComponentType<{ className?: string; strokeWidth?: number }> }> };
+  active: boolean;
+  collapsed: boolean;
+  pathname: string;
+  onNavigate?: () => void;
+}) {
+  const [open, setOpen] = useState<boolean>(active);
+  useEffect(() => {
+    if (active) setOpen(true);
+  }, [active]);
+
+  const Icon = item.icon;
+
+  if (collapsed) {
+    // In collapsed mode: show a single icon tile with tooltip listing the children on hover via title
+    const first = item.children?.[0];
+    if (!first?.href) return null;
+    return (
+      <Link
+        href={first.href}
+        title={`${item.label}: ${item.children?.map((c) => c.label).join(", ")}`}
+        onClick={onNavigate}
+        className={cn(
+          "group relative flex h-10 items-center justify-center overflow-hidden rounded-2xl border px-0 text-sm font-medium transition-all duration-200",
+          active
+            ? "border-[rgba(111,224,194,0.28)] bg-[linear-gradient(180deg,rgba(255,255,255,0.09),rgba(255,255,255,0.04))] text-foreground"
+            : "border-transparent text-sidebar-fg hover:border-white/10 hover:bg-white/[0.045]"
+        )}
+      >
+        <Icon className={cn("h-4 w-4 shrink-0", active ? "text-foreground" : "text-sidebar-fg")} strokeWidth={active ? 2 : 1.8} />
+      </Link>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={cn(
+          "group relative flex h-10 w-full items-center gap-3 overflow-hidden rounded-2xl border px-3 text-left text-sm font-medium transition-all duration-200",
+          active
+            ? "border-[rgba(111,224,194,0.28)] bg-[linear-gradient(180deg,rgba(255,255,255,0.09),rgba(255,255,255,0.04))] text-foreground shadow-[0_18px_45px_rgba(0,0,0,0.22)]"
+            : "border-transparent text-sidebar-fg hover:border-white/10 hover:bg-white/[0.045]"
+        )}
+      >
+        {active ? <span className="absolute left-0 top-2 bottom-2 w-1 rounded-full bg-[var(--color-primary)]" /> : null}
+        <Icon className={cn("h-4 w-4 shrink-0", active ? "text-foreground" : "text-sidebar-fg")} strokeWidth={active ? 2 : 1.8} />
+        <span className="min-w-0 flex-1 truncate">{item.label}</span>
+        <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200", open ? "rotate-0" : "-rotate-90")} />
+      </button>
+      {open ? (
+        <div className="ml-4 space-y-1 border-l border-white/8 pl-3">
+          {item.children?.map((child) => {
+            if (!child.href) return null;
+            const isActive = pathname === child.href || pathname.startsWith(child.href + "/");
+            const CIcon = child.icon;
+            return (
+              <Link
+                key={child.href}
+                href={child.href}
+                onClick={onNavigate}
+                aria-current={isActive ? "page" : undefined}
+                className={cn(
+                  "flex h-9 items-center gap-3 rounded-xl border px-3 text-[13px] font-medium transition-colors",
+                  isActive
+                    ? "border-[rgba(111,224,194,0.24)] bg-white/[0.05] text-foreground"
+                    : "border-transparent text-sidebar-fg hover:border-white/8 hover:bg-white/[0.03]"
+                )}
+              >
+                <CIcon className="h-3.5 w-3.5 shrink-0" strokeWidth={isActive ? 2 : 1.7} />
+                <span className="min-w-0 flex-1 truncate">{child.label}</span>
+              </Link>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function NavSection({
   collapsed,
@@ -43,9 +133,11 @@ function NavSection({
             </div>
           ) : null}
           {group.items.map((item) => {
-            const active = !!item.href && (pathname === item.href || pathname.startsWith(item.href + "/"));
+            const hasChildren = !!item.children && item.children.length > 0;
+            const childActive = hasChildren && item.children!.some((c) => !!c.href && (pathname === c.href || pathname.startsWith(c.href + "/")));
+            const active = (!!item.href && (pathname === item.href || pathname.startsWith(item.href + "/"))) || childActive;
             const lockedByTour = !!unlocked && !!item.href && !unlocked.includes(item.href);
-            const disabled = item.disabled || lockedByTour || !item.href;
+            const disabled = !hasChildren && (item.disabled || lockedByTour || !item.href);
 
             const content = (
               <>
@@ -85,6 +177,19 @@ function NavSection({
                   {active ? <span className={cn("absolute left-0 top-2 bottom-2 rounded-full bg-[var(--color-primary)]", collapsed ? "w-1 left-1.5" : "w-1")} /> : null}
                   {content}
                 </div>
+              );
+            }
+
+            if (hasChildren) {
+              return (
+                <ChildGroup
+                  key={item.label}
+                  item={item}
+                  active={active}
+                  collapsed={collapsed}
+                  pathname={pathname}
+                  onNavigate={onNavigate}
+                />
               );
             }
 
@@ -140,12 +245,12 @@ export function Sidebar({ mobileOpen, onMobileOpenChange }: SidebarProps) {
   }, []);
 
   useEffect(() => {
-    const stored = localStorage.getItem("ff_sidebar_collapsed");
+    const stored = localStorage.getItem("faithflow.sidebar.collapsed");
     if (stored === "1") setCollapsed(true);
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("ff_sidebar_collapsed", collapsed ? "1" : "0");
+    localStorage.setItem("faithflow.sidebar.collapsed", collapsed ? "1" : "0");
   }, [collapsed]);
 
   useEffect(() => {
