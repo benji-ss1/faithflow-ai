@@ -162,6 +162,7 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
       announcement,
       transition: transitionSpec,
     };
+    lastOutputStateRef.current = state; // cached for snapshot-on-join replay
     safePost(chRef.current, { type: "output", state });
     if (rtRef.current) { void rtRef.current.publish(state); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -175,14 +176,17 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
   // that code. BroadcastChannel (same-machine) remains the primary low-latency
   // path — this is strictly additive fan-out.
   const rtRef = useRef<ReturnType<typeof openOutputChannel> | null>(null);
+  const lastOutputStateRef = useRef<OutputState | null>(null);
   const [pairCode, setPairCode] = useState<string | null>(null);
   useEffect(() => {
     if (rtRef.current) { try { rtRef.current.close(); } catch { /* ignore */ } rtRef.current = null; }
     if (pairCode) {
       rtRef.current = openOutputChannel(pairCode);
-      // Subscribe with a no-op handler so the underlying channel is joined
-      // and ready for publish() calls.
       rtRef.current.subscribe(() => { /* publisher only */ });
+      // Snapshot provider: when a late/reconnecting projector joins the
+      // channel it fires snapshot_request; we replay the last OutputState
+      // so it catches up immediately instead of staring at black.
+      rtRef.current.onRequestSnapshot(() => lastOutputStateRef.current);
     }
     return () => {
       if (rtRef.current) { try { rtRef.current.close(); } catch { /* ignore */ } rtRef.current = null; }

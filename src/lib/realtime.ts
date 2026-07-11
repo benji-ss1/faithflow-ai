@@ -58,8 +58,18 @@ function chanName(pairCode: string): string {
 export type OutputChannel = {
   /** Publish an OutputState frame to all subscribers on this channel. No-op if realtime unavailable. */
   publish: (state: OutputState) => Promise<void>;
-  /** Subscribe to OutputState frames. Returns unsubscribe. Handles reconnect w/ backoff. */
+  /**
+   * Subscribe to OutputState frames. Returns unsubscribe. Handles reconnect w/ backoff.
+   * On subscribe (or reconnect), immediately requests a snapshot from the publisher
+   * so late/reconnecting projectors don't stare at black.
+   */
   subscribe: (onState: (state: OutputState) => void) => void;
+  /**
+   * Publisher-side: register a callback that supplies the current state on demand.
+   * When a new subscriber joins (or an existing one reconnects), the request/response
+   * dance below replays the last frame so the projector catches up immediately.
+   */
+  onRequestSnapshot: (fn: () => OutputState | null) => void;
   /** Tear down the channel + any pending backoff timers. */
   close: () => void;
 };
@@ -75,6 +85,7 @@ export function openOutputChannel(pairCode: string): OutputChannel {
 
   let channel: RealtimeChannel | null = null;
   let currentHandler: ((state: OutputState) => void) | null = null;
+  let snapshotProvider: (() => OutputState | null) | null = null;
   let closed = false;
   let backoffMs = 1000;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -92,10 +103,25 @@ export function openOutputChannel(pairCode: string): OutputChannel {
           console.warn("[realtime] payload parse failed:", e instanceof Error ? e.message : String(e));
         }
       });
+      // Snapshot request/response — late joiners ask, publisher replays the last frame.
+      channel.on("broadcast", { event: "snapshot_request" }, async () => {
+        if (!snapshotProvider) return;
+        const state = snapshotProvider();
+        if (state && channel && subscribed) {
+          try { await channel.send({ type: "broadcast", event: "output", payload: { state } }); }
+          catch { /* ignore */ }
+        }
+      });
       channel.subscribe((status) => {
         if (status === "SUBSCRIBED") {
           subscribed = true;
-          backoffMs = 1000; // reset
+          backoffMs = 1000;
+          // Ask any publisher on this channel for the current state so we don't
+          // stare at black while waiting for the next operator interaction.
+          if (currentHandler && channel) {
+            channel.send({ type: "broadcast", event: "snapshot_request", payload: {} })
+              .catch(() => { /* best-effort */ });
+          }
         } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
           subscribed = false;
           scheduleReconnect();
@@ -135,6 +161,10 @@ export function openOutputChannel(pairCode: string): OutputChannel {
     },
     subscribe(onState) {
       currentHandler = onState;
+      if (!channel) attach();
+    },
+    onRequestSnapshot(fn) {
+      snapshotProvider = fn;
       if (!channel) attach();
     },
     close() {
