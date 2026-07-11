@@ -73,7 +73,7 @@ function internetResultToCard(result: InternetMetadataResult, query: string): Un
     reason: metadataOnly
       ? "Internet search confirmed likely title and artist metadata only."
       : "Internet lookup is currently degraded and did not return a rights-safe asset.",
-    warning: "FaithFlow does not scrape lyrics from the open web and will not project copyrighted song text without a local or licensed source.",
+    warning: "PresentFlow does not scrape lyrics from the open web and will not project copyrighted song text without a local or licensed source.",
     status: "pending",
     actions: [
       { label: "Search library", href: "/library/songs", variant: "default" },
@@ -158,7 +158,7 @@ export function InternetSongDetectionPanel({ totalSongs }: { totalSongs: number 
             </div>
             <h2 className="text-xl font-semibold tracking-[-0.03em] text-foreground">Local library first, metadata only on fallback</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-              This lookup flow tests the future operator detection policy from a safe admin surface. FaithFlow checks the local church library first, boosts ready local assets, and only falls back to internet metadata without ever scraping open-web lyrics.
+              This lookup flow tests the future operator detection policy from a safe admin surface. PresentFlow checks the local church library first, boosts ready local assets, and only falls back to internet metadata without ever scraping open-web lyrics.
             </p>
           </div>
           <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 text-right">
@@ -215,7 +215,7 @@ export function InternetSongDetectionPanel({ totalSongs }: { totalSongs: number 
             <ul className="space-y-2 text-sm text-muted-foreground">
               <li>Local church songs and public-domain hymns rank first.</li>
               <li>Internet fallback returns title and artist metadata only.</li>
-              <li>FaithFlow will not project unlicensed lyrics from open-web sources.</li>
+              <li>PresentFlow will not project unlicensed lyrics from open-web sources.</li>
             </ul>
           </div>
         </div>

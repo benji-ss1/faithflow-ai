@@ -178,7 +178,7 @@ export function Topbar({ user, churchName, onOpenNavigation }: TopbarProps) {
         </button>
 
         <div className="min-w-0 flex-1">
-          <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">FaithFlow Workspace</div>
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">PresentFlow Workspace</div>
           <div className="truncate text-xl font-semibold tracking-[-0.03em] text-foreground">{title}</div>
           <div className="hidden truncate text-sm text-muted-foreground xl:block">{subtitle}</div>
         </div>

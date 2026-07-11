@@ -286,7 +286,7 @@ export function AudioSetupModal({ open, onClose, audio, listening, onStartListen
               )}
             </div>
             <div className="text-[10px] text-[color:var(--color-muted-foreground)] mt-2">
-              Speak: <em>"Testing FaithFlow audio input, one two three."</em> Then play it back to confirm the mic is capturing.
+              Speak: <em>"Testing PresentFlow audio input, one two three."</em> Then play it back to confirm the mic is capturing.
             </div>
           </section>
 

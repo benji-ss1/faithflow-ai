@@ -118,7 +118,7 @@ const routeTitleMap: Array<{ match: RegExp; title: string; subtitle: string }> =
   { match: /^\/archive/, title: "Sermon Archive", subtitle: "Browse summaries, exports, and archive history." },
   { match: /^\/analytics/, title: "Analytics", subtitle: "Attendance, engagement, and content signals across services." },
   { match: /^\/library\/themes/, title: "Themes", subtitle: "Presentation themes, colour palettes, and slide styling." },
-  { match: /^\/applications/, title: "Applications", subtitle: "FaithFlow modules, status, and future product surfaces." },
+  { match: /^\/applications/, title: "Applications", subtitle: "PresentFlow modules, status, and future product surfaces." },
   { match: /^\/organization/, title: "Church Profile", subtitle: "Identity, worship defaults, and organization details." },
   { match: /^\/settings\/team/, title: "Team", subtitle: "Members, invitations, and role ownership." },
   { match: /^\/settings\/billing/, title: "Billing", subtitle: "Payment health, invoices, and account ownership." },
@@ -131,7 +131,7 @@ const routeTitleMap: Array<{ match: RegExp; title: string; subtitle: string }> =
 export function getRouteMeta(pathname: string) {
   return (
     routeTitleMap.find((item) => item.match.test(pathname)) ?? {
-      title: "FaithFlow",
+      title: "PresentFlow",
       subtitle: "Calm, premium controls for the broader account and dashboard workspace.",
     }
   );

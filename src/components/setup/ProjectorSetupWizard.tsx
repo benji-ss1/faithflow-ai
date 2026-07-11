@@ -113,7 +113,7 @@ export function ProjectorSetupWizard() {
         done={["drag", "testPattern", "fullscreen", "save"].includes(step)}
         icon={ExternalLink}
         what="Open the projector window in a new browser tab"
-        why="FaithFlow separates the operator screen (what you see) from the projector screen (what the congregation sees). This lets you edit and preview safely without anything reaching the projector until you press SEND TO LIVE."
+        why="PresentFlow separates the operator screen (what you see) from the projector screen (what the congregation sees). This lets you edit and preview safely without anything reaching the projector until you press SEND TO LIVE."
       >
         {step === "openLive" && (
           <>

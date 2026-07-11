@@ -23,7 +23,7 @@ export default async function SongsPage() {
       <PageHeader
         eyebrow="Library"
         title="Songs"
-        description="Manage your church-owned song library, imports, and licensing posture. FaithFlow does not bundle a global copyrighted worship-lyrics catalog."
+        description="Manage your church-owned song library, imports, and licensing posture. PresentFlow does not bundle a global copyrighted worship-lyrics catalog."
         action={<SongImporter />}
       />
       <SongLicensingPanel songCount={songs.length} importedCount={importedCount} />

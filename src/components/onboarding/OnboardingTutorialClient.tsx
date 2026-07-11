@@ -22,7 +22,7 @@ const STEPS = [
   {
     key: "song",
     title: "Add a song",
-    body: "Add a song from your library, or paste lyrics right in. FaithFlow slices them into slides automatically.",
+    body: "Add a song from your library, or paste lyrics right in. PresentFlow slices them into slides automatically.",
     cta: "Open Songs library",
     href: "/library/songs",
     Icon: Music,

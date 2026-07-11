@@ -17,7 +17,7 @@ export function SlideRenderer({ slide, className }: { slide: SlidePayload; class
         {slide.url ? (
           <img src={slide.url} alt="Logo" className="max-w-[60%] max-h-[60%] object-contain" />
         ) : (
-          <div className="text-white text-6xl font-display font-semibold tracking-tight">FaithFlow</div>
+          <div className="text-white text-6xl font-display font-semibold tracking-tight">PresentFlow</div>
         )}
       </div>
     );

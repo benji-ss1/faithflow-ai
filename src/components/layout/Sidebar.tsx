@@ -280,7 +280,7 @@ export function Sidebar({ mobileOpen, onMobileOpenChange }: SidebarProps) {
           </div>
           {!collapsed ? (
             <div className="min-w-0">
-              <div className="truncate text-sm font-semibold text-foreground">FaithFlow AI</div>
+              <div className="truncate text-sm font-semibold text-foreground">PresentFlow</div>
               <div className="truncate text-[10px] uppercase tracking-[0.24em] text-muted-foreground">Dashboard Console</div>
             </div>
           ) : null}

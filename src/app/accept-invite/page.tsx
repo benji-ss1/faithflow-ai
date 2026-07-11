@@ -29,7 +29,7 @@ export default function AcceptInvitePage() {
     <div className="min-h-screen flex items-center justify-center bg-background p-6">
       <div className="w-full max-w-sm border border-border rounded-md p-8 bg-card space-y-4">
         <div>
-          <div className="eyebrow text-muted-foreground mb-2">FaithFlow AI</div>
+          <div className="eyebrow text-muted-foreground mb-2">PresentFlow</div>
           <h1 className="text-2xl font-semibold">Accept invitation</h1>
         </div>
         {!token ? (

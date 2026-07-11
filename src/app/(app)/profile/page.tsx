@@ -10,7 +10,7 @@ export default async function ProfilePage() {
       <PageHeader
         eyebrow="My Profile"
         title="My profile"
-        description="Personal account details and security posture for the current FaithFlow user."
+        description="Personal account details and security posture for the current PresentFlow user."
       />
       <div className="grid gap-4 xl:grid-cols-2">
         <AccountCard title="Profile" description="Core identity information for this account.">

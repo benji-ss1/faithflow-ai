@@ -14,7 +14,7 @@ const PRODUCTS = [
   },
   {
     name: "Church media templates",
-    description: "Presentation and archive templates that extend the main FaithFlow workspace.",
+    description: "Presentation and archive templates that extend the main PresentFlow workspace.",
     state: "Not in MVP",
   },
 ] as const;

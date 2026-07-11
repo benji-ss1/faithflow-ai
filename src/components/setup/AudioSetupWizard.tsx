@@ -130,7 +130,7 @@ export function AudioSetupWizard() {
         done={step !== "permission"}
         icon={Mic}
         what="Grant microphone permission"
-        why="Your browser needs one-time permission before FaithFlow can list your USB mixer, audio interface, or built-in mic. Without permission, all inputs show up as 'Unnamed input' and can't be tested."
+        why="Your browser needs one-time permission before PresentFlow can list your USB mixer, audio interface, or built-in mic. Without permission, all inputs show up as 'Unnamed input' and can't be tested."
       >
         {step === "permission" && (
           <>

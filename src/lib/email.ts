@@ -7,7 +7,7 @@
 
 import { Resend } from "resend";
 
-const FROM = process.env.EMAIL_FROM || "FaithFlow AI <no-reply@faithflow.ai>";
+const FROM = process.env.EMAIL_FROM || "PresentFlow <no-reply@faithflow.ai>";
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
 let _resend: Resend | null = null;
@@ -42,45 +42,45 @@ export async function sendVerificationEmail(to: string, name: string, token: str
   const url = `${APP_URL}/verify-email?token=${token}`;
   const text = `Hi ${name},
 
-Welcome to FaithFlow AI. Confirm your email to finish setting up your account:
+Welcome to PresentFlow. Confirm your email to finish setting up your account:
 
 ${url}
 
 This link expires in 24 hours. If you didn't sign up, you can ignore this message.
 
-— FaithFlow AI`;
-  const html = `<p>Hi ${escapeHtml(name)},</p><p>Welcome to FaithFlow AI. Confirm your email to finish setting up your account:</p><p><a href="${url}">Confirm your email</a></p><p><small>This link expires in 24 hours. If you didn't sign up, you can ignore this message.</small></p>`;
-  return deliver(to, "Confirm your FaithFlow AI email", html, text);
+— PresentFlow`;
+  const html = `<p>Hi ${escapeHtml(name)},</p><p>Welcome to PresentFlow. Confirm your email to finish setting up your account:</p><p><a href="${url}">Confirm your email</a></p><p><small>This link expires in 24 hours. If you didn't sign up, you can ignore this message.</small></p>`;
+  return deliver(to, "Confirm your PresentFlow email", html, text);
 }
 
 export async function sendPasswordResetEmail(to: string, name: string, token: string) {
   const url = `${APP_URL}/reset-password?token=${token}`;
   const text = `Hi ${name},
 
-Someone (hopefully you) asked to reset your FaithFlow AI password. Reset it here:
+Someone (hopefully you) asked to reset your PresentFlow password. Reset it here:
 
 ${url}
 
 This link expires in 1 hour. If you didn't request this, you can ignore it — your password is unchanged.
 
-— FaithFlow AI`;
-  const html = `<p>Hi ${escapeHtml(name)},</p><p>Someone (hopefully you) asked to reset your FaithFlow AI password. Reset it here:</p><p><a href="${url}">Reset your password</a></p><p><small>This link expires in 1 hour. If you didn't request this, you can ignore it — your password is unchanged.</small></p>`;
-  return deliver(to, "Reset your FaithFlow AI password", html, text);
+— PresentFlow`;
+  const html = `<p>Hi ${escapeHtml(name)},</p><p>Someone (hopefully you) asked to reset your PresentFlow password. Reset it here:</p><p><a href="${url}">Reset your password</a></p><p><small>This link expires in 1 hour. If you didn't request this, you can ignore it — your password is unchanged.</small></p>`;
+  return deliver(to, "Reset your PresentFlow password", html, text);
 }
 
 export async function sendInvitationEmail(to: string, invitedByName: string, churchName: string, token: string) {
   const url = `${APP_URL}/accept-invite?token=${token}`;
   const text = `Hi,
 
-${invitedByName} invited you to join ${churchName} on FaithFlow AI. Accept the invite here:
+${invitedByName} invited you to join ${churchName} on PresentFlow. Accept the invite here:
 
 ${url}
 
 This link expires in 7 days.
 
-— FaithFlow AI`;
-  const html = `<p>Hi,</p><p><b>${escapeHtml(invitedByName)}</b> invited you to join <b>${escapeHtml(churchName)}</b> on FaithFlow AI. Accept the invite here:</p><p><a href="${url}">Accept invitation</a></p><p><small>This link expires in 7 days.</small></p>`;
-  return deliver(to, `You're invited to ${churchName} on FaithFlow AI`, html, text);
+— PresentFlow`;
+  const html = `<p>Hi,</p><p><b>${escapeHtml(invitedByName)}</b> invited you to join <b>${escapeHtml(churchName)}</b> on PresentFlow. Accept the invite here:</p><p><a href="${url}">Accept invitation</a></p><p><small>This link expires in 7 days.</small></p>`;
+  return deliver(to, `You're invited to ${churchName} on PresentFlow`, html, text);
 }
 
 function escapeHtml(s: string): string {

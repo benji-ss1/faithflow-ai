@@ -51,7 +51,7 @@ export function BibleTranslationGrid({
       <section className="space-y-3">
         <div>
           <div className="eyebrow mb-1">Public Domain</div>
-          <h2 className="text-lg font-semibold">Ready for use in FaithFlow</h2>
+          <h2 className="text-lg font-semibold">Ready for use in PresentFlow</h2>
         </div>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {publicTranslations.map((translation) => {
@@ -67,7 +67,7 @@ export function BibleTranslationGrid({
                 </div>
                 <div className="mb-3 flex flex-wrap gap-2">
                   <StatusPill label={translation.isPublicDomain ? "Public domain" : "Built in"} tone="success" />
-                  <StatusPill label="Included with FaithFlow" tone="brand" />
+                  <StatusPill label="Included with PresentFlow" tone="brand" />
                   {prov?.uncertain ? <StatusPill label="Provenance flag" tone="warning" /> : null}
                 </div>
                 <p className="text-xs leading-5 text-muted-foreground">
@@ -84,7 +84,7 @@ export function BibleTranslationGrid({
           <div className="eyebrow mb-1">Licensed</div>
           <h2 className="text-lg font-semibold">Requires licensing agreement</h2>
           <p className="text-xs text-muted-foreground mt-1">
-            No verse text is stored in FaithFlow for these translations. Access is enabled through an approved provider.
+            No verse text is stored in PresentFlow for these translations. Access is enabled through an approved provider.
           </p>
         </div>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -106,8 +106,8 @@ export function BibleTranslationGrid({
                 </div>
                 <p className="text-xs leading-5 text-muted-foreground mb-3">
                   {connected
-                    ? "Provider connection detected. Treat access as rights-bound content, not bundled FaithFlow text."
-                    : "Not bundled in FaithFlow. Enable later through an approved provider or church-owned licensing path."}
+                    ? "Provider connection detected. Treat access as rights-bound content, not bundled PresentFlow text."
+                    : "Not bundled in PresentFlow. Enable later through an approved provider or church-owned licensing path."}
                 </p>
                 {!connected ? (
                   <button
@@ -143,7 +143,7 @@ export function BibleTranslationGrid({
               </button>
             </div>
             <p className="text-xs leading-5 text-muted-foreground mb-3">
-              FaithFlow does not bundle any {modalProv.code} verse text. To display this translation the request must be routed through an approved provider.
+              PresentFlow does not bundle any {modalProv.code} verse text. To display this translation the request must be routed through an approved provider.
             </p>
             <div className="text-xs font-medium mb-1">Planned providers</div>
             <ul className="list-disc pl-5 space-y-1 text-xs text-muted-foreground mb-3">

@@ -4,7 +4,7 @@ import { Toaster } from "sonner";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "FaithFlow AI",
+  title: "PresentFlow",
   description: "AI-native production console for live services",
 };
 

@@ -18,10 +18,10 @@ export default async function ApplicationsPage() {
   const archiveCount = archives.length;
 
   const products = [
-    { name: "FaithFlow Presenter", status: "Active", detail: `${libraryCount.length} songs available for service prep` },
-    { name: "FaithFlow Archive", status: archiveCount > 0 ? "Available" : "Preparing", detail: `${archiveCount} archived sermons` },
-    { name: "FaithFlow AI", status: "Configured", detail: "Suggestion and archive intelligence surfaces are visible in the admin shell" },
-    { name: "FaithFlow Livestream", status: "Future", detail: "Reserved for future rollout without changing Sunday operator flow" },
+    { name: "PresentFlow Presenter", status: "Active", detail: `${libraryCount.length} songs available for service prep` },
+    { name: "PresentFlow Archive", status: archiveCount > 0 ? "Available" : "Preparing", detail: `${archiveCount} archived sermons` },
+    { name: "PresentFlow", status: "Configured", detail: "Suggestion and archive intelligence surfaces are visible in the admin shell" },
+    { name: "PresentFlow Livestream", status: "Future", detail: "Reserved for future rollout without changing Sunday operator flow" },
   ];
 
   return (
@@ -29,7 +29,7 @@ export default async function ApplicationsPage() {
       <PageHeader
         eyebrow="Applications"
         title="Applications and modules"
-        description="A product-level view of enabled FaithFlow surfaces, licensed Bible states, and church content readiness."
+        description="A product-level view of enabled PresentFlow surfaces, licensed Bible states, and church content readiness."
       />
       <div className="grid gap-4 xl:grid-cols-2">
         {products.map((product) => (

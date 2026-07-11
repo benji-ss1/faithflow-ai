@@ -12,7 +12,7 @@ export default async function LicensedBiblePage() {
       />
       <div className="space-y-4 max-w-2xl text-sm">
         <p>
-          FaithFlow currently ships with the two public-domain translations that don&apos;t
+          PresentFlow currently ships with the two public-domain translations that don&apos;t
           need a licence: <strong>KJV</strong> (King James Version) and <strong>WEB</strong> (World English Bible).
           To display copyrighted translations we have to route requests through an
           approved provider so verses aren&apos;t cached or redistributed in ways that

@@ -27,7 +27,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const showTour = !me?.tutorialCompletedAt;
   return (
     <div className="min-h-screen bg-background">
-      <AppShell user={{ name: user.name, email: user.email }} churchName={church?.name || "FaithFlow Church"}>
+      <AppShell user={{ name: user.name, email: user.email }} churchName={church?.name || "PresentFlow Church"}>
         {children}
       </AppShell>
       <TourGate show={showTour} />

@@ -2,7 +2,7 @@
  * Bible translation provenance registry.
  *
  * Each entry documents the legal and textual provenance for a translation
- * bundled with FaithFlow. Public-domain entries are safe to distribute the
+ * bundled with PresentFlow. Public-domain entries are safe to distribute the
  * full verse text; licensed entries MUST NOT have verse rows populated in
  * `bible_verses` and are surfaced only as locked slots in the UI.
  *
@@ -126,7 +126,7 @@ export const BIBLE_PROVENANCE: Record<string, Provenance> = {
     pdJustification: "N/A — under active copyright.",
     textSource: "Not bundled. Requires licensing agreement with Biblica / Zondervan or an approved provider (Faithlife API, YouVersion API, or Bible Gateway API).",
     verified: "n/a-licensed",
-    caveats: "No verse text is stored in FaithFlow. Slot exists so the UI can surface a locked state and licensing path.",
+    caveats: "No verse text is stored in PresentFlow. Slot exists so the UI can surface a locked state and licensing path.",
   },
   ESV: {
     code: "ESV",
@@ -138,7 +138,7 @@ export const BIBLE_PROVENANCE: Record<string, Provenance> = {
     pdJustification: "N/A — under active copyright.",
     textSource: "Not bundled. Requires licensing agreement with Crossway or an approved provider (ESV.org API).",
     verified: "n/a-licensed",
-    caveats: "No verse text is stored in FaithFlow.",
+    caveats: "No verse text is stored in PresentFlow.",
   },
   NKJV: {
     code: "NKJV",
@@ -150,7 +150,7 @@ export const BIBLE_PROVENANCE: Record<string, Provenance> = {
     pdJustification: "N/A — under active copyright.",
     textSource: "Not bundled. Requires licensing agreement with Thomas Nelson / HarperCollins Christian Publishing or an approved provider.",
     verified: "n/a-licensed",
-    caveats: "No verse text is stored in FaithFlow.",
+    caveats: "No verse text is stored in PresentFlow.",
   },
 };
 

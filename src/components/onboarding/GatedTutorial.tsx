@@ -28,7 +28,7 @@ type Channel = {
 
 const CHANNELS: Channel[] = [
   { key: "dashboard", icon: LayoutDashboard, title: "Dashboard",
-    why: "Your home base. Shows recent service plans, quick actions, and system health. Whenever you're lost, click the FaithFlow logo to come back here.",
+    why: "Your home base. Shows recent service plans, quick actions, and system health. Whenever you're lost, click the PresentFlow logo to come back here.",
     action: { label: "Open Dashboard", href: "/dashboard", instruction: "Click open in a new tab, then return here and mark done." },
     video: "AI walkthrough: dashboard tour" },
 
@@ -41,11 +41,11 @@ const CHANNELS: Channel[] = [
     action: { label: "Open Songs library", href: "/library/songs", instruction: "Click a song to see its slides. That's what a volunteer sees when they add it to a service." } },
 
   { key: "bible", icon: BookOpen, title: "Bible library",
-    why: "Seven public-domain translations pre-loaded. When the AI hears a scripture reference (or you type one), FaithFlow generates slides from the selected translation.",
+    why: "Seven public-domain translations pre-loaded. When the AI hears a scripture reference (or you type one), PresentFlow generates slides from the selected translation.",
     action: { label: "Open Bible browser", href: "/library/bible", instruction: "Search 'John 3:16' — verse and neighbours appear instantly." } },
 
   { key: "sermon", icon: Presentation, title: "Sermon slides (PPTX)",
-    why: "Upload a PowerPoint deck; FaithFlow converts each slide to a projector-ready image AND extracts speaker text for the AI to follow along. During service you either advance manually or let the sermon-follow AI do it.",
+    why: "Upload a PowerPoint deck; PresentFlow converts each slide to a projector-ready image AND extracts speaker text for the AI to follow along. During service you either advance manually or let the sermon-follow AI do it.",
     action: { label: "See sermon imports", href: "/library/imports", instruction: "In production, drop a real .pptx here and watch it convert." } },
 
   { key: "media", icon: ImageIcon, title: "Media (images + video)",
@@ -57,7 +57,7 @@ const CHANNELS: Channel[] = [
     action: { label: "Run Projector wizard", href: "/setup/projector", instruction: "Even without a real projector connected, walk through the steps — the flow itself is educational." } },
 
   { key: "audio", icon: Mic, title: "Microphone / mixer setup",
-    why: "Pick which mic FaithFlow's AI listens to. If your church uses a USB mixer feeding a laptop, this wizard finds it and shows a live meter so you can confirm signal.",
+    why: "Pick which mic PresentFlow's AI listens to. If your church uses a USB mixer feeding a laptop, this wizard finds it and shows a live meter so you can confirm signal.",
     action: { label: "Run Audio wizard", href: "/setup/audio", instruction: "Grant mic permission when Chrome asks, then watch the meter move as you speak." } },
 
   { key: "operator", icon: Radio, title: "Operator console",

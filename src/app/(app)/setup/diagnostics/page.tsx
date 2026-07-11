@@ -19,7 +19,7 @@ export default async function DiagnosticsPage() {
       <PageHeader
         eyebrow="Setup"
         title="Install diagnostics"
-        description="One-shot health check across every service FaithFlow depends on."
+        description="One-shot health check across every service PresentFlow depends on."
       />
       <DiagnosticsPanel />
     </div>

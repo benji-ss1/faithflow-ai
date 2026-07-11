@@ -26,11 +26,11 @@ export default async function FirstSundayPage() {
       <PageHeader
         eyebrow="Help"
         title="First Sunday playbook"
-        description="Everything a volunteer needs to run FaithFlow through a real service — even if they've never used church production software."
+        description="Everything a volunteer needs to run PresentFlow through a real service — even if they've never used church production software."
       />
 
       <Callout>
-        <strong>New to FaithFlow?</strong> Skim this once end-to-end. Then bookmark it — during
+        <strong>New to PresentFlow?</strong> Skim this once end-to-end. Then bookmark it — during
         Sunday morning you'll want to jump straight to the section you need.
       </Callout>
 
@@ -60,7 +60,7 @@ export default async function FirstSundayPage() {
         </p>
         <p className="text-sm text-muted-foreground">
           Pick a preset transcript (Sunday morning, Wednesday small group, Baptism), or paste a custom one, and
-          FaithFlow feeds it through the identical detection pipeline as real audio. You can approve, edit,
+          PresentFlow feeds it through the identical detection pipeline as real audio. You can approve, edit,
           reject — nothing broadcasts.
         </p>
       </Section>
@@ -138,7 +138,7 @@ export default async function FirstSundayPage() {
       </Section>
 
       <Section id="after" title="After the service — archive it" icon={Archive}>
-        <p>In the operator top bar (or More menu), click <strong>End service & archive</strong>. FaithFlow scaffolds:</p>
+        <p>In the operator top bar (or More menu), click <strong>End service & archive</strong>. PresentFlow scaffolds:</p>
         <ul className="space-y-1 mt-2 list-disc pl-5">
           <li>Full transcript (retained per your privacy setting)</li>
           <li>Scripture list (approved references)</li>

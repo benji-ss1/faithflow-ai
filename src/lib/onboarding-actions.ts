@@ -63,6 +63,9 @@ export async function completeOnboarding(): Promise<Result> {
   if (!partial.churchId) return { ok: false, error: "No church attached yet" };
   const db = getDb();
   await db.update(churches).set({ onboardingStatus: "complete" }).where(eq(churches.id, partial.churchId));
+  // Stamp tutorialCompletedAt so the (app) layout gate doesn't bounce
+  // the user back into /onboarding on their first dashboard visit.
+  await db.update(users).set({ tutorialCompletedAt: new Date() }).where(eq(users.id, partial.id));
   revalidatePath("/dashboard");
   return { ok: true };
 }

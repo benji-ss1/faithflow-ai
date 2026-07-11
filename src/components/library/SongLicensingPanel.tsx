@@ -14,7 +14,7 @@ export function SongLicensingPanel({ songCount, importedCount }: { songCount: nu
           <StatusPill label={`${importedCount} imported`} tone={importedCount > 0 ? "warning" : "neutral"} />
         </div>
         <ul className="space-y-2 text-sm text-muted-foreground">
-          <li>FaithFlow stores song lyrics as church-owned or church-imported content, not as a bundled global worship catalog.</li>
+          <li>PresentFlow stores song lyrics as church-owned or church-imported content, not as a bundled global worship catalog.</li>
           <li>Imported or manually entered copyrighted lyrics remain the church’s licensing responsibility.</li>
           <li>Future fields for CCLI number, copyright footer, and usage reporting should be added before broad commercial rollout.</li>
         </ul>
@@ -26,7 +26,7 @@ export function SongLicensingPanel({ songCount, importedCount }: { songCount: nu
           <h2 className="text-base font-semibold">Import warning</h2>
         </div>
         <p className="mb-3 text-sm text-muted-foreground">
-          Imports from ProPresenter, EasyWorship, OpenLP, or CSV should be treated as a church-scoped content migration, not as licensed redistribution through FaithFlow.
+          Imports from ProPresenter, EasyWorship, OpenLP, or CSV should be treated as a church-scoped content migration, not as licensed redistribution through PresentFlow.
         </p>
         <div className="rounded-xl border border-white/10 bg-black/10 p-3 text-xs text-muted-foreground">
           <div className="mb-1 font-medium text-foreground">Recommended next metadata fields</div>

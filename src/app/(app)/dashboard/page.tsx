@@ -123,7 +123,7 @@ export default async function DashboardPage() {
       <PageHeader
         eyebrow="Overview Dashboard"
         title={`Welcome back, ${user.name.split(" ")[0]}`}
-        description="A premium command surface for church admins: service readiness, archive health, content imports, billing posture, and the account layer around FaithFlow."
+        description="A premium command surface for church admins: service readiness, archive health, content imports, billing posture, and the account layer around PresentFlow."
         action={
           <div className="flex flex-wrap gap-2">
             <Link
@@ -148,7 +148,7 @@ export default async function DashboardPage() {
             <div className="space-y-4">
               <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-[11px] font-medium text-muted-foreground">
                 <Sparkles className="h-3.5 w-3.5 text-[var(--color-primary)]" />
-                {church?.name || "FaithFlow Church"}
+                {church?.name || "PresentFlow Church"}
               </div>
               <div className="max-w-xl text-3xl font-semibold tracking-[-0.04em] text-foreground">
                 Calm control before Sunday starts. Keep archive, AI, imports, and account readiness in one place.
@@ -351,7 +351,7 @@ export default async function DashboardPage() {
             ))}
             {importRows.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-white/10 px-4 py-6 text-sm text-muted-foreground">
-                No migration jobs yet. Start with song or media imports when a church moves into FaithFlow.
+                No migration jobs yet. Start with song or media imports when a church moves into PresentFlow.
               </div>
             ) : null}
           </div>
