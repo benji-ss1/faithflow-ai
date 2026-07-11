@@ -23,6 +23,18 @@ const WORKER_COUNT = Number(process.env.WORKER_COUNT ?? 1);
 const BATCH_SIZE = 32;
 const TAG = `[worker ${WORKER_INDEX}/${WORKER_COUNT}]`;
 
+// Last-resort safety net: pg can emit an 'error' on a Client that's not
+// currently being awaited (idle socket kill by Supabase pooler between
+// batches). Instead of crashing, log and let the next iteration reconnect.
+process.on("uncaughtException", (err) => {
+  const msg = (err as { message?: string; code?: string })?.message ?? String(err);
+  const code = (err as { code?: string })?.code;
+  console.warn(`${TAG} uncaughtException swallowed:`, code || "", msg);
+});
+process.on("unhandledRejection", (reason) => {
+  console.warn(`${TAG} unhandledRejection swallowed:`, reason);
+});
+
 function toVectorLiteral(v: number[]): string {
   return `[${v.map((x) => x.toFixed(8)).join(",")}]`;
 }
@@ -68,31 +80,59 @@ async function main() {
     // No ORDER BY: repeatedly sorting the same prefix wastes I/O; the
     // WHERE embedding IS NULL filter narrows the working set every batch,
     // and embed order doesn't affect the output vectors.
-    const rows = (await pool.query(
-      `SELECT id, text FROM bible_verses
-       WHERE embedding IS NULL AND ${SHARD_PRED}
-       LIMIT $3`,
-      [WORKER_COUNT, WORKER_INDEX, BATCH_SIZE]
-    )).rows as { id: string; text: string }[];
+    // Retry loop on any pg-side transient error. The batch (SELECT + UPDATE)
+    // is fully idempotent, so re-running it is safe.
+    let rows: { id: string; text: string }[] = [];
+    let attempt = 0;
+    while (true) {
+      try {
+        rows = (await pool.query(
+          `SELECT id, text FROM bible_verses
+           WHERE embedding IS NULL AND ${SHARD_PRED}
+           LIMIT $3`,
+          [WORKER_COUNT, WORKER_INDEX, BATCH_SIZE]
+        )).rows as { id: string; text: string }[];
+        break;
+      } catch (e) {
+        attempt++;
+        const backoff = Math.min(30_000, 500 * 2 ** attempt);
+        console.warn(`${TAG} SELECT retry ${attempt} after ${backoff}ms:`, (e as Error).message);
+        await new Promise((r) => setTimeout(r, backoff));
+      }
+    }
     if (rows.length === 0) break;
 
     const vectors = await embedBatch(rows.map((r) => r.text));
 
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      for (let i = 0; i < rows.length; i++) {
-        await client.query(
-          `UPDATE bible_verses SET embedding = $1::vector WHERE id = $2 AND embedding IS NULL`,
-          [toVectorLiteral(vectors[i]), rows[i].id]
-        );
+    // Retry the write batch too. Each UPDATE has `AND embedding IS NULL` so
+    // partial replays are no-ops.
+    attempt = 0;
+    while (true) {
+      let client;
+      try {
+        client = await pool.connect();
+        try {
+          await client.query("BEGIN");
+          for (let i = 0; i < rows.length; i++) {
+            await client.query(
+              `UPDATE bible_verses SET embedding = $1::vector WHERE id = $2 AND embedding IS NULL`,
+              [toVectorLiteral(vectors[i]), rows[i].id]
+            );
+          }
+          await client.query("COMMIT");
+          break;
+        } catch (e) {
+          try { await client.query("ROLLBACK"); } catch { /* ignore */ }
+          throw e;
+        } finally {
+          client.release(true); // destroy the connection so pool grabs a fresh one
+        }
+      } catch (e) {
+        attempt++;
+        const backoff = Math.min(30_000, 500 * 2 ** attempt);
+        console.warn(`${TAG} UPDATE retry ${attempt} after ${backoff}ms:`, (e as Error).message);
+        await new Promise((r) => setTimeout(r, backoff));
       }
-      await client.query("COMMIT");
-    } catch (e) {
-      await client.query("ROLLBACK");
-      throw e;
-    } finally {
-      client.release();
     }
 
     done += rows.length;
