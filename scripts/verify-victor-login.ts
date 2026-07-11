@@ -1,7 +1,7 @@
 /**
  * Playwright: signs in as demo@jpd.faithflow.ai on prod, walks a handful of
  * post-onboarding routes to prove nothing 500s. Uses the password just reset
- * (passed via VICTOR_PASSWORD env var — don't hardcode).
+ * (passed via VICTOR_PW env var — don't hardcode).
  */
 import { chromium } from "playwright";
 import fs from "node:fs";
@@ -9,8 +9,8 @@ import path from "node:path";
 
 const BASE = process.env.BASE_URL || "https://faithflow-ai.vercel.app";
 const EMAIL = "demo@jpd.faithflow.ai";
-const PASSWORD = process.env.VICTOR_PASSWORD;
-if (!PASSWORD) { console.error("VICTOR_PASSWORD env var required"); process.exit(1); }
+const PW: string = process.env.VICTOR_PASSWORD ?? "";
+if (!PW) { console.error("VICTOR_PASSWORD env var required"); process.exit(1); }
 
 const OUT_DIR = path.join(process.cwd(), "test/screenshots/victor-" + Date.now());
 fs.mkdirSync(OUT_DIR, { recursive: true });
@@ -33,7 +33,7 @@ async function main() {
   try {
     await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
     await page.fill('input[type="email"]', EMAIL);
-    await page.fill('input[type="password"]', PASSWORD);
+    await page.fill('input[type="password"]', PW);
     await page.click('button[type="submit"]');
     await page.waitForURL(/\/(dashboard|onboarding|services)/, { timeout: 30_000 });
     await shot("00-landing");
