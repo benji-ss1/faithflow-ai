@@ -11,3 +11,6 @@ drizzle
 tsconfig.tsbuildinfo
 next-env.d.ts
 .next-corrupt-*
+.vercel
+.env*
+test/screenshots/
