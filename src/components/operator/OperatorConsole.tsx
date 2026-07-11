@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { ArrowLeft, ChevronLeft, ChevronRight, Monitor, Radio, Square, Sun, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, safePost, type SlidePayload, type LiveMessage, type OutputState } from "@/lib/broadcast";
+import { openOutputChannel } from "@/lib/realtime";
+import { SyncControl } from "./SyncControl";
 import type { ExpandedPlan, ExpandedItem } from "@/lib/server/services";
 import { cn } from "@/lib/utils";
 import { useAudioStream, type Detection, type SongSuggestion, type CommandSuggestion, type UnifiedSuggestion } from "./useAudioStream";
@@ -161,11 +163,35 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
       transition: transitionSpec,
     };
     safePost(chRef.current, { type: "output", state });
+    if (rtRef.current) { void rtRef.current.publish(state); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [live, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec]);
   const chRef = useRef<BroadcastChannel | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;
+
+  // Networked projector sync: when a pair code is minted the operator's
+  // OutputState is ALSO published on the Supabase Realtime channel scoped by
+  // that code. BroadcastChannel (same-machine) remains the primary low-latency
+  // path — this is strictly additive fan-out.
+  const rtRef = useRef<ReturnType<typeof openOutputChannel> | null>(null);
+  const [pairCode, setPairCode] = useState<string | null>(null);
+  useEffect(() => {
+    if (rtRef.current) { try { rtRef.current.close(); } catch { /* ignore */ } rtRef.current = null; }
+    if (pairCode) {
+      rtRef.current = openOutputChannel(pairCode);
+      // Subscribe with a no-op handler so the underlying channel is joined
+      // and ready for publish() calls.
+      rtRef.current.subscribe(() => { /* publisher only */ });
+    }
+    return () => {
+      if (rtRef.current) { try { rtRef.current.close(); } catch { /* ignore */ } rtRef.current = null; }
+    };
+  }, [pairCode]);
+  const publishRealtime = useCallback((state: OutputState) => {
+    if (!rtRef.current) return;
+    void rtRef.current.publish(state);
+  }, []);
 
   // Phase 5A: local song library for client-side lyric/title matching.
   // Fetched once on mount; refreshed via manual reload (song imports).
@@ -791,6 +817,7 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
       countdownEndsAt,
     };
     safePost(chRef.current, { type: "output", state });
+    publishRealtime(state);
     toast.success(line1 || line2 ? "Lower third sent" : "Lower third cleared");
   }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt]);
 
@@ -866,6 +893,9 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
 
   return (
     <>
+      <div className="fixed top-2 right-3 z-40">
+        <SyncControl planId={plan.id} onCodeChange={setPairCode} />
+      </div>
       <OperatorShell ctx={shellCtx} />
       <ImportSongModal
         open={importModal !== null}

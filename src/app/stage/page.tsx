@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec } from "@/lib/broadcast";
+import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
 import { TransitionWrapper } from "@/components/live/TransitionWrapper";
 
@@ -37,6 +38,7 @@ export default function StagePage() {
   const [announcement, setAnnouncement] = useState<AnnouncementPayload | null>(null);
   const [transition, setTransition] = useState<TransitionSpec | null>(null);
   const [connected, setConnected] = useState(false);
+  const [pairBadge, setPairBadge] = useState<string | null>(null);
   // null on server + first client render to avoid hydration mismatch on the clock.
   const [now, setNow] = useState<Date | null>(null);
   useEffect(() => { setNow(new Date()); }, []);
@@ -84,7 +86,37 @@ export default function StagePage() {
     const timer = setInterval(() => {
       if (Date.now() - lastMsgAt.current > 3000) setConnected(false);
     }, 1000);
-    return () => { try { ch.close(); } catch { /* ignore */ } clearInterval(timer); };
+    // Cross-device: subscribe to Supabase Realtime channel when ?pair=CODE present.
+    let realtime: ReturnType<typeof openOutputChannel> | null = null;
+    let badgeTimer: ReturnType<typeof setTimeout> | null = null;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const pair = params.get("pair");
+      if (pair && isValidPairCode(pair)) {
+        const code = pair.trim().toUpperCase();
+        realtime = openOutputChannel(code);
+        let firstMsg = true;
+        realtime.subscribe((state) => {
+          lastMsgAt.current = Date.now();
+          setConnected(true);
+          setCurrent(state.live);
+          setNext(state.next);
+          setOperatorMessage(state.operatorMessage);
+          setCountdownEndsAt(state.countdownEndsAt);
+          setAnnouncement(state.announcement ?? null);
+          setTransition(state.transition ?? null);
+          if (firstMsg) { firstMsg = false; setPairBadge(code); badgeTimer = setTimeout(() => setPairBadge(null), 5000); }
+        });
+      }
+    } catch (e) {
+      console.warn("[stage] pair-code subscribe failed:", e instanceof Error ? e.message : String(e));
+    }
+    return () => {
+      try { ch.close(); } catch { /* ignore */ }
+      try { realtime?.close(); } catch { /* ignore */ }
+      if (badgeTimer) clearTimeout(badgeTimer);
+      clearInterval(timer);
+    };
   }, []);
 
   // Clock tick
@@ -195,6 +227,12 @@ export default function StagePage() {
           <span>Press <kbd className="font-mono bg-white/10 px-1.5 py-0.5 rounded-sm">F</kbd> or double-click for fullscreen</span>
           <button onClick={(e) => { e.stopPropagation(); setShowHelp(false); }}
             className="text-white/70 hover:text-white ml-2"><X className="w-3 h-3" /></button>
+        </div>
+      )}
+
+      {pairBadge && (
+        <div className="absolute bottom-3 left-3 flex items-center gap-1.5 bg-emerald-900/80 text-white text-[10px] font-semibold px-2 py-1 rounded-sm">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-300" /> CONNECTED VIA CODE {pairBadge}
         </div>
       )}
 

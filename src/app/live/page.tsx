@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, safePost, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec } from "@/lib/broadcast";
+import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
 import { TransitionWrapper } from "@/components/live/TransitionWrapper";
 
@@ -45,6 +46,7 @@ export default function LivePage() {
   const [connected, setConnected] = useState(false);
   const [showHelp, setShowHelp] = useState(true);
   const [warning, setWarning] = useState<string | null>(null);
+  const [pairBadge, setPairBadge] = useState<string | null>(null);
   const lastMsgAt = useRef<number>(Date.now());
 
   useEffect(() => {
@@ -98,8 +100,38 @@ export default function LivePage() {
       if (Date.now() - lastMsgAt.current > 3000) setConnected(false);
     }, 1000);
 
+    // Cross-device sync via Supabase Realtime, if ?pair=CODE is present.
+    // Never blocks or replaces BroadcastChannel — purely additive.
+    let realtime: ReturnType<typeof openOutputChannel> | null = null;
+    let badgeTimer: ReturnType<typeof setTimeout> | null = null;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const pair = params.get("pair");
+      if (pair && isValidPairCode(pair)) {
+        const code = pair.trim().toUpperCase();
+        realtime = openOutputChannel(code);
+        let firstMsg = true;
+        realtime.subscribe((state) => {
+          lastMsgAt.current = Date.now();
+          setConnected(true);
+          setSlide(state.live);
+          setAnnouncement(state.announcement ?? null);
+          setTransition(state.transition ?? null);
+          if (firstMsg) {
+            firstMsg = false;
+            setPairBadge(code);
+            badgeTimer = setTimeout(() => setPairBadge(null), 5000);
+          }
+        });
+      }
+    } catch (e) {
+      console.warn("[live] pair-code subscribe failed:", e instanceof Error ? e.message : String(e));
+    }
+
     return () => {
       try { ch.close(); } catch { /* ignore */ }
+      try { realtime?.close(); } catch { /* ignore */ }
+      if (badgeTimer) clearTimeout(badgeTimer);
       clearInterval(timer);
     };
   }, []);
@@ -177,6 +209,12 @@ export default function LivePage() {
       {warning && (
         <div className="absolute top-4 left-4 right-4 max-w-md mx-auto bg-red-900/80 text-white text-xs px-3 py-2 rounded-md">
           {warning}
+        </div>
+      )}
+
+      {pairBadge && (
+        <div className="absolute bottom-3 left-3 flex items-center gap-1.5 bg-emerald-900/80 text-white text-[10px] font-semibold px-2 py-1 rounded-sm pointer-events-auto">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-300" /> CONNECTED VIA CODE {pairBadge}
         </div>
       )}
 

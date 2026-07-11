@@ -381,6 +381,30 @@ export const themes = pgTable("themes", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Networked projector sync — device pairings.
+// Each row is a short-lived pair code that authorises a projector/stage/stream
+// surface to subscribe to a Supabase Realtime channel scoped by that code.
+// The pair code (never the plan/church UUID) is the shared secret on the wire.
+export const devicePairScreenKindEnum = pgEnum("device_pair_screen_kind", [
+  "projector",
+  "stage",
+  "stream",
+  "operator",
+]);
+
+export const devicePairs = pgTable("device_pairs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id, { onDelete: "cascade" }).notNull(),
+  planId: uuid("plan_id").references(() => servicePlans.id, { onDelete: "cascade" }),
+  pairCode: text("pair_code").notNull().unique(),
+  label: text("label"),
+  screenKind: devicePairScreenKindEnum("screen_kind").notNull().default("projector"),
+  createdByUserId: uuid("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  revokedAt: timestamp("revoked_at"),
+});
+
 export const servicePlanRelations = relations(servicePlans, ({ many }) => ({ items: many(serviceItems) }));
 export const serviceItemRelations = relations(serviceItems, ({ one }) => ({ plan: one(servicePlans, { fields: [serviceItems.servicePlanId], references: [servicePlans.id] }) }));
 export const songRelations = relations(songs, ({ many }) => ({ slides: many(songSlides) }));

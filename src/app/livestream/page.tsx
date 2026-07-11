@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec } from "@/lib/broadcast";
+import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
 import { TransitionWrapper } from "@/components/live/TransitionWrapper";
 
@@ -35,6 +36,7 @@ export default function LivestreamPage() {
   const [transition, setTransition] = useState<TransitionSpec | null>(null);
   const [transitionsEnabled, setTransitionsEnabled] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [pairBadge, setPairBadge] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(true);
   const lastMsgAt = useRef<number>(Date.now());
 
@@ -84,7 +86,34 @@ export default function LivestreamPage() {
     const timer = setInterval(() => {
       if (Date.now() - lastMsgAt.current > 3000) setConnected(false);
     }, 1000);
-    return () => { try { ch.close(); } catch { /* ignore */ } clearInterval(timer); };
+    let realtime: ReturnType<typeof openOutputChannel> | null = null;
+    let badgeTimer: ReturnType<typeof setTimeout> | null = null;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const pair = params.get("pair");
+      if (pair && isValidPairCode(pair)) {
+        const code = pair.trim().toUpperCase();
+        realtime = openOutputChannel(code);
+        let firstMsg = true;
+        realtime.subscribe((state) => {
+          lastMsgAt.current = Date.now();
+          setConnected(true);
+          setSlide(state.live);
+          setLowerThird(state.lowerThird);
+          setAnnouncement(state.announcement ?? null);
+          setTransition(state.transition ?? null);
+          if (firstMsg) { firstMsg = false; setPairBadge(code); badgeTimer = setTimeout(() => setPairBadge(null), 5000); }
+        });
+      }
+    } catch (e) {
+      console.warn("[livestream] pair-code subscribe failed:", e instanceof Error ? e.message : String(e));
+    }
+    return () => {
+      try { ch.close(); } catch { /* ignore */ }
+      try { realtime?.close(); } catch { /* ignore */ }
+      if (badgeTimer) clearTimeout(badgeTimer);
+      clearInterval(timer);
+    };
   }, []);
 
   useEffect(() => {
@@ -162,6 +191,12 @@ export default function LivestreamPage() {
           <span>Livestream mode: <span className="font-mono">{mode}</span>{transparent && " · transparent bg"}. F = fullscreen</span>
           <button onClick={(e) => { e.stopPropagation(); setShowHelp(false); }}
             className="text-white/70 hover:text-white ml-2"><X className="w-3 h-3" /></button>
+        </div>
+      )}
+
+      {pairBadge && !transparent && (
+        <div className="absolute bottom-3 left-3 flex items-center gap-1.5 bg-emerald-900/80 text-white text-[10px] font-semibold px-2 py-1 rounded-sm">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-300" /> CONNECTED VIA CODE {pairBadge}
         </div>
       )}
 
