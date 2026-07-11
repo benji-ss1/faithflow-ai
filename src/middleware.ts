@@ -11,7 +11,17 @@ export async function middleware(req: NextRequest) {
   if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
     return NextResponse.next();
   }
-  const token = await getToken({ req, secret: process.env.AUTH_SECRET });
+  // Auth.js v5 renamed the cookie. Must pass salt + cookieName + secureCookie
+  // explicitly for getToken to read the correct one in production.
+  const secureCookie = req.nextUrl.protocol === "https:";
+  const cookieName = secureCookie ? "__Secure-authjs.session-token" : "authjs.session-token";
+  const token = await getToken({
+    req,
+    secret: process.env.AUTH_SECRET,
+    salt: cookieName,
+    cookieName,
+    secureCookie,
+  });
   if (!token) return NextResponse.redirect(new URL("/login", req.url));
   return NextResponse.next();
 }
