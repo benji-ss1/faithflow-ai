@@ -3,6 +3,16 @@ import { useState } from "react";
 import Link from "next/link";
 import { signIn } from "next-auth/react";
 import { toast } from "sonner";
+import {
+  AuthShell,
+  AuthHeader,
+  authInputCls,
+  authInputStyle,
+  authLabelCls,
+  authLabelStyle,
+  authCtaCls,
+  authCtaStyle,
+} from "@/components/auth/AuthShell";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -14,37 +24,75 @@ export default function LoginPage() {
     setLoading(true);
     const res = await signIn("credentials", { email, password, redirect: false });
     setLoading(false);
-    if (res?.error) { toast.error("Invalid credentials"); return; }
+    if (res?.error) {
+      toast.error("Invalid credentials");
+      return;
+    }
     window.location.href = "/dashboard";
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-6">
-      <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4 border border-border rounded-md p-8 bg-card">
-        <div>
-          <div className="eyebrow text-muted-foreground mb-2">FaithFlow AI</div>
-          <h1 className="text-2xl font-semibold">Sign in</h1>
+    <AuthShell>
+      <AuthHeader
+        eyebrow="Welcome back"
+        heading="Sign in to"
+        showBrandInHeading
+        sub="Pick up right where your last service left off."
+      />
+
+      <form onSubmit={onSubmit}>
+        <div className="mb-4">
+          <label className={authLabelCls} style={authLabelStyle}>
+            Email
+          </label>
+          <input
+            type="email"
+            required
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+            className={authInputCls}
+            style={authInputStyle}
+          />
         </div>
-        <div className="space-y-2">
-          <label className="text-xs font-semibold">Email</label>
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required
-            className="w-full px-3 py-2 border border-border rounded-md bg-background text-sm" />
+
+        <div className="mb-4">
+          <div className="flex justify-between items-center mb-1.5">
+            <label className="text-[13px] font-semibold" style={authLabelStyle}>
+              Password
+            </label>
+            <Link href="/forgot-password" className="text-[12.5px]" style={{ color: "#ff9048" }}>
+              Forgot?
+            </Link>
+          </div>
+          <input
+            type="password"
+            required
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+            className={authInputCls}
+            style={authInputStyle}
+          />
         </div>
-        <div className="space-y-2">
-          <label className="text-xs font-semibold">Password</label>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required
-            className="w-full px-3 py-2 border border-border rounded-md bg-background text-sm" />
-        </div>
-        <button type="submit" disabled={loading}
-          className="w-full h-11 bg-foreground text-background rounded-md text-sm font-semibold hover:opacity-90 disabled:opacity-50 transition-all active:scale-[0.98]">
-          {loading ? "Signing in..." : "Sign in"}
+
+        <button type="submit" disabled={loading} className={authCtaCls} style={authCtaStyle}>
+          {loading ? "Signing in…" : "Sign in"}
         </button>
-        <div className="flex justify-between text-xs">
-          <Link href="/forgot-password" className="text-muted-foreground hover:text-foreground underline">Forgot password?</Link>
-          <Link href="/signup" className="text-muted-foreground hover:text-foreground underline">Create a church account</Link>
+
+        <div className="text-center mt-6 text-sm" style={{ color: "#9c958b" }}>
+          New to PresentFlow?{" "}
+          <Link href="/signup" className="font-semibold" style={{ color: "#ff9048" }}>
+            Create an account
+          </Link>
         </div>
-        <p className="text-xs text-muted-foreground text-center pt-2 border-t border-border">Demo login: operator@demo.church / operator123</p>
+
+        <div className="text-center mt-6 text-xs" style={{ color: "#6f685e" }}>
+          Demo login: operator@demo.church / operator123
+        </div>
       </form>
-    </div>
+    </AuthShell>
   );
 }

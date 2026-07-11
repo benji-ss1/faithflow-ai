@@ -1,77 +1,79 @@
 @import "tailwindcss";
+@import url("https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap");
 
 /*
- * FaithFlow AI — dark-first production console.
+ * PresentFlow — dark AI-native production console.
  *
- * Layered dark neutrals around #232b2b (slate-teal). We do NOT flood the
- * UI in one flat tone: `app-bg` is darker than `panel`, `panel` darker
- * than `raised-shell`, giving physical depth without shadows. Cyan/teal
- * accent for AI + status; restrained glow; crisp borders.
+ * Deep-black base with warm orange brand accent. Layered neutrals give
+ * physical depth: app-bg (near-black) < panel (elevated) < raised-shell
+ * (card). Orange (#ff7a2c / #ff9048) is the single accent, echoing the
+ * flowing gradient in the brand mark. No cyan.
  *
- * Light mode = `.light` on <html>. Same token names, inverted structure.
+ * Light mode = `.light` on <html>. Same token contract, inverted.
  */
 
 @theme {
-  /* Structural layers — dark default (aligned to dashboard redesign brief) */
-  --color-app-bg:        #151919;
-  --color-panel:         #1b2121;
-  --color-raised-shell:  #232b2b;
-  --color-elevated:      #2b3434;
-  --color-shell:         #111414;
-  --color-shell-edge:    rgba(255,255,255,0.05);
+  /* Structural layers — dark default */
+  --color-app-bg:        #000000;
+  --color-panel:         #0e0b12;
+  --color-raised-shell:  #171319;
+  --color-elevated:      #1c1820;
+  --color-shell:         #050405;
+  --color-shell-edge:    rgba(255,255,255,0.06);
   --color-overlay-soft:  rgba(255,255,255,0.03);
-  --color-glow:          rgba(111,224,194,0.16);
+  --color-glow:          rgba(255,144,72,0.18);
 
-  /* Backwards compat with existing tailwind classes */
-  --color-background:    #151919;
-  --color-card:          #232b2b;
-  --color-popover:       #232b2b;
-  --color-muted:         #1b2121;
+  /* Backwards compat */
+  --color-background:    #000000;
+  --color-card:          #171319;
+  --color-popover:       #171319;
+  --color-muted:         #0e0b12;
 
   /* Text */
-  --color-foreground:            #eef3f2;
-  --color-card-foreground:       #eef3f2;
-  --color-popover-foreground:    #eef3f2;
-  --color-muted-foreground:      #8c9797;
-  --color-primary:               #6fe0c2;
-  --color-primary-foreground:    #151919;
-  --color-secondary:             #2b3434;
-  --color-secondary-foreground:  #eef3f2;
-  --color-accent:                #7bc7ff;
-  --color-accent-foreground:     #151919;
+  --color-foreground:            #ece7e0;
+  --color-card-foreground:       #ece7e0;
+  --color-popover-foreground:    #ece7e0;
+  --color-muted-foreground:      #9c958b;
+  --color-primary:               #ff7a2c;
+  --color-primary-foreground:    #17130c;
+  --color-secondary:             #1c1820;
+  --color-secondary-foreground:  #ece7e0;
+  --color-accent:                #ff9048;
+  --color-accent-foreground:     #17130c;
 
-  /* Semantic accents — restrained, no neon */
-  --color-brand:          #6fe0c2;
-  --color-brand-muted:    #2d8f7a;
+  /* Semantic accents — warm brand + universal signals */
+  --color-brand:          #ff7a2c;
+  --color-brand-muted:    #cf5f1e;
+  --color-brand-hi:       #ffb861;
   --color-success:        #4fd18b;
   --color-warning:        #f0b35a;
-  --color-destructive:    #f26d6d;
-  --color-destructive-foreground: #151919;
+  --color-destructive:    #ff6d6d;
+  --color-destructive-foreground: #17130c;
 
   /* Borders and inputs */
-  --color-border:  #394444;
-  --color-input:   #394444;
-  --color-ring:    #6fe0c2;
+  --color-border:  rgba(255,255,255,0.10);
+  --color-input:   rgba(255,255,255,0.10);
+  --color-ring:    #ff7a2c;
 
   /* Sidebar-specific */
-  --color-sidebar-bg:         #151919;
-  --color-sidebar-item-hover: #232b2b;
-  --color-sidebar-item-active:#2b3434;
-  --color-sidebar-fg:         #d7dede;
-  --color-sidebar-fg-muted:   #6f7c7c;
+  --color-sidebar-bg:         #0a0810;
+  --color-sidebar-item-hover: #171319;
+  --color-sidebar-item-active:#1c1820;
+  --color-sidebar-fg:         #d5cdc1;
+  --color-sidebar-fg-muted:   #847d72;
 
   /* AI + audio status tokens */
-  --color-ai-idle:      #6f7c7c;
-  --color-ai-listening: #6fe0c2;
-  --color-ai-processing:#f0b35a;
+  --color-ai-idle:      #6f685e;
+  --color-ai-listening: #ff9048;
+  --color-ai-processing:#ffb861;
   --color-ai-approved:  #4fd18b;
 
-  --font-sans:    ui-sans-serif, system-ui, -apple-system, "SF Pro Text", "Inter", "Segoe UI", Roboto, sans-serif;
-  --font-display: ui-sans-serif, system-ui, -apple-system, "SF Pro Display", "Inter", "Segoe UI", Roboto, sans-serif;
+  --font-sans:    "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "SF Pro Text", "Inter", "Segoe UI", Roboto, sans-serif;
+  --font-display: "Sora", ui-sans-serif, system-ui, -apple-system, "SF Pro Display", "Inter", "Segoe UI", Roboto, sans-serif;
   --font-mono:    ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
-  --radius-md: 6px;
-  --radius-lg: 10px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
   --radius-xl: 14px;
 }
 
@@ -108,47 +110,48 @@ h1, h2, h3, .font-display { letter-spacing: -0.02em; font-family: var(--font-dis
 html.light {
   color-scheme: light;
 
-  --color-app-bg:        #f5f6f6;
+  --color-app-bg:        #faf8f5;
   --color-panel:         #ffffff;
   --color-raised-shell:  #ffffff;
-  --color-elevated:      #f0f2f2;
-  --color-shell:         #e8eded;
-  --color-shell-edge:    rgba(15,22,22,0.06);
-  --color-overlay-soft:  rgba(15,22,22,0.03);
-  --color-glow:          rgba(13,156,156,0.14);
+  --color-elevated:      #f4efe8;
+  --color-shell:         #eae5dd;
+  --color-shell-edge:    rgba(23,19,25,0.08);
+  --color-overlay-soft:  rgba(23,19,25,0.03);
+  --color-glow:          rgba(255,122,44,0.14);
 
-  --color-background: #f5f6f6;
+  --color-background: #faf8f5;
   --color-card:       #ffffff;
   --color-popover:    #ffffff;
-  --color-muted:      #eef0f0;
+  --color-muted:      #f4efe8;
 
-  --color-foreground:            #0f1616;
-  --color-card-foreground:       #0f1616;
-  --color-popover-foreground:    #0f1616;
-  --color-muted-foreground:      #647070;
-  --color-primary:               #0d9c9c;
+  --color-foreground:            #17130c;
+  --color-card-foreground:       #17130c;
+  --color-popover-foreground:    #17130c;
+  --color-muted-foreground:      #6a635a;
+  --color-primary:               #cf5f1e;
   --color-primary-foreground:    #ffffff;
-  --color-secondary:             #eef0f0;
-  --color-secondary-foreground:  #0f1616;
-  --color-accent:                #cfe7f8;
-  --color-accent-foreground:     #0f1616;
+  --color-secondary:             #f4efe8;
+  --color-secondary-foreground:  #17130c;
+  --color-accent:                #ffe6d1;
+  --color-accent-foreground:     #17130c;
 
-  --color-brand:       #0d9c9c;
-  --color-brand-muted: #0e7777;
+  --color-brand:       #cf5f1e;
+  --color-brand-muted: #a24818;
+  --color-brand-hi:    #ff9048;
 
-  --color-border: #d6dddd;
-  --color-input:  #d6dddd;
-  --color-ring:   #0d9c9c;
+  --color-border: #e3ddd2;
+  --color-input:  #e3ddd2;
+  --color-ring:   #ff7a2c;
 
-  --color-sidebar-bg:         #f5f6f6;
-  --color-sidebar-item-hover: #eaeeee;
-  --color-sidebar-item-active:#dfe4e4;
-  --color-sidebar-fg:         #1a2020;
-  --color-sidebar-fg-muted:   #647070;
+  --color-sidebar-bg:         #faf8f5;
+  --color-sidebar-item-hover: #f4efe8;
+  --color-sidebar-item-active:#eae5dd;
+  --color-sidebar-fg:         #17130c;
+  --color-sidebar-fg-muted:   #6a635a;
 
-  --color-ai-idle:      #647070;
-  --color-ai-listening: #0d9c9c;
-  --color-ai-processing:#c2780e;
+  --color-ai-idle:      #6a635a;
+  --color-ai-listening: #cf5f1e;
+  --color-ai-processing:#b9531a;
   --color-ai-approved:  #159a5c;
 }
 
@@ -177,6 +180,27 @@ html.light {
     0 28px 72px rgba(0,0,0,0.28),
     0 0 0 1px rgba(111,224,194,0.06),
     inset 0 1px 0 rgba(255,255,255,0.05);
+}
+
+/*
+ * PresentFlow auth/onboarding animations — used on split-panel screens.
+ * Flow mesh SVG animates via gradientTransform; wrappers drift the aurora
+ * blobs and float placeholder slides upward on the brand panel.
+ */
+@keyframes pfDrift1 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(50px,-34px) scale(1.12); } }
+@keyframes pfDrift2 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-60px,44px) scale(1.16); } }
+@keyframes pfDrift3 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(34px,52px) scale(0.92); } }
+@keyframes pfFloatUp { 0% { transform: translateY(40px); opacity: 0; } 12%,88% { opacity: 1; } 100% { transform: translateY(-380px); opacity: 0; } }
+@keyframes pfRise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pfFloatMark { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes pfPulse { 0%,100% { transform: scale(1); opacity: 0.9; } 50% { transform: scale(1.06); opacity: 1; } }
+@keyframes pfSlideWord { from { transform: translateX(-10px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+.pf-brand-text {
+  background: linear-gradient(90deg, var(--color-brand-hi), var(--color-brand));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 /* Waveform micro-status — used inside AI panel header */

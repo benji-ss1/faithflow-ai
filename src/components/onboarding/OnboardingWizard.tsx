@@ -1,251 +1,325 @@
 "use client";
 import { useState, useTransition } from "react";
-import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CheckCircle2, ChevronRight, ChevronLeft, Mail, Building2, Upload, Compass } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { createChurchAndAttachUser, completeOnboarding } from "@/lib/onboarding-actions";
-import { resendVerificationEmail } from "@/lib/auth-actions";
-import { MigrationStep } from "./MigrationStep";
+import { inviteTeammate } from "@/lib/invitation-actions";
+import {
+  AuthShell,
+  authInputCls,
+  authInputStyle,
+  authLabelCls,
+  authLabelStyle,
+  authCtaCls,
+  authCtaStyle,
+} from "@/components/auth/AuthShell";
 
-type Step = "verify" | "church" | "migrate" | "checklist";
+/**
+ * PresentFlow onboarding wizard — 4 steps, split-panel shell.
+ *
+ * 1. Workspace name (church_id row creation)
+ * 2. Use case ("what will you present?") — stored as workspace flavor
+ * 3. Invite team — one email at a time; batches inviteTeammate() calls
+ * 4. Done — celebratory summary, redirects to /dashboard
+ *
+ * Skips forward for users who already have a church attached (returning
+ * mid-flow). Never blocks — every step after 0 has a Back button.
+ */
 
-const TIMEZONES = ["UTC", "Europe/Dublin", "Europe/London", "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "America/Phoenix", "America/Anchorage", "Africa/Lagos", "Africa/Nairobi", "Asia/Manila", "Asia/Singapore", "Australia/Sydney"];
+type UseCaseKey = "church" | "business" | "education" | "events";
+type Invite = { email: string; role: "admin" | "operator" | "pastor"; initial: string };
 
-export function OnboardingWizard({ userName, userEmail, hasChurch, emailVerified }: { userName: string; userEmail: string; hasChurch: boolean; emailVerified: boolean }) {
+const USE_CASES: { key: UseCaseKey; icon: string; title: string; desc: string; recommended?: boolean }[] = [
+  { key: "church", icon: "⛪", title: "Church & Worship", desc: "Lyrics, Bible verses, live services", recommended: true },
+  { key: "business", icon: "💼", title: "Business & Teams", desc: "Decks, meetings, town halls" },
+  { key: "education", icon: "🎓", title: "Education", desc: "Lessons, lectures, classrooms" },
+  { key: "events", icon: "🎤", title: "Events & Speakers", desc: "Keynotes, stages, conferences" },
+];
+
+export function OnboardingWizard({
+  hasChurch,
+}: {
+  userName: string;
+  userEmail: string;
+  hasChurch: boolean;
+  emailVerified: boolean;
+}) {
   const router = useRouter();
-  const [step, setStep] = useState<Step>(
-    !emailVerified ? "verify" :
-    !hasChurch ? "church" :
-    "migrate"
-  );
-  const [churchDetails, setChurchDetails] = useState({
-    name: "", city: "", country: "", timezone: "UTC",
-    congregationSize: "", denomination: "", jobTitle: "",
-  });
+  const [step, setStep] = useState(hasChurch ? 1 : 0);
   const [pending, startTransition] = useTransition();
 
-  function submitChurch(e: React.FormEvent) {
-    e.preventDefault();
-    startTransition(async () => {
-      const res = await createChurchAndAttachUser({
-        name: churchDetails.name,
-        city: churchDetails.city,
-        country: churchDetails.country,
-        timezone: churchDetails.timezone,
-        congregationSize: churchDetails.congregationSize ? Number(churchDetails.congregationSize) : undefined,
-        denomination: churchDetails.denomination,
-        jobTitle: churchDetails.jobTitle,
-      });
-      if (!res.ok) { toast.error(res.error); return; }
-      toast.success(`${churchDetails.name} created`);
-      setStep("migrate");
-    });
+  const [workspace, setWorkspace] = useState("");
+  const [useCase, setUseCase] = useState<UseCaseKey>("church");
+  const [inviteInput, setInviteInput] = useState("");
+  const [invites, setInvites] = useState<Invite[]>([]);
+
+  function addInvite() {
+    const email = inviteInput.trim().toLowerCase();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      toast.error("Enter a valid email");
+      return;
+    }
+    if (invites.find((i) => i.email === email)) {
+      toast.error("Already added");
+      return;
+    }
+    setInvites((xs) => [...xs, { email, role: "operator", initial: email[0].toUpperCase() }]);
+    setInviteInput("");
   }
 
-  function finish() {
+  function stepForward() {
     startTransition(async () => {
+      if (step === 0) {
+        if (!workspace.trim()) {
+          toast.error("Workspace name is required");
+          return;
+        }
+        const res = await createChurchAndAttachUser({
+          name: workspace.trim(),
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+        });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
+        setStep(1);
+        return;
+      }
+      if (step === 1) {
+        // Use case captured client-side; consumed by dashboard hints later.
+        setStep(2);
+        return;
+      }
+      if (step === 2) {
+        for (const inv of invites) {
+          const res = await inviteTeammate({ email: inv.email, role: inv.role });
+          if (!res.ok) toast.error(`${inv.email}: ${res.error}`);
+        }
+        setStep(3);
+        return;
+      }
+      // step 3 — finish
       const res = await completeOnboarding();
-      if (!res.ok) { toast.error(res.error); return; }
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
       router.push("/dashboard");
     });
   }
 
+  const canBack = step > 0 && step < 3;
+  const stepNum = step + 1;
+  const titles = ["Name your workspace", "What will you present?", "Invite your team", "You're all set!"];
+  const subs = [
+    "This is where your slides, songs and services live.",
+    "We'll tailor templates and tools to fit how you present.",
+    "Presenting is a team sport. Add the people who help run your events.",
+    "Your PresentFlow workspace is ready to go.",
+  ];
+  const ctaLabels = ["Continue", "Continue", "Finish setup", "Enter PresentFlow"];
+
   return (
-    <div className="min-h-screen bg-background flex items-start justify-center py-10 px-6">
-      <div className="w-full max-w-2xl space-y-6">
-        {/* Header */}
-        <div>
-          <div className="eyebrow text-muted-foreground mb-1">Getting set up</div>
-          <h1 className="text-2xl md:text-3xl font-semibold font-display">Welcome, {userName.split(" ")[0]}</h1>
-          <p className="text-sm text-muted-foreground mt-1">Four short steps and you'll be running your first service plan.</p>
+    <AuthShell>
+      {/* Step progress bars */}
+      <div className="flex items-center gap-2 mb-7">
+        {[0, 1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className="flex-1 h-[5px] rounded-[3px] transition-all"
+            style={{
+              background: i <= step ? "linear-gradient(90deg,#ffb861,#ff7a2c)" : "rgba(255,255,255,0.09)",
+            }}
+          />
+        ))}
+      </div>
+
+      <div key={step} style={{ animation: "pfRise 0.4s ease both" }}>
+        <div className="text-[13px] font-semibold tracking-[0.12em] uppercase" style={{ color: "#ff9048" }}>
+          Step {stepNum} of 4
         </div>
+        <h2 className="font-display font-bold text-[27px] tracking-[-0.02em] mt-2 mb-1.5" style={{ color: "#f4f1ea" }}>
+          {titles[step]}
+        </h2>
+        <p className="text-[15px] leading-[1.5] mb-6" style={{ color: "#9c958b" }}>
+          {subs[step]}
+        </p>
 
-        {/* Step indicators */}
-        <StepBar current={step} hasChurch={hasChurch} emailVerified={emailVerified} />
-
-        {/* Steps */}
-        {step === "verify" && <VerifyStep userEmail={userEmail} onSkip={() => setStep("church")} />}
-
-        {step === "church" && (
-          <form onSubmit={submitChurch} className="border border-border rounded-md bg-card p-6 space-y-4">
-            <StepHeader icon={<Building2 className="w-4 h-4" />} title="About your church"
-              description="These details help us set up the right defaults and let us tailor the AI to how you actually run services." />
-
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Church name" required>
-                <input required value={churchDetails.name} onChange={(e) => setChurchDetails({ ...churchDetails, name: e.target.value })}
-                  className="input" />
-              </Field>
-              <Field label="City" hint="Used for scheduling context">
-                <input value={churchDetails.city} onChange={(e) => setChurchDetails({ ...churchDetails, city: e.target.value })}
-                  placeholder="Dublin" className="input" />
-              </Field>
-              <Field label="Country">
-                <input value={churchDetails.country} onChange={(e) => setChurchDetails({ ...churchDetails, country: e.target.value })}
-                  placeholder="Ireland" className="input" />
-              </Field>
-              <Field label="Timezone" required>
-                <select required value={churchDetails.timezone} onChange={(e) => setChurchDetails({ ...churchDetails, timezone: e.target.value })}
-                  className="input">
-                  {TIMEZONES.map((tz) => <option key={tz} value={tz}>{tz}</option>)}
-                </select>
-              </Field>
-              <Field label="Approx. congregation size" hint="Rough estimate is fine">
-                <input type="number" min={1} value={churchDetails.congregationSize} onChange={(e) => setChurchDetails({ ...churchDetails, congregationSize: e.target.value })}
-                  placeholder="150" className="input" />
-              </Field>
-              <Field label="Denomination / tradition" hint="Optional">
-                <input value={churchDetails.denomination} onChange={(e) => setChurchDetails({ ...churchDetails, denomination: e.target.value })}
-                  placeholder="Non-denominational" className="input" />
-              </Field>
-              <Field label="Your role" hint="What are you day-to-day?" span={2}>
-                <select value={churchDetails.jobTitle} onChange={(e) => setChurchDetails({ ...churchDetails, jobTitle: e.target.value })}
-                  className="input">
-                  <option value="">Select…</option>
-                  <option value="pastor">Pastor</option>
-                  <option value="media_team_lead">Media team lead</option>
-                  <option value="volunteer_operator">Volunteer operator</option>
-                  <option value="worship_leader">Worship leader</option>
-                  <option value="other">Other</option>
-                </select>
-              </Field>
-            </div>
-
-            <div className="flex justify-end pt-2">
-              <button type="submit" disabled={pending || !churchDetails.name.trim()}
-                className="h-11 px-6 bg-foreground text-background rounded-md text-sm font-semibold hover:opacity-90 disabled:opacity-50 flex items-center gap-1.5">
-                {pending ? "Creating…" : "Continue"} <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </form>
+        {step === 0 && (
+          <div className="mb-5">
+            <label className={authLabelCls} style={authLabelStyle}>
+              Workspace name
+            </label>
+            <input
+              value={workspace}
+              onChange={(e) => setWorkspace(e.target.value)}
+              placeholder="Grace Community Church"
+              className={authInputCls}
+              style={authInputStyle}
+              autoFocus
+            />
+          </div>
         )}
 
-        {step === "migrate" && <MigrationStep onNext={() => setStep("checklist")} onBack={() => setStep("church")} />}
+        {step === 1 && (
+          <div className="grid grid-cols-2 gap-3 mb-5">
+            {USE_CASES.map((u) => {
+              const sel = useCase === u.key;
+              return (
+                <button
+                  key={u.key}
+                  type="button"
+                  onClick={() => setUseCase(u.key)}
+                  className="text-left cursor-pointer p-4 rounded-2xl text-[#ece7e0] transition-all"
+                  style={{
+                    background: sel ? "rgba(255,144,72,0.10)" : "rgba(255,255,255,0.03)",
+                    border: sel ? "1px solid rgba(255,144,72,0.55)" : "1px solid rgba(255,255,255,0.08)",
+                    boxShadow: sel ? "0 8px 26px rgba(255,122,44,0.22)" : "none",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[22px]">{u.icon}</span>
+                    {u.recommended && (
+                      <span
+                        className="text-[9px] font-bold tracking-[0.06em] px-1.5 py-0.5 rounded-md"
+                        style={{ background: "rgba(255,144,72,0.16)", color: "#ff9048" }}
+                      >
+                        POPULAR
+                      </span>
+                    )}
+                  </div>
+                  <div className="font-display font-semibold text-[15px] mt-3.5" style={{ color: "#f1ede6" }}>
+                    {u.title}
+                  </div>
+                  <div className="text-[12.5px] mt-1 leading-[1.4]" style={{ color: "#948d83" }}>
+                    {u.desc}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
-        {step === "checklist" && (
-          <div className="border border-border rounded-md bg-card p-6 space-y-4">
-            <StepHeader icon={<Compass className="w-4 h-4" />} title="Ready to go"
-              description="Quick things to check before your first service. All optional — you can circle back." />
-
-            <ul className="space-y-2 text-sm">
-              <ChecklistItem href="/settings" done={false}>Confirm your default Bible translation (KJV by default)</ChecklistItem>
-              <ChecklistItem href="/services" done={false}>Create your first service plan</ChecklistItem>
-              <ChecklistItem href="/library/songs" done={false}>Review the seeded public domain hymns</ChecklistItem>
-              <ChecklistItem href="/services" done={false}>Run a test operator session (Operate → Open projector window → F for fullscreen)</ChecklistItem>
-            </ul>
-
-            <div className="flex justify-between pt-2">
-              <button onClick={() => setStep("migrate")} className="h-11 px-4 border border-border rounded-md text-sm font-semibold hover:bg-accent flex items-center gap-1.5">
-                <ChevronLeft className="w-4 h-4" /> Back
+        {step === 2 && (
+          <div className="mb-5">
+            <div className="flex gap-2.5 mb-3.5">
+              <input
+                type="email"
+                value={inviteInput}
+                onChange={(e) => setInviteInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addInvite())}
+                placeholder="teammate@example.com"
+                className={authInputCls}
+                style={authInputStyle}
+              />
+              <button
+                type="button"
+                onClick={addInvite}
+                className="flex-none px-4 rounded-xl font-semibold text-[14px] cursor-pointer"
+                style={{
+                  border: "1px solid rgba(255,144,72,0.4)",
+                  background: "rgba(255,144,72,0.12)",
+                  color: "#ff9048",
+                }}
+              >
+                Add
               </button>
-              <button onClick={finish} disabled={pending}
-                className="h-11 px-6 bg-foreground text-background rounded-md text-sm font-semibold hover:opacity-90 disabled:opacity-50">
-                {pending ? "Finishing…" : "Go to dashboard"}
-              </button>
+            </div>
+            {invites.map((inv) => (
+              <div
+                key={inv.email}
+                className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-2"
+                style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}
+              >
+                <div
+                  className="w-[30px] h-[30px] rounded-full flex items-center justify-center font-bold text-[13px] text-white"
+                  style={{ background: "linear-gradient(135deg,#ff7a2c,#8a6f96)" }}
+                >
+                  {inv.initial}
+                </div>
+                <div className="flex-1 text-[14px]" style={{ color: "#d5cdc1" }}>
+                  {inv.email}
+                </div>
+                <div className="text-[12px]" style={{ color: "#847d72" }}>
+                  Operator
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setInvites((xs) => xs.filter((x) => x.email !== inv.email))}
+                  className="text-[16px] cursor-pointer leading-none px-1"
+                  style={{ color: "#847d72" }}
+                  aria-label={`Remove ${inv.email}`}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            {invites.length === 0 && (
+              <div className="text-[12.5px] text-center py-3" style={{ color: "#6f685e" }}>
+                No teammates yet — you can always add them later in Settings.
+              </div>
+            )}
+          </div>
+        )}
+
+        {step === 3 && (
+          <div className="text-center py-3.5 pb-6">
+            <Image
+              src="/brand/pf-logo-mark.png"
+              alt=""
+              width={80}
+              height={80}
+              className="object-contain mx-auto"
+              style={{
+                filter: "drop-shadow(0 12px 34px rgba(0,0,0,0.5))",
+                animation: "pfPulse 3.4s ease-in-out infinite",
+              }}
+            />
+            <div className="flex justify-center gap-6 mt-6">
+              {[
+                { value: "1", label: "Workspace" },
+                { value: String(invites.length + 1), label: "Members" },
+                { value: "6", label: "Templates" },
+              ].map((s) => (
+                <div key={s.label} className="text-center">
+                  <div className="font-display font-bold text-[22px] pf-brand-text">{s.value}</div>
+                  <div className="text-[12px] mt-0.5" style={{ color: "#847d72" }}>
+                    {s.label}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
+
+        <div className="flex gap-3">
+          {canBack && (
+            <button
+              type="button"
+              onClick={() => setStep((s) => Math.max(0, s - 1))}
+              className="flex-none px-5 py-3.5 rounded-xl font-semibold text-[15px] cursor-pointer font-display"
+              style={{
+                border: "1px solid rgba(255,255,255,0.14)",
+                background: "transparent",
+                color: "#c4bcaf",
+              }}
+            >
+              Back
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={stepForward}
+            disabled={pending}
+            className={authCtaCls}
+            style={authCtaStyle}
+          >
+            {pending ? "Working…" : ctaLabels[step]}
+          </button>
+        </div>
       </div>
-
-      <style jsx>{`
-        :global(.input) {
-          height: 36px; padding: 0 12px; border: 1px solid var(--color-border); border-radius: 6px;
-          background: var(--color-background); font-size: 14px; width: 100%;
-        }
-      `}</style>
-    </div>
-  );
-}
-
-function StepBar({ current, hasChurch, emailVerified }: { current: Step; hasChurch: boolean; emailVerified: boolean }) {
-  const steps: { key: Step; label: string; done: boolean }[] = [
-    { key: "verify", label: "Verify email", done: emailVerified },
-    { key: "church", label: "Church details", done: hasChurch },
-    { key: "migrate", label: "Migrate library", done: false },
-    { key: "checklist", label: "First run", done: false },
-  ];
-  const currentIdx = steps.findIndex((s) => s.key === current);
-  return (
-    <ol className="flex items-center gap-1 text-xs">
-      {steps.map((s, i) => {
-        const active = i === currentIdx;
-        const past = s.done || i < currentIdx;
-        return (
-          <li key={s.key} className="flex items-center gap-1 flex-1">
-            <span className={cn(
-              "flex items-center gap-1.5 px-2 py-1 rounded-sm",
-              active ? "bg-foreground text-background font-semibold" : past ? "text-success" : "text-muted-foreground"
-            )}>
-              {past ? <CheckCircle2 className="w-3 h-3" /> : <span className="w-3 h-3 rounded-full border border-current inline-block" />}
-              {s.label}
-            </span>
-            {i < steps.length - 1 && <span className="flex-1 h-px bg-border" />}
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
-function VerifyStep({ userEmail, onSkip }: { userEmail: string; onSkip: () => void }) {
-  const [pending, startTransition] = useTransition();
-  return (
-    <div className="border border-border rounded-md bg-card p-6 space-y-4">
-      <StepHeader icon={<Mail className="w-4 h-4" />} title="Confirm your email"
-        description="We sent a link to your inbox. It expires in 24 hours. Once you click it, come back here." />
-      <div className="text-sm">
-        Sent to <span className="font-mono">{userEmail}</span>
-      </div>
-      <div className="flex gap-2">
-        <button type="button" onClick={() => startTransition(async () => { const r = await resendVerificationEmail(userEmail); toast.info(r.ok ? "Sent — check your inbox" : "Sent"); })}
-          disabled={pending}
-          className="h-9 px-4 border border-border rounded-md text-sm font-semibold hover:bg-accent">
-          Resend link
-        </button>
-        <button type="button" onClick={onSkip}
-          className="h-9 px-4 text-sm font-semibold text-muted-foreground hover:text-foreground">
-          Continue for now, verify later
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function StepHeader({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) {
-  return (
-    <header className="border-b border-border pb-3 mb-1 flex items-start gap-3">
-      <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center shrink-0">{icon}</div>
-      <div>
-        <div className="text-sm font-semibold">{title}</div>
-        <div className="text-xs text-muted-foreground mt-0.5">{description}</div>
-      </div>
-    </header>
-  );
-}
-
-function Field({ label, hint, required, span = 1, children }: { label: string; hint?: string; required?: boolean; span?: 1 | 2; children: React.ReactNode }) {
-  return (
-    <label className={cn("block", span === 2 && "col-span-2")}>
-      <div className="text-xs font-semibold mb-1 flex items-center gap-1.5">{label}{required && <span className="text-destructive">*</span>}</div>
-      {children}
-      {hint && <div className="text-[10px] text-muted-foreground mt-1">{hint}</div>}
-    </label>
-  );
-}
-
-function ChecklistItem({ href, done, children }: { href: string; done: boolean; children: React.ReactNode }) {
-  return (
-    <li>
-      <Link href={href} className={cn(
-        "flex items-center gap-2 p-2 rounded-sm border transition-all",
-        done ? "border-success/30 bg-success/5 text-success" : "border-border hover:bg-accent"
-      )}>
-        {done ? <CheckCircle2 className="w-4 h-4" /> : <span className="w-4 h-4 rounded-full border border-current inline-block shrink-0" />}
-        <span className="flex-1">{children}</span>
-        <ChevronRight className="w-3 h-3 text-muted-foreground" />
-      </Link>
-    </li>
+    </AuthShell>
   );
 }

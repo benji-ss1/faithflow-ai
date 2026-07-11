@@ -3,6 +3,16 @@ import { useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { requestPasswordReset } from "@/lib/auth-actions";
+import {
+  AuthShell,
+  AuthHeader,
+  authInputCls,
+  authInputStyle,
+  authLabelCls,
+  authLabelStyle,
+  authCtaCls,
+  authCtaStyle,
+} from "@/components/auth/AuthShell";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -14,42 +24,79 @@ export default function ForgotPasswordPage() {
     setLoading(true);
     const res = await requestPasswordReset(email);
     setLoading(false);
-    if (!res.ok) { toast.error(res.error); return; }
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
     setSent(true);
   }
 
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-6">
-      <div className="w-full max-w-sm border border-border rounded-md p-8 bg-card space-y-4">
-        <div>
-          <div className="eyebrow text-muted-foreground mb-2">FaithFlow AI</div>
-          <h1 className="text-2xl font-semibold">Reset your password</h1>
-        </div>
-        {sent ? (
-          <div className="border border-success/40 bg-success/5 rounded-md p-3 text-sm">
-            <div className="font-medium text-success">Check your email</div>
-            <div className="text-xs text-muted-foreground mt-1">
-              If an account exists for that email, a reset link is on its way. It expires in one hour.
-            </div>
+  if (sent) {
+    return (
+      <AuthShell>
+        <AuthHeader
+          eyebrow="Reset access"
+          heading="Check your email"
+          sub="We'll get you back in — no stress."
+        />
+        <div
+          className="p-5 rounded-2xl mb-5 flex gap-3.5 items-start"
+          style={{ background: "rgba(255,144,72,0.08)", border: "1px solid rgba(255,144,72,0.24)" }}
+        >
+          <div
+            className="flex-none w-[34px] h-[34px] rounded-[10px] flex items-center justify-center text-base"
+            style={{ background: "linear-gradient(135deg,#ffb861,#ff6a1f)", color: "#17130c" }}
+          >
+            ✉
           </div>
-        ) : (
-          <form onSubmit={submit} className="space-y-3">
-            <label className="block">
-              <span className="text-xs font-semibold">Email</span>
-              <input required type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
-                className="mt-1 w-full h-9 px-3 border border-border rounded-md bg-background text-sm" />
-            </label>
-            <button type="submit" disabled={loading}
-              className="w-full h-11 bg-foreground text-background rounded-md text-sm font-semibold hover:opacity-90 disabled:opacity-50 transition-all">
-              {loading ? "Sending…" : "Send reset link"}
-            </button>
-          </form>
-        )}
-        <div className="text-xs text-muted-foreground text-center pt-2">
-          <Link href="/login" className="underline">Back to sign in</Link>
+          <div className="text-[14px] leading-[1.55]" style={{ color: "#c4bcaf" }}>
+            We sent a reset link to your inbox. Check your email and follow the link to choose a new password. It expires in one hour.
+          </div>
         </div>
-      </div>
-    </div>
+        <Link
+          href="/login"
+          className={authCtaCls + " inline-flex items-center justify-center no-underline"}
+          style={authCtaStyle}
+        >
+          Back to sign in
+        </Link>
+      </AuthShell>
+    );
+  }
+
+  return (
+    <AuthShell>
+      <AuthHeader
+        eyebrow="Reset access"
+        heading="Forgot password?"
+        sub="Enter your email and we’ll send a reset link."
+      />
+      <form onSubmit={submit}>
+        <div className="mb-4">
+          <label className={authLabelCls} style={authLabelStyle}>
+            Email
+          </label>
+          <input
+            type="email"
+            required
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+            className={authInputCls}
+            style={authInputStyle}
+          />
+        </div>
+        <button type="submit" disabled={loading} className={authCtaCls} style={authCtaStyle}>
+          {loading ? "Sending…" : "Send reset link"}
+        </button>
+        <div className="text-center mt-6 text-sm" style={{ color: "#9c958b" }}>
+          Remembered it?{" "}
+          <Link href="/login" className="font-semibold" style={{ color: "#ff9048" }}>
+            Back to sign in
+          </Link>
+        </div>
+      </form>
+    </AuthShell>
   );
 }

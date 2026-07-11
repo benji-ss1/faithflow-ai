@@ -22,7 +22,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     (church.onboardingStatus === "pending" || church.onboardingStatus === "in_progress") &&
     !me?.tutorialCompletedAt
   ) {
-    redirect("/onboarding/tutorial");
+    redirect("/onboarding");
   }
   const showTour = !me?.tutorialCompletedAt;
   return (
