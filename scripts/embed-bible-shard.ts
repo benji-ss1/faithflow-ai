@@ -40,6 +40,10 @@ async function main() {
   // With 2 workers running here we consume 2 pooler slots, leaving plenty
   // for prod traffic during the embed backfill.
   const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+  // Supabase pooler drops idle TCP sockets; without this handler an async
+  // socket error surfaces as an unhandled 'error' event and crashes the
+  // process. Log it and let the next query trigger pg's reconnect path.
+  pool.on("error", (err) => console.warn(`${TAG} pool error (ignored):`, err.message));
 
   const totalR = await pool.query(
     `SELECT COUNT(*)::int AS n FROM bible_verses
