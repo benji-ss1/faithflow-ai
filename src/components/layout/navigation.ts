@@ -8,15 +8,18 @@ import {
   FolderInput,
   GalleryVerticalEnd,
   LayoutDashboard,
+  LifeBuoy,
   Library,
   MonitorSmartphone,
   Music4,
   Palette,
+  PlayCircle,
   Presentation,
   Settings,
   Sparkles,
   Users,
   Workflow,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 
@@ -73,9 +76,19 @@ export const workspaceNav: NavGroup[] = [
     items: [
       { href: "/organization", label: "Church Profile", icon: Building2 },
       { href: "/settings/team", label: "Team", icon: Users },
-      { label: "Devices & Outputs", icon: Workflow, badge: "Soon", disabled: true },
+      { href: "/settings/devices", label: "Devices & Outputs", icon: Workflow },
       { href: "/subscriptions", label: "Billing", icon: CreditCard },
       { href: "/settings", label: "Settings", icon: Settings },
+    ],
+  },
+  {
+    label: "Learn",
+    items: [
+      { href: "/tutorial", label: "Guided tutorial", icon: PlayCircle },
+      { href: "/help/first-sunday", label: "First Sunday playbook", icon: LifeBuoy },
+      { href: "/setup/projector", label: "Projector setup", icon: MonitorSmartphone },
+      { href: "/setup/audio", label: "Microphone / mixer setup", icon: Sparkles },
+      { href: "/setup/diagnostics", label: "Install diagnostics", icon: Wrench },
     ],
   },
 ];

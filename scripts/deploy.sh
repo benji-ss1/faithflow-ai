@@ -39,12 +39,15 @@ case "${1:-help}" in
       ok "app faithflow-audio exists"
     fi
 
-    step "3/4 — Set secrets from .env.local (DEEPGRAM_API_KEY, AUTH_SECRET, DATABASE_URL)"
+    step "3/4 — Set secrets (DEEPGRAM_API_KEY + AUTH_SECRET from .env.local, DATABASE_URL = Supabase pooler)"
     DG=$(grep '^DEEPGRAM_API_KEY=' .env.local | cut -d= -f2-)
     AS=$(grep '^AUTH_SECRET='     .env.local | cut -d= -f2-)
-    DB=$(grep '^DATABASE_URL='    .env.local | cut -d= -f2-)
-    if [ -z "$DG" ] || [ -z "$AS" ] || [ -z "$DB" ]; then
-      echo "Missing one of DEEPGRAM_API_KEY / AUTH_SECRET / DATABASE_URL in .env.local"
+    # DATABASE_URL is hardcoded to the Supabase pooler URL (production DB the
+    # Vercel app also uses). Local .env.local points at localhost postgres,
+    # which is unreachable from Fly.
+    DB="postgresql://postgres.mdjdemrtykflfucggbqt:qekVmfSYjcVkC%2F3@aws-0-eu-west-1.pooler.supabase.com:5432/postgres"
+    if [ -z "$DG" ] || [ -z "$AS" ]; then
+      echo "Missing DEEPGRAM_API_KEY or AUTH_SECRET in .env.local"
       exit 1
     fi
     flyctl secrets set \
