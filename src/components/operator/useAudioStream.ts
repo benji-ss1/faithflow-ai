@@ -186,26 +186,62 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const audioCtxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
+  // Auto-reconnect bookkeeping. `intentionalStopRef` distinguishes an
+  // operator-initiated stop (never reconnect) from an abnormal WS close
+  // (Fly bridge blip, transient network drop). `reconnectTimerRef` lets
+  // us cancel a pending retry when the operator flips OFF mid-backoff.
+  const intentionalStopRef = useRef(false);
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startRef = useRef<() => Promise<void>>(async () => {});
 
-  const stop = useCallback(() => {
-    // Hard stop: every path that could keep the mic hot must be shut down.
-    // Fire in this order so we don't send audio to a half-closed WS.
-    console.log("[faithflow-audio] stop() called — hard-stopping pipeline");
+  const teardown = useCallback(() => {
     try { workletNodeRef.current?.port?.close?.(); } catch { /* ignore */ }
     try { workletNodeRef.current?.disconnect(); } catch { /* ignore */ }
     workletNodeRef.current = null;
     try { streamRef.current?.getTracks().forEach((t) => { t.stop(); t.enabled = false; }); } catch { /* ignore */ }
     streamRef.current = null;
     try { wsRef.current?.send(JSON.stringify({ type: "stop" })); } catch { /* ignore */ }
-    try { wsRef.current?.close(1000, "operator toggled off"); } catch { /* ignore */ }
+    try { wsRef.current?.close(1000, "teardown"); } catch { /* ignore */ }
     wsRef.current = null;
     try { audioCtxRef.current?.suspend(); } catch { /* ignore */ }
     try { audioCtxRef.current?.close(); } catch { /* ignore */ }
     audioCtxRef.current = null;
-    setState((s) => ({ ...s, listening: false, ready: false, interim: "", stage: "idle" }));
   }, []);
 
+  const stop = useCallback(() => {
+    console.log("[faithflow-audio] stop() called — hard-stopping pipeline");
+    intentionalStopRef.current = true;
+    if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
+    reconnectAttemptsRef.current = 0;
+    teardown();
+    setState((s) => ({ ...s, listening: false, ready: false, interim: "", stage: "idle" }));
+  }, [teardown]);
+
+  const scheduleReconnect = useCallback(() => {
+    if (intentionalStopRef.current) return;
+    const attempt = ++reconnectAttemptsRef.current;
+    if (attempt > 8) {
+      console.warn("[faithflow-audio] auto-reconnect gave up after 8 attempts");
+      setState((s) => ({ ...s, error: "AI listener disconnected. Toggle AI Listening OFF then ON." }));
+      return;
+    }
+    // Exponential backoff w/ jitter: ~0.5s, 1s, 2s, 4s, 8s, 15s (capped), + up to 500ms jitter.
+    const base = Math.min(500 * Math.pow(2, attempt - 1), 15_000);
+    const delay = base + Math.floor(Math.random() * 500);
+    console.log(`[faithflow-audio] scheduling reconnect attempt ${attempt} in ${delay}ms`);
+    setState((s) => ({ ...s, error: `Reconnecting AI listener (attempt ${attempt})…` }));
+    reconnectTimerRef.current = setTimeout(() => {
+      reconnectTimerRef.current = null;
+      // Tear the old pipeline down before starting fresh — mic tracks and
+      // AudioContext can leak otherwise.
+      teardown();
+      startRef.current().catch((e) => console.warn("[faithflow-audio] reconnect start failed", e));
+    }, delay);
+  }, [teardown]);
+
   const start = useCallback(async () => {
+    intentionalStopRef.current = false;
     setState((s) => ({ ...s, error: null, stage: "idle", stageHistory: [], chunksSent: 0, dgMessagesReceived: 0 }));
     const log = (stage: string, extra?: unknown) => console.log(`[faithflow-audio] ${stage}`, extra ?? "");
     try {
@@ -224,7 +260,12 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
 
-      ws.onopen = () => { setStage("ws_open"); log("3 WS open"); };
+      ws.onopen = () => {
+        setStage("ws_open"); log("3 WS open");
+        // Fresh connection stable — reset backoff so a later drop starts at attempt 1.
+        reconnectAttemptsRef.current = 0;
+        setState((s) => ({ ...s, error: null }));
+      };
 
       ws.onmessage = (e) => {
         const msg = JSON.parse(e.data);
@@ -253,7 +294,16 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       ws.onerror = (e) => { log("WS error", e); setState((s) => ({ ...s, error: "WebSocket error" })); };
       ws.onclose = (e) => {
         log("WS close", { code: e.code, reason: e.reason });
-        setState((s) => ({ ...s, ready: false, listening: false, error: e.code !== 1000 && e.code !== 1005 ? `WebSocket closed (code ${e.code}${e.reason ? ": " + e.reason : ""})` : s.error }));
+        const abnormal = e.code !== 1000 && e.code !== 1005;
+        setState((s) => ({ ...s, ready: false }));
+        if (abnormal && !intentionalStopRef.current) {
+          // Keep `listening` true so the top-bar pill still shows "on" while
+          // we reconnect behind the scenes — the operator shouldn't have to
+          // touch anything for a transient Fly/network blip.
+          scheduleReconnect();
+        } else {
+          setState((s) => ({ ...s, listening: false }));
+        }
       };
 
       setStage("requesting_mic"); log("4a requesting mic");
@@ -321,7 +371,11 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       setState((s) => ({ ...s, error: e instanceof Error ? e.message : "Start failed" }));
       stop();
     }
-  }, [planId, stop, setStage]);
+  }, [planId, stop, setStage, scheduleReconnect]);
+
+  // Expose the latest `start` to scheduleReconnect without recreating it on
+  // every render (would restart the backoff clock).
+  useEffect(() => { startRef.current = start; }, [start]);
 
   useEffect(() => () => stop(), [stop]);
 

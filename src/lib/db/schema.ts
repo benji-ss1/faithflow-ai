@@ -23,6 +23,10 @@ export const churches = pgTable("churches", {
   denomination: text("denomination"),
   logoS3Key: text("logo_s3_key"),
   onboardingStatus: onboardingStatusEnum("onboarding_status").notNull().default("pending"),
+  // Explicit demo/real flag set at onboarding. Demo rows can be filtered
+  // from analytics + get a banner in the shell; real rows are treated as
+  // production tenants. Defaults false so pre-flag rows stay classified as real.
+  isDemo: boolean("is_demo").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

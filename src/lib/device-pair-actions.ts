@@ -17,6 +17,7 @@ import { and, desc, eq, isNull, gt } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { devicePairs } from "./db/schema";
 import { requireUser } from "./session";
+import { createLimiter } from "./rate-limit";
 
 type Result<T = void> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -24,9 +25,7 @@ const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 32 chars, no I/O/0/1
 const CODE_LEN = 6;
 const CODE_TTL_MS = 6 * 60 * 60 * 1000;
 
-const MINT_LIMIT = 10;
-const MINT_WINDOW_MS = 60 * 60 * 1000;
-const mintHits = new Map<string, { count: number; resetAt: number }>();
+const mintLimiter = createLimiter("pair-mint", 10, 60 * 60 * 1000);
 
 function genCode(): string {
   const bytes = new Uint8Array(CODE_LEN);
@@ -37,17 +36,6 @@ function genCode(): string {
   return out;
 }
 
-function checkMintLimit(userId: string): boolean {
-  const now = Date.now();
-  const cur = mintHits.get(userId);
-  if (!cur || cur.resetAt < now) {
-    mintHits.set(userId, { count: 1, resetAt: now + MINT_WINDOW_MS });
-    return true;
-  }
-  if (cur.count >= MINT_LIMIT) return false;
-  cur.count++;
-  return true;
-}
 
 export async function mintPairCode(input: {
   planId?: string | null;
@@ -55,7 +43,7 @@ export async function mintPairCode(input: {
   screenKind?: "projector" | "stage" | "stream" | "operator";
 } = {}): Promise<Result<{ code: string; expiresAt: string }>> {
   const user = await requireUser();
-  if (!checkMintLimit(user.id)) {
+  if (!(await mintLimiter(user.id))) {
     return { ok: false, error: "Too many pair-code mints. Please wait an hour before minting more." };
   }
   const db = getDb();

@@ -121,7 +121,7 @@ export default async function FirstSundayPage() {
         />
         <Recovery
           symptom="AI stopped listening mid-service"
-          fix="AI Listening pill in the top bar — flip OFF then ON. Check the mic meter in the AI tab. If meter is dead, either the mixer channel muted or the USB cable dropped — reseat and retry."
+          fix="The client auto-reconnects on transient WebSocket drops (up to 8 attempts, exponential backoff). If the pill still shows a persistent error, flip AI Listening OFF then ON, then check the mic meter — a dead meter means the mixer channel muted or the USB cable dropped; reseat and retry."
         />
         <Recovery
           symptom="Wrong slide is on the projector"
@@ -232,8 +232,20 @@ function Recovery({ symptom, fix }: { symptom: string; fix: string }) {
   );
 }
 
-function VideoSlot({ label }: { label: string }) {
-  // Reserved placeholder for future AI-generated walkthrough embed.
+function VideoSlot({ label, src, poster }: { label: string; src?: string; poster?: string }) {
+  // When we have a real walkthrough clip (AI-generated or hand-recorded),
+  // pass `src` to render inline. Falls back to a labelled placeholder so
+  // the doc structure holds while content is being produced.
+  if (src) {
+    return (
+      <div className="border border-border rounded-md overflow-hidden bg-black mt-2">
+        <video controls preload="metadata" poster={poster} className="w-full max-h-80" aria-label={label}>
+          <source src={src} />
+        </video>
+        <div className="px-3 py-2 text-xs text-muted-foreground bg-card">{label}</div>
+      </div>
+    );
+  }
   return (
     <div className="border border-dashed border-border rounded-md p-3 bg-muted/20 flex items-center gap-2 text-xs text-muted-foreground mt-2">
       <PlayCircle className="w-4 h-4" />

@@ -15,6 +15,7 @@ export async function createChurchAndAttachUser(input: {
   congregationSize?: number;
   denomination?: string;
   jobTitle?: string;
+  isDemo?: boolean;
 }): Promise<Result<{ churchId: string }>> {
   const partial = await requirePartialUser();
   if (partial.churchId) return { ok: false, error: "You already have a church" };
@@ -29,6 +30,7 @@ export async function createChurchAndAttachUser(input: {
     congregationSize: input.congregationSize || null,
     denomination: input.denomination?.trim() || null,
     onboardingStatus: "in_progress",
+    isDemo: input.isDemo === true,
   }).returning();
 
   // Attach user + promote to admin (first user of a church always admin).

@@ -6,18 +6,13 @@ import { getDb } from "./db/client";
 import { users } from "./db/schema";
 import { issueAuthToken, consumeAuthToken } from "./auth-tokens";
 import { sendVerificationEmail, sendPasswordResetEmail } from "./email";
+import { createLimiter } from "./rate-limit";
 
 type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// In-memory rate limit: 5 signUps per IP per hour. Same pattern re-used across
-// the codebase (see comment on song-parser rate-limit map). Not durable across
-// process restarts by design — protects against burst floods, not persistent
-// attackers (that's the DB-level constraint on unique email + hashed tokens).
-const SIGNUP_LIMIT = 5;
-const SIGNUP_WINDOW_MS = 60 * 60 * 1000;
-const signUpHits = new Map<string, { count: number; resetAt: number }>();
+const signUpLimiter = createLimiter("signup", 5, 60 * 60 * 1000);
 
 async function checkSignUpRateLimit(): Promise<boolean> {
   let ip = "unknown";
@@ -25,18 +20,9 @@ async function checkSignUpRateLimit(): Promise<boolean> {
     const h = await headers();
     ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "unknown";
   } catch {
-    // Called outside a request (e.g. from a test) — skip rate limiting.
     return true;
   }
-  const now = Date.now();
-  const cur = signUpHits.get(ip);
-  if (!cur || cur.resetAt < now) {
-    signUpHits.set(ip, { count: 1, resetAt: now + SIGNUP_WINDOW_MS });
-    return true;
-  }
-  if (cur.count >= SIGNUP_LIMIT) return false;
-  cur.count++;
-  return true;
+  return signUpLimiter(ip);
 }
 
 export async function signUp(input: { email: string; password: string; name: string }): Promise<Result<{ userId: string }>> {

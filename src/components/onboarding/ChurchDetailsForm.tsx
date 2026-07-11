@@ -16,6 +16,7 @@ export function ChurchDetailsForm() {
   const [state, setState] = useState({
     name: "", city: "", country: "", timezone: "UTC",
     congregationSize: "", denomination: "", jobTitle: "",
+    mode: "real" as "real" | "demo",
   });
   const [pending, startTransition] = useTransition();
 
@@ -30,6 +31,7 @@ export function ChurchDetailsForm() {
         congregationSize: state.congregationSize ? Number(state.congregationSize) : undefined,
         denomination: state.denomination,
         jobTitle: state.jobTitle,
+        isDemo: state.mode === "demo",
       });
       if (!res.ok) { toast.error(res.error); return; }
       toast.success(`${state.name} created`);
@@ -48,6 +50,27 @@ export function ChurchDetailsForm() {
           <div className="text-xs text-muted-foreground mt-0.5">All fields except name + timezone are optional.</div>
         </div>
       </header>
+
+      <div className="grid grid-cols-2 gap-2">
+        <label className={cn(
+          "border rounded-md p-3 cursor-pointer text-xs",
+          state.mode === "real" ? "border-foreground bg-muted/40" : "border-border hover:bg-muted/20"
+        )}>
+          <input type="radio" name="mode" value="real" checked={state.mode === "real"}
+            onChange={() => setState({ ...state, mode: "real" })} className="mr-2" />
+          <span className="font-semibold">Real church</span>
+          <div className="text-muted-foreground mt-1">Production tenant. Counts in analytics.</div>
+        </label>
+        <label className={cn(
+          "border rounded-md p-3 cursor-pointer text-xs",
+          state.mode === "demo" ? "border-foreground bg-muted/40" : "border-border hover:bg-muted/20"
+        )}>
+          <input type="radio" name="mode" value="demo" checked={state.mode === "demo"}
+            onChange={() => setState({ ...state, mode: "demo" })} className="mr-2" />
+          <span className="font-semibold">Demo / test tenant</span>
+          <div className="text-muted-foreground mt-1">Flagged as demo. Excluded from production analytics.</div>
+        </label>
+      </div>
 
       <div className="grid grid-cols-2 gap-3">
         <Field label="Church name" required>
