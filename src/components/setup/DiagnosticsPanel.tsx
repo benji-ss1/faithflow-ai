@@ -25,49 +25,53 @@ export function DiagnosticsPanel() {
   ]);
 
   useEffect(() => {
-    (async () => {
-      await runOne("app", "/api/health", (r) => (r.ok ? "ok" : "fail"));
-      await runOne("db", "/api/health/db", (r) => (r.ok ? "ok" : "fail"),
-        "Set DATABASE_URL to the Supabase POOLER (aws-0-…), not the direct db.<ref>.supabase.co host — Vercel Functions can't reach IPv6-only direct hosts.");
-      await runOne("storage", "/api/health/storage", (r) => (r.ok ? "ok" : "fail"),
-        "Check S3_ENDPOINT, S3_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION.");
-      await runWs("audioWs",
-        "Deploy the Fly.io audio bridge (`./scripts/deploy.sh audio`) and set NEXT_PUBLIC_AUDIO_WS_URL.");
-      await runOne("ai", "/api/ai/helpers/improve_readability", async (r) => {
+    let cancelled = false;
+    Promise.all([
+      runOne(cancelled, "app", "/api/health", (r) => (r.ok ? "ok" : "fail")),
+      runOne(cancelled, "db", "/api/health/db", (r) => (r.ok ? "ok" : "fail"),
+        "Set DATABASE_URL to the Supabase POOLER (aws-0-…), not the direct db.<ref>.supabase.co host — Vercel Functions can't reach IPv6-only direct hosts."),
+      runOne(cancelled, "storage", "/api/health/storage", (r) => (r.ok ? "ok" : "fail"),
+        "Check S3_ENDPOINT, S3_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION."),
+      runWs(cancelled, "audioWs",
+        "Deploy the Fly.io audio bridge (`./scripts/deploy.sh audio`) and set NEXT_PUBLIC_AUDIO_WS_URL."),
+      runOne(cancelled, "ai", "/api/ai/helpers/improve_readability", async (r) => {
         const j = await r.json().catch(() => ({}));
         if (j.ok) return "ok";
         if (j.code === "MISSING_API_KEY") return "warn";
         return "fail";
       }, "Set GROQ_API_KEY on Vercel. Cards will show a graceful disabled state without it.",
-      { method: "POST", body: JSON.stringify({ text: "diagnostic ping" }), headers: { "Content-Type": "application/json" } });
-      await runRealtime("realtime",
-        "Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY. Realtime is optional — same-machine BroadcastChannel still works without it.");
-    })();
+      { method: "POST", body: JSON.stringify({ text: "diagnostic ping" }), headers: { "Content-Type": "application/json" } }),
+      runRealtime(cancelled, "realtime",
+        "Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY. Realtime is optional — same-machine BroadcastChannel still works without it."),
+    ]).catch(() => { /* individual failures already recorded */ });
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function runOne(
-    key: string, url: string,
+    cancelled: boolean, key: string, url: string,
     interpret: (r: Response) => Promise<"ok" | "warn" | "fail"> | "ok" | "warn" | "fail",
     hint?: string, init?: RequestInit,
   ) {
     try {
       const r = await fetch(url, init);
+      if (cancelled) return;
       const state = await interpret(r);
+      if (cancelled) return;
       setChecks((cs) => cs.map((c) => c.key === key ? { ...c, state, detail: state !== "ok" ? hint : undefined } : c));
     } catch (e) {
+      if (cancelled) return;
       setChecks((cs) => cs.map((c) => c.key === key ? { ...c, state: "fail", detail: hint || (e instanceof Error ? e.message : "unknown") } : c));
     }
   }
 
-  async function runWs(key: string, hint: string) {
+  async function runWs(cancelled: boolean, key: string, hint: string) {
     const url = getPublicEnv("NEXT_PUBLIC_AUDIO_WS_URL");
     if (!url) {
-      setChecks((cs) => cs.map((c) => c.key === key ? { ...c, state: "warn", detail: hint } : c));
+      if (!cancelled) setChecks((cs) => cs.map((c) => c.key === key ? { ...c, state: "warn", detail: hint } : c));
       return;
     }
     try {
-      // We can't actually authenticate without a plan — just probe the handshake
       const probe = new WebSocket(url + "?probe=1");
       const done = new Promise<"ok" | "fail">((res) => {
         const t = setTimeout(() => { try { probe.close(); } catch { /* */ } res("fail"); }, 3500);
@@ -75,24 +79,26 @@ export function DiagnosticsPanel() {
         probe.onerror = () => { clearTimeout(t); res("fail"); };
       });
       const state = await done;
+      if (cancelled) return;
       setChecks((cs) => cs.map((c) => c.key === key ? { ...c, state, detail: state !== "ok" ? hint : undefined } : c));
     } catch {
-      setChecks((cs) => cs.map((c) => c.key === key ? { ...c, state: "fail", detail: hint } : c));
+      if (!cancelled) setChecks((cs) => cs.map((c) => c.key === key ? { ...c, state: "fail", detail: hint } : c));
     }
   }
 
-  async function runRealtime(key: string, hint: string) {
+  async function runRealtime(cancelled: boolean, key: string, hint: string) {
     const url = getPublicEnv("NEXT_PUBLIC_SUPABASE_URL");
     if (!url) {
-      setChecks((cs) => cs.map((c) => c.key === key ? { ...c, state: "warn", detail: hint } : c));
+      if (!cancelled) setChecks((cs) => cs.map((c) => c.key === key ? { ...c, state: "warn", detail: hint } : c));
       return;
     }
     try {
       const r = await fetch(url + "/rest/v1/", { method: "HEAD" });
+      if (cancelled) return;
       const state: "ok" | "fail" = r.status < 500 ? "ok" : "fail";
       setChecks((cs) => cs.map((c) => c.key === key ? { ...c, state, detail: state !== "ok" ? hint : undefined } : c));
     } catch {
-      setChecks((cs) => cs.map((c) => c.key === key ? { ...c, state: "fail", detail: hint } : c));
+      if (!cancelled) setChecks((cs) => cs.map((c) => c.key === key ? { ...c, state: "fail", detail: hint } : c));
     }
   }
 
@@ -134,11 +140,12 @@ export function DiagnosticsPanel() {
   );
 }
 
-// Trick to read a NEXT_PUBLIC_* at runtime — Next inlines these at build time
-// but for a runtime probe we can access via process.env in client code (Next
-// tree-shakes the string references).
-function getPublicEnv(name: string): string | undefined {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const env = (process.env as any) as Record<string, string | undefined>;
-  return env[name];
+// Next.js inlines NEXT_PUBLIC_* only at LITERAL references — dynamic lookup
+// via process.env[name] always returns undefined on the client. Reference each
+// var by its literal key here so the bundler can substitute the value.
+function getPublicEnv(name: "NEXT_PUBLIC_AUDIO_WS_URL" | "NEXT_PUBLIC_SUPABASE_URL"): string | undefined {
+  switch (name) {
+    case "NEXT_PUBLIC_AUDIO_WS_URL": return process.env.NEXT_PUBLIC_AUDIO_WS_URL;
+    case "NEXT_PUBLIC_SUPABASE_URL": return process.env.NEXT_PUBLIC_SUPABASE_URL;
+  }
 }

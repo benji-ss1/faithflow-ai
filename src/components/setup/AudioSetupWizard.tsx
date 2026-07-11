@@ -92,7 +92,11 @@ export function AudioSetupWizard() {
     setLevel(0);
   }, []);
 
-  useEffect(() => () => stopMeter(), [stopMeter]);
+  useEffect(() => () => {
+    stopMeter();
+    // Revoke any pending object URLs to prevent memory leak
+    if (recordUrl) { try { URL.revokeObjectURL(recordUrl); } catch { /* noop */ } }
+  }, [stopMeter, recordUrl]);
 
   const testRecord = useCallback(async () => {
     stopMeter();
@@ -245,7 +249,10 @@ export function AudioSetupWizard() {
                     className="h-9 px-3 text-xs bg-success/10 border border-success text-success rounded-md font-semibold">
                     Sounds clean
                   </button>
-                  <button onClick={() => { setRecordUrl(null); }}
+                  <button onClick={() => {
+                    if (recordUrl) { try { URL.revokeObjectURL(recordUrl); } catch { /* noop */ } }
+                    setRecordUrl(null);
+                  }}
                     className="h-9 px-3 text-xs border border-border rounded-md">
                     Try again
                   </button>
