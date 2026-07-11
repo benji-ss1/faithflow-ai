@@ -34,7 +34,12 @@ const SHARD_PRED = `((hashtext(id::text) % $1) + $1) % $1 = $2`;
 
 async function main() {
   if (!process.env.DATABASE_URL) { console.error(`${TAG} DATABASE_URL missing`); process.exit(1); }
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
+  // Pool max=1: only one connection per worker. On Supabase's transaction
+  // pooler the total budget is shared across ALL clients (including the
+  // Vercel serverless app), so N workers × 1 conn caps our footprint at N.
+  // With 2 workers running here we consume 2 pooler slots, leaving plenty
+  // for prod traffic during the embed backfill.
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
 
   const totalR = await pool.query(
     `SELECT COUNT(*)::int AS n FROM bible_verses
