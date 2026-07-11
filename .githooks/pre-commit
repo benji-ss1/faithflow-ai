@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Branch-first workflow guard.
+#
+# Refuses commits made directly on main. Forces every change onto a feature
+# branch so we can PR + review before landing on main. Escape hatch:
+#   FF_ALLOW_MAIN_COMMIT=1 git commit ...
+# (use sparingly — hotfixes only).
+
+branch="$(git symbolic-ref --short HEAD 2>/dev/null || true)"
+
+if [ "$branch" = "main" ] && [ "${FF_ALLOW_MAIN_COMMIT:-0}" != "1" ]; then
+  echo "✋  Refusing to commit directly on 'main'."
+  echo
+  echo "   Move your work onto a feature branch first:"
+  echo "     git checkout -b feat/short-description"
+  echo "     git commit ..."
+  echo "     git push -u origin feat/short-description"
+  echo "     gh pr create --fill"
+  echo
+  echo "   Emergency override (hotfix only):"
+  echo "     FF_ALLOW_MAIN_COMMIT=1 git commit ..."
+  exit 1
+fi
+
+exit 0

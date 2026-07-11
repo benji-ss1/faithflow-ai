@@ -4,6 +4,17 @@ Before you make any non-trivial change, read [docs/AGENT_WORKFLOW.md](docs/AGENT
 
 ## Non-negotiables
 
+0. **Branch-first, always.** Never commit on `main`. Every change lands via a
+   feature branch + PR — even solo work. A pre-commit hook (`.githooks/pre-commit`,
+   wired via `core.hooksPath`) refuses commits on `main`. Flow:
+   ```
+   git checkout -b feat/short-description
+   # make changes, commit
+   git push -u origin feat/short-description
+   gh pr create --fill
+   ```
+   Emergency override for a genuine hotfix only: `FF_ALLOW_MAIN_COMMIT=1 git commit ...`.
+
 1. **The loop is the standard.** Plan → Build → Review → Fix → Re-test → Ship → Report. Skipping steps produces provisional work, not done work.
 
 2. **Three review agents, always, in parallel** for anything > 100 LOC or touching auth, data, church_id, AI, or output channels: reviewer + security + stress. Spawn them in one message with `run_in_background: true`. Full prompt templates in `docs/AGENT_WORKFLOW.md`.
