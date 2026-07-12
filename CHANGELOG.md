@@ -1,5 +1,33 @@
 # Changelog
 
+## [main] Priority 5 — Reviewer + security follow-ups (2026-07-12)
+
+- **R1** OperatorConsole now populates `nextItem` on every emitted
+  `OutputState`. Stage's NEXT header was previously always blank.
+- **R2** `sendLowerThird` merges with `lastOutputStateRef.current` so
+  announcement / transition / nextItem are preserved when the operator
+  sends a lower-third overlay (previously clobbered on every send).
+- **Y1** Linux Livestream BrowserWindow falls back to opaque
+  `#00000000` — Linux compositors don't reliably honour `transparent:true`.
+  OBS chroma-keys the black rectangle instead.
+- **Y2** Livestream `lower_third` OBS mode now requires an explicit
+  `lowerThird` payload — the text-kind slide fallback (which leaked song
+  lyrics into the OBS overlay) is removed.
+- **Y3** Stage auto-hides a stale countdown once its target is >60s in the
+  past, so a forgotten countdown no longer displays 00:00 forever.
+- **Y4** ScreensPanel: changing a display's role now closes the old
+  role window first, avoiding stacked outputs on the same display.
+- **Y5** Role → display assignments now persist to
+  `userData/screens-assignments.json` (plain JSON, no new dep) and reload
+  on next launch.
+- **Y6** OutputWindow `webPreferences.sandbox: true` — output pages don't
+  use `window.electronAPI` (grep-verified), so the extra isolation is safe.
+- **Y7** ScreensPanel validates its localStorage blob before writing to
+  state; unknown roles / presets / obsModes are rejected or dropped.
+- **Y8** OutputWindow `focusable: false` — keyboard focus stays on the
+  operator window. `setIgnoreMouseEvents` intentionally NOT set (fullscreen
+  coverage on the secondary display is the desired behaviour).
+
 ## [main] Priority 5 — Stage + Livestream outputs (2026-07-12)
 
 - `OutputState.nextItem?: { title, type } | null` for stage "NEXT" preview

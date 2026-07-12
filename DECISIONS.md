@@ -1,3 +1,26 @@
+## Priority-5 review-agent fixes — judgement calls (2026-07-12)
+
+- **Y1 Linux transparency**: Linux compositors (X11/Wayland/GNOME/KDE)
+  don't consistently honour `transparent:true` — behaviour ranges from
+  fully-black backgrounds to broken input focus. We now force an opaque
+  `#00000000` window on Linux and rely on OBS's chroma-key to remove the
+  black rectangle at capture time. macOS + Windows keep the native
+  transparent output. Documented in code at `electron/windows/OutputWindow.ts`.
+- **Y6 sandbox on output windows**: Enabled because grep of
+  `/live`, `/stage`, `/livestream` pages confirmed zero calls to
+  `window.electronAPI`. If a future output page ever needs preload IPC,
+  the flag must be revisited (sandbox blocks preload's Node access).
+- **Y8 focusable false, mouse events NOT ignored**: Output windows on a
+  secondary display are meant to fully cover it (audience projection).
+  Ignoring mouse events would break dev/debug interactions without any
+  security benefit — the primary display keeps the operator UI and
+  hotkeys.
+- **R2 clearMessage merge**: Task spec suggested `{ ...lastOutputStateRef.current, lowerThird: null }`
+  for clearMessage; kept the existing implementation, which already
+  merges via `{ ...lastOutputStateRef.current, operatorMessage: null }`
+  on the realtime path. The BroadcastChannel path uses the dedicated
+  `{type:"message", overlay:{clear:true}}` frame — same net effect.
+
 ## Priority-3 review-agent fixes — judgement calls (2026-07-12)
 
 - **R2 Psalms guard scope**: applied only to Psalms (not all books). The

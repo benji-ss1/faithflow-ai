@@ -41,6 +41,12 @@ export function createOutputWindow(
   // P5: livestream window is transparent so OBS/vMix browser sources can key
   // the underlying black/transparent area — projector/stage remain opaque.
   const isLivestream = role === "Livestream";
+  // Y1: Linux transparent BrowserWindow is unreliable across compositors
+  // (X11/Wayland/GNOME/KDE all differ). Fall back to opaque #00000000 on
+  // Linux and let OBS chroma-key the black rectangle instead. Documented
+  // in DECISIONS.md.
+  const linuxTransparencyFallback = isLivestream && process.platform === "linux";
+  const useTransparent = isLivestream && !linuxTransparencyFallback;
 
   const win = new BrowserWindow({
     // In single-display fallback, open a smallish draggable window at a
@@ -61,14 +67,24 @@ export function createOutputWindow(
     minimizable: true,
     maximizable: true,
     backgroundColor: isLivestream ? "#00000000" : "#000000",
-    transparent: isLivestream,
+    transparent: useTransparent,
     hasShadow: !isLivestream,
     autoHideMenuBar: true,
+    // Y8: output windows never need keyboard focus — the operator window
+    // owns hotkeys. `focusable:false` prevents accidental focus-steal on
+    // window spawn and keeps typing in the operator UI. NOTE:
+    // `setIgnoreMouseEvents` is deliberately NOT set — the fullscreen
+    // coverage on a secondary display is the intended behaviour; the
+    // operator window is on the primary display and receives all input.
+    focusable: false,
     title: singleDisplay ? `PresentFlow — ${role} Output (drag to external display)` : role,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      // Y6: output pages (/live, /stage, /livestream) never call
+      // window.electronAPI — verified by grep. Sandbox on for defense in
+      // depth; if a future output page ever needs preload IPC, revisit.
+      sandbox: true,
     },
   });
 
