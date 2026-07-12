@@ -15,17 +15,27 @@ import assert from "node:assert/strict";
 import { parseReferences } from "../src/lib/bible-parser";
 import type { PipelineStage } from "../src/components/operator/useAudioStream";
 import { detectSongInTranscript, resetSongDedupe } from "../src/lib/ai-detection/song-detection";
+import { detectAll } from "../src/lib/ai-detection";
+import type { IndexedSong } from "../src/lib/ai-detection/lyric-fragment";
 
 let passed = 0;
 let failed = 0;
+// Y7: single beforeEach hook so future tests don't have to remember to
+// resetSongDedupe() manually. Tests that need custom setup can still call
+// it explicitly.
+const beforeEach: (() => void)[] = [() => resetSongDedupe()];
+const pending: Promise<unknown>[] = [];
 function test(name: string, fn: () => void | Promise<void>) {
   try {
+    for (const b of beforeEach) b();
     const r = fn();
     if (r && typeof (r as Promise<unknown>).then === "function") {
-      return (r as Promise<unknown>).then(
+      const p = (r as Promise<unknown>).then(
         () => { passed++; console.log(`  ok  ${name}`); },
         (e: unknown) => { failed++; console.log(`  FAIL ${name}`, e); },
       );
+      pending.push(p);
+      return p;
     }
     passed++;
     console.log(`  ok  ${name}`);
@@ -191,6 +201,44 @@ async function main() {
     assert.ok(r!.confidence <= 90, `fuzzy conf should be <=90, got ${r!.confidence}`);
   });
 
+  // ---- R1: song-detection wired into runDetectAll (via detectAll) ----
+  test("detectAll: 'let's sing Amazing Grace' returns song via song-detection", async () => {
+    const lib: IndexedSong[] = [
+      { songId: "a", title: "Amazing Grace", source: "public_domain",
+        slides: [{ order: 0, lyrics: "Amazing grace how sweet the sound" }] },
+    ];
+    const res = await detectAll("let's sing Amazing Grace", {
+      churchId: "c1", library: lib,
+      hasVerseContext: false, hasSlideContext: false, hasSongContext: false,
+    });
+    assert.ok(res.song.length > 0, "expected at least one song result");
+    assert.equal(res.song[0].songId, "a");
+    assert.ok(res.song[0].confidence >= 80, `confidence too low: ${res.song[0].confidence}`);
+  });
+
+  // ---- Y1: bare "singing" no longer fires ----
+  test("song: 'the choir was singing beautifully' -> null (Y1)", () => {
+    const r = detectSongInTranscript("the choir was singing beautifully",
+      [{ songId: "a", title: "Amazing Grace" }]);
+    assert.equal(r, null);
+  });
+
+  test("song: 'let's worship the Lord together' -> null (Y1)", () => {
+    const r = detectSongInTranscript("let's worship the Lord together",
+      [{ songId: "a", title: "Amazing Grace" }]);
+    assert.equal(r, null);
+  });
+
+  // ---- Y2: word-boundary substring rejects partial word overlap ----
+  test("song: 'let's sing grace of God today' with title 'Grace' -> null (Y2)", () => {
+    const r = detectSongInTranscript("let's sing grace of God today",
+      [{ songId: "a", title: "Grace" }]);
+    // Grace is <4 chars single-word title → exact-only, so "grace of God today"
+    // does NOT match.
+    assert.equal(r, null);
+  });
+
+  await Promise.all(pending);
   console.log(`\n${passed} passed · ${failed} failed`);
   if (failed > 0) process.exit(1);
 }

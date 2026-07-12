@@ -1,3 +1,31 @@
+## Priority-6 review-agent fixes — judgement calls (2026-07-12)
+
+- **Y2 single-word titles are exact-only**: reviewer suggested
+  gating on `<4 char` single-word titles. I widened this to *any*
+  single-word title — bigram/word-boundary substring on common
+  one-word nouns ("Grace", "Worthy", "Holy") produces too many false
+  positives in spoken transcripts. The test case (`title:"Grace"`
+  vs "grace of God today" → null) confirmed the intent regardless
+  of length. Multi-word titles keep the word-boundary substring
+  path.
+- **R1 song-detection dedupe inside detectAll**: opted to disable
+  song-detection's internal dedupe when called from `detectAll`
+  (`useDedupe:false`) rather than merge two dedupe maps. The outer
+  `SuggestionDedupe` in `useAudioStream` is already the source of
+  truth per (type, key) → refresh/suppress; running two overlapping
+  30s windows would silently drop refresh events.
+- **R2 optimistic item shape**: seeded with `slides:[]` because
+  `addServiceItem` returns only ok/error, no expanded item. The
+  subsequent `router.refresh()` fills in real slides. Preview
+  focuses the new item immediately; if refresh fails the row
+  still exists with 0 slides until the next server round-trip.
+- **Y1 trigger tightening — removed bare `let's worship`**: the
+  spec allowed either dropping bare `singing` OR only accepting
+  low-specificity resolutions at exact/substring tier. I removed
+  bare `let's worship` entirely; the false-positive rate on
+  "let's worship the Lord" is too high to salvage, and users
+  can still say "let's worship with <title>".
+
 ## Priority-5 review-agent fixes — judgement calls (2026-07-12)
 
 - **Y1 Linux transparency**: Linux compositors (X11/Wayland/GNOME/KDE)

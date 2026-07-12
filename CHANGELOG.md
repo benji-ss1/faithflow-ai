@@ -1,5 +1,50 @@
 # Changelog
 
+## [main] Priority 6 — reviewer + security fixes (2026-07-12)
+
+- **R1 wired song-detection into runDetectAll** — `detectAll` in
+  `src/lib/ai-detection/index.ts` now calls `detectSongInTranscript()`
+  first; exact/substring hits are pushed as `SongMatchResult` and
+  merged with the existing `matchSongCue` results via the songId
+  dedupe. Live behaviour matches tested behaviour. Dedupe disabled
+  on the inner call (`useDedupe:false`) so the outer
+  `SuggestionDedupe` is the sole source of truth.
+- **R2 replaced `window.location.reload()` with router.refresh +
+  optimistic append** — `OperatorConsole.onAddLibraryItem` used to
+  hard-reload the page after `addServiceItem`, wiping interim
+  transcript state, forcing a mic re-prompt, and dropping
+  BroadcastChannel output state (CLAUDE.md rule 8). Now:
+  optimistic append into local `plan` state, `setPreview` focused
+  on the new item, then `router.refresh()` re-fetches server
+  component data without a remount.
+- **Y1 tightened triggers** — dropped bare `\bsinging\b` (fired on
+  "the choir was singing beautifully"); replaced with
+  `(we're|we are|start|now) singing`. Dropped bare
+  `\blet(?:'s| us) worship\b` (fired on "let's worship the Lord
+  together"); the `let's worship with <title>` form remains.
+- **Y2 word-boundary substring + single-word title exact-only** —
+  substring path now uses `\bTITLE\b` regex instead of raw
+  `String.includes`. Single-word titles are exact-only to prevent
+  "grace of God today" matching title "Grace".
+- **Y3 LRU-bounded dedupe map** — module-global `dedupeMap` now
+  evicts entries older than `DEDUPE_MS * 2` once size >500, with
+  a hard LRU cap fallback.
+- **Y4 documented church-switch reset path** —
+  `resetSongDedupe()` JSDoc now notes that multi-church runtime
+  switching should call it. No runtime switcher exists today.
+- **Y5 CLAUDE.md rule 7 inline comment** on the double-click
+  handler in `ProOperatorShell` — songs never auto-project.
+- **Y6 aria-label + focus ring** on AI song chips.
+- **Y7 test isolation** — global `beforeEach` runs
+  `resetSongDedupe()` before every test; new tests don't have to
+  remember.
+- **Y8 tooltip truncation** — chip `title` attr capped at 120
+  chars to avoid overlong DOM attribute values.
+- **Tests**: 17 → 21. Added R1 wiring test, Y1 negative "singing
+  beautifully" + "let's worship the Lord", Y2 word-boundary
+  rejection. Also fixed pre-existing async-test race so counts
+  print after all promises settle.
+
 ## [main] Priority 6 — Song detection from speech (2026-07-12)
 
 - **New** `src/lib/ai-detection/song-detection.ts` — trigger-phrase song
