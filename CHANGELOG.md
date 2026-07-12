@@ -1,5 +1,38 @@
 # Changelog
 
+## [main] Bible Priority-1 review fixes (2026-07-12)
+
+Closes all reviewer + security findings on the Priority-1 Bible completeness work.
+
+### Security / integrity
+- `scripts/fix-bible-book-names.ts`: hard `--confirm` guard; refuses to run
+  without it and prints the target DB host (Y7). Extended RENAME map to cover
+  ordinal forms (1st/2nd/3rd) and "Song of Songs" / "Canticle of Canticles" /
+  "Psalm" (Y1). Verify step now hard-fails when a populated translation is
+  missing books (Y2). Raw `CREATE INDEX` statements removed — indexes now
+  live in the Drizzle schema (R1).
+
+### Parser
+- `src/lib/bible-parser.ts`: dropped 2-letter aliases that collide with common
+  English words (`is`, `am`, `re`, `ex`, `ac`, `ru`) to eliminate live-service
+  false positives (R2). Added ordinal number-words up to `hundredth` for Psalm
+  navigation (Y5). Overlap dedup rewritten to compare start/end intervals
+  instead of `indexOf(matchedText)` (Y4). New cross-chapter range parser:
+  `John 3:16-4:3` → `{chapter:3, verseStart:16, chapterEnd:4, verseEnd:3}`
+  (Y3). `parseReference` short-circuits empty/whitespace input.
+
+### Schema
+- `src/lib/db/schema.ts`: `bible_verses` gains two indexes via Drizzle:
+  `idx_bible_verses_lookup (translation_id, book_order, chapter, verse)` and
+  `idx_bible_verses_book_lower (LOWER(book), chapter, verse)` (R1). Two
+  targeted `CREATE INDEX CONCURRENTLY` statements documented in
+  DECISIONS.md for rollout to the populated production DB.
+
+### Tests
+- `test/bible-completeness.test.ts`: 20 → 29 tests. Added per-book presence
+  sweep for KJV + ASV, empty/whitespace input, R2 false-positive suppression,
+  Roman-numeral prefix, and cross-chapter range. All 29 pass.
+
 ## [main] Operator/Pro: Pass 2 wiring — top-bar, left, right tabs, bottom-bar (2026-07-12)
 
 Second wiring pass. Every button in the Pro shell now either performs a real

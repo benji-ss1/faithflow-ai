@@ -1,3 +1,31 @@
+## Bible Priority-1 review: drizzle baseline vs targeted migration (2026-07-12)
+
+`npx drizzle-kit generate` produced a full baseline
+(`drizzle/0000_previous_hairball.sql`) because no prior migrations exist in
+the repo — the DB was originally bootstrapped outside Drizzle. `drizzle/` is
+in `.gitignore`, so the generated files are NOT committed. The two indexes
+that need to reach production are:
+
+```
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_bible_verses_lookup
+  ON bible_verses (translation_id, book_order, chapter, verse);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_bible_verses_book_lower
+  ON bible_verses (LOWER(book), chapter, verse);
+```
+
+Run those via psql against the populated DB in a maintenance window. Both
+are safe to build `CONCURRENTLY` (non-blocking). The Drizzle schema is now
+the source of truth going forward — any future `drizzle-kit push` on a fresh
+DB will create both indexes automatically.
+
+The parser gained an optional `chapterEnd` field on `SimpleReference` and
+`ParsedReference`. No API route currently consumes cross-chapter ranges — the
+`/api/bible/lookup` route still assumes single-chapter, and callers of
+`parseReference()` in `BiblePanel.tsx`, `OperatorConsole.tsx`, and
+`BibleMode.tsx` continue to work unchanged (they read `book`/`chapter`/`verseStart`/`verseEnd`
+and would silently ignore `chapterEnd`). Wiring the range into `lookupReference`
+is deferred to a follow-up since the review only required parser support.
+
 ## Pass 2 wiring: scope trims and deferrals (2026-07-12)
 
 The Pass 2 spec covered ~60 discrete UI wiring items plus 4 new server actions
