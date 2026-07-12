@@ -619,3 +619,26 @@ Total LOC: ~130 new, 1 changed. Under the 100 LOC "3-review-agents required" bar
 
 ### Y9 — Slide-size single source of truth
 - Kept the `slideSize` prop; removed the `--slide-thumb-size` CSS variable writer (no consumers of the var).
+
+## Priority-4 hotkey fixes — judgement calls (2026-07-12)
+
+- **R1 modal detection**: went with the DOM-query approach (Radix
+  `[data-state="open"]` + `role="dialog|menu|listbox|alertdialog"`) instead of
+  a React context provider. No plumbing through every dialog, works for
+  cmdk and third-party overlays for free, and lets Radix's own Escape
+  handling take precedence — which is exactly what we want.
+- **Y2 Shift+Enter force-send**: kept as an "advanced operator" escape hatch
+  even in Safe Mode. Documented in the Shortcuts overlay. Safe Mode is a
+  soft rail; a keybind that unconditionally refused would be worse than
+  useless in a live service scramble.
+- **Y3 electron IPC boot retry**: two-tier — queue on `did-finish-load`
+  when webContents is still loading, plus a 500ms trailing retry to cover
+  the load→React-mount gap. Cannot introspect renderer listener list.
+- **Y6 playlist-mode name**: kept the decoder action `"playlist-mode"` (matches
+  the Cmd+P mnemonic and shortcuts card) but documented in the hook header
+  that ProOperatorShell aliases it to canonical `"slides"`. Renaming the
+  action would churn the type-check surface without value.
+- **Y8 global event bus**: `presentflow:open-search` retained for now —
+  UI-nuisance only, no live/server side effects. Documented as an
+  acceptable use of the event bus pattern; anything touching live output
+  or server actions must use a ref/callback prop instead.

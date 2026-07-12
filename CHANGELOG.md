@@ -1,5 +1,30 @@
 # Changelog
 
+## [main] Priority 4 — reviewer + security agent fixes (2026-07-12)
+
+- R1 DOM-query modal detection: useOperatorHotkeys now checks
+  [role="dialog|menu|listbox|alertdialog"][data-state="open"] and defers
+  to the overlay's own key handling. Fixes Escape killing live while
+  operator only meant to close a picker/palette/menu.
+- Y1 shouldIgnore widened to role=textbox|combobox|searchbox and nested
+  closest('[contenteditable="true"]').
+- Y2 Shift+Enter → new send-live-force action, bypasses Safe Mode.
+  Safe-Mode Enter now surfaces a debounced (3s) toast instead of silently
+  swallowing. Documented in the shortcuts overlay.
+- Y3 Electron Help > Keyboard Shortcuts IPC is queued on did-finish-load
+  when the renderer is still loading, plus a 500ms trailing retry.
+- Y4 Legacy OperatorConsole keydown handler guarded with positive
+  shell !== "web" check — prevents double-fire when shell is undefined.
+- Y5 Hook migrated to handlersRef — window keydown listener attaches once,
+  reads latest closure via ref instead of re-registering per render.
+- Y6 Playlist-mode name reconciled: hook header documents that
+  "playlist-mode" decodes to canonical "slides" in ProOperatorShell.
+- Y7 Slide-jump bounds clamp verified in ProOperatorShell.
+- Y8 Documented presentflow:open-search event-bus pattern as acceptable
+  for UI-only actions; forbidden for live-output / server actions.
+- Tests: test/keyboard-shortcuts.test.ts extended with 7 new cases
+  (role-based ignore, nested contenteditable, Shift+Enter force-send).
+
 ## [main] Priority 4 — Global keyboard shortcuts (2026-07-12)
 
 - New `src/hooks/useOperatorHotkeys.ts` — single global hotkey hook mounted
