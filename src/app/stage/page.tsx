@@ -58,10 +58,10 @@ export default function StagePage() {
   }, []);
 
   useEffect(() => {
-    const ch = openLiveChannel();
+    let ch: BroadcastChannel | null = openLiveChannel();
+    let reopenCount = 0;
     if (!ch) return;
-    ch.postMessage({ type: "ping" } as LiveMessage);
-    ch.onmessage = (e: MessageEvent) => {
+    const onMessage = (e: MessageEvent) => {
       try {
         if (!isValidLiveMessage(e.data)) return;
         const msg = e.data as LiveMessage;
@@ -82,9 +82,26 @@ export default function StagePage() {
         console.warn("[stage] message handler error:", err instanceof Error ? err.message : String(err));
       }
     };
-    ch.onmessageerror = () => console.warn("[stage] messageerror");
+    const attach = (c: BroadcastChannel) => {
+      c.onmessage = onMessage;
+      c.onmessageerror = () => console.warn("[stage] messageerror");
+    };
+    attach(ch);
+    ch.postMessage({ type: "ping" } as LiveMessage);
     const timer = setInterval(() => {
-      if (Date.now() - lastMsgAt.current > 3000) setConnected(false);
+      const stale = Date.now() - lastMsgAt.current;
+      if (stale > 3000) setConnected(false);
+      // Y4: reopen the BroadcastChannel if we've heard nothing for >5s.
+      if (stale > 5000 && reopenCount < 20) {
+        try { ch?.close(); } catch { /* ignore */ }
+        ch = openLiveChannel();
+        if (ch) {
+          reopenCount += 1;
+          attach(ch);
+          try { ch.postMessage({ type: "ping" } as LiveMessage); } catch { /* ignore */ }
+          lastMsgAt.current = Date.now();
+        }
+      }
     }, 1000);
     // Cross-device: subscribe to Supabase Realtime channel when ?pair=CODE present.
     let realtime: ReturnType<typeof openOutputChannel> | null = null;
@@ -94,7 +111,8 @@ export default function StagePage() {
       const pair = params.get("pair");
       if (pair && isValidPairCode(pair)) {
         const code = pair.trim().toUpperCase();
-        realtime = openOutputChannel(code);
+        const church = params.get("church") || undefined;
+        realtime = openOutputChannel(code, church);
         let firstMsg = true;
         realtime.subscribe((state) => {
           lastMsgAt.current = Date.now();
@@ -112,7 +130,7 @@ export default function StagePage() {
       console.warn("[stage] pair-code subscribe failed:", e instanceof Error ? e.message : String(e));
     }
     return () => {
-      try { ch.close(); } catch { /* ignore */ }
+      try { ch?.close(); } catch { /* ignore */ }
       try { realtime?.close(); } catch { /* ignore */ }
       if (badgeTimer) clearTimeout(badgeTimer);
       clearInterval(timer);

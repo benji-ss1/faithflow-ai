@@ -60,10 +60,10 @@ export default function LivestreamPage() {
   }, []);
 
   useEffect(() => {
-    const ch = openLiveChannel();
+    let ch: BroadcastChannel | null = openLiveChannel();
+    let reopenCount = 0;
     if (!ch) return;
-    ch.postMessage({ type: "ping" } as LiveMessage);
-    ch.onmessage = (e: MessageEvent) => {
+    const onMessage = (e: MessageEvent) => {
       try {
         if (!isValidLiveMessage(e.data)) return;
         const msg = e.data as LiveMessage;
@@ -82,9 +82,26 @@ export default function LivestreamPage() {
         console.warn("[livestream] message handler error:", err instanceof Error ? err.message : String(err));
       }
     };
-    ch.onmessageerror = () => console.warn("[livestream] messageerror");
+    const attach = (c: BroadcastChannel) => {
+      c.onmessage = onMessage;
+      c.onmessageerror = () => console.warn("[livestream] messageerror");
+    };
+    attach(ch);
+    ch.postMessage({ type: "ping" } as LiveMessage);
     const timer = setInterval(() => {
-      if (Date.now() - lastMsgAt.current > 3000) setConnected(false);
+      const stale = Date.now() - lastMsgAt.current;
+      if (stale > 3000) setConnected(false);
+      // Y4: silent-channel recovery.
+      if (stale > 5000 && reopenCount < 20) {
+        try { ch?.close(); } catch { /* ignore */ }
+        ch = openLiveChannel();
+        if (ch) {
+          reopenCount += 1;
+          attach(ch);
+          try { ch.postMessage({ type: "ping" } as LiveMessage); } catch { /* ignore */ }
+          lastMsgAt.current = Date.now();
+        }
+      }
     }, 1000);
     let realtime: ReturnType<typeof openOutputChannel> | null = null;
     let badgeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -93,7 +110,8 @@ export default function LivestreamPage() {
       const pair = params.get("pair");
       if (pair && isValidPairCode(pair)) {
         const code = pair.trim().toUpperCase();
-        realtime = openOutputChannel(code);
+        const church = params.get("church") || undefined;
+        realtime = openOutputChannel(code, church);
         let firstMsg = true;
         realtime.subscribe((state) => {
           lastMsgAt.current = Date.now();
@@ -109,7 +127,7 @@ export default function LivestreamPage() {
       console.warn("[livestream] pair-code subscribe failed:", e instanceof Error ? e.message : String(e));
     }
     return () => {
-      try { ch.close(); } catch { /* ignore */ }
+      try { ch?.close(); } catch { /* ignore */ }
       try { realtime?.close(); } catch { /* ignore */ }
       if (badgeTimer) clearTimeout(badgeTimer);
       clearInterval(timer);

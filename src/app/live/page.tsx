@@ -64,17 +64,20 @@ export default function LivePage() {
   }, []);
 
   useEffect(() => {
-    const ch = openLiveChannel();
+    // Y4: BroadcastChannel can silently die (tab throttled, service-worker
+    // reset, GC of stale channel). If we go >5s with no message we close and
+    // re-open. Uses a local mutable holder so both the message handler and
+    // the reconnect timer see the current instance.
+    let ch: BroadcastChannel | null = openLiveChannel();
+    let reopenCount = 0;
     if (!ch) {
       setWarning("This browser doesn't support BroadcastChannel — projector cannot sync with the operator window.");
       return;
     }
-    safePost(ch, { type: "ping" });
-
     // Wrap the handler so a bad message NEVER throws up into React's
     // unhandled rejection tracker (which is what surfaces as
     // "[object Event]" in the Next dev overlay).
-    ch.onmessage = (e: MessageEvent) => {
+    const onMessage = (e: MessageEvent) => {
       try {
         const raw = e.data;
         if (!isValidLiveMessage(raw)) return;      // reject malformed / unknown-kind
@@ -107,15 +110,29 @@ export default function LivePage() {
         console.warn("[live] message handler error:", err instanceof Error ? err.message : String(err));
       }
     };
-    ch.onmessageerror = (e: MessageEvent) => {
-      // messageerror fires when a message can't be deserialized. Log a real
-      // Error object, not the raw event.
-      console.warn("[live] messageerror — malformed message received, ignoring");
-      void e;
+    const attachHandlers = (channel: BroadcastChannel) => {
+      channel.onmessage = onMessage;
+      channel.onmessageerror = () => console.warn("[live] messageerror — malformed message received, ignoring");
     };
+    attachHandlers(ch);
+    safePost(ch, { type: "ping" });
 
     const timer = setInterval(() => {
-      if (Date.now() - lastMsgAt.current > 3000) setConnected(false);
+      const stale = Date.now() - lastMsgAt.current;
+      if (stale > 3000) setConnected(false);
+      // Y4: silent-channel recovery. If we've received nothing for >5s AND
+      // the channel is still nominally open, close and re-open. Bounded
+      // to avoid a hot reopen loop when the whole tab has been backgrounded.
+      if (stale > 5000 && reopenCount < 20) {
+        try { ch?.close(); } catch { /* ignore */ }
+        ch = openLiveChannel();
+        if (ch) {
+          reopenCount += 1;
+          attachHandlers(ch);
+          safePost(ch, { type: "ping" });
+          lastMsgAt.current = Date.now(); // avoid immediate re-trigger
+        }
+      }
     }, 1000);
 
     // Cross-device sync via Supabase Realtime, if ?pair=CODE is present.
@@ -127,7 +144,10 @@ export default function LivePage() {
       const pair = params.get("pair");
       if (pair && isValidPairCode(pair)) {
         const code = pair.trim().toUpperCase();
-        realtime = openOutputChannel(code);
+        // Y8: honour the optional church scope so we join the same
+        // church-scoped channel the operator publishes to.
+        const church = params.get("church") || undefined;
+        realtime = openOutputChannel(code, church);
         let firstMsg = true;
         realtime.subscribe((state) => {
           lastMsgAt.current = Date.now();
@@ -147,7 +167,7 @@ export default function LivePage() {
     }
 
     return () => {
-      try { ch.close(); } catch { /* ignore */ }
+      try { ch?.close(); } catch { /* ignore */ }
       try { realtime?.close(); } catch { /* ignore */ }
       if (badgeTimer) clearTimeout(badgeTimer);
       if (messageTimerRef.current) { clearTimeout(messageTimerRef.current); messageTimerRef.current = null; }
