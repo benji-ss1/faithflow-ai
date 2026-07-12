@@ -1,5 +1,22 @@
 # Changelog
 
+## [main] Priority-2 projector output window — fix pass 3🔴/12🟡 (2026-07-12)
+
+- **R1 (electron/output)**: single-display fallback keyed off `screen.getAllDisplays().length === 1` only. Multi-display + primary-as-projector now fullscreens the primary display as the operator explicitly requested.
+- **R2 (operator)**: Operator now sees a persistent amber "Msg <text> [Hide]" badge (top-right, next to Sync) while a message overlay is pinned. Countdown-driven overlays auto-clear the badge; `Never` overlays require explicit Hide.
+- **S1 (electron/output)**: `will-navigate` clamps every output BrowserWindow to the app origin; `setWindowOpenHandler` denies popups; devtools force-close in packaged builds.
+- **Y1**: `fullscreenable: !singleDisplay` (was always-true no-op).
+- **Y2**: DevTools closed on open in packaged output windows.
+- **Y3/Y11/Y12**: `isValidOutputState` now enforces aspectRatio allowlist, validates `next`/`announcement`/`lowerThird`, rejects prototype-pollution keys. `isValidSlide` validates `text` ≤ 5000, `bgColor` regex, `url` protocol ∈ {https,http,blob}. Message overlays capped at 2000 chars and 24h dismiss timer.
+- **Y4**: `/live`, `/stage`, `/livestream` reopen their BroadcastChannel after 5s of silence (bounded to 20 reopens).
+- **Y5**: `sendMessage`/`clearMessage` now fan out to paired projectors via realtime (embedded in `operatorMessage`).
+- **Y6**: `liveItemIdx` memoized — no more `JSON.stringify` in the render path.
+- **Y7**: message send in operator validated via `isValidMessageOverlay`; malformed payloads never reach the wire.
+- **Y8**: Realtime channel names now church-scoped: `ff-out-<churchId>-<code>`. Legacy `ff-out-<code>` supported when churchId omitted. SyncControl embeds `&church=` in QR/URL so remote projectors join the correct scoped channel.
+- **Y9**: Realtime payloads validated with `isValidOutputStateExternal` before hitting subscribers.
+- **Y10**: `/live`, `/stage`, `/livestream` removed from `PUBLIC_PATHS` — Electron output windows continue to work (session cookies), external browsers redirect to `/login`.
+- **Tests**: `test/projector-output.test.ts` grew 23 → 38 covering aspectRatio, __proto__, message bounds, javascript/data/file URL, CSS injection.
+
 ## [main] Priority-2 projector output window (2026-07-12)
 
 Closes the projector output loop: operator → chromeless output window on

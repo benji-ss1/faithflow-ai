@@ -1,3 +1,10 @@
+## Priority-2 projector output — auth-gate + channel rename (2026-07-12)
+
+- **Y10 auth-gate breaks external unauthenticated projector browsers.** Pre-fix, someone with a pair code and a browser could open `/live?pair=CODE` without an account. Post-fix they must sign in. Rationale: pair code alone was the sole secret gating cross-tenant realtime; the reviewer flagged that as insufficient. Electron output windows keep working (session cookies). External browser projectors now need a valid user session in the same church — this is the intended behaviour but is a wire-visible change. Operators using QR-to-browser projectors must sign in on the projector device.
+- **Y8 channel rename `ff-out-<CODE>` → `ff-out-<churchId>-<CODE>`.** Backwards-compatible: `openOutputChannel(code, undefined)` still uses the legacy name. SyncControl now emits `&church=` in URLs; older QR codes without `&church=` remain functional but are cross-tenant vulnerable. Rollout: any projector paired via the new QR is auto-scoped. Legacy pairs (rare, expire in ~24h) fall through to the unscoped channel.
+- **Y5 message realtime fanout** embeds the operator message in the OutputState `operatorMessage` field so subscribers with the existing single-channel API pick it up without a new event type. Same-machine BroadcastChannel still uses the discrete `type: "message"` payload for its clearer semantics.
+- **Delete-vs-repair for `!singleDisplay ? true : true`** — kept the `!singleDisplay` semantic (Y1). Only allow fullscreen toggle where meaningful.
+
 ## Bible Priority-1 review: drizzle baseline vs targeted migration (2026-07-12)
 
 `npx drizzle-kit generate` produced a full baseline
