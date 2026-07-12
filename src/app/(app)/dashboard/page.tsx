@@ -69,7 +69,15 @@ export default async function DashboardPage() {
     db.select().from(migrationJobs).where(eq(migrationJobs.churchId, user.churchId)),
     db.select().from(subscriptions).where(eq(subscriptions.churchId, user.churchId)).limit(1).then((rows) => rows[0] || null),
     db.select().from(invitations).where(and(eq(invitations.churchId, user.churchId), isNull(invitations.acceptedAt), gte(invitations.expiresAt, new Date()))),
-    db.select().from(aiSuggestions).where(eq(aiSuggestions.servicePlanId, aiSuggestions.servicePlanId)),
+    db
+      .select({
+        id: aiSuggestions.id,
+        servicePlanId: aiSuggestions.servicePlanId,
+        status: aiSuggestions.status,
+      })
+      .from(aiSuggestions)
+      .innerJoin(servicePlans, eq(aiSuggestions.servicePlanId, servicePlans.id))
+      .where(eq(servicePlans.churchId, user.churchId)),
   ]);
 
   const churchSuggestions = suggestionRows.filter((row) => plans.some((plan) => plan.id === row.servicePlanId));
