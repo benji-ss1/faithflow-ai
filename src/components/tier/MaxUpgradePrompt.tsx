@@ -7,8 +7,17 @@ import { cn } from "@/lib/utils";
 
 type Variant = "card" | "modal";
 
+const FALLBACK_BASE = "https://presentflow.app";
+
 function billingUrl(): string {
-  const base = process.env.NEXT_PUBLIC_APP_URL || "https://presentflow.app";
+  const raw = process.env.NEXT_PUBLIC_APP_URL || FALLBACK_BASE;
+  let base = FALLBACK_BASE;
+  try {
+    const u = new URL(raw);
+    if (u.protocol === "https:") base = raw;
+  } catch {
+    /* fall back */
+  }
   return `${base.replace(/\/$/, "")}/settings/billing`;
 }
 
