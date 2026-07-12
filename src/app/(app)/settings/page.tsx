@@ -30,7 +30,7 @@ export default async function SettingsPage() {
           detectionConfidenceThreshold: prefs?.detectionConfidenceThreshold ?? 60,
           productionMode: prefs?.productionMode ?? false,
           transcriptRetentionDays: prefs?.transcriptRetentionDays ?? 90,
-          commandPrefix: prefs?.commandPrefix ?? "faithflow",
+          commandPrefix: prefs?.commandPrefix ?? "presentflow",
           autoApproveEnabled: prefs?.autoApproveEnabled ?? false,
           autoApproveThreshold: prefs?.autoApproveThreshold ?? 90,
           autoSendToLive: prefs?.autoSendToLive ?? false,

@@ -70,7 +70,7 @@ async function main() {
   console.log("=== CP5 Onboarding E2E ===");
   const db = getDb();
   const stamp = Date.now();
-  const email = `e2e-onboarding-${stamp}@faithflow.test`;
+  const email = `e2e-onboarding-${stamp}@presentflow.test`;
   const password = "Password12345!";
   const name = "E2E Church Owner";
   let userId: string | null = null;

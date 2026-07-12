@@ -1,11 +1,11 @@
 # Native Workflow Roadmap
 
-This roadmap defines workflow behavior that should live inside FaithFlow AI rather than in `n8n`.
+This roadmap defines workflow behavior that should live inside Present Flow rather than in `n8n`.
 
 Principles:
 
 - Sunday operation must not depend on external workflow infrastructure.
-- Workflow state should be attached to FaithFlow entities and audit logs.
+- Workflow state should be attached to PresentFlow entities and audit logs.
 - Human approval is required anywhere AI output or billing/admin actions can create user-facing impact.
 - External systems should be optional connectors, not core dependencies.
 

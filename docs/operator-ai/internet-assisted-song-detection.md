@@ -28,7 +28,7 @@
 ### 3. Public-domain hymn fallback
 
 - search approved local public-domain hymn records when the church library has no strong match
-- allow preview/send-live only if FaithFlow already has locally stored, rights-safe lyrics or slides
+- allow preview/send-live only if PresentFlow already has locally stored, rights-safe lyrics or slides
 - typical examples:
   - public-domain hymn titles
   - church-owned public-domain slide versions
@@ -136,7 +136,7 @@ Badge priority should reflect trust and usability:
 
 - show `Public Domain` badge
 - show available local slide or lyric status
-- allow preview/send-live only if FaithFlow already has local rights-safe content prepared
+- allow preview/send-live only if PresentFlow already has local rights-safe content prepared
 
 ### Unavailable licensed result
 

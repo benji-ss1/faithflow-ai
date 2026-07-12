@@ -16,7 +16,7 @@ const TABS: { key: DrawerTab; label: string; icon: typeof ImageIcon }[] = [
   { key: "imports",     label: "Imports",     icon: Upload },
 ];
 
-const KEY = "faithflow.drawer.expanded";
+const KEY = "presentflow.drawer.expanded";
 
 export function BottomDrawer({ ctx }: { ctx: OperatorShellCtx }) {
   // Hydrate from localStorage post-mount so SSR + first client render agree.

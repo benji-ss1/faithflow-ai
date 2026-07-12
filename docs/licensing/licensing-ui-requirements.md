@@ -38,7 +38,7 @@
 - rights status
 - canon notes if relevant
 - short handling note
-  - `Included with FaithFlow`
+  - `Included with PresentFlow`
   - `Requires external license`
 
 ## Locked Licensed Bible Cards

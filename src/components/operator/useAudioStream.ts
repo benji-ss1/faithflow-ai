@@ -120,7 +120,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     try {
       result = await detectAll(text, { ...base, library: libraryRef.current });
     } catch (e) {
-      console.warn("[faithflow-detect] detectAll failed", e);
+      console.warn("[presentflow-detect] detectAll failed", e);
       return;
     }
     const ts = Date.now();
@@ -210,7 +210,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   }, []);
 
   const stop = useCallback(() => {
-    console.log("[faithflow-audio] stop() called — hard-stopping pipeline");
+    console.log("[presentflow-audio] stop() called — hard-stopping pipeline");
     intentionalStopRef.current = true;
     if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
     reconnectAttemptsRef.current = 0;
@@ -222,28 +222,28 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     if (intentionalStopRef.current) return;
     const attempt = ++reconnectAttemptsRef.current;
     if (attempt > 8) {
-      console.warn("[faithflow-audio] auto-reconnect gave up after 8 attempts");
+      console.warn("[presentflow-audio] auto-reconnect gave up after 8 attempts");
       setState((s) => ({ ...s, error: "AI listener disconnected. Toggle AI Listening OFF then ON." }));
       return;
     }
     // Exponential backoff w/ jitter: ~0.5s, 1s, 2s, 4s, 8s, 15s (capped), + up to 500ms jitter.
     const base = Math.min(500 * Math.pow(2, attempt - 1), 15_000);
     const delay = base + Math.floor(Math.random() * 500);
-    console.log(`[faithflow-audio] scheduling reconnect attempt ${attempt} in ${delay}ms`);
+    console.log(`[presentflow-audio] scheduling reconnect attempt ${attempt} in ${delay}ms`);
     setState((s) => ({ ...s, error: `Reconnecting AI listener (attempt ${attempt})…` }));
     reconnectTimerRef.current = setTimeout(() => {
       reconnectTimerRef.current = null;
       // Tear the old pipeline down before starting fresh — mic tracks and
       // AudioContext can leak otherwise.
       teardown();
-      startRef.current().catch((e) => console.warn("[faithflow-audio] reconnect start failed", e));
+      startRef.current().catch((e) => console.warn("[presentflow-audio] reconnect start failed", e));
     }, delay);
   }, [teardown]);
 
   const start = useCallback(async () => {
     intentionalStopRef.current = false;
     setState((s) => ({ ...s, error: null, stage: "idle", stageHistory: [], chunksSent: 0, dgMessagesReceived: 0 }));
-    const log = (stage: string, extra?: unknown) => console.log(`[faithflow-audio] ${stage}`, extra ?? "");
+    const log = (stage: string, extra?: unknown) => console.log(`[presentflow-audio] ${stage}`, extra ?? "");
     try {
       setStage("requesting_ticket"); log("1 requesting ticket");
       const ticketRes = await fetch("/api/audio/ticket", {

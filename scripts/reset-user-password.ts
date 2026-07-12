@@ -2,7 +2,7 @@
  * Direct password reset by email — bypasses the email-token flow. Prints
  * the new password to stdout (once). Requires DATABASE_URL in the env.
  *
- *   Usage: EMAIL=demo@jpd.faithflow.ai npx tsx --env-file=.env.local scripts/reset-user-password.ts
+ *   Usage: EMAIL=demo@jpd.presentflow.ai npx tsx --env-file=.env.local scripts/reset-user-password.ts
  *   or: DATABASE_URL=... EMAIL=... npx tsx scripts/reset-user-password.ts
  *
  * If NEW_PASSWORD is set, uses that. Otherwise generates a 20-char random.

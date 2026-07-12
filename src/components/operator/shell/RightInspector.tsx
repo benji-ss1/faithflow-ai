@@ -39,7 +39,7 @@ const TABS: { key: InspectorTab; label: string; icon: typeof Monitor }[] = [
   { key: "status",   label: "Status",   icon: Activity },
 ];
 
-const TAB_KEY = "faithflow.inspector.tab";
+const TAB_KEY = "presentflow.inspector.tab";
 
 export function RightInspector({ ctx, tab, onTabChange }: {
   ctx: OperatorShellCtx;

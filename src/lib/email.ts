@@ -7,7 +7,7 @@
 
 import { Resend } from "resend";
 
-const FROM = process.env.EMAIL_FROM || "PresentFlow <no-reply@faithflow.ai>";
+const FROM = process.env.EMAIL_FROM || "PresentFlow <no-reply@presentflow.ai>";
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
 let _resend: Resend | null = null;

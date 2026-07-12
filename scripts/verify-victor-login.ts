@@ -1,5 +1,5 @@
 /**
- * Playwright: signs in as demo@jpd.faithflow.ai on prod, walks a handful of
+ * Playwright: signs in as demo@jpd.presentflow.ai on prod, walks a handful of
  * post-onboarding routes to prove nothing 500s. Uses the password just reset
  * (passed via VICTOR_PW env var — don't hardcode).
  */
@@ -7,8 +7,8 @@ import { chromium } from "playwright";
 import fs from "node:fs";
 import path from "node:path";
 
-const BASE = process.env.BASE_URL || "https://faithflow-ai.vercel.app";
-const EMAIL = "demo@jpd.faithflow.ai";
+const BASE = process.env.BASE_URL || "https://presentflow.app";
+const EMAIL = "demo@jpd.presentflow.ai";
 const PW: string = process.env.VICTOR_PASSWORD ?? "";
 if (!PW) { console.error("VICTOR_PASSWORD env var required"); process.exit(1); }
 

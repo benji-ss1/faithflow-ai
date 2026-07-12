@@ -1,6 +1,6 @@
 # Workflow Pattern Decision Matrix
 
-This matrix applies the default bias for FaithFlow AI:
+This matrix applies the default bias for Present Flow:
 
 - rebuild natively unless the workflow depends on many third-party connectors
 - keep Sunday-critical flows out of `n8n`
@@ -56,7 +56,7 @@ References reviewed:
 
 **Why**
 
-- invites, archive ready notices, onboarding, and billing failures should stay in FaithFlow
+- invites, archive ready notices, onboarding, and billing failures should stay in PresentFlow
 - custom multi-channel notification trees can wait
 
 ### 3. Webhook Alerts
@@ -93,7 +93,7 @@ References reviewed:
 
 **Why**
 
-- migration imports and sermon artifacts map directly to FaithFlow entities and storage rules
+- migration imports and sermon artifacts map directly to PresentFlow entities and storage rules
 
 ### 5. Google Drive / Dropbox Sync
 
@@ -196,7 +196,7 @@ References reviewed:
 
 **Why**
 
-- AI and operational approvals should use FaithFlow roles, audit logs, and UI state directly
+- AI and operational approvals should use PresentFlow roles, audit logs, and UI state directly
 
 ### 11. AI Agent Workflows With Safety Gates
 
@@ -213,7 +213,7 @@ References reviewed:
 
 **Why**
 
-- FaithFlow already has `ai_suggestions`, `detected_references`, thresholds, and auto-approve settings
+- PresentFlow already has `ai_suggestions`, `detected_references`, thresholds, and auto-approve settings
 - this is a product-defining workflow, not a generic automation
 
 ## Useful Patterns
@@ -230,7 +230,7 @@ Useful to copy conceptually:
 
 ## Rejected Categories
 
-Rejected as irrelevant to FaithFlow’s current product path:
+Rejected as irrelevant to PresentFlow’s current product path:
 
 - sales CRM workflows
 - e-commerce workflows

@@ -1,5 +1,5 @@
 /**
- * Standalone WebSocket audio bridge for FaithFlow AI.
+ * Standalone WebSocket audio bridge for Present Flow.
  *
  * Browser (operator console) opens WS to ws://localhost:3001?planId=<uuid>&...
  * with a signed HMAC ticket (minted by /api/audio/ticket), streams 16kHz
@@ -74,7 +74,7 @@ async function getPrefs(churchId: string): Promise<ResolvedPrefs> {
     const [kjv] = await db.select().from(bibleTranslations).where(eq(bibleTranslations.code, "KJV")).limit(1);
     defaultTranslationId = kjv?.id ?? null;
   }
-  return { defaultTranslationId, commandPrefix: prefs?.commandPrefix ?? "faithflow" };
+  return { defaultTranslationId, commandPrefix: prefs?.commandPrefix ?? "presentflow" };
 }
 
 async function getDefaultTranslationId(churchId: string): Promise<string | null> {
@@ -103,7 +103,7 @@ type ServerMessage =
 
 const httpServer = http.createServer((_req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
-  res.end("FaithFlow audio bridge OK\n");
+  res.end("PresentFlow audio bridge OK\n");
 });
 
 const wss = new WebSocketServer({ server: httpServer });
@@ -308,5 +308,5 @@ wss.on("connection", async (ws: WebSocket, req) => {
 });
 
 httpServer.listen(PORT, () => {
-  console.log(`✓ FaithFlow audio bridge listening on ws://localhost:${PORT}`);
+  console.log(`✓ PresentFlow audio bridge listening on ws://localhost:${PORT}`);
 });

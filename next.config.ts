@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   experimental: { serverActions: { bodySizeLimit: "50mb" } },
   images: { remotePatterns: [{ protocol: "https", hostname: "**" }] },
   // Keep native / heavy Node-only modules out of the webpack graph entirely.

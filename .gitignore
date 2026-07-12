@@ -14,3 +14,5 @@ next-env.d.ts
 .vercel
 .env*
 test/screenshots/
+dist-electron/
+release/

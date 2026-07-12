@@ -2,7 +2,7 @@
  * Natural-language operator commands.
  *
  * Every command MUST start with a configurable wake prefix (default:
- * "faithflow"). Without the prefix nothing here fires — the deliberate
+ * "presentflow"). Without the prefix nothing here fires — the deliberate
  * design choice, to make it structurally impossible for a stray sermon
  * phrase like "next slide" to be interpreted as a command.
  *

@@ -1,9 +1,15 @@
 {
-  "name": "faithflow-ai",
+  "name": "presentflow",
   "version": "0.1.0",
   "private": true,
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "next dev",
+    "electron:dev": "concurrently -k \"next dev\" \"wait-on http://localhost:3000 && npm run electron:build:tsc && cross-env NODE_ENV=development electron .\"",
+    "electron:build:tsc": "tsc -p electron/tsconfig.json",
+    "electron:build": "next build && npm run electron:build:tsc && electron-builder --mac dmg",
+    "electron:build:win": "next build && npm run electron:build:tsc && electron-builder --win nsis",
+    "electron:preview": "next build && npm run electron:build:tsc && cross-env NODE_ENV=production electron .",
     "ws": "tsx --env-file=.env.local scripts/audio-server.ts",
     "build": "next build",
     "start": "next start",
@@ -75,12 +81,45 @@
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
     "@types/ws": "^8.18.1",
+    "concurrently": "^10.0.3",
+    "cross-env": "^10.1.0",
     "drizzle-kit": "^0.30.0",
+    "electron": "^43.1.0",
+    "electron-builder": "^26.15.3",
+    "electron-devtools-installer": "^4.0.0",
     "eslint": "^9.17.0",
     "eslint-config-next": "^15.1.0",
     "playwright": "^1.61.1",
     "tailwindcss": "^4.0.0-beta.7",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "wait-on": "^9.0.10"
+  },
+  "build": {
+    "appId": "com.presentflow.app",
+    "productName": "Present Flow",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist-electron/**",
+      ".next/standalone/**",
+      ".next/static/**",
+      "public/**",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": ".next/standalone", "to": ".next/standalone" },
+      { "from": ".next/static", "to": ".next/standalone/.next/static" },
+      { "from": "public", "to": ".next/standalone/public" }
+    ],
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true
+    },
+    "win": {
+      "target": "nsis"
+    }
   }
 }

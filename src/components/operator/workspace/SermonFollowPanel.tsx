@@ -19,7 +19,7 @@ type Props = {
   onSendLive: (slide: SlidePayload) => void;
 };
 
-const DISABLED_KEY_PREFIX = "faithflow.sermonFollow.disabled.";
+const DISABLED_KEY_PREFIX = "presentflow.sermonFollow.disabled.";
 
 export function SermonFollowPanel({
   pptxImportId, slides, listening, transcriptText, currentSlideIdx,

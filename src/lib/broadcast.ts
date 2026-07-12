@@ -64,7 +64,7 @@ export type LiveMessage =
   | { type: "pong"; slide: SlidePayload }
   | { type: "output"; state: OutputState };            // new: full multi-surface state
 
-const CHANNEL = "faithflow-live";
+const CHANNEL = "presentflow-live";
 
 export function openLiveChannel(): BroadcastChannel | null {
   if (typeof window === "undefined" || typeof BroadcastChannel === "undefined") return null;

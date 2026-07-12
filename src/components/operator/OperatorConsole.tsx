@@ -52,7 +52,7 @@ export type AutoApproveConfig = {
  */
 export type AutopilotMode = "manual" | "suggestion" | "armed" | "active";
 
-const AUTOPILOT_MODE_KEY = "faithflow.autopilot.mode";
+const AUTOPILOT_MODE_KEY = "presentflow.autopilot.mode";
 
 export function OperatorConsole({ plan, defaultTranslationCode, confidenceThreshold, autoApprove: autoApproveProp }: {
   plan: ExpandedPlan;
@@ -333,6 +333,13 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
   }
 
   function openOutputWindow(route: "/live" | "/stage" | "/livestream", name: string) {
+    // In the Electron desktop shell, route through IPC so the output opens
+    // fullscreen on the assigned secondary display instead of a browser popup.
+    if (typeof window !== "undefined" && window.electronAPI) {
+      const role = route === "/live" ? "Projector" : route === "/stage" ? "Stage" : "Livestream";
+      void window.electronAPI.screens.spawn(role);
+      return;
+    }
     const w = Math.min(1920, Math.max(1280, window.screen.availWidth));
     const h = Math.round(w * 9 / 16);
     const win = window.open(
@@ -341,9 +348,9 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
     );
     if (!win) window.open(route, "_blank");
   }
-  function openProjector() { openOutputWindow("/live", "faithflow-live-window"); }
-  function openStageDisplay() { openOutputWindow("/stage", "faithflow-stage-window"); }
-  function openLivestream() { openOutputWindow("/livestream", "faithflow-livestream-window"); }
+  function openProjector() { openOutputWindow("/live", "presentflow-live-window"); }
+  function openStageDisplay() { openOutputWindow("/stage", "presentflow-stage-window"); }
+  function openLivestream() { openOutputWindow("/livestream", "presentflow-livestream-window"); }
 
   // Bottom-tray safety helpers — mostly aliases to existing behaviour so the
   // new cockpit-style safety row is fully functional today. "Clear" variants
@@ -621,7 +628,7 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
           toast.success(`${label} staged to Preview`);
           break;
         }
-        case "show_song": toast.info("Say the song title after the wake prefix, e.g. 'faithflow show amazing grace'"); break;
+        case "show_song": toast.info("Say the song title after the wake prefix, e.g. 'presentflow show amazing grace'"); break;
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Command failed");
