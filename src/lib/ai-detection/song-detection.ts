@@ -37,17 +37,21 @@ export type SongSuggestion = {
 // --- Trigger phrases ---------------------------------------------------
 
 // Ordered: longest / most-specific first so "let us sing" wins over "sing".
+// Y1: bare `\bsinging\b` and bare `\blet's worship\b` fired on innocent
+// phrases like "the choir was singing beautifully" or "let's worship the
+// Lord together". Tightened:
+//   - `singing` only when preceded by "we're / we are / start / now / start"
+//   - "let's worship" only when followed by "with"
 const TRIGGER_PATTERNS: RegExp[] = [
   /\bnext\s+(?:we(?:'re| are)\s+going\s+to\s+sing|we\s+sing)\b/i,
   /\bwe(?:'re| are)\s+going\s+to\s+sing\b/i,
   /\blet(?:'s|\s+us)\s+worship\s+with\b/i,
   /\blet(?:'s|\s+us)\s+all\s+sing\b/i,
   /\blet(?:'s|\s+us)\s+sing\b/i,
-  /\blet(?:'s|\s+us)\s+worship\b/i,
   /\bsing\s+the\s+song\b/i,
   /\bnext\s+song\b/i,
   /\bwe\s+sing\b/i,
-  /\bsinging\b/i,
+  /(?:\bwe(?:'re| are)|\bstart|\bnow)\s+singing\b/i,
 ];
 
 function findTrigger(text: string): { match: RegExpExecArray; pattern: RegExp } | null {
@@ -107,14 +111,42 @@ function bigramSim(a: string, b: string): number {
 
 const dedupeMap = new Map<string, number>();
 const DEDUPE_MS = 30_000;
+const DEDUPE_MAX_SIZE = 500;
 
+/**
+ * Reset per-process dedupe state.
+ *
+ * Call this on:
+ *   - Test setup (in `beforeEach`).
+ *   - Operator-side church switch. Grep for church-switch handlers when
+ *     multi-church support lands; today there is no runtime switcher, so
+ *     this is documented for future work only.
+ */
 export function resetSongDedupe(): void { dedupeMap.clear(); }
 
 function isDuplicate(songId: string, now: number): boolean {
   const prev = dedupeMap.get(songId);
   if (prev && now - prev < DEDUPE_MS) return true;
   dedupeMap.set(songId, now);
+  // Y3: evict stale entries so the module-global map cannot grow unbounded.
+  // Cheap sweep: only walk on every insert past the soft cap.
+  if (dedupeMap.size > DEDUPE_MAX_SIZE) {
+    const cutoff = now - DEDUPE_MS * 2;
+    for (const [k, ts] of dedupeMap) {
+      if (ts < cutoff) dedupeMap.delete(k);
+    }
+    // Hard cap: if still over, drop oldest entries LRU-style.
+    if (dedupeMap.size > DEDUPE_MAX_SIZE) {
+      const sorted = Array.from(dedupeMap.entries()).sort((a, b) => a[1] - b[1]);
+      const drop = dedupeMap.size - DEDUPE_MAX_SIZE;
+      for (let i = 0; i < drop; i++) dedupeMap.delete(sorted[i][0]);
+    }
+  }
   return false;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // --- Public API -------------------------------------------------------
@@ -163,13 +195,24 @@ export function detectSongInTranscript(
     }
   }
 
-  // 2) substring / starts-with: candidate contains title OR title contains candidate
+  // 2) substring / starts-with: word-boundary substring only.
+  //    Y2: prevents "grace of God today" matching title "Grace" as a bare
+  //    substring. For very short single-word titles (<4 chars) we require
+  //    an exact match, not substring — those are handled in tier (1) above
+  //    and skipped here.
   if (!best) {
     for (const song of library) {
       if (!song?.title) continue;
       const nTitle = normalize(song.title);
       if (!nTitle) continue;
-      if (nCandidate.startsWith(nTitle) || nCandidate.includes(nTitle)) {
+      // Single-word titles: exact-only. A candidate like "grace of God
+      // today" would otherwise word-boundary-match a title "Grace" (both
+      // contain the token "grace"). Multi-word titles are strong enough
+      // signal on their own.
+      const isSingleWord = !nTitle.includes(" ");
+      if (isSingleWord) continue;
+      const titleRe = new RegExp(`\\b${escapeRegExp(nTitle)}\\b`, "i");
+      if (titleRe.test(nCandidate)) {
         // Prefer longest title match — a longer overlap = more evidence.
         const conf = Math.min(95, 80 + Math.min(15, nTitle.length / 4));
         if (!best || conf > best.conf) best = { song, conf: Math.round(conf), type: "substring" };
