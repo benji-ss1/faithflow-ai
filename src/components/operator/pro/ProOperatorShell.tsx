@@ -29,6 +29,7 @@ import { LivePreviewPanel } from "./right/LivePreviewPanel";
 import { RightTabs } from "./right/RightTabs";
 import { BottomBar } from "./BottomBar";
 import { MediaStrip } from "./MediaStrip";
+import { useTimerSession, useMessagesSession, useBibleSession } from "./hooks";
 
 export type CenterMode = "slides" | "bible";
 
@@ -56,11 +57,15 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   }, [mediaStripOpen]);
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(SLIDE_SIZE_KEY, String(slideSize));
-      document.documentElement.style.setProperty("--slide-thumb-size", `${slideSize}px`);
-    } catch { /* noop */ }
+    // Y9: single source of truth is the `slideSize` prop plumbed to
+    // SlideGrid. The CSS var was redundant and drifted from the prop.
+    try { window.localStorage.setItem(SLIDE_SIZE_KEY, String(slideSize)); } catch { /* noop */ }
   }, [slideSize]);
+
+  // R4/R5: session hooks live at the shell so state survives tab/mode swap.
+  const timer = useTimerSession();
+  const messages = useMessagesSession();
+  const bibleSession = useBibleSession(ctx.defaultTranslationCode);
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-[var(--color-app-bg)] text-[var(--color-foreground)]">
@@ -74,7 +79,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
 
       <div className="flex-1 min-h-0 flex">
         {/* LEFT */}
-        <aside className="w-[180px] shrink-0 border-r border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col overflow-y-auto">
+        <aside className="w-40 shrink-0 border-r border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col overflow-y-auto">
           <LibrarySection />
           <PlaylistSection ctx={ctx} />
           <MediaSection />
@@ -85,7 +90,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           <CenterHeader ctx={ctx} centerMode={centerMode} />
           <div className="flex-1 min-h-0 overflow-y-auto">
             {centerMode === "bible" ? (
-              <BibleMode ctx={ctx} />
+              <BibleMode ctx={ctx} session={bibleSession} />
             ) : (
               <SlideGrid ctx={ctx} slideSize={slideSize} />
             )}
@@ -93,10 +98,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         </main>
 
         {/* RIGHT */}
-        <aside className="w-[320px] shrink-0 border-l border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col overflow-hidden">
+        <aside className="w-[300px] shrink-0 border-l border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col overflow-hidden">
           <LivePreviewPanel ctx={ctx} />
           <div className="flex-1 min-h-0 border-t border-[var(--color-border)]">
-            <RightTabs ctx={ctx} />
+            <RightTabs ctx={ctx} timer={timer} messages={messages} />
           </div>
         </aside>
       </div>
