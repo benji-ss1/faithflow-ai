@@ -1,8 +1,12 @@
 import { ipcMain, screen } from "electron";
-import { createOutputWindow, closeOutputWindow, closeAll, OutputRole, Preset } from "../windows/OutputWindow";
+import { createOutputWindow, closeOutputWindow, closeAll, OutputRole, Preset, LivestreamObsMode } from "../windows/OutputWindow";
 
 // Track last-known assignments in-memory so 'spawn' without prior 'assign' still works.
-const roleAssignments = new Map<OutputRole, { displayId: number; preset: Preset }>();
+const roleAssignments = new Map<OutputRole, { displayId: number; preset: Preset; obsMode?: LivestreamObsMode }>();
+const VALID_OBS_MODES: ReadonlySet<LivestreamObsMode> = new Set(["full", "lowerthird"]);
+function isValidObsMode(m: unknown): m is LivestreamObsMode {
+  return typeof m === "string" && (VALID_OBS_MODES as ReadonlySet<string>).has(m);
+}
 
 // S2: whitelist role + preset unions. Reject anything else — renderer
 // callers must not be able to spawn an arbitrary role string or a preset
@@ -34,7 +38,7 @@ export function registerScreenIpc(getAppUrl: () => string) {
     }));
   });
 
-  ipcMain.handle("screens:assign", (_e, { displayId, role, presetOrResolution }) => {
+  ipcMain.handle("screens:assign", (_e, { displayId, role, presetOrResolution, obsMode }) => {
     if (!isValidRole(role)) return { ok: false, error: "invalid role" };
     if (typeof displayId !== "number" || !Number.isFinite(displayId)) return { ok: false, error: "invalid displayId" };
     const preset: Preset = isValidPreset(presetOrResolution) ? presetOrResolution : "1080p30";
@@ -43,7 +47,12 @@ export function registerScreenIpc(getAppUrl: () => string) {
     if (presetOrResolution !== undefined && presetOrResolution !== null && !isValidPreset(presetOrResolution)) {
       return { ok: false, error: "invalid preset" };
     }
-    roleAssignments.set(role, { displayId, preset });
+    let obs: LivestreamObsMode | undefined;
+    if (obsMode !== undefined && obsMode !== null) {
+      if (!isValidObsMode(obsMode)) return { ok: false, error: "invalid obsMode" };
+      obs = obsMode;
+    }
+    roleAssignments.set(role, { displayId, preset, obsMode: obs });
     return { ok: true };
   });
 
@@ -57,7 +66,7 @@ export function registerScreenIpc(getAppUrl: () => string) {
       displays.find((d) => d.id !== screen.getPrimaryDisplay().id) ||
       screen.getPrimaryDisplay();
     const preset: Preset = assignment?.preset ?? "1080p30";
-    createOutputWindow(role, targetDisplay, preset, getAppUrl());
+    createOutputWindow(role, targetDisplay, preset, getAppUrl(), { obsMode: assignment?.obsMode });
     return { ok: true, displayId: targetDisplay.id, preset };
   });
 

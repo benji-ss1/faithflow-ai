@@ -16,7 +16,7 @@ export interface DisplayInfo {
 export interface ElectronAPI {
   screens: {
     list: () => Promise<DisplayInfo[]>;
-    assign: (displayId: number, role: string, presetOrResolution: string) => Promise<{ ok: boolean }>;
+    assign: (displayId: number, role: string, presetOrResolution: string, obsMode?: string) => Promise<{ ok: boolean }>;
     spawn: (role: string) => Promise<{ ok: boolean; displayId?: number; preset?: string }>;
     close: (role: string) => Promise<{ ok: boolean }>;
   };

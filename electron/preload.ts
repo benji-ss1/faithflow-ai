@@ -6,8 +6,8 @@ const listeners = new Map<Handler, (event: IpcRendererEvent, ...args: any[]) => 
 const api = {
   screens: {
     list: () => ipcRenderer.invoke("screens:list"),
-    assign: (displayId: number, role: string, presetOrResolution: string) =>
-      ipcRenderer.invoke("screens:assign", { displayId, role, presetOrResolution }),
+    assign: (displayId: number, role: string, presetOrResolution: string, obsMode?: string) =>
+      ipcRenderer.invoke("screens:assign", { displayId, role, presetOrResolution, obsMode }),
     spawn: (role: string) => ipcRenderer.invoke("screens:spawn", { role }),
     close: (role: string) => ipcRenderer.invoke("screens:close", { role }),
   },

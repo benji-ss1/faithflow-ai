@@ -12,10 +12,13 @@ import type { DisplayInfo } from "@/types/electron";
 type Role = "None" | "Projector" | "Stage" | "Livestream";
 type Preset = "720p" | "1080p30" | "1080p60" | "4K";
 
+type ObsMode = "full" | "lowerthird";
+
 interface Assignment {
   role: Role;
   preset: Preset;
   spawned: boolean;
+  obsMode?: ObsMode;
 }
 
 const STORAGE_KEY = "presentflow.screenAssignments.v1";
@@ -63,7 +66,9 @@ export function ScreensPanel() {
   const handleSpawn = async (dispId: number) => {
     const a = assignments[dispId];
     if (!a || a.role === "None") return;
-    await window.electronAPI!.screens.assign(dispId, a.role, a.preset);
+    // P5: pass obsMode through to the main process so Livestream can pick
+    // up the OBS-friendly lower-third capture surface.
+    await window.electronAPI!.screens.assign(dispId, a.role, a.preset, a.obsMode);
     await window.electronAPI!.screens.spawn(a.role);
     updateAssignment(dispId, { spawned: true });
   };
@@ -97,6 +102,7 @@ export function ScreensPanel() {
               <th className="px-3 py-2 text-left">Resolution</th>
               <th className="px-3 py-2 text-left">Role</th>
               <th className="px-3 py-2 text-left">Preset</th>
+              <th className="px-3 py-2 text-left">OBS mode</th>
               <th className="px-3 py-2 text-left">Action</th>
             </tr>
           </thead>
@@ -130,6 +136,20 @@ export function ScreensPanel() {
                       <option value="1080p60">1080p60</option>
                       <option value="4K">4K</option>
                     </select>
+                  </td>
+                  <td className="px-3 py-2">
+                    {a.role === "Livestream" ? (
+                      <select
+                        value={a.obsMode ?? "full"}
+                        onChange={(e) => updateAssignment(d.id, { obsMode: e.target.value as ObsMode })}
+                        className="rounded border border-[#2a3232] bg-[#1a2020] text-zinc-100 px-2 py-1"
+                      >
+                        <option value="full">Full slide</option>
+                        <option value="lowerthird">Lower-third (OBS key)</option>
+                      </select>
+                    ) : (
+                      <span className="text-zinc-600">—</span>
+                    )}
                   </td>
                   <td className="px-3 py-2">
                     {a.spawned ? (
