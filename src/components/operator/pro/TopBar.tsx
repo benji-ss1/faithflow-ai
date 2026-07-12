@@ -1,13 +1,17 @@
 "use client";
+import { useEffect, useState } from "react";
 import * as Tooltip from "@radix-ui/react-tooltip";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
   Search, Type, Palette, LayoutGrid, Play, Pencil, Repeat, BookOpen,
   MoreHorizontal, Sparkles, Image as ImageIcon, MonitorSpeaker, Circle, Radio, ScreenShare,
-  Music,
+  Music, Printer, Copy, ChevronDown,
 } from "lucide-react";
 import type { OperatorShellCtx } from "../shell/types";
 import type { CenterMode } from "./ProOperatorShell";
 import { cn } from "@/lib/utils";
+import { SearchPalette } from "./SearchPalette";
+import type { DisplayInfo } from "@/types/electron";
 
 function IconBtn({
   icon: Icon, label, active, onClick, todo,
@@ -20,10 +24,13 @@ function IconBtn({
             type="button"
             data-todo={todo ? "1" : undefined}
             onClick={onClick}
+            disabled={todo && !onClick}
+            title={todo ? `${label} — coming soon` : label}
             className={cn(
               "w-8 h-8 flex items-center justify-center rounded-md transition-colors",
               "hover:bg-[var(--color-elevated)] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",
               active && "text-[var(--color-foreground)] border-b-2 border-[var(--color-brand)] rounded-b-none",
+              todo && !onClick && "opacity-50 cursor-not-allowed",
             )}
             aria-label={label}
           >
@@ -31,8 +38,8 @@ function IconBtn({
           </button>
         </Tooltip.Trigger>
         <Tooltip.Portal>
-          <Tooltip.Content sideOffset={4} className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] px-2 py-1 text-[11px]">
-            {label}{todo ? " (soon)" : ""}
+          <Tooltip.Content sideOffset={4} className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] px-2 py-1 text-[11px] z-50">
+            {label}{todo ? " — coming soon" : ""}
           </Tooltip.Content>
         </Tooltip.Portal>
       </Tooltip.Root>
@@ -40,13 +47,6 @@ function IconBtn({
   );
 }
 
-/**
- * Prominent labeled mode buttons — the demo-critical entry points for
- * Songs / Bible / Media. Bible is emphasized (brand accent + slightly
- * bolder label) since it's the highest-use mode in a service.
- * Each button toggles centerMode: clicking again while active returns
- * to the slides view.
- */
 function ModeBtn({
   icon: Icon, label, active, onClick, emphasized,
 }: {
@@ -78,6 +78,8 @@ function ModeBtn({
   );
 }
 
+const PREVIEW_DISPLAY_KEY = "presentflow.pro.previewDisplay";
+
 export function TopBar({
   centerMode, onCenterMode, onToggleMediaStrip, mediaStripOpen, ctx,
 }: {
@@ -95,14 +97,42 @@ export function TopBar({
     : (ctx.plan.items[ctx.previewItemIdx]?.title ?? "");
   const listening = ctx.audio.listening;
 
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [displays, setDisplays] = useState<DisplayInfo[]>([]);
+  const [previewDisplay, setPreviewDisplay] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.electronAPI) return;
+    void window.electronAPI.screens.list().then((list) => {
+      setDisplays(list || []);
+      try {
+        const raw = window.localStorage.getItem(PREVIEW_DISPLAY_KEY);
+        if (raw) setPreviewDisplay(parseInt(raw, 10));
+      } catch { /* noop */ }
+    });
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const toggleMode = (m: CenterMode) => () =>
     onCenterMode(centerMode === m ? "slides" : m);
 
+  const currentDisplay = displays.find((d) => d.id === previewDisplay) ?? displays[0];
+  const displayLabel = currentDisplay ? `Screen ${currentDisplay.id}` : "No screen";
+
   return (
     <div className="h-11 shrink-0 border-b border-[var(--color-border)] bg-[var(--color-panel)] flex items-center px-2 gap-1">
-      {/* Left icon group — auxiliary actions */}
       <div className="flex items-center gap-0.5">
-        <IconBtn icon={Search} label="Search" todo />
+        <IconBtn icon={Search} label="Search (Cmd+K)" onClick={() => setSearchOpen(true)} />
         <IconBtn icon={Type} label="Text" todo />
         <IconBtn icon={Palette} label="Theme" todo />
         <IconBtn icon={LayoutGrid} label="Arrangement" todo />
@@ -111,41 +141,67 @@ export function TopBar({
         <IconBtn icon={Repeat} label="Reflow" todo />
       </div>
 
-      {/* Prominent mode buttons — Songs / Bible / Media */}
       <div className="mx-2 h-6 w-px bg-[var(--color-border)]" />
       <div className="flex items-center gap-1">
-        <ModeBtn
-          icon={Music}
-          label="Songs"
-          active={centerMode === "songs"}
-          onClick={toggleMode("songs")}
-        />
-        <ModeBtn
-          icon={BookOpen}
-          label="Bible"
-          active={centerMode === "bible"}
-          onClick={toggleMode("bible")}
-          emphasized
-        />
-        <ModeBtn
-          icon={ImageIcon}
-          label="Media"
-          active={centerMode === "media"}
-          onClick={toggleMode("media")}
-        />
+        <ModeBtn icon={Music} label="Songs" active={centerMode === "songs"} onClick={toggleMode("songs")} />
+        <ModeBtn icon={BookOpen} label="Bible" active={centerMode === "bible"} onClick={toggleMode("bible")} emphasized />
+        <ModeBtn icon={ImageIcon} label="Media" active={centerMode === "media"} onClick={toggleMode("media")} />
       </div>
       <div className="mx-2 h-6 w-px bg-[var(--color-border)]" />
 
       <div className="flex items-center gap-0.5">
-        <IconBtn icon={MoreHorizontal} label="More" todo />
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <button
+              type="button"
+              title="More"
+              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-[var(--color-elevated)] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+              aria-label="More actions"
+            >
+              <MoreHorizontal className="w-[18px] h-[18px]" />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              align="start"
+              sideOffset={4}
+              className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[180px]"
+            >
+              <DropdownMenu.Item
+                disabled
+                className="px-3 py-1.5 rounded opacity-50 cursor-not-allowed"
+                title="Export — coming soon"
+              >
+                Export…
+              </DropdownMenu.Item>
+              <DropdownMenu.Item
+                onSelect={() => window.print()}
+                className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none flex items-center gap-2 cursor-pointer"
+              >
+                <Printer className="w-3.5 h-3.5" /> Print
+              </DropdownMenu.Item>
+              <DropdownMenu.Item
+                disabled
+                className="px-3 py-1.5 rounded opacity-50 cursor-not-allowed flex items-center gap-2"
+                title="Duplicate slide — coming soon"
+              >
+                <Copy className="w-3.5 h-3.5" /> Duplicate slide
+              </DropdownMenu.Item>
+              <DropdownMenu.Item
+                onSelect={() => alert(`PresentFlow Pro\nCenter: ${centerMode}\nLive: ${isLive ? "on" : "off"}\nDisplays: ${displays.length}\nAI: ${listening ? "listening" : "idle"}`)}
+                className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer"
+              >
+                Show diagnostics
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
       </div>
 
-      {/* Center title */}
       <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-muted-foreground)] truncate px-4">
         {currentTitle}
       </div>
 
-      {/* Right group */}
       <div className="flex items-center gap-0.5">
         <IconBtn icon={Sparkles} label="ProContent" todo />
         <IconBtn
@@ -155,28 +211,63 @@ export function TopBar({
           onClick={onToggleMediaStrip}
         />
         <div className="mx-1 h-5 w-px bg-[var(--color-border)]" />
-        <div className="px-2 h-8 flex items-center gap-1 text-[11px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)] rounded-md border border-[var(--color-border)]">
-          Screen 1
-        </div>
-        {/* Live indicator */}
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <button
+              type="button"
+              title="Preview output display"
+              className="px-2 h-8 flex items-center gap-1 text-[11px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)] rounded-md border border-[var(--color-border)] hover:bg-[var(--color-elevated)]"
+            >
+              {displayLabel} <ChevronDown className="w-3 h-3" />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              align="end"
+              sideOffset={4}
+              className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[160px]"
+            >
+              {displays.length === 0 && (
+                <div className="px-3 py-1.5 text-[var(--color-muted-foreground)]">No displays detected</div>
+              )}
+              {displays.map((d) => (
+                <DropdownMenu.Item
+                  key={d.id}
+                  onSelect={() => {
+                    setPreviewDisplay(d.id);
+                    try { window.localStorage.setItem(PREVIEW_DISPLAY_KEY, String(d.id)); } catch { /* noop */ }
+                  }}
+                  className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between"
+                >
+                  <span>Screen {d.id}</span>
+                  <span className="text-[10px] opacity-60 font-mono">{d.bounds?.width}×{d.bounds?.height}</span>
+                </DropdownMenu.Item>
+              ))}
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
         <div className="flex items-center gap-1 px-2 h-8" title={isLive ? "LIVE" : "Cleared"}>
           <Circle className={cn("w-2.5 h-2.5", isLive ? "fill-[var(--color-destructive)] text-[var(--color-destructive)]" : "fill-[var(--color-muted-foreground)] text-[var(--color-muted-foreground)]")} />
           <span className="text-[10px] font-mono uppercase tracking-wider">Live</span>
         </div>
-        {/* Audience / Stage / Status */}
-        <div className="flex items-center gap-1 px-1" title="Audience output">
-          <MonitorSpeaker className="w-4 h-4 text-[var(--color-muted-foreground)]" />
+        <div className="flex items-center gap-1 px-1" title={`Audience output — ${displays.length > 1 ? "available" : "single display"}`}>
+          <MonitorSpeaker className={cn("w-4 h-4", displays.length > 1 ? "text-[var(--color-success)]" : "text-[var(--color-muted-foreground)]")} />
         </div>
-        <div className="flex items-center gap-1 px-1" title="Stage output">
-          <ScreenShare className="w-4 h-4 text-[var(--color-muted-foreground)]" />
+        <div className="flex items-center gap-1 px-1" title={`Stage output — ${displays.length > 2 ? "available" : "not assigned"}`}>
+          <ScreenShare className={cn("w-4 h-4", displays.length > 2 ? "text-[var(--color-success)]" : "text-[var(--color-muted-foreground)]")} />
         </div>
-        {/* AI listening dot */}
-        <div className="flex items-center gap-1 px-1" title={listening ? "AI listening" : "AI idle"}>
+        <button
+          type="button"
+          onClick={ctx.onListenToggle}
+          title={listening ? "AI listening — click to stop" : "AI idle — click to start"}
+          className="flex items-center gap-1 px-1 rounded hover:bg-[var(--color-elevated)]"
+        >
           <Radio className={cn("w-4 h-4", listening ? "text-[var(--color-ai-listening)]" : "text-[var(--color-muted-foreground)]")} />
-        </div>
-        {/* Status */}
+        </button>
         <div className="w-2 h-2 rounded-full bg-[var(--color-success)]" title="Healthy" />
       </div>
+
+      <SearchPalette open={searchOpen} onOpenChange={setSearchOpen} ctx={ctx} onCenterMode={onCenterMode} />
     </div>
   );
 }

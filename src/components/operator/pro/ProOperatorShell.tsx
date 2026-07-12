@@ -91,9 +91,9 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       <div className="flex-1 min-h-0 flex">
         {/* LEFT */}
         <aside className="w-40 shrink-0 border-r border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col overflow-y-auto">
-          <LibrarySection />
-          <PlaylistSection ctx={ctx} />
-          <MediaSection />
+          <LibrarySection onCenterMode={setCenterMode} />
+          <PlaylistSection ctx={ctx} onCenterMode={setCenterMode} />
+          <MediaSection onCenterMode={setCenterMode} />
         </aside>
 
         {/* CENTER */}
