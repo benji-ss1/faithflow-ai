@@ -1,5 +1,4 @@
 "use client";
-import { useState } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { cn } from "@/lib/utils";
@@ -20,8 +19,10 @@ export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize
 
   return (
     <div className="p-3 flex flex-col gap-6">
-      {/* Main slide grid */}
+      {/* Main slide grid — Y10: semantic grid + gridcell roles for a11y */}
       <div
+        role="grid"
+        aria-label="Slides"
         className="grid gap-3"
         style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${slideSize}px, 1fr))` }}
       >
@@ -44,7 +45,8 @@ export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize
                 ctx.onSendSlideToLive(s);
               }
             }}
-            onDelete={() => { /* wired via Delete key in OperatorConsole */ }}
+            // R2: pass explicit indices; no more synthetic keydown.
+            onDelete={() => ctx.onDeleteSlide?.(ctx.previewItemIdx, idx)}
           />
         ))}
       </div>
@@ -76,7 +78,7 @@ export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize
 }
 
 function SlideCard({
-  slide, index, selected, onSelect, onDouble,
+  slide, index, selected, onSelect, onDouble, onDelete,
 }: {
   slide: SlidePayload;
   index: number;
@@ -85,17 +87,18 @@ function SlideCard({
   onDouble: () => void;
   onDelete: () => void;
 }) {
-  const [aiBadge] = useState<{ conf: number } | null>(null);
-
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
         <button
           type="button"
+          role="gridcell"
+          tabIndex={0}
           onClick={onSelect}
           onDoubleClick={onDouble}
           className={cn(
             "relative aspect-video rounded-md overflow-hidden border-2 transition-all text-left",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
             selected
               ? "border-[var(--color-brand)] shadow-[0_0_0_2px_var(--color-glow)]"
               : "border-[var(--color-border)] hover:border-[var(--color-muted-foreground)]",
@@ -105,11 +108,6 @@ function SlideCard({
           <div className="absolute top-1 left-1 text-[10px] font-mono text-white/70 bg-black/40 px-1 rounded">
             {index}
           </div>
-          {aiBadge && (
-            <div className="absolute top-1 right-1 text-[9px] font-mono uppercase tracking-wider bg-[var(--color-success)]/80 text-black px-1 rounded">
-              AI {aiBadge.conf}%
-            </div>
-          )}
         </button>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
@@ -140,10 +138,9 @@ function SlideCard({
           <ContextMenu.Item
             className="px-3 py-1.5 rounded outline-none text-[var(--color-destructive)] data-[highlighted]:bg-[var(--color-panel)]"
             onSelect={() => {
-              // Delete key handler is already wired at the OperatorConsole level;
-              // the confirm dialog runs there. We just refocus to the item.
-              const e = new KeyboardEvent("keydown", { key: "Delete", bubbles: true });
-              window.dispatchEvent(e);
+              // R2: direct call with explicit indices (was: synthetic
+              // keydown → wrong slide by cursor).
+              onDelete();
             }}
           >
             Delete

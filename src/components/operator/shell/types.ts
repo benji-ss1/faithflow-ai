@@ -99,6 +99,9 @@ export type OperatorShellCtx = {
   ) => Promise<void> | void;
 
   // Bible-panel wiring (Bible redesign)
+  // R2: right-click delete passes explicit indices to avoid the "delete
+  // uses current preview cursor" bug. Optional so legacy shells stay valid.
+  onDeleteSlide?: (itemIdx: number, slideIdx: number) => void;
   onSendSlideToLive: (slide: SlidePayload, transition?: import("@/lib/broadcast").TransitionSpec | null) => void;
   onStageSlide: (slide: SlidePayload) => void;
   onBankAddReference: (ref: { book: string; chapter: number; verseStart: number; verseEnd: number }) => Promise<BankedVerse | null>;
