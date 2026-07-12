@@ -90,6 +90,14 @@ export type OperatorShellCtx = {
   onSetTransitionSpec: (t: import("@/lib/broadcast").TransitionSpec | null) => void;
   churchId: string;
 
+  // LeftColumn library → playlist wiring. Delegates to server actions in
+  // OperatorConsole; a no-op when the plan is ephemeral.
+  onAddLibraryItem?: (
+    kind: "song" | "media" | "sermon",
+    ref: { id: string; title: string },
+    insertAtIndex?: number
+  ) => Promise<void> | void;
+
   // Bible-panel wiring (Bible redesign)
   onSendSlideToLive: (slide: SlidePayload, transition?: import("@/lib/broadcast").TransitionSpec | null) => void;
   onStageSlide: (slide: SlidePayload) => void;

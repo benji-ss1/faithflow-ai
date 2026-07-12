@@ -927,6 +927,27 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
     onBankAddReference: bankAdd,
     onSendBankedToLive: sendBankedToLive,
     onRemoveBanked: removeBanked,
+    // Library → Playlist add (drag or click). Skips server writes for the
+    // ephemeral placeholder plan; toasts so the operator sees feedback.
+    onAddLibraryItem: async (kind, ref) => {
+      if (plan.id === "__ephemeral__") {
+        toast.info("Save this service first (New Service) to add library items.");
+        return;
+      }
+      const payload =
+        kind === "song" ? { songId: ref.id } :
+        kind === "media" ? { mediaAssetId: ref.id } :
+        { pptxImportId: ref.id };
+      const { addServiceItem } = await import("@/lib/actions");
+      const res = await addServiceItem(plan.id, kind, ref.title, payload);
+      if (res.ok) {
+        toast.success(`Added: ${ref.title}`);
+        // Full-page refresh so the server-rendered plan reflects the new item.
+        if (typeof window !== "undefined") window.location.reload();
+      } else {
+        toast.error(res.error || "Add failed");
+      }
+    },
   };
 
   return (
