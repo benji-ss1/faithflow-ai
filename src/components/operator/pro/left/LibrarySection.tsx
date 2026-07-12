@@ -1,9 +1,11 @@
 "use client";
 import { useState } from "react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { ChevronDown, ChevronRight, Plus, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { CenterMode } from "../ProOperatorShell";
 
-export function LibrarySection() {
+export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode) => void }) {
   const [open, setOpen] = useState(true);
   return (
     <section className="border-b border-[var(--color-border)]">
@@ -16,14 +18,28 @@ export function LibrarySection() {
           {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
           <span className="eyebrow">Library</span>
         </button>
-        <button
-          type="button"
-          data-todo="1"
-          className="w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--color-elevated)] text-[var(--color-muted-foreground)]"
-          title="Add library (coming soon)"
-        >
-          <Plus className="w-3 h-3" />
-        </button>
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <button
+              type="button"
+              className="w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--color-elevated)] text-[var(--color-muted-foreground)]"
+              title="Add"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              side="right"
+              align="start"
+              className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[140px]"
+            >
+              <DropdownMenu.Item onSelect={() => onCenterMode?.("songs")} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">From Songs</DropdownMenu.Item>
+              <DropdownMenu.Item onSelect={() => onCenterMode?.("bible")} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">From Bible</DropdownMenu.Item>
+              <DropdownMenu.Item onSelect={() => onCenterMode?.("media")} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">From Media</DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
       </header>
       {open && (
         <ul className="pb-1">

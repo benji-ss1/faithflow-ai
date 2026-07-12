@@ -1,10 +1,11 @@
 "use client";
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import type { CenterMode } from "../ProOperatorShell";
 
 const CATEGORIES = ["Cinematic", "Free", "Creators", "Intro Videos", "Playlists", "Video Inputs"];
 
-export function MediaSection() {
+export function MediaSection({ onCenterMode }: { onCenterMode?: (m: CenterMode) => void }) {
   const [open, setOpen] = useState(true);
   return (
     <section className="border-b border-[var(--color-border)]">
@@ -20,18 +21,25 @@ export function MediaSection() {
       </header>
       {open && (
         <ul className="pb-1">
-          {CATEGORIES.map((c) => (
-            <li key={c}>
-              <button
-                type="button"
-                data-todo="1"
-                title={`${c} — coming soon`}
-                className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--color-muted-foreground)] hover:bg-[var(--color-elevated)] hover:text-[var(--color-foreground)]"
-              >
-                {c}
-              </button>
-            </li>
-          ))}
+          {CATEGORIES.map((c) => {
+            const isVideoInputs = c === "Video Inputs";
+            const isPlaylists = c === "Playlists";
+            const soon = isVideoInputs || isPlaylists;
+            return (
+              <li key={c}>
+                <button
+                  type="button"
+                  data-todo={soon ? "1" : undefined}
+                  disabled={soon}
+                  title={soon ? `${c} — coming soon` : `Browse ${c}`}
+                  onClick={() => !soon && onCenterMode?.("media")}
+                  className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--color-muted-foreground)] hover:bg-[var(--color-elevated)] hover:text-[var(--color-foreground)] disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {c}
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
