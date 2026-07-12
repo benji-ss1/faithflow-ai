@@ -235,6 +235,27 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
 
   // Verse bank: per-service history of approved refs + ±5 preload window
   const { bank, currentRef: currentBankRef, addReference: bankAdd, advanceOne: bankAdvance, jumpTo: bankJumpTo, clear: bankClear, bankedToSlide } = useVerseBank(defaultTranslationCode);
+  // Bible-panel handlers (Bible redesign)
+  const [hiddenBankIds, setHiddenBankIds] = useState<Set<string>>(new Set());
+  const effectiveBank = useMemo(() => bank.filter((b) => !hiddenBankIds.has(b.id)), [bank, hiddenBankIds]);
+  const sendSlideToLive = useCallback((slide: SlidePayload, spec?: import("@/lib/broadcast").TransitionSpec | null) => {
+    if (spec !== undefined) setTransitionSpec(spec);
+    setLive(slide);
+    chRef.current?.postMessage({ type: "set", slide } as LiveMessage);
+  }, []);
+  const stageSlide = useCallback((slide: SlidePayload) => setStagedAISlide(slide), []);
+  const sendBankedToLive = useCallback((idx: number) => {
+    const v = effectiveBank[idx];
+    if (!v) return;
+    const slide = bankedToSlide(v);
+    setLive(slide);
+    chRef.current?.postMessage({ type: "set", slide } as LiveMessage);
+  }, [effectiveBank, bankedToSlide]);
+  const removeBanked = useCallback((idx: number) => {
+    const v = effectiveBank[idx];
+    if (!v) return;
+    setHiddenBankIds((cur) => { const n = new Set(cur); n.add(v.id); return n; });
+  }, [effectiveBank]);
   const processedSegments = useRef<Set<string>>(new Set()); // dedupe context-cmd firing
   const processedAutoApproved = useRef<Set<string>>(new Set()); // detection IDs we've auto-approved
   // Autopilot activity indicator — when non-null, the last Preview/Live
@@ -831,7 +852,7 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
     toast.success(`Countdown started (${seconds}s)`);
   }, []);
 
-  const currentBankIdx = bank.findIndex((b) => currentBankRef && b.id === currentBankRef.id);
+  const currentBankIdx = effectiveBank.findIndex((b) => currentBankRef && b.id === currentBankRef.id);
   const shellCtx: OperatorShellCtx = {
     plan,
     previewSlide,
@@ -864,7 +885,7 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
     onOpenStream: openLivestream,
     planId: plan.id,
     endServiceHasTranscript: audio.transcript.length > 0,
-    bank,
+    bank: effectiveBank,
     currentBankIdx: currentBankIdx >= 0 ? currentBankIdx : null,
     onRecallBanked: recallBanked,
     onApproveDetection: approveDetection,
@@ -893,6 +914,12 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
     transitionSpec,
     onSetTransitionSpec: setTransitionSpec,
     churchId: (plan as unknown as { churchId?: string }).churchId ?? "",
+    // Bible-panel wiring
+    onSendSlideToLive: sendSlideToLive,
+    onStageSlide: stageSlide,
+    onBankAddReference: bankAdd,
+    onSendBankedToLive: sendBankedToLive,
+    onRemoveBanked: removeBanked,
   };
 
   return (

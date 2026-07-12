@@ -1,8 +1,9 @@
 "use client";
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Music, BookOpen, Image as ImageIcon, Presentation, ListMusic, Upload, Filter as FilterIcon, Circle } from "lucide-react";
+import { ChevronDown, ChevronRight, Music, BookOpen, Image as ImageIcon, Presentation, ListMusic, Upload, Filter as FilterIcon, Circle, X, Bookmark } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "./types";
+import { BiblePanel } from "@/components/library/BiblePanel";
 
 type LibKey = "songs" | "bible" | "media" | "sermon" | "playlists" | "imports";
 const LIB: { key: LibKey; label: string; icon: typeof Music }[] = [
@@ -17,11 +18,14 @@ const LIB: { key: LibKey; label: string; icon: typeof Music }[] = [
 export function LeftColumn({ ctx }: { ctx: OperatorShellCtx }) {
   const [libOpen, setLibOpen] = useState(true);
   const [playOpen, setPlayOpen] = useState(true);
+  const [quickOpen, setQuickOpen] = useState(true);
   const [filterOpen, setFilterOpen] = useState(true);
   const [activeLib, setActiveLib] = useState<LibKey>("playlists");
   const [filter, setFilter] = useState("");
+  const [bibleOpen, setBibleOpen] = useState(false);
 
   return (
+    <>
     <aside className="w-56 shrink-0 flex flex-col border-r min-h-0"
       style={{ borderColor: "#2a3232", background: "#1e2525" }}>
       <Panel title="Library" open={libOpen} onToggle={() => setLibOpen((v) => !v)}>
@@ -30,7 +34,10 @@ export function LeftColumn({ ctx }: { ctx: OperatorShellCtx }) {
             const active = activeLib === key;
             return (
               <li key={key}>
-                <button onClick={() => setActiveLib(key)}
+                <button onClick={() => {
+                    setActiveLib(key);
+                    if (key === "bible") setBibleOpen(true);
+                  }}
                   title={`Open ${label}`}
                   className={cn(
                     "w-full flex items-center gap-2 h-7 px-2 rounded-md text-[11px] text-left",
@@ -46,7 +53,7 @@ export function LeftColumn({ ctx }: { ctx: OperatorShellCtx }) {
       </Panel>
 
       <Panel title={`Playlist · ${ctx.plan.items.length}`} open={playOpen} onToggle={() => setPlayOpen((v) => !v)}>
-        <div className="max-h-[45vh] overflow-y-auto pr-0.5">
+        <div className="max-h-[35vh] overflow-y-auto pr-0.5">
           <ul className="flex flex-col">
             {ctx.plan.items
               .map((it, idx) => ({ it, idx }))
@@ -76,6 +83,40 @@ export function LeftColumn({ ctx }: { ctx: OperatorShellCtx }) {
         </div>
       </Panel>
 
+      <Panel title={`Quick Access · ${ctx.bank.length}`} open={quickOpen} onToggle={() => setQuickOpen((v) => !v)}>
+        {ctx.bank.length === 0 ? (
+          <div className="text-[10px] text-zinc-500 px-2 py-1">Save verses from the Bible panel to appear here.</div>
+        ) : (
+          <div className="max-h-[35vh] overflow-y-auto pr-0.5">
+            <ul className="flex flex-col">
+              {ctx.bank.map((b, idx) => {
+                const label = `${b.book} ${b.chapter}:${b.verseStart}${b.verseStart !== b.verseEnd ? `-${b.verseEnd}` : ""}`;
+                return (
+                  <li key={b.id} className="group flex items-center">
+                    <button
+                      onClick={() => ctx.onSendBankedToLive(idx)}
+                      title={`Send ${label} (${b.translation}) to Live`}
+                      className="flex-1 h-7 flex items-center gap-1.5 px-2 rounded-md text-left text-[11px] text-zinc-200 hover:bg-white/5"
+                    >
+                      <Bookmark className="w-3 h-3 text-teal-300 shrink-0" />
+                      <span className="truncate">{label}</span>
+                      <span className="text-[9px] font-mono text-zinc-500 ml-auto">{b.translation}</span>
+                    </button>
+                    <button
+                      onClick={() => ctx.onRemoveBanked(idx)}
+                      title="Remove from Quick Access"
+                      className="opacity-0 group-hover:opacity-100 h-6 w-6 flex items-center justify-center text-zinc-500 hover:text-red-300"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+      </Panel>
+
       <Panel title="Filter" open={filterOpen} onToggle={() => setFilterOpen((v) => !v)}>
         <div className="relative">
           <FilterIcon className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-zinc-500" />
@@ -86,6 +127,27 @@ export function LeftColumn({ ctx }: { ctx: OperatorShellCtx }) {
         </div>
       </Panel>
     </aside>
+
+    {bibleOpen && (
+      <div className="fixed inset-0 z-50 flex" style={{ background: "rgba(0,0,0,0.6)" }} onClick={() => setBibleOpen(false)}>
+        <div className="ml-auto w-full max-w-[1100px] h-full flex" onClick={(e) => e.stopPropagation()}>
+          <BiblePanel
+            defaultTranslationCode={ctx.defaultTranslationCode}
+            onSendSlideToLive={ctx.onSendSlideToLive}
+            onStageSlide={ctx.onStageSlide}
+            onBankAdd={ctx.onBankAddReference}
+            transitionSpec={ctx.transitionSpec}
+            onSetTransitionSpec={ctx.onSetTransitionSpec}
+            detections={ctx.audio.detections}
+            autoApproveEnabled={ctx.autoApproveOn}
+            autoApproveThreshold={ctx.confidenceThreshold}
+            autoSendToLive={ctx.autoSendToLive}
+            onClose={() => setBibleOpen(false)}
+          />
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 

@@ -89,6 +89,13 @@ export type OperatorShellCtx = {
   transitionSpec: import("@/lib/broadcast").TransitionSpec | null;
   onSetTransitionSpec: (t: import("@/lib/broadcast").TransitionSpec | null) => void;
   churchId: string;
+
+  // Bible-panel wiring (Bible redesign)
+  onSendSlideToLive: (slide: SlidePayload, transition?: import("@/lib/broadcast").TransitionSpec | null) => void;
+  onStageSlide: (slide: SlidePayload) => void;
+  onBankAddReference: (ref: { book: string; chapter: number; verseStart: number; verseEnd: number }) => Promise<BankedVerse | null>;
+  onSendBankedToLive: (idx: number) => void;
+  onRemoveBanked: (idx: number) => void;
 };
 
 export type InspectorTab =
