@@ -1,4 +1,5 @@
 import { ipcMain, dialog, BrowserWindow } from "electron";
+import { authorizePath, authorizeDir } from "./fs";
 
 export function registerDialogIpc() {
   ipcMain.handle("dialog:openFile", async (_e, options: Electron.OpenDialogOptions = {}) => {
@@ -6,6 +7,9 @@ export function registerDialogIpc() {
     const result = win
       ? await dialog.showOpenDialog(win, { properties: ["openFile"], ...options })
       : await dialog.showOpenDialog({ properties: ["openFile"], ...options });
+    if (!result.canceled) {
+      for (const p of result.filePaths) authorizePath(p);
+    }
     return result;
   });
 
@@ -14,6 +18,9 @@ export function registerDialogIpc() {
     const result = win
       ? await dialog.showOpenDialog(win, { properties: ["openDirectory"] })
       : await dialog.showOpenDialog({ properties: ["openDirectory"] });
+    if (!result.canceled) {
+      for (const p of result.filePaths) authorizeDir(p);
+    }
     return result;
   });
 

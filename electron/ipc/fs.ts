@@ -4,10 +4,51 @@ import * as path from "path";
 
 const MAX_INLINE_BYTES = 50 * 1024 * 1024;
 
+// Session-scoped allowlist. Populated whenever the user picks a file or
+// directory via native dialogs, or drag-drops content onto the renderer (see
+// dialog.ts for the authorize call). Renderer JS therefore cannot ask fs to
+// read arbitrary paths on disk — it can only read paths the user explicitly
+// selected in this session. Cleared on app quit implicitly (module scope).
+const allowedPaths = new Set<string>();
+const allowedDirs = new Set<string>();
+
+export function authorizePath(p: string) {
+  if (typeof p !== "string" || !p) return;
+  allowedPaths.add(path.resolve(p));
+}
+
+export function authorizeDir(p: string) {
+  if (typeof p !== "string" || !p) return;
+  allowedDirs.add(path.resolve(p));
+}
+
+function isPathAuthorized(target: string): boolean {
+  const resolved = path.resolve(target);
+  if (allowedPaths.has(resolved)) return true;
+  for (const dir of allowedDirs) {
+    const rel = path.relative(dir, resolved);
+    if (!rel.startsWith("..") && !path.isAbsolute(rel)) return true;
+  }
+  return false;
+}
+
+function isDirAuthorized(target: string): boolean {
+  const resolved = path.resolve(target);
+  if (allowedDirs.has(resolved)) return true;
+  for (const dir of allowedDirs) {
+    const rel = path.relative(dir, resolved);
+    if (!rel.startsWith("..") && !path.isAbsolute(rel)) return true;
+  }
+  return false;
+}
+
 export function registerFsIpc() {
   ipcMain.handle(
     "fs:readDirRecursive",
     async (_e, { dirPath, extensions }: { dirPath: string; extensions: string[] }) => {
+      if (typeof dirPath !== "string" || !isDirAuthorized(dirPath)) {
+        return { ok: false, error: "path not authorized", entries: [] };
+      }
       const normExts = (extensions || []).map((e) =>
         e.startsWith(".") ? e.toLowerCase() : "." + e.toLowerCase()
       );
@@ -43,9 +84,11 @@ export function registerFsIpc() {
   );
 
   ipcMain.handle("fs:readFile", async (_e, { filePath }: { filePath: string }) => {
+    if (typeof filePath !== "string" || !isPathAuthorized(filePath)) {
+      return { ok: false, error: "path not authorized" };
+    }
     const stat = await fs.promises.stat(filePath);
     if (stat.size > MAX_INLINE_BYTES) {
-      // Return metadata + refuse; caller should switch to chunked path (not implemented yet)
       return {
         tooLarge: true,
         size: stat.size,

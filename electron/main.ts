@@ -13,6 +13,35 @@ let tray: Tray | null = null;
 let nextServerProc: ChildProcess | null = null;
 let appUrl = "http://localhost:3000";
 
+// First-party hosts allowed to receive the x-pf-shell header. Computed once
+// after appUrl is known (see registerFirstPartyHosts). Also used by the
+// shell.openExternal handler as part of the allowlist.
+const FIRST_PARTY_HOSTS = new Set<string>(["localhost", "127.0.0.1"]);
+const EXTERNAL_URL_ALLOWED_HOSTS = new Set<string>([
+  "presentflow.app",
+  "app.presentflow.com",
+  "localhost",
+  "127.0.0.1",
+]);
+
+function registerFirstPartyHosts() {
+  try {
+    const u = new URL(appUrl);
+    FIRST_PARTY_HOSTS.add(u.host);
+    EXTERNAL_URL_ALLOWED_HOSTS.add(u.hostname);
+  } catch {}
+  const envUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (envUrl) {
+    try {
+      const u = new URL(envUrl);
+      FIRST_PARTY_HOSTS.add(u.host);
+      EXTERNAL_URL_ALLOWED_HOSTS.add(u.hostname);
+    } catch {}
+  }
+}
+
+let shellHeaderListenerRegistered = false;
+
 async function pickFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = net.createServer();
@@ -159,14 +188,6 @@ app.whenReady().then(async () => {
     else cb(true);
   });
 
-  // Inject a shell marker on every request from the desktop app. Middleware
-  // and server components trust this header to gate admin surfaces off the
-  // Electron client. Renderers cannot forge outgoing headers, so this is safe.
-  session.defaultSession.webRequest.onBeforeSendHeaders((details, cb) => {
-    const headers = { ...details.requestHeaders, "x-pf-shell": "desktop" };
-    cb({ requestHeaders: headers });
-  });
-
   if (isDev) {
     const devPort = process.env.PRESENTFLOW_DEV_PORT || "3000";
     appUrl = `http://localhost:${devPort}`;
@@ -178,6 +199,25 @@ app.whenReady().then(async () => {
       app.quit();
       return;
     }
+  }
+
+  registerFirstPartyHosts();
+
+  // Inject a shell marker on every request from the desktop app, but only for
+  // first-party hosts (our Next server + configured NEXT_PUBLIC_APP_URL). We
+  // must not leak this header to third-party analytics/CDNs. Guarded so
+  // hot-reload can't stack duplicate handlers.
+  if (!shellHeaderListenerRegistered) {
+    session.defaultSession.webRequest.onBeforeSendHeaders((details, cb) => {
+      let host = "";
+      try { host = new URL(details.url).host; } catch { /* pass through */ }
+      if (host && FIRST_PARTY_HOSTS.has(host)) {
+        cb({ requestHeaders: { ...details.requestHeaders, "x-pf-shell": "desktop" } });
+      } else {
+        cb({ requestHeaders: details.requestHeaders });
+      }
+    });
+    shellHeaderListenerRegistered = true;
   }
 
   // IPC registration
@@ -194,8 +234,29 @@ app.whenReady().then(async () => {
   // "Manage your church online" link to route admins to the web portal.
   ipcMain.handle("shell:openExternal", async (_e, url: string) => {
     try {
-      if (typeof url !== "string") return { ok: false, error: "invalid url" };
-      if (!/^https?:\/\//i.test(url)) return { ok: false, error: "invalid protocol" };
+      if (typeof url !== "string") {
+        console.warn("[shell:openExternal] rejected: not a string");
+        return { ok: false, error: "invalid url" };
+      }
+      let u: URL;
+      try {
+        u = new URL(url);
+      } catch {
+        console.warn(`[shell:openExternal] rejected: unparseable url ${url}`);
+        return { ok: false, error: "invalid url" };
+      }
+      if (u.protocol !== "https:" && u.protocol !== "http:") {
+        console.warn(`[shell:openExternal] rejected: protocol ${u.protocol}`);
+        return { ok: false, error: "invalid protocol" };
+      }
+      if (u.username || u.password) {
+        console.warn(`[shell:openExternal] rejected: url contains credentials`);
+        return { ok: false, error: "credentials in url not allowed" };
+      }
+      if (!EXTERNAL_URL_ALLOWED_HOSTS.has(u.hostname)) {
+        console.warn(`[shell:openExternal] rejected: hostname ${u.hostname} not in allowlist`);
+        return { ok: false, error: "host not allowed" };
+      }
       await shell.openExternal(url);
       return { ok: true };
     } catch (err: any) {
