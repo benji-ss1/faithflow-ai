@@ -108,6 +108,7 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
     }
   };
 
+  // CLAUDE.md rule 7 — songs never auto-project. Do not change without sign-off.
   const handleSongChipDoubleClick = (songId: string, songTitle: string, inPlaylist: boolean) => {
     // Safety: even with Safe Mode OFF, songs must NOT auto-send-to-live.
     // Double-click = "load + preview first slide" only. Copyright safety.
@@ -159,19 +160,25 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
             const songId = s.match.songId;
             const title = s.match.title;
             const inPlaylist = playlistSongIds.has(songId);
-            const tip = inPlaylist
+            const rawTip = inPlaylist
               ? `${title} — already in playlist (${s.confidence}%)`
               : `${title} (${s.confidence}%) — click to add`;
+            // Y8: keep tooltip DOM attr from ballooning on very long song titles.
+            const tip = rawTip.length > 120 ? rawTip.slice(0, 117) + "…" : rawTip;
+            // Y6: full a11y label — screen readers get title + confidence +
+            // playlist state + affordance.
+            const ariaLabel = `${title}, ${s.confidence}% match${inPlaylist ? ", already in playlist" : ", click to add"}`;
             return (
               <button
                 key={s.id}
                 type="button"
                 data-in-playlist={inPlaylist ? "true" : "false"}
                 title={tip}
+                aria-label={ariaLabel}
                 onClick={() => handleSongChipClick(songId, title, inPlaylist)}
                 onDoubleClick={() => handleSongChipDoubleClick(songId, title, inPlaylist)}
                 className={
-                  "relative flex items-center gap-1 px-2 py-0.5 rounded text-[11px] transition-colors " +
+                  "relative flex items-center gap-1 px-2 py-0.5 rounded text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)] " +
                   (inPlaylist
                     ? "border border-amber-400/70 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20"
                     : "border border-[var(--color-brand)] bg-[var(--color-elevated)] hover:bg-[var(--color-panel)]")
