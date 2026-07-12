@@ -770,3 +770,33 @@ Total LOC: ~130 new, 1 changed. Under the 100 LOC "3-review-agents required" bar
   UI-nuisance only, no live/server side effects. Documented as an
   acceptable use of the event bus pattern; anything touching live output
   or server actions must use a ref/callback prop instead.
+
+## P10 tier scaffolding — reviewer/security round 2 (2026-07-12)
+
+- **Pilot = early-access = full Max preview.** `canAccess` now returns
+  true for both `max` and `pilot` on Max-only features. Pilot churches
+  are trial customers; showing them upgrade prompts during service is
+  bad UX and, more importantly, contradicts the sales promise. Fix
+  applied at the shared `canAccess` boundary so every gated surface
+  (Bible options, Themes tab, ProContent popover) benefits.
+- **Fail-closed on tier fetch, not fail-open.** `/api/tier` used to
+  return `"free"` on DB error. During a Sunday service a transient DB
+  blip would pop upgrade prompts to a paying Max church. Endpoint now
+  returns `503 { tier: null }`; `useTier` preserves last-known-good tier
+  on 503 and treats null (never-loaded state) as "unknown, hide
+  prompts". Safer default: don't nag.
+- **Tier cache TTL + cross-tab invalidation.** In-memory cache had no
+  expiry, so an upgrade in another window left the app stale-free
+  forever. Added 60s TTL, refetch on window focus + visibility change,
+  and a `presentflow.tier.invalidate` localStorage event that any tab
+  can dispatch (billing success flow should call
+  `invalidateTierAcrossTabs()` after the Stripe checkout redirect
+  returns).
+- **`src/lib/tier.ts` is `@client-only`.** Marked at top of file. Never
+  import into server actions for entitlement — server actions must
+  query `subscriptions` directly. This module is a UI hint; forgery
+  and drift are acceptable, but only because entitlement lives
+  elsewhere.
+- **`_resetTierCache()` on logout.** Wired into `Topbar` and `Sidebar`
+  signOut handlers so the next user on the same machine does not
+  briefly see the previous user's tier.

@@ -1120,3 +1120,13 @@ Closed 6 🔴 and 14 🟡 findings from the ProOperatorShell review.
 ### First Sunday + setup guides
 - `src/app/(app)/help/first-sunday/page.tsx` — verified: 255 LOC, before/preflight/practice/during/recovery/after sections. No changes.
 - `/setup/projector`, `/setup/audio`, `/setup/diagnostics` — verified as `requireUser()`-gated pages backed by wizard/panel components. No content changes needed.
+
+## 2026-07-12 — P10 tier reviewer/security fixes
+
+- **fix(tier)**: pilot tier now gets early-access Max preview across all three gated surfaces (Bible options, Themes tab, ProContent popover). `canAccess` updated in `src/lib/tier.ts`.
+- **fix(tier)**: `useTier` in-memory cache now has 60s TTL, refetches on window focus + visibilitychange + cross-tab `presentflow.tier.invalidate` storage event, exposes `refresh()` and `invalidateTierAcrossTabs()`. Last-known-good tier is preserved on 503 to avoid mid-service flash of upgrade prompt.
+- **fix(api/tier)**: DB error now returns `503 { tier: null, error: "unavailable" }` instead of fail-open `"free"`.
+- **chore(tier)**: `src/lib/tier.ts` marked `@client-only`; added `dbTierToPlanLabel()` (analytics-safe raw label); added TODO for starter SKU distinction.
+- **chore(tier)**: `MaxUpgradePrompt` validates `NEXT_PUBLIC_APP_URL` (must be `https:`) before use; falls back to `https://presentflow.app`.
+- **chore(auth)**: `_resetTierCache()` wired into Topbar + Sidebar sign-out handlers.
+- **test(tier)**: 21 → 42 assertions. Added pilot early-access invariants, unknown-feature falls-open per tier, `isMaxOnly` case-sensitivity assertions, `dbTierToPlanLabel` cases, and `FEATURE_BLURB` ↔ `MAX_FEATURES` drift guard.
