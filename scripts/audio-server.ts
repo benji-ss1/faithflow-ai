@@ -175,6 +175,18 @@ const wss = new WebSocketServer({
 
 wss.on("connection", async (ws: WebSocket, req) => {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
+
+  // Y7: diagnostics-panel reachability probe. Short-circuit BEFORE any
+  // Deepgram connection (which would burn a session start / count against
+  // the Deepgram concurrent-connection quota) and before ticket verify
+  // (probe is unauthenticated by design — it only proves TCP+WS handshake).
+  // Origin allowlist + per-IP rate limit already applied in verifyClient.
+  if (url.searchParams.get("probe") === "1") {
+    try { ws.send(JSON.stringify({ ok: true, probe: true })); } catch { /* ignore */ }
+    try { ws.close(1000, "probe"); } catch { /* ignore */ }
+    return;
+  }
+
   const planId = url.searchParams.get("planId") || "";
   const churchId = url.searchParams.get("churchId") || "";
   const userId = url.searchParams.get("userId") || "";
