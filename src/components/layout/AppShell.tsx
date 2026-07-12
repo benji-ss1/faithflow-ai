@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
+import { useShell } from "@/hooks/useShell";
 
 type AppShellProps = {
   children: React.ReactNode;
@@ -12,6 +13,19 @@ type AppShellProps = {
 
 export function AppShell({ children, user, churchName }: AppShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const shell = useShell();
+  const isDesktop = shell === "desktop";
+
+  // Desktop shell (Electron): render children full-bleed with NO sidebar and
+  // NO topbar chrome. The operator view provides its own top bar + left panel
+  // — global chrome would double up. Web build unchanged.
+  if (isDesktop) {
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        {children}
+      </div>
+    );
+  }
 
   return (
     <div className="relative flex min-h-screen bg-background text-foreground">

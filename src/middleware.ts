@@ -10,18 +10,22 @@ const PUBLIC_PATHS = [
 // (dashboard, organization, analytics, subscriptions, applications, products,
 // team, profile, archive, invitations) stay off the desktop even though they
 // exist in the codebase for the Vercel web build.
+// PropPresenter-style single-view rebuild: the desktop shell renders only the
+// operator surface. Library, setup wizards, tutorials, help pages, dashboard,
+// full settings pages are web-only. Requests for those from a desktop shell
+// redirect to /operator (see the redirect below). Kept live on the web build.
+// `/services/[id]/operate` remains explicitly allowed so operators can jump
+// straight into a specific plan (identical layout, plan-scoped).
 const DESKTOP_ALLOWED_PAGE_PREFIXES = [
   "/operator",
-  "/services",           // includes /services/[id]/operate
-  "/library",            // songs, bible, media, imports, themes
-  "/setup",              // projector, audio, diagnostics
-  "/tutorial",
-  "/help",               // first-sunday playbook etc.
-  "/settings",           // gated by page-level shell scoping
   "/onboarding",
   "/_next",
   "/favicon",
 ];
+// Only these `/services/*` subpaths are allowed in desktop. Everything else
+// under `/services` (index list, `/services/[id]` detail, `/services/new`)
+// redirects to /operator.
+const DESKTOP_ALLOWED_SERVICE_SUFFIX = /^\/services\/[^/]+\/operate(?:$|\/)/;
 
 // API prefixes the desktop shell is allowed to call. Explicit, not `/api`.
 // Every prefix here must correspond to an operator-inline surface (content,
@@ -65,6 +69,7 @@ function desktopPathAllowed(pathname: string): boolean {
   if (pathname.startsWith("/api/")) {
     return DESKTOP_ALLOWED_API_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
   }
+  if (DESKTOP_ALLOWED_SERVICE_SUFFIX.test(pathname)) return true;
   return DESKTOP_ALLOWED_PAGE_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
 
