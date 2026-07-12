@@ -136,15 +136,14 @@ export function TopBar({
     });
   }, []);
 
+  // Cmd/Ctrl+K is centralized in useOperatorHotkeys (Priority 4). The shell
+  // fires a `presentflow:open-search` custom event which we listen for here
+  // — that keeps a single source of truth for the keybind AND lets other
+  // callers (e.g. Search icon button) still open the palette locally.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setSearchOpen((v) => !v);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    const onOpen = () => setSearchOpen(true);
+    window.addEventListener("presentflow:open-search", onOpen);
+    return () => window.removeEventListener("presentflow:open-search", onOpen);
   }, []);
 
   const toggleMode = (m: CenterMode) => () =>

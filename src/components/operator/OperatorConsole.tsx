@@ -104,6 +104,7 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
     confidenceFloor: autoApproveProp.confidenceFloor,
     autoSendToLive: autoApproveProp.autoSendToLive,
   }), [autopilotMode, autoApproveProp.confidenceFloor, autoApproveProp.autoSendToLive]);
+  const shell = useShell(initialShell);
   const [preview, setPreview] = useState<Cursor>({ itemIdx: 0, slideIdx: 0 });
   const [live, setLive] = useState<SlidePayload>({ kind: "empty" });
   const [autoSend, setAutoSend] = useState(false);
@@ -345,6 +346,10 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
   }, [plan.items, autoSend]);
 
   useEffect(() => {
+    // Priority 4: the desktop shell uses the centralized useOperatorHotkeys
+    // hook mounted in ProOperatorShell — skip this legacy handler when the
+    // pro shell is active to avoid double-firing.
+    if (shell === "desktop") return;
     function onKey(e: KeyboardEvent) {
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
@@ -357,7 +362,7 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [move, sendPreview, goBlank, goLogo, clearLive]);
+  }, [move, sendPreview, goBlank, goLogo, clearLive, shell]);
 
   function jumpTo(itemIdx: number, slideIdx: number) {
     setPreview({ itemIdx, slideIdx });
@@ -955,8 +960,6 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
     if (typeof window !== "undefined" && !window.confirm(`Delete ${label}?`)) return;
     toast.info("Slide delete coming soon — logged.");
   }, [plan.items]);
-
-  const shell = useShell(initialShell);
 
   const shellCtx: OperatorShellCtx = useMemo(() => ({
     plan,

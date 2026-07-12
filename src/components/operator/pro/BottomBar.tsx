@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
-import { Plus, Pause, Play, SkipForward, SkipBack, ChevronDown, LayoutGrid, List, Type, Smile, SlidersHorizontal } from "lucide-react";
+import { Plus, Pause, Play, SkipForward, SkipBack, ChevronDown, LayoutGrid, List, Type, Smile, SlidersHorizontal, HelpCircle } from "lucide-react";
 import type { OperatorShellCtx } from "../shell/types";
 
 const TRANSITION_KEY = "presentflow.pro.transition.v1";
@@ -10,11 +10,12 @@ const TRANSITIONS = ["Fade", "Dissolve", "Slide", "Cut", "Amoeba", "Wipe"];
 export type SlideViewMode = "grid" | "list" | "text";
 
 export function BottomBar({
-  ctx, slideSize, onSlideSize,
+  ctx, slideSize, onSlideSize, onOpenShortcutsHelp,
 }: {
   ctx: OperatorShellCtx;
   slideSize: number;
   onSlideSize: (n: number) => void;
+  onOpenShortcutsHelp?: () => void;
 }) {
   const [transitionName, setTransitionName] = useState("Amoeba");
   const [transitionDuration, setTransitionDuration] = useState(0.6);
@@ -115,6 +116,15 @@ export function BottomBar({
           title={`Slide size: ${slideSize}px`}
         />
         <button data-todo="1" title="Filters — coming soon" disabled className="w-7 h-7 flex items-center justify-center rounded text-[var(--color-muted-foreground)] opacity-50 cursor-not-allowed"><SlidersHorizontal className="w-4 h-4" /></button>
+        <button
+          type="button"
+          onClick={onOpenShortcutsHelp}
+          title="Keyboard shortcuts (?)"
+          aria-label="Keyboard shortcuts"
+          className="w-7 h-7 flex items-center justify-center rounded text-[var(--color-muted-foreground)] hover:bg-[var(--color-elevated)] hover:text-[var(--color-foreground)]"
+        >
+          <HelpCircle className="w-4 h-4" />
+        </button>
       </div>
     </div>
   );

@@ -32,6 +32,8 @@ import { RightTabs } from "./right/RightTabs";
 import { BottomBar } from "./BottomBar";
 import { MediaStrip } from "./MediaStrip";
 import { useTimerSession, useMessagesSession, useBibleSession } from "./hooks";
+import { useOperatorHotkeys } from "@/hooks/useOperatorHotkeys";
+import { ShortcutsHelpOverlay } from "./ShortcutsHelpOverlay";
 
 /**
  * centerMode drives what fills the center pane.
@@ -46,6 +48,7 @@ export type CenterMode = "slides" | "bible" | "songs" | "media";
 
 const MEDIA_STRIP_KEY = "presentflow.pro.mediaStripOpen";
 const SLIDE_SIZE_KEY = "presentflow.pro.slideSize";
+const SAFE_MODE_KEY = "presentflow.operator.safeMode";
 
 /**
  * Compact transcript + AI detection strip pinned above BottomBar.
@@ -112,6 +115,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const [centerMode, setCenterMode] = useState<CenterMode>("slides");
   const [mediaStripOpen, setMediaStripOpen] = useState(true);
   const [slideSize, setSlideSize] = useState(160);
+  const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
 
   useEffect(() => {
     try {
@@ -138,6 +142,73 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const timer = useTimerSession();
   const messages = useMessagesSession();
   const bibleSession = useBibleSession(ctx.defaultTranslationCode);
+
+  // Priority 4 — global operator hotkeys.
+  useOperatorHotkeys({
+    onNext: () => {
+      const item = ctx.plan.items[ctx.previewItemIdx];
+      if (!item) return;
+      const nextIdx = ctx.previewSlideIdx + 1;
+      if (nextIdx < item.slides.length) {
+        ctx.onJumpSlide(ctx.previewItemIdx, nextIdx);
+      } else if (ctx.previewItemIdx + 1 < ctx.plan.items.length) {
+        ctx.onJumpSlide(ctx.previewItemIdx + 1, 0);
+      }
+    },
+    onPrev: () => {
+      if (ctx.previewSlideIdx > 0) {
+        ctx.onJumpSlide(ctx.previewItemIdx, ctx.previewSlideIdx - 1);
+      } else if (ctx.previewItemIdx > 0) {
+        const prev = ctx.plan.items[ctx.previewItemIdx - 1];
+        if (prev) ctx.onJumpSlide(ctx.previewItemIdx - 1, Math.max(0, prev.slides.length - 1));
+      }
+    },
+    onSendLive: () => ctx.onSendToLive(),
+    onKillLive: () => ctx.onKill(),
+    onBlank: () => ctx.onBlank(),
+    onLogo: () => ctx.onLogo(),
+    onOpenSearch: () => {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("presentflow:open-search"));
+      }
+    },
+    onSetCenterMode: (m) => {
+      // "playlist" maps to the default "slides" grid.
+      if (m === "playlist") setCenterMode("slides");
+      else setCenterMode(m);
+    },
+    onJumpSlide: (idx) => {
+      const item = ctx.plan.items[ctx.previewItemIdx];
+      if (!item) return;
+      if (idx < 0 || idx >= item.slides.length) return;
+      ctx.onJumpSlide(ctx.previewItemIdx, idx);
+    },
+    onOpenShortcutsHelp: () => setShortcutsHelpOpen(true),
+    isSafeMode: () => {
+      try {
+        const raw = window.localStorage.getItem(SAFE_MODE_KEY);
+        return raw !== "0"; // default ON
+      } catch { return true; }
+    },
+    isSlideJumpEnabled: () => {
+      // Only fire 1-9 when a playlist item with slides is selected AND we're
+      // in the default slide grid (not Bible / Songs / Media browsers).
+      if (centerMode !== "slides") return false;
+      const item = ctx.plan.items[ctx.previewItemIdx];
+      return !!(item && item.slides.length > 0);
+    },
+    isModalOpen: () => shortcutsHelpOpen,
+  });
+
+  // Electron Help > Keyboard Shortcuts — main sends IPC, we open the overlay.
+  useEffect(() => {
+    const w = typeof window !== "undefined" ? (window as Window & { electronAPI?: { on: (c: string, h: () => void) => void; off: (c: string, h: () => void) => void } }) : undefined;
+    const api = w?.electronAPI;
+    if (!api) return;
+    const handler = () => setShortcutsHelpOpen(true);
+    api.on("shell:open-shortcuts-help", handler);
+    return () => { try { api.off("shell:open-shortcuts-help", handler); } catch { /* noop */ } };
+  }, []);
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-[var(--color-app-bg)] text-[var(--color-foreground)]">
@@ -188,9 +259,12 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         ctx={ctx}
         slideSize={slideSize}
         onSlideSize={setSlideSize}
+        onOpenShortcutsHelp={() => setShortcutsHelpOpen(true)}
       />
 
       {mediaStripOpen && <MediaStrip />}
+
+      <ShortcutsHelpOverlay open={shortcutsHelpOpen} onOpenChange={setShortcutsHelpOpen} />
     </div>
   );
 }
