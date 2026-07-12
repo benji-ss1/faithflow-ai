@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import * as Tabs from "@radix-ui/react-tabs";
 import { Settings } from "lucide-react";
+import { useTier } from "@/hooks/useTier";
+import { MaxUpgradePrompt } from "@/components/tier/MaxUpgradePrompt";
 
 // Y1: unified namespace with the rest of the Pro shell (presentflow.pro.*)
 const KEY = "presentflow.pro.bible.v1";
@@ -44,6 +46,7 @@ export function useBibleOptions() {
 
 export function BibleOptionsPopover() {
   const [opts, setOpts] = useBibleOptions();
+  const { isMax } = useTier();
 
   return (
     <Popover.Root>
@@ -110,7 +113,11 @@ export function BibleOptionsPopover() {
                   <Tabs.Trigger value="free" className="flex-1 py-1 eyebrow data-[state=active]:text-[var(--color-foreground)]">Free</Tabs.Trigger>
                 </Tabs.List>
                 <Tabs.Content value="purchased" className="py-2 text-[var(--color-muted-foreground)]">
-                  Activate Present Flow to purchase Bibles.
+                  {isMax ? (
+                    <div>No purchased Bibles yet. Browse the Max library from Settings.</div>
+                  ) : (
+                    <MaxUpgradePrompt feature="premium-bibles" variant="card" />
+                  )}
                 </Tabs.Content>
                 <Tabs.Content value="free" className="flex flex-col gap-1">
                   {(["KJV", "WEB", "ASV"] as const).map((code) => (

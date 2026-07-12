@@ -2,6 +2,9 @@
 import { useEffect, useState } from "react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import * as Popover from "@radix-ui/react-popover";
+import { useTier } from "@/hooks/useTier";
+import { MaxUpgradePrompt } from "@/components/tier/MaxUpgradePrompt";
 import {
   Search, Type, Palette, LayoutGrid, Play, Pencil, Repeat, BookOpen,
   MoreHorizontal, Sparkles, Image as ImageIcon, MonitorSpeaker, Circle, Radio, ScreenShare,
@@ -122,6 +125,7 @@ export function TopBar({
     : "AI idle — click to start";
 
   const [searchOpen, setSearchOpen] = useState(false);
+  const { isMax } = useTier();
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
   const [previewDisplay, setPreviewDisplay] = useState<number | null>(null);
 
@@ -226,7 +230,34 @@ export function TopBar({
       </div>
 
       <div className="flex items-center gap-0.5">
-        <IconBtn icon={Sparkles} label="ProContent" todo />
+        <Popover.Root>
+          <Popover.Trigger asChild>
+            <button
+              type="button"
+              title="ProContent"
+              aria-label="ProContent"
+              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-[var(--color-elevated)] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+            >
+              <Sparkles className="w-[18px] h-[18px]" />
+            </button>
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content
+              side="bottom"
+              align="end"
+              sideOffset={4}
+              className="w-[300px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-3 text-[12px] shadow-xl z-50"
+            >
+              {isMax ? (
+                <div className="text-[var(--color-muted-foreground)]">
+                  Coming soon — Max content marketplace.
+                </div>
+              ) : (
+                <MaxUpgradePrompt feature="pro-content" variant="card" />
+              )}
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
         <IconBtn
           icon={ImageIcon}
           label="Media browser"
