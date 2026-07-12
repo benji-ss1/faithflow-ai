@@ -1,5 +1,91 @@
 # Changelog
 
+## [main] Desktop shell → single ProPresenter-style operator view
+
+Reshapes the Electron desktop shell to render one always-visible operator surface
+instead of the previous multi-page workspace navigation. Web build (Vercel) is
+unaffected — all library / setup / settings / help pages remain live for it.
+
+### Layout / routing
+- `src/app/(app)/operator/page.tsx` — no longer redirects to `/services/[id]/operate`
+  and no longer renders the "ready to present" empty state. Always renders
+  `OperatorConsole` directly. When no plan is scheduled for today an ephemeral
+  empty plan (`id="__ephemeral__"`) is passed so the operator lands in the
+  single-view layout and can start populating from the left library panel.
+- `src/components/layout/AppShell.tsx` — when `useShell() === "desktop"` renders
+  children full-bleed with NO sidebar and NO topbar chrome. Web unchanged.
+- `src/middleware.ts` — desktop `DESKTOP_ALLOWED_PAGE_PREFIXES` reduced to
+  `/operator`, `/onboarding`, `/_next`, `/favicon`. All `/services/*` subpaths
+  now blocked in desktop EXCEPT the explicit `/services/[id]/operate` regex.
+  So `/library/*`, `/setup/*`, `/tutorial`, `/help/*`, `/dashboard`,
+  `/settings*`, `/organization`, `/team`, `/analytics`, `/archive`,
+  `/subscriptions`, `/products`, `/applications`, `/profile`,
+  `/services`, `/services/[id]`, `/services/new` all 307 → `/operator`.
+
+### Operator UI
+- `src/components/operator/settings/SettingsModal.tsx` (NEW) — dialog surface
+  with a Safe Mode toggle and a "Manage your church account online" link that
+  opens the web portal via `window.electronAPI.shell.openExternal`.
+- `src/components/operator/shell/TopToolbar.tsx` — replaced the
+  `/settings/screens` Link with a gear button that opens the SettingsModal.
+  Back-link to `/services/[id]` hidden when the plan is ephemeral.
+- `src/components/operator/shell/BottomDrawer.tsx` — slide thumbnails now
+  respond to double-click by sending to Live (ProPresenter default). Safe
+  Mode (localStorage `presentflow.safeMode=1`) reverts double-click to
+  Preview-only. Single-click still stages to Preview.
+
+### Electron
+- `electron/main.ts` — installs a proper application menu (File / Edit / View /
+  Help). Help items (`Guided Tutorial`, `First Sunday Playbook`,
+  `Projector Setup`, `Microphone Setup`, `Install Diagnostics`) open the
+  corresponding pages on the web portal via `shell.openExternal`, NOT via
+  window.loadURL — the desktop window never navigates away from the operator.
+
+### Manual verification checklist
+Cannot GUI-verify from headless. When the user runs the built app:
+
+1. Launch Electron; window opens on `/operator` (not redirected).
+2. If today's plan exists, its items appear in the left Playlist panel.
+   If not, playlist is empty and title shows "New service".
+3. NO global sidebar visible (was 300px wide previously); operator uses the
+   full window width.
+4. In dev browser (web shell): visit `/library/songs` → still works (200).
+   In Electron (desktop shell): visit `/library/songs` → redirects to
+   `/operator`. Verify with `curl -H "x-pf-shell: desktop" localhost:3000/library/songs`
+   after authenticating — expect 307 with Location: /operator.
+5. In the operator top bar, click the gear icon → Settings modal opens.
+   Toggle Safe Mode → localStorage `presentflow.safeMode` flips to `1`.
+   Click "Manage your church account online" → external browser opens the
+   web portal (guarded by `shell:openExternal` allowlist).
+6. Double-click a slide thumbnail in the bottom drawer with Safe Mode OFF
+   → slide goes live immediately (red border on projector).
+   Turn Safe Mode ON → double-click only stages to Preview.
+7. Application menu (macOS: PresentFlow menu bar) shows Help → menu items
+   open the tutorial etc. in the system browser, not in the app window.
+
+### Known gaps (deferred, not delivered here)
+- Inline Songs / Media / Imports browsers INSIDE the left panel (spec
+  wanted collapsible groups with searchable lists inline). Today the
+  existing `LeftColumn` shows a list of library category buttons that
+  jump to the (still-in-code) library pages OR open the Bible drawer;
+  it does NOT yet render inline song/media/imports lists. Bible already
+  opens inline. Follow-up needed: reuse `library/BiblePanel.tsx` pattern
+  for Songs, Media, Imports. See DECISIONS.md.
+- Right-click context menu on slides (Edit / Disable / Themes /
+  Transitions / Delete). Requires `@radix-ui/react-context-menu`
+  (not currently installed) + wiring across `SlideCanvas` +
+  `BottomDrawer` thumbnails. Deferred.
+- Top-right live-output preview thumbnail. Existing `RightInspector`
+  already surfaces live/preview state; a dedicated always-visible
+  thumbnail widget in the top-right area is not yet added.
+- Drag-to-add from library into playlist.
+- The "?" help icon in the left panel bottom (Electron menu already
+  provides Help; this UI hook not added).
+- Screens/Outputs button opens a proper modal (today it's still the
+  gear-based settings modal, which mentions Screens lives on the web
+  portal). Extracting `ScreenAssignmentPanel` from `/settings/screens`
+  is a self-contained follow-up.
+
 ## [main] 3-agent review fixes (9 red findings)
 
 ### Security — Electron

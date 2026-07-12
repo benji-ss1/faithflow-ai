@@ -1,5 +1,60 @@
 # Desktop-shell / web-shell architectural split
 
+## /operator ALWAYS renders OperatorConsole (no more redirect / empty state)
+
+Previously `/operator` either redirected to `/services/[id]/operate` when a
+plan existed today, or rendered a "ready to present" empty state. That model
+implied the desktop app has multiple screens. The single-view rebuild removes
+both branches: `/operator` always renders `OperatorConsole` with the today
+plan when present, and with a synthetic ephemeral plan (`id="__ephemeral__"`)
+otherwise. Follow-up: server actions that mutate the plan (add item, reorder,
+etc.) must detect the sentinel id and either persist a NEW plan on first
+write (with today's date + tz) OR reject gracefully. Not implemented yet —
+the ephemeral plan is read-only at the server-action layer until a real
+plan is created via the web portal or a future in-shell "New plan" affordance.
+
+## Desktop shell blocklist tightened — library/setup/help/settings/dashboard blocked
+
+The spec calls for a single-view Electron surface. Middleware allowlist
+reduced to `/operator`, `/onboarding`, `/_next`, `/favicon`, plus the
+explicit `/services/[id]/operate` regex. Everything else on the page level
+(including the previously-allowed `/library`, `/setup`, `/tutorial`, `/help`,
+`/settings`, and non-operate `/services/*` subpaths) 307-redirects to
+`/operator` when accessed from a desktop shell. The routes remain live in
+the codebase for the Vercel web build. API allowlist unchanged.
+
+## Safe Mode toggle lives in localStorage, not DB
+
+`presentflow.safeMode` (`"1" | "0"`) — flipped from the operator's settings
+modal. Read synchronously by `BottomDrawer` thumbnail double-click handler
+and by the (future) slide-grid double-click handler. Not synced to the
+`church_preferences` table because this is per-operator-per-machine
+behavior, not a church-wide policy. Follow-up: if churches want to
+enforce Safe Mode org-wide, add a `church_preferences.forceSafeMode`
+boolean and OR it with the local value.
+
+## Deferred inline library browsing (Songs / Media / Imports)
+
+Spec called for the left panel's Library section to render searchable
+inline lists for each category (mirroring how Bible already opens
+inline via `BiblePanel`). Not delivered in this pass to keep the
+change surface small. The pattern is clear: for each of Songs/Media/
+Imports create a compact `SongsPanel.tsx` / `MediaPanel.tsx` /
+`ImportsPanel.tsx` under `src/components/library/` (or reuse the
+existing full-page loaders) and mount them from `LeftColumn` with
+the same conditional inline / drawer treatment. Left as a
+follow-up.
+
+## Electron Help menu opens URLs in system browser, not the app window
+
+The desktop shell must not navigate away from `/operator`. Every
+Help menu item calls `shell.openExternal(NEXT_PUBLIC_APP_URL + path)`.
+The URL is subject to the pre-existing `EXTERNAL_URL_ALLOWED_HOSTS`
+allowlist in `shell:openExternal`. Localhost is allowed for dev builds.
+
+---
+
+
 ## FS allowlist is session-scoped, not persisted
 
 `electron/ipc/fs.ts` maintains an in-memory `allowedPaths` / `allowedDirs`
