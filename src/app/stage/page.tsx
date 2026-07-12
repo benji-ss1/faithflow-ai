@@ -33,6 +33,7 @@ if (typeof window !== "undefined" && !(window as unknown as { __ffStageGuarded?:
 export default function StagePage() {
   const [current, setCurrent] = useState<SlidePayload>({ kind: "empty" });
   const [next, setNext] = useState<SlidePayload | null>(null);
+  const [nextItem, setNextItem] = useState<{ title: string; type: string } | null>(null);
   const [operatorMessage, setOperatorMessage] = useState<string | null>(null);
   const [countdownEndsAt, setCountdownEndsAt] = useState<number | null>(null);
   const [announcement, setAnnouncement] = useState<AnnouncementPayload | null>(null);
@@ -73,6 +74,7 @@ export default function StagePage() {
         else if (msg.type === "output") {
           setCurrent(msg.state.live);
           setNext(msg.state.next);
+          setNextItem(msg.state.nextItem ?? null);
           setOperatorMessage(msg.state.operatorMessage);
           setCountdownEndsAt(msg.state.countdownEndsAt);
           setAnnouncement(msg.state.announcement ?? null);
@@ -119,6 +121,7 @@ export default function StagePage() {
           setConnected(true);
           setCurrent(state.live);
           setNext(state.next);
+          setNextItem(state.nextItem ?? null);
           setOperatorMessage(state.operatorMessage);
           setCountdownEndsAt(state.countdownEndsAt);
           setAnnouncement(state.announcement ?? null);
@@ -215,7 +218,15 @@ export default function StagePage() {
           <AnnouncementLayer ann={announcement} />
         </div>
         <div className="relative">
-          <div className="absolute top-3 left-4 text-[10px] font-mono uppercase tracking-widest text-white/40 z-10">Next</div>
+          <div className="absolute top-3 left-4 z-10 flex flex-col gap-0.5">
+            <div className="text-[10px] font-mono uppercase tracking-widest text-white/40">Next</div>
+            {nextItem && (
+              <div className="text-base font-semibold text-white/80 max-w-[80vw] truncate">
+                <span className="text-[10px] font-mono uppercase tracking-widest text-white/40 mr-2">{nextItem.type}</span>
+                {nextItem.title}
+              </div>
+            )}
+          </div>
           {next && next.kind !== "empty" ? (
             <div className="opacity-50 w-full h-full"><SlideRenderer slide={next} /></div>
           ) : (
