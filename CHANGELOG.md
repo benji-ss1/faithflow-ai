@@ -1,5 +1,25 @@
 # Changelog
 
+## [main] Priority 4 — Global keyboard shortcuts (2026-07-12)
+
+- New `src/hooks/useOperatorHotkeys.ts` — single global hotkey hook mounted
+  in `ProOperatorShell`. Exposes pure `decodeShortcut()` + `shouldIgnore()`
+  so key-decoding logic is unit-testable without a browser.
+- New `src/components/operator/pro/ShortcutsHelpOverlay.tsx` — Radix Dialog
+  listing every binding, dismissible via Escape / click-outside.
+- Wired shortcuts: Space/→ next · ← prev · Enter send-to-live (Safe-Mode
+  gate) · Esc kill · B blank · L logo · Cmd/Ctrl+K search · Cmd/Ctrl+B|M|S|P
+  center-mode switch · 1–9 jump-to-slide · ? open help.
+- `TopBar` Cmd+K listener refactored to consume a `presentflow:open-search`
+  window event so the centralized hook is the single source of truth.
+- Legacy `OperatorConsole` global `onKey` handler now no-ops when the
+  desktop (Pro) shell is active — prevents double-fires.
+- `BottomBar` gains a "?" HelpCircle button in the right-hand cluster.
+- `electron/main.ts` Help menu gains "Keyboard Shortcuts" (⌘/ · Ctrl+/)
+  → sends `shell:open-shortcuts-help` IPC that the shell listens for.
+- New `test/keyboard-shortcuts.test.ts` — 31 assertions cover every mapping
+  in the spec plus input-guard and negative cases. All pass.
+
 ## [main] Priority-3 review-agent fixes (R1+R2, Y1–Y10) (2026-07-12)
 
 - **R1 (TopBar green dot)** — dot now green only when `dgMessagesReceived > 0`
