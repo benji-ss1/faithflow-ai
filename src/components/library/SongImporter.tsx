@@ -3,6 +3,7 @@ import { useState, useTransition } from "react";
 import { Upload, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { importSongsCsv } from "@/lib/actions";
+import { ElectronPickFilesButton } from "@/components/electron/ElectronFilePickers";
 
 const SAMPLE = `Amazing Grace
 by John Newton
@@ -90,6 +91,19 @@ export function SongImporter() {
               <input type="file" accept=".txt,.csv,text/plain,text/csv" onChange={onFile} className="hidden" />
               <Upload className="w-4 h-4" /> Choose file
             </label>
+            <ElectronPickFilesButton
+              extensions={[".txt", ".csv", ".pro"]}
+              label="Choose from computer…"
+              className="inline-flex items-center gap-1.5 h-9 px-3 border border-border rounded-md text-sm font-semibold hover:bg-accent"
+              onFiles={async (files) => {
+                const parts: string[] = [];
+                for (const f of files) {
+                  if (f.tooLarge || !f.base64) { toast.error(`${f.name}: file too large`); continue; }
+                  try { parts.push(atob(f.base64)); } catch { /* skip */ }
+                }
+                if (parts.length) setText((prev) => (prev ? prev + "\n---\n" : "") + parts.join("\n---\n"));
+              }}
+            />
             <button onClick={() => setText(SAMPLE)} className="text-xs text-muted-foreground hover:text-foreground underline">
               Load sample plain-text
             </button>
@@ -97,6 +111,14 @@ export function SongImporter() {
 
           <textarea value={text} onChange={(e) => setText(e.target.value)} rows={16}
             placeholder="Paste songs here or use Choose file above…"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={async (e) => {
+              e.preventDefault();
+              const file = e.dataTransfer.files?.[0];
+              if (!file) return;
+              const t = await file.text();
+              setText((prev) => (prev ? prev + "\n---\n" : "") + t);
+            }}
             className="w-full px-3 py-2 border border-border rounded-md bg-background text-sm font-mono resize-none" />
         </div>
         <div className="px-4 py-3 border-t border-border flex justify-end gap-2">

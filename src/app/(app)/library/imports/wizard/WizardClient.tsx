@@ -8,6 +8,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { finalizeImport } from "@/lib/import-actions";
+import { ElectronPickFilesButton, ElectronPickFolderButton } from "@/components/electron/ElectronFilePickers";
 
 type SourceCard = {
   id: "propresenter" | "easyworship" | "proclaim" | "openlp" | "mediashout" | "worshiptools" | "csv" | "none";
@@ -163,6 +164,54 @@ export function WizardClient() {
                 onChange={(e) => setFiles(Array.from(e.target.files || []))}
               />
             </label>
+          </div>
+          <div
+            className="flex flex-wrap items-center gap-2"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              const dropped = Array.from(e.dataTransfer.files || []);
+              if (dropped.length) setFiles(dropped);
+            }}
+          >
+            <ElectronPickFilesButton
+              extensions={[".pro6", ".pro7", ".pro7x", ".pro5", ".xml", ".easypres", ".osz", ".json", ".csv", ".txt"]}
+              label="Choose from computer…"
+              className="h-9 px-3 border border-border rounded-md text-sm font-semibold hover:bg-accent"
+              onFiles={async (picked) => {
+                const built: File[] = [];
+                for (const f of picked) {
+                  if (f.tooLarge || !f.base64) continue;
+                  const bin = atob(f.base64);
+                  const bytes = new Uint8Array(bin.length);
+                  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                  built.push(new File([bytes], f.name));
+                }
+                if (built.length) setFiles((prev) => [...prev, ...built]);
+              }}
+            />
+            <ElectronPickFolderButton
+              extensions={[".pro6", ".pro7", ".pro7x", ".pro5", ".easypres", ".xml"]}
+              label="Import folder…"
+              className="h-9 px-3 border border-border rounded-md text-sm font-semibold hover:bg-accent"
+              onFolder={async (entries) => {
+                const api = window.electronAPI!;
+                const built: File[] = [];
+                for (const entry of entries) {
+                  const r = await api.fs.readFile(entry.absPath);
+                  if (r.tooLarge) continue;
+                  const bin = atob(r.base64);
+                  const bytes = new Uint8Array(bin.length);
+                  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                  const file = new File([bytes], r.name);
+                  // Attach relative path (used server-side via file.webkitRelativePath).
+                  try { Object.defineProperty(file, "webkitRelativePath", { value: entry.relPath }); } catch { /* readonly in some runtimes */ }
+                  built.push(file);
+                }
+                if (built.length) setFiles((prev) => [...prev, ...built]);
+              }}
+            />
+            <span className="text-xs text-muted-foreground">Or drop files here.</span>
           </div>
           {files.length > 0 && (
             <div className="text-sm">

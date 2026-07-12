@@ -1,5 +1,30 @@
 # Changelog
 
+## [electron-shell] Import surfaces — Electron pickers + drag-drop
+
+### Added
+
+- `MediaUploader.tsx` (pptx + media): added `ElectronPickFilesButton`
+  ("Choose from computer…") alongside the existing `<input type="file">`,
+  plus a container-level drag-drop handler. Files from the Electron picker
+  are reconstructed as `File` blobs (via base64 → Uint8Array) so the
+  existing presign → PUT → register pipeline is untouched.
+- `SongImporter.tsx`: added `ElectronPickFilesButton` (.txt/.csv/.pro) and
+  drag-drop onto the textarea; imported content is appended with a `---`
+  separator so multiple files can be batched.
+- `WizardClient.tsx` (ProPresenter / EasyWorship / etc.): added
+  `ElectronPickFilesButton` and `ElectronPickFolderButton`. The folder
+  picker uses `electronAPI.fs.readDirRecursive` (filtered to
+  `.pro6/.pro7/.pro7x/.pro5/.easypres/.xml`) and re-hydrates the results
+  as `File` blobs with `webkitRelativePath` preserved so the server parser
+  keeps its folder-relative source paths. Files can also be dropped
+  directly onto the picker row.
+
+### Not touched
+
+- No sermon-specific import surface was found beyond the pptx path
+  (already covered by `MediaUploader`).
+
 ## [electron-shell] Settings — system audio picker
 
 ### Added

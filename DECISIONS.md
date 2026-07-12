@@ -113,3 +113,17 @@ The screens page stores `{ [displayId]: {role, preset, spawned} }` in
 localStorage under `presentflow.screenAssignments.v1`. Displays IDs are
 stable per hardware but not across machines — this is intentional
 (per-machine config, not synced to the cloud).
+
+## Electron import surfaces — rehydrating File blobs
+
+The Electron pickers return `{ base64, name, ext, absPath }` records over
+IPC. Rather than plumb a second upload path for absolute file paths, the
+picker callbacks reconstruct standard `File` blobs from the base64 payload
+and hand them to the *existing* upload/parse flows (`/api/media/presign`,
+`/api/imports/parse`). Costs: an extra memcpy per file, and the 50 MB
+cap already enforced by `electronAPI.fs.readFile`. Benefit: zero new
+server code, and the browser build stays byte-identical.
+
+For the wizard folder picker, `webkitRelativePath` is patched onto each
+`File` via `Object.defineProperty` so the server parser continues to see
+folder-relative source paths (used for skip/collision reporting).
