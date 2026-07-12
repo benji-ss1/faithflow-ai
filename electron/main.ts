@@ -24,18 +24,42 @@ const EXTERNAL_URL_ALLOWED_HOSTS = new Set<string>([
   "127.0.0.1",
 ]);
 
+// S3: Hardened allowlist for hosts derived from NEXT_PUBLIC_APP_URL. The
+// env var can be anything at runtime — we must NOT blindly trust it or a
+// misconfigured/malicious value could add `evil.com` to the external-URL
+// allowlist. Only accept env-derived hosts that match this static safe set.
+const STATIC_SAFE_HOST_ALLOWLIST: ReadonlyArray<RegExp> = [
+  /^localhost$/i,
+  /^127\.0\.0\.1$/,
+  /^([a-z0-9-]+\.)*presentflow\.app$/i,
+  /^([a-z0-9-]+\.)*presentflow\.com$/i,
+];
+function isStaticSafeHost(hostname: string): boolean {
+  return STATIC_SAFE_HOST_ALLOWLIST.some((re) => re.test(hostname));
+}
+
 function registerFirstPartyHosts() {
+  // `appUrl` at this point is one of:
+  //   - The launcher-picked http://127.0.0.1:<port> (production standalone), or
+  //   - http://localhost:<devPort> (dev).
+  // Both are trusted by construction — we opened them.
   try {
     const u = new URL(appUrl);
     FIRST_PARTY_HOSTS.add(u.host);
-    EXTERNAL_URL_ALLOWED_HOSTS.add(u.hostname);
+    if (isStaticSafeHost(u.hostname)) EXTERNAL_URL_ALLOWED_HOSTS.add(u.hostname);
   } catch {}
   const envUrl = process.env.NEXT_PUBLIC_APP_URL;
   if (envUrl) {
     try {
       const u = new URL(envUrl);
-      FIRST_PARTY_HOSTS.add(u.host);
-      EXTERNAL_URL_ALLOWED_HOSTS.add(u.hostname);
+      // Only trust the env-derived host if it matches the static safe set.
+      // Ignore anything else so a mis-set env var can't widen either list.
+      if (isStaticSafeHost(u.hostname)) {
+        FIRST_PARTY_HOSTS.add(u.host);
+        EXTERNAL_URL_ALLOWED_HOSTS.add(u.hostname);
+      } else {
+        console.warn(`[main] Ignoring NEXT_PUBLIC_APP_URL host not in static safe list: ${u.hostname}`);
+      }
     } catch {}
   }
 }
@@ -193,10 +217,14 @@ function toggleMain() {
   else mainWindow.show();
 }
 
+// Y4: Tray "Open Screen Config" — /settings/screens is no longer reachable
+// from the desktop shell (middleware redirects it away). Instead, show the
+// main window and broadcast an IPC event the renderer listens for; the
+// renderer opens the Screens modal directly (see TopToolbar wiring).
 function openScreenConfig() {
   if (!mainWindow) return;
   mainWindow.show();
-  mainWindow.webContents.loadURL(`${appUrl}/settings/screens`).catch(() => {});
+  try { mainWindow.webContents.send("shell:open-screens-modal"); } catch { /* noop */ }
 }
 
 async function createMainWindow() {
@@ -308,7 +336,11 @@ app.whenReady().then(async () => {
         console.warn(`[shell:openExternal] rejected: url contains credentials`);
         return { ok: false, error: "credentials in url not allowed" };
       }
-      if (!EXTERNAL_URL_ALLOWED_HOSTS.has(u.hostname)) {
+      // Accept if in the (post-init) Set of first-party-derived hosts OR if
+      // the hostname matches the static safe list (covers new subdomains
+      // like docs.presentflow.app without needing an env restart).
+      const allowed = EXTERNAL_URL_ALLOWED_HOSTS.has(u.hostname) || isStaticSafeHost(u.hostname);
+      if (!allowed) {
         console.warn(`[shell:openExternal] rejected: hostname ${u.hostname} not in allowlist`);
         return { ok: false, error: "host not allowed" };
       }

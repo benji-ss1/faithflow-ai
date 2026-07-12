@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowLeft, Search, Type, Palette, ListMusic, Edit3, Shuffle, BookOpen,
   Image as ImageIcon, MoreHorizontal, Mic, MicOff, Radio, Monitor, Users,
@@ -37,6 +37,18 @@ export function TopToolbar({
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [screensOpen, setScreensOpen] = useState(false);
+
+  // Y4: Tray "Open Screen Config" now broadcasts an IPC event; open Screens
+  // modal directly instead of navigating to /settings/screens (blocked in
+  // the desktop shell). The `electronAPI.on` bridge is exposed by preload.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const api = (window as any).electronAPI;
+    if (!api?.on || !api?.off) return;
+    const handler = () => setScreensOpen(true);
+    api.on("shell:open-screens-modal", handler);
+    return () => { try { api.off("shell:open-screens-modal", handler); } catch { /* noop */ } };
+  }, []);
 
   function handleTool(k: ToolKey) {
     switch (k) {
