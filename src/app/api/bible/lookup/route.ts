@@ -1,14 +1,28 @@
 import { NextResponse } from "next/server";
 import { apiUser } from "@/lib/session";
 import { lookupReference, lookupReferenceWithWindow, listTranslations } from "@/lib/server/bible";
+import { createLimiter } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
+
+// Y13: per-user rate limit. In-memory (per Next server instance);
+// replace with Redis-backed limiter in prod.
+const lookupLimiter = createLimiter("bible-lookup", 60, 60 * 1000);
 
 export async function POST(req: Request) {
   const user = await apiUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const ok = await lookupLimiter(user.id);
+  if (!ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+
   const { book, chapter, verseStart, verseEnd, translationCode, withWindow } = await req.json().catch(() => ({}));
-  if (!book || !chapter || !verseStart || !verseEnd) return NextResponse.json({ error: "Missing params" }, { status: 400 });
+
+  // Y14: cap + sanitize book input.
+  if (typeof book !== "string" || book.length === 0 || book.length > 64 || /[\x00-\x1F]/.test(book)) {
+    return NextResponse.json({ error: "invalid book" }, { status: 400 });
+  }
+  if (!chapter || !verseStart || !verseEnd) return NextResponse.json({ error: "Missing params" }, { status: 400 });
 
   const translations = await listTranslations();
   const t = translationCode ? translations.find((x) => x.code === translationCode) : translations.find((x) => x.code === "KJV") || translations[0];
