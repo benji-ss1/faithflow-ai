@@ -1,4 +1,5 @@
 import { and, asc, eq } from "drizzle-orm";
+import { cookies, headers } from "next/headers";
 import { requireUser } from "@/lib/session";
 import { getDb } from "@/lib/db/client";
 import { churches, servicePlans, churchPreferences, bibleTranslations, settings as churchSettings } from "@/lib/db/schema";
@@ -19,6 +20,12 @@ import { OfflineState } from "./OfflineState";
 export default async function OperatorLandingPage() {
   const user = await requireUser();
   const db = getDb();
+  const cookieStore = await cookies();
+  const hdrs = await headers();
+  const initialShell: "desktop" | "web" =
+    cookieStore.get("pf_shell")?.value === "desktop" || hdrs.get("x-pf-shell") === "desktop"
+      ? "desktop"
+      : "web";
 
   let church: { timezone: string | null } | null = null;
   let todaysPlan: { id: string; title: string; scheduledFor: unknown } | null = null;
@@ -110,6 +117,7 @@ export default async function OperatorLandingPage() {
       defaultTranslationCode={translationCode}
       confidenceThreshold={confidenceThreshold}
       autoApprove={autoApprove}
+      initialShell={initialShell}
     />
   );
 }

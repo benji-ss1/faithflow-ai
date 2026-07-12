@@ -56,11 +56,12 @@ export type AutopilotMode = "manual" | "suggestion" | "armed" | "active";
 
 const AUTOPILOT_MODE_KEY = "presentflow.autopilot.mode";
 
-export function OperatorConsole({ plan, defaultTranslationCode, confidenceThreshold, autoApprove: autoApproveProp }: {
+export function OperatorConsole({ plan, defaultTranslationCode, confidenceThreshold, autoApprove: autoApproveProp, initialShell }: {
   plan: ExpandedPlan;
   defaultTranslationCode: string;
   confidenceThreshold: number;
   autoApprove: AutoApproveConfig;
+  initialShell?: "desktop" | "web";
 }) {
   // --- Four-mode autopilot (Phase 5) ---------------------------------------
   // On page load we ALWAYS downgrade "active" to "armed" as a safety
@@ -885,7 +886,7 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
     toast.info("Slide delete coming soon — logged.");
   }, [plan.items]);
 
-  const shell = useShell();
+  const shell = useShell(initialShell);
 
   const shellCtx: OperatorShellCtx = useMemo(() => ({
     plan,

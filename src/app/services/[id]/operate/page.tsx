@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { cookies, headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import { requireUser } from "@/lib/session";
 import { getDb } from "@/lib/db/client";
@@ -9,6 +10,12 @@ import { OperatorConsole } from "@/components/operator/OperatorConsole";
 export default async function OperatePage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
   const { id } = await params;
+  const cookieStore = await cookies();
+  const hdrs = await headers();
+  const initialShell: "desktop" | "web" =
+    cookieStore.get("pf_shell")?.value === "desktop" || hdrs.get("x-pf-shell") === "desktop"
+      ? "desktop"
+      : "web";
   const plan = await getExpandedServicePlan(id, user.churchId);
   if (!plan) notFound();
 
@@ -32,6 +39,7 @@ export default async function OperatePage({ params }: { params: Promise<{ id: st
       defaultTranslationCode={translationCode}
       confidenceThreshold={confidenceThreshold}
       autoApprove={autoApprove}
+      initialShell={initialShell}
     />
   );
 }
