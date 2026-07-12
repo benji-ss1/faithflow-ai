@@ -26,6 +26,8 @@ export function SettingsForm({ display, prefs, translations }: {
   const [d, setD] = useState<Display>(display);
   const [p, setP] = useState<Prefs>(prefs);
   const [mics, setMics] = useState<{ deviceId: string; label: string }[]>([]);
+  const [systemSources, setSystemSources] = useState<{ id: string; name: string }[]>([]);
+  const [systemSourcesError, setSystemSourcesError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -37,11 +39,54 @@ export function SettingsForm({ display, prefs, translations }: {
   }, [p.productionMode]);
 
   useEffect(() => {
-    // Enumerate mic devices for the AI & Audio picker. Requires prior mic
-    // permission grant on this origin, otherwise labels are blank.
-    navigator.mediaDevices?.enumerateDevices?.().then((devs) => {
-      setMics(devs.filter((x) => x.kind === "audioinput").map((x) => ({ deviceId: x.deviceId, label: x.label || "Unnamed input" })));
-    }).catch(() => { /* ignore */ });
+    // Prefer the Electron IPC bridge when available so we can enumerate
+    // system inputs even before mic permission has been granted on the
+    // renderer. Fall back to navigator.mediaDevices in the browser build.
+    let cancelled = false;
+
+    async function loadInputs() {
+      const api = typeof window !== "undefined" ? window.electronAPI : undefined;
+      if (api) {
+        try {
+          const res = await api.audio.listInputs();
+          // Current IPC returns a hint payload — always enumerate on renderer.
+          if (res && Array.isArray((res as any).devices)) {
+            const devs = (res as any).devices as Array<{ deviceId?: string; id?: string; label?: string; name?: string }>;
+            if (!cancelled) {
+              setMics(devs.map((d) => ({
+                deviceId: d.deviceId || d.id || "",
+                label: d.label || d.name || "Unnamed input",
+              })));
+            }
+            return;
+          }
+        } catch { /* fall through */ }
+      }
+      navigator.mediaDevices?.enumerateDevices?.().then((devs) => {
+        if (cancelled) return;
+        setMics(devs.filter((x) => x.kind === "audioinput").map((x) => ({ deviceId: x.deviceId, label: x.label || "Unnamed input" })));
+      }).catch(() => { /* ignore */ });
+    }
+
+    async function loadSystemSources() {
+      const api = typeof window !== "undefined" ? window.electronAPI : undefined;
+      if (!api) return;
+      try {
+        const res = await api.audio.listSystemSources();
+        if (cancelled) return;
+        if (Array.isArray(res)) {
+          setSystemSources(res.map((s) => ({ id: s.id, name: s.name })));
+        } else if (res && "error" in res) {
+          setSystemSourcesError(res.error || "Unable to enumerate system sources");
+        }
+      } catch (err) {
+        if (!cancelled) setSystemSourcesError((err as Error).message);
+      }
+    }
+
+    loadInputs();
+    loadSystemSources();
+    return () => { cancelled = true; };
   }, []);
 
   function save() {
@@ -109,6 +154,21 @@ export function SettingsForm({ display, prefs, translations }: {
             {mics.map((m) => <option key={m.deviceId} value={m.label}>{m.label}</option>)}
           </select>
         </Row>
+        {(systemSources.length > 0 || systemSourcesError) && (
+          <Row label="System Audio Sources" hint="System audio sources require BlackHole (macOS) or built-in loopback (Windows).">
+            <div className="w-64 text-xs">
+              {systemSourcesError ? (
+                <div className="text-muted-foreground">{systemSourcesError}</div>
+              ) : (
+                <ul className="border border-border rounded-md divide-y divide-border max-h-40 overflow-auto bg-background">
+                  {systemSources.map((s) => (
+                    <li key={s.id} className="px-2 py-1.5 truncate" title={s.name}>{s.name}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </Row>
+        )}
         <Row label={`Detection confidence threshold (${p.detectionConfidenceThreshold}%)`}
              hint="References below this confidence are still shown but flagged for extra scrutiny. Raise if you get too many false positives.">
           <input type="range" min={40} max={95} step={5} value={p.detectionConfidenceThreshold}

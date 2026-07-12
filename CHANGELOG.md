@@ -1,5 +1,16 @@
 # Changelog
 
+## [electron-shell] Settings — system audio picker
+
+### Added
+
+- `SettingsForm.tsx`: prefers `window.electronAPI.audio.listInputs()` for
+  device enumeration in Electron; falls back to `navigator.mediaDevices` in
+  the browser build.
+- `SettingsForm.tsx`: new "System Audio Sources" row (only rendered in
+  Electron) listing entries from `electronAPI.audio.listSystemSources()`,
+  with the BlackHole (macOS) / Windows-loopback note.
+
 ## [electron-shell] Rebrand
 
 Global rename from **FaithFlow AI** to **Present Flow** as part of the Electron shell conversion.
