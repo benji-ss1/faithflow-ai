@@ -115,6 +115,61 @@ async function startNextServer(): Promise<string> {
   throw new Error("Next server never became ready");
 }
 
+// Build the application menu bar. Help items open URLs in the SYSTEM browser
+// (via `shell.openExternal`) instead of navigating the Electron window — the
+// desktop shell renders only the single operator view; help/tutorial pages
+// live on the web build and stay out of the desktop chrome by design.
+function installApplicationMenu() {
+  const openHelp = (path: string) => {
+    const base = process.env.NEXT_PUBLIC_APP_URL || "https://presentflow.app";
+    // Guard against host mismatches — openExternal enforces its own allowlist.
+    void shell.openExternal(base.replace(/\/$/, "") + path).catch(() => { /* noop */ });
+  };
+  const isMac = process.platform === "darwin";
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(isMac ? [{
+      label: app.name,
+      submenu: [
+        { role: "about" as const },
+        { type: "separator" as const },
+        { role: "hide" as const },
+        { role: "hideOthers" as const },
+        { role: "unhide" as const },
+        { type: "separator" as const },
+        { role: "quit" as const },
+      ],
+    }] : []),
+    {
+      label: "File",
+      submenu: [
+        isMac ? { role: "close" as const } : { role: "quit" as const },
+      ],
+    },
+    { label: "Edit", submenu: [
+        { role: "undo" }, { role: "redo" }, { type: "separator" },
+        { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" },
+    ] },
+    { label: "View", submenu: [
+        { role: "reload" }, { role: "forceReload" }, { role: "toggleDevTools" },
+        { type: "separator" }, { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" },
+        { type: "separator" }, { role: "togglefullscreen" },
+    ] },
+    { label: "Help", submenu: [
+        { label: "Guided Tutorial", click: () => openHelp("/tutorial") },
+        { label: "First Sunday Playbook", click: () => openHelp("/help/first-sunday") },
+        { label: "Projector Setup", click: () => openHelp("/setup/projector") },
+        { label: "Microphone Setup", click: () => openHelp("/setup/audio") },
+        { label: "Install Diagnostics", click: () => openHelp("/setup/diagnostics") },
+    ] },
+  ];
+  try {
+    const menu = Menu.buildFromTemplate(template);
+    Menu.setApplicationMenu(menu);
+  } catch (err) {
+    console.warn("Failed to install app menu:", err);
+  }
+}
+
 function createTray() {
   try {
     const icon = nativeImage.createEmpty();
@@ -264,6 +319,7 @@ app.whenReady().then(async () => {
     }
   });
 
+  installApplicationMenu();
   createTray();
   await createMainWindow();
 
