@@ -14,6 +14,7 @@
 import assert from "node:assert/strict";
 import { parseReferences } from "../src/lib/bible-parser";
 import type { PipelineStage } from "../src/components/operator/useAudioStream";
+import { detectSongInTranscript, resetSongDedupe } from "../src/lib/ai-detection/song-detection";
 
 let passed = 0;
 let failed = 0;
@@ -116,6 +117,78 @@ async function main() {
     const wsBase = process.env.NEXT_PUBLIC_AUDIO_WS_URL || "ws://localhost:3001";
     assert.ok(wsBase.startsWith("ws://") || wsBase.startsWith("wss://"),
       `wsBase must be ws:// or wss://, got ${wsBase}`);
+  });
+
+  // ---- Song detection from speech (Priority 6) ----
+  test("song: exact title after 'let's sing' trigger", () => {
+    resetSongDedupe();
+    const r = detectSongInTranscript("let's sing Amazing Grace tonight",
+      [{ songId: "a", title: "Amazing Grace" }]);
+    assert.ok(r, "expected match");
+    assert.equal(r!.songId, "a");
+    assert.ok(r!.confidence >= 80, `confidence too low: ${r!.confidence}`);
+    assert.equal(r!.matchType, "exact");
+  });
+
+  test("song: 'let us worship with <title>'", () => {
+    resetSongDedupe();
+    const r = detectSongInTranscript(
+      "let us worship with how great is thy faithfulness",
+      [{ songId: "b", title: "How Great Is Thy Faithfulness" }]);
+    assert.ok(r, "expected match");
+    assert.equal(r!.songId, "b");
+  });
+
+  test("song: title within longer trailing phrase", () => {
+    resetSongDedupe();
+    const r = detectSongInTranscript(
+      "let's sing amazing grace how sweet the sound",
+      [{ songId: "a", title: "Amazing Grace" }]);
+    assert.ok(r, "expected match");
+    assert.equal(r!.songId, "a");
+  });
+
+  test("song: trigger without candidate returns null", () => {
+    resetSongDedupe();
+    const r = detectSongInTranscript("let's sing", []);
+    assert.equal(r, null);
+  });
+
+  test("song: no trigger phrase returns null", () => {
+    resetSongDedupe();
+    const r = detectSongInTranscript(
+      "the sermon today is about grace",
+      [{ songId: "a", title: "Amazing Grace" }]);
+    assert.equal(r, null);
+  });
+
+  test("song: dedup within 30s window", () => {
+    resetSongDedupe();
+    const lib = [{ songId: "a", title: "Amazing Grace" }];
+    const t0 = 1_000_000;
+    const first = detectSongInTranscript("let's sing amazing grace", lib, { now: t0 });
+    assert.ok(first && first.matchType === "exact");
+    const second = detectSongInTranscript("let's sing amazing grace", lib, { now: t0 + 5_000 });
+    assert.ok(second, "expected second call to still return a suggestion");
+    assert.equal(second!.matchType, "duplicate");
+  });
+
+  test("song: case-insensitive match", () => {
+    resetSongDedupe();
+    const r = detectSongInTranscript("let's sing amazing GRACE",
+      [{ songId: "a", title: "Amazing Grace" }]);
+    assert.ok(r, "expected match");
+    assert.equal(r!.songId, "a");
+  });
+
+  test("song: fuzzy match with lower confidence", () => {
+    resetSongDedupe();
+    const r = detectSongInTranscript("let's sing amazing gray",
+      [{ songId: "a", title: "Amazing Grace" }]);
+    assert.ok(r, "expected fuzzy match");
+    assert.equal(r!.songId, "a");
+    // exact/substring would score higher; fuzzy should be lower
+    assert.ok(r!.confidence <= 90, `fuzzy conf should be <=90, got ${r!.confidence}`);
   });
 
   console.log(`\n${passed} passed · ${failed} failed`);

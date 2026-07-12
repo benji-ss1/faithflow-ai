@@ -1,5 +1,40 @@
 # Changelog
 
+## [main] Priority 6 — Song detection from speech (2026-07-12)
+
+- **New** `src/lib/ai-detection/song-detection.ts` — trigger-phrase song
+  detector. Recognizes 10 trigger patterns ("let's sing", "let us sing",
+  "we're going to sing", "let's worship with", "sing the song", "next
+  song", "singing", ...), extracts up to 8 candidate title words after
+  the trigger, and matches against the church's indexed library via:
+  (1) exact title, (2) substring/starts-with, (3) bigram Dice fuzzy
+  ≥0.65, (4) first-line lyric fragment. 30-second per-songId dedupe.
+- **Operator/pro AI ticker** now renders song + lyric chips alongside
+  scripture chips (music-note glyph, title, confidence %, green "AI"
+  badge). `data-in-playlist="true"` when songId is already in the plan
+  → amber outline + tooltip "already in playlist"; click scrolls to and
+  pulses the playlist row for 2s. Click on not-in-playlist chip calls
+  `onAddLibraryItem("song", ...)`. Double-click is intentionally
+  identical — songs never auto-project (CLAUDE.md rule 7, copyright
+  safety).
+- **PlaylistSection** rows now expose `data-playlist-item-idx` +
+  `data-item-song-id` so the ticker can locate + pulse them.
+- **globals.css** adds `presentflow-song-pulse` 2s amber-inset highlight
+  animation.
+- **Tests** `test/ai-pipeline.test.ts` grew from 9 → 17 (+8 song cases:
+  exact, worship-with, longer trailing phrase, empty candidate, no
+  trigger, dedup 30s, case-insensitive, fuzzy).
+
+Manual verification checklist:
+- [ ] Speak "let's sing Amazing Grace" while AI listening is active →
+      music-note chip appears in ticker with confidence badge.
+- [ ] Chip shows amber outline when song is already in the plan.
+- [ ] Clicking an amber chip scrolls the sidebar to the item and
+      briefly pulses it.
+- [ ] Clicking a non-amber chip adds the song to the playlist (no
+      auto-project).
+- [ ] Double-click on song chip does NOT send to live.
+
 ## [main] Priority 5 — Reviewer + security follow-ups (2026-07-12)
 
 - **R1** OperatorConsole now populates `nextItem` on every emitted
