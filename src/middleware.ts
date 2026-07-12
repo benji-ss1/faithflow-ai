@@ -16,9 +16,11 @@ const PUBLIC_PATHS = [
 // redirect to /operator (see the redirect below). Kept live on the web build.
 // `/services/[id]/operate` remains explicitly allowed so operators can jump
 // straight into a specific plan (identical layout, plan-scoped).
+// Y1 (reviewer): /onboarding removed — it hosts org creation, team invite,
+// and billing surfaces which are admin-only on the web build. Desktop shell
+// assumes an already-onboarded org (see DECISIONS.md).
 const DESKTOP_ALLOWED_PAGE_PREFIXES = [
   "/operator",
-  "/onboarding",
   "/_next",
   "/favicon",
 ];
@@ -27,31 +29,52 @@ const DESKTOP_ALLOWED_PAGE_PREFIXES = [
 // redirects to /operator.
 const DESKTOP_ALLOWED_SERVICE_SUFFIX = /^\/services\/[^/]+\/operate(?:$|\/)/;
 
-// API prefixes the desktop shell is allowed to call. Explicit, not `/api`.
-// Every prefix here must correspond to an operator-inline surface (content,
-// media, real-time detection helpers, health/diagnostics). Admin-only APIs
-// (billing, team, org, analytics, invitations, subscriptions, onboarding org
-// mutations) must NOT appear here — they return 403 to a desktop shell.
+// R1 (reviewer): Exact API allowlist for the desktop shell — replaces the
+// prior prefix matcher that inadvertently allowed anything under /api/services,
+// /api/library, /api/realtime, etc. Every route here is verified to exist and
+// to be a legitimate operator inline call (see src/app/api/**/route.ts).
 //
-// /api/auth and /api/health are also in PUBLIC_PATHS but re-listed here so
-// the intent is explicit and doesn't rely on public-path ordering.
-const DESKTOP_ALLOWED_API_PREFIXES = [
-  "/api/auth",         // NextAuth handler
-  "/api/health",       // diagnostics
-  "/api/ai",           // detection helpers used inline by operator
-  "/api/audio",        // audio streaming/bridge
-  "/api/autopilot",    // operator autopilot toggles
-  "/api/bible",        // scripture lookups
-  "/api/imports",      // parse endpoints
-  "/api/library",      // (defensive — not currently present)
-  "/api/media",        // uploads used by import surfaces
-  "/api/pptx",         // pptx parse
-  "/api/realtime",     // (defensive — not currently present)
-  "/api/search",       // song/scripture search
-  "/api/sermon",       // sermon/match helpers
-  "/api/services",     // (defensive — not currently present)
-  "/api/songs",        // song lookup
-  "/api/themes",       // theme metadata
+// Anything NOT in the exact set AND NOT under a listed narrow prefix (auth
+// callbacks only) returns a JSON 403. Admin-only APIs stay off desktop by
+// default.
+const DESKTOP_ALLOWED_API_EXACT = new Set<string>([
+  "/api/health",
+  "/api/health/db",
+  "/api/health/storage",
+  "/api/ai/lookup-song-metadata",
+  "/api/announcements/presets",
+  "/api/audio/ticket",
+  "/api/autopilot/history",
+  "/api/bible/books",
+  "/api/bible/chapter",
+  "/api/bible/lookup",
+  "/api/bible/search",
+  "/api/bible/translations",
+  "/api/imports/list",
+  "/api/imports/parse",
+  "/api/media/list",
+  "/api/media/presign",
+  "/api/pptx/convert",
+  "/api/search",
+  "/api/sermon/match",
+  "/api/songs/library",
+  "/api/songs/list",
+  "/api/themes",
+]);
+
+// Narrow prefixes for dynamic-segment routes that the operator legitimately
+// hits. Every entry corresponds to a `[param]` route file. NextAuth needs a
+// prefix for /api/auth/callback/[provider], /api/auth/signin, etc.
+const DESKTOP_ALLOWED_API_PREFIXES: string[] = [
+  "/api/auth/",              // NextAuth dynamic handler (public regardless)
+  "/api/ai/helpers/",        // /api/ai/helpers/[action]/route.ts
+  "/api/songs/",             // /api/songs/[id]/slides
+];
+
+// Regex list for routes that must be checked structurally, not by prefix
+// (e.g. dynamic segment mid-path). Each pattern is anchored to full pathname.
+const DESKTOP_ALLOWED_API_REGEX: RegExp[] = [
+  /^\/api\/songs\/[^/]+\/slides$/,
 ];
 
 // Operator "live plan" routes we want to preserve across session expiry so
@@ -67,7 +90,10 @@ function isDesktopShell(req: NextRequest): boolean {
 function desktopPathAllowed(pathname: string): boolean {
   if (pathname === "/operator") return true;
   if (pathname.startsWith("/api/")) {
-    return DESKTOP_ALLOWED_API_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
+    if (DESKTOP_ALLOWED_API_EXACT.has(pathname)) return true;
+    if (DESKTOP_ALLOWED_API_PREFIXES.some((p) => pathname.startsWith(p))) return true;
+    if (DESKTOP_ALLOWED_API_REGEX.some((re) => re.test(pathname))) return true;
+    return false;
   }
   if (DESKTOP_ALLOWED_SERVICE_SUFFIX.test(pathname)) return true;
   return DESKTOP_ALLOWED_PAGE_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
@@ -83,7 +109,12 @@ export async function middleware(req: NextRequest) {
 
   if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
     const res = NextResponse.next();
-    if (setShellCookie) res.cookies.set("pf_shell", "desktop", { path: "/", sameSite: "lax" });
+    if (setShellCookie) res.cookies.set("pf_shell", "desktop", {
+      path: "/",
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+    });
     return res;
   }
 
@@ -122,12 +153,22 @@ export async function middleware(req: NextRequest) {
     url.pathname = "/operator";
     url.search = "";
     const res = NextResponse.redirect(url);
-    if (setShellCookie) res.cookies.set("pf_shell", "desktop", { path: "/", sameSite: "lax" });
+    if (setShellCookie) res.cookies.set("pf_shell", "desktop", {
+      path: "/",
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+    });
     return res;
   }
 
   const res = NextResponse.next();
-  if (setShellCookie) res.cookies.set("pf_shell", "desktop", { path: "/", sameSite: "lax" });
+  if (setShellCookie) res.cookies.set("pf_shell", "desktop", {
+      path: "/",
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+    });
   return res;
 }
 
