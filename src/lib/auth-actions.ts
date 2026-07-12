@@ -14,6 +14,14 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const signUpLimiter = createLimiter("signup", 5, 60 * 60 * 1000);
 
+const SKIP_EMAIL_VERIFICATION = process.env.SKIP_EMAIL_VERIFICATION === "true";
+
+if (SKIP_EMAIL_VERIFICATION && process.env.NODE_ENV === "production") {
+  // Hard guard — an .env.local leak into a Vercel deploy would silently
+  // let every signup bypass email verification. Fail loud at boot.
+  throw new Error("SKIP_EMAIL_VERIFICATION=true is not allowed in production");
+}
+
 async function checkSignUpRateLimit(): Promise<boolean> {
   let ip = "unknown";
   try {
@@ -41,7 +49,7 @@ export async function signUp(input: { email: string; password: string; name: str
     // Non-enumerating response: don't say "email in use" — that's a user
     // enumeration vector. If the account already exists and isn't verified,
     // re-send the verification email so the honest user can proceed.
-    if (!existing.emailVerifiedAt) {
+    if (!existing.emailVerifiedAt && !SKIP_EMAIL_VERIFICATION) {
       const token = await issueAuthToken(existing.id, "verify_email", 24 * 60 * 60 * 1000);
       await sendVerificationEmail(existing.email, existing.name, token);
     }
@@ -55,10 +63,15 @@ export async function signUp(input: { email: string; password: string; name: str
   // half-set-up user.
   const [row] = await db.insert(users).values({
     email, passwordHash, name, role: "admin", churchId: null,
+    emailVerifiedAt: SKIP_EMAIL_VERIFICATION ? new Date() : null,
   }).returning();
 
-  const token = await issueAuthToken(row.id, "verify_email", 24 * 60 * 60 * 1000);
-  await sendVerificationEmail(row.email, row.name, token);
+  if (SKIP_EMAIL_VERIFICATION) {
+    console.warn("[auth] SKIP_EMAIL_VERIFICATION=true — auto-verified user", row.email);
+  } else {
+    const token = await issueAuthToken(row.id, "verify_email", 24 * 60 * 60 * 1000);
+    await sendVerificationEmail(row.email, row.name, token);
+  }
   return { ok: true, data: { userId: row.id } };
 }
 

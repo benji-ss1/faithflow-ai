@@ -30,6 +30,21 @@ import {
 type UseCaseKey = "church" | "business" | "education" | "events";
 type Invite = { email: string; role: "admin" | "operator" | "pastor"; initial: string };
 
+const CONGREGATION_BUCKETS = [
+  { label: "Under 50", value: 25 },
+  { label: "50-150", value: 100 },
+  { label: "150-500", value: 300 },
+  { label: "500+", value: 750 },
+] as const;
+
+const DENOMINATIONS = [
+  "Non-denominational",
+  "Catholic",
+  "Protestant",
+  "Pentecostal",
+  "Other",
+] as const;
+
 const USE_CASES: { key: UseCaseKey; icon: string; title: string; desc: string; recommended?: boolean }[] = [
   { key: "church", icon: "⛪", title: "Church & Worship", desc: "Lyrics, Bible verses, live services", recommended: true },
   { key: "business", icon: "💼", title: "Business & Teams", desc: "Decks, meetings, town halls" },
@@ -50,6 +65,15 @@ export function OnboardingWizard({
   const [pending, startTransition] = useTransition();
 
   const [workspace, setWorkspace] = useState("");
+  const [city, setCity] = useState("");
+  const [country, setCountry] = useState("Ireland");
+  const [congregationSize, setCongregationSize] = useState<number>(100);
+  const [denomination, setDenomination] = useState<string>("Non-denominational");
+  const [timezone, setTimezone] = useState<string>(
+    typeof Intl !== "undefined"
+      ? Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+      : "UTC",
+  );
   const [useCase, setUseCase] = useState<UseCaseKey>("church");
   const [inviteInput, setInviteInput] = useState("");
   const [invites, setInvites] = useState<Invite[]>([]);
@@ -77,7 +101,11 @@ export function OnboardingWizard({
         }
         const res = await createChurchAndAttachUser({
           name: workspace.trim(),
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+          city: city.trim() || undefined,
+          country: country.trim() || undefined,
+          timezone: timezone || "UTC",
+          congregationSize,
+          denomination,
         });
         if (!res.ok) {
           toast.error(res.error);
@@ -111,12 +139,12 @@ export function OnboardingWizard({
 
   const canBack = step > 0 && step < 3;
   const stepNum = step + 1;
-  const titles = ["Name your workspace", "What will you present?", "Invite your team", "You're all set!"];
+  const titles = ["Tell us about your church", "What will you present?", "Invite your team", "You're all set!"];
   const subs = [
     "This is where your slides, songs and services live.",
     "We'll tailor templates and tools to fit how you present.",
     "Presenting is a team sport. Add the people who help run your events.",
-    "Your PresentFlow workspace is ready to go.",
+    "Your Present Flow workspace is ready to go.",
   ];
   const ctaLabels = ["Continue", "Continue", "Finish setup", "Enter PresentFlow"];
 
@@ -147,18 +175,80 @@ export function OnboardingWizard({
         </p>
 
         {step === 0 && (
-          <div className="mb-5">
-            <label className={authLabelCls} style={authLabelStyle}>
-              Workspace name
-            </label>
-            <input
-              value={workspace}
-              onChange={(e) => setWorkspace(e.target.value)}
-              placeholder="Grace Community Church"
-              className={authInputCls}
-              style={authInputStyle}
-              autoFocus
-            />
+          <div className="mb-5 space-y-4">
+            <div>
+              <label className={authLabelCls} style={authLabelStyle}>
+                Church name
+              </label>
+              <input
+                value={workspace}
+                onChange={(e) => setWorkspace(e.target.value)}
+                placeholder="Grace Community Church"
+                className={authInputCls}
+                style={authInputStyle}
+                autoFocus
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={authLabelCls} style={authLabelStyle}>City</label>
+                <input
+                  value={city}
+                  onChange={(e) => setCity(e.target.value)}
+                  placeholder="Dublin"
+                  className={authInputCls}
+                  style={authInputStyle}
+                />
+              </div>
+              <div>
+                <label className={authLabelCls} style={authLabelStyle}>Country</label>
+                <input
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value)}
+                  placeholder="Ireland"
+                  className={authInputCls}
+                  style={authInputStyle}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={authLabelCls} style={authLabelStyle}>Congregation size</label>
+                <select
+                  value={congregationSize}
+                  onChange={(e) => setCongregationSize(Number(e.target.value))}
+                  className={authInputCls}
+                  style={authInputStyle}
+                >
+                  {CONGREGATION_BUCKETS.map((b) => (
+                    <option key={b.value} value={b.value}>{b.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={authLabelCls} style={authLabelStyle}>Denomination</label>
+                <select
+                  value={denomination}
+                  onChange={(e) => setDenomination(e.target.value)}
+                  className={authInputCls}
+                  style={authInputStyle}
+                >
+                  {DENOMINATIONS.map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className={authLabelCls} style={authLabelStyle}>Timezone</label>
+              <input
+                value={timezone}
+                onChange={(e) => setTimezone(e.target.value)}
+                placeholder="Europe/Dublin"
+                className={authInputCls}
+                style={authInputStyle}
+              />
+            </div>
           </div>
         )}
 

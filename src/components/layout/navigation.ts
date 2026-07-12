@@ -43,20 +43,22 @@ export type ActiveNavMatch = {
   section: "workspace" | "account";
 };
 
+// Primary admin portal nav — exactly the 10 items the admin sees at
+// signed-in dashboard. Anything supplementary lives in the "Advanced"
+// group below and stays hidden by default.
 export const workspaceNav: NavGroup[] = [
   {
-    label: "Workspace",
+    label: "Admin Portal",
     items: [
-      { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/organization", label: "Church Profile", icon: Building2 },
+      { href: "/settings/team", label: "Team", icon: Users },
       { href: "/services", label: "Services", icon: Presentation },
-      { label: "Operator", icon: MonitorSmartphone, badge: "Live", disabled: true },
-    ],
-  },
-  {
-    label: "Content",
-    items: [
+      { href: "/archive", label: "Sermon Archive", icon: Archive },
+      { href: "/analytics", label: "Analytics", icon: BarChart3 },
       {
-        label: "Library",
+        href: "/content",
+        label: "Content Library",
         icon: Library,
         children: [
           { href: "/library/songs", label: "Songs", icon: Music4 },
@@ -66,29 +68,23 @@ export const workspaceNav: NavGroup[] = [
           { href: "/library/themes", label: "Themes", icon: Palette },
         ],
       },
-      { href: "/archive", label: "Sermon Archive", icon: Archive },
-      { href: "/analytics", label: "Analytics", icon: BarChart3 },
-      { label: "AI Assistant", icon: Bot, badge: "Soon", disabled: true },
-    ],
-  },
-  {
-    label: "Admin",
-    items: [
-      { href: "/organization", label: "Church Profile", icon: Building2 },
-      { href: "/settings/team", label: "Team", icon: Users },
-      { href: "/settings/devices", label: "Devices & Outputs", icon: Workflow },
-      { href: "/subscriptions", label: "Billing", icon: CreditCard },
+      { href: "/settings/billing", label: "Billing", icon: CreditCard },
       { href: "/settings", label: "Settings", icon: Settings },
+      { href: "/help", label: "Help / Support", icon: LifeBuoy },
     ],
   },
   {
-    label: "Learn",
+    label: "Advanced",
     items: [
+      { href: "/settings/devices", label: "Devices & Outputs", icon: Workflow },
+      { href: "/subscriptions", label: "Subscription plans", icon: CreditCard },
       { href: "/tutorial", label: "Guided tutorial", icon: PlayCircle },
       { href: "/help/first-sunday", label: "First Sunday playbook", icon: LifeBuoy },
       { href: "/setup/projector", label: "Projector setup", icon: MonitorSmartphone },
       { href: "/setup/audio", label: "Microphone / mixer setup", icon: Sparkles },
       { href: "/setup/diagnostics", label: "Install diagnostics", icon: Wrench },
+      { label: "AI Assistant", icon: Bot, badge: "Soon", disabled: true },
+      { label: "Operator", icon: MonitorSmartphone, badge: "Live", disabled: true },
     ],
   },
 ];
