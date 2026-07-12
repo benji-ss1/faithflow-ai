@@ -21,8 +21,9 @@ import { mintPairCode, revokePairCode } from "@/lib/device-pair-actions";
 const STORAGE_KEY = "presentflow.sync.pairCode";
 const STORAGE_EXP_KEY = "presentflow.sync.pairExpiresAt";
 
-export function SyncControl({ planId, onCodeChange }: {
+export function SyncControl({ planId, churchId, onCodeChange }: {
   planId?: string;
+  churchId?: string;
   onCodeChange: (code: string | null) => void;
 }) {
   const [code, setCode] = useState<string | null>(null);
@@ -111,9 +112,13 @@ export function SyncControl({ planId, onCodeChange }: {
     );
   }
 
+  // Y8: include churchId so remote projectors join the church-scoped
+  // Realtime channel (`ff-out-<churchId>-<CODE>`). Older projectors that only
+  // pass `?pair=CODE` continue to work via the legacy unscoped channel.
+  const churchQ = churchId ? `&church=${encodeURIComponent(churchId)}` : "";
   const url = typeof window !== "undefined"
-    ? `${window.location.origin}/live?pair=${code}`
-    : `/live?pair=${code}`;
+    ? `${window.location.origin}/live?pair=${code}${churchQ}`
+    : `/live?pair=${code}${churchQ}`;
   const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(url)}`;
   const hoursLeft = expiresAt ? Math.max(0, Math.round((expiresAt - Date.now()) / 3_600_000)) : null;
 

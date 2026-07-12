@@ -15,7 +15,7 @@
  */
 
 import { createClient, type SupabaseClient, type RealtimeChannel } from "@supabase/supabase-js";
-import type { OutputState } from "./broadcast";
+import { isValidOutputStateExternal, type OutputState } from "./broadcast";
 
 let _client: SupabaseClient | null = null;
 let _warned = false;
@@ -50,9 +50,26 @@ export function getRealtimeClient(): SupabaseClient | null {
   }
 }
 
-/** Case-insensitive; caller-supplied pair codes are normalized to upper. */
-function chanName(pairCode: string): string {
-  return `ff-out-${pairCode.trim().toUpperCase()}`;
+/**
+ * Y8: Case-insensitive; caller-supplied pair codes normalized to upper.
+ * Channel names are church-scoped so two churches picking the same 6-char
+ * code (or an attacker fuzzing codes) never cross-talk. `churchId` is
+ * lowercased and any non-hex characters stripped so the resulting name is
+ * always a legal Supabase channel identifier.
+ *
+ * A missing/empty churchId falls back to the legacy `ff-out-<code>` form so
+ * older pinned projectors keep working during the rollout — subscribers still
+ * accept either form (see subscribeChannelNames).
+ */
+function normalizeChurchId(churchId: string | undefined | null): string {
+  if (!churchId) return "";
+  return churchId.trim().toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 40);
+}
+
+function chanName(pairCode: string, churchId?: string | null): string {
+  const code = pairCode.trim().toUpperCase();
+  const scope = normalizeChurchId(churchId);
+  return scope ? `ff-out-${scope}-${code}` : `ff-out-${code}`;
 }
 
 export type OutputChannel = {
@@ -79,9 +96,9 @@ export type OutputChannel = {
  * Publisher and subscribers share the same helper; each side uses only the
  * methods it needs.
  */
-export function openOutputChannel(pairCode: string): OutputChannel {
+export function openOutputChannel(pairCode: string, churchId?: string | null): OutputChannel {
   const client = getRealtimeClient();
-  const name = chanName(pairCode);
+  const name = chanName(pairCode, churchId);
 
   let channel: RealtimeChannel | null = null;
   let currentHandler: ((state: OutputState) => void) | null = null;
@@ -97,8 +114,14 @@ export function openOutputChannel(pairCode: string): OutputChannel {
       channel = client.channel(name, { config: { broadcast: { self: false, ack: false } } });
       channel.on("broadcast", { event: "output" }, (payload) => {
         try {
-          const state = (payload as { payload?: { state?: OutputState } }).payload?.state;
-          if (state && currentHandler) currentHandler(state);
+          const state = (payload as { payload?: { state?: unknown } }).payload?.state;
+          // Y9: never trust a wire payload — validate against the same
+          // schema the BroadcastChannel receiver enforces.
+          if (!isValidOutputStateExternal(state)) {
+            console.warn("[realtime] rejected invalid OutputState payload");
+            return;
+          }
+          if (currentHandler) currentHandler(state);
         } catch (e) {
           console.warn("[realtime] payload parse failed:", e instanceof Error ? e.message : String(e));
         }
