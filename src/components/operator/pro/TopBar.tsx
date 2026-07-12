@@ -96,6 +96,26 @@ export function TopBar({
     : centerMode === "media" ? "Media Library"
     : (ctx.plan.items[ctx.previewItemIdx]?.title ?? "");
   const listening = ctx.audio.listening;
+  const aiError = ctx.audio.error;
+  const aiReady = ctx.audio.ready;
+  // Red = errored (stage broken, WS unreachable, Deepgram missing).
+  // Green = listening AND ready (Deepgram handshake OK).
+  // Amber = listening but not ready (still connecting).
+  // Grey = idle.
+  const aiDotClass = aiError
+    ? "text-[var(--color-destructive)]"
+    : listening && aiReady
+    ? "text-[var(--color-ai-listening)]"
+    : listening
+    ? "text-[var(--color-warning,#f5a524)]"
+    : "text-[var(--color-muted-foreground)]";
+  const aiTitle = aiError
+    ? `AI error: ${aiError} — click to retry`
+    : listening && aiReady
+    ? "AI listening — click to stop"
+    : listening
+    ? "AI connecting…"
+    : "AI idle — click to start";
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
@@ -259,10 +279,10 @@ export function TopBar({
         <button
           type="button"
           onClick={ctx.onListenToggle}
-          title={listening ? "AI listening — click to stop" : "AI idle — click to start"}
+          title={aiTitle}
           className="flex items-center gap-1 px-1 rounded hover:bg-[var(--color-elevated)]"
         >
-          <Radio className={cn("w-4 h-4", listening ? "text-[var(--color-ai-listening)]" : "text-[var(--color-muted-foreground)]")} />
+          <Radio className={cn("w-4 h-4", aiDotClass)} />
         </button>
         <div className="w-2 h-2 rounded-full bg-[var(--color-success)]" title="Healthy" />
       </div>
