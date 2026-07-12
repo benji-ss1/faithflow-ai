@@ -1,4 +1,4 @@
-import { BrowserWindow, Display, screen } from "electron";
+import { BrowserWindow, Display, app, screen } from "electron";
 
 export type OutputRole = "Projector" | "Stage" | "Livestream";
 export type Preset = "720p" | "1080p30" | "1080p60" | "4K";
@@ -12,16 +12,15 @@ const ROLE_TO_PATH: Record<OutputRole, string> = {
 const outputWindows = new Map<OutputRole, BrowserWindow>();
 
 /**
- * Detect whether the assigned display is the same physical screen the
- * operator is using. If so we MUST NOT go fullscreen — we'd cover the
- * operator UI and the user couldn't get back. Instead open a normal,
- * draggable window that can be pushed onto a second display later.
+ * R1: "Single-display fallback" is ONLY based on physically having one display.
+ * If the operator has 2+ displays and picks primary as the projector, that is
+ * an explicit choice — respect it and go fullscreen on primary (even though it
+ * covers the operator UI). Previously we silently opened a small windowed
+ * fallback whenever target.id === primary.id, which surprised users on
+ * multi-display setups.
  */
-function isSameAsOperatorDisplay(target: Display): boolean {
-  const displays = screen.getAllDisplays();
-  if (displays.length === 1) return true;
-  const primary = screen.getPrimaryDisplay();
-  return target.id === primary.id;
+function isSingleDisplayFallback(): boolean {
+  return screen.getAllDisplays().length === 1;
 }
 
 export function createOutputWindow(
@@ -33,7 +32,7 @@ export function createOutputWindow(
   // Close existing for role
   closeOutputWindow(role);
 
-  const singleDisplay = isSameAsOperatorDisplay(display);
+  const singleDisplay = isSingleDisplayFallback();
   const { x, y, width, height } = display.bounds;
 
   const win = new BrowserWindow({
@@ -47,7 +46,10 @@ export function createOutputWindow(
     height: singleDisplay ? 540 : height,
     frame: singleDisplay ? true : false,           // draggable title bar in fallback
     fullscreen: false,                              // toggled after show for real displays
-    fullscreenable: !singleDisplay ? true : true,
+    // Y1: only allow the OS fullscreen toggle when we're actually on a
+    // separate display — no point letting the fallback window steal the
+    // operator's screen.
+    fullscreenable: !singleDisplay,
     resizable: true,
     minimizable: true,
     maximizable: true,
@@ -62,6 +64,33 @@ export function createOutputWindow(
   });
 
   try { win.setMenuBarVisibility(false); } catch { /* noop */ }
+
+  // S1: Navigation guards. A chromeless fullscreen window must never navigate
+  // to an off-origin URL (malicious slide payload, devtools navigate, etc.),
+  // and must never spawn child windows.
+  const appOrigin = (() => {
+    try { return new URL(appUrl).origin; } catch { return null; }
+  })();
+  win.webContents.on("will-navigate", (e, urlStr) => {
+    try {
+      const target = new URL(urlStr);
+      if (appOrigin && target.origin !== appOrigin) {
+        e.preventDefault();
+        console.warn(`[OutputWindow ${role}] blocked navigation to ${target.origin}`);
+      }
+    } catch {
+      e.preventDefault();
+    }
+  });
+  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+
+  // Y2: kill devtools in packaged builds so a curious/hostile viewer can't
+  // pop the inspector and pivot from the output surface.
+  if (app.isPackaged) {
+    win.webContents.on("devtools-opened", () => {
+      try { win.webContents.closeDevTools(); } catch { /* noop */ }
+    });
+  }
 
   const url = `${appUrl}${ROLE_TO_PATH[role]}?preset=${encodeURIComponent(preset)}&role=${encodeURIComponent(role)}${singleDisplay ? "&windowed=1" : ""}`;
   win.loadURL(url).catch((e) => console.error(`[OutputWindow ${role}]`, e));
