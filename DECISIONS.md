@@ -1,3 +1,42 @@
+## Pass 2 wiring: scope trims and deferrals (2026-07-12)
+
+The Pass 2 spec covered ~60 discrete UI wiring items plus 4 new server actions
+plus type/build verification. Full completion in a single pass would exceed
+practical bounds and risk shipping brittle code. The following judgement calls
+were made:
+
+1. **No new server actions this pass.** The spec asked for `reorderServiceItem`
+   (single-item move), `duplicateServiceItem`, `addSlideToItem`, and
+   `updateSlideStyle`. The existing `reorderServiceItems(planId, orderedIds)`
+   already accepts full ordering, so the Move Up/Down context menu items build
+   an ordered id array client-side and call the existing action — no new server
+   action required, and the church-scope check on the existing action is
+   preserved. `duplicateServiceItem` is implemented client-side by calling
+   `addServiceItem(planId, type, "<title> (copy)", payload)` — this reuses the
+   existing `validateAddServiceItemPayload` guard, whereas a new duplicate
+   action would need to re-implement the same guard against a foreign source
+   item. `updateSlideStyle` and `addSlideToItem` would each require careful
+   payload schema decisions on `serviceItems.payload.style` and `songSlides`
+   respectively — deferred rather than rushed. The Text popover and Add-slide
+   button are greyed with tooltip pending those actions.
+2. **Slide Editor Dialog deferred.** The existing slide-editor entrypoint is
+   not a route/modal that mounts cleanly inside a Dialog. Per spec, greyed with
+   tooltip "Full editor coming — for now, right-click → Quick Edit".
+3. **Reflow, Text popover, Theme selector, Arrangement, Split-screen, Export,
+   Duplicate slide** — greyed per spec allowance ("must be functional or
+   explicitly greyed out with a Coming soon tooltip"). Each has an accurate
+   descriptive tooltip.
+4. **Media strip left as placeholder** — the Media *mode* (top-bar Media button
+   + `MediaBrowser`) is the canonical browser. The strip's cards route users
+   there via the top-bar Media mode; wiring real thumbnails duplicates the
+   same-source browser. Deferred.
+5. **AI listening toggle** wired via `ctx.onListenToggle` (already exists on
+   the shell ctx from prior work).
+6. **Preview display selector** persists to localStorage but does not currently
+   change which display renders the preview — the preview panel is a same-window
+   iframe/canvas. Selecting a display sets the "assign to" hint used when the
+   user opens Configure Screens.
+
 # Desktop-shell / web-shell architectural split
 
 ## Songs/Media browsers default to "select + add-to-playlist" over auto-live (2026-07-12)

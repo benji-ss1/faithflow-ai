@@ -1,5 +1,65 @@
 # Changelog
 
+## [main] Operator/Pro: Pass 2 wiring — top-bar, left, right tabs, bottom-bar (2026-07-12)
+
+Second wiring pass. Every button in the Pro shell now either performs a real
+action or is explicitly greyed with a "coming soon" tooltip (no silent no-ops).
+
+### New (functional)
+- **TopBar** — Cmd+K global search palette (`SearchPalette.tsx`, uses `cmdk`);
+  Sections: Playlist / Bible (common refs) / Songs (`/api/songs/list`) / Media
+  (`/api/media/list`). Selecting switches center mode or jumps preview.
+- **TopBar** — More menu (Print via `window.print()`, Show diagnostics alert;
+  Export & Duplicate slide greyed with tooltip).
+- **TopBar** — Screen picker dropdown enumerating `window.electronAPI.screens.list()`,
+  persists chosen id to `presentflow.pro.previewDisplay` in localStorage.
+- **TopBar** — AI listening indicator is now a click-toggle bound to
+  `ctx.onListenToggle`.
+- **TopBar** — Audience/Stage indicator dots reflect display count.
+- **Left/LibrarySection & PlaylistSection** — "+" opens Radix dropdown/popover
+  with From Songs / From Bible / From Media / Blank; Songs/Bible/Media route via
+  `onCenterMode`, Blank calls `addServiceItem(planId,"blank",...)`.
+- **Left/PlaylistSection** — right-click context menu on playlist items:
+  Remove (`removeServiceItem`), Move Up/Down (`reorderServiceItems`), Duplicate
+  (`addServiceItem` with copied payload — see DECISIONS for rationale on not
+  creating a separate `duplicateServiceItem` action).
+- **Left/MediaSection** — subcategory rows (Cinematic/Free/Creators/Intro Videos)
+  route to Media mode via `onCenterMode`; Playlists and Video Inputs greyed.
+- **BottomBar** — transport Prev/Next wired to `ctx.onJumpSlide` with bounds
+  guards; "Verse < / >" also wired to same. Center transport (Play → send-to-live,
+  Pause → blank) wired to existing ctx handlers.
+- **BottomBar** — Transition popover (Fade/Dissolve/Slide/Cut/Amoeba/Wipe + 0-5s
+  slider), persisted to `presentflow.pro.transition.v1`. Displayed value reflects
+  setting.
+- **BottomBar** — Grid/List/Text view toggle state added (Grid live; List/Text
+  greyed pending SlideGrid multi-mode support).
+- **MacrosTab** — Radix Dialog add form with Name / Trigger (hotkey|onSlideShow) /
+  Action (goToSlide|startTimer|sendMessage|killLive); persisted to
+  `presentflow.pro.macros.v1`; delete + item count live.
+- **MessagesTab** — Token dropdown ({{time}}/{{date}}/{{currentSlide}}) inserts
+  at caret; Dismiss auto-hides after chosen duration via setTimeout.
+
+### Explicit "coming soon" (greyed, tooltip)
+- TopBar: Text popover, Theme selector, Arrangement, Edit, Reflow, ProContent.
+- BottomBar: Add slide, Save As, Emoji, Filter.
+- Left/Media: Playlists, Video Inputs subcategories.
+- Right/Themes tab (unchanged from previous pass), Right/Audio tab (unchanged),
+  Right/Stage NDI/Syphon/Placeholder buttons.
+- MediaStrip: cards + Filter (Media mode above supersedes this strip for now).
+
+### Verify
+- `npm run typecheck` — passes (pre-existing jsdom warning only).
+- `npm run electron:build:tsc` — passes.
+
+### Deferred (not shipped, documented)
+- `updateSlideStyle`, `duplicateSlide`, `addSlideToItem`, `duplicateServiceItem`
+  server actions — not created. Rationale in DECISIONS.md.
+- Text/Theme popovers, Slide Editor Dialog, Reflow algorithm, Split-screen
+  center layout, Bible verse navigation buttons in bottom bar (already covered
+  by main verse < / > which advances any slide), full media strip with real
+  thumbnails, video-input enumeration, message overlay broadcast to live output,
+  themes collections API, full audio import + playback.
+
 ## [main] Operator/Pro: Songs/Bible/Media prominent buttons + centerMode routing (2026-07-12)
 
 Wiring pass 1 of 2 — focused on demo-critical inline browsers. The right sidebar,
