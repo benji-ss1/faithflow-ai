@@ -260,7 +260,7 @@ function DraftAnnouncementCard() {
   function fillAnnounceTab() {
     if (!state.data) return;
     try {
-      window.dispatchEvent(new CustomEvent("faithflow:draft-announcement", {
+      window.dispatchEvent(new CustomEvent("presentflow:draft-announcement", {
         detail: { line1: state.data.line1, line2: state.data.line2 },
       }));
       setFilled(true);

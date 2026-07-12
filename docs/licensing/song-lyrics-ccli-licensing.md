@@ -1,12 +1,12 @@
 # Song Lyrics and CCLI Licensing
 
-FaithFlow should assume that most modern worship lyrics are copyrighted and cannot be freely distributed, bundled, or synced across churches as if they were public-domain content.
+PresentFlow should assume that most modern worship lyrics are copyrighted and cannot be freely distributed, bundled, or synced across churches as if they were public-domain content.
 
 This document is product guidance, not legal advice.
 
 ## Core Principle
 
-FaithFlow cannot safely act like a public worship-lyrics distributor.
+PresentFlow cannot safely act like a public worship-lyrics distributor.
 
 Why:
 
@@ -14,7 +14,7 @@ Why:
 - churches often have performance/projection/reporting rights through services like CCLI, but that does not automatically give a SaaS vendor blanket redistribution rights
 - storing, syncing, exporting, or redistributing lyrics across church accounts can create a separate licensing problem from local church use
 
-## Why FaithFlow Cannot Freely Distribute Worship Lyrics
+## Why PresentFlow Cannot Freely Distribute Worship Lyrics
 
 Church worship use and software-platform distribution are not the same thing.
 
@@ -24,7 +24,7 @@ A church may be licensed to:
 - print service sheets
 - report song usage
 
-That does not automatically mean FaithFlow may:
+That does not automatically mean PresentFlow may:
 
 - ship a global lyric database of copyrighted songs
 - give every church access to every lyric text by default
@@ -40,11 +40,11 @@ Typical church workflow:
 - they rely on CCLI / SongSelect or similar services for lyrics, charts, and reporting
 - they track usage for royalty/reporting requirements
 
-This maps well to a church-owned content model inside FaithFlow.
+This maps well to a church-owned content model inside PresentFlow.
 
 ## CCLI-Style Reporting Considerations
 
-FaithFlow should design for reporting, not assume FaithFlow itself is the license.
+PresentFlow should design for reporting, not assume PresentFlow itself is the license.
 
 Useful reporting-oriented metadata:
 
@@ -59,7 +59,7 @@ Useful reporting-oriented metadata:
 - services used in
 - whether projected / printed / streamed
 
-FaithFlow should be able to generate church-facing usage logs and export reports later.
+PresentFlow should be able to generate church-facing usage logs and export reports later.
 
 ## Product-Safe Content Model
 
@@ -69,7 +69,7 @@ Preferred model:
 
 - each church owns or imports its own song records
 - lyrics are scoped to that church
-- FaithFlow does not expose one church’s copyrighted lyrics to another church
+- PresentFlow does not expose one church’s copyrighted lyrics to another church
 - imported song metadata is retained for reporting and auditing
 
 ### Manual lyric entry
@@ -77,20 +77,20 @@ Preferred model:
 Manual entry is acceptable product behavior if:
 
 - the church is responsible for rights compliance
-- FaithFlow presents warnings for copyrighted content
+- PresentFlow presents warnings for copyrighted content
 - the UI captures copyright and licensing metadata
 
 ### Imported lyrics
 
-Imports from ProPresenter, EasyWorship, OpenLP, or similar systems should be treated as church-owned imported content, not FaithFlow-distributed catalog content.
+Imports from ProPresenter, EasyWorship, OpenLP, or similar systems should be treated as church-owned imported content, not PresentFlow-distributed catalog content.
 
-FaithFlow should:
+PresentFlow should:
 
 - import lyrics into the originating church only
 - retain source system metadata if available
 - warn the admin that imported copyrighted lyrics remain the church’s licensing responsibility
 
-## Risks If FaithFlow Stores, Syncs, or Distributes Lyrics
+## Risks If PresentFlow Stores, Syncs, or Distributes Lyrics
 
 Main risk areas:
 
@@ -112,14 +112,14 @@ High-risk behaviors to avoid:
 Future safe direction:
 
 - church connects its own authorized lyric provider
-- FaithFlow fetches lyrics on behalf of that church within provider rules
-- FaithFlow stores only the allowed cache, or none if provider terms disallow it
-- FaithFlow logs song usage and can help churches export usage reports
+- PresentFlow fetches lyrics on behalf of that church within provider rules
+- PresentFlow stores only the allowed cache, or none if provider terms disallow it
+- PresentFlow logs song usage and can help churches export usage reports
 
 Until then:
 
 - do not market copyrighted lyric access as included
-- do not imply FaithFlow replaces CCLI or SongSelect rights
+- do not imply PresentFlow replaces CCLI or SongSelect rights
 
 ## Copyright Footer Fields To Capture
 
@@ -146,7 +146,7 @@ Whether it is always shown can be configurable later, but the data model should 
 
 ## Song Usage Logs
 
-FaithFlow should track:
+PresentFlow should track:
 
 - song used
 - church
@@ -176,7 +176,7 @@ This is useful for:
 
 ## Public-Domain Exception
 
-FaithFlow can safely ship public-domain hymns or church-created original songs if:
+PresentFlow can safely ship public-domain hymns or church-created original songs if:
 
 - provenance is clear
 - the public-domain flag is explicit

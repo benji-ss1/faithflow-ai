@@ -1,4 +1,4 @@
-# FaithFlow AI — Phase 1 (Manual Presentation Engine)
+# Present Flow — Phase 1 (Manual Presentation Engine)
 
 Browser-based church presentation platform. Phase 1 is the **reliability foundation** — fully manual, zero AI, zero network dependency during a live service.
 
@@ -31,7 +31,7 @@ Built on the SimplifyOSV2 standard (Next.js 16 App Router, React 19, TypeScript 
 ## Setup
 
 ```bash
-cd faithflow-ai
+cd presentflow
 npm install
 cp .env.local.example .env.local
 # Edit .env.local: set DATABASE_URL, AUTH_SECRET, S3_* vars

@@ -44,10 +44,10 @@
 
 ### Required cards
 
-- FaithFlow Presenter
-- FaithFlow Archive
-- FaithFlow AI
-- future FaithFlow Livestream
+- PresentFlow Presenter
+- PresentFlow Archive
+- Present Flow
+- future PresentFlow Livestream
 - devices connected
 - Bible licenses
 - app status

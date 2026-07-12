@@ -94,7 +94,7 @@
 ## ProductCard
 
 - purpose:
-  - show FaithFlow module / app
+  - show PresentFlow module / app
 - props/data needed:
   - name, description, state, icon
 - variants:

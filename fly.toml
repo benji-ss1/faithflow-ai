@@ -1,4 +1,4 @@
-# Fly.io config for the FaithFlow audio WebSocket bridge.
+# Fly.io config for the PresentFlow audio WebSocket bridge.
 # Deploy: fly launch --copy-config --no-deploy   (first time)
 #         fly deploy                              (subsequent)
 #

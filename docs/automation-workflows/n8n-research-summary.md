@@ -2,7 +2,7 @@
 
 ## Scope
 
-This review treats [`Zie619/n8n-workflows`](https://github.com/Zie619/n8n-workflows) as a pattern library, not as infrastructure to adopt directly inside FaithFlow AI.
+This review treats [`Zie619/n8n-workflows`](https://github.com/Zie619/n8n-workflows) as a pattern library, not as infrastructure to adopt directly inside Present Flow.
 
 The repository is a large public collection of reusable `n8n` workflow JSONs. Its README describes it as a searchable collection of more than 4,300 workflows across hundreds of integrations, with categories covering triggers, scheduled jobs, webhooks, file processing, cloud storage, notifications, AI, and business process automation.
 
@@ -38,7 +38,7 @@ Relevant repo references reviewed:
 
 ## Categories Reviewed
 
-Only these categories were considered for FaithFlow:
+Only these categories were considered for PresentFlow:
 
 1. scheduled / cron jobs
 2. email notifications
@@ -99,7 +99,7 @@ Examples visible from the repo structure and filenames:
 - `0008_Slack_Stripe_Create_Triggered.json`
 - `0248_Openai_Telegram_Automate_Triggered.json`
 
-## What Is Relevant To FaithFlow
+## What Is Relevant To PresentFlow
 
 ### Strongly relevant
 
@@ -139,9 +139,9 @@ Examples visible from the repo structure and filenames:
 - Manual-triggered administrative workflows for support, onboarding, and migrations
 - Team invite flows that chain email, token issuance, reminders, and acceptance tracking
 
-## What Is Irrelevant To FaithFlow
+## What Is Irrelevant To PresentFlow
 
-The repo also contains a large amount of automation that does not map to FaithFlow’s product surface or operating risk model:
+The repo also contains a large amount of automation that does not map to PresentFlow’s product surface or operating risk model:
 
 - sales CRM workflows
 - lead routing
@@ -156,7 +156,7 @@ These patterns may be well-built for `n8n`, but they do not help with Sunday ope
 
 ## Why This Repo Is Useful As A Pattern Library
 
-FaithFlow can reuse the workflow shapes without importing the runtime:
+PresentFlow can reuse the workflow shapes without importing the runtime:
 
 - event-driven processing
 - retries and idempotency
@@ -165,7 +165,7 @@ FaithFlow can reuse the workflow shapes without importing the runtime:
 - manual approval checkpoints
 - connector-style sync boundaries for external systems
 
-This is valuable because FaithFlow already has native concepts that map cleanly to workflow state:
+This is valuable because PresentFlow already has native concepts that map cleanly to workflow state:
 
 - `churches`
 - `users`
@@ -179,7 +179,7 @@ This is valuable because FaithFlow already has native concepts that map cleanly 
 
 ## Why We Should Not Add n8n As Core Infrastructure Yet
 
-FaithFlow should not depend on `n8n` for core product behavior yet.
+PresentFlow should not depend on `n8n` for core product behavior yet.
 
 Reasons:
 
@@ -200,9 +200,9 @@ Reasons:
 - Workflow ownership would fragment.
   - product logic would be split between Next.js server actions / API routes and external no-code automation state
 - Safety and auditability are stronger when native.
-  - approval, transcript, and billing workflows should be tied directly to FaithFlow entities and audit logs
+  - approval, transcript, and billing workflows should be tied directly to PresentFlow entities and audit logs
 - Current needs are bounded.
-  - FaithFlow does not yet need a general-purpose customer automation platform
+  - PresentFlow does not yet need a general-purpose customer automation platform
   - it needs a small number of deterministic product workflows
 
 ## Recommendation
@@ -216,7 +216,7 @@ Use `Zie619/n8n-workflows` as a reference library for workflow anatomy, especial
 - approval checkpoints
 - AI-to-human handoff
 
-Do not make `n8n` a required runtime for FaithFlow’s product or Sunday operations in the near term.
+Do not make `n8n` a required runtime for PresentFlow’s product or Sunday operations in the near term.
 
 Instead:
 

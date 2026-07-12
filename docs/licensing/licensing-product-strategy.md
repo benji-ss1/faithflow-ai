@@ -2,16 +2,16 @@
 
 ## Strategy Summary
 
-FaithFlow should treat licensed Bible text and copyrighted worship lyrics as modular, rights-sensitive content layers rather than bundled MVP content.
+PresentFlow should treat licensed Bible text and copyrighted worship lyrics as modular, rights-sensitive content layers rather than bundled MVP content.
 
 Recommended model:
 
-- FaithFlow ships with public-domain Bible translations only
+- PresentFlow ships with public-domain Bible translations only
 - licensed translations appear as locked or license-required resources
 - churches can connect licensed providers later
 - Bible translation architecture stays modular
-- song lyrics are church-owned or church-imported, not globally distributed by FaithFlow
-- FaithFlow stores usage metadata and copyright fields
+- song lyrics are church-owned or church-imported, not globally distributed by PresentFlow
+- PresentFlow stores usage metadata and copyright fields
 - future marketplace or licensing partnerships can be added later
 
 ## MVP Policy
@@ -71,14 +71,14 @@ Enterprise customers may justify:
 - campus-scoped Bible access rules
 - centralized usage reporting
 
-## Why FaithFlow Should Stay Conservative
+## Why PresentFlow Should Stay Conservative
 
 The legal and operational risks are asymmetric:
 
 - shipping public-domain text is straightforward
 - shipping copyrighted text without full rights is high-risk
 - church-facing scripture features are valuable even with public-domain defaults
-- lyric workflow value exists even if FaithFlow never becomes the rights distributor
+- lyric workflow value exists even if PresentFlow never becomes the rights distributor
 
 ## UI Implications
 
@@ -156,6 +156,6 @@ High-risk product moves:
 
 ## Bottom Line
 
-FaithFlow should win first on workflow, presentation, archive, and church operations.
+PresentFlow should win first on workflow, presentation, archive, and church operations.
 
 It should not make licensed Bible text or copyrighted worship lyrics the core bundled value proposition until rights are explicitly solved.

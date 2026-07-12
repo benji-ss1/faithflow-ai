@@ -15,7 +15,7 @@ import { getDb } from "../../src/lib/db/client";
 import { users, churches, churchPreferences, subscriptions } from "../../src/lib/db/schema";
 
 const BASE = process.env.E2E_BASE_URL || "http://localhost:3000";
-const EMAIL = `e2e-onboarding-${Date.now()}@test.faithflow.ai`;
+const EMAIL = `e2e-onboarding-${Date.now()}@test.presentflow.ai`;
 const PASSWORD = "test-password-1234";
 
 let passes = 0;

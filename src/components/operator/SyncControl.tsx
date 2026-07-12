@@ -18,8 +18,8 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { mintPairCode, revokePairCode } from "@/lib/device-pair-actions";
 
-const STORAGE_KEY = "faithflow.sync.pairCode";
-const STORAGE_EXP_KEY = "faithflow.sync.pairExpiresAt";
+const STORAGE_KEY = "presentflow.sync.pairCode";
+const STORAGE_EXP_KEY = "presentflow.sync.pairExpiresAt";
 
 export function SyncControl({ planId, onCodeChange }: {
   planId?: string;

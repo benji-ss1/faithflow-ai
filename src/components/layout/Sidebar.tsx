@@ -245,12 +245,12 @@ export function Sidebar({ mobileOpen, onMobileOpenChange }: SidebarProps) {
   }, []);
 
   useEffect(() => {
-    const stored = localStorage.getItem("faithflow.sidebar.collapsed");
+    const stored = localStorage.getItem("presentflow.sidebar.collapsed");
     if (stored === "1") setCollapsed(true);
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("faithflow.sidebar.collapsed", collapsed ? "1" : "0");
+    localStorage.setItem("presentflow.sidebar.collapsed", collapsed ? "1" : "0");
   }, [collapsed]);
 
   useEffect(() => {

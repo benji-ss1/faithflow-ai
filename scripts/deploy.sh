@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# FaithFlow deploy driver — walks you through the interactive login/auth
+# PresentFlow deploy driver — walks you through the interactive login/auth
 # steps you have to do yourself (browser OAuth), then runs the automatable
 # pieces once you're logged in.
 #
@@ -33,10 +33,10 @@ case "${1:-help}" in
     fi
 
     step "2/4 — Ensure app exists"
-    if ! flyctl apps list 2>/dev/null | grep -q faithflow-audio; then
-      flyctl apps create faithflow-audio --org personal
+    if ! flyctl apps list 2>/dev/null | grep -q presentflow-audio; then
+      flyctl apps create presentflow-audio --org personal
     else
-      ok "app faithflow-audio exists"
+      ok "app presentflow-audio exists"
     fi
 
     step "3/4 — Set secrets (DEEPGRAM_API_KEY + AUTH_SECRET from .env.local, DATABASE_URL = Supabase pooler)"
@@ -54,14 +54,14 @@ case "${1:-help}" in
       DEEPGRAM_API_KEY="$DG" \
       AUTH_SECRET="$AS" \
       DATABASE_URL="$DB" \
-      --stage --app faithflow-audio
+      --stage --app presentflow-audio
 
     step "4/4 — Deploy"
-    flyctl deploy --app faithflow-audio --now
+    flyctl deploy --app presentflow-audio --now
 
     echo
     ok "Audio bridge deployed"
-    URL="wss://faithflow-audio.fly.dev"
+    URL="wss://presentflow-audio.fly.dev"
     echo "   URL to set in Vercel:  NEXT_PUBLIC_AUDIO_WS_URL=$URL"
     ;;
 

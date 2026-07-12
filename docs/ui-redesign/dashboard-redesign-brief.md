@@ -2,7 +2,7 @@
 
 ## Current Problem
 
-FaithFlow’s general web app shell is not yet at the level the product needs for a premium church-tech SaaS.
+PresentFlow’s general web app shell is not yet at the level the product needs for a premium church-tech SaaS.
 
 Current issues:
 
@@ -15,7 +15,7 @@ The operator/live area should remain darker and more mission-critical. The broad
 
 ## Design Goals
 
-- create a dark-first premium SaaS dashboard identity for FaithFlow
+- create a dark-first premium SaaS dashboard identity for PresentFlow
 - make the app feel more polished than RenewedVision’s account area without copying it
 - separate account/admin/product-management surfaces from the live operator experience
 - support church admins, operators, pastors, and billing owners with clearer information architecture

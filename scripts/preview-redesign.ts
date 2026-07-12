@@ -16,7 +16,7 @@ const BASE = process.env.BASE_URL || "http://localhost:3000";
 const OUT_DIR = path.join(process.cwd(), "test/screenshots/redesign-" + Date.now());
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
-const EMAIL = `redesign-${Date.now()}@e2e.faithflow.ai`;
+const EMAIL = `redesign-${Date.now()}@e2e.presentflow.ai`;
 const PW = "redesign-pw-1234!";
 
 async function main() {

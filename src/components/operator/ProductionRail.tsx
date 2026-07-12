@@ -13,7 +13,7 @@ import type { ExpandedItem } from "@/lib/server/services";
  *
  * Every button switches the active workspace/panel; no button is a no-op.
  * The rail can be collapsed to icons-only (state persists in localStorage
- * under `faithflow.rail.collapsed`).
+ * under `presentflow.rail.collapsed`).
  */
 
 export type RailSection =
@@ -37,7 +37,7 @@ export const SERVICE_SECTIONS = [
   "Ministry Time", "Announcements", "Post-Service",
 ] as const;
 
-const COLLAPSE_KEY = "faithflow.rail.collapsed";
+const COLLAPSE_KEY = "presentflow.rail.collapsed";
 
 const SECTIONS: { key: RailSection; label: string; icon: typeof ListMusic; group?: string }[] = [
   { key: "service", label: "Service Order", icon: ListOrdered },

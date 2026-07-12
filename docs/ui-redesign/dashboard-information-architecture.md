@@ -284,7 +284,7 @@
 ### Applications
 
 - purpose:
-  - show FaithFlow product modules and status
+  - show PresentFlow product modules and status
 - user role:
   - admin
 - main actions:

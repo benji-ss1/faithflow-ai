@@ -7,7 +7,7 @@
  * expands the range by +1 verse.
  *
  * Unlike the wake-prefixed command parser, these do NOT require the
- * "faithflow" prefix — they're semantically bound to the current live
+ * "presentflow" prefix — they're semantically bound to the current live
  * reference, so a pastor's natural speech pattern is enough. But that
  * makes false positives possible, so:
  *

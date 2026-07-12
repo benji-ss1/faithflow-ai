@@ -1,8 +1,8 @@
-# FaithFlow AI — Deployment Runbook (JPD external review)
+# Present Flow — Deployment Runbook (JPD external review)
 
 ## Architecture reality check
 
-FaithFlow has **two runtime components**:
+PresentFlow has **two runtime components**:
 
 1. **Next.js app** (all UI, API routes, projector surfaces, editor, analytics) — deploys to Vercel cleanly.
 2. **Audio WebSocket bridge** (`scripts/audio-server.ts`) — a persistent Node WebSocket server on port 3001 that terminates browser mic streams and proxies to Deepgram. **Cannot run on Vercel** — Vercel Functions do not support long-lived WebSocket servers.
@@ -35,7 +35,7 @@ You'll need account access to:
 ## 2. Deploy the Next.js app to Vercel
 
 ```bash
-cd /Users/benjisanusi/faithflow-ai
+cd /Users/benjisanusi/presentflow
 vercel link     # attach this repo to a Vercel project
 vercel --prod   # first deploy
 ```
@@ -48,20 +48,20 @@ Set every one of these in Vercel Dashboard → Project → Settings → Environm
 
 | Variable | Purpose | Example |
 |---|---|---|
-| `DATABASE_URL` | Postgres w/ pgvector | `postgres://...neon.tech/faithflow?sslmode=require` |
+| `DATABASE_URL` | Postgres w/ pgvector | `postgres://...neon.tech/presentflow?sslmode=require` |
 | `AUTH_SECRET` | NextAuth JWT signing | `openssl rand -base64 32` |
-| `AUTH_URL` | Production URL | `https://faithflow-ai.vercel.app` |
-| `NEXT_PUBLIC_APP_URL` | Same as AUTH_URL, client-visible | `https://faithflow-ai.vercel.app` |
+| `AUTH_URL` | Production URL | `https://presentflow.app` |
+| `NEXT_PUBLIC_APP_URL` | Same as AUTH_URL, client-visible | `https://presentflow.app` |
 | `AWS_REGION` | S3 region | `eu-west-2` |
 | `AWS_ACCESS_KEY_ID` | S3 IAM user | — |
 | `AWS_SECRET_ACCESS_KEY` | S3 IAM user | — |
-| `S3_BUCKET` | Media + PPTX artefacts | `faithflow-media-prod` |
+| `S3_BUCKET` | Media + PPTX artefacts | `presentflow-media-prod` |
 | `S3_ENDPOINT` | Only if using MinIO / R2 / non-AWS | leave blank for AWS S3 |
 | `DEEPGRAM_API_KEY` | STT provider | `...` |
 | `GROQ_API_KEY` | AI helpers (llama-3.3-70b-versatile) | `gsk_...` |
 | `RESEND_API_KEY` | Email verification | `re_...` |
 | `EMAIL_FROM` | Verified sender | `noreply@yourdomain.com` |
-| `NEXT_PUBLIC_AUDIO_WS_URL` | wss URL of the audio bridge | `wss://audio.faithflow.ai:3001` |
+| `NEXT_PUBLIC_AUDIO_WS_URL` | wss URL of the audio bridge | `wss://audio.presentflow.ai:3001` |
 
 **Do NOT set the audio bridge on Vercel — it won't work.** Set the URL to whatever host you use in step 4.
 
@@ -89,7 +89,7 @@ DATABASE_URL="postgres://...prod" npx tsx --env-file=.env.production.local scrip
 ```
 
 You get:
-- **Email:** `demo@jpd.faithflow.ai`
+- **Email:** `demo@jpd.presentflow.ai`
 - **Password:** `JpdReview2026!`
 - **Church:** JPD Demo Church (London, non-denominational, 220 seats)
 - **Service plan:** "Sunday Morning · March 15 2026" — 6 items covering logo/song/scripture/prayer
@@ -120,7 +120,7 @@ The audio bridge is `scripts/audio-server.ts`. It needs:
 brew install flyctl
 
 # From the repo root
-fly launch --no-deploy --name faithflow-audio
+fly launch --no-deploy --name presentflow-audio
 # ↑ generates fly.toml — edit to expose 3001 and set the start command
 ```
 
@@ -143,9 +143,9 @@ fly secrets set DEEPGRAM_API_KEY=... AUTH_SECRET=SAME_AS_VERCEL DATABASE_URL=pos
 fly deploy
 ```
 
-Fly gives you a URL like `https://faithflow-audio.fly.dev`. The wss URL becomes `wss://faithflow-audio.fly.dev` (Fly does TLS termination automatically on 443).
+Fly gives you a URL like `https://presentflow-audio.fly.dev`. The wss URL becomes `wss://presentflow-audio.fly.dev` (Fly does TLS termination automatically on 443).
 
-Now go back to Vercel → set `NEXT_PUBLIC_AUDIO_WS_URL=wss://faithflow-audio.fly.dev` and redeploy Vercel so the client bundle picks up the new URL.
+Now go back to Vercel → set `NEXT_PUBLIC_AUDIO_WS_URL=wss://presentflow-audio.fly.dev` and redeploy Vercel so the client bundle picks up the new URL.
 
 ### Alternative: Railway / Render / VPS
 Any host that supports a persistent Node process with TLS in front (Cloudflare / Caddy / nginx). Same env vars, same `npm run ws` command.
@@ -167,7 +167,7 @@ After steps 1–3 (Next.js only — AI Listening will be disabled), you can shar
 
 ```
 URL:      https://YOUR-VERCEL-DEPLOYMENT.vercel.app
-Email:    demo@jpd.faithflow.ai
+Email:    demo@jpd.presentflow.ai
 Password: JpdReview2026!
 ```
 

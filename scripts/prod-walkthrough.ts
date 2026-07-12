@@ -5,7 +5,7 @@
  * (no seed dependency). The signup gets rate-limited (5/hr per IP) — don't spam.
  *
  * Usage:
- *   BASE_URL=https://faithflow-ai.vercel.app npx tsx scripts/prod-walkthrough.ts
+ *   BASE_URL=https://presentflow.app npx tsx scripts/prod-walkthrough.ts
  *   (default BASE_URL is the prod alias)
  *
  * Optional: SEED_LOGIN=email:password to skip signup and use an existing acct.
@@ -15,7 +15,7 @@ import { chromium, type Page } from "playwright";
 import fs from "node:fs";
 import path from "node:path";
 
-const BASE = process.env.BASE_URL || "https://faithflow-ai.vercel.app";
+const BASE = process.env.BASE_URL || "https://presentflow.app";
 const OUT_DIR = path.join(process.cwd(), "test/screenshots", new Date().toISOString().replace(/[:.]/g, "-"));
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
@@ -28,7 +28,7 @@ async function shot(page: Page, label: string) {
 }
 
 async function main() {
-  const email = `walkthrough-${Date.now()}@e2e.faithflow.ai`;
+  const email = `walkthrough-${Date.now()}@e2e.presentflow.ai`;
   const password = "walkthrough-pw-1234!";
   const name = "E2E Walkthrough";
   console.log(`base URL: ${BASE}`);

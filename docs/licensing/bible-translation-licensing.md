@@ -1,6 +1,6 @@
 # Bible Translation Licensing
 
-As of July 9, 2026, FaithFlow should take a conservative product position: only ship Bible text that is clearly public domain or openly licensed for redistribution, and treat most modern translations as licensed content that requires permission, a provider integration, or church-supplied rights.
+As of July 9, 2026, PresentFlow should take a conservative product position: only ship Bible text that is clearly public domain or openly licensed for redistribution, and treat most modern translations as licensed content that requires permission, a provider integration, or church-supplied rights.
 
 This is a product/implementation brief, not legal advice. Final launch decisions should be checked with counsel and, where relevant, the translation owner.
 
@@ -16,7 +16,7 @@ This is a product/implementation brief, not legal advice. Final launch decisions
 
 ## Translation Matrix
 
-| Abbr. | Translation | Holder / Publisher | Status | Can FaithFlow embed full text directly? | API / license needed? | BYO church license? | Recommended MVP handling |
+| Abbr. | Translation | Holder / Publisher | Status | Can PresentFlow embed full text directly? | API / license needed? | BYO church license? | Recommended MVP handling |
 |---|---|---|---|---|---|---|---|
 | KJV | King James Version / Authorized Version | Public domain in most jurisdictions; special Crown/royal rights in the UK | Public domain in most markets, special UK caveat | Yes for most markets; use caution for UK-specific distribution questions | No for most markets | No | Ship for MVP, with note about UK-specific publishing caveat |
 | WEB | World English Bible | eBible.org / Michael Paul Johnson; trademark on the name, text public domain | Public domain | Yes | No | No | Ship for MVP |
@@ -44,7 +44,7 @@ This is a product/implementation brief, not legal advice. Final launch decisions
 - Rights position:
   - public domain in most of the world
   - special Crown / royal-prerogative printing rights still exist in the UK
-- FaithFlow direct embedding:
+- PresentFlow direct embedding:
   - generally yes for MVP, especially outside the UK
 - API / license:
   - not generally required
@@ -61,7 +61,7 @@ This is a product/implementation brief, not legal advice. Final launch decisions
 - Holder / publisher:
   - text distributed via eBible.org / WorldEnglish.Bible
   - the name is trademarked, but the text is explicitly public domain
-- FaithFlow direct embedding:
+- PresentFlow direct embedding:
   - yes
 - API / license:
   - no
@@ -76,7 +76,7 @@ This is a product/implementation brief, not legal advice. Final launch decisions
 - Full name: American Standard Version
 - Holder / publisher:
   - historic 1901 edition; public domain
-- FaithFlow direct embedding:
+- PresentFlow direct embedding:
   - yes
 - API / license:
   - no
@@ -91,7 +91,7 @@ This is a product/implementation brief, not legal advice. Final launch decisions
 - Full name: Douay-Rheims Bible
 - Holder / publisher:
   - historical translation, commonly treated as public domain
-- FaithFlow direct embedding:
+- PresentFlow direct embedding:
   - yes
 - API / license:
   - no
@@ -106,7 +106,7 @@ This is a product/implementation brief, not legal advice. Final launch decisions
 - Full name: Young’s Literal Translation
 - Holder / publisher:
   - historical translation, public domain
-- FaithFlow direct embedding:
+- PresentFlow direct embedding:
   - yes
 - API / license:
   - no
@@ -125,7 +125,7 @@ This is a product/implementation brief, not legal advice. Final launch decisions
   - Russell Allen / OEB team
 - Rights position:
   - CC0 / public domain equivalent
-- FaithFlow direct embedding:
+- PresentFlow direct embedding:
   - yes
 - API / license:
   - no
@@ -139,7 +139,7 @@ This is a product/implementation brief, not legal advice. Final launch decisions
 
 For all of the translations below, the safe default is:
 
-- do not bundle full text in FaithFlow MVP
+- do not bundle full text in PresentFlow MVP
 - do not store redistributable full-text copies without permission
 - do not assume a church’s possession of printed Bibles equals SaaS redistribution rights
 
@@ -152,12 +152,12 @@ For all of the translations below, the safe default is:
   - commonly published in the US by Zondervan
 - Status:
   - licensed
-- Can FaithFlow embed text directly?
+- Can PresentFlow embed text directly?
   - no, not by default
 - API / license needed?
   - yes
 - BYO church license?
-  - likely, unless FaithFlow secures platform rights
+  - likely, unless PresentFlow secures platform rights
 - Recommended MVP handling:
   - locked translation card
   - future provider/license integration
@@ -170,7 +170,7 @@ For all of the translations below, the safe default is:
   - Crossway / Good News Publishers
 - Status:
   - licensed
-- Can FaithFlow embed text directly?
+- Can PresentFlow embed text directly?
   - no
 - API / license needed?
   - yes
@@ -187,7 +187,7 @@ For all of the translations below, the safe default is:
   - Thomas Nelson
 - Status:
   - licensed
-- Can FaithFlow embed text directly?
+- Can PresentFlow embed text directly?
   - no
 - API / license needed?
   - yes
@@ -204,7 +204,7 @@ For all of the translations below, the safe default is:
   - Tyndale House Foundation
 - Status:
   - licensed
-- Can FaithFlow embed text directly?
+- Can PresentFlow embed text directly?
   - no
 - API / license needed?
   - yes
@@ -221,7 +221,7 @@ For all of the translations below, the safe default is:
   - typically associated with NavPress and related rights holders for editions/distribution
 - Status:
   - licensed
-- Can FaithFlow embed text directly?
+- Can PresentFlow embed text directly?
   - no
 - API / license needed?
   - yes
@@ -238,7 +238,7 @@ For all of the translations below, the safe default is:
   - The Lockman Foundation
 - Status:
   - licensed
-- Can FaithFlow embed text directly?
+- Can PresentFlow embed text directly?
   - no
 - API / license needed?
   - yes
@@ -255,7 +255,7 @@ For all of the translations below, the safe default is:
   - The Lockman Foundation
 - Status:
   - licensed
-- Can FaithFlow embed text directly?
+- Can PresentFlow embed text directly?
   - no
 - API / license needed?
   - yes
@@ -272,7 +272,7 @@ For all of the translations below, the safe default is:
   - Holman Bible Publishers / B&H / Lifeway
 - Status:
   - licensed
-- Can FaithFlow embed text directly?
+- Can PresentFlow embed text directly?
   - no
 - API / license needed?
   - yes
@@ -289,7 +289,7 @@ For all of the translations below, the safe default is:
   - National Council of Churches
 - Status:
   - licensed
-- Can FaithFlow embed text directly?
+- Can PresentFlow embed text directly?
   - no
 - API / license needed?
   - yes
@@ -306,7 +306,7 @@ For all of the translations below, the safe default is:
   - National Council of Churches
 - Status:
   - licensed
-- Can FaithFlow embed text directly?
+- Can PresentFlow embed text directly?
   - no
 - API / license needed?
   - yes
@@ -317,7 +317,7 @@ For all of the translations below, the safe default is:
 
 ## Practical Product Rules
 
-### What FaithFlow can safely do in MVP
+### What PresentFlow can safely do in MVP
 
 - bundle KJV
 - bundle WEB
@@ -325,7 +325,7 @@ For all of the translations below, the safe default is:
 - store verse references and church-selected translation metadata
 - allow future modular connectors for licensed translations
 
-### What FaithFlow should avoid in MVP
+### What PresentFlow should avoid in MVP
 
 - bundling NIV, ESV, NKJV, NLT, MSG, NASB, AMP, CSB, NRSV, or RSV text
 - exporting licensed translation text in PDFs, slide packs, archives, or APIs without a rights model
@@ -391,4 +391,4 @@ Secondary references used to verify holder/history/status where official pages w
 - ASV / YLT / public-domain list context:
   - <https://en.wikipedia.org/wiki/List_of_English_Bible_translations>
 
-Where rights language is not directly quoted from an official permissions page, FaithFlow should treat the recommendation as conservative product guidance and verify with the owner before launch.
+Where rights language is not directly quoted from an official permissions page, PresentFlow should treat the recommendation as conservative product guidance and verify with the owner before launch.

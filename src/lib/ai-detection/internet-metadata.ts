@@ -75,7 +75,7 @@ export async function lookupSongMetadata(
     const res = await fetch(url, {
       method: "GET",
       headers: {
-        "User-Agent": "PresentFlow/1.0 (contact@faithflow.ai)",
+        "User-Agent": "PresentFlow/1.0 (contact@presentflow.ai)",
         Accept: "application/json",
       },
       signal: ac.signal,

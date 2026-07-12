@@ -50,6 +50,16 @@ export function ProjectorSetupWizard() {
 
   return (
     <div className="max-w-3xl space-y-4">
+      {typeof window !== "undefined" && window.electronAPI && (
+        <div className="rounded-md border border-blue-300 bg-blue-50 text-blue-900 dark:bg-blue-950 dark:text-blue-100 px-3 py-2 text-xs">
+          Desktop app detected. For per-display Projector / Stage / Livestream
+          assignments, use the{" "}
+          <a href="/settings/screens" className="underline font-semibold">
+            Screen Configuration
+          </a>{" "}
+          page.
+        </div>
+      )}
       <Progress step={step} />
 
       {/* Step 1 — Detect displays */}
@@ -119,7 +129,12 @@ export function ProjectorSetupWizard() {
           <>
             <button
               onClick={() => {
-                window.open("/live", "faithflow-projector", "noopener");
+                // Prefer Electron IPC when running inside the desktop app.
+                if (typeof window !== "undefined" && window.electronAPI) {
+                  void window.electronAPI.screens.spawn("Projector");
+                } else {
+                  window.open("/live", "presentflow-projector", "noopener");
+                }
                 setStep("drag");
               }}
               className="h-9 px-3 text-xs bg-foreground text-background rounded-md font-semibold inline-flex items-center gap-1"
@@ -171,7 +186,7 @@ export function ProjectorSetupWizard() {
             <button
               onClick={() => {
                 // Post a test-pattern instruction over BroadcastChannel — /live listens
-                const ch = new BroadcastChannel("faithflow-live");
+                const ch = new BroadcastChannel("presentflow-live");
                 ch.postMessage({
                   type: "set",
                   slide: { kind: "text", text: "TEST PATTERN\n\n✓ If you can read this on the projector,\nthe operator → projector path works.\n\nPress SPACE to advance." },

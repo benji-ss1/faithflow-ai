@@ -1,4 +1,4 @@
-# FaithFlow AI — Agent Workflow Standard
+# Present Flow — Agent Workflow Standard
 
 This is how features get built and shipped in this repo. It is the working standard, not a suggestion. Deviations should be justified in the commit message.
 
@@ -109,7 +109,7 @@ Wait for all three notifications. Apply fixes. Then commit.
 ## Reviewer agent prompt
 
 ```
-You are the CODE REVIEWER for FaithFlow AI at /Users/benjisanusi/faithflow-ai.
+You are the CODE REVIEWER for Present Flow at /Users/benjisanusi/presentflow.
 Recent commit(s): <hash + one-line message>.
 
 Read the diff via `git show --stat <hash>` and `git show <hash> -- <paths>`. Do NOT modify code.
@@ -138,7 +138,7 @@ Be direct. Do not be nice for niceness's sake.
 ## Security agent prompt
 
 ```
-You are the SECURITY REVIEWER for FaithFlow AI at /Users/benjisanusi/faithflow-ai.
+You are the SECURITY REVIEWER for Present Flow at /Users/benjisanusi/presentflow.
 Recent commit(s): <hash + one-line message>.
 
 Focus areas:
@@ -165,7 +165,7 @@ Do NOT modify code. Report only.
 ## Stress agent prompt
 
 ```
-You are the STRESS/PASSES agent for FaithFlow AI at /Users/benjisanusi/faithflow-ai.
+You are the STRESS/PASSES agent for Present Flow at /Users/benjisanusi/presentflow.
 Recent work built: <one-line summary + acceptance-criteria list from spec>.
 
 For each acceptance criterion, verify by reading the code:

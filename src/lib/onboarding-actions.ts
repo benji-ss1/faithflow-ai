@@ -40,7 +40,7 @@ export async function createChurchAndAttachUser(input: {
     jobTitle: input.jobTitle?.trim() || null,
   }).where(eq(users.id, partial.id));
 
-  // Default prefs: KJV, 90-day retention, faithflow prefix. Same as seed.
+  // Default prefs: KJV, 90-day retention, presentflow prefix. Same as seed.
   const [kjv] = await db.select().from(bibleTranslations).where(eq(bibleTranslations.code, "KJV")).limit(1);
   await db.insert(churchPreferences).values({
     churchId: church.id,

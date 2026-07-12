@@ -3,7 +3,7 @@
 // Practice Mode operator sandbox.
 //
 // Sandbox invariants (enforced by grep in CP7 verification):
-//   - No BroadcastChannel to "faithflow-live" (see safePost / broadcast.ts).
+//   - No BroadcastChannel to "presentflow-live" (see safePost / broadcast.ts).
 //   - No server actions that write (updateAiSuggestionStatus, updateDetectionStatus,
 //     createServicePlan, saveSlideObjects, etc.).
 //   - No inserts/updates to service_plans / ai_suggestions / detected_references

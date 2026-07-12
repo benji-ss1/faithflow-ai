@@ -2,15 +2,15 @@
 
 ## Position
 
-FaithFlow should not require `n8n` for core product operation. The platform should keep its essential workflows native and deterministic, especially anything related to live services, archive generation, invites, billing state, and AI approval.
+PresentFlow should not require `n8n` for core product operation. The platform should keep its essential workflows native and deterministic, especially anything related to live services, archive generation, invites, billing state, and AI approval.
 
 That said, `n8n` can become useful later as an optional automation layer for customers with broader operational needs.
 
-## When FaithFlow Might Eventually Use n8n
+## When PresentFlow Might Eventually Use n8n
 
 ### 1. Large church custom automations
 
-Some churches will eventually want custom routing that goes beyond FaithFlow’s product defaults:
+Some churches will eventually want custom routing that goes beyond PresentFlow’s product defaults:
 
 - create a sermon archive then email the communications team
 - push approved sermon notes into a shared drive
@@ -59,9 +59,9 @@ Some advanced customers will prefer self-hosting their automations for governanc
 
 - a customer-managed sidecar
 - an enterprise-only connector target
-- an automation endpoint FaithFlow can publish events to
+- an automation endpoint PresentFlow can publish events to
 
-This keeps FaithFlow focused on product workflows while allowing power users to extend the platform.
+This keeps PresentFlow focused on product workflows while allowing power users to extend the platform.
 
 ## Why n8n Should Not Be Required For Sunday Live Operation
 
@@ -72,10 +72,10 @@ Reasons `n8n` should stay out of the critical live path:
 - live operation must not depend on a separate workflow runtime
 - external connector failures must not affect operator or live output behavior
 - no-code workflow edits are harder to lock down than product code paths
-- secrets, credentials, and retries add another operational surface right where FaithFlow needs simplicity
+- secrets, credentials, and retries add another operational surface right where PresentFlow needs simplicity
 - support becomes much harder if a church’s live reliability depends on custom workflow state outside the app
 
-FaithFlow’s Sunday path should remain:
+PresentFlow’s Sunday path should remain:
 
 - app-native
 - minimal-dependency
@@ -84,7 +84,7 @@ FaithFlow’s Sunday path should remain:
 
 ## Recommended Boundary
 
-### Keep native inside FaithFlow
+### Keep native inside PresentFlow
 
 - service completion processing
 - sermon archive generation
@@ -104,14 +104,14 @@ FaithFlow’s Sunday path should remain:
 
 ## Suggested Integration Model If Added Later
 
-If FaithFlow supports `n8n` later, it should be event-outbound first.
+If PresentFlow supports `n8n` later, it should be event-outbound first.
 
 Preferred model:
 
-1. FaithFlow emits signed webhook events for approved domains.
+1. PresentFlow emits signed webhook events for approved domains.
 2. `n8n` consumes those webhooks and runs optional customer logic.
-3. FaithFlow only accepts narrow, authenticated callback actions back in.
-4. Core state transitions remain validated by FaithFlow, not by `n8n`.
+3. PresentFlow only accepts narrow, authenticated callback actions back in.
+4. Core state transitions remain validated by PresentFlow, not by `n8n`.
 
 That keeps the source of truth inside the product while still enabling powerful extension.
 

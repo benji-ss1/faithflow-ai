@@ -1,6 +1,6 @@
 # First Native Workflow Set
 
-This document defines the first workflow set that should be implemented natively inside FaithFlow AI using SimplifyOSV2 patterns:
+This document defines the first workflow set that should be implemented natively inside Present Flow using SimplifyOSV2 patterns:
 
 - server-first
 - RSC for reads, Server Actions / route handlers for mutations
@@ -8,13 +8,13 @@ This document defines the first workflow set that should be implemented natively
 - explicit audit logging
 - security by default
 
-The goal here is not to copy `n8n` JSON. The goal is to rebuild the useful workflow shapes inside FaithFlow’s own domain model.
+The goal here is not to copy `n8n` JSON. The goal is to rebuild the useful workflow shapes inside PresentFlow’s own domain model.
 
 ## Shared Implementation Standard
 
 ### Phase 0 prerequisite
 
-Before the first native workflow set is turned on, FaithFlow needs a minimal workflow substrate:
+Before the first native workflow set is turned on, PresentFlow needs a minimal workflow substrate:
 
 - persisted service lifecycle state
 - append-only domain events
@@ -77,7 +77,7 @@ These controls are required for the first native workflow set to be production-s
 
 ### Current schema gaps to account for
 
-The current FaithFlow schema is a good domain base, but it is not yet sufficient to run these workflows safely:
+The current PresentFlow schema is a good domain base, but it is not yet sufficient to run these workflows safely:
 
 - there is no durable workflow run or audit table yet
 - there is no persisted service lifecycle model for `service.completed`
