@@ -10,6 +10,8 @@ import { parseContextCommand, type ContextCommand } from "@/lib/context-parser";
 import { detectSongCues, type SongCue } from "./song-cue";
 import { detectSectionCommand, type SectionCommand } from "./section-command";
 import { matchSongCue, type SongMatchResult, type MatchContext } from "./song-match";
+import { detectSongInTranscript, resetSongDedupe } from "./song-detection";
+export { resetSongDedupe };
 import type { IndexedSong } from "./lyric-fragment";
 
 export type DetectAllContext = {
@@ -55,6 +57,39 @@ export async function detectAll(chunk: string, ctx: DetectAllContext): Promise<D
   // fall back to the whole chunk (lyric-fragment matching).
   const songResults: SongMatchResult[] = [];
   const lyricResults: SongMatchResult[] = [];
+
+  // Priority-6 R1: run the trigger-phrase song-detection first. When it
+  // returns an exact or substring match, prefer it over the more permissive
+  // title-similarity path. Dedupe is handled by the caller's
+  // SuggestionDedupe, so we opt-out of song-detection's own map with
+  // useDedupe:false to avoid double-suppression.
+  let triggerHit: SongMatchResult | null = null;
+  if (ctx.library && ctx.library.length > 0) {
+    const hit = detectSongInTranscript(chunk, ctx.library, { useDedupe: false });
+    if (hit && (hit.matchType === "exact" || hit.matchType === "substring")) {
+      const song = ctx.library.find((s) => s.songId === hit.songId);
+      if (song) {
+        const planIdSet = new Set(ctx.planSongIds || []);
+        const source: SongMatchResult["source"] = planIdSet.has(song.songId)
+          ? "playlist"
+          : (song.source === "public_domain" ? "public_domain" : "local_library");
+        const slides = song.slides.slice().sort((a, b) => a.order - b.order);
+        const first = slides[0];
+        triggerHit = {
+          songId: song.songId,
+          title: song.title,
+          artist: song.artist ?? null,
+          source,
+          confidence: hit.confidence,
+          matchedSection: null,
+          matchedLine: first?.lyrics ?? "",
+          matchedSlideOrder: first?.order ?? 0,
+          previewPayload: first ? { kind: "text", text: first.lyrics } : { kind: "empty" },
+        };
+        songResults.push(triggerHit);
+      }
+    }
+  }
 
   if (cue.length > 0) {
     for (const c of cue) {
