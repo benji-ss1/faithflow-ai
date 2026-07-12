@@ -153,6 +153,16 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
   // still consumes the legacy `set` messages elsewhere.
   // Y2: skip emission when the packed OutputState hasn't actually changed
   // (previously fired on every parent re-render).
+  // R1: compute nextItem for Stage NEXT header (playlist item name + type).
+  const nextItemForStage = (() => {
+    const curItem = plan.items[preview.itemIdx];
+    if (!curItem) return null;
+    if (preview.slideIdx + 1 < curItem.slides.length) {
+      return { title: curItem.title, type: (curItem as unknown as { type?: string }).type ?? "item" };
+    }
+    const ni = plan.items[preview.itemIdx + 1];
+    return ni ? { title: ni.title, type: (ni as unknown as { type?: string }).type ?? "item" } : null;
+  })();
   const lastEmittedKeyRef = useRef<string>("");
   useEffect(() => {
     const state: OutputState = {
@@ -168,6 +178,7 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
       countdownEndsAt,
       announcement,
       transition: transitionSpec,
+      nextItem: nextItemForStage,
     };
     // Shallow signature — good enough for the fields we actually emit.
     let key: string;
@@ -877,19 +888,26 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
 
   // Phase 5C: build ctx bag for the new operator shell
   const sendLowerThird = useCallback((line1: string, line2: string) => {
-    const state: OutputState = {
+    // R2: merge with the last cached OutputState so we don't clobber
+    // announcement / transition / nextItem when sending a lower-third.
+    const base: OutputState = lastOutputStateRef.current ?? {
       live, next: nextSlideForStage,
       itemTitle: plan.items[preview.itemIdx]?.title || "",
       slideNumber: `${preview.slideIdx + 1} / ${plan.items[preview.itemIdx]?.slides.length || 0}`,
       aspectRatio, fitMode, safeArea,
       operatorMessage: null,
-      lowerThird: (line1 || line2) ? { line1, line2 } : null,
+      lowerThird: null,
       countdownEndsAt,
+      announcement,
+      transition: transitionSpec,
+      nextItem: nextItemForStage,
     };
+    const state: OutputState = { ...base, lowerThird: (line1 || line2) ? { line1, line2 } : null };
     safePost(chRef.current, { type: "output", state });
     publishRealtime(state);
+    lastOutputStateRef.current = state;
     toast.success(line1 || line2 ? "Lower third sent" : "Lower third cleared");
-  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt]);
+  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, publishRealtime]);
 
   /**
    * P2 message overlay — a transient lower-third bubble that displays on
