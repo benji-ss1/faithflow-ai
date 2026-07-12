@@ -4,6 +4,7 @@ import * as Popover from "@radix-ui/react-popover";
 import * as Tabs from "@radix-ui/react-tabs";
 import { Settings } from "lucide-react";
 import { useTier } from "@/hooks/useTier";
+import { canAccess } from "@/lib/tier";
 import { MaxUpgradePrompt } from "@/components/tier/MaxUpgradePrompt";
 
 // Y1: unified namespace with the rest of the Pro shell (presentflow.pro.*)
@@ -46,7 +47,9 @@ export function useBibleOptions() {
 
 export function BibleOptionsPopover() {
   const [opts, setOpts] = useBibleOptions();
-  const { isMax } = useTier();
+  const { tier } = useTier();
+  const canPremiumBibles = tier !== null && canAccess(tier, "premium-bibles");
+  const tierLoading = tier === null;
 
   return (
     <Popover.Root>
@@ -113,7 +116,9 @@ export function BibleOptionsPopover() {
                   <Tabs.Trigger value="free" className="flex-1 py-1 eyebrow data-[state=active]:text-[var(--color-foreground)]">Free</Tabs.Trigger>
                 </Tabs.List>
                 <Tabs.Content value="purchased" className="py-2 text-[var(--color-muted-foreground)]">
-                  {isMax ? (
+                  {tierLoading ? (
+                    <div className="h-8" aria-hidden />
+                  ) : canPremiumBibles ? (
                     <div>No purchased Bibles yet. Browse the Max library from Settings.</div>
                   ) : (
                     <MaxUpgradePrompt feature="premium-bibles" variant="card" />

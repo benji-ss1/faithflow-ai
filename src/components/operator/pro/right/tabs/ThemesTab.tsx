@@ -1,5 +1,6 @@
 "use client";
 import { useTier } from "@/hooks/useTier";
+import { canAccess } from "@/lib/tier";
 import { LockedTile } from "@/components/tier/MaxUpgradePrompt";
 
 // Y11: Intentional demo swatches — these represent PREVIEWS of user-defined
@@ -17,7 +18,8 @@ const PREMIUM_THEMES: Array<{ label: string; gradient: string }> = [
 
 export function ThemesTab() {
   const swatches = DEMO_THEME_SWATCHES;
-  const { isMax } = useTier();
+  const { tier } = useTier();
+  const canPremiumThemes = tier !== null && canAccess(tier, "premium-themes");
   return (
     <div className="flex flex-col gap-3">
       <select className="w-full h-8 px-2 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded">
@@ -42,9 +44,12 @@ export function ThemesTab() {
         Premium
         <span className="text-[9px] uppercase tracking-wider bg-[var(--color-brand)]/15 text-[var(--color-brand)] px-1 rounded">Max</span>
       </div>
+      {tier === null ? (
+        <div className="h-8" aria-hidden />
+      ) : (
       <div className="grid grid-cols-2 gap-2">
         {PREMIUM_THEMES.map((t) =>
-          isMax ? (
+          canPremiumThemes ? (
             <button
               key={t.label}
               type="button"
@@ -67,6 +72,7 @@ export function ThemesTab() {
           ),
         )}
       </div>
+      )}
     </div>
   );
 }

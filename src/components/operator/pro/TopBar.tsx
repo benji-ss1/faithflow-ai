@@ -4,6 +4,7 @@ import * as Tooltip from "@radix-ui/react-tooltip";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Popover from "@radix-ui/react-popover";
 import { useTier } from "@/hooks/useTier";
+import { canAccess } from "@/lib/tier";
 import { MaxUpgradePrompt } from "@/components/tier/MaxUpgradePrompt";
 import {
   Search, Type, Palette, LayoutGrid, Play, Pencil, Repeat, BookOpen,
@@ -125,7 +126,8 @@ export function TopBar({
     : "AI idle — click to start";
 
   const [searchOpen, setSearchOpen] = useState(false);
-  const { isMax } = useTier();
+  const { tier } = useTier();
+  const canProContent = tier !== null && canAccess(tier, "pro-content");
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
   const [previewDisplay, setPreviewDisplay] = useState<number | null>(null);
 
@@ -248,7 +250,9 @@ export function TopBar({
               sideOffset={4}
               className="w-[300px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-3 text-[12px] shadow-xl z-50"
             >
-              {isMax ? (
+              {tier === null ? (
+                <div className="h-8" aria-hidden />
+              ) : canProContent ? (
                 <div className="text-[var(--color-muted-foreground)]">
                   Coming soon — Max content marketplace.
                 </div>
