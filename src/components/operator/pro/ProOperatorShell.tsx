@@ -35,6 +35,7 @@ import { MediaStrip } from "./MediaStrip";
 import { useTimerSession, useMessagesSession, useBibleSession } from "./hooks";
 import { useOperatorHotkeys } from "@/hooks/useOperatorHotkeys";
 import { ShortcutsHelpOverlay } from "./ShortcutsHelpOverlay";
+import { OperatorTour, hasSeenTour } from "@/components/tutorial/OperatorTour";
 
 /**
  * centerMode drives what fills the center pane.
@@ -207,6 +208,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const [mediaStripOpen, setMediaStripOpen] = useState(true);
   const [slideSize, setSlideSize] = useState(160);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
   // Y2: debounce Safe Mode "swallowed Enter" toast to once per 3s so a stuck
   // Enter key doesn't spam the operator.
   const lastSafeToastRef = useRef(0);
@@ -311,26 +313,48 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     return () => { try { api.off("shell:open-shortcuts-help", handler); } catch { /* noop */ } };
   }, []);
 
+  // Guided tour: opens via Help > Guided Tutorial (IPC) or auto-opens on the
+  // first desktop launch. LocalStorage flag `presentflow.tour.seen` gates the
+  // auto-open so subsequent launches stay quiet.
+  useEffect(() => {
+    const w = typeof window !== "undefined" ? (window as Window & { electronAPI?: { on: (c: string, h: () => void) => void; off: (c: string, h: () => void) => void } }) : undefined;
+    const api = w?.electronAPI;
+    if (!api) return;
+    const handler = () => setTourOpen(true);
+    api.on("shell:open-tour", handler);
+    // Auto-show on first launch only.
+    if (!hasSeenTour()) {
+      const t = window.setTimeout(() => setTourOpen(true), 800);
+      return () => {
+        window.clearTimeout(t);
+        try { api.off("shell:open-tour", handler); } catch { /* noop */ }
+      };
+    }
+    return () => { try { api.off("shell:open-tour", handler); } catch { /* noop */ } };
+  }, []);
+
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-[var(--color-app-bg)] text-[var(--color-foreground)]">
-      <TopBar
-        centerMode={centerMode}
-        onCenterMode={setCenterMode}
-        onToggleMediaStrip={() => setMediaStripOpen((v) => !v)}
-        mediaStripOpen={mediaStripOpen}
-        ctx={ctx}
-      />
+      <div data-tour="top">
+        <TopBar
+          centerMode={centerMode}
+          onCenterMode={setCenterMode}
+          onToggleMediaStrip={() => setMediaStripOpen((v) => !v)}
+          mediaStripOpen={mediaStripOpen}
+          ctx={ctx}
+        />
+      </div>
 
       <div className="flex-1 min-h-0 flex">
         {/* LEFT */}
-        <aside className="w-40 shrink-0 border-r border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col overflow-y-auto">
+        <aside data-tour="left" className="w-40 shrink-0 border-r border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col overflow-y-auto">
           <LibrarySection onCenterMode={setCenterMode} />
           <PlaylistSection ctx={ctx} onCenterMode={setCenterMode} />
           <MediaSection onCenterMode={setCenterMode} />
         </aside>
 
         {/* CENTER */}
-        <main className="flex-1 min-w-0 flex flex-col bg-[var(--color-app-bg)]">
+        <main data-tour="center" className="flex-1 min-w-0 flex flex-col bg-[var(--color-app-bg)]">
           <CenterHeader ctx={ctx} centerMode={centerMode} />
           <div className="flex-1 min-h-0 overflow-y-auto">
             {centerMode === "bible" ? (
@@ -346,7 +370,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         </main>
 
         {/* RIGHT */}
-        <aside className="w-[300px] shrink-0 border-l border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col overflow-hidden">
+        <aside data-tour="right" className="w-[300px] shrink-0 border-l border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col overflow-hidden">
           <LivePreviewPanel ctx={ctx} />
           <div className="flex-1 min-h-0 border-t border-[var(--color-border)]">
             <RightTabs ctx={ctx} timer={timer} messages={messages} />
@@ -356,16 +380,19 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
 
       <AITranscriptTicker ctx={ctx} />
 
-      <BottomBar
-        ctx={ctx}
-        slideSize={slideSize}
-        onSlideSize={setSlideSize}
-        onOpenShortcutsHelp={() => setShortcutsHelpOpen(true)}
-      />
+      <div data-tour="bottom">
+        <BottomBar
+          ctx={ctx}
+          slideSize={slideSize}
+          onSlideSize={setSlideSize}
+          onOpenShortcutsHelp={() => setShortcutsHelpOpen(true)}
+        />
+      </div>
 
       {mediaStripOpen && <MediaStrip />}
 
       <ShortcutsHelpOverlay open={shortcutsHelpOpen} onOpenChange={setShortcutsHelpOpen} />
+      <OperatorTour open={tourOpen} onClose={() => setTourOpen(false)} />
     </div>
   );
 }

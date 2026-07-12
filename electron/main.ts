@@ -205,7 +205,24 @@ function installApplicationMenu() {
           },
         },
         { type: "separator" as const },
-        { label: "Guided Tutorial", click: () => openHelp("/tutorial") },
+        {
+          label: "Guided Tutorial",
+          click: () => {
+            // In-app tour overlay (not an external URL) — mirrors the
+            // Keyboard Shortcuts pattern above so the tour renders on top of
+            // the live operator console instead of opening a browser window.
+            if (!mainWindow) return;
+            mainWindow.show();
+            const wc = mainWindow.webContents;
+            const send = () => { try { wc.send("shell:open-tour"); } catch { /* noop */ } };
+            if (wc.isLoading()) {
+              wc.once("did-finish-load", () => { send(); setTimeout(send, 500); });
+            } else {
+              send();
+              setTimeout(send, 500);
+            }
+          },
+        },
         { label: "First Sunday Playbook", click: () => openHelp("/help/first-sunday") },
         { label: "Projector Setup", click: () => openHelp("/setup/projector") },
         { label: "Microphone Setup", click: () => openHelp("/setup/audio") },
