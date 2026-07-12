@@ -1,5 +1,64 @@
 # Changelog
 
+## [main] Priority 9 — reviewer/security fixes (2026-07-12)
+
+Follow-up on the Priority 9 review agents: 2 red + 11 yellow findings closed.
+
+**Red**
+- R1 OperatorTour: removed the full-viewport click-eater. SVG dimmer +
+  spotlight are now `pointerEvents: none` end-to-end; the container has
+  `pointerEvents: none` and only the tour card re-enables pointer events.
+  Operator can click the highlighted zone while the tour is up. Arrow
+  keys / Enter / Escape advance / dismiss; the tour card holds the visible
+  Back/Next/Skip buttons.
+- R2 Health endpoints: added `src/lib/health-rate-limit.ts`, a shared
+  10/min/userId limiter (namespaced `api-health` via `createLimiter` in
+  `src/lib/rate-limit.ts`). Applied to `/api/health/db`,
+  `/api/health/storage`, `/api/health/deepgram`, and the new
+  `/api/health/ai`. 429 with `Retry-After: 60` on exceed.
+
+**Yellow**
+- Y1 Tour polling replaced with `ResizeObserver` (target + body) plus
+  a `MutationObserver` on `document.body` that re-binds RO when the
+  target (re)mounts. 300ms interval gone.
+- Y2 Tour: `window.addEventListener("scroll", measure, true)` (capture,
+  passive) so inner scroll containers trigger re-measure.
+- Y3 Tour keydown: input/textarea/select/contenteditable guard, plus
+  `stopPropagation` so shortcut engine can't double-fire.
+- Y4 Auto-open timing: `requestIdleCallback` (timeout 800ms) with a
+  400ms `setTimeout` fallback. Polling/observers self-heal late target
+  mounts so the shorter window is safe.
+- Y5 Auto-open gate: only when `ctx.liveSlide.kind === "empty"`. Never
+  pops during rehearsal/live projection.
+- Y6 DiagnosticsPanel audio inputs: appends browser-mode caveat when
+  not in the Electron shell — enumerateDevices returns empty labels and
+  can under-report count without prior mic permission. Desktop shell
+  detected via presence of `window.electronAPI`.
+- Y7 audio-server: `?probe=1` short-circuits inside `wss.on("connection")`
+  BEFORE ticket verify and BEFORE `openDeepgram()`. Origin allowlist + IP
+  rate limit still apply in `verifyClient`. Sends `{ok:true, probe:true}`
+  and closes 1000.
+- Y8 AI health check: new `src/app/api/health/ai/route.ts`
+  (auth-gated + same rate limit) returns `{ok, code: MISSING_API_KEY}`
+  on missing `GROQ_API_KEY`. DiagnosticsPanel switched from POST
+  `/api/ai/helpers/improve_readability` to GET `/api/health/ai` — no
+  more Groq completion spent on every diagnostics refresh.
+- Y9 Supabase reachability: comment on `runRealtime` documenting the
+  intent (HEAD is a reachability probe, not an auth probe; anon key not
+  bundled into the panel).
+- Y10 Electron Help menu: `openHelp` now validates the resolved URL
+  against `isStaticSafeHost` + http/https protocol before calling
+  `shell.openExternal`. Prevents a misconfigured `NEXT_PUBLIC_APP_URL`
+  from routing users to an arbitrary host.
+- Y11 Diagnostics page: verified `requireUser()` gate present at
+  `src/app/(app)/setup/diagnostics/page.tsx:16`. No change needed.
+
+**Verify**
+- `npm run electron:build:tsc` — passes.
+- `npm run typecheck` — passes for all fix files; sole reported error
+  (`jsdom` missing @types) is pre-existing on `main` (confirmed via
+  `git stash && npm run typecheck`) and unrelated.
+
 ## [main] Priority 7 — web admin portal verification (2026-07-12)
 
 Verification pass only. No admin surfaces rebuilt; no placeholder pages needed — all 6 admin routes exist, render server-side data, and are web-accessible.

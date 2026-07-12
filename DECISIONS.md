@@ -1,3 +1,48 @@
+## Priority-9 review-agent fixes — judgement calls (2026-07-12)
+
+- **R1 chose the "best" impl, not the "simplest"**: the review offered
+  three options — split overlay into interactive backdrop + inert
+  spotlight, or move click-to-advance onto the card only, or drop the
+  full-screen click-eater entirely. I picked option 3. Rationale: the
+  tour is teaching the operator what the zones DO; letting them click
+  a highlighted zone mid-tour is a feature, not a footgun. Advancing
+  now happens via the card buttons or arrow keys. This also removes
+  the last blocker to interacting with the shell while the tour is
+  open (e.g., typing in the search box), which Y3's input-guard alone
+  wouldn't have solved because the SVG was still eating clicks.
+
+- **R2 in-memory limiter (not Redis)**: reused `MemoryLimiter` from
+  `src/lib/rate-limit.ts` per its own docstring — fine for the pilot,
+  swap the backend later. Namespace `api-health` keeps this from
+  colliding with existing limiters. 10/min/userId leaves plenty of
+  headroom for the DiagnosticsPanel's 3-check burst on refresh
+  (well under 10) while blocking scripted abuse.
+
+- **Y5 gate uses `ctx.liveSlide.kind === "empty"`**: the ask said
+  `ctx.live.kind === "empty"` but `OperatorShellCtx` has no `live`
+  field — it has `liveSlide: SlidePayload` (see
+  `src/components/operator/shell/types.ts:17`). Payload's `empty`
+  variant is what "projector idle" means (see broadcast.ts:9), so
+  this is the correct field.
+
+- **Y8 kept the DiagnosticsPanel warn-vs-fail semantics**: the new
+  `/api/health/ai` returns `code: MISSING_API_KEY` so the panel can
+  distinguish "no key configured" (warn — degraded but graceful,
+  per CLAUDE.md #6) from "endpoint dead" (fail). Preserves existing
+  operator mental model.
+
+- **Y9 did NOT bake the anon key into the panel**: the ask allowed
+  it as optional; I chose the comment-only path. Reasons: (1) adds
+  bundle weight for a marginal signal — 200 vs 401 both prove
+  reachability, and 5xx / network fail is already the only genuine
+  fail; (2) avoids one more path where key material can be
+  exfiltrated via a mis-set CSP or a compromised third-party script.
+
+- **Y11 no code change**: `src/app/(app)/setup/diagnostics/page.tsx`
+  already calls `await requireUser()` as the first line of the
+  Server Component. Anon callers hit the login redirect before the
+  panel — and therefore its WS probe — ever mounts.
+
 ## Priority-6 review-agent fixes — judgement calls (2026-07-12)
 
 - **Y2 single-word titles are exact-only**: reviewer suggested
