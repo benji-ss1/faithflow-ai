@@ -7,10 +7,14 @@ import { dbTierToTier, type Tier } from "@/lib/tier";
 
 /**
  * GET /api/tier — returns the current church's tier bucket for UI gating.
- * Auth-gated. Returns "free" for any unauthenticated or unresolved case
- * rather than 401ing, so the UI can safely render the free-tier scaffolding
- * without a flash of privileged content. Server actions still enforce
- * real entitlement — this endpoint is UI hint only.
+ *
+ * Auth-gated. Returns "free" for unauthenticated so the UI can render
+ * the free-tier scaffolding safely. Server actions still enforce real
+ * entitlement — this endpoint is a UI hint only.
+ *
+ * On DB error we return 503 with { tier: null } so the client can preserve
+ * last-known-good tier rather than fail-open to "free" and pop upgrade
+ * prompts mid-service to a paid church.
  */
 export async function GET() {
   try {
@@ -27,6 +31,9 @@ export async function GET() {
     const tier: Tier = active ? dbTierToTier(sub!.tier) : "free";
     return NextResponse.json({ tier });
   } catch {
-    return NextResponse.json({ tier: "free" satisfies Tier });
+    return NextResponse.json(
+      { tier: null, error: "unavailable" },
+      { status: 503 },
+    );
   }
 }
