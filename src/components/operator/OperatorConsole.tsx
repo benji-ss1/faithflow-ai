@@ -30,8 +30,7 @@ import { EndServiceButton } from "./EndServiceButton";
 import { OperatorShell } from "./OperatorShell";
 import { ProOperatorShell } from "./pro/ProOperatorShell";
 import type { OperatorShellCtx } from "./shell/types";
-// OperatorShell kept for /services/[id]/operate (web-only route)
-void OperatorShell;
+import { useShell } from "@/hooks/useShell";
 
 type Cursor = { itemIdx: number; slideIdx: number };
 
@@ -150,6 +149,9 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
   // /livestream get item labels + next-slide + lower-third data without
   // rewriting them. Piggybacks on the existing BroadcastChannel — /live
   // still consumes the legacy `set` messages elsewhere.
+  // Y2: skip emission when the packed OutputState hasn't actually changed
+  // (previously fired on every parent re-render).
+  const lastEmittedKeyRef = useRef<string>("");
   useEffect(() => {
     const state: OutputState = {
       live,
@@ -165,6 +167,11 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
       announcement,
       transition: transitionSpec,
     };
+    // Shallow signature — good enough for the fields we actually emit.
+    let key: string;
+    try { key = JSON.stringify(state); } catch { key = String(Math.random()); }
+    if (key === lastEmittedKeyRef.current) return;
+    lastEmittedKeyRef.current = key;
     lastOutputStateRef.current = state; // cached for snapshot-on-join replay
     safePost(chRef.current, { type: "output", state });
     if (rtRef.current) { void rtRef.current.publish(state); }
@@ -863,7 +870,24 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
   }, []);
 
   const currentBankIdx = effectiveBank.findIndex((b) => currentBankRef && b.id === currentBankRef.id);
-  const shellCtx: OperatorShellCtx = {
+
+  // R2: right-click delete callback. Slide-level delete has no server
+  // action yet (only removeServiceItem exists) — confirm + toast so the
+  // action closes the wrong-slide bug without silently mutating server
+  // state. When a slide-delete action lands, replace the toast with a
+  // server call scoped by (planId, itemIdx, slideIdx). Documented in
+  // DECISIONS.md.
+  const onDeleteSlide = useCallback((itemIdx: number, slideIdx: number) => {
+    const item = plan.items[itemIdx];
+    if (!item) return;
+    const label = `Slide ${slideIdx + 1} of "${item.title}"`;
+    if (typeof window !== "undefined" && !window.confirm(`Delete ${label}?`)) return;
+    toast.info("Slide delete coming soon — logged.");
+  }, [plan.items]);
+
+  const shell = useShell();
+
+  const shellCtx: OperatorShellCtx = useMemo(() => ({
     plan,
     previewSlide,
     liveSlide: live,
@@ -930,6 +954,7 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
     onBankAddReference: bankAdd,
     onSendBankedToLive: sendBankedToLive,
     onRemoveBanked: removeBanked,
+    onDeleteSlide, // R2
     // Library → Playlist add (drag or click). Skips server writes for the
     // ephemeral placeholder plan; toasts so the operator sees feedback.
     onAddLibraryItem: async (kind, ref) => {
@@ -951,14 +976,34 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
         toast.error(res.error || "Add failed");
       }
     },
-  };
+  }), [
+    // Y6: only re-pack when the values consumers actually read change.
+    plan, previewSlide, live, preview.itemIdx, preview.slideIdx, liveItemIdx,
+    aspectRatio, fitMode, safeArea, autopilotMode, autoApprove.enabled,
+    autoApprove.autoSendToLive, audio, confidenceThreshold, defaultTranslationCode,
+    countdownEndsAt, announcement, transitionSpec,
+    effectiveBank, currentBankIdx, internetMatches, historyKey,
+    // callbacks
+    setAspectRatio, setFitMode, setAutopilotMode, jumpTo, sendPreview,
+    goBlank, goLogo, clearLive, clearSlide, clearMedia, clearLowerThird,
+    stageMessage, sendLowerThird, startCountdown, openProjector,
+    openStageDisplay, openLivestream, recallBanked, approveDetection,
+    rejectDetection, approveSong, rejectSong, editSong, approveCommand,
+    rejectCommand, editCommand, previewUnified, sendLiveUnified,
+    queueUnified, rejectUnified, importSong, internetSearchLibrary,
+    internetImport, internetCreateDraft, internetReject, simulateTranscript,
+    setAnnouncement, setTransitionSpec, sendSlideToLive, stageSlide,
+    bankAdd, sendBankedToLive, removeBanked, onDeleteSlide,
+    startAudio, stopAudio,
+  ]);
 
   return (
     <>
       <div className="fixed top-2 right-3 z-40">
         <SyncControl planId={plan.id} onCodeChange={setPairCode} />
       </div>
-      <ProOperatorShell ctx={shellCtx} />
+      {/* R3: Desktop shell = ProOperatorShell; web keeps the legacy OperatorShell. */}
+      {shell === "desktop" ? <ProOperatorShell ctx={shellCtx} /> : <OperatorShell ctx={shellCtx} />}
       <ImportSongModal
         open={importModal !== null}
         initialTitle={importModal?.title || ""}
