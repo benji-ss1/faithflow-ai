@@ -1,5 +1,58 @@
 # Changelog
 
+## [main] Priority 7 — web admin portal verification (2026-07-12)
+
+Verification pass only. No admin surfaces rebuilt; no placeholder pages needed — all 6 admin routes exist, render server-side data, and are web-accessible.
+
+### Surface status
+
+| Surface | Route file | Data query | Empty state | Web-accessible | Notes |
+|---|---|---|---|---|---|
+| Church Profile | `src/app/(app)/organization/page.tsx` | `churches`, `settings`, `churchPreferences`, `bibleTranslations` | "Not set" fallbacks per Detail | yes | Read-only view; deep edits deferred to Settings — acceptable per PageHeader copy. |
+| Team | `src/app/(app)/settings/team/page.tsx` | `users`, `invitations` | Handled inside `TeamManager` client component | yes | Invites filtered by `expiresAt >= now` and `acceptedAt IS NULL`. |
+| Billing | `src/app/(app)/settings/billing/page.tsx` + `src/app/(app)/subscriptions/page.tsx` | `subscriptions`, `mediaAssets` | "pilot" default when no row | yes | Stripe checkout via `BillingPanel` → `src/lib/billing-actions.ts` (uses `NEXT_PUBLIC_APP_URL`). |
+| Settings | `src/app/(app)/settings/page.tsx` | `settings`, `churchPreferences`, `listTranslations()` | Web shell renders 4 admin link tiles; desktop shell renders operator settings form | yes | Shell-aware via `x-pf-shell` header / `pf_shell` cookie. |
+| Analytics | `src/app/(app)/analytics/page.tsx` | `src/lib/server/analytics` (topSongs, topScriptures, etc.) | `List` component renders "No songs used yet." / "No scripture items yet." | yes | 189 LOC page with proper empty rendering. |
+| Sermon Archive | `src/app/(app)/archive/page.tsx` + `[id]/` | `listSermonSummaries()` / `semanticSermonSearch()` | "No archived sermons yet…" copy branch | yes | Keyword + semantic search modes both wired. |
+
+### Shared-DB write/read correspondence
+
+| Setting | Web writes | Desktop reads |
+|---|---|---|
+| Default Bible translation | `churchPreferences.defaultTranslationId` (via `updateChurchPreferences` in `src/lib/actions.ts`) | `src/app/(app)/operator/page.tsx:73` reads same column, joins `bibleTranslations` |
+| Church logo | `settings.logoS3Key` (via `updateSettings` in `src/lib/actions.ts:556`) | `src/app/(app)/operator/page.tsx:78` reads `s.logoS3Key`, presigns for output windows |
+| Blank BG color | `settings.blankBgColor` | `src/app/(app)/operator/page.tsx:79` reads same column |
+| Church name / location | `churches.name/city/country/timezone` | `organization/page.tsx` reads (no operator dependency) |
+| Autopilot prefs (`autoApproveEnabled`, `autoApproveThreshold`, `autoSendToLive`, `aiListeningDefault`) | `churchPreferences.*` (via `updateChurchPreferences`) | `operator/page.tsx:108-111` reads all four |
+
+All setting writes on the web hit the exact same columns the desktop `/operator` page reads. Verification passes without live click-through.
+
+### Web-shell accessibility
+
+`src/middleware.ts` `DESKTOP_ALLOWED_PAGE_PREFIXES` only restricts requests where `isDesktopShell(req)` is true (cookie `pf_shell=desktop` or header `x-pf-shell: desktop`). Web requests (no cookie/header) skip the desktop path allowlist entirely — every authenticated `/organization`, `/settings/**`, `/subscriptions`, `/analytics`, `/archive` request falls through to the standard 200 path. Confirmed by code review; dev-server smoke skipped per scope note.
+
+### "Manage your church online" link
+
+- Sidebar entry: `src/components/layout/Sidebar.tsx:499-538`
+- Operator settings modal entry: `src/components/operator/settings/SettingsModal.tsx:39-102`
+- Operator left-column entry: `src/components/operator/shell/LeftColumn.tsx:337-342`
+- URL built from `process.env.NEXT_PUBLIC_APP_URL || "https://presentflow.app"`.
+- Invokes `window.electronAPI.shell.openExternal(url)` → preload `electron/preload.ts:33` → IPC handler `electron/main.ts:344` which validates protocol (http/https only), rejects credentials, and enforces a hostname allowlist derived from `NEXT_PUBLIC_APP_URL`. Confirmed hardened per prior audit.
+
+### Manual verification checklist (needs a real operator + admin)
+
+- [ ] Log into web portal (no `x-pf-shell` header) as admin → `/organization`, `/settings/team`, `/settings/billing`, `/subscriptions`, `/analytics`, `/archive` all render 200 and show data.
+- [ ] Change Default Bible translation on web `/settings` → open desktop `/operator` → confirm new translation surfaces in Bible search default.
+- [ ] Upload/replace logo on web → confirm desktop output windows fetch new presigned logo.
+- [ ] Toggle `Auto-approve` and `Auto-send to live` on web → confirm desktop operator picks up new autopilot config on next load.
+- [ ] Click "Manage your church online" in desktop shell → confirm URL opens in default browser (not Electron window) and lands on the configured `NEXT_PUBLIC_APP_URL`.
+- [ ] Send a team invite from web → verify recipient email arrives via Resend + `/accept-invite` path.
+- [ ] Trigger Stripe test-mode checkout from `/settings/billing` `BillingPanel` → confirm redirect back with subscription row updated.
+
+### Genuinely broken
+
+- None identified. Only known "coming soon" is the `AI usage` card in `/subscriptions` (line 27: `Placeholder until formal usage metering lands.`) — expected, documented in-copy.
+
 ## [main] Priority 6 — reviewer + security fixes (2026-07-12)
 
 - **R1 wired song-detection into runDetectAll** — `detectAll` in
