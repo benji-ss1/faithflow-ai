@@ -18,7 +18,7 @@
 // --- Book dictionary --------------------------------------------------------
 // Maps normalized variants to the canonical book name used in bible_verses.
 const RAW_BOOKS: [string, string[]][] = [
-  ["Genesis", ["genesis", "gen", "gn"]],
+  ["Genesis", ["genesis", "gen", "gn", "ge"]],
   ["Exodus", ["exodus", "exod", "exo", "ex"]],
   ["Leviticus", ["leviticus", "lev", "lv"]],
   ["Numbers", ["numbers", "num", "nm", "nb"]],
@@ -26,8 +26,8 @@ const RAW_BOOKS: [string, string[]][] = [
   ["Joshua", ["joshua", "josh", "jos"]],
   ["Judges", ["judges", "judg", "jdg", "jgs"]],
   ["Ruth", ["ruth", "rut", "ru"]],
-  ["1 Samuel", ["1 samuel", "first samuel", "1st samuel", "one samuel", "i samuel", "1 sam", "1sam", "1 sm"]],
-  ["2 Samuel", ["2 samuel", "second samuel", "2nd samuel", "two samuel", "ii samuel", "2 sam", "2sam", "2 sm"]],
+  ["1 Samuel", ["1 samuel", "first samuel", "1st samuel", "one samuel", "i samuel", "1 sam", "1sam", "1 sm", "1s"]],
+  ["2 Samuel", ["2 samuel", "second samuel", "2nd samuel", "two samuel", "ii samuel", "2 sam", "2sam", "2 sm", "2s"]],
   ["1 Kings", ["1 kings", "first kings", "1st kings", "one kings", "i kings", "1 kgs", "1kgs"]],
   ["2 Kings", ["2 kings", "second kings", "2nd kings", "two kings", "ii kings", "2 kgs", "2kgs"]],
   ["1 Chronicles", ["1 chronicles", "first chronicles", "1st chronicles", "one chronicles", "i chronicles", "1 chron", "1 ch"]],
@@ -36,7 +36,7 @@ const RAW_BOOKS: [string, string[]][] = [
   ["Nehemiah", ["nehemiah", "neh"]],
   ["Esther", ["esther", "esth", "est"]],
   ["Job", ["job", "jb"]],
-  ["Psalms", ["psalms", "psalm", "ps", "pslm", "psa"]],
+  ["Psalms", ["psalms", "psalm", "ps", "pslm", "psa", "pss"]],
   ["Proverbs", ["proverbs", "proverb", "prov", "prv", "pro"]],
   ["Ecclesiastes", ["ecclesiastes", "eccl", "ecc", "qoh"]],
   ["Song of Solomon", ["song of solomon", "song of songs", "songs", "song", "sos", "cant", "canticles"]],
@@ -74,7 +74,7 @@ const RAW_BOOKS: [string, string[]][] = [
   ["1 Timothy", ["1 timothy", "first timothy", "1st timothy", "one timothy", "i timothy", "1 tim", "1tim"]],
   ["2 Timothy", ["2 timothy", "second timothy", "2nd timothy", "two timothy", "ii timothy", "2 tim", "2tim"]],
   ["Titus", ["titus", "tit"]],
-  ["Philemon", ["philemon", "philem", "phlm"]],
+  ["Philemon", ["philemon", "philem", "phlm", "phm"]],
   ["Hebrews", ["hebrews", "heb"]],
   ["James", ["james", "jas", "jm"]],
   ["1 Peter", ["1 peter", "first peter", "1st peter", "one peter", "i peter", "1 pet", "1pet"]],
@@ -83,7 +83,7 @@ const RAW_BOOKS: [string, string[]][] = [
   ["2 John", ["2 john", "second john", "2nd john", "two john", "ii john", "2 jn"]],
   ["3 John", ["3 john", "third john", "3rd john", "three john", "iii john", "3 jn"]],
   ["Jude", ["jude", "jud"]],
-  ["Revelation", ["revelation", "revelations", "rev"]],
+  ["Revelation", ["revelation", "revelations", "rev", "re", "apoc"]],
 ];
 
 const VARIANT_TO_BOOK = new Map<string, string>();
@@ -311,4 +311,40 @@ export function parseReferences(rawText: string): ParsedReference[] {
 /** Exported for tests / semantic fallback callers. */
 export function knownBook(name: string): string | undefined {
   return VARIANT_TO_BOOK.get(normalize(name));
+}
+
+/**
+ * Single-shot parser: returns the highest-confidence reference or null.
+ *
+ * Whole-chapter matches (no verse specified, e.g. "Ps 23") return
+ * verseStart=1 and verseEnd=null. Verse-specified matches return equal
+ * start/end for a single verse and start<end for ranges.
+ */
+export type SimpleReference = {
+  book: string;
+  chapter: number;
+  verseStart: number;
+  verseEnd: number | null;
+};
+export function parseReference(text: string): SimpleReference | null {
+  const refs = parseReferences(text);
+  if (refs.length === 0) return null;
+  // Highest confidence first
+  refs.sort((a, b) => b.confidence - a.confidence);
+  const r = refs[0];
+  // Detect whole-chapter matches: current implementation encodes those as
+  // verseStart=1, verseEnd=1 with confidence <=78 in the "book_ch" branch.
+  // We disambiguate by checking whether the matched text contains a verse
+  // marker (":" or "verse"/"verses" or a second number after the chapter).
+  const raw = text.toLowerCase();
+  const hasVerseMarker = /:|\bverses?\b|\bfrom\s+verse/.test(raw);
+  const digitCount = (raw.match(/\d+/g) || []).length;
+  const wholeChapter =
+    !hasVerseMarker && digitCount <= 1 && r.verseStart === 1 && r.verseEnd === 1;
+  return {
+    book: r.book,
+    chapter: r.chapter,
+    verseStart: r.verseStart,
+    verseEnd: wholeChapter ? null : r.verseEnd,
+  };
 }
