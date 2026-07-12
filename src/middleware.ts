@@ -1,10 +1,19 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 
+// Y10 (security): /live, /stage, /livestream removed from PUBLIC_PATHS —
+// they now require an auth cookie. Electron output windows share the
+// operator's session cookies (same-origin loadURL) so they continue to
+// work. External browsers holding a pair code redirect to /login.
 const PUBLIC_PATHS = [
   "/login", "/signup", "/verify-email", "/forgot-password", "/reset-password", "/accept-invite",
-  "/live", "/stage", "/livestream", "/api/auth", "/api/health", "/api/stripe",
+  "/api/auth", "/api/health", "/api/stripe",
 ];
+
+// Output surfaces are auth-gated but allowed for any authenticated user
+// (desktop shell OR web); they must still bypass the desktop `desktopPathAllowed`
+// blocklist because /live etc. aren't in DESKTOP_ALLOWED_PAGE_PREFIXES.
+const OUTPUT_SURFACE_PATHS = ["/live", "/stage", "/livestream"];
 
 // Non-API surfaces the desktop shell is allowed to render. Admin surfaces
 // (dashboard, organization, analytics, subscriptions, applications, products,
@@ -141,6 +150,19 @@ export async function middleware(req: NextRequest) {
       return NextResponse.redirect(url);
     }
     return NextResponse.redirect(new URL("/login", req.url));
+  }
+
+  // Y10: authenticated output surfaces skip the desktop-blocklist so
+  // ElectronOutputWindows loading /live etc. aren't redirected to /operator.
+  const isOutputSurface = OUTPUT_SURFACE_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
+  if (isOutputSurface) {
+    const res = NextResponse.next();
+    if (setShellCookie) res.cookies.set("pf_shell", "desktop", {
+      path: "/", httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+    });
+    return res;
   }
 
   if (desktop && !desktopPathAllowed(pathname)) {
