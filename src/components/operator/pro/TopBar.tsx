@@ -98,21 +98,25 @@ export function TopBar({
   const listening = ctx.audio.listening;
   const aiError = ctx.audio.error;
   const aiReady = ctx.audio.ready;
-  // Red = errored (stage broken, WS unreachable, Deepgram missing).
-  // Green = listening AND ready (Deepgram handshake OK).
-  // Amber = listening but not ready (still connecting).
-  // Grey = idle.
+  // R1: green only when transcripts are actually flowing — mic-muted operators
+  // will otherwise see a green dot despite silence. Amber during handshake or
+  // when Deepgram is ready but no messages have arrived yet.
+  const aiFlowing = ctx.audio.dgMessagesReceived > 0
+    || ctx.audio.stage === "receiving_interim"
+    || ctx.audio.stage === "receiving_final";
   const aiDotClass = aiError
     ? "text-[var(--color-destructive)]"
-    : listening && aiReady
+    : listening && aiReady && aiFlowing
     ? "text-[var(--color-ai-listening)]"
     : listening
     ? "text-[var(--color-warning,#f5a524)]"
     : "text-[var(--color-muted-foreground)]";
   const aiTitle = aiError
     ? `AI error: ${aiError} — click to retry`
-    : listening && aiReady
+    : listening && aiReady && aiFlowing
     ? "AI listening — click to stop"
+    : listening && aiReady
+    ? "AI ready — waiting for audio"
     : listening
     ? "AI connecting…"
     : "AI idle — click to start";
@@ -284,7 +288,6 @@ export function TopBar({
         >
           <Radio className={cn("w-4 h-4", aiDotClass)} />
         </button>
-        <div className="w-2 h-2 rounded-full bg-[var(--color-success)]" title="Healthy" />
       </div>
 
       <SearchPalette open={searchOpen} onOpenChange={setSearchOpen} ctx={ctx} onCenterMode={onCenterMode} />

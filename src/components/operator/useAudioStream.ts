@@ -193,9 +193,11 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const intentionalStopRef = useRef(false);
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stallWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startRef = useRef<() => Promise<void>>(async () => {});
 
   const teardown = useCallback(() => {
+    if (stallWatchdogRef.current) { clearTimeout(stallWatchdogRef.current); stallWatchdogRef.current = null; }
     try { workletNodeRef.current?.port?.close?.(); } catch { /* ignore */ }
     try { workletNodeRef.current?.disconnect(); } catch { /* ignore */ }
     workletNodeRef.current = null;
@@ -209,8 +211,33 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     audioCtxRef.current = null;
   }, []);
 
+  // Dev-or-trace log gate: quiet in packaged prod builds unless the operator
+  // explicitly opts in via localStorage.
+  const isDevOrTraceOn = useCallback((): boolean => {
+    try {
+      if (process.env.NODE_ENV !== "production") return true;
+      if (typeof localStorage !== "undefined") {
+        const raw = localStorage.getItem("presentflow.aiTrace");
+        if (!raw) return false;
+        // Y6: support {value, exp} envelope with 1h auto-expire.
+        try {
+          const parsed = JSON.parse(raw) as { value?: string; exp?: number };
+          if (parsed && typeof parsed === "object" && "value" in parsed) {
+            if (typeof parsed.exp === "number" && Date.now() > parsed.exp) {
+              try { localStorage.removeItem("presentflow.aiTrace"); } catch { /* ignore */ }
+              return false;
+            }
+            return parsed.value === "1";
+          }
+        } catch { /* legacy plain "1" fallthrough */ }
+        return raw === "1";
+      }
+    } catch { /* ignore */ }
+    return false;
+  }, []);
+
   const stop = useCallback(() => {
-    console.log("[presentflow-audio] stop() called — hard-stopping pipeline");
+    if (isDevOrTraceOn()) console.log("[presentflow-audio] stop() called — hard-stopping pipeline");
     intentionalStopRef.current = true;
     if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
     reconnectAttemptsRef.current = 0;
@@ -222,40 +249,47 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     if (intentionalStopRef.current) return;
     const attempt = ++reconnectAttemptsRef.current;
     if (attempt > 8) {
-      console.warn("[presentflow-audio] auto-reconnect gave up after 8 attempts");
+      if (isDevOrTraceOn()) console.warn("[presentflow-audio] auto-reconnect gave up after 8 attempts");
       setState((s) => ({ ...s, error: "AI listener disconnected. Toggle AI Listening OFF then ON." }));
       return;
     }
     // Exponential backoff w/ jitter: ~0.5s, 1s, 2s, 4s, 8s, 15s (capped), + up to 500ms jitter.
     const base = Math.min(500 * Math.pow(2, attempt - 1), 15_000);
     const delay = base + Math.floor(Math.random() * 500);
-    console.log(`[presentflow-audio] scheduling reconnect attempt ${attempt} in ${delay}ms`);
+    if (isDevOrTraceOn()) console.log(`[presentflow-audio] scheduling reconnect attempt ${attempt} in ${delay}ms`);
     setState((s) => ({ ...s, error: `Reconnecting AI listener (attempt ${attempt})…` }));
     reconnectTimerRef.current = setTimeout(() => {
       reconnectTimerRef.current = null;
       // Tear the old pipeline down before starting fresh — mic tracks and
       // AudioContext can leak otherwise.
       teardown();
-      startRef.current().catch((e) => console.warn("[presentflow-audio] reconnect start failed", e));
+      startRef.current().catch((e) => { if (isDevOrTraceOn()) console.warn("[presentflow-audio] reconnect start failed", e); });
     }, delay);
-  }, [teardown]);
+  }, [teardown, isDevOrTraceOn]);
 
   const start = useCallback(async () => {
     intentionalStopRef.current = false;
     setState((s) => ({ ...s, error: null, stage: "idle", stageHistory: [], chunksSent: 0, dgMessagesReceived: 0 }));
     // PF_AI_TRACE gate: dev + localStorage("presentflow.aiTrace","1") enable numbered logs.
     // Off in prod unless explicitly opted in so the demo console stays quiet.
-    const aiTraceOn = (() => {
-      try {
-        if (process.env.NODE_ENV !== "production") return true;
-        if (typeof localStorage !== "undefined" && localStorage.getItem("presentflow.aiTrace") === "1") return true;
-      } catch { /* ignore */ }
-      return false;
-    })();
+    const aiTraceOn = isDevOrTraceOn();
     const log = (stage: string, extra?: unknown) => {
       if (!aiTraceOn) return;
       console.log(`[ai-pipeline] ${stage}`, extra ?? "");
     };
+    // Y1: Stall watchdog. If we never reach deepgram_ready within 15s, treat
+    // it as a failed init and tear down. Cleared on deepgram_ready message.
+    if (stallWatchdogRef.current) clearTimeout(stallWatchdogRef.current);
+    stallWatchdogRef.current = setTimeout(() => {
+      stallWatchdogRef.current = null;
+      setState((s) => {
+        if (s.stage === "deepgram_ready" || s.stage === "receiving_interim" || s.stage === "receiving_final") return s;
+        return { ...s, error: "AI failed to initialise" };
+      });
+      // Kick a reconnect attempt if this wasn't an intentional stop, else stop.
+      if (!intentionalStopRef.current) scheduleReconnect();
+      else stop();
+    }, 15_000);
     try {
       setStage("requesting_ticket"); log("1 requesting ticket");
       const ticketRes = await fetch("/api/audio/ticket", {
@@ -282,7 +316,10 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       ws.onmessage = (e) => {
         const msg = JSON.parse(e.data);
         setState((s) => ({ ...s, dgMessagesReceived: s.dgMessagesReceived + 1 }));
-        if (msg.type === "ready") { setStage("deepgram_ready"); log("5 deepgram ready"); setState((s) => ({ ...s, ready: true })); return; }
+        if (msg.type === "ready") {
+          if (stallWatchdogRef.current) { clearTimeout(stallWatchdogRef.current); stallWatchdogRef.current = null; }
+          setStage("deepgram_ready"); log("5 deepgram ready"); setState((s) => ({ ...s, ready: true })); return;
+        }
         if (msg.type === "interim") { setStage("receiving_interim"); log("7 interim", msg.text); }
         if (msg.type === "final") { setStage("receiving_final"); log("8 final", msg.text); }
         if (msg.type === "detection" || msg.type === "song" || msg.type === "command") log(`9 ${msg.type}`);
@@ -383,7 +420,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       setState((s) => ({ ...s, error: e instanceof Error ? e.message : "Start failed" }));
       stop();
     }
-  }, [planId, stop, setStage, scheduleReconnect]);
+  }, [planId, stop, setStage, scheduleReconnect, isDevOrTraceOn]);
 
   // Expose the latest `start` to scheduleReconnect without recreating it on
   // every render (would restart the backoff clock).
