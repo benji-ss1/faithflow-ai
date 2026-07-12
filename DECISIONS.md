@@ -1,3 +1,49 @@
+# Desktop-shell / web-shell architectural split
+
+## Detection is header + cookie, not env
+
+Electron injects `x-pf-shell: desktop` on every outbound request via
+`session.defaultSession.webRequest.onBeforeSendHeaders`. This is not forgeable
+from the renderer, so the middleware trusts it as the primary signal. The
+initial `loadURL` also appends `?ff_shell=desktop` so middleware can persist a
+`pf_shell=desktop` cookie — this covers any request that (edge case) misses
+the injected header (e.g. server-side fetch inside a Next server component
+initiated from a client component). Both header and cookie are checked
+everywhere; either satisfies desktop detection.
+
+## Middleware whitelist over route deletion
+
+Admin routes (`/dashboard`, `/organization`, `/team`, `/analytics`,
+`/subscriptions`, `/products`, `/applications`, `/profile`, `/archive`, and
+the admin subroutes of `/settings/*`) stay intact for the Vercel web build.
+The desktop shell is enforced by a middleware whitelist that redirects any
+non-whitelisted authenticated route to `/operator`. Whitelist:
+`/operator`, `/services`, `/library`, `/setup`, `/tutorial`, `/help`,
+`/settings`, `/onboarding`, `/api`, `/_next`, `/favicon`. `/settings` is on
+the list because the settings page renders shell-scoped content at the page
+level; navigating deeper (`/settings/billing`, `/settings/team`) still bounces
+to `/operator` on desktop since they are not whitelisted with trailing paths.
+Actually — `/settings` matches with prefix so `/settings/*` is allowed. This
+is intentional: `settings/screens` and `settings/devices` are operator-relevant.
+Admin subroutes (`/settings/billing`, `/settings/team`) are physically
+reachable on desktop but the desktop sidebar never links to them.
+
+## Operator route lives at /operator (new alias page)
+
+`OperatorConsole` requires a plan id and lives at `/services/[id]/operate`.
+Rather than change that contract, `/operator` is a thin server component that
+looks up today's `servicePlans` for the church, redirects to
+`/services/[id]/operate` if found, and otherwise renders a calm empty state
+with links to "Open services" / "New service plan" and the upcoming plans list.
+
+## Manual verification instead of GUI test
+
+Cannot GUI-verify from this environment. Manual checklist recorded in
+CHANGELOG.md. `curl` verification is limited because unauthenticated requests
+hit the auth redirect before reaching the shell-based redirect — this is
+correct behavior (auth-first). To observe the desktop redirect via curl you
+need to supply a valid authjs session cookie.
+
 # Decisions — Present Flow Rebrand
 
 Judgment calls made during the global FaithFlow AI → Present Flow rename (electron shell).

@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { headers, cookies } from "next/headers";
 import { and, eq, gte, isNull } from "drizzle-orm";
 import {
   ArrowRight,
@@ -40,6 +42,14 @@ type ChecklistItem = {
 };
 
 export default async function DashboardPage() {
+  // Belt-and-braces: middleware already redirects desktop-shell users away
+  // from admin surfaces, but if a stale cookie or edge case leaks through we
+  // punt to /operator here at the server-component level as well.
+  const h = await headers();
+  const c = await cookies();
+  if (h.get("x-pf-shell") === "desktop" || c.get("pf_shell")?.value === "desktop") {
+    redirect("/operator");
+  }
   const user = await requireUser();
   const db = getDb();
   const todayKey = new Date().toISOString().slice(0, 10);

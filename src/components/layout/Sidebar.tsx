@@ -14,7 +14,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
-import { accountNav, getActiveNavMatch, getRouteMeta, workspaceNav } from "@/components/layout/navigation";
+import { accountNav, desktopNav, getActiveNavMatch, getRouteMeta, workspaceNav } from "@/components/layout/navigation";
+import { useShell } from "@/hooks/useShell";
+import { Settings as SettingsIcon, LogOut, ExternalLink } from "lucide-react";
+import { signOut } from "next-auth/react";
 
 type SidebarProps = {
   mobileOpen: boolean;
@@ -215,6 +218,9 @@ function NavSection({
 
 export function Sidebar({ mobileOpen, onMobileOpenChange }: SidebarProps) {
   const pathname = usePathname();
+  const currentShell = useShell();
+  const isDesktop = currentShell === "desktop";
+  const navGroups = isDesktop ? desktopNav : workspaceNav;
   const route = getRouteMeta(pathname);
   const activeMatch = getActiveNavMatch(pathname);
   const ActiveIcon = activeMatch?.item.icon || Sparkles;
@@ -351,37 +357,41 @@ export function Sidebar({ mobileOpen, onMobileOpenChange }: SidebarProps) {
         <NavSection
           collapsed={collapsed}
           pathname={pathname}
-          groups={workspaceNav}
-          unlocked={unlocked}
+          groups={navGroups}
+          unlocked={isDesktop ? null : unlocked}
           onNavigate={() => onMobileOpenChange(false)}
         />
 
-        <div className="space-y-3 rounded-[1.35rem] border border-white/7 bg-white/[0.03] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-          {!collapsed ? (
-            <>
-              <div className="space-y-1">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Account</div>
-                <div className="text-sm font-semibold text-foreground">Admin surfaces</div>
-                <div className="text-xs leading-5 text-muted-foreground">
-                  Billing, subscriptions, profile, and application management stay separate from Sunday-live controls.
+        {isDesktop ? (
+          <DesktopFooterPanel collapsed={collapsed} pathname={pathname} onNavigate={() => onMobileOpenChange(false)} />
+        ) : (
+          <div className="space-y-3 rounded-[1.35rem] border border-white/7 bg-white/[0.03] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+            {!collapsed ? (
+              <>
+                <div className="space-y-1">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Account</div>
+                  <div className="text-sm font-semibold text-foreground">Admin surfaces</div>
+                  <div className="text-xs leading-5 text-muted-foreground">
+                    Billing, subscriptions, profile, and application management stay separate from Sunday-live controls.
+                  </div>
+                </div>
+                <NavSection
+                  collapsed={false}
+                  pathname={pathname}
+                  groups={accountNav}
+                  unlocked={null}
+                  onNavigate={() => onMobileOpenChange(false)}
+                />
+              </>
+            ) : (
+              <div className="flex justify-center">
+                <div className="rounded-2xl border border-white/8 bg-white/[0.04] p-2.5">
+                  <CreditCardProxy />
                 </div>
               </div>
-              <NavSection
-                collapsed={false}
-                pathname={pathname}
-                groups={accountNav}
-                unlocked={null}
-                onNavigate={() => onMobileOpenChange(false)}
-              />
-            </>
-          ) : (
-            <div className="flex justify-center">
-              <div className="rounded-2xl border border-white/8 bg-white/[0.04] p-2.5">
-                <CreditCardProxy />
-              </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className={cn("border-t border-white/8 py-4", collapsed ? "px-3" : "px-4")}>
@@ -443,6 +453,101 @@ export function Sidebar({ mobileOpen, onMobileOpenChange }: SidebarProps) {
         </div>
       </div>
     </>
+  );
+}
+
+function DesktopFooterPanel({
+  collapsed,
+  pathname,
+  onNavigate,
+}: {
+  collapsed: boolean;
+  pathname: string;
+  onNavigate: () => void;
+}) {
+  const settingsActive = pathname === "/settings" || pathname.startsWith("/settings/");
+  const manageUrl = process.env.NEXT_PUBLIC_APP_URL || "https://presentflow.app";
+
+  function openManage() {
+    const api = typeof window !== "undefined" ? window.electronAPI : undefined;
+    if (api?.shell?.openExternal) {
+      api.shell.openExternal(manageUrl);
+    } else {
+      window.open(manageUrl, "_blank", "noopener");
+    }
+  }
+
+  if (collapsed) {
+    return (
+      <div className="space-y-1.5">
+        <Link
+          href="/settings"
+          title="Settings"
+          onClick={onNavigate}
+          className={cn(
+            "flex h-10 items-center justify-center rounded-2xl border text-sidebar-fg transition",
+            settingsActive
+              ? "border-[rgba(111,224,194,0.28)] bg-[linear-gradient(180deg,rgba(255,255,255,0.09),rgba(255,255,255,0.04))] text-foreground"
+              : "border-transparent hover:border-white/10 hover:bg-white/[0.045]"
+          )}
+        >
+          <SettingsIcon className="h-4 w-4" strokeWidth={1.8} />
+        </Link>
+        <button
+          type="button"
+          onClick={openManage}
+          title="Manage your church online"
+          className="flex h-10 w-full items-center justify-center rounded-2xl border border-transparent text-sidebar-fg transition hover:border-white/10 hover:bg-white/[0.045]"
+        >
+          <ExternalLink className="h-4 w-4" strokeWidth={1.8} />
+        </button>
+        <button
+          type="button"
+          onClick={() => signOut({ callbackUrl: "/login" })}
+          title="Sign out"
+          className="flex h-10 w-full items-center justify-center rounded-2xl border border-transparent text-sidebar-fg transition hover:border-white/10 hover:bg-white/[0.045]"
+        >
+          <LogOut className="h-4 w-4" strokeWidth={1.8} />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 rounded-[1.35rem] border border-white/7 bg-white/[0.03] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+      <Link
+        href="/settings"
+        onClick={onNavigate}
+        className={cn(
+          "flex h-10 items-center gap-3 rounded-2xl border px-3 text-sm font-medium transition",
+          settingsActive
+            ? "border-[rgba(111,224,194,0.28)] bg-[linear-gradient(180deg,rgba(255,255,255,0.09),rgba(255,255,255,0.04))] text-foreground"
+            : "border-transparent text-sidebar-fg hover:border-white/10 hover:bg-white/[0.045]"
+        )}
+      >
+        <SettingsIcon className="h-4 w-4 shrink-0" strokeWidth={settingsActive ? 2 : 1.8} />
+        <span className="min-w-0 flex-1 truncate">Settings</span>
+      </Link>
+
+      <button
+        type="button"
+        onClick={openManage}
+        className="flex h-10 w-full items-center gap-3 rounded-2xl border border-transparent px-3 text-left text-sm font-medium text-sidebar-fg transition hover:border-white/10 hover:bg-white/[0.045]"
+      >
+        <ExternalLink className="h-4 w-4 shrink-0" strokeWidth={1.8} />
+        <span className="min-w-0 flex-1 truncate">Manage your church online</span>
+        <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      </button>
+
+      <button
+        type="button"
+        onClick={() => signOut({ callbackUrl: "/login" })}
+        className="flex h-10 w-full items-center gap-3 rounded-2xl border border-transparent px-3 text-left text-sm font-medium text-sidebar-fg transition hover:border-white/10 hover:bg-white/[0.045]"
+      >
+        <LogOut className="h-4 w-4 shrink-0" strokeWidth={1.8} />
+        <span className="min-w-0 flex-1 truncate">Sign out</span>
+      </button>
+    </div>
   );
 }
 

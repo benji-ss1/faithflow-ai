@@ -93,6 +93,32 @@ export const workspaceNav: NavGroup[] = [
   },
 ];
 
+// Desktop shell sidebar — presenting-only. No admin/billing/team surfaces.
+// Rendered when the Electron client is detected (window.electronAPI or the
+// pf_shell=desktop cookie set by middleware).
+export const desktopNav: NavGroup[] = [
+  {
+    label: "Content",
+    items: [
+      { href: "/library/songs", label: "Songs", icon: Music4 },
+      { href: "/library/bible", label: "Bible", icon: BookOpen },
+      { href: "/library/media", label: "Media", icon: GalleryVerticalEnd },
+      { href: "/library/imports", label: "Imports", icon: FolderInput },
+      { href: "/library/themes", label: "Themes", icon: Palette },
+    ],
+  },
+  {
+    label: "Learn",
+    items: [
+      { href: "/tutorial", label: "Guided tutorial", icon: PlayCircle },
+      { href: "/help/first-sunday", label: "First Sunday playbook", icon: LifeBuoy },
+      { href: "/setup/projector", label: "Projector setup", icon: MonitorSmartphone },
+      { href: "/setup/audio", label: "Microphone / mixer setup", icon: Sparkles },
+      { href: "/setup/diagnostics", label: "Install diagnostics", icon: Wrench },
+    ],
+  },
+];
+
 export const accountNav: NavGroup[] = [
   {
     label: "Account",

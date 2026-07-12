@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, session, ipcMain } from "electron";
+import { app, BrowserWindow, Tray, Menu, nativeImage, session, ipcMain, shell } from "electron";
 import * as path from "path";
 import { spawn, ChildProcess } from "child_process";
 import * as net from "net";
@@ -148,7 +148,8 @@ async function createMainWindow() {
     }
   );
 
-  await mainWindow.loadURL(appUrl);
+  const initialUrl = appUrl + (appUrl.includes("?") ? "&" : "?") + "ff_shell=desktop";
+  await mainWindow.loadURL(initialUrl);
 }
 
 app.whenReady().then(async () => {
@@ -156,6 +157,14 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => {
     if (permission === "media" || (permission as string) === "audioCapture") cb(true);
     else cb(true);
+  });
+
+  // Inject a shell marker on every request from the desktop app. Middleware
+  // and server components trust this header to gate admin surfaces off the
+  // Electron client. Renderers cannot forge outgoing headers, so this is safe.
+  session.defaultSession.webRequest.onBeforeSendHeaders((details, cb) => {
+    const headers = { ...details.requestHeaders, "x-pf-shell": "desktop" };
+    cb({ requestHeaders: headers });
   });
 
   if (isDev) {
@@ -180,6 +189,19 @@ app.whenReady().then(async () => {
   // Utility IPC
   ipcMain.handle("app:version", () => app.getVersion());
   ipcMain.handle("app:platform", () => process.platform);
+
+  // Open external URLs in the default browser. Used by the desktop sidebar's
+  // "Manage your church online" link to route admins to the web portal.
+  ipcMain.handle("shell:openExternal", async (_e, url: string) => {
+    try {
+      if (typeof url !== "string") return { ok: false, error: "invalid url" };
+      if (!/^https?:\/\//i.test(url)) return { ok: false, error: "invalid protocol" };
+      await shell.openExternal(url);
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: String(err?.message || err) };
+    }
+  });
 
   createTray();
   await createMainWindow();

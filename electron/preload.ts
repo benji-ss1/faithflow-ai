@@ -29,6 +29,9 @@ const api = {
     version: () => ipcRenderer.invoke("app:version"),
     platform: () => ipcRenderer.invoke("app:platform"),
   },
+  shell: {
+    openExternal: (url: string) => ipcRenderer.invoke("shell:openExternal", url),
+  },
   on: (channel: string, handler: Handler) => {
     const wrapped = (_e: IpcRendererEvent, ...args: any[]) => handler(...args);
     listeners.set(handler, wrapped);

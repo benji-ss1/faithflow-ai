@@ -45,6 +45,9 @@ export interface ElectronAPI {
     version: () => Promise<string>;
     platform: () => Promise<NodeJS.Platform>;
   };
+  shell: {
+    openExternal: (url: string) => Promise<{ ok: boolean; error?: string }>;
+  };
   on: (channel: string, handler: (...args: any[]) => void) => void;
   off: (channel: string, handler: (...args: any[]) => void) => void;
 }

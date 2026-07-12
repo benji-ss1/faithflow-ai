@@ -104,6 +104,11 @@ export function TopToolbar({
             AI {listening ? "On" : "Off"}
           </button>
 
+          <Link href="/settings/screens" title="Configure output screens"
+            className="h-7 inline-flex items-center gap-1.5 px-2 rounded-md text-[10px] font-bold uppercase tracking-wider border border-[#2a3232] text-zinc-300 hover:bg-white/5">
+            <Monitor className="w-3 h-3" /> Screens
+          </Link>
+
           <button onClick={ctx.onOpenProjector} title="Open live projector window"
             className="h-7 inline-flex items-center gap-1.5 px-2 rounded-md text-[10px] font-bold uppercase tracking-wider border border-teal-500/50 text-teal-300 bg-teal-500/10 hover:bg-teal-500/20">
             <Monitor className="w-3 h-3" /> Open projector

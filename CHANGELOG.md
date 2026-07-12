@@ -1,5 +1,76 @@
 # Changelog
 
+## [main] Enforce desktop-shell (presenting) vs web-shell (admin) split
+
+### Added
+
+- `src/hooks/useShell.ts` — client-side `useShell()` returning `"desktop" | "web"`
+  based on `window.electronAPI` + `pf_shell` cookie fallback.
+- `src/app/(app)/operator/page.tsx` — desktop landing page. Redirects to today's
+  scheduled service plan operator if one exists; otherwise renders a calm
+  "ready to present" empty state with quick links.
+- `desktopNav` in `src/components/layout/navigation.ts` — presenting-only nav
+  groups (Content: Songs/Bible/Media/Imports/Themes, Learn: tutorial, playbook,
+  projector/audio setup, diagnostics).
+- Electron `shell:openExternal` IPC (in `electron/main.ts` + `preload.ts` +
+  `src/types/electron.d.ts`) — used by the desktop sidebar's "Manage your
+  church online" link to open the Vercel web portal in the default browser.
+- Operator top-bar "Screens" button linking to `/settings/screens`.
+
+### Changed
+
+- `electron/main.ts` — sets `x-pf-shell: desktop` on every outbound request
+  via `session.defaultSession.webRequest.onBeforeSendHeaders`, and appends
+  `?ff_shell=desktop` to the initial `loadURL` so middleware can persist a
+  `pf_shell=desktop` cookie for the session.
+- `src/middleware.ts` — reads `x-pf-shell` header + `pf_shell` cookie; sets
+  cookie from the `?ff_shell=desktop` query param; redirects any non-whitelisted
+  authenticated route to `/operator` when in the desktop shell. Whitelist:
+  `/operator`, `/services`, `/library`, `/setup`, `/tutorial`, `/help`,
+  `/settings`, `/onboarding`, `/api`. Public and auth routes unchanged.
+- `src/app/page.tsx` — server component reads shell markers; desktop → `/operator`,
+  web → `/dashboard`.
+- `src/app/login/page.tsx` — post-login redirect now goes to `/` so the root
+  page routes to the correct shell landing.
+- `src/app/(app)/dashboard/page.tsx` — belt-and-braces server-side redirect to
+  `/operator` when the desktop shell is detected.
+- `src/components/layout/Sidebar.tsx` — shell-aware. Renders `desktopNav` +
+  a new `DesktopFooterPanel` (Settings link, "Manage your church online"
+  external link, Sign out) on desktop. Web unchanged.
+- `src/app/(app)/settings/page.tsx` — shell-scoped: desktop renders
+  `SettingsForm` + Screens shortcut + `TranslationsPanel`. Web renders a
+  compact grid of admin links (Billing, Team, Church Profile, Subscriptions).
+- `src/components/operator/shell/TopToolbar.tsx` — added Screens button.
+
+### Routes intact for web portal
+
+No routes deleted. Admin surfaces (`/dashboard`, `/organization`, `/team`,
+`/analytics`, `/archive`, `/subscriptions`, `/products`, `/applications`,
+`/profile`, `/settings/organization`, `/settings/team`, `/settings/billing`)
+still resolve on the web build.
+
+### Manual verification checklist
+
+1. `npm run electron:dev` in one shell → wait for "Ready in".
+2. Launch Electron client. Sign in → should land on `/operator`.
+3. `/operator` shows today's plan if scheduled, else empty state.
+4. Sidebar shows only Content + Learn groups + Settings/Manage online/Sign out.
+5. Type `/dashboard` into the Electron window — middleware bounces to `/operator`.
+6. In parallel, open the Vercel-hosted web build in a browser → full admin
+   sidebar; `/dashboard` renders normally.
+7. In operator top bar, click **Screens** → opens `/settings/screens`.
+8. Sidebar "Manage your church online →" opens the web portal in the OS
+   default browser (Electron shell IPC), not inside the Electron window.
+9. `curl -sI -H "x-pf-shell: desktop" http://localhost:3000/dashboard` behind
+   an authenticated session cookie → 307 → `/operator`. Unauthenticated curl
+   redirects to `/login` first (expected — auth check precedes shell check).
+
+### Verified
+
+- `npm run typecheck` — passes for source files. (Pre-existing `jsdom` types
+  warning in `test/adversarial/audio-reconnect.test.ts` unchanged.)
+- `npm run electron:build:tsc` — passes.
+
 ## [electron-shell] Import surfaces — Electron pickers + drag-drop
 
 ### Added

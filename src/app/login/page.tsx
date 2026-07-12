@@ -28,7 +28,9 @@ export default function LoginPage() {
       toast.error("Invalid credentials");
       return;
     }
-    window.location.href = "/dashboard";
+    // Route through the root so middleware + page.tsx pick the right shell.
+    // Desktop → /operator, web → /dashboard.
+    window.location.href = "/";
   }
 
   return (
