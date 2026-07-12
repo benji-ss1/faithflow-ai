@@ -47,6 +47,9 @@ export default function LivestreamPage() {
     const p = new URLSearchParams(window.location.search);
     setTransparent(p.get("bg") === "transparent");
     if (p.get("mode") === "lower_third") setMode("lower_third");
+    // P5: OBS-friendly `?obs=lowerthird` is an alias for the lower-third
+    // capture mode; it also implies a transparent background so OBS can key.
+    if (p.get("obs") === "lowerthird") { setMode("lower_third"); setTransparent(true); }
     if (p.get("transitions") === "1") setTransitionsEnabled(true);
   }, []);
 
@@ -198,6 +201,13 @@ export default function LivestreamPage() {
           <div className="bg-black/80 border-l-4 border-[color:var(--color-brand)] p-6 max-w-2xl">
             <div className="text-white font-semibold text-3xl leading-tight">{lowerThird.line1}</div>
             {lowerThird.line2 && <div className="text-white/70 text-xl mt-2">{lowerThird.line2}</div>}
+          </div>
+        </div>
+      )}
+      {mode === "lower_third" && !lowerThird && slide.kind === "text" && (
+        <div className="absolute bottom-0 left-0 right-0 p-8">
+          <div className="bg-black/80 border-l-4 border-[color:var(--color-brand)] p-6 max-w-3xl">
+            <div className="text-white font-semibold text-3xl leading-tight whitespace-pre-line">{slide.text}</div>
           </div>
         </div>
       )}

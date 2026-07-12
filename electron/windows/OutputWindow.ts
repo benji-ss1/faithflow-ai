@@ -23,17 +23,24 @@ function isSingleDisplayFallback(): boolean {
   return screen.getAllDisplays().length === 1;
 }
 
+export type LivestreamObsMode = "full" | "lowerthird";
+
 export function createOutputWindow(
   role: OutputRole,
   display: Display,
   preset: Preset,
-  appUrl: string
+  appUrl: string,
+  opts?: { obsMode?: LivestreamObsMode }
 ): BrowserWindow {
   // Close existing for role
   closeOutputWindow(role);
 
   const singleDisplay = isSingleDisplayFallback();
   const { x, y, width, height } = display.bounds;
+
+  // P5: livestream window is transparent so OBS/vMix browser sources can key
+  // the underlying black/transparent area — projector/stage remain opaque.
+  const isLivestream = role === "Livestream";
 
   const win = new BrowserWindow({
     // In single-display fallback, open a smallish draggable window at a
@@ -53,7 +60,9 @@ export function createOutputWindow(
     resizable: true,
     minimizable: true,
     maximizable: true,
-    backgroundColor: "#000000",
+    backgroundColor: isLivestream ? "#00000000" : "#000000",
+    transparent: isLivestream,
+    hasShadow: !isLivestream,
     autoHideMenuBar: true,
     title: singleDisplay ? `PresentFlow — ${role} Output (drag to external display)` : role,
     webPreferences: {
@@ -92,7 +101,13 @@ export function createOutputWindow(
     });
   }
 
-  const url = `${appUrl}${ROLE_TO_PATH[role]}?preset=${encodeURIComponent(preset)}&role=${encodeURIComponent(role)}${singleDisplay ? "&windowed=1" : ""}`;
+  const livestreamObsParam =
+    isLivestream && opts?.obsMode === "lowerthird" ? "&obs=lowerthird" : "";
+  // Livestream in lower-third OBS mode also wants a transparent DOM bg so
+  // the transparent BrowserWindow shows through — the /livestream page
+  // reads `bg=transparent` for that.
+  const livestreamBgParam = isLivestream ? "&bg=transparent" : "";
+  const url = `${appUrl}${ROLE_TO_PATH[role]}?preset=${encodeURIComponent(preset)}&role=${encodeURIComponent(role)}${singleDisplay ? "&windowed=1" : ""}${livestreamObsParam}${livestreamBgParam}`;
   win.loadURL(url).catch((e) => console.error(`[OutputWindow ${role}]`, e));
   win.once("ready-to-show", () => {
     win.show();
