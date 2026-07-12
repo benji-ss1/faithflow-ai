@@ -1006,3 +1006,24 @@ Closed 6 🔴 and 14 🟡 findings from the ProOperatorShell review.
 - `src/components/operator/OperatorConsole.tsx` — shell-aware render, memoized `shellCtx`, OutputState dedup, `onDeleteSlide`
 - `src/components/operator/shell/types.ts` — added optional `onDeleteSlide`
 - `src/app/api/bible/lookup/route.ts` — rate limit + book input validation
+
+## [main] Priority 9 — tutorial + playbook + diagnostics (2026-07-12)
+
+### Diagnostics (real signals)
+- Added 3 new checks to `DiagnosticsPanel`: audio input device count (`navigator.mediaDevices.enumerateDevices`), Electron displays (`electronAPI.screens.list()`), Deepgram key presence.
+- Added Refresh button — re-runs every check without reload.
+- Kept existing real checks: app, db, storage, audio bridge WS handshake, Groq helpers, Supabase realtime.
+
+### API endpoints
+- `src/app/api/health/deepgram/route.ts` — auth-gated presence check for `DEEPGRAM_API_KEY`. Never returns the key value.
+- `src/app/api/health/db/route.ts` — already existed; auth-gated `SELECT 1`.
+
+### Guided tour overlay
+- `src/components/tutorial/OperatorTour.tsx` — 5-step spotlight tour of ProOperatorShell zones (left / center / right / bottom / top). SVG-mask cutout, keyboard nav (Arrow/Enter/Esc), no external dep.
+- `data-tour` attributes added to the five shell zones.
+- ProOperatorShell listens for IPC `shell:open-tour`; auto-opens once when `localStorage.presentflow.tour.seen != "1"`.
+- Electron Help > Guided Tutorial swapped from external URL to IPC (mirrors Keyboard Shortcuts pattern).
+
+### First Sunday + setup guides
+- `src/app/(app)/help/first-sunday/page.tsx` — verified: 255 LOC, before/preflight/practice/during/recovery/after sections. No changes.
+- `/setup/projector`, `/setup/audio`, `/setup/diagnostics` — verified as `requireUser()`-gated pages backed by wizard/panel components. No content changes needed.
