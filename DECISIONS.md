@@ -1,3 +1,23 @@
+## Priority-3 review-agent fixes — judgement calls (2026-07-12)
+
+- **R2 Psalms guard scope**: applied only to Psalms (not all books). The
+  reviewer suggested a Psalms-specific rule; other books can still legitimately
+  refer to chapter+verse via `book_ch_space_verse`. Keeps the fix targeted.
+- **Y4 replay guard**: in-memory Map keyed by sig, pruned on new inserts.
+  Documented as single-instance (matches current Fly deploy). Multi-instance
+  would need Redis; deferred.
+- **Y8 origin allowlist**: allows `null`/absent Origin (Electron packaged
+  file://). Localhost of any port is dev-only. A signed WS challenge is
+  Priority-4 work.
+- **Y10 rate limit N=10/60s**: chosen to cover reconnect storms (8-attempt
+  exp backoff over ~30s) without allowing volumetric abuse. Overridable via
+  `AUDIO_WS_RATE_LIMIT` env var.
+- **Ticket wire change**: added `userId` to WS URL and HMAC. Old tickets 401 —
+  acceptable given the 5-minute TTL.
+- **Commit slicing**: TopBar changes (green-dot fix + Healthy dot removal)
+  landed together — same file, adjacent hunks. Observability tweaks
+  (Y2/Y6/Y7) folded into their sibling fix/security commits (same files).
+
 ## Priority-3 AI listening pipeline (2026-07-12)
 
 - **Scope-in-scope: only surfacing + guardrails.** The 7-stage pipeline was

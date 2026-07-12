@@ -1,5 +1,31 @@
 # Changelog
 
+## [main] Priority-3 review-agent fixes (R1+R2, Y1–Y10) (2026-07-12)
+
+- **R1 (TopBar green dot)** — dot now green only when `dgMessagesReceived > 0`
+  or stage is `receiving_interim`/`receiving_final`. Handshake stays amber.
+- **R2 (Psalms parser)** — `normalize()` now fuses space-separated tens+ones
+  ("twenty three" → "twenty_three"). Added Psalms whole-chapter guard in
+  `parseReference` when no `:` / "verse" marker is present.
+- **Y1** — 15s stall watchdog armed at `start()`; sets error + reconnects if
+  Deepgram-ready never arrives.
+- **Y2** — non-`log()` console calls now routed via a `isDevOrTraceOn()` gate.
+- **Y3** — removed the hard-coded "Healthy" dot from TopBar (no real signal).
+- **Y4** — in-memory single-use replay guard on ticket sigs in audio-server.
+- **Y5** — ticket HMAC now binds `userId`; ticket route pre-verifies plan
+  ownership (`servicePlans` row scoped to `user.churchId`).
+- **Y6** — `presentflow.aiTrace` localStorage entry now supports
+  `{value, exp}` envelope with 1h auto-expire.
+- **Y7** — audio-server transcript slice log gated behind DEBUG in prod.
+- **Y8** — WS `verifyClient` origin allowlist (localhost + `presentflow.app`
+  + `EXTRA_ALLOWED_ORIGINS` + null-origin for Electron).
+- **Y9** — sig format validated (64 hex chars) before `Buffer.from` +
+  `timingSafeEqual` now uses `hex` encoding.
+- **Y10** — per-IP rate limit (10/60s) enforced during upgrade with 429.
+
+**Breaking wire change**: ticket format now includes `userId` in the HMAC
+payload. Old-shape tickets return 401 — acceptable given the 5-minute TTL.
+
 ## [main] Priority-3 AI listening pipeline — hardening + surfaces (2026-07-12)
 
 7-stage AI listening pipeline verified. Client-side hook (`useAudioStream`) and
