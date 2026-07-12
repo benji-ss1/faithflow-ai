@@ -243,7 +243,19 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const start = useCallback(async () => {
     intentionalStopRef.current = false;
     setState((s) => ({ ...s, error: null, stage: "idle", stageHistory: [], chunksSent: 0, dgMessagesReceived: 0 }));
-    const log = (stage: string, extra?: unknown) => console.log(`[presentflow-audio] ${stage}`, extra ?? "");
+    // PF_AI_TRACE gate: dev + localStorage("presentflow.aiTrace","1") enable numbered logs.
+    // Off in prod unless explicitly opted in so the demo console stays quiet.
+    const aiTraceOn = (() => {
+      try {
+        if (process.env.NODE_ENV !== "production") return true;
+        if (typeof localStorage !== "undefined" && localStorage.getItem("presentflow.aiTrace") === "1") return true;
+      } catch { /* ignore */ }
+      return false;
+    })();
+    const log = (stage: string, extra?: unknown) => {
+      if (!aiTraceOn) return;
+      console.log(`[ai-pipeline] ${stage}`, extra ?? "");
+    };
     try {
       setStage("requesting_ticket"); log("1 requesting ticket");
       const ticketRes = await fetch("/api/audio/ticket", {
