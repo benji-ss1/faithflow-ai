@@ -204,13 +204,10 @@ export default function LivestreamPage() {
           </div>
         </div>
       )}
-      {mode === "lower_third" && !lowerThird && slide.kind === "text" && (
-        <div className="absolute bottom-0 left-0 right-0 p-8">
-          <div className="bg-black/80 border-l-4 border-[color:var(--color-brand)] p-6 max-w-3xl">
-            <div className="text-white font-semibold text-3xl leading-tight whitespace-pre-line">{slide.text}</div>
-          </div>
-        </div>
-      )}
+      {/* Y2: In lower_third OBS mode we require an EXPLICIT `lowerThird`
+          payload. The previous fallback of rendering any text-kind slide
+          leaked song lyrics into the OBS overlay. Cleaner boundary: only
+          the operator's explicit lower-third string ever renders here. */}
 
       {showHelp && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/80 text-white text-xs px-3 py-2 rounded-md flex items-center gap-3 cursor-pointer pointer-events-auto"
