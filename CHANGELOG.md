@@ -1,5 +1,39 @@
 # Changelog
 
+## [main] Priority 10 — Present Flow Max tier scaffolding (2026-07-12)
+
+Pure UI + gating scaffolding for the Max tier. No payment processing, no
+real feature unlocks — just clean upgrade prompts in the right places
+linking out to the web billing portal.
+
+**New files**
+- `src/lib/tier.ts` — `Tier` type (`free` | `pilot` | `max`), `MAX_FEATURES`
+  set, `isMaxOnly`, `canAccess`, `dbTierToTier` (collapses the DB tier enum
+  `pilot | starter | pro | enterprise` into the UI bucket).
+- `src/hooks/useTier.ts` — client hook w/ in-memory SWR-lite cache.
+- `src/app/api/tier/route.ts` — auth-gated read of the church's
+  `subscriptions.tier` + status. Falls open to "free" on any error so the
+  UI never flashes privileged content.
+- `src/components/tier/MaxUpgradePrompt.tsx` — `card` and `modal` variants,
+  plus a `LockedTile` for the Themes premium grid. "Learn more" opens
+  `NEXT_PUBLIC_APP_URL/settings/billing` via `electronAPI.shell.openExternal`
+  on desktop, `window.open(..., "_blank", "noopener")` on web.
+- `test/tier.test.ts` — 21 invariants (feature-gate + DB tier mapping).
+
+**Wired into 3 surfaces**
+- Bible → Options → Bibles → Purchased sub-tab: card prompt for non-Max;
+  the existing "Activate Present Flow" placeholder is replaced.
+- Themes tab: new **Premium** section with Cinematic / Modern / Elegant /
+  Youth gradient tiles behind a lock icon; clicking opens the modal
+  variant. Max users see them unlocked but greyed-out.
+- TopBar ProContent icon: was a disabled `todo` button; now a Popover
+  showing the card prompt for non-Max, "Coming soon — Max content
+  marketplace" for Max.
+
+**Deferrals**
+- Real payment checkout is P7 scope (web admin portal /settings/billing).
+- No entitlement enforcement at server-action layer — UI scaffolding only.
+
 ## [main] Priority 9 — reviewer/security fixes (2026-07-12)
 
 Follow-up on the Priority 9 review agents: 2 red + 11 yellow findings closed.

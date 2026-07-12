@@ -1,3 +1,35 @@
+## Priority-10 Max tier scaffolding — judgement calls (2026-07-12)
+
+- **UI tier bucket ≠ DB tier enum**: DB stores
+  `pilot | starter | pro | enterprise` (see `subscriptionTierEnum`).
+  P10's spec asked for `free | pilot | max`. Chose to collapse rather than
+  migrate the enum: `pro`/`enterprise → max`, `pilot → pilot`,
+  `starter → free`. This keeps billing-actions.ts unchanged and lets us
+  rename later without ripping out gating. Documented in `src/lib/tier.ts`.
+
+- **`/api/tier` falls open to "free" on error, not 401**: the endpoint is
+  a UI hint only — real entitlement checks live in server actions once
+  billing is live. Returning `{ tier: "free" }` on auth failure keeps the
+  UI stable (renders the upgrade prompt instead of flashing privileged
+  content on a stale session). Documented in the route file's comment.
+
+- **In-memory cache in `useTier`, no revalidation**: kept it to SWR-lite
+  (module-scoped `cache` var + `inflight` de-dupe). Rationale: tier
+  changes are rare, this is UI hint only, and installing SWR/React Query
+  for one endpoint is overkill. `_resetTierCache()` is exported for logout
+  wiring later.
+
+- **Themes premium tiles use gradients, not real assets**: spec said
+  "mock premium theme thumbnails" — hardcoded 4 CSS gradients labelled
+  Cinematic / Modern / Elegant / Youth. When the real Max content
+  marketplace lands, swap the array for a fetch.
+
+- **ProContent icon converted from disabled button → Popover**: the
+  spec says "popover shows [prompt]" but the current TopBar had it as
+  a `todo` disabled IconBtn. Replaced with a Radix Popover that opens
+  regardless of tier (content differs). Kept the 8×8 icon layout so
+  the top bar rhythm is unchanged.
+
 ## Priority-9 review-agent fixes — judgement calls (2026-07-12)
 
 - **R1 chose the "best" impl, not the "simplest"**: the review offered
