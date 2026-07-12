@@ -346,10 +346,12 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
   }, [plan.items, autoSend]);
 
   useEffect(() => {
-    // Priority 4: the desktop shell uses the centralized useOperatorHotkeys
-    // hook mounted in ProOperatorShell — skip this legacy handler when the
-    // pro shell is active to avoid double-firing.
-    if (shell === "desktop") return;
+    // Priority 4 / Y4: the desktop shell uses the centralized
+    // useOperatorHotkeys hook mounted in ProOperatorShell. Only run this
+    // legacy handler when we're DEFINITELY on the web shell — a positive
+    // check protects against SSR flash / test harness where `shell` might
+    // be undefined and both handlers would otherwise fire.
+    if (shell !== "web") return;
     function onKey(e: KeyboardEvent) {
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
