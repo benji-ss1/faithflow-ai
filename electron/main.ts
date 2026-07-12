@@ -185,7 +185,23 @@ function installApplicationMenu() {
           click: () => {
             if (!mainWindow) return;
             mainWindow.show();
-            try { mainWindow.webContents.send("shell:open-shortcuts-help"); } catch { /* noop */ }
+            const wc = mainWindow.webContents;
+            const send = () => {
+              try { wc.send("shell:open-shortcuts-help"); } catch { /* noop */ }
+            };
+            // Y3: if the renderer is still loading, the IPC event is
+            // dropped before any listener is attached. Queue it on
+            // did-finish-load and also fire a delayed retry to cover the
+            // gap between load and React effect mount.
+            if (wc.isLoading()) {
+              wc.once("did-finish-load", () => {
+                send();
+                setTimeout(send, 500);
+              });
+            } else {
+              send();
+              setTimeout(send, 500);
+            }
           },
         },
         { type: "separator" as const },
