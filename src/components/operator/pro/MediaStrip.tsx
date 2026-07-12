@@ -5,7 +5,7 @@ export function MediaStrip() {
   return (
     <div className="h-[140px] shrink-0 border-t border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col">
       <div className="h-6 px-3 flex items-center gap-1 text-[11px] text-[var(--color-muted-foreground)] border-b border-[var(--color-border)]">
-        <span>Playlists</span>
+        <button className="hover:text-[var(--color-foreground)]" title="All playlists">Playlists</button>
         <ChevronRight className="w-3 h-3" />
         <span>Playlist</span>
       </div>
@@ -14,14 +14,15 @@ export function MediaStrip() {
           <div
             key={i}
             data-todo="1"
-            className="shrink-0 w-[160px] h-[90px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] flex items-center justify-center text-[11px] text-[var(--color-muted-foreground)]"
+            title="Media browser strip — coming soon (use the Media mode above)"
+            className="shrink-0 w-[160px] h-[90px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] flex items-center justify-center text-[11px] text-[var(--color-muted-foreground)] opacity-70"
           >
             {i === 0 ? "Input 1" : "Media"}
           </div>
         ))}
       </div>
       <div className="h-6 px-3 flex items-center justify-end text-[10px] text-[var(--color-muted-foreground)] border-t border-[var(--color-border)]">
-        <button data-todo="1">Filter</button>
+        <button data-todo="1" title="Filter — coming soon" disabled className="opacity-50 cursor-not-allowed">Filter</button>
       </div>
     </div>
   );
