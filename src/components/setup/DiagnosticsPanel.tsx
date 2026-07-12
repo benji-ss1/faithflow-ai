@@ -62,13 +62,16 @@ export function DiagnosticsPanel() {
         "Deploy the Fly.io audio bridge (`./scripts/deploy.sh audio`) and set NEXT_PUBLIC_AUDIO_WS_URL."),
       runAudioInputs(guard, setOne, "audioInputs"),
       runDisplays(guard, setOne, "displays"),
-      runFetch("ai", "/api/ai/helpers/improve_readability", async (r) => {
+      // Y8: presence-only Groq key check via /api/health/ai. Previous impl
+      // called the real improve_readability endpoint on every refresh, which
+      // spent a Groq completion just to probe key presence.
+      runFetch("ai", "/api/health/ai", async (r) => {
         const j = await r.json().catch(() => ({}));
         if (j.ok) return "ok";
         if (j.code === "MISSING_API_KEY") return "warn";
         return "fail";
       }, "Set GROQ_API_KEY on Vercel. Cards show a graceful disabled state without it.",
-        { method: "POST", body: JSON.stringify({ text: "diagnostic ping" }), headers: { "Content-Type": "application/json" } },
+        undefined,
         guard, setOne),
       runRealtime(guard, setOne, "realtime",
         "Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY. Realtime is optional — same-machine BroadcastChannel still works without it."),
@@ -173,12 +176,20 @@ async function runAudioInputs(guard: Guard, setOne: SetOne, key: string) {
       guard(() => setOne(key, { state: "warn", detail: "This browser doesn't expose mediaDevices.enumerateDevices." }));
       return;
     }
+    // Y6: in the desktop shell, `navigator.mediaDevices` is pre-authorised
+    // (electron/main.ts setPermissionRequestHandler grants media). In a plain
+    // browser tab, enumerateDevices returns entries with EMPTY labels and can
+    // under-report count until the user has granted mic permission at least
+    // once. We can detect the browser case by checking whether we're inside
+    // the Electron shell (electronAPI is injected by preload).
+    const inShell = typeof window !== "undefined" && !!(window as Window & { electronAPI?: unknown }).electronAPI;
     const devices = await navigator.mediaDevices.enumerateDevices();
     const inputs = devices.filter((d) => d.kind === "audioinput");
+    const browserNote = inShell ? "" : " (Browser mode: enable mic permission to see full device list.)";
     if (inputs.length === 0) {
-      guard(() => setOne(key, { state: "fail", detail: "No audio input devices detected. Plug in a microphone or USB interface." }));
+      guard(() => setOne(key, { state: "fail", detail: `No audio input devices detected. Plug in a microphone or USB interface.${browserNote}` }));
     } else {
-      guard(() => setOne(key, { state: "ok", detail: `${inputs.length} audio input${inputs.length === 1 ? "" : "s"} detected.` }));
+      guard(() => setOne(key, { state: "ok", detail: `${inputs.length} audio input${inputs.length === 1 ? "" : "s"} detected.${browserNote}` }));
     }
   } catch (e) {
     guard(() => setOne(key, { state: "fail", detail: e instanceof Error ? e.message : "Enumerate failed." }));
@@ -214,6 +225,14 @@ async function runRealtime(guard: Guard, setOne: SetOne, key: string, hint: stri
     return;
   }
   try {
+    // Y9: HEAD to /rest/v1/ is a reachability probe, NOT an auth probe.
+    // Supabase returns 401 without an apikey header, which is still a
+    // healthy signal — it proves the PostgREST edge is up and speaking
+    // HTTP. We don't send the anon key here (a) to avoid pulling it into
+    // the panel's client bundle and (b) because we only care about
+    // "the host responded" vs "the host is down or DNS failed". A 5xx or
+    // network error is the only genuine fail. Do NOT change this to a
+    // GET or bake the anon key in without revisiting the intent.
     const r = await fetch(url + "/rest/v1/", { method: "HEAD" });
     const state: CheckState = r.status < 500 ? "ok" : "fail";
     guard(() => setOne(key, { state, detail: state !== "ok" ? hint : undefined }));
