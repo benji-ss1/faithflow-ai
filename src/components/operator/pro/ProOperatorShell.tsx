@@ -47,6 +47,67 @@ export type CenterMode = "slides" | "bible" | "songs" | "media";
 const MEDIA_STRIP_KEY = "presentflow.pro.mediaStripOpen";
 const SLIDE_SIZE_KEY = "presentflow.pro.slideSize";
 
+/**
+ * Compact transcript + AI detection strip pinned above BottomBar.
+ * Shows last ~120 chars of transcript (rolling), + up to 3 latest scripture
+ * detections as small verse chips with an "AI" badge and confidence %.
+ * Hidden entirely when AI listener is idle to keep the shell clean.
+ */
+function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
+  const audio = ctx.audio;
+  if (!audio.listening && !audio.error && audio.transcript.length === 0) return null;
+
+  const last = audio.transcript.slice(-3).map((t) => t.text).join(" ");
+  const shown = audio.interim
+    ? `${last} ${audio.interim}`.slice(-140)
+    : last.slice(-140);
+
+  const scriptureCards = audio.suggestions
+    .filter((s) => s.type === "scripture" && s.confidence >= (ctx.confidenceThreshold ?? 50))
+    .slice(0, 3);
+
+  return (
+    <div
+      className="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-1.5 flex items-center gap-3 min-h-[32px]"
+      data-testid="ai-transcript-ticker"
+    >
+      {audio.error ? (
+        <span className="text-[11px] font-medium text-[var(--color-destructive)] truncate">
+          {audio.error}
+        </span>
+      ) : (
+        <span className="text-[11px] text-[var(--color-muted-foreground)] truncate flex-1 font-mono">
+          {shown || (audio.listening ? "Listening…" : "")}
+        </span>
+      )}
+      {scriptureCards.length > 0 && (
+        <div className="flex items-center gap-1.5 shrink-0">
+          {scriptureCards.map((s) => {
+            if (s.type !== "scripture") return null;
+            const ref = `${s.ref.book} ${s.ref.chapter}:${s.ref.verseStart}${s.ref.verseEnd !== s.ref.verseStart ? `-${s.ref.verseEnd}` : ""}`;
+            return (
+              <div
+                key={s.id}
+                title={`${ref} (${s.confidence}%)`}
+                className="relative flex items-center gap-1 px-2 py-0.5 rounded border border-[var(--color-brand)] bg-[var(--color-elevated)] text-[11px]"
+              >
+                <span className="font-semibold">{ref}</span>
+                <span className="text-[9px] font-mono opacity-60">{s.confidence}%</span>
+                <span
+                  className="ml-1 text-[8px] font-bold px-1 py-[1px] rounded bg-[var(--color-success,#10b981)] text-white"
+                  aria-label="AI detected"
+                >
+                  AI
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const [centerMode, setCenterMode] = useState<CenterMode>("slides");
   const [mediaStripOpen, setMediaStripOpen] = useState(true);
@@ -120,6 +181,8 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           </div>
         </aside>
       </div>
+
+      <AITranscriptTicker ctx={ctx} />
 
       <BottomBar
         ctx={ctx}
