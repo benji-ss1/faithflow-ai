@@ -1,6 +1,7 @@
 "use client";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { toast } from "sonner";
 import {
@@ -14,7 +15,10 @@ import {
   authCtaStyle,
 } from "@/components/auth/AuthShell";
 
-export default function LoginPage() {
+function LoginForm() {
+  const searchParams = useSearchParams();
+  const nextParam = searchParams.get("next");
+  const reason = searchParams.get("reason");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -28,19 +32,31 @@ export default function LoginPage() {
       toast.error("Invalid credentials");
       return;
     }
-    // Route through the root so middleware + page.tsx pick the right shell.
-    // Desktop → /operator, web → /dashboard.
-    window.location.href = "/";
+    // Prefer explicit next=… (guards against open-redirect: must be a
+    // same-origin path). Otherwise route through the root so middleware +
+    // page.tsx pick the right shell.
+    const dest = nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "/";
+    window.location.href = dest;
   }
 
   return (
-    <AuthShell>
+    <>
       <AuthHeader
         eyebrow="Welcome back"
         heading="Sign in to"
         showBrandInHeading
         sub="Pick up right where your last service left off."
       />
+
+      {reason === "session_expired" ? (
+        <div
+          role="status"
+          className="mb-4 rounded-lg border px-3 py-2 text-[12.5px]"
+          style={{ borderColor: "rgba(255, 144, 72, 0.35)", background: "rgba(255, 144, 72, 0.08)", color: "#ff9048" }}
+        >
+          You were signed out. Sign back in to return to your live plan.
+        </div>
+      ) : null}
 
       <form onSubmit={onSubmit}>
         <div className="mb-4">
@@ -95,6 +111,16 @@ export default function LoginPage() {
           Demo login: operator@demo.church / operator123
         </div>
       </form>
+    </>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <AuthShell>
+      <Suspense fallback={null}>
+        <LoginForm />
+      </Suspense>
     </AuthShell>
   );
 }

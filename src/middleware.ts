@@ -6,10 +6,11 @@ const PUBLIC_PATHS = [
   "/live", "/stage", "/livestream", "/api/auth", "/api/health", "/api/stripe",
 ];
 
-// Routes the desktop shell is allowed to render. Anything not on this list
-// (and not a public path) gets sent to /operator so admin surfaces stay
-// exclusive to the web portal on Vercel.
-const DESKTOP_ALLOWED_PREFIXES = [
+// Non-API surfaces the desktop shell is allowed to render. Admin surfaces
+// (dashboard, organization, analytics, subscriptions, applications, products,
+// team, profile, archive, invitations) stay off the desktop even though they
+// exist in the codebase for the Vercel web build.
+const DESKTOP_ALLOWED_PAGE_PREFIXES = [
   "/operator",
   "/services",           // includes /services/[id]/operate
   "/library",            // songs, bible, media, imports, themes
@@ -18,10 +19,40 @@ const DESKTOP_ALLOWED_PREFIXES = [
   "/help",               // first-sunday playbook etc.
   "/settings",           // gated by page-level shell scoping
   "/onboarding",
-  "/api",                // server actions + api routes
   "/_next",
   "/favicon",
 ];
+
+// API prefixes the desktop shell is allowed to call. Explicit, not `/api`.
+// Every prefix here must correspond to an operator-inline surface (content,
+// media, real-time detection helpers, health/diagnostics). Admin-only APIs
+// (billing, team, org, analytics, invitations, subscriptions, onboarding org
+// mutations) must NOT appear here — they return 403 to a desktop shell.
+//
+// /api/auth and /api/health are also in PUBLIC_PATHS but re-listed here so
+// the intent is explicit and doesn't rely on public-path ordering.
+const DESKTOP_ALLOWED_API_PREFIXES = [
+  "/api/auth",         // NextAuth handler
+  "/api/health",       // diagnostics
+  "/api/ai",           // detection helpers used inline by operator
+  "/api/audio",        // audio streaming/bridge
+  "/api/autopilot",    // operator autopilot toggles
+  "/api/bible",        // scripture lookups
+  "/api/imports",      // parse endpoints
+  "/api/library",      // (defensive — not currently present)
+  "/api/media",        // uploads used by import surfaces
+  "/api/pptx",         // pptx parse
+  "/api/realtime",     // (defensive — not currently present)
+  "/api/search",       // song/scripture search
+  "/api/sermon",       // sermon/match helpers
+  "/api/services",     // (defensive — not currently present)
+  "/api/songs",        // song lookup
+  "/api/themes",       // theme metadata
+];
+
+// Operator "live plan" routes we want to preserve across session expiry so
+// re-auth returns the operator right where they were.
+const OPERATOR_ROUTE_MATCH = /^\/(operator|services\/[^/]+\/operate)(?:$|\/)/;
 
 function isDesktopShell(req: NextRequest): boolean {
   if (req.headers.get("x-pf-shell") === "desktop") return true;
@@ -31,7 +62,10 @@ function isDesktopShell(req: NextRequest): boolean {
 
 function desktopPathAllowed(pathname: string): boolean {
   if (pathname === "/operator") return true;
-  return DESKTOP_ALLOWED_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
+  if (pathname.startsWith("/api/")) {
+    return DESKTOP_ALLOWED_API_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
+  }
+  return DESKTOP_ALLOWED_PAGE_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
 
 export async function middleware(req: NextRequest) {
@@ -59,10 +93,26 @@ export async function middleware(req: NextRequest) {
     cookieName,
     secureCookie,
   });
-  if (!token) return NextResponse.redirect(new URL("/login", req.url));
-
   const desktop = isDesktopShell(req) || setShellCookie;
+
+  if (!token) {
+    // Desktop-shell session expiry mid-service: preserve the operator route
+    // so re-auth lands them back on the same live plan.
+    if (desktop && OPERATOR_ROUTE_MATCH.test(pathname)) {
+      const url = req.nextUrl.clone();
+      url.pathname = "/login";
+      url.search = `?next=${encodeURIComponent(pathname)}&reason=session_expired`;
+      return NextResponse.redirect(url);
+    }
+    return NextResponse.redirect(new URL("/login", req.url));
+  }
+
   if (desktop && !desktopPathAllowed(pathname)) {
+    // API surfaces get a JSON 403 so client fetches surface a clear error
+    // rather than the HTML of the operator landing page.
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "not available in desktop shell" }, { status: 403 });
+    }
     const url = req.nextUrl.clone();
     url.pathname = "/operator";
     url.search = "";
