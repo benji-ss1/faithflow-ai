@@ -81,11 +81,65 @@ async function getDefaultTranslationId(churchId: string): Promise<string | null>
   return (await getPrefs(churchId)).defaultTranslationId;
 }
 
-function verifyTicket(planId: string, churchId: string, exp: string, sig: string): boolean {
-  if (!planId || !churchId || !exp || !sig) return false;
-  if (Date.now() > Number(exp)) return false;
-  const expected = crypto.createHmac("sha256", TICKET_SECRET!).update(`${planId}|${churchId}|${exp}`).digest("hex");
-  try { return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected)); } catch { return false; }
+// Y4: replay guard — a ticket sig is single-use within its exp window.
+// Map<sig, expMs>. Cleaned opportunistically when new sigs arrive.
+const usedTicketSigs = new Map<string, number>();
+function pruneUsedSigs() {
+  const now = Date.now();
+  for (const [s, e] of usedTicketSigs) if (now > e) usedTicketSigs.delete(s);
+}
+
+// Y9: sig must be a lowercase-hex sha256 → exactly 64 chars.
+function isValidSigFormat(sig: string): boolean {
+  return typeof sig === "string" && sig.length === 64 && /^[0-9a-f]+$/i.test(sig);
+}
+
+function verifyTicket(planId: string, churchId: string, userId: string, exp: string, sig: string): boolean {
+  if (!planId || !churchId || !userId || !exp || !sig) return false;
+  if (!isValidSigFormat(sig)) return false;
+  const expMs = Number(exp);
+  if (!Number.isFinite(expMs) || Date.now() > expMs) return false;
+  // Y5: include userId in HMAC payload.
+  const expected = crypto.createHmac("sha256", TICKET_SECRET!).update(`${planId}|${churchId}|${userId}|${exp}`).digest("hex");
+  let ok = false;
+  try { ok = crypto.timingSafeEqual(Buffer.from(sig, "hex"), Buffer.from(expected, "hex")); } catch { return false; }
+  if (!ok) return false;
+  // Y4: reject replayed sigs.
+  pruneUsedSigs();
+  if (usedTicketSigs.has(sig)) return false;
+  usedTicketSigs.set(sig, expMs);
+  return true;
+}
+
+// Y8: WS origin allowlist. Electron file:// sends no Origin (or "null").
+const ORIGIN_ALLOWLIST = new Set<string>([
+  "https://presentflow.app",
+  ...(process.env.EXTRA_ALLOWED_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean),
+]);
+function isOriginAllowed(origin: string | undefined): boolean {
+  // Electron file:// packaged app: no Origin header, or literal "null".
+  if (!origin || origin === "null") return true;
+  if (ORIGIN_ALLOWLIST.has(origin)) return true;
+  // Dev: any localhost port.
+  try {
+    const u = new URL(origin);
+    if (u.hostname === "localhost" || u.hostname === "127.0.0.1") return true;
+  } catch { /* ignore */ }
+  return false;
+}
+
+// Y10: per-IP connection rate limit (single-instance in-memory Map — matches
+// current Fly deployment). N connections per 60s window.
+const RATE_LIMIT_N = Number(process.env.AUDIO_WS_RATE_LIMIT || 10);
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const rateLimitBuckets = new Map<string, number[]>();
+function rateLimitOk(ip: string): boolean {
+  const now = Date.now();
+  const arr = (rateLimitBuckets.get(ip) || []).filter((t) => now - t < RATE_LIMIT_WINDOW_MS);
+  if (arr.length >= RATE_LIMIT_N) { rateLimitBuckets.set(ip, arr); return false; }
+  arr.push(now);
+  rateLimitBuckets.set(ip, arr);
+  return true;
 }
 
 type ClientMessage =
@@ -106,16 +160,28 @@ const httpServer = http.createServer((_req, res) => {
   res.end("PresentFlow audio bridge OK\n");
 });
 
-const wss = new WebSocketServer({ server: httpServer });
+const wss = new WebSocketServer({
+  server: httpServer,
+  // Y8: origin allowlist enforced during the upgrade handshake.
+  verifyClient: (info, cb) => {
+    const origin = info.origin as string | undefined;
+    if (!isOriginAllowed(origin)) return cb(false, 403, "Origin not allowed");
+    // Y10: per-IP rate limit.
+    const ip = (info.req.socket?.remoteAddress || "unknown").replace(/^::ffff:/, "");
+    if (!rateLimitOk(ip)) return cb(false, 429, "Too many connections");
+    cb(true);
+  },
+});
 
 wss.on("connection", async (ws: WebSocket, req) => {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
   const planId = url.searchParams.get("planId") || "";
   const churchId = url.searchParams.get("churchId") || "";
+  const userId = url.searchParams.get("userId") || "";
   const exp = url.searchParams.get("exp") || "";
   const sig = url.searchParams.get("sig") || "";
 
-  if (!verifyTicket(planId, churchId, exp, sig)) { ws.close(4001, "Invalid ticket"); return; }
+  if (!verifyTicket(planId, churchId, userId, exp, sig)) { ws.close(4001, "Invalid ticket"); return; }
 
   const [plan] = await db.select().from(servicePlans).where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, churchId))).limit(1);
   if (!plan) { ws.close(4004, "Unknown plan"); return; }
@@ -163,7 +229,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
     let data: { type?: string; is_final?: boolean; channel?: { alternatives?: { transcript?: string }[] } };
     try { data = JSON.parse(raw.toString()); } catch { return; }
     if (dgMessages === 1 || dgMessages % 20 === 0) {
-      console.log(`[audio] dg msg #${dgMessages} type=${data.type ?? "?"} final=${data.is_final ?? "?"} text="${(data.channel?.alternatives?.[0]?.transcript ?? "").slice(0, 40)}"`);
+      // Y7: gate transcript slice behind DEBUG in prod so transcripts don't
+      // leak into audio-bridge logs.
+      const debugOn = process.env.DEBUG === "1" || process.env.NODE_ENV !== "production";
+      const slice = debugOn ? ` text="${(data.channel?.alternatives?.[0]?.transcript ?? "").slice(0, 40)}"` : "";
+      console.log(`[audio] dg msg #${dgMessages} type=${data.type ?? "?"} final=${data.is_final ?? "?"}${slice}`);
     }
     if (data.type !== "Results") return;
     const text = data.channel?.alternatives?.[0]?.transcript?.trim();
