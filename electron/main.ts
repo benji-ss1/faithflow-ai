@@ -145,9 +145,28 @@ async function startNextServer(): Promise<string> {
 // live on the web build and stay out of the desktop chrome by design.
 function installApplicationMenu() {
   const openHelp = (path: string) => {
+    // Y10: Help menu items were calling shell.openExternal directly, bypassing
+    // the shell:openExternal IPC handler's allowlist. If NEXT_PUBLIC_APP_URL
+    // gets misconfigured (e.g., someone points it at a staging host that later
+    // expires and gets squatted), we would happily open the malicious URL.
+    // Validate against the same static safe host list the IPC handler uses.
     const base = process.env.NEXT_PUBLIC_APP_URL || "https://presentflow.app";
-    // Guard against host mismatches — openExternal enforces its own allowlist.
-    void shell.openExternal(base.replace(/\/$/, "") + path).catch(() => { /* noop */ });
+    let u: URL;
+    try {
+      u = new URL(base.replace(/\/$/, "") + path);
+    } catch {
+      console.warn(`[menu] openHelp rejected: unparseable url from base=${base} path=${path}`);
+      return;
+    }
+    if (u.protocol !== "https:" && u.protocol !== "http:") {
+      console.warn(`[menu] openHelp rejected: protocol ${u.protocol}`);
+      return;
+    }
+    if (!isStaticSafeHost(u.hostname)) {
+      console.warn(`[menu] openHelp rejected: hostname ${u.hostname} not in static safe list`);
+      return;
+    }
+    void shell.openExternal(u.toString()).catch(() => { /* noop */ });
   };
   const isMac = process.platform === "darwin";
   const template: Electron.MenuItemConstructorOptions[] = [
