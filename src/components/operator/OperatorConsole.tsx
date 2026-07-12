@@ -4,7 +4,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { ArrowLeft, ChevronLeft, ChevronRight, Monitor, Radio, Square, Sun, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { openLiveChannel, safePost, type SlidePayload, type LiveMessage, type OutputState } from "@/lib/broadcast";
+import { openLiveChannel, safePost, isValidMessageOverlay, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
 import { openOutputChannel } from "@/lib/realtime";
 import { SyncControl } from "./SyncControl";
 import type { ExpandedPlan, ExpandedItem } from "@/lib/server/services";
@@ -189,10 +189,13 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
   const rtRef = useRef<ReturnType<typeof openOutputChannel> | null>(null);
   const lastOutputStateRef = useRef<OutputState | null>(null);
   const [pairCode, setPairCode] = useState<string | null>(null);
+  const churchIdForChannel = (plan as unknown as { churchId?: string }).churchId ?? "";
   useEffect(() => {
     if (rtRef.current) { try { rtRef.current.close(); } catch { /* ignore */ } rtRef.current = null; }
     if (pairCode) {
-      rtRef.current = openOutputChannel(pairCode);
+      // Y8: church-scoped channel prevents cross-tenant leakage when two
+      // churches happen to mint the same 6-char code.
+      rtRef.current = openOutputChannel(pairCode, churchIdForChannel);
       rtRef.current.subscribe(() => { /* publisher only */ });
       // Snapshot provider: when a late/reconnecting projector joins the
       // channel it fires snapshot_request; we replay the last OutputState
@@ -202,7 +205,7 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
     return () => {
       if (rtRef.current) { try { rtRef.current.close(); } catch { /* ignore */ } rtRef.current = null; }
     };
-  }, [pairCode]);
+  }, [pairCode, churchIdForChannel]);
   const publishRealtime = useCallback((state: OutputState) => {
     if (!rtRef.current) return;
     void rtRef.current.publish(state);
@@ -846,7 +849,24 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
   const previewSlideInfo = plan.items[preview.itemIdx]
     ? `Item ${preview.itemIdx + 1}/${plan.items.length} · Slide ${preview.slideIdx + 1}/${plan.items[preview.itemIdx].slides.length}`
     : "";
-  const liveItemIdx = plan.items.findIndex((it) => it.slides.some((s) => JSON.stringify(s) === JSON.stringify(live)));
+  // Y6: memoize liveItemIdx. Previously computed `JSON.stringify(s) === JSON.stringify(live)`
+  // for every slide of every item on every render. With plan-level identity as
+  // the trigger and a stable liveKey we recompute only when actually needed.
+  const liveKey = useMemo(() => {
+    try { return JSON.stringify(live); } catch { return ""; }
+  }, [live]);
+  const liveItemIdx = useMemo(() => {
+    if (!liveKey) return -1;
+    for (let i = 0; i < plan.items.length; i++) {
+      const slides = plan.items[i].slides;
+      for (let j = 0; j < slides.length; j++) {
+        // Cheap kind check first — skip stringify on obvious mismatches.
+        if (slides[j].kind !== live.kind) continue;
+        try { if (JSON.stringify(slides[j]) === liveKey) return i; } catch { /* continue */ }
+      }
+    }
+    return -1;
+  }, [plan.items, live.kind, liveKey]);
 
   // Phase 5C: build ctx bag for the new operator shell
   const sendLowerThird = useCallback((line1: string, line2: string) => {
@@ -871,12 +891,47 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
    * a persistent livestream/name-strip element) so operators can use both
    * at once without one clobbering the other.
    */
+  // R2: operator-side "message live" state so we can render a badge showing
+  // exactly what's currently pinned on the projector, with a one-click Hide.
+  const [activeMessage, setActiveMessage] = useState<{ text: string; expiresAt: number | null } | null>(null);
+  const activeMessageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendMessage = useCallback((text: string, dismissAfterMs?: number | null) => {
-    safePost(chRef.current, { type: "message", overlay: { text, dismissAfterMs: dismissAfterMs ?? null } });
+    const overlay: MessageOverlay = { text, dismissAfterMs: dismissAfterMs ?? null };
+    // Y7: validate before sending so a malformed operator payload never
+    // reaches the wire (or the local badge state).
+    if (!isValidMessageOverlay(overlay)) {
+      toast.error("Message rejected — text length or timer out of bounds");
+      return;
+    }
+    safePost(chRef.current, { type: "message", overlay });
+    // Y5: fan out to remote paired projectors via realtime. Embedded into
+    // OutputState so subscribers on the current channel API pick it up
+    // without needing a new event type on the wire.
+    if (rtRef.current && lastOutputStateRef.current) {
+      const embedded: OutputState = { ...lastOutputStateRef.current, operatorMessage: text };
+      void rtRef.current.publish(embedded);
+    }
+    const expiresAt = typeof dismissAfterMs === "number" && dismissAfterMs > 0 ? Date.now() + dismissAfterMs : null;
+    setActiveMessage({ text, expiresAt });
+    if (activeMessageTimerRef.current) { clearTimeout(activeMessageTimerRef.current); activeMessageTimerRef.current = null; }
+    if (expiresAt) {
+      activeMessageTimerRef.current = setTimeout(() => setActiveMessage(null), Math.max(0, expiresAt - Date.now()));
+    }
     toast.success("Message shown on projector");
   }, []);
   const clearMessage = useCallback(() => {
     safePost(chRef.current, { type: "message", overlay: { clear: true } });
+    if (rtRef.current && lastOutputStateRef.current) {
+      const embedded: OutputState = { ...lastOutputStateRef.current, operatorMessage: null };
+      void rtRef.current.publish(embedded);
+    }
+    if (activeMessageTimerRef.current) { clearTimeout(activeMessageTimerRef.current); activeMessageTimerRef.current = null; }
+    setActiveMessage(null);
+  }, []);
+  useEffect(() => {
+    return () => {
+      if (activeMessageTimerRef.current) { clearTimeout(activeMessageTimerRef.current); activeMessageTimerRef.current = null; }
+    };
   }, []);
 
   const startCountdown = useCallback((seconds: number) => {
@@ -1012,8 +1067,24 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
 
   return (
     <>
-      <div className="fixed top-2 right-3 z-40">
-        <SyncControl planId={plan.id} onCodeChange={setPairCode} />
+      <div className="fixed top-2 right-3 z-40 flex items-center gap-2">
+        {/* R2: persistent "Message live" indicator so the operator can't
+            forget a pinned overlay is still up (dismissAfterMs=null case). */}
+        {activeMessage && (
+          <div className="flex items-center gap-2 px-2 py-1 rounded border border-amber-400/50 bg-amber-500/10 text-amber-200 text-[11px] font-semibold max-w-[420px]">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-300 animate-pulse" />
+            <span className="uppercase tracking-widest text-[9px] text-amber-300/80">Msg</span>
+            <span className="truncate" title={activeMessage.text}>{activeMessage.text}</span>
+            <button
+              type="button"
+              onClick={clearMessage}
+              className="ml-1 px-1.5 py-0.5 rounded border border-amber-300/40 text-amber-100 hover:bg-amber-400/20 text-[10px] font-bold uppercase tracking-wider"
+            >
+              Hide
+            </button>
+          </div>
+        )}
+        <SyncControl planId={plan.id} churchId={churchIdForChannel} onCodeChange={setPairCode} />
       </div>
       {/* R3: Desktop shell = ProOperatorShell; web keeps the legacy OperatorShell. */}
       {shell === "desktop" ? <ProOperatorShell ctx={shellCtx} /> : <OperatorShell ctx={shellCtx} />}
