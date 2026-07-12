@@ -55,6 +55,8 @@ export type OutputState = {
   // Phase 5D-2 additions (all optional, additive)
   announcement?: AnnouncementPayload | null;
   transition?: TransitionSpec | null;
+  // P5 additions — stage "NEXT" preview metadata (playlist item title + type)
+  nextItem?: { title: string; type: string } | null;
 };
 
 /**
@@ -201,7 +203,22 @@ export function isValidOutputStateExternal(s: unknown): s is OutputState {
   return isValidOutputState(s);
 }
 
-function isValidOutputState(s: unknown): s is OutputState {
+// P5: bounds for countdown target — sanity-cap 24h into the future so a
+// malformed / hostile payload can't schedule a runaway countdown target far
+// enough out to overflow numeric math in the stage renderer.
+const MAX_COUNTDOWN_FUTURE_MS = 24 * 60 * 60 * 1000;
+
+function isValidNextItem(n: unknown): boolean {
+  if (n === null) return true;
+  if (!n || typeof n !== "object") return false;
+  if (hasPollutionKey(n)) return false;
+  const p = n as Record<string, unknown>;
+  if (typeof p.title !== "string" || p.title.length === 0 || p.title.length > 500) return false;
+  if (typeof p.type !== "string" || p.type.length === 0 || p.type.length > 64) return false;
+  return true;
+}
+
+export function isValidOutputState(s: unknown): s is OutputState {
   if (!s || typeof s !== "object") return false;
   if (hasPollutionKey(s)) return false;
   const st = s as Record<string, unknown>;
@@ -210,7 +227,34 @@ function isValidOutputState(s: unknown): s is OutputState {
   if (typeof st.aspectRatio !== "string" || !ALLOWED_ASPECT.has(st.aspectRatio)) return false;
   if (st.announcement != null && !isValidAnnouncement(st.announcement)) return false;
   if (st.lowerThird !== undefined && !isValidLowerThird(st.lowerThird)) return false;
+  if (st.countdownEndsAt !== undefined && st.countdownEndsAt !== null) {
+    const c = st.countdownEndsAt;
+    if (typeof c !== "number" || !Number.isFinite(c) || c <= 0) return false;
+    // Must be a plausible future epoch: no more than 24h ahead of now.
+    if (c > Date.now() + MAX_COUNTDOWN_FUTURE_MS) return false;
+  }
+  if (st.nextItem !== undefined && !isValidNextItem(st.nextItem)) return false;
   return true;
+}
+
+/**
+ * Build a Livestream output URL with optional OBS-friendly overlay mode.
+ * Kept as a pure string helper so it can be exercised in tests without
+ * pulling in Electron/`window`.
+ */
+export function livestreamUrl(
+  role: string,
+  appUrl: string,
+  opts?: { obs?: "lowerthird" | "full" }
+): string {
+  const params = new URLSearchParams();
+  if (opts?.obs === "lowerthird") params.set("obs", "lowerthird");
+  const qs = params.toString();
+  const base = `${appUrl}/livestream`;
+  // `role` is currently informational — kept in the signature to match the
+  // scope contract and future-proof for role→path mapping changes.
+  void role;
+  return qs ? `${base}?${qs}` : base;
 }
 
 const CHANNEL = "presentflow-live";
@@ -249,4 +293,5 @@ export const EMPTY_OUTPUT: OutputState = {
   countdownEndsAt: null,
   announcement: null,
   transition: null,
+  nextItem: null,
 };
