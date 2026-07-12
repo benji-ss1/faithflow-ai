@@ -105,7 +105,7 @@ export function OnboardingWizard({
         toast.error(res.error);
         return;
       }
-      router.push("/dashboard");
+      router.push("/onboarding/download");
     });
   }
 
