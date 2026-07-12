@@ -16,7 +16,8 @@
  *   │  MediaStrip (140px, collapsible)                         │
  *   └──────────────────────────────────────────────────────────┘
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import type { OperatorShellCtx } from "../shell/types";
 import { TopBar } from "./TopBar";
 import { LibrarySection } from "./left/LibrarySection";
@@ -116,6 +117,9 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const [mediaStripOpen, setMediaStripOpen] = useState(true);
   const [slideSize, setSlideSize] = useState(160);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
+  // Y2: debounce Safe Mode "swallowed Enter" toast to once per 3s so a stuck
+  // Enter key doesn't spam the operator.
+  const lastSafeToastRef = useRef(0);
 
   useEffect(() => {
     try {
@@ -190,6 +194,14 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         return raw !== "0"; // default ON
       } catch { return true; }
     },
+    onSafeModeSwallowed: () => {
+      // Y2: debounce to once per 3s. Warns the operator that Enter didn't
+      // send-live and points at the escape hatch (Shift+Enter).
+      const now = Date.now();
+      if (now - lastSafeToastRef.current < 3000) return;
+      lastSafeToastRef.current = now;
+      toast.info("Safe Mode on — press Shift+Enter to send live, or toggle Safe Mode in Settings");
+    },
     isSlideJumpEnabled: () => {
       // Only fire 1-9 when a playlist item with slides is selected AND we're
       // in the default slide grid (not Bible / Songs / Media browsers).
@@ -197,7 +209,6 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       const item = ctx.plan.items[ctx.previewItemIdx];
       return !!(item && item.slides.length > 0);
     },
-    isModalOpen: () => shortcutsHelpOpen,
   });
 
   // Electron Help > Keyboard Shortcuts — main sends IPC, we open the overlay.

@@ -7,13 +7,21 @@
  *
  * The key-decode is extracted as a PURE function (`decodeShortcut`) so it can
  * be unit-tested without a browser (see test/keyboard-shortcuts.test.ts).
+ *
+ * ProOperatorShell canonical center-mode values are:
+ *   "slides" | "bible" | "songs" | "media"
+ * The decoder emits `"playlist-mode"` for the Cmd/Ctrl+P shortcut, which the
+ * shell aliases to `"slides"` (see ProOperatorShell.onSetCenterMode). Kept
+ * the name `playlist-mode` for continuity with the shortcut card + Cmd+P
+ * mnemonic ("Playlist").
  */
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 export type ShortcutAction =
   | { kind: "next" }
   | { kind: "prev" }
   | { kind: "send-live" }
+  | { kind: "send-live-force" } // Shift+Enter — bypasses Safe Mode
   | { kind: "kill-live" }
   | { kind: "blank" }
   | { kind: "logo" }
@@ -21,13 +29,15 @@ export type ShortcutAction =
   | { kind: "bible-mode" }
   | { kind: "media-mode" }
   | { kind: "songs-mode" }
-  | { kind: "playlist-mode" }
+  | { kind: "playlist-mode" } // aliased to "slides" by ProOperatorShell
   | { kind: "jump-slide"; index: number } // 0-based slide index
   | { kind: "open-help" };
 
 /**
  * Pure predicate: should this event be ignored because the user is typing?
- * Matches Radix / native form controls and any contentEditable region.
+ * Matches Radix / native form controls and any contentEditable region,
+ * including ARIA text-role widgets (Radix Combobox, cmdk input, etc.) and
+ * nested contenteditable containers where the actual target is a child span.
  */
 export function shouldIgnore(target: EventTarget | null): boolean {
   if (!target || typeof target !== "object") return false;
@@ -35,6 +45,22 @@ export function shouldIgnore(target: EventTarget | null): boolean {
   const tag = (el.tagName || "").toUpperCase();
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
   if (el.isContentEditable) return true;
+  // ARIA text roles — Radix combobox trigger, cmdk input, custom searchboxes.
+  const getAttr = (el as Element).getAttribute;
+  if (typeof getAttr === "function") {
+    const role = (el as Element).getAttribute("role");
+    if (role === "textbox" || role === "combobox" || role === "searchbox") return true;
+  }
+  // Nested contenteditable: target may be a child element inside a
+  // contenteditable="true" container. `closest` handles this cleanly.
+  const closest = (el as Element).closest;
+  if (typeof closest === "function") {
+    try {
+      if ((el as Element).closest('[contenteditable="true"]')) return true;
+    } catch {
+      /* jsdom-less test targets may not implement closest — ignore */
+    }
+  }
   return false;
 }
 
@@ -82,6 +108,12 @@ export function decodeShortcut(e: ShortcutKeyEvent): ShortcutAction | null {
   // Shift+/ → "?" (open help).
   if (code === "Slash" && shift) return { kind: "open-help" };
   if (key === "?") return { kind: "open-help" };
+
+  // Shift+Enter → force send-live (bypasses Safe Mode). Advanced operator
+  // escape hatch — see Y2.
+  if ((code === "Enter" || key === "Enter") && shift) {
+    return { kind: "send-live-force" };
+  }
 
   // Bare navigation.
   if (code === "Space" || key === " " || code === "ArrowRight" || key === "ArrowRight") {
@@ -132,102 +164,129 @@ export type HotkeyHandlers = {
    */
   isSafeMode?: () => boolean;
   /**
+   * Fired when Enter is pressed in Safe Mode — lets the shell surface a
+   * toast/breadcrumb so operators aren't confused by the silent no-op.
+   * Debouncing lives at the callsite so the hook stays pure/idempotent.
+   */
+  onSafeModeSwallowed?: () => void;
+  /**
    * Whether the 1-9 slide-jump shortcuts should fire — usually only when the
    * center mode is "slides"/"playlist" AND an item is selected.
    */
   isSlideJumpEnabled?: () => boolean;
-  /**
-   * Any modal open? When true, we swallow Escape at the browser level and
-   * let the modal handle it, and we also skip most shortcuts to avoid
-   * hijacking focus inside dialogs (Radix already handles this via
-   * shouldIgnore, but modals w/o focused inputs still need care).
-   */
-  isModalOpen?: () => boolean;
 };
 
+/**
+ * DOM-based modal detection. Radix primitives (Dialog, Popover, DropdownMenu,
+ * Select, ContextMenu) and cmdk render with `data-state="open"` on nodes
+ * carrying role="dialog" | "menu" | "listbox". If any such node exists in
+ * the DOM, we defer to the modal's own Escape/keydown handling and skip
+ * ALL global hotkeys — otherwise pressing Escape inside a picker would kill
+ * live output.
+ */
+function anyOverlayOpen(): boolean {
+  if (typeof document === "undefined") return false;
+  try {
+    return document.querySelectorAll(
+      '[role="dialog"][data-state="open"], [role="menu"][data-state="open"], [role="listbox"][data-state="open"], [role="alertdialog"][data-state="open"]',
+    ).length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export function useOperatorHotkeys(handlers: HotkeyHandlers) {
+  // Y5: keep the handler bag behind a ref so we don't re-attach the window
+  // keydown listener on every parent render. Fresh reads at fire time still
+  // see the latest closure values.
+  const handlersRef = useRef(handlers);
+  handlersRef.current = handlers;
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      // R1: If any Radix/cmdk overlay is open, do nothing — the overlay's
+      // own listeners will handle Escape and other keys. Prevents the
+      // notorious "Escape kills live while I'm just closing a picker".
+      if (anyOverlayOpen()) return;
+
       const action = decodeShortcut(e);
       if (!action) return;
 
-      const modalOpen = handlers.isModalOpen ? handlers.isModalOpen() : false;
-      // When a modal is open, only allow Escape (to close) and let the modal
-      // handle it — do NOT invoke kill-live. Everything else is suppressed.
-      if (modalOpen) {
-        // Let the modal receive the event naturally.
-        return;
-      }
+      const h = handlersRef.current;
 
       switch (action.kind) {
         case "next":
           e.preventDefault();
-          handlers.onNext();
+          h.onNext();
           return;
         case "prev":
           e.preventDefault();
-          handlers.onPrev();
+          h.onPrev();
           return;
         case "send-live": {
           e.preventDefault();
-          const safe = handlers.isSafeMode ? handlers.isSafeMode() : false;
+          const safe = h.isSafeMode ? h.isSafeMode() : false;
           if (safe) {
-            // Safe Mode ON: don't push to live. Selecting the current
-            // preview slide is a no-op — Enter falls through silently so
-            // the operator learns nothing scary happened.
+            // Safe Mode ON: don't push to live. Notify shell so it can
+            // surface a toast instead of a silent swallow.
+            h.onSafeModeSwallowed?.();
             return;
           }
-          handlers.onSendLive();
+          h.onSendLive();
           return;
         }
+        case "send-live-force":
+          // Shift+Enter — advanced operator override, bypass Safe Mode.
+          e.preventDefault();
+          h.onSendLive();
+          return;
         case "kill-live":
           e.preventDefault();
-          handlers.onKillLive();
+          h.onKillLive();
           return;
         case "blank":
           e.preventDefault();
-          handlers.onBlank();
+          h.onBlank();
           return;
         case "logo":
           e.preventDefault();
-          handlers.onLogo();
+          h.onLogo();
           return;
         case "open-search":
           e.preventDefault();
-          handlers.onOpenSearch();
+          h.onOpenSearch();
           return;
         case "bible-mode":
           e.preventDefault();
-          handlers.onSetCenterMode("bible");
+          h.onSetCenterMode("bible");
           return;
         case "media-mode":
           e.preventDefault();
-          handlers.onSetCenterMode("media");
+          h.onSetCenterMode("media");
           return;
         case "songs-mode":
           e.preventDefault();
-          handlers.onSetCenterMode("songs");
+          h.onSetCenterMode("songs");
           return;
         case "playlist-mode":
           e.preventDefault();
-          handlers.onSetCenterMode("playlist");
+          h.onSetCenterMode("playlist");
           return;
         case "jump-slide": {
-          const enabled = handlers.isSlideJumpEnabled
-            ? handlers.isSlideJumpEnabled()
-            : true;
+          const enabled = h.isSlideJumpEnabled ? h.isSlideJumpEnabled() : true;
           if (!enabled) return;
           e.preventDefault();
-          handlers.onJumpSlide(action.index);
+          h.onJumpSlide(action.index);
           return;
         }
         case "open-help":
           e.preventDefault();
-          handlers.onOpenShortcutsHelp();
+          h.onOpenShortcutsHelp();
           return;
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [handlers]);
+    // Y5: empty deps — listener attaches once, reads latest via ref.
+  }, []);
 }
