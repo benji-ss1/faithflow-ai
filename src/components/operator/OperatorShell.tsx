@@ -7,6 +7,7 @@ import { CenterWorkspace } from "./shell/CenterWorkspace";
 import { RightInspector, useInspectorTab } from "./shell/RightInspector";
 import { BottomDrawer } from "./shell/BottomDrawer";
 import { ActionBar } from "./shell/ActionBar";
+import { LiveOutputThumb } from "./LiveOutputThumb";
 import type { OperatorShellCtx } from "./shell/types";
 import { useSlideEditor } from "./editor/useSlideEditor";
 import { SlideEditorProvider, type SlideEditorContextValue } from "./editor/SlideEditorContext";
@@ -133,7 +134,14 @@ export function OperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         <div className="flex-1 min-h-0 flex">
           <LeftColumn ctx={ctx} />
           <CenterWorkspace ctx={ctx} />
-          <RightInspector ctx={ctx} tab={tab} onTabChange={setTab} />
+          <div className="flex flex-col min-h-0">
+            <div className="shrink-0 p-2 border-b border-l" style={{ borderColor: "#2a3232", background: "#1a2020" }}>
+              <LiveOutputThumb liveSlide={ctx.liveSlide} />
+            </div>
+            <div className="flex-1 min-h-0 flex">
+              <RightInspector ctx={ctx} tab={tab} onTabChange={setTab} />
+            </div>
+          </div>
         </div>
 
         <BottomDrawer ctx={ctx} />
