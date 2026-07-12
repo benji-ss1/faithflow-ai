@@ -1,5 +1,40 @@
 # Changelog
 
+## [main] Operator: ProPresenter-style shell rebuild (pro/)
+
+New desktop operator layout at `src/components/operator/pro/`:
+- TopBar (44px) — left icon group (Search/Text/Theme/Arrangement/Show/
+  Edit/Reflow/Bible/More), right group (ProContent/Media toggle/Screen
+  selector/Live/Audience/Stage/AI-listening/status).
+- Left panel (~180px) — Library / Playlist (from ExpandedPlan.items,
+  active row = orange left-border) / Media (subcategories).
+- Center — inline-editable item header + slide grid with
+  ContextMenu (Delete wired to existing Delete-key confirm) + stage
+  mirror row at half size. Bible mode swaps in a reference input,
+  translation + verse/passage + reference-format controls, and a
+  Bible Options popover (SLIDE OPTIONS + BIBLES tabs, localStorage).
+- Right sidebar (~320px) — live preview thumb (X to clear) + 6-tab
+  dock: Audio / Stage (resolution + detected displays via
+  electronAPI.screens.list() + Configure Screens dialog wrapping
+  existing ScreensPanel) / Timers (mm:ss countdown, localStorage) /
+  Messages (persisted state) / Themes (swatch grid) / Macros.
+- BottomBar (40px) — transport controls, transition label, prev/next
+  verse, slide-size slider (96–240px, writes --slide-thumb-size CSS var).
+- MediaStrip (140px, collapsible, persisted).
+
+Composition-only: reuses the existing OperatorShellCtx from
+OperatorConsole so audio, verse bank, autopilot, safe mode, broadcast,
+pair-code sync, keyboard shortcuts, and end-of-service persistence all
+continue to work unchanged. Legacy `OperatorShell` is retained for
+`/services/[id]/operate` (unused today per middleware) but is no longer
+mounted at `/operator`.
+
+Placeholders (data-todo="1" attribute, tooltip / visible copy):
+Search/Text/Theme/Arrangement/Edit/Reflow/More top-bar icons; Media
+subcategories; audio playback; NDI/Syphon/Placeholder rows; Messages
+"New Message"; Themes swatches; Macros list; MediaStrip thumbnails;
+transport buttons; view toggles.
+
 ## [main] Operator shell: reviewer + security fix pass (3 red, 10 yellow)
 
 Addressed all reviewer + security findings on the operator shell rebuild.
