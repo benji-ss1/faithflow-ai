@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ArrowLeft, ChevronLeft, ChevronRight, Monitor, Radio, Square, Sun, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
@@ -56,13 +57,22 @@ export type AutopilotMode = "manual" | "suggestion" | "armed" | "active";
 
 const AUTOPILOT_MODE_KEY = "presentflow.autopilot.mode";
 
-export function OperatorConsole({ plan, defaultTranslationCode, confidenceThreshold, autoApprove: autoApproveProp, initialShell }: {
+export function OperatorConsole({ plan: planProp, defaultTranslationCode, confidenceThreshold, autoApprove: autoApproveProp, initialShell }: {
   plan: ExpandedPlan;
   defaultTranslationCode: string;
   confidenceThreshold: number;
   autoApprove: AutoApproveConfig;
   initialShell?: "desktop" | "web";
 }) {
+  const router = useRouter();
+  // R2: optimistic plan state. Seeded from server-rendered `planProp` and
+  // updated when the prop changes (i.e. after `router.refresh()`). Local
+  // append lets the operator UI reflect a library add immediately without
+  // waiting for the round-trip, so we can drop the old `window.location.reload()`
+  // which nuked interim transcript state, the audio pipeline, and
+  // BroadcastChannel output state (CLAUDE.md rule 8).
+  const [plan, setPlan] = useState<ExpandedPlan>(planProp);
+  useEffect(() => { setPlan(planProp); }, [planProp]);
   // --- Four-mode autopilot (Phase 5) ---------------------------------------
   // On page load we ALWAYS downgrade "active" to "armed" as a safety
   // measure — the operator must consciously re-arm live-firing every session.
@@ -1061,8 +1071,27 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
       const res = await addServiceItem(plan.id, kind, ref.title, payload);
       if (res.ok) {
         toast.success(`Added: ${ref.title}`);
-        // Full-page refresh so the server-rendered plan reflects the new item.
-        if (typeof window !== "undefined") window.location.reload();
+        // R2 (P6): optimistic append + router.refresh instead of full page
+        // reload. Full reload broke interim transcript state, forced a mic
+        // re-prompt, and dropped BroadcastChannel state (CLAUDE.md rule 8).
+        // router.refresh() re-fetches server component data without
+        // remounting the whole app.
+        const optimisticId = `optimistic-${Date.now()}`;
+        setPlan((prev) => {
+          const newItem = {
+            id: optimisticId,
+            title: ref.title,
+            type: kind,
+            songId: kind === "song" ? ref.id : undefined,
+            mediaAssetId: kind === "media" ? ref.id : undefined,
+            pptxImportId: kind === "sermon" ? ref.id : undefined,
+            slides: [],
+          } as unknown as ExpandedItem;
+          return { ...prev, items: [...prev.items, newItem] };
+        });
+        // Focus preview on the newly added item.
+        setPreview({ itemIdx: plan.items.length, slideIdx: 0 });
+        router.refresh();
       } else {
         toast.error(res.error || "Add failed");
       }
