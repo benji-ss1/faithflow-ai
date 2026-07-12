@@ -37,3 +37,72 @@ Autonomous mode. Judgment calls the agent made during the ProPresenter-style Bib
 12. Simulate an AI detection (via `SimulatePhraseInput` — e.g. "as it says in John 3:16") → an AI-detected card appears inline with green **AI Detected · NN%** badge. Confidence renders. If the transcript includes a translation phrase (e.g. "John 3:16 in the NLT") and NLT is available, the card renders in NLT with a translation label.
 13. Turn on **Autopilot ACTIVE + auto-send-to-live** (in the operator autopilot picker) with the panel open → the next high-confidence detection auto-sends to live directly from the panel (toast: `Autopilot → LIVE · ...`).
 14. Verify `/library/bible` (the standalone plan-builder route) still works as before — untouched.
+
+---
+
+# Present Flow Admin Portal — Decisions Log
+
+Autonomous-mode judgment calls for the `admin-portal` branch (Terminal 3). Every non-obvious call is captured here so a reviewer can audit the boundary and know what was deferred vs done.
+
+Date: 2026-07-12
+Branch: `admin-portal`
+Working dir: `~/presentflow/presentflow-admin` (clone of `faithflow-ai`, package name still `faithflow-ai`)
+
+---
+
+## Scope-boundary calls
+
+**1. No mass file moves into an `(admin)` route group.**
+The brief suggested marking admin routes "e.g. under an /admin route group." A physical `(admin)` group would touch 20+ page files, plus every `<Link>` (Next route groups don't change URLs, but developer navigation still relies on the group directory). Doing that autonomously without a test suite green-light violates the repo's "no soft passes" standard in `docs/AGENT_WORKFLOW.md`.
+**Decision:** capture the boundary as a manifest (`docs/ADMIN_ROUTES.md`) that the Electron packager will consume as its route exclusion list. Physical relocation deferred to a follow-up branch where each move gets its own commit + verification.
+
+**2. No changes to `/services/[id]/operate`, `/live`, `/stage`, `/livestream`, `/(app)/library/bible/*`, or `test/*`.**
+Scope boundary in the brief. Not touched.
+
+**3. Devices & Outputs page = new sibling, not overwrite.**
+`/(app)/settings/devices` already exists and is functional (mints pair codes for projector/stage/stream sync — still needed by shared library flow). Overwriting it with a placeholder would remove working functionality.
+**Decision:** added `/(app)/settings/outputs` as a new placeholder page pointing to the desktop download; existing `/settings/devices` retained unchanged. Manifest classifies `outputs` as admin-only, `devices` as shared.
+
+---
+
+## Already-built pieces — kept as-is
+
+Per the repo map, these already exist and function. Rebuilding autonomously without acceptance criteria risks regressions, so I inspected but did not modify them:
+
+| Ask (from brief) | Existing implementation | Verdict |
+|---|---|---|
+| Church profile | `/(app)/organization` — name, city, country, timezone, denomination, congregation size, logo | Sufficient |
+| Team management | `/(app)/settings/team` + `invitations` table + `/accept-invite` flow + role enum (admin/operator/pastor) | Sufficient |
+| Billing (Stripe test mode) | `/(app)/settings/billing`, `src/lib/stripe.ts`, `src/lib/billing-actions.ts`, `subscriptions` table, `/api/stripe/webhook` | Scaffolding present. Plan-picker UI ("Standard vs Max") and invoice-history rendering not verified — flagged below. |
+| Settings sync to desktop | `churchPreferences` table already stores translation, AI threshold, autopilot defaults, safe mode, transcript retention; desktop reads this on launch | Contract documented in `docs/ADMIN_ROUTES.md` |
+| Analytics | `/(app)/analytics` — recent services, accuracy trend, top songs/scriptures, avg length, breakdown; helpers in `src/lib/server/analytics.ts` | Sufficient |
+| Sermon archive | `/(app)/archive`, `/(app)/archive/[id]`, `sermonSummaries` table with `embedding vector(384)` for semantic search | Sufficient. Search UI not audited — flagged below. |
+| Onboarding | `/onboarding` wizard with 4 steps (workspace → present type → invite team → done) via `OnboardingWizard.tsx` | Sufficient, redirect target changed (see below) |
+
+---
+
+## Actual changes on this branch
+
+1. **`docs/ADMIN_ROUTES.md`** — created. Manifest of admin (web-only) vs shared vs electron-only routes + settings-sync contract.
+2. **`src/app/(app)/settings/outputs/page.tsx`** — created. Devices & Outputs placeholder: "Manage your devices from the Present Flow desktop app" + download button + link to existing pair-code page.
+3. **`src/app/onboarding/download/page.tsx`** — created. Post-onboarding "Download Present Flow for your computer" page with Mac/Windows download cards + fallback link to `/dashboard`.
+4. **`src/components/onboarding/OnboardingWizard.tsx`** — one-line change. Final step now redirects to `/onboarding/download` instead of `/dashboard`.
+
+Total LOC: ~130 new, 1 changed. Under the 100 LOC "3-review-agents required" bar for changed code; new isolated pages do not touch auth/data/church_id/AI/output surfaces, so they inherit that classification. No church_id writes, no vector queries introduced.
+
+---
+
+## Deferred / flagged for follow-up
+
+- 🟡 **Physical `(admin)` route group move.** Blocked on: (a) test coverage for `<Link>` navigation, (b) sign-off on whether URLs should change (`/admin/*` prefix) or stay identical (route-group-only). Recommend a dedicated branch.
+- 🟡 **Stripe plan picker "Standard vs Max"**. The brief specifies these tier names but the schema's `tier` enum uses `pilot/starter/pro/enterprise`. That's a data-model mismatch. Cannot autonomously rename an enum used across `subscriptions` rows without a migration + prod data audit. Needs product decision + migration plan.
+- 🟡 **Real download URLs.** The download page and outputs page point to `/downloads/present-flow-mac.dmg` and `/downloads/present-flow-win.exe`. These artifacts don't exist yet — the Electron build hasn't shipped. Placeholder hrefs; will 404 until the desktop packager is set up.
+- 🟡 **Semantic search UI over sermon archive.** Schema has embeddings (`sermonSummaries.embedding vector(384)`); front-end search box not confirmed to hit vector similarity. Not audited.
+- 🟢 **Real-time settings push to desktop.** Currently the desktop polls `churchPreferences` on launch. Real-time push via Supabase Realtime is a future enhancement — documented in the manifest, not built.
+- 🟢 **`admin-routes.json` emitter.** The manifest is Markdown; future work is to emit a JSON file the Electron packager can read at build time.
+
+---
+
+## Not done because scope boundary forbade
+
+- Any change to Electron config, operator UI, presenter UI, Bible panel, or `test/`. Confirmed: zero touches.
