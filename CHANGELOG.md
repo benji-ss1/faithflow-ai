@@ -1,5 +1,64 @@
 # Changelog
 
+## [main] Priority-2 projector output window (2026-07-12)
+
+Closes the projector output loop: operator → chromeless output window on
+assigned display → live slide rendering with all content types + message
+overlay + aspect ratio.
+
+### Electron
+- `electron/windows/OutputWindow.ts`: chromeless (`frame:false`,
+  `autoHideMenuBar`, `setMenuBarVisibility(false)`) + true fullscreen when the
+  assigned display is external. Single-display fallback: opens a 960x540
+  draggable windowed frame with a descriptive title so the operator can push
+  it onto a second monitor when connected. Fullscreen no longer applied on
+  the primary display (which was covering the operator UI).
+
+### Broadcast plumbing
+- `src/lib/broadcast.ts`: added `MessageOverlay` type + `{type:"message"}`
+  variant on `LiveMessage`. New `isValidLiveMessage()` runtime validator so
+  output pages reject malformed / unknown-kind payloads instead of crashing.
+- `src/app/live/page.tsx`: validator-gated onmessage handler; renders
+  aspect-ratio-aware canvas (letterboxes to 4:3 when operator selects);
+  renders lower-third message overlay on top of current slide with
+  client-side auto-dismiss timer.
+- `src/app/stage/page.tsx`, `src/app/livestream/page.tsx`: same validator
+  gate.
+
+### Operator
+- `src/components/operator/OperatorConsole.tsx`: new `sendMessage(text,
+  dismissAfterMs)` + `clearMessage()` callbacks, wired into `shellCtx`.
+- `src/components/operator/shell/types.ts`: `OperatorShellCtx` gains
+  `onSendMessage` + `onClearMessage`.
+- `src/components/operator/shell/RightInspector.tsx`: MessagesTab gains a
+  "Projector message overlay" section (textarea + auto-hide selector +
+  Show / Hide).
+
+### Tests
+- `test/projector-output.test.ts`: 23 assertions covering validator happy +
+  adversarial paths, role→URL sanity, aspect-ratio flow. All pass.
+
+### Manual verification checklist
+- [ ] Open Screens modal, assign a display as Projector — new window opens
+  chromeless on that display.
+- [ ] Single-display case: window opens as a 960x540 titled window,
+  draggable to a second display when one is connected.
+- [ ] Double-click a Bible verse in the operator — verse appears on
+  projector.
+- [ ] Double-click a song slide — lyrics appear.
+- [ ] Click X (kill) in LivePreviewPanel — projector goes black.
+- [ ] Click Logo in ActionBar — church logo shown on projector.
+- [ ] Show a message overlay from the Messages tab — lower-third appears
+  on top of the current slide.
+- [ ] Auto-dismisses after chosen duration (5s / 10s / 30s / 60s).
+- [ ] Manual Hide clears the overlay immediately.
+- [ ] Toggle 4:3 aspect — projector letterboxes to 4:3.
+
+### Verified
+- `npm run typecheck` — only pre-existing `jsdom` types error, unrelated.
+- `npm run electron:build:tsc` — passes.
+- `npx tsx test/projector-output.test.ts` — 23 passed, 0 failed.
+
 ## [main] Bible Priority-1 review fixes (2026-07-12)
 
 Closes all reviewer + security findings on the Priority-1 Bible completeness work.
