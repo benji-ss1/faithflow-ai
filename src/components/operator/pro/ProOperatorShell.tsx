@@ -66,9 +66,53 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
     ? `${last} ${audio.interim}`.slice(-140)
     : last.slice(-140);
 
+  const threshold = ctx.confidenceThreshold ?? 50;
   const scriptureCards = audio.suggestions
-    .filter((s) => s.type === "scripture" && s.confidence >= (ctx.confidenceThreshold ?? 50))
+    .filter((s) => s.type === "scripture" && s.confidence >= threshold)
     .slice(0, 3);
+  const songCards = audio.suggestions
+    .filter((s) => (s.type === "song" || s.type === "lyric") && s.confidence >= threshold)
+    .slice(0, 3);
+
+  // Playlist-aware highlight: songs already in plan are marked in-playlist.
+  const playlistSongIds = new Set(
+    ctx.plan.items
+      .filter((it) => it.type === "song" && it.songId)
+      .map((it) => it.songId as string),
+  );
+
+  const scrollToPlaylistSong = (songId: string) => {
+    const idx = ctx.plan.items.findIndex((it) => it.type === "song" && it.songId === songId);
+    if (idx < 0) return;
+    ctx.onSetPreviewItem(idx);
+    if (typeof window !== "undefined") {
+      const el = document.querySelector(`[data-playlist-item-idx="${idx}"]`) as HTMLElement | null;
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.classList.add("presentflow-song-pulse");
+        setTimeout(() => el.classList.remove("presentflow-song-pulse"), 2000);
+      }
+    }
+  };
+
+  const handleSongChipClick = (songId: string, songTitle: string, inPlaylist: boolean) => {
+    if (inPlaylist) {
+      scrollToPlaylistSong(songId);
+      return;
+    }
+    if (ctx.onAddLibraryItem) {
+      // Load slides into the plan; the reload triggered by onAddLibraryItem
+      // will surface the new item at the end of the playlist. Do NOT
+      // auto-project — per CLAUDE.md rule 7, songs never auto-project.
+      void ctx.onAddLibraryItem("song", { id: songId, title: songTitle });
+    }
+  };
+
+  const handleSongChipDoubleClick = (songId: string, songTitle: string, inPlaylist: boolean) => {
+    // Safety: even with Safe Mode OFF, songs must NOT auto-send-to-live.
+    // Double-click = "load + preview first slide" only. Copyright safety.
+    handleSongChipClick(songId, songTitle, inPlaylist);
+  };
 
   return (
     <div
@@ -104,6 +148,45 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
                   AI
                 </span>
               </div>
+            );
+          })}
+        </div>
+      )}
+      {songCards.length > 0 && (
+        <div className="flex items-center gap-1.5 shrink-0" data-testid="ai-song-chips">
+          {songCards.map((s) => {
+            if (s.type !== "song" && s.type !== "lyric") return null;
+            const songId = s.match.songId;
+            const title = s.match.title;
+            const inPlaylist = playlistSongIds.has(songId);
+            const tip = inPlaylist
+              ? `${title} — already in playlist (${s.confidence}%)`
+              : `${title} (${s.confidence}%) — click to add`;
+            return (
+              <button
+                key={s.id}
+                type="button"
+                data-in-playlist={inPlaylist ? "true" : "false"}
+                title={tip}
+                onClick={() => handleSongChipClick(songId, title, inPlaylist)}
+                onDoubleClick={() => handleSongChipDoubleClick(songId, title, inPlaylist)}
+                className={
+                  "relative flex items-center gap-1 px-2 py-0.5 rounded text-[11px] transition-colors " +
+                  (inPlaylist
+                    ? "border border-amber-400/70 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20"
+                    : "border border-[var(--color-brand)] bg-[var(--color-elevated)] hover:bg-[var(--color-panel)]")
+                }
+              >
+                <span aria-hidden className="text-[11px] leading-none">♪</span>
+                <span className="font-semibold max-w-[160px] truncate">{title}</span>
+                <span className="text-[9px] font-mono opacity-60">{s.confidence}%</span>
+                <span
+                  className="ml-1 text-[8px] font-bold px-1 py-[1px] rounded bg-[var(--color-success,#10b981)] text-white"
+                  aria-label="AI detected"
+                >
+                  AI
+                </span>
+              </button>
             );
           })}
         </div>

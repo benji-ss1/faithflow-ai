@@ -211,3 +211,10 @@ html.light {
 .ff-wave-bar:nth-child(4) { animation-delay: 360ms; }
 .ff-wave-bar:nth-child(5) { animation-delay: 480ms; }
 .ff-wave-bar:nth-child(6) { animation-delay: 600ms; }
+
+/* Song-detection chip → playlist highlight pulse (2s) */
+@keyframes presentflowSongPulse {
+  0%,100% { box-shadow: inset 3px 0 0 0 rgba(251,191,36,0); background-color: transparent; }
+  50%     { box-shadow: inset 3px 0 0 0 rgba(251,191,36,0.9); background-color: rgba(251,191,36,0.10); }
+}
+.presentflow-song-pulse { animation: presentflowSongPulse 600ms ease-in-out 3; }

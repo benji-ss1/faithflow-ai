@@ -96,7 +96,7 @@ export function PlaylistSection({
             const Icon = itemIcon(it.type);
             const active = idx === ctx.previewItemIdx;
             return (
-              <li key={it.id ?? idx}>
+              <li key={it.id ?? idx} data-playlist-item-idx={idx} data-item-song-id={it.songId ?? undefined}>
                 <ContextMenu.Root>
                   <ContextMenu.Trigger asChild>
                     <button
