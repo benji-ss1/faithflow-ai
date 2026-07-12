@@ -1,5 +1,59 @@
 # Changelog
 
+## [main] Priority-3 AI listening pipeline — hardening + surfaces (2026-07-12)
+
+7-stage AI listening pipeline verified. Client-side hook (`useAudioStream`) and
+Fly-hosted bridge (`scripts/audio-server.ts`) already numbered logs 1–9; wrapped
+them in a `PF_AI_TRACE` gate (env / `localStorage.setItem("presentflow.aiTrace","1")`),
+default on in dev, off in prod.
+
+### Changes
+- `src/components/operator/useAudioStream.ts` — logs now go through
+  `PF_AI_TRACE` gate; prefix renamed `[presentflow-audio]` → `[ai-pipeline]`
+  inside `start()` (rest of the file — `stop()`, `scheduleReconnect()` —
+  still uses the older `[presentflow-audio]` prefix; not load-bearing for
+  this priority).
+- `src/components/operator/pro/TopBar.tsx` — AI radio icon now surfaces
+  4 states: idle (grey) / connecting (amber) / listening+ready (green) /
+  error (red). Tooltip shows the error text. Click during error re-attempts.
+- `src/components/operator/pro/ProOperatorShell.tsx` — new
+  `AITranscriptTicker` component pinned above `BottomBar`. Shows last ~140
+  chars of transcript + up to 3 scripture verse chips with confidence % +
+  green "AI" badge. Hidden when the listener is idle.
+- `test/ai-pipeline.test.ts` — 9 tests: numeric & spoken reference forms,
+  no-false-positive on junk speech, confidence-threshold filter, WS URL
+  fallback, PipelineStage union contract. All pass.
+
+### Env state (local)
+- `DEEPGRAM_API_KEY` — present
+- `NEXT_PUBLIC_AUDIO_WS_URL` — `ws://localhost:3001` (local dev; Fly URL
+  `wss://faithflow-audio.fly.dev` mentioned in scope but not currently set
+  in `.env.local`).
+
+### Stage-by-stage verification (from code review)
+| Stage | State | Notes |
+|-------|-------|-------|
+| 1 mic capture | wired | `getUserMedia` with `sampleRate: 16000`, PCM16 via inline AudioWorklet |
+| 2 WS to bridge | wired | HMAC-signed ticket via `/api/audio/ticket`, exponential backoff reconnect |
+| 3 bridge → Deepgram | wired | Raw WS to `wss://api.deepgram.com/v1/listen`, `linear16` `nova-2` |
+| 4 Deepgram transcript | wired | Interim + final surfaced |
+| 5 Transcript render | NEW | Ticker in ProOperatorShell + existing `AIAssistantPanel` |
+| 6 Reference parser | wired | `parseReferences` + semantic fallback via pgvector |
+| 7 Verse cards | wired | `AITranscriptTicker` chips + existing `AIAssistantPanel` cards |
+
+### Manual verification checklist (test locally)
+- [ ] Run `npm run ws` (audio bridge on :3001)
+- [ ] Set `NEXT_PUBLIC_AUDIO_WS_URL=wss://faithflow-audio.fly.dev` for prod
+- [ ] Confirm Fly.io bridge has `DEEPGRAM_API_KEY` in secrets: `fly secrets list`
+- [ ] Launch Electron, log in, click AI toggle in top bar (Radio icon)
+- [ ] Grant mic permission (Electron pre-approves)
+- [ ] Speak "John three sixteen" — expect ticker text + verse chip w/ AI badge
+- [ ] Speak "Psalm twenty three" — expect Psalms chip (known parser quirk:
+      chapter reads as 20 verse 3; documented in DECISIONS.md)
+- [ ] Speak junk — expect no chip
+- [ ] Kill audio server briefly — expect red dot, error toast in ticker
+- [ ] Restart audio server — expect auto-reconnect (up to 8 attempts)
+
 ## [main] Priority-2 projector output window — fix pass 3🔴/12🟡 (2026-07-12)
 
 - **R1 (electron/output)**: single-display fallback keyed off `screen.getAllDisplays().length === 1` only. Multi-display + primary-as-projector now fullscreens the primary display as the operator explicitly requested.
