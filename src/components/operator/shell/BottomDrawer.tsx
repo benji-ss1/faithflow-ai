@@ -4,6 +4,8 @@ import { ChevronUp, ChevronDown, Image as ImageIcon, ListMusic, Layers, Sun, Tim
 import { cn } from "@/lib/utils";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import type { OperatorShellCtx } from "./types";
+import { SlideContextMenu } from "../SlideContextMenu";
+import { toast } from "sonner";
 
 // Safe Mode toggle (localStorage). When ON, double-click on a slide only
 // stages it to Preview — the operator must click "Send to Live" afterward.
@@ -95,7 +97,13 @@ export function BottomDrawer({ ctx }: { ctx: OperatorShellCtx }) {
                   .map((s, i) => {
                     const active = ctx.previewSlideIdx === i;
                     return (
-                      <button key={i}
+                      <SlideContextMenu
+                        key={i}
+                        onEdit={() => ctx.onJumpSlide(ctx.previewItemIdx, i)}
+                        onDisable={() => toast.info("Disable slide — coming soon")}
+                        onDelete={() => toast.info("Delete slide — coming soon")}
+                      >
+                      <button
                         onClick={() => ctx.onJumpSlide(ctx.previewItemIdx, i)}
                         onDoubleClick={() => {
                           // Send-to-live on double-click (ProPresenter default).
@@ -115,6 +123,7 @@ export function BottomDrawer({ ctx }: { ctx: OperatorShellCtx }) {
                         <div className="absolute inset-0 pointer-events-none"><SlideRenderer slide={s} /></div>
                         <span className="absolute top-1 left-1 text-[9px] font-mono text-white bg-black/70 px-1 rounded-sm">{i + 1}</span>
                       </button>
+                      </SlideContextMenu>
                     );
                   })}
               </div>

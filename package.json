@@ -37,6 +37,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@napi-rs/canvas": "^0.1.60",
     "@radix-ui/react-avatar": "^1.2.2",
+    "@radix-ui/react-context-menu": "^2.3.3",
     "@radix-ui/react-dialog": "^1.1.4",
     "@radix-ui/react-dropdown-menu": "^2.1.4",
     "@radix-ui/react-label": "^2.1.1",
@@ -109,9 +110,18 @@
       "package.json"
     ],
     "extraResources": [
-      { "from": ".next/standalone", "to": ".next/standalone" },
-      { "from": ".next/static", "to": ".next/standalone/.next/static" },
-      { "from": "public", "to": ".next/standalone/public" }
+      {
+        "from": ".next/standalone",
+        "to": ".next/standalone"
+      },
+      {
+        "from": ".next/static",
+        "to": ".next/standalone/.next/static"
+      },
+      {
+        "from": "public",
+        "to": ".next/standalone/public"
+      }
     ],
     "mac": {
       "target": "dmg",

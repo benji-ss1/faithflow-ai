@@ -7,6 +7,7 @@ import type { OperatorShellCtx } from "./types";
 import { useSlideEditorCtx } from "../editor/SlideEditorContext";
 import { SlideCanvas, SlideThumb } from "../editor/SlideCanvas";
 import { CanvasWarnings } from "../editor/CanvasWarnings";
+import { SlideContextMenu } from "../SlideContextMenu";
 
 export function CenterWorkspace({ ctx }: { ctx: OperatorShellCtx }) {
   const editor = useSlideEditorCtx();
@@ -144,8 +145,12 @@ function SlideListRail({ item }: { item: OperatorShellCtx["plan"]["items"][numbe
         {editor.slides.map((s, i) => {
           const active = i === editor.currentIndex;
           return (
-            <div
+            <SlideContextMenu
               key={s.id}
+              onEdit={() => editor.setCurrentIndex(i)}
+              onDelete={() => { editor.setCurrentIndex(i); editor.deleteSlide(); }}
+            >
+            <div
               draggable={isSong}
               onDragStart={() => isSong && setDragIdx(i)}
               onDragOver={(e) => { if (isSong && dragIdx !== null && dragIdx !== i) e.preventDefault(); }}
@@ -168,6 +173,7 @@ function SlideListRail({ item }: { item: OperatorShellCtx["plan"]["items"][numbe
                 {i + 1}
               </span>
             </div>
+            </SlideContextMenu>
           );
         })}
       </div>
