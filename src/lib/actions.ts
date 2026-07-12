@@ -39,11 +39,76 @@ export async function deleteServicePlan(id: string): Promise<Result> {
   return { ok: true };
 }
 
+// Discriminated union guard for addServiceItem payload. Validates that the
+// caller-supplied `payload` matches the `type` shape AND (where applicable)
+// that referenced library items belong to the same church. Any mismatch or
+// cross-church id must be rejected — this is the last-line church-scoping
+// check for drop/click add flows in the operator.
+async function validateAddServiceItemPayload(
+  db: ReturnType<typeof getDb>,
+  churchId: string,
+  type: "song" | "scripture" | "media" | "sermon" | "blank" | "logo",
+  payload: Record<string, unknown>,
+): Promise<Result> {
+  if (payload == null || typeof payload !== "object" || Array.isArray(payload)) {
+    return { ok: false, error: "invalid payload shape" };
+  }
+  switch (type) {
+    case "song": {
+      const songId = (payload as any).songId;
+      if (typeof songId !== "string" || !songId) return { ok: false, error: "song payload requires songId" };
+      const [row] = await db.select({ id: songs.id }).from(songs)
+        .where(and(eq(songs.id, songId), eq(songs.churchId, churchId))).limit(1);
+      if (!row) return { ok: false, error: "song not found in your church" };
+      return { ok: true };
+    }
+    case "scripture": {
+      const reference = (payload as any).reference;
+      if (typeof reference !== "string" || !reference) return { ok: false, error: "scripture payload requires reference" };
+      // verses optional but if present must be array-shaped
+      const verses = (payload as any).verses;
+      if (verses !== undefined && !Array.isArray(verses)) return { ok: false, error: "scripture verses must be array" };
+      return { ok: true };
+    }
+    case "media": {
+      const mediaAssetId = (payload as any).mediaAssetId;
+      if (typeof mediaAssetId !== "string" || !mediaAssetId) return { ok: false, error: "media payload requires mediaAssetId" };
+      const [row] = await db.select({ id: mediaAssets.id }).from(mediaAssets)
+        .where(and(eq(mediaAssets.id, mediaAssetId), eq(mediaAssets.churchId, churchId))).limit(1);
+      if (!row) return { ok: false, error: "media asset not found in your church" };
+      return { ok: true };
+    }
+    case "pptx" as any: {
+      // legacy — pptx items are added as "media"-style refs currently; keep
+      // guarded in case a future caller uses "pptx" as the type key.
+      const pptxImportId = (payload as any).pptxImportId;
+      if (typeof pptxImportId !== "string" || !pptxImportId) return { ok: false, error: "pptx payload requires pptxImportId" };
+      const [row] = await db.select({ id: pptxImports.id }).from(pptxImports)
+        .where(and(eq(pptxImports.id, pptxImportId), eq(pptxImports.churchId, churchId))).limit(1);
+      if (!row) return { ok: false, error: "pptx import not found in your church" };
+      return { ok: true };
+    }
+    case "sermon":
+    case "blank":
+    case "logo":
+      // No referenced library id; empty payload OK. Reject unknown ref keys
+      // that look like they should be church-scoped but aren't validated.
+      if ((payload as any).songId || (payload as any).mediaAssetId || (payload as any).pptxImportId) {
+        return { ok: false, error: `${type} payload must not include library refs` };
+      }
+      return { ok: true };
+    default:
+      return { ok: false, error: "unknown item type" };
+  }
+}
+
 export async function addServiceItem(planId: string, type: "song" | "scripture" | "media" | "sermon" | "blank" | "logo", title: string, payload: Record<string, unknown>): Promise<Result> {
   const user = await requireUser();
   const db = getDb();
   const [plan] = await db.select().from(servicePlans).where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, user.churchId))).limit(1);
   if (!plan) return { ok: false, error: "Not found" };
+  const guard = await validateAddServiceItemPayload(db, user.churchId, type, payload || {});
+  if (!guard.ok) return guard;
   const existing = await db.select().from(serviceItems).where(eq(serviceItems.servicePlanId, planId));
   await db.insert(serviceItems).values({ servicePlanId: planId, order: existing.length, type, title, payload });
   revalidatePath(`/services/${planId}`);
