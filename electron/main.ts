@@ -131,6 +131,23 @@ async function createMainWindow() {
   mainWindow.once("ready-to-show", () => mainWindow?.show());
   mainWindow.on("closed", () => { mainWindow = null; });
 
+  if (isDev) {
+    mainWindow.webContents.openDevTools({ mode: "detach" });
+  }
+
+  mainWindow.webContents.on(
+    "did-fail-load",
+    (_e, code, desc, url) => {
+      console.error(`[main] did-fail-load ${code} ${desc} → ${url}`);
+    }
+  );
+  mainWindow.webContents.on(
+    "console-message",
+    (_e, level, message, line, sourceId) => {
+      console.log(`[renderer:${level}] ${message} (${sourceId}:${line})`);
+    }
+  );
+
   await mainWindow.loadURL(appUrl);
 }
 
@@ -142,7 +159,8 @@ app.whenReady().then(async () => {
   });
 
   if (isDev) {
-    appUrl = "http://localhost:3000";
+    const devPort = process.env.PRESENTFLOW_DEV_PORT || "3000";
+    appUrl = `http://localhost:${devPort}`;
   } else {
     try {
       appUrl = await startNextServer();
