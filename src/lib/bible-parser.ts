@@ -18,14 +18,18 @@
 // --- Book dictionary --------------------------------------------------------
 // Maps normalized variants to the canonical book name used in bible_verses.
 const RAW_BOOKS: [string, string[]][] = [
+  // NOTE: two-letter aliases that collide with common English words have
+  // been dropped to prevent false positives during live services:
+  //   "ex" (Exodus), "ru" (Ruth), "is" (Isaiah), "am" (Amos), "ac" (Acts),
+  //   "re" (Revelation). See R2 in the Priority-1 review.
   ["Genesis", ["genesis", "gen", "gn", "ge"]],
-  ["Exodus", ["exodus", "exod", "exo", "ex"]],
+  ["Exodus", ["exodus", "exod", "exo"]],
   ["Leviticus", ["leviticus", "lev", "lv"]],
   ["Numbers", ["numbers", "num", "nm", "nb"]],
   ["Deuteronomy", ["deuteronomy", "deut", "deu", "dt"]],
   ["Joshua", ["joshua", "josh", "jos"]],
   ["Judges", ["judges", "judg", "jdg", "jgs"]],
-  ["Ruth", ["ruth", "rut", "ru"]],
+  ["Ruth", ["ruth", "rut"]],
   ["1 Samuel", ["1 samuel", "first samuel", "1st samuel", "one samuel", "i samuel", "1 sam", "1sam", "1 sm", "1s"]],
   ["2 Samuel", ["2 samuel", "second samuel", "2nd samuel", "two samuel", "ii samuel", "2 sam", "2sam", "2 sm", "2s"]],
   ["1 Kings", ["1 kings", "first kings", "1st kings", "one kings", "i kings", "1 kgs", "1kgs"]],
@@ -40,14 +44,14 @@ const RAW_BOOKS: [string, string[]][] = [
   ["Proverbs", ["proverbs", "proverb", "prov", "prv", "pro"]],
   ["Ecclesiastes", ["ecclesiastes", "eccl", "ecc", "qoh"]],
   ["Song of Solomon", ["song of solomon", "song of songs", "songs", "song", "sos", "cant", "canticles"]],
-  ["Isaiah", ["isaiah", "isa", "is"]],
+  ["Isaiah", ["isaiah", "isa"]],
   ["Jeremiah", ["jeremiah", "jer"]],
   ["Lamentations", ["lamentations", "lam"]],
   ["Ezekiel", ["ezekiel", "ezek", "ez"]],
   ["Daniel", ["daniel", "dan", "dn"]],
   ["Hosea", ["hosea", "hos"]],
   ["Joel", ["joel", "jl"]],
-  ["Amos", ["amos", "am"]],
+  ["Amos", ["amos"]],
   ["Obadiah", ["obadiah", "obad", "ob"]],
   ["Jonah", ["jonah", "jon"]],
   ["Micah", ["micah", "mic", "mi"]],
@@ -61,10 +65,10 @@ const RAW_BOOKS: [string, string[]][] = [
   ["Mark", ["mark", "mk", "mr"]],
   ["Luke", ["luke", "lk", "lu"]],
   ["John", ["john", "jn", "jhn"]],
-  ["Acts", ["acts", "act", "ac"]],
+  ["Acts", ["acts", "act"]],
   ["Romans", ["romans", "roman", "rom", "rm"]],
-  ["1 Corinthians", ["1 corinthians", "first corinthians", "1st corinthians", "one corinthians", "i corinthians", "1 cor", "1cor"]],
-  ["2 Corinthians", ["2 corinthians", "second corinthians", "2nd corinthians", "two corinthians", "ii corinthians", "2 cor", "2cor"]],
+  ["1 Corinthians", ["1 corinthians", "first corinthians", "1st corinthians", "one corinthians", "i corinthians", "1 cor", "1cor", "i cor"]],
+  ["2 Corinthians", ["2 corinthians", "second corinthians", "2nd corinthians", "two corinthians", "ii corinthians", "2 cor", "2cor", "ii cor"]],
   ["Galatians", ["galatians", "gal"]],
   ["Ephesians", ["ephesians", "eph"]],
   ["Philippians", ["philippians", "phil", "php"]],
@@ -83,7 +87,7 @@ const RAW_BOOKS: [string, string[]][] = [
   ["2 John", ["2 john", "second john", "2nd john", "two john", "ii john", "2 jn"]],
   ["3 John", ["3 john", "third john", "3rd john", "three john", "iii john", "3 jn"]],
   ["Jude", ["jude", "jud"]],
-  ["Revelation", ["revelation", "revelations", "rev", "re", "apoc"]],
+  ["Revelation", ["revelation", "revelations", "rev", "apoc"]],
 ];
 
 const VARIANT_TO_BOOK = new Map<string, string>();
@@ -101,10 +105,16 @@ const NUMBER_WORDS: Record<string, number> = {
   zero: 0, one: 1, first: 1, two: 2, second: 2, three: 3, third: 3,
   four: 4, fourth: 4, five: 5, fifth: 5, six: 6, sixth: 6, seven: 7, seventh: 7,
   eight: 8, eighth: 8, nine: 9, ninth: 9, ten: 10, tenth: 10,
-  eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15,
-  sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19,
-  twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70,
-  eighty: 80, ninety: 90, hundred: 100,
+  eleven: 11, eleventh: 11, twelve: 12, twelfth: 12,
+  thirteen: 13, thirteenth: 13, fourteen: 14, fourteenth: 14,
+  fifteen: 15, fifteenth: 15, sixteen: 16, sixteenth: 16,
+  seventeen: 17, seventeenth: 17, eighteen: 18, eighteenth: 18,
+  nineteen: 19, nineteenth: 19,
+  twenty: 20, twentieth: 20, thirty: 30, thirtieth: 30,
+  forty: 40, fortieth: 40, fifty: 50, fiftieth: 50,
+  sixty: 60, sixtieth: 60, seventy: 70, seventieth: 70,
+  eighty: 80, eightieth: 80, ninety: 90, ninetieth: 90,
+  hundred: 100, hundredth: 100,
 };
 
 /** Convert phrases like "one hundred nineteen" → 119. Returns NaN if uncertain. */
@@ -136,7 +146,7 @@ export function wordsToNumber(phrase: string): number {
 
 // --- Spoken numeral chunk recognizer ----------------------------------------
 const NUM_TOKEN_PATTERN =
-  "(?:\\d+|(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)_(?:one|two|three|four|five|six|seven|eight|nine)|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)";
+  "(?:\\d+|(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)_(?:one|two|three|four|five|six|seven|eight|nine)|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|thirtieth|fortieth|fiftieth|sixtieth|seventieth|eightieth|ninetieth|hundredth)";
 // A single number "chunk" — one token, or a sequence joined by whitespace
 // (e.g. "one hundred nineteen"). Range separators do NOT appear inside a chunk.
 const NUM_CHUNK = `(${NUM_TOKEN_PATTERN}(?:\\s+${NUM_TOKEN_PATTERN}){0,5})`;
@@ -146,7 +156,7 @@ const NUM_CHUNK = `(${NUM_TOKEN_PATTERN}(?:\\s+${NUM_TOKEN_PATTERN}){0,5})`;
 // Excludes "hundred"/"thousand" so compound numbers ("one hundred nineteen")
 // aren't split into a false chapter/verse pair.
 const NUM_ATOM_PATTERN =
-  "(?:\\d+|(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)_(?:one|two|three|four|five|six|seven|eight|nine)|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)";
+  "(?:\\d+|(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)_(?:one|two|three|four|five|six|seven|eight|nine)|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|thirtieth|fortieth|fiftieth|sixtieth|seventieth|eightieth|ninetieth|hundredth)";
 const NUM_SINGLE = `(${NUM_ATOM_PATTERN})`;
 
 function chunkToNum(raw: string): number {
@@ -180,9 +190,14 @@ export type ParsedReference = {
   chapter: number;
   verseStart: number;
   verseEnd: number;
+  /** Set only for cross-chapter ranges like "John 3:16-4:3". Undefined for single-chapter refs. */
+  chapterEnd?: number;
   confidence: number; // 0-100
   matchedText: string;
   needsSemanticFallback: boolean;
+  /** Character offset (start inclusive, end exclusive) in the normalized text. */
+  start?: number;
+  end?: number;
 };
 
 const SINGLE_CHAPTER_BOOKS = new Set(["Obadiah", "Philemon", "2 John", "3 John", "Jude"]);
@@ -200,6 +215,25 @@ const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => Pa
       const verse = chunkToNum(m[2]);
       if (!book || !isFinite(verse)) return null;
       return { book, chapter: 1, verseStart: verse, verseEnd: verse, confidence: 94, matchedText: m[0], needsSemanticFallback: false };
+    },
+  },
+  // Cross-chapter range: "Book C:V - C:V" (only supports colon form to stay unambiguous)
+  {
+    name: "book_cross_chapter_range",
+    regex: new RegExp(
+      `\\b(${BOOK_PATTERN})\\s+(?:chapter\\s+)?${NUM_CHUNK}\\s*:\\s*${NUM_CHUNK}\\s*(?:to|through|thru|-|–|—)\\s*${NUM_CHUNK}\\s*:\\s*${NUM_CHUNK}\\b`,
+      "gi"
+    ),
+    parse: (m) => {
+      const bookKey = m[1].toLowerCase().replace(/\s+/g, " ");
+      const book = VARIANT_TO_BOOK.get(bookKey);
+      const chStart = chunkToNum(m[2]);
+      const vStart = chunkToNum(m[3]);
+      const chEnd = chunkToNum(m[4]);
+      const vEnd = chunkToNum(m[5]);
+      if (!book || !isFinite(chStart) || !isFinite(vStart) || !isFinite(chEnd) || !isFinite(vEnd)) return null;
+      if (chEnd < chStart) return null;
+      return { book, chapter: chStart, verseStart: vStart, chapterEnd: chEnd, verseEnd: vEnd, confidence: 96, matchedText: m[0], needsSemanticFallback: false };
     },
   },
   // "Book Chapter [colon|verse|:|space|from verse] Verse [to|dash|through|to verse] Verse"
@@ -286,16 +320,21 @@ export function parseReferences(rawText: string): ParsedReference[] {
     pat.regex.lastIndex = 0;
     let m: RegExpExecArray | null;
     while ((m = pat.regex.exec(text)) !== null) {
-      const span = `${m.index}-${m.index + m[0].length}`;
+      const start = m.index;
+      const end = m.index + m[0].length;
+      const span = `${start}-${end}`;
       if (seenSpans.has(span)) continue;
-      // Skip if this span overlaps a higher-confidence earlier find
-      const overlap = found.some((f) => {
-        const fs = text.indexOf(f.matchedText);
-        return fs >= 0 && fs < m!.index + m![0].length && fs + f.matchedText.length > m!.index;
-      });
+      // Skip if this span overlaps a higher-confidence earlier find.
+      // Compare intervals directly — using indexOf on matchedText breaks when
+      // the same phrase appears twice (Y4 in the Priority-1 review).
+      const overlap = found.some((f) =>
+        f.start !== undefined && f.end !== undefined && f.start < end && f.end > start
+      );
       if (overlap) continue;
       const ref = pat.parse(m);
       if (ref) {
+        ref.start = start;
+        ref.end = end;
         found.push(ref);
         seenSpans.add(span);
       }
@@ -325,8 +364,11 @@ export type SimpleReference = {
   chapter: number;
   verseStart: number;
   verseEnd: number | null;
+  /** Populated only for cross-chapter ranges (e.g. John 3:16-4:3). */
+  chapterEnd?: number;
 };
 export function parseReference(text: string): SimpleReference | null {
+  if (!text || !text.trim()) return null;
   const refs = parseReferences(text);
   if (refs.length === 0) return null;
   // Highest confidence first
@@ -340,11 +382,13 @@ export function parseReference(text: string): SimpleReference | null {
   const hasVerseMarker = /:|\bverses?\b|\bfrom\s+verse/.test(raw);
   const digitCount = (raw.match(/\d+/g) || []).length;
   const wholeChapter =
-    !hasVerseMarker && digitCount <= 1 && r.verseStart === 1 && r.verseEnd === 1;
-  return {
+    !hasVerseMarker && digitCount <= 1 && r.verseStart === 1 && r.verseEnd === 1 && r.chapterEnd === undefined;
+  const out: SimpleReference = {
     book: r.book,
     chapter: r.chapter,
     verseStart: r.verseStart,
     verseEnd: wholeChapter ? null : r.verseEnd,
   };
+  if (r.chapterEnd !== undefined) out.chapterEnd = r.chapterEnd;
+  return out;
 }
