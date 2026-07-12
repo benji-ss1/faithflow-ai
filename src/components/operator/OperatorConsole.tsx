@@ -864,6 +864,21 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
     toast.success(line1 || line2 ? "Lower third sent" : "Lower third cleared");
   }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt]);
 
+  /**
+   * P2 message overlay — a transient lower-third bubble that displays on
+   * the projector output on TOP of the current slide, and auto-clears
+   * client-side after dismissAfterMs. Distinct from `lowerThird` (which is
+   * a persistent livestream/name-strip element) so operators can use both
+   * at once without one clobbering the other.
+   */
+  const sendMessage = useCallback((text: string, dismissAfterMs?: number | null) => {
+    safePost(chRef.current, { type: "message", overlay: { text, dismissAfterMs: dismissAfterMs ?? null } });
+    toast.success("Message shown on projector");
+  }, []);
+  const clearMessage = useCallback(() => {
+    safePost(chRef.current, { type: "message", overlay: { clear: true } });
+  }, []);
+
   const startCountdown = useCallback((seconds: number) => {
     const target = Date.now() + seconds * 1000;
     setCountdownEndsAt(target);
@@ -913,6 +928,8 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
     onClearSlide: clearSlide, onClearMedia: clearMedia,
     onClearLowerThird: clearLowerThird, onStageMessage: stageMessage,
     onSendLowerThird: sendLowerThird,
+    onSendMessage: sendMessage,
+    onClearMessage: clearMessage,
     onStartCountdown: startCountdown,
     countdownEndsAt,
     onOpenProjector: openProjector,
@@ -982,7 +999,7 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
     // callbacks
     setAspectRatio, setFitMode, setAutopilotMode, jumpTo, sendPreview,
     goBlank, goLogo, clearLive, clearSlide, clearMedia, clearLowerThird,
-    stageMessage, sendLowerThird, startCountdown, openProjector,
+    stageMessage, sendLowerThird, sendMessage, clearMessage, startCountdown, openProjector,
     openStageDisplay, openLivestream, recallBanked, approveDetection,
     rejectDetection, approveSong, rejectSong, editSong, approveCommand,
     rejectCommand, editCommand, previewUnified, sendLiveUnified,

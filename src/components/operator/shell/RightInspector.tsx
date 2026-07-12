@@ -174,8 +174,39 @@ function OutputTab({ ctx }: { ctx: OperatorShellCtx }) {
 function MessagesTab({ ctx }: { ctx: OperatorShellCtx }) {
   const [l1, setL1] = useState("");
   const [l2, setL2] = useState("");
+  const [msg, setMsg] = useState("");
+  const [dismissSec, setDismissSec] = useState<number>(10);
   return (
     <div className="p-3 space-y-3">
+      <Section label="Projector message overlay">
+        <textarea value={msg} onChange={(e) => setMsg(e.target.value)}
+          placeholder="Message text (e.g. 'Please silence phones')"
+          rows={2}
+          className="w-full px-2 py-1.5 rounded-md text-[12px] text-zinc-100 placeholder:text-zinc-500 border focus:outline-none resize-none"
+          style={{ background: "#1a2020", borderColor: "#2a3232" }} />
+        <div className="flex items-center gap-2 mt-2">
+          <label className="text-[10px] text-zinc-400 uppercase tracking-wider">Auto-hide</label>
+          <select value={dismissSec} onChange={(e) => setDismissSec(Number(e.target.value))}
+            className="h-7 px-2 rounded-md text-[11px] text-zinc-100 border"
+            style={{ background: "#1a2020", borderColor: "#2a3232" }}>
+            <option value={0}>Never</option>
+            <option value={5}>5s</option>
+            <option value={10}>10s</option>
+            <option value={30}>30s</option>
+            <option value={60}>60s</option>
+          </select>
+          <button onClick={() => { if (msg.trim()) ctx.onSendMessage(msg.trim(), dismissSec > 0 ? dismissSec * 1000 : null); }}
+            disabled={!msg.trim()}
+            className="h-8 px-3 rounded-md bg-teal-500/20 border border-teal-500/60 text-teal-200 text-[11px] font-bold uppercase tracking-wider disabled:opacity-40">
+            Show
+          </button>
+          <button onClick={ctx.onClearMessage}
+            className="h-8 px-3 rounded-md border text-[11px] text-zinc-300 hover:bg-white/5"
+            style={{ borderColor: "#2a3232" }}>
+            Hide
+          </button>
+        </div>
+      </Section>
       <Section label="Stage message / Lower third">
         <input value={l1} onChange={(e) => setL1(e.target.value)} placeholder="Line 1 (name)"
           className="w-full h-8 px-2 rounded-md text-[12px] text-zinc-100 placeholder:text-zinc-500 border focus:outline-none"

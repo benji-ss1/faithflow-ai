@@ -47,6 +47,9 @@ export type OperatorShellCtx = {
   onClearLowerThird: () => void;
   onStageMessage: () => void;
   onSendLowerThird: (line1: string, line2: string) => void;
+  // P2 — transient message overlay on projector (auto-dismisses)
+  onSendMessage: (text: string, dismissAfterMs?: number | null) => void;
+  onClearMessage: () => void;
   onStartCountdown: (seconds: number) => void;
   countdownEndsAt: number | null;
 
