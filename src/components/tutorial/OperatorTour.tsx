@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 /**
  * OperatorTour — 5-step in-app spotlight tour of the ProOperatorShell zones.
@@ -12,6 +12,10 @@ import { useEffect, useLayoutEffect, useMemo, useState } from "react";
  * Auto-shows once per install (localStorage key `presentflow.tour.seen`)
  * on first Electron launch, and can be re-opened via the Help > Guided
  * Tutorial menu item (IPC channel `shell:open-tour`).
+ *
+ * R1: the SVG backdrop is `pointerEvents: none` end-to-end so it never
+ * intercepts clicks on the highlighted zone. Operator advances via the
+ * Next/Back/Skip buttons in the card, or arrow keys / Enter / Escape.
  */
 type Step = {
   key: "left" | "center" | "right" | "bottom" | "top";
@@ -32,29 +36,68 @@ const SEEN_KEY = "presentflow.tour.seen";
 export function OperatorTour({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [idx, setIdx] = useState(0);
   const [rect, setRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
+  const targetRef = useRef<HTMLElement | null>(null);
 
   const step = useMemo(() => STEPS[idx], [idx]);
 
   useLayoutEffect(() => {
     if (!open) return;
+
     const measure = () => {
       const el = document.querySelector(`[data-tour="${step.key}"]`) as HTMLElement | null;
+      targetRef.current = el;
       if (!el) { setRect(null); return; }
       const r = el.getBoundingClientRect();
       setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
     };
     measure();
+
+    // Y1: react to size + DOM mutations instead of a 300ms polling interval.
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    if (ro && targetRef.current) ro.observe(targetRef.current);
+    if (ro) ro.observe(document.body);
+
+    const mo = typeof MutationObserver !== "undefined" ? new MutationObserver(() => {
+      // Re-look up the target — it may have been (re)mounted after the initial
+      // measure. Only re-measure if the target changed or its box moved.
+      const el = document.querySelector(`[data-tour="${step.key}"]`) as HTMLElement | null;
+      if (el !== targetRef.current) {
+        if (ro && targetRef.current) ro.unobserve(targetRef.current);
+        targetRef.current = el;
+        if (ro && el) ro.observe(el);
+        measure();
+      }
+    }) : null;
+    mo?.observe(document.body, { childList: true, subtree: true });
+
+    // Y2: capture-phase scroll listener so inner scroll containers also
+    // trigger a re-measure. Passive since we never call preventDefault.
+    const onScroll = () => measure();
+    window.addEventListener("scroll", onScroll, { capture: true, passive: true });
     window.addEventListener("resize", measure);
-    const id = window.setInterval(measure, 300); // catch late-mounting zones
-    return () => { window.removeEventListener("resize", measure); window.clearInterval(id); };
+
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", onScroll, { capture: true } as EventListenerOptions);
+      ro?.disconnect();
+      mo?.disconnect();
+    };
   }, [open, step.key]);
 
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { finish(); }
-      else if (e.key === "ArrowRight" || e.key === "Enter") { next(); }
-      else if (e.key === "ArrowLeft") { back(); }
+      // Y3: never swallow arrow keys / Enter when an input has focus — the
+      // operator may be typing in the search box, lower-third editor, or a
+      // contenteditable panel.
+      const t = e.target;
+      if (t instanceof HTMLElement) {
+        if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT") return;
+        if (t.isContentEditable) return;
+      }
+      if (e.key === "Escape") { e.stopPropagation(); finish(); }
+      else if (e.key === "ArrowRight" || e.key === "Enter") { e.stopPropagation(); next(); }
+      else if (e.key === "ArrowLeft") { e.stopPropagation(); back(); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -89,9 +132,24 @@ export function OperatorTour({ open, onClose }: { open: boolean; onClose: () => 
   })();
 
   return (
-    <div className="fixed inset-0 z-[9999]" aria-live="polite" role="dialog" aria-label="PresentFlow guided tour">
-      {/* SVG mask for the spotlight cutout so we get one uniform backdrop */}
-      <svg width="100%" height="100%" style={{ position: "absolute", inset: 0, pointerEvents: "auto" }} onClick={next}>
+    <div
+      className="fixed inset-0 z-[9999]"
+      aria-live="polite"
+      role="dialog"
+      aria-label="PresentFlow guided tour"
+      // R1: overlay container itself must not intercept clicks; only the tour
+      // card re-enables pointer events so operator can still interact with
+      // the highlighted zone during the tour.
+      style={{ pointerEvents: "none" }}
+    >
+      {/* R1: SVG dimmer + spotlight ring is purely decorative. pointerEvents:
+          none end-to-end — no full-viewport click-eater. */}
+      <svg
+        width="100%"
+        height="100%"
+        style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
+        aria-hidden="true"
+      >
         <defs>
           <mask id="tour-mask">
             <rect width="100%" height="100%" fill="white" />
@@ -124,8 +182,7 @@ export function OperatorTour({ open, onClose }: { open: boolean; onClose: () => 
 
       <div
         className="absolute w-[360px] max-w-[92vw] rounded-lg border border-border bg-card text-card-foreground shadow-2xl p-4"
-        style={cardStyle}
-        onClick={(e) => e.stopPropagation()}
+        style={{ ...cardStyle, pointerEvents: "auto" }}
       >
         <div className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
           Step {idx + 1} of {STEPS.length}

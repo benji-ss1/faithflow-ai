@@ -323,14 +323,28 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     const handler = () => setTourOpen(true);
     api.on("shell:open-tour", handler);
     // Auto-show on first launch only.
-    if (!hasSeenTour()) {
-      const t = window.setTimeout(() => setTourOpen(true), 800);
+    // Y4: 400ms is enough for the shell mount; polling/observers self-heal
+    // late target measurements so we don't need the 800ms cushion.
+    // Y5: never auto-pop the tour while a live rehearsal / service is already
+    // projecting content — only when the projector is idle (empty).
+    if (!hasSeenTour() && ctx.liveSlide?.kind === "empty") {
+      const schedule = (cb: () => void) => {
+        const w = window as Window & { requestIdleCallback?: (cb: IdleRequestCallback, opts?: { timeout: number }) => number; cancelIdleCallback?: (id: number) => void };
+        if (typeof w.requestIdleCallback === "function") {
+          const id = w.requestIdleCallback(() => cb(), { timeout: 800 });
+          return () => { try { w.cancelIdleCallback?.(id); } catch { /* noop */ } };
+        }
+        const t = window.setTimeout(cb, 400);
+        return () => window.clearTimeout(t);
+      };
+      const cancel = schedule(() => setTourOpen(true));
       return () => {
-        window.clearTimeout(t);
+        cancel();
         try { api.off("shell:open-tour", handler); } catch { /* noop */ }
       };
     }
     return () => { try { api.off("shell:open-tour", handler); } catch { /* noop */ } };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
