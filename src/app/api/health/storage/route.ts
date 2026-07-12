@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiUser } from "@/lib/session";
 import { S3Client, HeadBucketCommand } from "@aws-sdk/client-s3";
+import { checkHealthRateLimit } from "@/lib/health-rate-limit";
 
 export const runtime = "nodejs";
 
@@ -12,6 +13,8 @@ export const runtime = "nodejs";
 export async function GET() {
   const user = await apiUser();
   if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  const limited = await checkHealthRateLimit(user.id);
+  if (limited) return limited;
 
   const bucket = process.env.S3_BUCKET;
   if (!bucket) {

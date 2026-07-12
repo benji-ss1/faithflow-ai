@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiUser } from "@/lib/session";
+import { checkHealthRateLimit } from "@/lib/health-rate-limit";
 
 export const runtime = "nodejs";
 
@@ -17,6 +18,8 @@ export const runtime = "nodejs";
 export async function GET() {
   const user = await apiUser();
   if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  const limited = await checkHealthRateLimit(user.id);
+  if (limited) return limited;
   const present = typeof process.env.DEEPGRAM_API_KEY === "string" && process.env.DEEPGRAM_API_KEY.length > 0;
   return NextResponse.json({
     ok: present,

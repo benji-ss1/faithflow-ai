@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { apiUser } from "@/lib/session";
 import { getDb } from "@/lib/db/client";
 import { sql } from "drizzle-orm";
+import { checkHealthRateLimit } from "@/lib/health-rate-limit";
 
 export const runtime = "nodejs";
 
@@ -14,6 +15,8 @@ export const runtime = "nodejs";
 export async function GET() {
   const user = await apiUser();
   if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  const limited = await checkHealthRateLimit(user.id);
+  if (limited) return limited;
   try {
     const db = getDb();
     const rows = await db.execute(sql`SELECT 1 AS ping`);
