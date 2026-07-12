@@ -179,6 +179,16 @@ function installApplicationMenu() {
         { type: "separator" }, { role: "togglefullscreen" },
     ] },
     { label: "Help", submenu: [
+        {
+          label: "Keyboard Shortcuts",
+          accelerator: isMac ? "Cmd+/" : "Ctrl+/",
+          click: () => {
+            if (!mainWindow) return;
+            mainWindow.show();
+            try { mainWindow.webContents.send("shell:open-shortcuts-help"); } catch { /* noop */ }
+          },
+        },
+        { type: "separator" as const },
         { label: "Guided Tutorial", click: () => openHelp("/tutorial") },
         { label: "First Sunday Playbook", click: () => openHelp("/help/first-sunday") },
         { label: "Projector Setup", click: () => openHelp("/setup/projector") },
