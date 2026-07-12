@@ -6,6 +6,8 @@
 // caller supplies presets (they don't today — logged in DECISIONS.md).
 
 import * as ContextMenu from "@radix-ui/react-context-menu";
+import * as AlertDialog from "@radix-ui/react-alert-dialog";
+import { useState } from "react";
 import { Edit3, EyeOff, Palette, Sparkles, Trash2, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 
@@ -34,9 +36,24 @@ export function SlideContextMenu({
   const themes = presets?.themes ?? [];
   const transitions = presets?.transitions ?? [];
 
+  // Y3: destructive Delete is now behind a confirm dialog. Also fires from
+  // Delete/Backspace when the trigger element (or any descendant) has focus.
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const handleTriggerKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.key === "Delete" || e.key === "Backspace") && onDelete) {
+      e.preventDefault();
+      setConfirmOpen(true);
+    }
+  };
+
   return (
+    <>
     <ContextMenu.Root>
-      <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
+      <ContextMenu.Trigger asChild>
+        <div tabIndex={0} onKeyDown={handleTriggerKeyDown} className="outline-none">
+          {children}
+        </div>
+      </ContextMenu.Trigger>
       <ContextMenu.Portal>
         <ContextMenu.Content
           className="min-w-[180px] rounded-md border p-1 shadow-xl text-[12px] z-50"
@@ -82,10 +99,44 @@ export function SlideContextMenu({
           </ContextMenu.Sub>
 
           <ContextMenu.Separator className="my-1 h-px bg-[#2a3232]" />
-          <Item icon={<Trash2 className="w-3.5 h-3.5 text-red-300" />} danger onSelect={() => (onDelete ? onDelete() : toast.info("Delete not wired"))}>Delete</Item>
+          <Item icon={<Trash2 className="w-3.5 h-3.5 text-red-300" />} danger onSelect={() => (onDelete ? setConfirmOpen(true) : toast.info("Delete not wired"))}>Delete</Item>
         </ContextMenu.Content>
       </ContextMenu.Portal>
     </ContextMenu.Root>
+
+    <AlertDialog.Root open={confirmOpen} onOpenChange={setConfirmOpen}>
+      <AlertDialog.Portal>
+        <AlertDialog.Overlay className="fixed inset-0 z-[70]" style={{ background: "rgba(0,0,0,0.7)" }} />
+        <AlertDialog.Content
+          className="fixed left-1/2 top-1/2 z-[71] w-full max-w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-lg border p-4 shadow-2xl focus:outline-none"
+          style={{ borderColor: "#2a3232", background: "#1e2525", color: "#e4e4e7" }}
+        >
+          <AlertDialog.Title className="text-[13px] font-semibold text-zinc-100">
+            Delete this slide?
+          </AlertDialog.Title>
+          <AlertDialog.Description className="mt-2 text-[11px] text-zinc-400 leading-relaxed">
+            This cannot be undone.
+          </AlertDialog.Description>
+          <div className="mt-4 flex items-center justify-end gap-2">
+            <AlertDialog.Cancel asChild>
+              <button className="h-8 px-3 rounded-md border text-[11px] font-semibold text-zinc-200 hover:bg-white/5"
+                style={{ borderColor: "#2a3232", background: "#1a2020" }}>
+                Cancel
+              </button>
+            </AlertDialog.Cancel>
+            <AlertDialog.Action asChild>
+              <button
+                onClick={() => onDelete?.()}
+                className="h-8 px-3 rounded-md text-[11px] font-semibold text-white bg-red-600 hover:bg-red-500"
+              >
+                Delete
+              </button>
+            </AlertDialog.Action>
+          </div>
+        </AlertDialog.Content>
+      </AlertDialog.Portal>
+    </AlertDialog.Root>
+    </>
   );
 }
 

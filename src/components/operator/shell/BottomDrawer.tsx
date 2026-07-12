@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronUp, ChevronDown, Image as ImageIcon, ListMusic, Layers, Sun, Timer, Upload, History, Grid3x3, List, Filter as FilterIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
@@ -7,15 +7,26 @@ import type { OperatorShellCtx } from "./types";
 import { SlideContextMenu } from "../SlideContextMenu";
 import { toast } from "sonner";
 
-// Safe Mode toggle (localStorage). When ON, double-click on a slide only
-// stages it to Preview — the operator must click "Send to Live" afterward.
-// When OFF (default), double-click sends immediately to Live (ProPresenter
-// gesture). Single-click ALWAYS just selects.
+// Safe Mode toggle (localStorage). When ON (default now — see R2), double-
+// click on a slide only stages it to Preview — the operator must click
+// "Send to Live" afterward. When explicitly disabled, double-click sends
+// immediately to Live. Single-click ALWAYS just selects.
+//
+// R2: default is now ON. Missing localStorage key → treat as ON. Users must
+// explicitly disable Safe Mode from Settings to enable double-click-to-live.
 const SAFE_MODE_KEY = "presentflow.safeMode";
 function readSafeMode(): boolean {
-  if (typeof window === "undefined") return false;
-  try { return window.localStorage.getItem(SAFE_MODE_KEY) === "1"; } catch { return false; }
+  if (typeof window === "undefined") return true;
+  try {
+    const v = window.localStorage.getItem(SAFE_MODE_KEY);
+    if (v === null) return true;   // default ON
+    return v === "1";
+  } catch { return true; }
 }
+
+// R2: 250ms debounce so accidental fast double-clicks (or trackpad noise)
+// don't fire the send-to-live action twice.
+const DOUBLE_CLICK_LIVE_DEBOUNCE_MS = 250;
 
 type DrawerTab = "media" | "playlists" | "backgrounds" | "logos" | "timers" | "recent" | "imports";
 const TABS: { key: DrawerTab; label: string; icon: typeof ImageIcon }[] = [
@@ -45,6 +56,9 @@ export function BottomDrawer({ ctx }: { ctx: OperatorShellCtx }) {
   const [tab, setTab] = useState<DrawerTab>("media");
   const [view, setView] = useState<"grid" | "list">("grid");
   const [filter, setFilter] = useState("");
+
+  // Debounce token: reject double-click-live if fired within the last window.
+  const lastLiveFireRef = useRef<number>(0);
 
   const item = ctx.plan.items[ctx.previewItemIdx];
 
@@ -106,16 +120,20 @@ export function BottomDrawer({ ctx }: { ctx: OperatorShellCtx }) {
                       <button
                         onClick={() => ctx.onJumpSlide(ctx.previewItemIdx, i)}
                         onDoubleClick={() => {
-                          // Send-to-live on double-click (ProPresenter default).
-                          // Safe Mode short-circuits to Preview-only.
+                          // Double-click behavior:
+                          //   Safe Mode ON (default): stage-to-preview only.
+                          //   Safe Mode OFF (user opt-in): send to live.
+                          // 250ms debounce prevents accidental double-fire.
                           ctx.onJumpSlide(ctx.previewItemIdx, i);
-                          if (!readSafeMode()) {
-                            // Give jumpTo a tick so previewSlide reflects the
-                            // new selection before sending.
-                            setTimeout(() => ctx.onSendToLive(), 0);
-                          }
+                          if (readSafeMode()) return;
+                          const now = Date.now();
+                          if (now - lastLiveFireRef.current < DOUBLE_CLICK_LIVE_DEBOUNCE_MS) return;
+                          lastLiveFireRef.current = now;
+                          // Give jumpTo a tick so previewSlide reflects the
+                          // new selection before sending.
+                          setTimeout(() => ctx.onSendToLive(), 0);
                         }}
-                        title={readSafeMode() ? "Click: select · Double-click: preview only (Safe Mode)" : "Click: select · Double-click: SEND TO LIVE"}
+                        title={readSafeMode() ? "Click: select · Double-click: preview only (Safe Mode ON — default)" : "Click: select · Double-click: SEND TO LIVE"}
                         className={cn(
                           "shrink-0 w-36 aspect-video rounded-sm overflow-hidden border-2 relative",
                           active ? "border-teal-400" : "border-[#2a3232] hover:border-zinc-500",

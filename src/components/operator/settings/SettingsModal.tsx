@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import { X, ExternalLink, Shield } from "lucide-react";
 
 const SAFE_MODE_KEY = "presentflow.safeMode";
@@ -16,10 +17,14 @@ const SAFE_MODE_KEY = "presentflow.safeMode";
  * addition and can land independently without changing this shell.
  */
 export function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const [safeMode, setSafeMode] = useState(false);
+  const [safeMode, setSafeMode] = useState(true); // default ON (R2)
   useEffect(() => {
     if (!open) return;
-    try { setSafeMode(window.localStorage.getItem(SAFE_MODE_KEY) === "1"); } catch { /* noop */ }
+    try {
+      const v = window.localStorage.getItem(SAFE_MODE_KEY);
+      // Missing key → default ON. Only "0" flips off.
+      setSafeMode(v === null ? true : v === "1");
+    } catch { /* noop */ }
   }, [open]);
 
   function toggleSafeMode() {
@@ -40,17 +45,24 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
     }
   }
 
-  if (!open) return null;
+  // Y7: switched to Radix Dialog — provides role="dialog", aria-modal, focus
+  // trap, ESC-to-close, backdrop-click-to-close, and portal by default.
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.7)" }} onClick={onClose}>
-      <div className="w-full max-w-[560px] max-h-[85vh] overflow-y-auto rounded-lg border shadow-2xl"
-        style={{ borderColor: "#2a3232", background: "#1e2525" }}
-        onClick={(e) => e.stopPropagation()}>
+    <Dialog.Root open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-[60]" style={{ background: "rgba(0,0,0,0.7)" }} />
+        <Dialog.Content
+          aria-describedby={undefined}
+          className="fixed left-1/2 top-1/2 z-[61] w-full max-w-[560px] max-h-[85vh] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border shadow-2xl focus:outline-none"
+          style={{ borderColor: "#2a3232", background: "#1e2525" }}
+        >
         <div className="flex items-center justify-between h-11 px-4 border-b" style={{ borderColor: "#2a3232" }}>
-          <div className="text-[12px] font-semibold uppercase tracking-[0.16em] text-zinc-200">Settings</div>
-          <button onClick={onClose} className="h-7 w-7 rounded-md inline-flex items-center justify-center text-zinc-400 hover:bg-white/5 hover:text-zinc-100">
-            <X className="w-4 h-4" />
-          </button>
+          <Dialog.Title className="text-[12px] font-semibold uppercase tracking-[0.16em] text-zinc-200">Settings</Dialog.Title>
+          <Dialog.Close asChild>
+            <button className="h-7 w-7 rounded-md inline-flex items-center justify-center text-zinc-400 hover:bg-white/5 hover:text-zinc-100" aria-label="Close settings">
+              <X className="w-4 h-4" />
+            </button>
+          </Dialog.Close>
         </div>
 
         <div className="p-4 space-y-4">
@@ -70,8 +82,8 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
                   </span>
                 </div>
                 <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">
-                  When ON, double-click stages to Preview only — you must click Send-to-Live afterward.
-                  When OFF (default), double-click sends a slide straight to Live.
+                  Default: ON. Double-click stages to Preview only — click Send-to-Live to broadcast.
+                  Turn OFF to enable ProPresenter-style double-click straight to Live (advanced).
                 </p>
               </div>
             </button>
@@ -91,7 +103,8 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
             </button>
           </section>
         </div>
-      </div>
-    </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
