@@ -4,7 +4,8 @@ import * as Popover from "@radix-ui/react-popover";
 import * as Tabs from "@radix-ui/react-tabs";
 import { Settings } from "lucide-react";
 
-const KEY = "presentflow.bibleOptions.v1";
+// Y1: unified namespace with the rest of the Pro shell (presentflow.pro.*)
+const KEY = "presentflow.pro.bible.v1";
 
 type BibleOpts = {
   showVerseNumbers: boolean;
