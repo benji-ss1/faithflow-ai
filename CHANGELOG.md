@@ -1,5 +1,51 @@
 # Changelog
 
+## [main] Operator shell: deferred spec items delivered
+
+Six user-visible items that were deferred from the initial ProPresenter-style
+rebuild are now shipped.
+
+### 1. Inline library panels (Songs / Media / Imports)
+- `src/components/operator/shell/LeftColumn.tsx` — Library rows now expand
+  inline as accordions. Songs (search + list), Media (grid), Imports (list w/
+  status + date). Only one open at a time. Bible still opens the overlay.
+- `src/app/api/songs/list/route.ts` (NEW) — desktop-safe `{id,title,artist}`.
+- `src/app/api/imports/list/route.ts` (NEW) — desktop-safe pptx list.
+- `src/app/api/media/list/route.ts` — reused as-is.
+
+### 2. Right-click context menu on slides
+- `src/components/operator/SlideContextMenu.tsx` (NEW) — Radix ContextMenu
+  wrapper. Items: Edit, Disable, Themes ▶, Transitions ▶, Delete.
+- Wired into `CenterWorkspace.tsx` (slide list rail) and `BottomDrawer.tsx`
+  (Media grid). Disable / Themes / Transitions stubbed — see DECISIONS.md.
+
+### 3. Live output thumbnail (always visible, top-right)
+- `src/components/operator/LiveOutputThumb.tsx` (NEW) — 200×112 SlideRenderer
+  proxy for the last-sent slide, red border when Live, "Off-Air" otherwise.
+- `OperatorShell.tsx` places it above `RightInspector` on the right column.
+
+### 4. Drag-to-add from library into playlist
+- LeftColumn library rows are `draggable`, write a `LibraryDrag` payload to
+  `application/x-presentflow-library`. Playlist section accepts the drop and
+  calls `ctx.onAddLibraryItem(kind, {id,title})`.
+- `OperatorConsole.tsx` implements `onAddLibraryItem` via `addServiceItem`
+  server action + `location.reload()`. Ephemeral plan shows a toast prompt.
+
+### 5. Screens/Outputs modal from the top bar
+- `src/components/operator/screens/ScreensPanel.tsx` (NEW) — extracted core
+  of `/settings/screens/page.tsx`. Reads `window.electronAPI.screens`.
+- `TopToolbar.tsx` — new Monitor icon opens a modal wrapping `ScreensPanel`.
+- Standalone `/settings/screens/page.tsx` untouched (web shell still uses).
+
+### 6. Help "?" dropdown at LeftColumn bottom + Electron menu parity
+- LeftColumn: `HelpDropdown` (icon at bottom of aside, Electron-only) mirrors
+  the Electron Help menu items — opens each via
+  `window.electronAPI.shell.openExternal(NEXT_PUBLIC_APP_URL + <path>)`.
+- Hidden in web shell (no `window.electronAPI`).
+
+### Deps
+- Added `@radix-ui/react-context-menu`. No other installs.
+
 ## [main] Desktop shell → single ProPresenter-style operator view
 
 Reshapes the Electron desktop shell to render one always-visible operator surface

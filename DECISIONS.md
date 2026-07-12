@@ -1,5 +1,44 @@
 # Desktop-shell / web-shell architectural split
 
+## Slide context menu: Disable / Themes / Transitions are stubbed
+
+The Radix ContextMenu wired into CenterWorkspace + BottomDrawer exposes
+Edit / Disable / Themes ▶ / Transitions ▶ / Delete. Today:
+- Edit → `editor.setCurrentIndex(i)` (selects the slide in the editor).
+- Delete → `editor.deleteSlide()` inside CenterWorkspace; BottomDrawer's
+  Media grid stubs Delete with a toast because deletion belongs to the
+  editor slide-rail (song ownership), not the media BottomDrawer view.
+- Disable → toast placeholder. There is no `slide.enabled` column yet;
+  the schema change belongs to a later Phase.
+- Themes ▶ / Transitions ▶ → render "No {type} configured" when no
+  presets are supplied. The `SlideContextMenu` accepts a `presets` prop so
+  a caller CAN pass a registry once one exists. Nothing in the operator
+  passes it today.
+
+Rationale: the context menu is now a real user-visible surface (right-click
+works, submenu open works) but the write-back paths for Disable / Themes /
+Transitions are separate work items that touch the schema + the theme
+registry. Documented so the demo doesn't over-promise.
+
+## Library → Playlist add uses `window.location.reload()`
+
+`OperatorConsole.onAddLibraryItem` calls `addServiceItem` and then reloads
+the page so the server-rendered `ExpandedPlan` picks up the new item. This
+is heavy but correct — the plan is fetched in a Server Component at
+`src/app/(app)/operator/page.tsx` and hydrated once. A future refinement
+should introduce a client-side re-fetch (revalidatePath or a dedicated
+"reload plan" server action returning the new ExpandedPlan) to avoid the
+FOUC. Left as a Phase 6 followup.
+
+## LiveOutputThumb renders the SlidePayload, not a canvas snapshot
+
+There is no canvas-snapshot API exposed to the operator process today, so
+the thumbnail reuses `SlideRenderer` at reduced size against the current
+`ctx.liveSlide`. Same data source that /live consumes — visually accurate
+for text/scripture, image, and blank kinds. Video slides will show a still
+frame equivalent to whatever `SlideRenderer` produces at that resolution.
+Good enough for the demo; a real snapshot pipeline is a later item.
+
 ## /operator ALWAYS renders OperatorConsole (no more redirect / empty state)
 
 Previously `/operator` either redirected to `/services/[id]/operate` when a
