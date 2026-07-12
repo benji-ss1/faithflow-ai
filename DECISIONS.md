@@ -1,5 +1,43 @@
 # Desktop-shell / web-shell architectural split
 
+## FS allowlist is session-scoped, not persisted
+
+`electron/ipc/fs.ts` maintains an in-memory `allowedPaths` / `allowedDirs`
+Set populated only when the user explicitly picks a path via native dialog
+(see `dialog.ts`). Rationale: renderer-side JS should never be able to trick
+`fs:readFile` into reading `~/.ssh/id_rsa` etc. Follow-up: drag-drop paths
+from the OS need to also call `authorizePath` on the main side — currently
+the DnD handler in the renderer would need to funnel paths through a new
+IPC that authorizes them. Tracked as a follow-up; today's DnD flow is
+already limited to file blobs read via the browser File API, not fs paths.
+
+## Middleware desktop API whitelist — announcements & archive blocked
+
+Announcement presets (`/api/announcements/*`) could arguably be operator-safe
+(inline "show announcement now" flow), but per the review guidance we err on
+BLOCKING. If operator inline announcement pushes are re-introduced, split the
+route into `/api/announcements/push` (operator-safe) vs `/api/announcements`
+(admin CRUD) and whitelist only the former. `/api/archive/[id]` stays blocked
+— archive is an admin surface. `/api/stripe` webhook is already in
+`PUBLIC_PATHS` (Stripe posts unauthenticated), so no operator use needed.
+
+## `/api/library`, `/api/realtime`, `/api/services` in the whitelist defensively
+
+These prefixes don't currently exist under `src/app/api/` but are listed in
+`DESKTOP_ALLOWED_API_PREFIXES` because (a) the review specified them, and
+(b) they are obvious future operator-side surfaces. Having them pre-approved
+avoids a future "why is this 403" investigation when they're added. Removal
+is fine if we decide these should not exist.
+
+## Multi-service same-day: deterministic smallest-id pick, no time column
+
+`servicePlans` schema (as of this commit) has `scheduledFor` (date-only), no
+`scheduledTime` / `startTime` column. The operator landing picks the plan
+with the smallest id when two plans share the same day. If a time-of-day
+column is added later, prefer nearest-to-`now` (in church tz). Not adding a
+migration today because (a) the ask forbids it, and (b) real multi-service
+churches are rare in the pilot cohort.
+
 ## Detection is header + cookie, not env
 
 Electron injects `x-pf-shell: desktop` on every outbound request via

@@ -1,5 +1,49 @@
 # Changelog
 
+## [main] 3-agent review fixes (9 red findings)
+
+### Security — Electron
+- `electron/main.ts` — `shell:openExternal` now parses via `new URL`, rejects
+  non-http(s), rejects userinfo (blocks `https://legit@attacker.com`), and
+  checks hostname against an allowlist (presentflow.app, app.presentflow.com,
+  localhost, 127.0.0.1, plus first-party host + `NEXT_PUBLIC_APP_URL` host).
+- `electron/main.ts` — `onBeforeSendHeaders` only injects `x-pf-shell` for
+  first-party hosts (Next server + `NEXT_PUBLIC_APP_URL`). Third-party
+  requests pass through unmodified. Listener registration is idempotent.
+- `electron/ipc/fs.ts` — session-scoped path allowlist. `authorizePath` /
+  `authorizeDir` populated only when the user picks via native dialog or
+  drag-drop. `fs:readFile` and `fs:readDirRecursive` reject unauthorized
+  paths — renderer JS can no longer trigger reads of arbitrary disk paths.
+- `electron/ipc/dialog.ts` — calls `authorizePath` / `authorizeDir` for every
+  path returned from `dialog.showOpenDialog`.
+
+### Security — middleware
+- `src/middleware.ts` — replaced bare `/api` desktop allowance with an
+  explicit `DESKTOP_ALLOWED_API_PREFIXES` list. Blocked admin surfaces
+  (announcements, archive, stripe on non-webhook paths, etc.) now return
+  `{error:"not available in desktop shell"}` JSON 403 to a desktop shell.
+
+### Fix — cross-tenant leak
+- `src/app/(app)/dashboard/page.tsx:72` — the `aiSuggestions` query was
+  `where(eq(aiSuggestions.servicePlanId, aiSuggestions.servicePlanId))`
+  (tautology returning ALL suggestions across every church). Replaced with
+  an inner-join on `servicePlans` filtered by `churchId`. Pre-existing bug
+  from `49630a6`, affects both web and desktop.
+
+### Operator UX
+- `src/app/(app)/operator/page.tsx` — DB queries wrapped in try/catch;
+  renders `OfflineState` client component with Retry + Diagnostics link.
+- New `src/lib/dates.ts::getTodayInChurchTz` — `Intl.DateTimeFormat("en-CA",
+  {timeZone})` -> `YYYY-MM-DD`. Operator page loads `churches.timezone` and
+  uses it for `todayKey`.
+- Multi-service same-day: since schema has no time-of-day column, pick the
+  plan with the smallest id for determinism (see DECISIONS.md).
+- `src/middleware.ts` — desktop-shell session expiry on `/operator` or
+  `/services/*/operate` redirects to `/login?next=<path>&reason=session_expired`
+  instead of stripping to `/login`.
+- `src/app/login/page.tsx` — reads `next` (same-origin only) and shows a
+  "You were signed out" hint when `reason=session_expired`.
+
 ## [main] Enforce desktop-shell (presenting) vs web-shell (admin) split
 
 ### Added
