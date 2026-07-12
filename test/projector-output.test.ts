@@ -116,6 +116,92 @@ async function main() {
     assert.strictEqual(isValidLiveMessage({ type: "message", overlay: { text: 42 } } as unknown), false);
   });
 
+  // --- 2b. New adversarial coverage (Priority 2 hardening) -----------------
+  await check("validator rejects output state with invalid aspectRatio", () => {
+    const bad = { ...EMPTY_OUTPUT, aspectRatio: "banana" as unknown as "16:9" };
+    assert.strictEqual(isValidLiveMessage({ type: "output", state: bad } as unknown), false);
+  });
+
+  await check("validator rejects payload carrying __proto__ pollution key", () => {
+    const bad = JSON.parse('{"type":"clear","__proto__":{"polluted":true}}');
+    assert.strictEqual(isValidLiveMessage(bad), false);
+  });
+
+  await check("validator rejects message with text.length > 2000", () => {
+    const bad: unknown = { type: "message", overlay: { text: "x".repeat(2001) } };
+    assert.strictEqual(isValidLiveMessage(bad), false);
+  });
+
+  await check("validator rejects message with dismissAfterMs=Infinity", () => {
+    assert.strictEqual(isValidLiveMessage({ type: "message", overlay: { text: "hi", dismissAfterMs: Infinity } } as unknown), false);
+  });
+
+  await check("validator rejects message with dismissAfterMs=NaN", () => {
+    assert.strictEqual(isValidLiveMessage({ type: "message", overlay: { text: "hi", dismissAfterMs: NaN } } as unknown), false);
+  });
+
+  await check("validator rejects message with dismissAfterMs=-1", () => {
+    assert.strictEqual(isValidLiveMessage({ type: "message", overlay: { text: "hi", dismissAfterMs: -1 } } as unknown), false);
+  });
+
+  await check("validator rejects message with dismissAfterMs > 24h cap", () => {
+    assert.strictEqual(isValidLiveMessage({ type: "message", overlay: { text: "hi", dismissAfterMs: 24 * 3600 * 1000 + 1 } } as unknown), false);
+  });
+
+  await check("validator rejects slide image url with javascript: protocol", () => {
+    assert.strictEqual(
+      isValidLiveMessage({ type: "set", slide: { kind: "image", url: "javascript:alert(1)" } } as unknown),
+      false,
+    );
+  });
+
+  await check("validator rejects slide image url with data: protocol", () => {
+    assert.strictEqual(
+      isValidLiveMessage({ type: "set", slide: { kind: "image", url: "data:image/svg+xml,<svg/onload=alert(1)>" } } as unknown),
+      false,
+    );
+  });
+
+  await check("validator rejects slide image url with file: protocol", () => {
+    assert.strictEqual(
+      isValidLiveMessage({ type: "set", slide: { kind: "image", url: "file:///etc/passwd" } } as unknown),
+      false,
+    );
+  });
+
+  await check("validator accepts slide image url with https:", () => {
+    assert.strictEqual(
+      isValidLiveMessage({ type: "set", slide: { kind: "image", url: "https://cdn.example/x.jpg" } } as LiveMessage),
+      true,
+    );
+  });
+
+  await check("validator rejects slide bgColor with CSS injection", () => {
+    assert.strictEqual(
+      isValidLiveMessage({ type: "set", slide: { kind: "blank", bgColor: "red;--x:url(evil)" } } as unknown),
+      false,
+    );
+  });
+
+  await check("validator accepts slide bgColor #hex", () => {
+    assert.strictEqual(
+      isValidLiveMessage({ type: "set", slide: { kind: "blank", bgColor: "#000000" } } as LiveMessage),
+      true,
+    );
+  });
+
+  await check("validator rejects text slide with text > 5000 chars", () => {
+    assert.strictEqual(
+      isValidLiveMessage({ type: "set", slide: { kind: "text", text: "x".repeat(5001) } } as LiveMessage),
+      false,
+    );
+  });
+
+  await check("validator rejects output state with bad announcement line length", () => {
+    const bad = { ...EMPTY_OUTPUT, announcement: { line1: "x".repeat(501), position: "lower_third", style: {} } };
+    assert.strictEqual(isValidLiveMessage({ type: "output", state: bad } as unknown), false);
+  });
+
   // --- 3. Role → URL mapping matches real Next routes ---------------------
   const ROLE_TO_PATH: Record<string, string> = {
     Projector: "/live",
