@@ -186,5 +186,63 @@ check("Shift+B → null (uppercase 'B' not a bare-letter action)", () => {
   );
 });
 
+// --- Y1: expanded shouldIgnore role / contenteditable coverage ----------
+
+check("shouldIgnore: role=textbox → true", () => {
+  const t = {
+    tagName: "DIV",
+    getAttribute: (name: string) => (name === "role" ? "textbox" : null),
+  } as unknown as EventTarget;
+  assert.strictEqual(shouldIgnore(t), true);
+});
+check("shouldIgnore: role=combobox → true", () => {
+  const t = {
+    tagName: "DIV",
+    getAttribute: (name: string) => (name === "role" ? "combobox" : null),
+  } as unknown as EventTarget;
+  assert.strictEqual(shouldIgnore(t), true);
+});
+check("shouldIgnore: role=searchbox → true", () => {
+  const t = {
+    tagName: "DIV",
+    getAttribute: (name: string) => (name === "role" ? "searchbox" : null),
+  } as unknown as EventTarget;
+  assert.strictEqual(shouldIgnore(t), true);
+});
+check("shouldIgnore: nested contenteditable ancestor → true", () => {
+  // Simulate a child <span> inside a contenteditable="true" container.
+  const t = {
+    tagName: "SPAN",
+    isContentEditable: false,
+    getAttribute: () => null,
+    closest: (sel: string) =>
+      sel === '[contenteditable="true"]' ? { tagName: "DIV" } : null,
+  } as unknown as EventTarget;
+  assert.strictEqual(shouldIgnore(t), true);
+});
+check("shouldIgnore: role=button → false", () => {
+  const t = {
+    tagName: "BUTTON",
+    getAttribute: (name: string) => (name === "role" ? "button" : null),
+    closest: () => null,
+  } as unknown as EventTarget;
+  assert.strictEqual(shouldIgnore(t), false);
+});
+
+// --- Y2: Shift+Enter → send-live-force (bypasses Safe Mode) --------------
+
+check("Shift+Enter → send-live-force", () => {
+  assert.deepStrictEqual(
+    decodeShortcut(ev({ code: "Enter", key: "Enter", shiftKey: true })),
+    { kind: "send-live-force" },
+  );
+});
+check("Enter (no shift) still → send-live", () => {
+  assert.deepStrictEqual(
+    decodeShortcut(ev({ code: "Enter", key: "Enter" })),
+    { kind: "send-live" },
+  );
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
