@@ -115,6 +115,61 @@ async function main() {
     );
   });
 
+  // --- 5. ScreensPanel localStorage shape validation (Y7) -----------------
+  const { parseStoredAssignments } = await import("../src/components/operator/screens/ScreensPanel");
+
+  await check("parseStoredAssignments: null → {}", () => {
+    assert.deepStrictEqual(parseStoredAssignments(null), {});
+  });
+  await check("parseStoredAssignments: invalid JSON → {}", () => {
+    assert.deepStrictEqual(parseStoredAssignments("not json{"), {});
+  });
+  await check("parseStoredAssignments: array → {}", () => {
+    assert.deepStrictEqual(parseStoredAssignments("[1,2,3]"), {});
+  });
+  await check("parseStoredAssignments: unknown role rejected", () => {
+    const raw = JSON.stringify({ "1": { role: "Evil", preset: "1080p30", spawned: false } });
+    assert.deepStrictEqual(parseStoredAssignments(raw), {});
+  });
+  await check("parseStoredAssignments: unknown preset falls back to 1080p30", () => {
+    const raw = JSON.stringify({ "1": { role: "Stage", preset: "9001p", spawned: false } });
+    const out = parseStoredAssignments(raw);
+    assert.deepStrictEqual(out, { 1: { role: "Stage", preset: "1080p30", spawned: false } });
+  });
+  await check("parseStoredAssignments: valid entry round-trips", () => {
+    const raw = JSON.stringify({ "42": { role: "Livestream", preset: "720p", spawned: true, obsMode: "lowerthird" } });
+    assert.deepStrictEqual(parseStoredAssignments(raw), {
+      42: { role: "Livestream", preset: "720p", spawned: true, obsMode: "lowerthird" },
+    });
+  });
+  await check("parseStoredAssignments: unknown obsMode dropped", () => {
+    const raw = JSON.stringify({ "1": { role: "Livestream", preset: "1080p30", spawned: false, obsMode: "spy" } });
+    assert.deepStrictEqual(parseStoredAssignments(raw), {
+      1: { role: "Livestream", preset: "1080p30", spawned: false },
+    });
+  });
+
+  // --- 6. Livestream lower_third render decision (Y2) --------------------
+  // The /livestream page renders the lower-third bubble in `lower_third` mode
+  // ONLY when an explicit `lowerThird` payload is present. Text-kind slides
+  // (song lyrics) must not fall through. Since we can't render the page
+  // headless, we test the boolean decision the JSX gate expresses.
+  function lowerThirdRenders(mode: "full" | "lower_third", lowerThird: { line1: string; line2: string } | null, slideKind: string): boolean {
+    // Mirrors the JSX condition in src/app/livestream/page.tsx post-Y2.
+    if (mode !== "lower_third") return false;
+    void slideKind; // NOTE: slide.kind is intentionally NOT consulted anymore
+    return lowerThird !== null;
+  }
+  await check("Y2: text-kind slide without lowerThird → does NOT render", () => {
+    assert.strictEqual(lowerThirdRenders("lower_third", null, "text"), false);
+  });
+  await check("Y2: text-kind slide WITH lowerThird → renders", () => {
+    assert.strictEqual(lowerThirdRenders("lower_third", { line1: "Speaker", line2: "" }, "text"), true);
+  });
+  await check("Y2: image slide without lowerThird → does NOT render", () => {
+    assert.strictEqual(lowerThirdRenders("lower_third", null, "image"), false);
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
 }

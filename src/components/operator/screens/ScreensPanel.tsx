@@ -24,6 +24,44 @@ interface Assignment {
 const STORAGE_KEY = "presentflow.screenAssignments.v1";
 const AUTO_RESTORE_KEY = "presentflow.screenAssignments.autoRestore";
 
+const VALID_ROLES = new Set<Role>(["None", "Projector", "Stage", "Livestream"]);
+const VALID_PRESETS = new Set<Preset>(["720p", "1080p30", "1080p60", "4K"]);
+const VALID_OBS_MODES = new Set<ObsMode>(["full", "lowerthird"]);
+
+/**
+ * Y7: Validate the shape of the persisted assignments blob before writing
+ * it back into state. A tampered / cross-version localStorage value should
+ * not crash the panel or (worse) let arbitrary strings reach the IPC layer.
+ * Exported for unit testing.
+ */
+export function parseStoredAssignments(raw: string | null): Record<number, Assignment> {
+  if (!raw) return {};
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { return {}; }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+  const out: Record<number, Assignment> = {};
+  for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+    const dispId = Number(k);
+    if (!Number.isFinite(dispId)) continue;
+    if (!v || typeof v !== "object") continue;
+    const rec = v as Record<string, unknown>;
+    if (typeof rec.role !== "string" || !VALID_ROLES.has(rec.role as Role)) continue;
+    const preset: Preset = typeof rec.preset === "string" && VALID_PRESETS.has(rec.preset as Preset)
+      ? (rec.preset as Preset)
+      : "1080p30";
+    const a: Assignment = {
+      role: rec.role as Role,
+      preset,
+      spawned: rec.spawned === true,
+    };
+    if (typeof rec.obsMode === "string" && VALID_OBS_MODES.has(rec.obsMode as ObsMode)) {
+      a.obsMode = rec.obsMode as ObsMode;
+    }
+    out[dispId] = a;
+  }
+  return out;
+}
+
 export function ScreensPanel() {
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
   const [assignments, setAssignments] = useState<Record<number, Assignment>>({});
@@ -38,8 +76,8 @@ export function ScreensPanel() {
     void window.electronAPI!.screens.list().then(setDisplays);
 
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) setAssignments(JSON.parse(stored));
+      // Y7: validate shape before trusting persisted state.
+      setAssignments(parseStoredAssignments(localStorage.getItem(STORAGE_KEY)));
       setAutoRestore(localStorage.getItem(AUTO_RESTORE_KEY) === "1");
     } catch {}
   }, []);
@@ -60,7 +98,18 @@ export function ScreensPanel() {
 
   const updateAssignment = (dispId: number, patch: Partial<Assignment>) => {
     const current = assignments[dispId] ?? { role: "None" as Role, preset: "1080p30" as Preset, spawned: false };
-    persist({ ...assignments, [dispId]: { ...current, ...patch } });
+    // Y4: role changed on the same display AND we had spawned the old
+    // role → close the old window first so we don't end up stacking two
+    // output windows (e.g. Stage + Livestream) on the same display.
+    if (patch.role !== undefined && patch.role !== current.role && current.role !== "None" && current.spawned) {
+      const prev = current.role;
+      void window.electronAPI?.screens.close(prev).catch(() => { /* noop */ });
+    }
+    const merged = { ...current, ...patch };
+    // If role changed to None or a different role, the "spawned" flag no
+    // longer refers to the current role's window.
+    if (patch.role !== undefined && patch.role !== current.role) merged.spawned = false;
+    persist({ ...assignments, [dispId]: merged });
   };
 
   const handleSpawn = async (dispId: number) => {
