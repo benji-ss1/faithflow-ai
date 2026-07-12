@@ -181,7 +181,12 @@ export default function StagePage() {
     return () => window.removeEventListener("unhandledrejection", onUnhandled);
   }, []);
 
-  const countdownStr = countdownEndsAt && now ? formatCountdown(countdownEndsAt - now.getTime()) : null;
+  // Y3: If the operator forgets to clear a countdown, treat it as null
+  // once it's been past for >60s so Stage doesn't display 00:00 forever.
+  const effectiveCountdownEndsAt = countdownEndsAt && now && countdownEndsAt < now.getTime() - 60_000
+    ? null
+    : countdownEndsAt;
+  const countdownStr = effectiveCountdownEndsAt && now ? formatCountdown(effectiveCountdownEndsAt - now.getTime()) : null;
 
   return (
     <div
