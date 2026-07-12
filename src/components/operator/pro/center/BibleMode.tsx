@@ -1,10 +1,11 @@
 "use client";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload } from "@/lib/broadcast";
 import { BibleOptionsPopover, useBibleOptions } from "./BibleOptionsPopover";
+import { BibleBookBrowser } from "./BibleBookBrowser";
 import type { BibleSessionApi, VerseCard } from "../hooks";
 import { cn } from "@/lib/utils";
 
@@ -20,14 +21,11 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
   const { state, setRef, setTranslation, setMode, setCards, setSelectedIdx, setLoading } = session;
   const { ref, translation, mode, cards, selectedIdx, loading } = state;
   const [opts] = useBibleOptions();
+  const [tab, setTab] = useState<"reference" | "browse">("reference");
 
-  const lookup = useCallback(async () => {
+  const runLookup = useCallback(async (p: { book: string; chapter: number; verseStart: number; verseEnd: number }) => {
     setLoading(true);
     try {
-      const parseRefs = await import("@/lib/bible-parser").then((m) => m.parseReferences);
-      const parsed = parseRefs(ref);
-      if (parsed.length === 0) { toast.info("Couldn't parse reference"); return; }
-      const p = parsed[0];
       const res = await fetch("/api/bible/lookup", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ book: p.book, chapter: p.chapter, verseStart: p.verseStart, verseEnd: p.verseEnd, translationCode: translation }),
@@ -50,7 +48,22 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
     } finally {
       setLoading(false);
     }
-  }, [ref, translation, mode, setCards, setSelectedIdx, setLoading]);
+  }, [translation, mode, setCards, setSelectedIdx, setLoading]);
+
+  const lookup = useCallback(async () => {
+    const parseRefs = await import("@/lib/bible-parser").then((m) => m.parseReferences);
+    const parsed = parseRefs(ref);
+    if (parsed.length === 0) { toast.info("Couldn't parse reference"); return; }
+    const p = parsed[0];
+    await runLookup({ book: p.book, chapter: p.chapter, verseStart: p.verseStart, verseEnd: p.verseEnd });
+  }, [ref, runLookup]);
+
+  // Called from the Browse tab: single verse → load into card area & switch tab.
+  const pickBrowsedVerse = useCallback((r: { book: string; chapter: number; verse: number }) => {
+    setRef(`${r.book} ${r.chapter}:${r.verse}`);
+    setTab("reference");
+    void runLookup({ book: r.book, chapter: r.chapter, verseStart: r.verse, verseEnd: r.verse });
+  }, [runLookup, setRef]);
 
   // Y1/Y7: render each verse honoring showVerseNumbers, and append the
   // reference per refFormat ("each" → every card, "last" → only last card,
@@ -69,6 +82,20 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
 
   return (
     <div className="p-4 flex flex-col gap-4">
+      {/* Reference / Browse tab switcher */}
+      <div className="inline-flex rounded-md border border-[var(--color-border)] overflow-hidden text-[11px] uppercase tracking-wider font-mono h-8 w-fit">
+        {(["reference", "browse"] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={cn(
+              "px-3 h-full",
+              tab === t ? "bg-[var(--color-brand)] text-black" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",
+            )}
+          >{t}</button>
+        ))}
+      </div>
+
       <div className="flex items-center gap-2 flex-wrap">
         <input
           value={ref}
@@ -105,11 +132,16 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
         <BibleOptionsPopover />
       </div>
 
+      {tab === "browse" && (
+        <BibleBookBrowser translation={translation} onPickVerse={pickBrowsedVerse} />
+      )}
+
       {/* Verse cards */}
+      {tab === "reference" && (
       <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}>
         {cards.length === 0 && (
           <div className="col-span-full text-[12px] text-[var(--color-muted-foreground)] py-8 text-center">
-            Enter a reference above and hit Lookup.
+            Enter a reference above and hit Lookup — or switch to Browse.
           </div>
         )}
         {cards.map((c, idx) => {
@@ -133,6 +165,7 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
           );
         })}
       </div>
+      )}
     </div>
   );
 }
