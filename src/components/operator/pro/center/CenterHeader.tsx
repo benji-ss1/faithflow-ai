@@ -1,6 +1,6 @@
 "use client";
 import { toast } from "sonner";
-import { LayoutGrid, List, Eye, Play, Music, BookOpen } from "lucide-react";
+import { LayoutGrid, List, Eye, Play, Music, BookOpen, Image as ImageIcon } from "lucide-react";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { CenterMode } from "../ProOperatorShell";
 
@@ -14,8 +14,20 @@ function safeMode() {
 
 export function CenterHeader({ ctx, centerMode }: { ctx: OperatorShellCtx; centerMode: CenterMode }) {
   const item = ctx.plan.items[ctx.previewItemIdx];
-  const Icon = centerMode === "bible" ? BookOpen : item?.type === "song" ? Music : LayoutGrid;
-  const title = centerMode === "bible" ? "Bible" : item?.title ?? "No item selected";
+  // R6/Y4: mode-aware titles. Read-only per the earlier decision — rename
+  // routes through the item edit flow in slides mode only.
+  const Icon =
+    centerMode === "bible" ? BookOpen
+    : centerMode === "songs" ? Music
+    : centerMode === "media" ? ImageIcon
+    : item?.type === "song" ? Music
+    : LayoutGrid;
+  const title =
+    centerMode === "bible" ? "Bible"
+    : centerMode === "songs" ? "Songs Library"
+    : centerMode === "media" ? "Media Library"
+    : (item?.title ?? "No item selected");
+  const isLibraryMode = centerMode === "songs" || centerMode === "media" || centerMode === "bible";
 
   return (
     <div className="h-11 shrink-0 border-b border-[var(--color-border)] flex items-center px-3 gap-2">
@@ -29,9 +41,9 @@ export function CenterHeader({ ctx, centerMode }: { ctx: OperatorShellCtx; cente
         value={title}
         readOnly
         onClick={() => {
-          if (centerMode !== "bible") toast.info("Rename coming soon");
+          if (!isLibraryMode) toast.info("Rename coming soon");
         }}
-        title="Rename coming soon"
+        title={isLibraryMode ? undefined : "Rename coming soon"}
         className="flex-1 bg-transparent text-[14px] font-medium outline-none px-2 py-1 rounded cursor-default"
       />
       <div className="flex items-center gap-1">

@@ -25,13 +25,24 @@ import { MediaSection } from "./left/MediaSection";
 import { CenterHeader } from "./center/CenterHeader";
 import { SlideGrid } from "./center/SlideGrid";
 import { BibleMode } from "./center/BibleMode";
+import { SongsBrowser } from "./center/SongsBrowser";
+import { MediaBrowser } from "./center/MediaBrowser";
 import { LivePreviewPanel } from "./right/LivePreviewPanel";
 import { RightTabs } from "./right/RightTabs";
 import { BottomBar } from "./BottomBar";
 import { MediaStrip } from "./MediaStrip";
 import { useTimerSession, useMessagesSession, useBibleSession } from "./hooks";
 
-export type CenterMode = "slides" | "bible";
+/**
+ * centerMode drives what fills the center pane.
+ *   "slides"  → default SlideGrid for the current playlist item
+ *   "bible"   → BibleMode (Reference lookup + 66-book Browse)
+ *   "songs"   → SongsBrowser (inline song library)
+ *   "media"   → MediaBrowser (inline media library)
+ * Legacy value "playlist" is aliased to "slides" so older stored state /
+ * external callers keep working.
+ */
+export type CenterMode = "slides" | "bible" | "songs" | "media";
 
 const MEDIA_STRIP_KEY = "presentflow.pro.mediaStripOpen";
 const SLIDE_SIZE_KEY = "presentflow.pro.slideSize";
@@ -91,6 +102,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           <div className="flex-1 min-h-0 overflow-y-auto">
             {centerMode === "bible" ? (
               <BibleMode ctx={ctx} session={bibleSession} />
+            ) : centerMode === "songs" ? (
+              <SongsBrowser ctx={ctx} onExitToSlides={() => setCenterMode("slides")} />
+            ) : centerMode === "media" ? (
+              <MediaBrowser ctx={ctx} onExitToSlides={() => setCenterMode("slides")} />
             ) : (
               <SlideGrid ctx={ctx} slideSize={slideSize} />
             )}
