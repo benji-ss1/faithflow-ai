@@ -53,6 +53,29 @@ async function main() {
   });
   await check("WEB has all 66 books", async () => assert.strictEqual(await bookCount(web), 66));
 
+  // Per-book presence sweep — assert each canonical book has >=1 verse in KJV + ASV.
+  const CANONICAL_BOOKS = [
+    "Genesis","Exodus","Leviticus","Numbers","Deuteronomy","Joshua","Judges","Ruth",
+    "1 Samuel","2 Samuel","1 Kings","2 Kings","1 Chronicles","2 Chronicles","Ezra","Nehemiah",
+    "Esther","Job","Psalms","Proverbs","Ecclesiastes","Song of Solomon","Isaiah","Jeremiah",
+    "Lamentations","Ezekiel","Daniel","Hosea","Joel","Amos","Obadiah","Jonah","Micah","Nahum",
+    "Habakkuk","Zephaniah","Haggai","Zechariah","Malachi","Matthew","Mark","Luke","John","Acts",
+    "Romans","1 Corinthians","2 Corinthians","Galatians","Ephesians","Philippians","Colossians",
+    "1 Thessalonians","2 Thessalonians","1 Timothy","2 Timothy","Titus","Philemon","Hebrews",
+    "James","1 Peter","2 Peter","1 John","2 John","3 John","Jude","Revelation",
+  ];
+  const asv = byCode.get("ASV");
+  for (const translationCode of (["KJV", "ASV"] as const)) {
+    const tid = translationCode === "KJV" ? kjv : asv;
+    if (!tid) continue;
+    await check(`${translationCode}: every canonical book has >=1 verse`, async () => {
+      const rows = (await db.execute(sql`SELECT DISTINCT book FROM bible_verses WHERE translation_id = ${tid}`)).rows as { book: string }[];
+      const present = new Set(rows.map((r) => r.book));
+      const missing = CANONICAL_BOOKS.filter((b) => !present.has(b));
+      assert.strictEqual(missing.length, 0, `missing: ${missing.join(", ")}`);
+    });
+  }
+
   // Reference parser edge cases
   const cases: [string, unknown][] = [
     ["John 3:16",              { book: "John",            chapter: 3,  verseStart: 16, verseEnd: 16   }],
@@ -73,6 +96,40 @@ async function main() {
   }
   await check('parseReference("junk input") returns null', () => {
     assert.strictEqual(parseReference("junk input"), null);
+  });
+
+  // Empty / whitespace input
+  await check('parseReference("") returns null', () => {
+    assert.strictEqual(parseReference(""), null);
+  });
+  await check('parseReference("   ") returns null', () => {
+    assert.strictEqual(parseReference("   "), null);
+  });
+
+  // R2 false-positive suppression: 2-letter English-word aliases dropped.
+  await check('parseReference("I am 34 years old") returns null', () => {
+    assert.strictEqual(parseReference("I am 34 years old"), null);
+  });
+  await check('parseReference("this is chapter three of my life") returns null', () => {
+    assert.strictEqual(parseReference("this is chapter three of my life"), null);
+  });
+  await check('parseReference("re: the meeting") returns null', () => {
+    assert.strictEqual(parseReference("re: the meeting"), null);
+  });
+
+  // Y6: Roman-numeral prefix abbreviation
+  await check('parseReference("I Cor 13:4")', () => {
+    assert.deepStrictEqual(parseReference("I Cor 13:4"), {
+      book: "1 Corinthians", chapter: 13, verseStart: 4, verseEnd: 4,
+    });
+  });
+
+  // Y3: cross-chapter range
+  await check('parseReference("John 3:16-4:3") — cross-chapter range', () => {
+    const got = parseReference("John 3:16-4:3");
+    assert.deepStrictEqual(got, {
+      book: "John", chapter: 3, verseStart: 16, verseEnd: 3, chapterEnd: 4,
+    });
   });
   await check("invalid ref John 99:99 has no verse row", async () => {
     const v = await getVerse(kjv, "John", 99, 99);
