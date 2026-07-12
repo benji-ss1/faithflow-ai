@@ -1,5 +1,41 @@
 # Changelog
 
+## [main] Priority 5 — Stage + Livestream outputs (2026-07-12)
+
+- `OutputState.nextItem?: { title, type } | null` for stage "NEXT" preview
+  metadata (playlist item title + type). `next` (SlidePayload) already
+  existed for the stage's slide preview thumbnail.
+- `isValidOutputState` now exported, plus bounds:
+  - `nextItem.title` 1..500 chars, `type` 1..64 chars
+  - `countdownEndsAt` must be finite positive and ≤ now + 24h, or null
+- `livestreamUrl(role, appUrl, {obs})` pure helper for OBS-mode URL building.
+- `/livestream?obs=lowerthird` route: transparent background, lower-third
+  overlay pinned to bottom; renders text slide content when no dedicated
+  `lowerThird` payload is present so scripture keys cleanly in OBS.
+- Livestream BrowserWindow now created with `transparent: true` +
+  `backgroundColor: #00000000` (Projector/Stage remain opaque).
+- `screens:assign` IPC accepts optional `obsMode` ("full" | "lowerthird");
+  validated + threaded through to `createOutputWindow` and appended to the
+  loaded URL as `?obs=lowerthird&bg=transparent` for Livestream.
+- ScreensPanel: adds OBS mode column shown only for Livestream role rows;
+  persists in existing `presentflow.screenAssignments.v1` localStorage key.
+- Stage page consumes `nextItem` in the "Next" pane header — type badge +
+  truncated title alongside the next-slide thumbnail.
+- Tests: `test/multi-output.test.ts` — 16 cases pass. `projector-output`
+  still 38/38.
+
+Manual verification checklist (needs multi-display or OBS to verify):
+- [ ] Assign three physical displays to Projector/Stage/Livestream and
+      confirm each opens fullscreen on its target display.
+- [ ] Send a scripture slide live; confirm Projector shows full slide,
+      Stage shows current + next thumbnail + NEXT title/type, Livestream
+      full mode shows the slide, Livestream lower-third mode renders the
+      text pinned to the bottom on a transparent bg.
+- [ ] Point OBS at the transparent Livestream window; luma/chroma key the
+      black backdrop and confirm alpha keying works.
+- [ ] Start a countdown; confirm the Stage timer updates in monospace and
+      the Projector/Livestream are unaffected.
+
 ## [main] Priority 4 — reviewer + security agent fixes (2026-07-12)
 
 - R1 DOM-query modal detection: useOperatorHotkeys now checks
