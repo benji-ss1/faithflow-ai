@@ -177,6 +177,10 @@ function normalize(text: string): string {
   // atomic during pattern matching (won't be split by range separators or
   // chapter/verse separators). Only touches known tens-ones combos.
   s = s.replace(/\b(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)-(one|two|three|four|five|six|seven|eight|nine)\b/g, "$1_$2");
+  // R2: also fuse space-separated compound spoken numbers ("twenty three" →
+  // "twenty_three") so "Psalm twenty three" parses as a single chapter atom
+  // (23) via book_ch, not chapter 20 verse 3 via book_ch_space_verse.
+  s = s.replace(/\b(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\s+(one|two|three|four|five|six|seven|eight|nine)\b/g, "$1_$2");
 
   // Explicitize digit ranges so "3:16-17" doesn't fight NUM_CHUNK's greedy hyphen.
   s = s.replace(/(\d+)\s*[-–—]\s*(\d+)/g, "$1 to $2");
@@ -382,7 +386,10 @@ export function parseReference(text: string): SimpleReference | null {
   const hasVerseMarker = /:|\bverses?\b|\bfrom\s+verse/.test(raw);
   const digitCount = (raw.match(/\d+/g) || []).length;
   const wholeChapter =
-    !hasVerseMarker && digitCount <= 1 && r.verseStart === 1 && r.verseEnd === 1 && r.chapterEnd === undefined;
+    (!hasVerseMarker && digitCount <= 1 && r.verseStart === 1 && r.verseEnd === 1 && r.chapterEnd === undefined) ||
+    // Psalms guard: "Psalm 23" / "Psalm twenty three" without any ":" or
+    // "verse" marker should always be a whole-chapter reference, not v1.
+    (r.book === "Psalms" && !hasVerseMarker && r.chapterEnd === undefined);
   const out: SimpleReference = {
     book: r.book,
     chapter: r.chapter,

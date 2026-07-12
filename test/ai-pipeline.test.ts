@@ -47,14 +47,12 @@ async function main() {
       `expected John 3:16, got: ${JSON.stringify(refs)}`);
   });
 
-  test('parses "Psalm twenty three" (book detected)', () => {
-    // NOTE: current bible-parser reads "twenty three" as chapter 20, verse 3
-    // (space-separated words). Documented in DECISIONS.md as a known parser
-    // limitation. This test only asserts the book is recognised as Psalms,
-    // which is the load-bearing signal for verse-card display.
+  test('parses "Psalm twenty three" as Psalms chapter 23 (whole-chapter)', () => {
+    // R2 fix: compound spoken numbers now fuse in normalize(), so
+    // "Psalm twenty three" resolves cleanly to Ps 23 whole-chapter.
     const refs = parseReferences("as the psalmist writes in Psalm twenty three");
-    assert.ok(refs.some((r) => /^psalm/i.test(r.book)),
-      `expected a Psalms reference, got: ${JSON.stringify(refs)}`);
+    assert.ok(refs.some((r) => r.book === "Psalms" && r.chapter === 23),
+      `expected Psalms 23, got: ${JSON.stringify(refs)}`);
   });
 
   test('parses "second Corinthians chapter five"', () => {

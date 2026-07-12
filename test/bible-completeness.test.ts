@@ -87,6 +87,12 @@ async function main() {
     ["Philemon 1:1",           { book: "Philemon",        chapter: 1,  verseStart: 1,  verseEnd: 1    }],
     ["3 John 1:1",             { book: "3 John",          chapter: 1,  verseStart: 1,  verseEnd: 1    }],
     ["John three sixteen",     { book: "John",            chapter: 3,  verseStart: 16, verseEnd: 16   }],
+    // R2: compound spoken numbers ("twenty three" → 23) + Psalms whole-chapter default.
+    ["Psalm twenty three",         { book: "Psalms", chapter: 23,  verseStart: 1, verseEnd: null }],
+    ["Psalm 23",                   { book: "Psalms", chapter: 23,  verseStart: 1, verseEnd: null }],
+    ["Psalm 119",                  { book: "Psalms", chapter: 119, verseStart: 1, verseEnd: null }],
+    ["Psalm twenty three verse one", { book: "Psalms", chapter: 23, verseStart: 1, verseEnd: 1  }],
+    ["Psalm 23:1",                 { book: "Psalms", chapter: 23,  verseStart: 1, verseEnd: 1    }],
   ];
   for (const [input, expected] of cases) {
     await check(`parseReference("${input}")`, () => {
