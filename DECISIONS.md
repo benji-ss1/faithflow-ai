@@ -1,5 +1,45 @@
 # Desktop-shell / web-shell architectural split
 
+## Safe Mode is ON by default (2026-07-12)
+
+Previously, missing localStorage key was treated as OFF (double-click sends
+to Live). That's the ProPresenter default but it's a surprise for new
+operators — a single accidental double-click will broadcast a slide the
+congregation shouldn't see yet. Reviewer flagged as 🔴.
+
+New default: Safe Mode is **ON** unless the operator has explicitly turned
+it OFF from Settings. Double-click stages to Preview; the operator must
+click Send-to-Live to broadcast. Users who prefer ProPresenter behavior
+opt in from Settings once per install (localStorage per-shell).
+
+Enforcement lives in `src/components/operator/shell/BottomDrawer.tsx`
+(`readSafeMode()` returns `true` when the key is missing) and mirrored in
+`SettingsModal.tsx`. Debounce (250ms) added on double-click-live to reject
+accidental repeat fires.
+
+## Desktop shell assumes a post-onboarding org (2026-07-12)
+
+Reviewer 🟡 Y1: dropped `/onboarding` from `DESKTOP_ALLOWED_PAGE_PREFIXES`.
+Onboarding hosts org creation, team invite, and billing surfaces — all
+admin-only. New operators still complete onboarding on the web build; the
+desktop shell assumes a live, onboarded org. If a user opens the desktop
+app without an org, middleware will redirect them to `/operator`, which
+still runs (empty ephemeral plan) but the org-scoped queries will fail
+gracefully with the offline state until an admin completes onboarding on
+web.
+
+## S3: Env-derived hosts filtered through a static safe-list
+
+`NEXT_PUBLIC_APP_URL` is user-controlled at runtime (Vercel env, custom
+build, developer laptop). Blindly adding its hostname to the external URL
+allowlist was a supply-chain hazard — a mis-set env value could authorize
+`shell.openExternal("https://evil.com")`. Now the env host must match a
+hardcoded regex list (`localhost`, `127.0.0.1`, `*.presentflow.app`,
+`*.presentflow.com`) before it's admitted. Any other value is logged and
+ignored. Wildcards let us add subdomains without a code change.
+
+
+
 ## Slide context menu: Disable / Themes / Transitions are stubbed
 
 The Radix ContextMenu wired into CenterWorkspace + BottomDrawer exposes

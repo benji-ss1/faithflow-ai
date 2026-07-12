@@ -1,5 +1,64 @@
 # Changelog
 
+## [main] Operator shell: reviewer + security fix pass (3 red, 10 yellow)
+
+Addressed all reviewer + security findings on the operator shell rebuild.
+
+### Security
+
+- **actions.addServiceItem** — added discriminated-union payload guard and
+  church-scoped ownership check on referenced library items (songId /
+  mediaAssetId / pptxImportId). Rejects cross-church ids and type↔payload
+  mismatches. `src/lib/actions.ts`.
+- **middleware** — replaced prefix API allowlist with an EXACT set for the
+  desktop shell (narrow prefixes only for NextAuth callbacks and legitimate
+  dynamic-segment routes verified against `src/app/api/**/route.ts`). Dropped
+  `/onboarding` from the desktop page whitelist (admin surface). Hardened
+  `pf_shell` cookie with `httpOnly` + `secure` (prod) + `sameSite: lax`.
+  `src/middleware.ts`.
+- **electron/ipc/screens** — validated `role` and `preset` against the type
+  unions on `screens:assign`, `screens:spawn`, `screens:close`. Any other
+  value now returns `{ok:false, error:...}`. `electron/ipc/screens.ts`.
+- **electron/main** — `NEXT_PUBLIC_APP_URL`-derived hosts are now filtered
+  through a static safe-list (`localhost`, `127.0.0.1`, `*.presentflow.app`,
+  `*.presentflow.com`) before being added to first-party or external-URL
+  allowlists. `shell:openExternal` also honors the safe-list for wildcard
+  matches. `electron/main.ts`.
+
+### Reviewer UX / correctness
+
+- **Safe Mode ON by default** — missing localStorage key now means Safe Mode
+  is ON (double-click stages to Preview only). Users must explicitly disable
+  Safe Mode from Settings to enable double-click-to-live. Added a 250ms
+  debounce to reject accidental repeat fires. `src/components/operator/shell/
+  BottomDrawer.tsx`, `src/components/operator/settings/SettingsModal.tsx`.
+- **SlideContextMenu Delete** — Delete now opens a Radix `AlertDialog`
+  confirm ("Delete this slide? This cannot be undone.") with Cancel /
+  Delete. Focus + `Delete`/`Backspace` key on the trigger also opens the
+  confirm. `src/components/operator/SlideContextMenu.tsx`. Added dep
+  `@radix-ui/react-alert-dialog`.
+- **SettingsModal accessibility** — migrated from a custom overlay to
+  Radix `Dialog` (role, aria-modal, focus trap, ESC-to-close, backdrop
+  close). `src/components/operator/settings/SettingsModal.tsx`.
+- **Tray "Open Screen Config"** — no longer navigates to `/settings/screens`
+  (blocked in desktop shell). Sends `shell:open-screens-modal` IPC; the
+  renderer opens the existing Screens modal in the top toolbar directly.
+  `electron/main.ts`, `src/components/operator/shell/TopToolbar.tsx`.
+- **Operator page SQL filter** — today's plan is now filtered in SQL by
+  `scheduledFor = todayKey` (church tz) with `ORDER BY id ASC LIMIT 1`,
+  eliminating a fetch-all-plans read. Same deterministic tiebreak.
+  `src/app/(app)/operator/page.tsx`.
+- **Eliminate flash of web chrome** — server layout reads the `pf_shell`
+  cookie / `x-pf-shell` header, passes `initialShell` to `AppShell`, and
+  `useShell()` seeds state from it. Desktop shell now paints correct chrome
+  on first frame. `src/app/(app)/layout.tsx`, `src/components/layout/
+  AppShell.tsx`, `src/hooks/useShell.ts`.
+
+### Verification
+
+- `npm run typecheck` — passes (existing jsdom warning unchanged).
+- `npm run electron:build:tsc` — passes.
+
 ## [main] Operator shell: deferred spec items delivered
 
 Six user-visible items that were deferred from the initial ProPresenter-style
