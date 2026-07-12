@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
+import { _resetTierCache } from "@/hooks/useTier";
 import {
   Bell,
   ChevronDown,
@@ -328,7 +329,7 @@ export function Topbar({ user, churchName, onOpenNavigation }: TopbarProps) {
                 </Link>
                 <button
                   type="button"
-                  onClick={() => signOut({ callbackUrl: "/login" })}
+                  onClick={() => { _resetTierCache(); void signOut({ callbackUrl: "/login" }); }}
                   className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-foreground transition hover:bg-white/[0.05]"
                 >
                   <LogOut className="h-4 w-4 text-muted-foreground" />

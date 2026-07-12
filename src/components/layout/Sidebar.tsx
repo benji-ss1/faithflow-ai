@@ -18,6 +18,7 @@ import { accountNav, desktopNav, getActiveNavMatch, getRouteMeta, workspaceNav }
 import { useShell } from "@/hooks/useShell";
 import { Settings as SettingsIcon, LogOut, ExternalLink } from "lucide-react";
 import { signOut } from "next-auth/react";
+import { _resetTierCache } from "@/hooks/useTier";
 
 type SidebarProps = {
   mobileOpen: boolean;
@@ -503,7 +504,7 @@ function DesktopFooterPanel({
         </button>
         <button
           type="button"
-          onClick={() => signOut({ callbackUrl: "/login" })}
+          onClick={() => { _resetTierCache(); void signOut({ callbackUrl: "/login" }); }}
           title="Sign out"
           className="flex h-10 w-full items-center justify-center rounded-2xl border border-transparent text-sidebar-fg transition hover:border-white/10 hover:bg-white/[0.045]"
         >
@@ -541,7 +542,7 @@ function DesktopFooterPanel({
 
       <button
         type="button"
-        onClick={() => signOut({ callbackUrl: "/login" })}
+        onClick={() => { _resetTierCache(); void signOut({ callbackUrl: "/login" }); }}
         className="flex h-10 w-full items-center gap-3 rounded-2xl border border-transparent px-3 text-left text-sm font-medium text-sidebar-fg transition hover:border-white/10 hover:bg-white/[0.045]"
       >
         <LogOut className="h-4 w-4 shrink-0" strokeWidth={1.8} />
