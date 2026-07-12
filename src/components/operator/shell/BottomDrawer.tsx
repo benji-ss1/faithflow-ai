@@ -5,6 +5,16 @@ import { cn } from "@/lib/utils";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import type { OperatorShellCtx } from "./types";
 
+// Safe Mode toggle (localStorage). When ON, double-click on a slide only
+// stages it to Preview — the operator must click "Send to Live" afterward.
+// When OFF (default), double-click sends immediately to Live (ProPresenter
+// gesture). Single-click ALWAYS just selects.
+const SAFE_MODE_KEY = "presentflow.safeMode";
+function readSafeMode(): boolean {
+  if (typeof window === "undefined") return false;
+  try { return window.localStorage.getItem(SAFE_MODE_KEY) === "1"; } catch { return false; }
+}
+
 type DrawerTab = "media" | "playlists" | "backgrounds" | "logos" | "timers" | "recent" | "imports";
 const TABS: { key: DrawerTab; label: string; icon: typeof ImageIcon }[] = [
   { key: "media",       label: "Media",       icon: ImageIcon },
@@ -85,7 +95,19 @@ export function BottomDrawer({ ctx }: { ctx: OperatorShellCtx }) {
                   .map((s, i) => {
                     const active = ctx.previewSlideIdx === i;
                     return (
-                      <button key={i} onClick={() => ctx.onJumpSlide(ctx.previewItemIdx, i)}
+                      <button key={i}
+                        onClick={() => ctx.onJumpSlide(ctx.previewItemIdx, i)}
+                        onDoubleClick={() => {
+                          // Send-to-live on double-click (ProPresenter default).
+                          // Safe Mode short-circuits to Preview-only.
+                          ctx.onJumpSlide(ctx.previewItemIdx, i);
+                          if (!readSafeMode()) {
+                            // Give jumpTo a tick so previewSlide reflects the
+                            // new selection before sending.
+                            setTimeout(() => ctx.onSendToLive(), 0);
+                          }
+                        }}
+                        title={readSafeMode() ? "Click: select · Double-click: preview only (Safe Mode)" : "Click: select · Double-click: SEND TO LIVE"}
                         className={cn(
                           "shrink-0 w-36 aspect-video rounded-sm overflow-hidden border-2 relative",
                           active ? "border-teal-400" : "border-[#2a3232] hover:border-zinc-500",

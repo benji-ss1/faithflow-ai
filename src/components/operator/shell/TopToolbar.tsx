@@ -4,12 +4,13 @@ import { useState } from "react";
 import {
   ArrowLeft, Search, Type, Palette, ListMusic, Edit3, Shuffle, BookOpen,
   Image as ImageIcon, MoreHorizontal, Mic, MicOff, Radio, Monitor, Users,
-  Wifi, Zap, ChevronDown,
+  Wifi, Zap, ChevronDown, Settings as SettingsIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx, InspectorTab } from "./types";
 import type { AutopilotMode } from "../OperatorConsole";
 import { EndServiceButton } from "../EndServiceButton";
+import { SettingsModal } from "../settings/SettingsModal";
 
 type ToolKey = "search" | "text" | "theme" | "show" | "edit" | "reflow" | "bible" | "media" | "more";
 const TOOLS: { key: ToolKey; label: string; icon: typeof Search; hint: string }[] = [
@@ -33,6 +34,7 @@ export function TopToolbar({
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   function handleTool(k: ToolKey) {
     switch (k) {
@@ -54,10 +56,12 @@ export function TopToolbar({
     <>
       <div className="h-11 shrink-0 border-b flex items-center gap-1 px-2 relative"
         style={{ borderColor: "#2a3232", background: "#1a2020" }}>
-        <Link href={`/services/${ctx.planId}`} title="Back to plan"
-          className="h-8 w-8 rounded-md inline-flex items-center justify-center text-zinc-400 hover:bg-white/5 hover:text-zinc-100">
-          <ArrowLeft className="w-4 h-4" />
-        </Link>
+        {ctx.planId && ctx.planId !== "__ephemeral__" ? (
+          <Link href={`/services/${ctx.planId}`} title="Back to plan"
+            className="h-8 w-8 rounded-md inline-flex items-center justify-center text-zinc-400 hover:bg-white/5 hover:text-zinc-100">
+            <ArrowLeft className="w-4 h-4" />
+          </Link>
+        ) : null}
         <div className="pr-2 mr-1 border-r flex flex-col leading-tight" style={{ borderColor: "#2a3232" }}>
           <span className="text-[9px] uppercase tracking-[0.16em] text-zinc-500">Operator</span>
           <span className="text-[11px] font-semibold text-zinc-200 truncate max-w-[180px]" title={planTitle}>{planTitle}</span>
@@ -104,10 +108,12 @@ export function TopToolbar({
             AI {listening ? "On" : "Off"}
           </button>
 
-          <Link href="/settings/screens" title="Configure output screens"
-            className="h-7 inline-flex items-center gap-1.5 px-2 rounded-md text-[10px] font-bold uppercase tracking-wider border border-[#2a3232] text-zinc-300 hover:bg-white/5">
-            <Monitor className="w-3 h-3" /> Screens
-          </Link>
+          {/* Settings modal replaces page-level /settings navigation in desktop shell.
+              /settings is now blocklisted by middleware for desktop. */}
+          <button onClick={() => setSettingsOpen(true)} title="Settings"
+            className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-[#2a3232] text-zinc-300 hover:bg-white/5">
+            <SettingsIcon className="w-3.5 h-3.5" />
+          </button>
 
           <button onClick={ctx.onOpenProjector} title="Open live projector window"
             className="h-7 inline-flex items-center gap-1.5 px-2 rounded-md text-[10px] font-bold uppercase tracking-wider border border-teal-500/50 text-teal-300 bg-teal-500/10 hover:bg-teal-500/20">
@@ -133,6 +139,8 @@ export function TopToolbar({
             </div>
           </div>
         )}
+
+        <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
         {searchOpen && (
           <div className="absolute left-1/2 -translate-x-1/2 top-11 z-40 w-96 rounded-md border shadow-lg p-3"
