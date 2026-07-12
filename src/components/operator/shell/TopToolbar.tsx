@@ -70,7 +70,7 @@ export function TopToolbar({
     <>
       <div className="h-11 shrink-0 border-b flex items-center gap-1 px-2 relative"
         style={{ borderColor: "#2a3232", background: "#1a2020" }}>
-        {ctx.planId && ctx.planId !== "__ephemeral__" ? (
+        {ctx.planId ? (
           <Link href={`/services/${ctx.planId}`} title="Back to plan"
             className="h-8 w-8 rounded-md inline-flex items-center justify-center text-zinc-400 hover:bg-white/5 hover:text-zinc-100">
             <ArrowLeft className="w-4 h-4" />

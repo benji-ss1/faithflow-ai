@@ -79,17 +79,22 @@ export default async function OperatorLandingPage() {
   if (todaysPlan) {
     plan = await getExpandedServicePlan(todaysPlan.id, user.churchId);
   }
-  // Ephemeral empty plan: operator can still use the console (open projector,
-  // add items from library, etc.). id="__ephemeral__" is intercepted by the
-  // console's server actions — writes are a no-op until a real plan is saved.
+  // No plan for today → create a real one so every server action has a valid
+  // UUID to write against. Prior implementation used a "__ephemeral__" sentinel
+  // that broke any DB query passing planId unfiltered.
   if (!plan) {
-    plan = {
-      id: "__ephemeral__",
-      title: "New service",
-      items: [],
-      logoUrl,
-      blankBgColor,
-    };
+    const [created] = await db
+      .insert(servicePlans)
+      .values({
+        churchId: user.churchId,
+        title: "Ad-hoc service",
+        scheduledFor: getTodayInChurchTz(church?.timezone),
+      })
+      .returning({ id: servicePlans.id });
+    plan = await getExpandedServicePlan(created.id, user.churchId);
+    if (!plan) {
+      plan = { id: created.id, title: "Ad-hoc service", items: [], logoUrl, blankBgColor };
+    }
   }
 
   const confidenceThreshold = prefs?.detectionConfidenceThreshold ?? 60;

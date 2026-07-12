@@ -955,13 +955,8 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
     onSendBankedToLive: sendBankedToLive,
     onRemoveBanked: removeBanked,
     onDeleteSlide, // R2
-    // Library → Playlist add (drag or click). Skips server writes for the
-    // ephemeral placeholder plan; toasts so the operator sees feedback.
+    // Library → Playlist add (drag or click).
     onAddLibraryItem: async (kind, ref) => {
-      if (plan.id === "__ephemeral__") {
-        toast.info("Save this service first (New Service) to add library items.");
-        return;
-      }
       const payload =
         kind === "song" ? { songId: ref.id } :
         kind === "media" ? { mediaAssetId: ref.id } :
