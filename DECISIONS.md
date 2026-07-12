@@ -1,5 +1,27 @@
 # Desktop-shell / web-shell architectural split
 
+## Songs/Media browsers default to "select + add-to-playlist" over auto-live (2026-07-12)
+
+Chose to make single-click select (loads preview) and require an explicit
+"Add to playlist" button OR double-click to escalate. Direct double-click on
+media thumbs still hits `onSendSlideToLive` because that path already respects
+Safe Mode elsewhere and matches the Bible-card contract from R5. Songs never
+auto-project (CLAUDE.md rule 7) — the add-to-playlist path is the safe default.
+
+## Bible Browse verse-click loads the single verse (not the whole chapter) (2026-07-12)
+
+The three-column Browse ends at the verse grid. Clicking a verse loads exactly
+that verse as `verseStart=verseEnd`. Rationale: matches ProPresenter behavior,
+keeps card count predictable, and lets the operator expand via the ref-input
+if they want a range. Alternative (load full chapter) rejected — an OT chapter
+can be 50+ cards and blows up the grid.
+
+## Books API keeps legacy `translationId` param, adds `translation` code (2026-07-12)
+
+Rather than break existing callers (translations picker in Bible tab), extended
+the endpoint to accept either. Code-based is preferred for new client code
+because it avoids a round-trip to fetch the id.
+
 ## Safe Mode is ON by default (2026-07-12)
 
 Previously, missing localStorage key was treated as OFF (double-click sends

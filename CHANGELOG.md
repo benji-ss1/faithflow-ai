@@ -1,5 +1,46 @@
 # Changelog
 
+## [main] Operator/Pro: Songs/Bible/Media prominent buttons + centerMode routing (2026-07-12)
+
+Wiring pass 1 of 2 — focused on demo-critical inline browsers. The right sidebar,
+bottom bar, and media strip are untouched (separate agent's scope).
+
+### New
+- `CenterMode` extended from `"slides" | "bible"` to `"slides" | "bible" | "songs" | "media"`.
+- `TopBar` gains a **prominent labeled button group** (Songs / Bible / Media) with
+  icons + text at ~34 px tall between the icon-only auxiliary groups. **Bible is
+  emphasized** (larger min-width, bold label, brand-accent border-bottom on active).
+  Clicking again returns to slides.
+- `BibleMode` — Reference / Browse tab switcher. Browse mode renders a three-column
+  book → chapter → verse picker via new `BibleBookBrowser`; clicking a verse loads
+  it into the reference cards (same code path as typing + Lookup).
+- `BibleBookBrowser.tsx` (new) — OT/NT collapsible book list, chapter grid, verse
+  grid. Chapters cached in a `Map` per translation to avoid re-fetch.
+- `SongsBrowser.tsx` (new) — search + list + preview slides column. Click select,
+  double-click adds to playlist, "Add to playlist" button on the preview header.
+- `MediaBrowser.tsx` (new) — filter + kind dropdown (All / Images / Videos), grid
+  of thumbnails. Click select; overlay "+ Playlist" button when selected;
+  double-click sends to live.
+- `CenterHeader` — mode-aware title + icon for songs/bible/media; rename toast is
+  suppressed in library modes.
+
+### API
+- `GET /api/bible/books` — now accepts `?translation=KJV` (code) in addition to
+  the legacy `translationId`. Returns `{ book, bookOrder, chapters, testament }`.
+- `GET /api/bible/chapters?book=John&translation=KJV` (new) — returns
+  `{ chapter, verseCount }` derived on-the-fly via `GROUP BY chapter`.
+
+### Files changed
+- `src/components/operator/pro/ProOperatorShell.tsx` — 4-way center router
+- `src/components/operator/pro/TopBar.tsx` — ModeBtn + prominent group
+- `src/components/operator/pro/center/BibleMode.tsx` — Reference/Browse tab, refactored `runLookup`
+- `src/components/operator/pro/center/CenterHeader.tsx` — mode-aware header
+- `src/components/operator/pro/center/BibleBookBrowser.tsx` (new)
+- `src/components/operator/pro/center/SongsBrowser.tsx` (new)
+- `src/components/operator/pro/center/MediaBrowser.tsx` (new)
+- `src/app/api/bible/books/route.ts` — code-based translation param
+- `src/app/api/bible/chapters/route.ts` (new)
+
 ## [main] Operator: ProPresenter-style shell rebuild (pro/)
 
 New desktop operator layout at `src/components/operator/pro/`:
