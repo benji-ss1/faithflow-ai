@@ -4,9 +4,21 @@ import { SlideRenderer } from "@/components/live/SlideRenderer";
 import type { OperatorShellCtx } from "../../shell/types";
 
 export function LivePreviewPanel({ ctx }: { ctx: OperatorShellCtx }) {
+  const isLive = ctx.liveSlide.kind !== "empty";
   return (
     <div className="p-2 flex flex-col gap-2">
-      <div className="relative aspect-video rounded-md overflow-hidden border border-[var(--color-border)] bg-black">
+      <div
+        className={
+          isLive
+            ? "relative aspect-video rounded-md overflow-hidden border-2 border-[color:var(--color-destructive,#e11d48)] bg-black"
+            : "relative aspect-video rounded-md overflow-hidden border border-[var(--color-border)] bg-black"
+        }
+      >
+        {isLive && (
+          <div className="absolute top-1 left-1 z-10 text-[9px] font-mono uppercase tracking-wider text-white bg-[color:var(--color-destructive,#e11d48)] px-1.5 py-0.5 rounded">
+            LIVE
+          </div>
+        )}
         <SlideRenderer slide={ctx.liveSlide} />
         {ctx.liveSlide.kind !== "empty" && (
           <button

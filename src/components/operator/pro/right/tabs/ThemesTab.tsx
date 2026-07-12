@@ -1,7 +1,12 @@
 "use client";
 
+// Y11: Intentional demo swatches — these represent PREVIEWS of user-defined
+// themes (backgrounds/accents a user might design), not app-chrome tokens.
+// Do not replace with CSS variables; they are content, not chrome.
+const DEMO_THEME_SWATCHES = ["#0e0b12", "#1c1820", "#ff7a2c", "#ff9048", "#4fd18b", "#f0b35a"];
+
 export function ThemesTab() {
-  const swatches = ["#0e0b12", "#1c1820", "#ff7a2c", "#ff9048", "#4fd18b", "#f0b35a"];
+  const swatches = DEMO_THEME_SWATCHES;
   return (
     <div className="flex flex-col gap-3">
       <select className="w-full h-8 px-2 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded">
