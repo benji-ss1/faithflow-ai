@@ -1,25 +1,55 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { CalendarClock, PlayCircle, Plus } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { getDb } from "@/lib/db/client";
-import { servicePlans } from "@/lib/db/schema";
+import { churches, servicePlans } from "@/lib/db/schema";
+import { getTodayInChurchTz } from "@/lib/dates";
+import { OfflineState } from "./OfflineState";
 
-// Desktop landing surface. If a service is scheduled for today, jump straight
-// into the operator console for it. Otherwise render a calm "ready to present"
-// empty state — the operator sidebar handles all navigation.
+// Desktop landing surface. If a service is scheduled for today (in the
+// church's local timezone), jump straight into the operator console for it.
+// Otherwise render a calm "ready to present" empty state — the operator
+// sidebar handles all navigation. Wrapped in try/catch so a DB outage renders
+// a friendly retry surface instead of a blank 500.
 export default async function OperatorLandingPage() {
   const user = await requireUser();
   const db = getDb();
-  const todayKey = new Date().toISOString().slice(0, 10);
 
-  const plans = await db
-    .select({ id: servicePlans.id, title: servicePlans.title, scheduledFor: servicePlans.scheduledFor })
-    .from(servicePlans)
-    .where(eq(servicePlans.churchId, user.churchId));
+  let church: { timezone: string | null } | null = null;
+  let plans: Array<{ id: string; title: string; scheduledFor: unknown }> = [];
+  try {
+    church = await db
+      .select({ timezone: churches.timezone })
+      .from(churches)
+      .where(eq(churches.id, user.churchId))
+      .limit(1)
+      .then((rows) => rows[0] || null);
 
-  const todaysPlan = plans.find((p) => String(p.scheduledFor) === todayKey) || null;
+    plans = await db
+      .select({
+        id: servicePlans.id,
+        title: servicePlans.title,
+        scheduledFor: servicePlans.scheduledFor,
+      })
+      .from(servicePlans)
+      .where(eq(servicePlans.churchId, user.churchId));
+  } catch (err) {
+    console.error("[operator] db read failed", err);
+    return <OfflineState />;
+  }
+
+  const todayKey = getTodayInChurchTz(church?.timezone);
+
+  // Multi-service same-day: no time-of-day column exists on service_plans
+  // today (schema only has date `scheduled_for`). Pick the smallest id for
+  // deterministic behavior. If a time column is added later, prefer nearest
+  // to `now` in the church tz. Follow-up recorded in DECISIONS.md.
+  const todaysPlans = plans
+    .filter((p) => String(p.scheduledFor) === todayKey)
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  const todaysPlan = todaysPlans[0] || null;
   if (todaysPlan) redirect(`/services/${todaysPlan.id}/operate`);
 
   const upcoming = plans
