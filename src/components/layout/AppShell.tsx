@@ -3,17 +3,19 @@
 import { useState } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
-import { useShell } from "@/hooks/useShell";
+import { useShell, type Shell } from "@/hooks/useShell";
 
 type AppShellProps = {
   children: React.ReactNode;
   user: { name: string; email: string };
   churchName: string;
+  // Y6: optional SSR-provided initial shell to prevent flash of web chrome.
+  initialShell?: Shell;
 };
 
-export function AppShell({ children, user, churchName }: AppShellProps) {
+export function AppShell({ children, user, churchName, initialShell }: AppShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const shell = useShell();
+  const shell = useShell(initialShell);
   const isDesktop = shell === "desktop";
 
   // Desktop shell (Electron): render children full-bleed with NO sidebar and

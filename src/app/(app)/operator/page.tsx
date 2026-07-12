@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { requireUser } from "@/lib/session";
 import { getDb } from "@/lib/db/client";
 import { churches, servicePlans, churchPreferences, bibleTranslations, settings as churchSettings } from "@/lib/db/schema";
@@ -21,7 +21,7 @@ export default async function OperatorLandingPage() {
   const db = getDb();
 
   let church: { timezone: string | null } | null = null;
-  let plans: Array<{ id: string; title: string; scheduledFor: unknown }> = [];
+  let todaysPlan: { id: string; title: string; scheduledFor: unknown } | null = null;
   let prefs: {
     defaultTranslationId: string | null;
     detectionConfidenceThreshold: number | null;
@@ -40,14 +40,26 @@ export default async function OperatorLandingPage() {
       .limit(1)
       .then((rows) => rows[0] || null);
 
-    plans = await db
+    // Y5: SQL-filter to today's plan(s) in the church tz rather than
+    // fetching every plan and JS-filtering. Deterministic id-ascending sort
+    // preserves the prior "smallest id wins" tiebreak when multiple plans
+    // share today's date (multi-service same-day). LIMIT 1 keeps roundtrip
+    // small; if the ephemeral fallback is needed the result is simply empty.
+    const _todayKey = getTodayInChurchTz(church?.timezone);
+    const todayRows = await db
       .select({
         id: servicePlans.id,
         title: servicePlans.title,
         scheduledFor: servicePlans.scheduledFor,
       })
       .from(servicePlans)
-      .where(eq(servicePlans.churchId, user.churchId));
+      .where(and(
+        eq(servicePlans.churchId, user.churchId),
+        eq(servicePlans.scheduledFor, _todayKey),
+      ))
+      .orderBy(asc(servicePlans.id))
+      .limit(1);
+    todaysPlan = todayRows[0] ?? null;
 
     const [p] = await db.select().from(churchPreferences).where(eq(churchPreferences.churchId, user.churchId)).limit(1);
     prefs = p ?? null;
@@ -62,13 +74,6 @@ export default async function OperatorLandingPage() {
     console.error("[operator] db read failed", err);
     return <OfflineState />;
   }
-
-  const todayKey = getTodayInChurchTz(church?.timezone);
-  // Multi-service same-day: no time-of-day column exists on service_plans; pick
-  // smallest id for deterministic behavior. Documented in DECISIONS.md.
-  const todaysPlan = plans
-    .filter((p) => String(p.scheduledFor) === todayKey)
-    .sort((a, b) => String(a.id).localeCompare(String(b.id)))[0] || null;
 
   let plan: ExpandedPlan | null = null;
   if (todaysPlan) {
