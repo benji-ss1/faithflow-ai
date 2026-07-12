@@ -430,3 +430,47 @@ Global rename from **FaithFlow AI** to **Present Flow** as part of the Electron 
 ### Notes
 - `electron:build:tsc` passes clean; `next build` produces `.next/standalone/`
 - Media permissions pre-approved in main process (no getUserMedia prompt inside Electron)
+
+## ProOperatorShell reviewer + security sweep (2026-07-12)
+
+Closed 6 🔴 and 14 🟡 findings from the ProOperatorShell review.
+
+### 🔴
+- **R1** zone widths: LEFT `w-40` (160px), RIGHT `w-[300px]` (was 180/320)
+- **R2** right-click Delete now dispatches `onDeleteSlide(itemIdx, slideIdx)` with explicit indices; synthetic keydown bridge removed
+- **R3** shell-aware render: desktop → `ProOperatorShell`, web → `OperatorShell` (via `useShell()`); dead `void OperatorShell` removed
+- **R4** Timer & Messages tab state lifted to `ProOperatorShell` via `useTimerSession()` / `useMessagesSession()` — ticks survive Tabs unmount
+- **R5** Bible session state (`ref/translation/mode/cards/selectedIdx/loading`) lifted via `useBibleSession()` — center-mode toggle no longer wipes results
+- **R6** CenterHeader title is read-only with "Rename coming soon" tooltip/toast (no `renameServiceItem` action exists yet)
+
+### 🟡
+- **Y1** Bible options key renamed `presentflow.bibleOptions.v1` → `presentflow.pro.bible.v1`; `showVerseNumbers` + `refFormat` now consumed by BibleMode; local `refFmt` select removed
+- **Y2** OutputState effect skips emission when packed state unchanged (JSON signature)
+- **Y3** dead `aiBadge` state removed from SlideCard
+- **Y4** CenterHeader input carries `key={item?.id}`; controlled read-only value
+- **Y5** CenterHeader Play button reads Safe Mode from the same localStorage key SlideGrid uses
+- **Y6** `shellCtx` wrapped in `useMemo` with explicit deps; consumers no longer re-render on unrelated ticks
+- **Y7** Bible verse-mode = 1 verse/card; passage-mode = up to 4 verses/card
+- **Y8** LivePreviewPanel: destructive 2px border + LIVE badge when live
+- **Y9** slide-thumb CSS var removed; `slideSize` prop is single source of truth
+- **Y10** SlideGrid `role=grid`/`gridcell` + `tabIndex` + `focus-visible` ring
+- **Y11** ThemesTab swatches documented as intentional demo theme previews
+- **Y12** covered by R3 (dead import removed)
+- **Y13** `/api/bible/lookup` per-user rate limit 60/min via `createLimiter`
+- **Y14** `book` param rejected if not string / length>64 / contains control chars
+
+### Files changed
+- `src/components/operator/pro/ProOperatorShell.tsx` — zones, hooks wiring, removed CSS var
+- `src/components/operator/pro/hooks.ts` — new: `useTimerSession`, `useMessagesSession`, `useBibleSession`
+- `src/components/operator/pro/center/SlideGrid.tsx` — direct `onDeleteSlide`, a11y, aiBadge dropped
+- `src/components/operator/pro/center/BibleMode.tsx` — reads lifted session + BibleOptions
+- `src/components/operator/pro/center/BibleOptionsPopover.tsx` — namespace key
+- `src/components/operator/pro/center/CenterHeader.tsx` — read-only, Safe-Mode-aware Play
+- `src/components/operator/pro/right/LivePreviewPanel.tsx` — LIVE border + badge
+- `src/components/operator/pro/right/RightTabs.tsx` — accepts `timer`/`messages` APIs
+- `src/components/operator/pro/right/tabs/TimersTab.tsx` — consumes shell-lifted API
+- `src/components/operator/pro/right/tabs/MessagesTab.tsx` — consumes shell-lifted API
+- `src/components/operator/pro/right/tabs/ThemesTab.tsx` — swatch comment
+- `src/components/operator/OperatorConsole.tsx` — shell-aware render, memoized `shellCtx`, OutputState dedup, `onDeleteSlide`
+- `src/components/operator/shell/types.ts` — added optional `onDeleteSlide`
+- `src/app/api/bible/lookup/route.ts` — rate limit + book input validation

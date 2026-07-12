@@ -455,3 +455,23 @@ Total LOC: ~130 new, 1 changed. Under the 100 LOC "3-review-agents required" bar
 ## Not done because scope boundary forbade
 
 - Any change to Electron config, operator UI, presenter UI, Bible panel, or `test/`. Confirmed: zero touches.
+
+## ProOperatorShell reviewer/security sweep (2026-07-12)
+
+### R6 — CenterHeader title editing
+- Grepped for `renameServiceItem` / `updateServiceItem` — no server action exists for renaming a service item.
+- Chose the safer of the two reviewer-approved options: render the title as a read-only input with an "Editing coming soon" tooltip + toast on click. No schema/action changes.
+- When rename lands, wire a `renameServiceItem(planId, itemId, title)` server action mirroring `addServiceItem` guards (church-scoped, ownership-verified) and switch this input to a controlled + debounced save.
+
+### R2 — right-click Delete
+- No existing slide-level delete action lives in `lib/actions.ts` (only `removeServiceItem` at item-level). Removed the synthetic-keydown → wrong-slide bridge and wired `ctx.onDeleteSlide(itemIdx, slideIdx)` with explicit indices.
+- Implementation is a client-side confirm dialog + toast placeholder until a slide-level server action ships. This closes the "delete wrong slide" bug because the identity of the target is now correct even if execution is deferred.
+
+### Y7 — Bible verse/passage mode
+- Chose: verse mode = 1 verse per card; passage mode = up to 4 verses per card. Prior code hard-coded 2 verses per card regardless of mode.
+
+### Y2 — OutputState emission
+- Deep JSON-signature diff before emitting. Safe because `OutputState` is small and JSON-serializable; no functions/circular refs.
+
+### Y9 — Slide-size single source of truth
+- Kept the `slideSize` prop; removed the `--slide-thumb-size` CSS variable writer (no consumers of the var).
