@@ -11,6 +11,7 @@ import type { OperatorShellCtx, InspectorTab } from "./types";
 import type { AutopilotMode } from "../OperatorConsole";
 import { EndServiceButton } from "../EndServiceButton";
 import { SettingsModal } from "../settings/SettingsModal";
+import { ScreensPanel } from "../screens/ScreensPanel";
 
 type ToolKey = "search" | "text" | "theme" | "show" | "edit" | "reflow" | "bible" | "media" | "more";
 const TOOLS: { key: ToolKey; label: string; icon: typeof Search; hint: string }[] = [
@@ -35,6 +36,7 @@ export function TopToolbar({
   const [moreOpen, setMoreOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [screensOpen, setScreensOpen] = useState(false);
 
   function handleTool(k: ToolKey) {
     switch (k) {
@@ -110,6 +112,11 @@ export function TopToolbar({
 
           {/* Settings modal replaces page-level /settings navigation in desktop shell.
               /settings is now blocklisted by middleware for desktop. */}
+          <button onClick={() => setScreensOpen(true)} title="Screens & outputs"
+            className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-[#2a3232] text-zinc-300 hover:bg-white/5">
+            <Monitor className="w-3.5 h-3.5" />
+          </button>
+
           <button onClick={() => setSettingsOpen(true)} title="Settings"
             className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-[#2a3232] text-zinc-300 hover:bg-white/5">
             <SettingsIcon className="w-3.5 h-3.5" />
@@ -141,6 +148,20 @@ export function TopToolbar({
         )}
 
         <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+
+        {screensOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.6)" }} onClick={() => setScreensOpen(false)}>
+            <div className="w-full max-w-3xl rounded-md border shadow-xl flex flex-col max-h-[85vh]"
+              style={{ borderColor: "#2a3232", background: "#1e2525" }}
+              onClick={(e) => e.stopPropagation()}>
+              <div className="h-10 shrink-0 flex items-center px-3 border-b" style={{ borderColor: "#2a3232" }}>
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-200">Screens & Outputs</span>
+                <button onClick={() => setScreensOpen(false)} className="ml-auto h-7 w-7 inline-flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-white/5">×</button>
+              </div>
+              <div className="overflow-y-auto"><ScreensPanel /></div>
+            </div>
+          </div>
+        )}
 
         {searchOpen && (
           <div className="absolute left-1/2 -translate-x-1/2 top-11 z-40 w-96 rounded-md border shadow-lg p-3"
