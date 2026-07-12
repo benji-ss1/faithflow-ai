@@ -28,7 +28,10 @@ import { OutputStack } from "./OutputStack";
 import { BottomTray } from "./BottomTray";
 import { EndServiceButton } from "./EndServiceButton";
 import { OperatorShell } from "./OperatorShell";
+import { ProOperatorShell } from "./pro/ProOperatorShell";
 import type { OperatorShellCtx } from "./shell/types";
+// OperatorShell kept for /services/[id]/operate (web-only route)
+void OperatorShell;
 
 type Cursor = { itemIdx: number; slideIdx: number };
 
@@ -955,7 +958,7 @@ export function OperatorConsole({ plan, defaultTranslationCode, confidenceThresh
       <div className="fixed top-2 right-3 z-40">
         <SyncControl planId={plan.id} onCodeChange={setPairCode} />
       </div>
-      <OperatorShell ctx={shellCtx} />
+      <ProOperatorShell ctx={shellCtx} />
       <ImportSongModal
         open={importModal !== null}
         initialTitle={importModal?.title || ""}
