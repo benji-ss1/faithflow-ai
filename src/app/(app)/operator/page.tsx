@@ -1,24 +1,37 @@
-import Link from "next/link";
-import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
-import { CalendarClock, PlayCircle, Plus } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { getDb } from "@/lib/db/client";
-import { churches, servicePlans } from "@/lib/db/schema";
+import { churches, servicePlans, churchPreferences, bibleTranslations, settings as churchSettings } from "@/lib/db/schema";
 import { getTodayInChurchTz } from "@/lib/dates";
+import { getExpandedServicePlan, type ExpandedPlan } from "@/lib/server/services";
+import { presignGet } from "@/lib/s3";
+import { OperatorConsole } from "@/components/operator/OperatorConsole";
 import { OfflineState } from "./OfflineState";
 
-// Desktop landing surface. If a service is scheduled for today (in the
-// church's local timezone), jump straight into the operator console for it.
-// Otherwise render a calm "ready to present" empty state — the operator
-// sidebar handles all navigation. Wrapped in try/catch so a DB outage renders
-// a friendly retry surface instead of a blank 500.
+// Desktop landing surface (PropPresenter-style single view). ALWAYS renders
+// the OperatorConsole — no more "empty state" or redirect-away. When a plan
+// is scheduled for today (church tz) we load it; otherwise we synthesize an
+// ephemeral empty plan so operators land in the same layout and can add
+// items from the left library panel.
+//
+// A per-plan operator page still exists at `/services/[id]/operate` for
+// explicit deep-links, and renders visually identical.
 export default async function OperatorLandingPage() {
   const user = await requireUser();
   const db = getDb();
 
   let church: { timezone: string | null } | null = null;
   let plans: Array<{ id: string; title: string; scheduledFor: unknown }> = [];
+  let prefs: {
+    defaultTranslationId: string | null;
+    detectionConfidenceThreshold: number | null;
+    autoApproveEnabled: boolean | null;
+    autoApproveThreshold: number | null;
+    autoSendToLive: boolean | null;
+  } | null = null;
+  let translationCode = "KJV";
+  let logoUrl: string | undefined;
+  let blankBgColor = "#000000";
   try {
     church = await db
       .select({ timezone: churches.timezone })
@@ -35,75 +48,58 @@ export default async function OperatorLandingPage() {
       })
       .from(servicePlans)
       .where(eq(servicePlans.churchId, user.churchId));
+
+    const [p] = await db.select().from(churchPreferences).where(eq(churchPreferences.churchId, user.churchId)).limit(1);
+    prefs = p ?? null;
+    if (prefs?.defaultTranslationId) {
+      const [t] = await db.select().from(bibleTranslations).where(eq(bibleTranslations.id, prefs.defaultTranslationId)).limit(1);
+      if (t) translationCode = t.code;
+    }
+    const [s] = await db.select().from(churchSettings).where(eq(churchSettings.churchId, user.churchId)).limit(1);
+    if (s?.logoS3Key) logoUrl = await presignGet(s.logoS3Key);
+    if (s?.blankBgColor) blankBgColor = s.blankBgColor;
   } catch (err) {
     console.error("[operator] db read failed", err);
     return <OfflineState />;
   }
 
   const todayKey = getTodayInChurchTz(church?.timezone);
-
-  // Multi-service same-day: no time-of-day column exists on service_plans
-  // today (schema only has date `scheduled_for`). Pick the smallest id for
-  // deterministic behavior. If a time column is added later, prefer nearest
-  // to `now` in the church tz. Follow-up recorded in DECISIONS.md.
-  const todaysPlans = plans
+  // Multi-service same-day: no time-of-day column exists on service_plans; pick
+  // smallest id for deterministic behavior. Documented in DECISIONS.md.
+  const todaysPlan = plans
     .filter((p) => String(p.scheduledFor) === todayKey)
-    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
-  const todaysPlan = todaysPlans[0] || null;
-  if (todaysPlan) redirect(`/services/${todaysPlan.id}/operate`);
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)))[0] || null;
 
-  const upcoming = plans
-    .filter((p) => !!p.scheduledFor && String(p.scheduledFor) > todayKey)
-    .sort((a, b) => String(a.scheduledFor).localeCompare(String(b.scheduledFor)))
-    .slice(0, 5);
+  let plan: ExpandedPlan | null = null;
+  if (todaysPlan) {
+    plan = await getExpandedServicePlan(todaysPlan.id, user.churchId);
+  }
+  // Ephemeral empty plan: operator can still use the console (open projector,
+  // add items from library, etc.). id="__ephemeral__" is intercepted by the
+  // console's server actions — writes are a no-op until a real plan is saved.
+  if (!plan) {
+    plan = {
+      id: "__ephemeral__",
+      title: "New service",
+      items: [],
+      logoUrl,
+      blankBgColor,
+    };
+  }
+
+  const confidenceThreshold = prefs?.detectionConfidenceThreshold ?? 60;
+  const autoApprove = {
+    enabled: prefs?.autoApproveEnabled ?? false,
+    confidenceFloor: prefs?.autoApproveThreshold ?? 90,
+    autoSendToLive: prefs?.autoSendToLive ?? false,
+  };
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-16">
-      <div className="rounded-3xl border border-white/8 bg-white/[0.03] p-10 shadow-[0_28px_80px_rgba(0,0,0,0.28)]">
-        <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-[rgba(111,224,194,0.28)] bg-[rgba(111,224,194,0.08)] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--color-primary)]">
-          Ready to present
-        </div>
-        <h1 className="text-2xl font-semibold text-foreground">No service scheduled for today.</h1>
-        <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          When a service is on the calendar for today, this screen jumps straight into the operator console.
-          For now, open a plan below or use the sidebar to prepare content.
-        </p>
-
-        <div className="mt-8 flex flex-wrap items-center gap-3">
-          <Link
-            href="/services"
-            className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm font-semibold text-foreground hover:bg-white/[0.08]"
-          >
-            <CalendarClock className="h-4 w-4" /> Open services
-          </Link>
-          <Link
-            href="/services/new"
-            className="inline-flex items-center gap-2 rounded-2xl border border-[rgba(111,224,194,0.28)] bg-[rgba(111,224,194,0.10)] px-4 py-2 text-sm font-semibold text-[var(--color-primary)] hover:bg-[rgba(111,224,194,0.18)]"
-          >
-            <Plus className="h-4 w-4" /> New service plan
-          </Link>
-        </div>
-
-        {upcoming.length ? (
-          <div className="mt-10">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Upcoming</div>
-            <ul className="mt-3 space-y-2">
-              {upcoming.map((p) => (
-                <li key={p.id}>
-                  <Link
-                    href={`/services/${p.id}/operate`}
-                    className="flex items-center justify-between rounded-2xl border border-white/8 bg-white/[0.02] px-4 py-3 text-sm hover:border-white/16 hover:bg-white/[0.05]"
-                  >
-                    <span className="min-w-0 flex-1 truncate text-foreground">{p.title}</span>
-                    <span className="ml-4 shrink-0 text-xs text-muted-foreground">{String(p.scheduledFor)}</span>
-                    <PlayCircle className="ml-3 h-4 w-4 text-[var(--color-primary)]" />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-      </div>
-    </div>
+    <OperatorConsole
+      plan={plan}
+      defaultTranslationCode={translationCode}
+      confidenceThreshold={confidenceThreshold}
+      autoApprove={autoApprove}
+    />
   );
 }
