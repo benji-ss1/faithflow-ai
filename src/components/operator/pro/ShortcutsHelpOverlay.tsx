@@ -13,6 +13,7 @@ const NAV_ROWS: Row[] = [
   { keys: "Space / →", label: "Next slide" },
   { keys: "←", label: "Previous slide" },
   { keys: "Enter", label: "Send preview to live (respects Safe Mode)" },
+  { keys: "Shift + Enter", label: "Force send live (bypasses Safe Mode)" },
   { keys: "Escape", label: "Kill live output (blank)" },
   { keys: "1 – 9", label: "Jump to slide N in current item" },
   { keys: "?", label: "Open this help overlay" },
