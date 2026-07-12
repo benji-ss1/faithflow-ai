@@ -1,5 +1,5 @@
 import { pgTable, uuid, text, timestamp, integer, jsonb, boolean, pgEnum, date, vector, index } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 
 export const serviceItemTypeEnum = pgEnum("service_item_type", ["song", "scripture", "media", "sermon", "blank", "logo"]);
 export const mediaKindEnum = pgEnum("media_kind", ["image", "video"]);
@@ -236,6 +236,10 @@ export const bibleVerses = pgTable("bible_verses", {
   embedding: vector("embedding", { dimensions: 384 }),
 }, (t) => [
   index("idx_bible_verses_embedding").using("hnsw", t.embedding.op("vector_cosine_ops")),
+  // Canonical ordered lookup — powers listBooks/getChapter and canonical scans.
+  index("idx_bible_verses_lookup").on(t.translationId, t.bookOrder, t.chapter, t.verse),
+  // Case-insensitive book lookup — powers lookupReference (LOWER(book) match).
+  index("idx_bible_verses_book_lower").on(sql`LOWER(${t.book})`, t.chapter, t.verse),
 ]);
 
 export const transcriptSegments = pgTable("transcript_segments", {
