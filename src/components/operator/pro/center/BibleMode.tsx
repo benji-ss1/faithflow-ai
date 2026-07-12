@@ -1,22 +1,25 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useCallback } from "react";
 import { toast } from "sonner";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload } from "@/lib/broadcast";
-import { BibleOptionsPopover } from "./BibleOptionsPopover";
+import { BibleOptionsPopover, useBibleOptions } from "./BibleOptionsPopover";
+import type { BibleSessionApi, VerseCard } from "../hooks";
 import { cn } from "@/lib/utils";
 
-type VerseCard = { id: string; text: string; label: string };
-
-export function BibleMode({ ctx }: { ctx: OperatorShellCtx }) {
-  const [ref, setRef] = useState("John 3:16");
-  const [translation, setTranslation] = useState(ctx.defaultTranslationCode || "KJV");
-  const [mode, setMode] = useState<"verse" | "passage">("passage");
-  const [refFmt, setRefFmt] = useState<"reference" | "with_verse" | "none">("with_verse");
-  const [cards, setCards] = useState<VerseCard[]>([]);
-  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
+/**
+ * R5: All session state (ref, translation, mode, cards, selectedIdx) is
+ * lifted to ProOperatorShell via useBibleSession so switching center-mode
+ * (bible ↔ slides) no longer wipes the lookup results.
+ * Y1/Y7: reference format + show-verse-numbers + verse/passage mode are
+ * driven by BibleOptions (single source of truth). Verse mode = 1 verse per
+ * card; Passage mode = up to 4 verses per card.
+ */
+export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: BibleSessionApi }) {
+  const { state, setRef, setTranslation, setMode, setCards, setSelectedIdx, setLoading } = session;
+  const { ref, translation, mode, cards, selectedIdx, loading } = state;
+  const [opts] = useBibleOptions();
 
   const lookup = useCallback(async () => {
     setLoading(true);
@@ -32,14 +35,14 @@ export function BibleMode({ ctx }: { ctx: OperatorShellCtx }) {
       if (res.error) { toast.error(res.error); return; }
       const verses: Array<{ verse: number; text: string }> = res.verses || [];
       const label = `${p.book} ${p.chapter}:${p.verseStart}${p.verseStart !== p.verseEnd ? `-${p.verseEnd}` : ""} (${res.translation || translation})`;
-      // Paginate 2 verses per card
+      // Y7: verse=1 per card, passage=up to 4 per card
+      const perCard = mode === "verse" ? 1 : 4;
       const pages: VerseCard[] = [];
-      for (let i = 0; i < verses.length; i += 2) {
-        const chunk = verses.slice(i, i + 2);
-        const text = chunk.map((v) => v.text).join(" ");
-        pages.push({ id: `${label}-${i}`, text, label });
+      for (let i = 0; i < verses.length; i += perCard) {
+        const chunk = verses.slice(i, i + perCard);
+        pages.push({ id: `${label}-${i}`, label, verses: chunk });
       }
-      if (pages.length === 0) pages.push({ id: label, text: "—", label });
+      if (pages.length === 0) pages.push({ id: label, label, verses: [] });
       setCards(pages);
       setSelectedIdx(0);
     } catch (e) {
@@ -47,13 +50,22 @@ export function BibleMode({ ctx }: { ctx: OperatorShellCtx }) {
     } finally {
       setLoading(false);
     }
-  }, [ref, translation]);
+  }, [ref, translation, mode, setCards, setSelectedIdx, setLoading]);
 
-  const cardToSlide = (c: VerseCard): SlidePayload => {
-    const showRef = refFmt !== "none";
-    const text = showRef ? `${c.text}\n\n${c.label}` : c.text;
+  // Y1/Y7: render each verse honoring showVerseNumbers, and append the
+  // reference per refFormat ("each" → every card, "last" → only last card,
+  // "none" → never).
+  const cardToSlide = useCallback((c: VerseCard, idx: number, total: number): SlidePayload => {
+    const body = c.verses
+      .map((v) => opts.showVerseNumbers ? `${v.verse} ${v.text}` : v.text)
+      .join(" ");
+    let text = body;
+    const includeRef =
+      opts.refFormat === "each" ||
+      (opts.refFormat === "last" && idx === total - 1);
+    if (includeRef) text = `${body}\n\n${c.label}`;
     return { kind: "text", text };
-  };
+  }, [opts.showVerseNumbers, opts.refFormat]);
 
   return (
     <div className="p-4 flex flex-col gap-4">
@@ -83,15 +95,6 @@ export function BibleMode({ ctx }: { ctx: OperatorShellCtx }) {
             >{m}</button>
           ))}
         </div>
-        <select
-          value={refFmt}
-          onChange={(e) => setRefFmt(e.target.value as typeof refFmt)}
-          className="h-9 px-2 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded-md text-sm"
-        >
-          <option value="reference">Reference</option>
-          <option value="with_verse">With Verse</option>
-          <option value="none">No Reference</option>
-        </select>
         <button
           onClick={() => void lookup()}
           disabled={loading}
@@ -111,17 +114,18 @@ export function BibleMode({ ctx }: { ctx: OperatorShellCtx }) {
         )}
         {cards.map((c, idx) => {
           const selected = selectedIdx === idx;
+          const slide = cardToSlide(c, idx, cards.length);
           return (
             <button
               key={c.id}
               onClick={() => setSelectedIdx(idx)}
-              onDoubleClick={() => ctx.onSendSlideToLive(cardToSlide(c))}
+              onDoubleClick={() => ctx.onSendSlideToLive(slide)}
               className={cn(
                 "relative aspect-video rounded-md overflow-hidden border-2 transition-all",
                 selected ? "border-[var(--color-brand)]" : "border-[var(--color-border)] hover:border-[var(--color-muted-foreground)]",
               )}
             >
-              <SlideRenderer slide={cardToSlide(c)} />
+              <SlideRenderer slide={slide} />
               <div className="absolute top-1 left-1 text-[10px] font-mono text-white/70 bg-black/40 px-1 rounded">
                 {idx + 1}
               </div>

@@ -2,6 +2,7 @@
 import * as Tabs from "@radix-ui/react-tabs";
 import { Music, ScreenShare, Timer, Send, Layers, Zap } from "lucide-react";
 import type { OperatorShellCtx } from "../../shell/types";
+import type { TimerApi, MessagesApi } from "../hooks";
 import { AudioTab } from "./tabs/AudioTab";
 import { StageTab } from "./tabs/StageTab";
 import { TimersTab } from "./tabs/TimersTab";
@@ -19,7 +20,13 @@ const TABS = [
   { v: "macros", Icon: Zap, label: "Macros" },
 ];
 
-export function RightTabs({ ctx }: { ctx: OperatorShellCtx }) {
+export function RightTabs({
+  ctx, timer, messages,
+}: {
+  ctx: OperatorShellCtx;
+  timer: TimerApi;
+  messages: MessagesApi;
+}) {
   return (
     <Tabs.Root defaultValue="stage" className="h-full flex flex-col">
       <Tabs.List className="flex border-b border-[var(--color-border)] overflow-x-auto shrink-0">
@@ -41,8 +48,8 @@ export function RightTabs({ ctx }: { ctx: OperatorShellCtx }) {
       <div className="flex-1 min-h-0 overflow-y-auto p-2 text-[12px]">
         <Tabs.Content value="audio"><AudioTab /></Tabs.Content>
         <Tabs.Content value="stage"><StageTab ctx={ctx} /></Tabs.Content>
-        <Tabs.Content value="timers"><TimersTab /></Tabs.Content>
-        <Tabs.Content value="messages"><MessagesTab /></Tabs.Content>
+        <Tabs.Content value="timers"><TimersTab api={timer} /></Tabs.Content>
+        <Tabs.Content value="messages"><MessagesTab api={messages} /></Tabs.Content>
         <Tabs.Content value="themes"><ThemesTab /></Tabs.Content>
         <Tabs.Content value="macros"><MacrosTab /></Tabs.Content>
       </div>

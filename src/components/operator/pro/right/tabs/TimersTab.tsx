@@ -1,9 +1,6 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
 import { Play, Pause, RotateCcw } from "lucide-react";
-
-const KEY = "presentflow.pro.timer.v1";
-type TimerType = "countdown" | "countdown_to" | "elapsed";
+import type { TimerApi, TimerType } from "../../hooks";
 
 function pad(n: number) { return String(Math.max(0, Math.floor(n))).padStart(2, "0"); }
 function fmt(secs: number) {
@@ -11,44 +8,11 @@ function fmt(secs: number) {
   return `${pad(s / 3600)}:${pad((s % 3600) / 60)}:${pad(s % 60)}`;
 }
 
-export function TimersTab() {
-  const [name, setName] = useState("Timer");
-  const [type, setType] = useState<TimerType>("countdown");
-  const [duration, setDuration] = useState("05:00");
-  const [remaining, setRemaining] = useState(300);
-  const [running, setRunning] = useState(false);
-  const startedAt = useRef<number | null>(null);
-  const baseline = useRef(300);
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(KEY);
-      if (raw) {
-        const p = JSON.parse(raw);
-        setName(p.name ?? "Timer");
-        setType(p.type ?? "countdown");
-        setDuration(p.duration ?? "05:00");
-      }
-    } catch { /* noop */ }
-  }, []);
-
-  useEffect(() => {
-    try { window.localStorage.setItem(KEY, JSON.stringify({ name, type, duration })); } catch { /* noop */ }
-    const [mm, ss] = duration.split(":").map((x) => parseInt(x, 10) || 0);
-    baseline.current = mm * 60 + ss;
-    if (!running) setRemaining(baseline.current);
-  }, [name, type, duration, running]);
-
-  useEffect(() => {
-    if (!running) return;
-    startedAt.current = Date.now();
-    const start = baseline.current;
-    const id = setInterval(() => {
-      const elapsed = (Date.now() - (startedAt.current ?? Date.now())) / 1000;
-      setRemaining(type === "elapsed" ? elapsed : start - elapsed);
-    }, 250);
-    return () => clearInterval(id);
-  }, [running, type]);
+// R4: state is lifted to ProOperatorShell via useTimerSession() so ticks
+// survive when Radix Tabs unmounts this component on tab-switch.
+export function TimersTab({ api }: { api: TimerApi }) {
+  const { state, setName, setType, setDuration, toggleRun, reset } = api;
+  const { name, type, duration, remaining, running } = state;
 
   return (
     <div className="flex flex-col gap-3">
@@ -82,14 +46,14 @@ export function TimersTab() {
       </div>
       <div className="flex items-center gap-2">
         <button
-          onClick={() => setRunning((r) => !r)}
+          onClick={toggleRun}
           className="flex-1 h-9 rounded-md bg-[var(--color-brand)] text-black font-semibold flex items-center justify-center gap-1"
         >
           {running ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
           {running ? "Pause" : "Start"}
         </button>
         <button
-          onClick={() => { setRunning(false); setRemaining(baseline.current); }}
+          onClick={reset}
           className="w-9 h-9 rounded-md border border-[var(--color-border)] flex items-center justify-center"
           title="Reset"
         >

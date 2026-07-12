@@ -1,29 +1,10 @@
 "use client";
-import { useEffect, useState } from "react";
+import type { MessagesApi } from "../../hooks";
 
-const KEY = "presentflow.pro.messages.v1";
-
-type MsgState = {
-  text: string;
-  dismiss: string;
-  allowWeb: boolean;
-};
-
-const DEFAULT: MsgState = { text: "", dismiss: "manual", allowWeb: false };
-
-export function MessagesTab() {
-  const [state, setState] = useState<MsgState>(DEFAULT);
-  const [showing, setShowing] = useState(false);
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(KEY);
-      if (raw) setState({ ...DEFAULT, ...JSON.parse(raw) });
-    } catch { /* noop */ }
-  }, []);
-  useEffect(() => {
-    try { window.localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* noop */ }
-  }, [state]);
+// R4: state is lifted to ProOperatorShell via useMessagesSession() so tab
+// unmount does not wipe the draft message.
+export function MessagesTab({ api }: { api: MessagesApi }) {
+  const { state, setText, setDismiss, setAllowWeb, toggleShow } = api;
 
   return (
     <div className="flex flex-col gap-3">
@@ -33,7 +14,7 @@ export function MessagesTab() {
       <div className="eyebrow">Message Detail</div>
       <textarea
         value={state.text}
-        onChange={(e) => setState({ ...state, text: e.target.value })}
+        onChange={(e) => setText(e.target.value)}
         rows={3}
         className="bg-[var(--color-elevated)] border border-[var(--color-border)] rounded px-2 py-1"
         placeholder="Message text…"
@@ -55,7 +36,7 @@ export function MessagesTab() {
         <div className="eyebrow mb-1">Dismiss</div>
         <select
           value={state.dismiss}
-          onChange={(e) => setState({ ...state, dismiss: e.target.value })}
+          onChange={(e) => setDismiss(e.target.value)}
           className="w-full h-8 px-2 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded"
         >
           <option value="manual">Manually</option>
@@ -70,15 +51,15 @@ export function MessagesTab() {
         <input
           type="checkbox"
           checked={state.allowWeb}
-          onChange={(e) => setState({ ...state, allowWeb: e.target.checked })}
+          onChange={(e) => setAllowWeb(e.target.checked)}
         />
         Allow Web Notifications
       </label>
       <button
-        onClick={() => setShowing((v) => !v)}
+        onClick={toggleShow}
         className="h-9 rounded-md bg-[var(--color-brand)] text-black font-semibold"
       >
-        {showing ? "Hide" : "Show"}
+        {state.showing ? "Hide" : "Show"}
       </button>
     </div>
   );
