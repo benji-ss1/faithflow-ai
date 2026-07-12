@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { openLiveChannel, safePost, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec } from "@/lib/broadcast";
+import { openLiveChannel, safePost, isValidLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec } from "@/lib/broadcast";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
 import { TransitionWrapper } from "@/components/live/TransitionWrapper";
@@ -43,6 +43,9 @@ export default function LivePage() {
   const [slide, setSlide] = useState<SlidePayload>({ kind: "empty" });
   const [announcement, setAnnouncement] = useState<AnnouncementPayload | null>(null);
   const [transition, setTransition] = useState<TransitionSpec | null>(null);
+  const [aspectRatio, setAspectRatio] = useState<"16:9" | "4:3" | "custom">("16:9");
+  const [messageOverlay, setMessageOverlay] = useState<string | null>(null);
+  const messageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [connected, setConnected] = useState(false);
   const [showHelp, setShowHelp] = useState(true);
   const [warning, setWarning] = useState<string | null>(null);
@@ -73,8 +76,9 @@ export default function LivePage() {
     // "[object Event]" in the Next dev overlay).
     ch.onmessage = (e: MessageEvent) => {
       try {
-        const msg = e.data as LiveMessage;
-        if (!msg || typeof msg !== "object" || !("type" in msg)) return;
+        const raw = e.data;
+        if (!isValidLiveMessage(raw)) return;      // reject malformed / unknown-kind
+        const msg = raw as LiveMessage;
         lastMsgAt.current = Date.now();
         setConnected(true);
         if (msg.type === "set") setSlide(msg.slide);
@@ -84,6 +88,20 @@ export default function LivePage() {
           setSlide(msg.state.live);
           setAnnouncement(msg.state.announcement ?? null);
           setTransition(msg.state.transition ?? null);
+          setAspectRatio(msg.state.aspectRatio);
+        } else if (msg.type === "message") {
+          // Auto-dismiss timer is client-side, so multiple output windows
+          // stay in sync without needing a shared wall-clock deadline.
+          if (messageTimerRef.current) { clearTimeout(messageTimerRef.current); messageTimerRef.current = null; }
+          if ("clear" in msg.overlay && msg.overlay.clear) {
+            setMessageOverlay(null);
+          } else if ("text" in msg.overlay) {
+            setMessageOverlay(msg.overlay.text);
+            const ms = msg.overlay.dismissAfterMs;
+            if (typeof ms === "number" && ms > 0) {
+              messageTimerRef.current = setTimeout(() => setMessageOverlay(null), ms);
+            }
+          }
         }
       } catch (err) {
         console.warn("[live] message handler error:", err instanceof Error ? err.message : String(err));
@@ -132,6 +150,7 @@ export default function LivePage() {
       try { ch.close(); } catch { /* ignore */ }
       try { realtime?.close(); } catch { /* ignore */ }
       if (badgeTimer) clearTimeout(badgeTimer);
+      if (messageTimerRef.current) { clearTimeout(messageTimerRef.current); messageTimerRef.current = null; }
       clearInterval(timer);
     };
   }, []);
@@ -189,10 +208,39 @@ export default function LivePage() {
       style={{ margin: 0, padding: 0 }}
       onDoubleClick={goFullscreen}
     >
-      <TransitionWrapper identityKey={slideIdentity(slide)} transition={transition}>
-        <SlideRenderer slide={slide} />
-      </TransitionWrapper>
-      <AnnouncementLayer ann={announcement} />
+      {/*
+        Aspect-ratio-aware canvas. When operator picks 4:3, we letterbox
+        the slide inside a centered 4:3 box. 16:9 & custom fill.
+      */}
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div
+          className={
+            aspectRatio === "4:3"
+              ? "relative bg-black h-full max-w-full aspect-[4/3]"
+              : "relative w-full h-full"
+          }
+        >
+          <TransitionWrapper identityKey={slideIdentity(slide)} transition={transition}>
+            <SlideRenderer slide={slide} />
+          </TransitionWrapper>
+          <AnnouncementLayer ann={announcement} />
+          {messageOverlay && (
+            /* Lower-third message overlay — rendered on top of the current
+               slide. Semi-transparent panel, left-aligned text, auto-hides
+               via the client-side dismiss timer. */
+            <div className="absolute left-[6%] right-[6%] bottom-[10%] pointer-events-none">
+              <div
+                className="bg-black/70 backdrop-blur-sm border-l-4 p-6 rounded-sm"
+                style={{ borderColor: "var(--color-brand, #06b6d4)" }}
+              >
+                <div className="text-white text-2xl md:text-4xl font-semibold leading-tight text-left">
+                  {messageOverlay}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
 
       {showHelp && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/80 text-white text-xs px-3 py-2 rounded-md flex items-center gap-3 cursor-pointer pointer-events-auto"

@@ -57,12 +57,66 @@ export type OutputState = {
   transition?: TransitionSpec | null;
 };
 
+/**
+ * Message overlay — a lower-third bubble drawn ON TOP of the current slide
+ * on the projector/live output. Auto-dismisses after `dismissAfterMs` from
+ * the moment the output page receives it (client-side timer, so cross-tab
+ * clock skew doesn't matter). Send `{clear:true}` to hide immediately.
+ */
+export type MessageOverlay =
+  | { text: string; dismissAfterMs?: number | null; clear?: false }
+  | { clear: true };
+
 export type LiveMessage =
   | { type: "set"; slide: SlidePayload }              // legacy: just live surface
   | { type: "clear" }
   | { type: "ping" }
   | { type: "pong"; slide: SlidePayload }
-  | { type: "output"; state: OutputState };            // new: full multi-surface state
+  | { type: "output"; state: OutputState }             // new: full multi-surface state
+  | { type: "message"; overlay: MessageOverlay };      // P2: transient message overlay
+
+/**
+ * Runtime validator for LiveMessage. Renderer pages should NEVER trust an
+ * incoming BroadcastChannel payload — a stale extension, another tab from
+ * a prior app version, or a fuzzed message could feed us garbage. Rejecting
+ * unknown `type` values here keeps the projector black rather than crashing.
+ */
+export function isValidLiveMessage(m: unknown): m is LiveMessage {
+  if (!m || typeof m !== "object") return false;
+  const type = (m as { type?: unknown }).type;
+  if (typeof type !== "string") return false;
+  switch (type) {
+    case "ping":
+    case "clear":
+      return true;
+    case "set":
+    case "pong":
+      return isValidSlide((m as { slide?: unknown }).slide);
+    case "output":
+      return isValidOutputState((m as { state?: unknown }).state);
+    case "message": {
+      const overlay = (m as { overlay?: unknown }).overlay;
+      if (!overlay || typeof overlay !== "object") return false;
+      const o = overlay as Record<string, unknown>;
+      if (o.clear === true) return true;
+      return typeof o.text === "string" && (o.dismissAfterMs == null || typeof o.dismissAfterMs === "number");
+    }
+    default:
+      return false;
+  }
+}
+
+function isValidSlide(s: unknown): s is SlidePayload {
+  if (!s || typeof s !== "object") return false;
+  const k = (s as { kind?: unknown }).kind;
+  return k === "text" || k === "image" || k === "video" || k === "blank" || k === "logo" || k === "empty";
+}
+
+function isValidOutputState(s: unknown): s is OutputState {
+  if (!s || typeof s !== "object") return false;
+  const st = s as Record<string, unknown>;
+  return isValidSlide(st.live);
+}
 
 const CHANNEL = "presentflow-live";
 

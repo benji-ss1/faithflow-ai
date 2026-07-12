@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { openLiveChannel, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec } from "@/lib/broadcast";
+import { openLiveChannel, isValidLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec } from "@/lib/broadcast";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
 import { TransitionWrapper } from "@/components/live/TransitionWrapper";
@@ -65,8 +65,8 @@ export default function LivestreamPage() {
     ch.postMessage({ type: "ping" } as LiveMessage);
     ch.onmessage = (e: MessageEvent) => {
       try {
+        if (!isValidLiveMessage(e.data)) return;
         const msg = e.data as LiveMessage;
-        if (!msg || typeof msg !== "object" || !("type" in msg)) return;
         lastMsgAt.current = Date.now();
         setConnected(true);
         if (msg.type === "set") setSlide(msg.slide);
