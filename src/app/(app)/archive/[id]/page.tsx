@@ -20,7 +20,9 @@ export default async function SermonPage({ params }: { params: Promise<{ id: str
       <PageHeader eyebrow={`From ${row.planTitle}`} title={row.title}
         action={
           <div className="flex gap-2">
-            <a href={`/api/archive/${id}/export?format=txt`} className="h-9 px-3 border border-border rounded-md text-xs font-semibold hover:bg-accent inline-flex items-center">Export .txt</a>
+            <a href={`/api/archive/${id}/export?format=txt`} className="h-9 px-3 border border-border rounded-md text-xs font-semibold hover:bg-accent inline-flex items-center">.txt</a>
+            <a href={`/api/archive/${id}/export?format=md`} className="h-9 px-3 border border-border rounded-md text-xs font-semibold hover:bg-accent inline-flex items-center" title="Markdown — opens in Word / Google Docs">.md</a>
+            <a href={`/api/archive/${id}/export?format=html&print=1`} target="_blank" rel="noopener" className="h-9 px-3 border border-border rounded-md text-xs font-semibold hover:bg-accent inline-flex items-center" title="Opens print dialog — Save as PDF">PDF</a>
             <Link href="/archive" className="h-9 px-3 border border-border rounded-md text-xs font-semibold hover:bg-accent inline-flex items-center">Back</Link>
           </div>
         }
