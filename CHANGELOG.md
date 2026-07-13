@@ -1,5 +1,41 @@
 # Changelog
 
+## [main] PP-parity polish — pass 3 (2026-07-12)
+
+Ships Tasks A (prominent search input), D (single-click sends live / Safe
+Mode default OFF), G (Present Flow logo popover), Task B partial (slide
+number badge + border polish + empty-state copy), and Task F partial
+(TopBar right cluster PP-parity pills; sidebar OutputRoutingRow retired to
+a localStorage feature flag).
+
+- **TopBar** — new 240×28 prominent search input replacing the small
+  Search icon; opens the existing SearchPalette (Cmd+K unchanged). Live pill
+  is now clickable (scrolls to preview). Audience/Stage rendered as pills
+  with green dot when assigned. Present Flow logo at far right with
+  version popover.
+- **SlideGrid** — orange numbered badge (18px circle) at top-left of each
+  card. Corner radius 6px, 2px brand border when selected, 1px otherwise.
+  Empty state text simplified. Debounce (250ms) preserved on send-live.
+- **Safe Mode default flipped OFF** across the four localStorage readers
+  (`SlideGrid`, `CenterHeader`, `ProOperatorShell` hotkey, `SettingsModal`,
+  `BottomDrawer`). ShortcutsHelpOverlay copy updated. Single-click now
+  sends live by default; users who want the safety rail opt in from
+  Settings.
+- **OutputRoutingRow retired** to `presentflow.pro.showRoutingRow=1`
+  feature flag — TopBar right cluster is the single source of truth for
+  output indicators.
+
+Tasks B (remainder — gutter tightening), C (drag-reorder slides — new
+server actions), E (global visual noise reduction), and F (remainder —
+Max-gated default output dropdown) deferred to dedicated loops. See
+DECISIONS.md for the rationale + the song-reorder persistence rule
+(`serviceItems.payload.slideOrder` per-plan override, NOT `songSlides.order`).
+
+Typecheck: clean (pre-existing jsdom warning unchanged).
+electron:build:tsc: clean.
+
+---
+
 ## [main] PP-parity polish — pass 2 (2026-07-12)
 
 Completes Tasks 3, 4, 5, 6, 7 of the PP-parity backlog.

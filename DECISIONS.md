@@ -1,3 +1,66 @@
+## PP-parity polish pass 3 — judgement calls (2026-07-12)
+
+Scope brief called for 7 tasks (A-G). CLAUDE.md #2 requires three parallel
+review agents in one pass for any change >100 LOC or touching auth/data/AI/
+output. Full Tasks C (drag-reorder w/ new server actions on `songSlides` +
+`serviceItems.payload`) and F (Max-gated output dropdown) each cross that
+threshold and cannot ship cleanly in a single polish batch without the loop.
+Applied prior-pass convention (see "Pass 2 wiring: scope trims" below):
+shipped what's cleanly deliverable, deferred the rest with explicit follow-up
+notes.
+
+**Shipped this pass:**
+- **Task A — prominent search input** in TopBar (240×28, magnifier icon,
+  ⌘K badge, `--font-sans`). Replaces the previous small Search icon. Click
+  opens the existing SearchPalette. Palette owns actual search state (button
+  proxy pattern).
+- **Task D — single-click sends live, Safe Mode default OFF.** Overrides
+  the previous reviewer-preferred safe-default. User directive:
+  speed-over-safety. Files touched: `SlideGrid.tsx`, `CenterHeader.tsx`,
+  `ProOperatorShell.tsx` (hotkey `isSafeMode`), `SettingsModal.tsx`,
+  `BottomDrawer.tsx`. Copy updated in SettingsModal + ShortcutsHelpOverlay.
+  Debounce (250ms) preserved on send-live to avoid trackpad-noise double-fire.
+- **Task F (partial) — TopBar right cluster PP-parity pills.** Live pill
+  is now clickable (scrolls to preview panel). Audience/Stage rendered as
+  pills with green dot when assigned, ghost when not. Right-sidebar
+  `OutputRoutingRow` retired to a localStorage feature flag
+  (`presentflow.pro.showRoutingRow=1` to re-enable) — TopBar right is the
+  single source of truth.
+- **Task G — Present Flow logo top-right.** Uses existing asset
+  `/brand/pf-logo-mark.png` (20px, next/image). Popover shows "Present Flow
+  · v0.1.0" and a link that dispatches `presentflow:open-tour`.
+- **Task B (partial) — slide-grid polish.** Numbered orange circle badge
+  (top-left, 18px, white text on brand bg). Selected border 2px, unselected
+  1px. Corner radius 6px. Empty state simplified to "No slides yet".
+
+**Deferred (own dedicated loops):**
+- **Task B remainder — 6px gutter, backgrounds cleanup.** Current gutter
+  is 12px (`p-3`, `gap-3`); shrinking touches the stage-row mirror and
+  requires an eyeball pass across three viewport widths. Deferred.
+- **Task C — drag-reorder slides within an item.** Blocked on: (a) new
+  server actions with schema-aware ownership checks — for songs the
+  correct persistence path is a per-plan `serviceItems.payload.slideOrder`
+  override (NOT a global `songSlides.order` write, which would leak
+  reorderings across churches — documented as the "song reordering =
+  per-plan override" rule); (b) 3-agent review required per CLAUDE.md #2
+  (touches church_id-scoped data). Not shipping without the loop.
+- **Task E — global visual noise reduction.** Cross-cutting pass across
+  TopBar/LeftColumn/BottomBar/MediaStrip/RightSidebar. >100 LOC by
+  itself; each section needs its own before/after diff review. Deferred.
+- **Task F remainder — Max-gated default output dropdown**
+  ("Default / In-house / Livestream / Custom"). Feature-gate work on a
+  tier surface; wants a review pass with the tier team.
+
+**Song-reorder persistence rule (documented for Task C follow-up):**
+For song items, DO NOT touch `songSlides.order` — that column is
+church-global and mutating it from one plan would reorder slides in every
+other plan across every church using the same song row. Instead persist a
+per-plan-item override at `serviceItems.payload.slideOrder: string[]`
+(array of songSlide ids). `getExpandedServicePlan` reads the override when
+present and falls back to `songSlides.order` otherwise. For scripture and
+sermon items whose slides live inside `serviceItems.payload.slides`, the
+reorder mutates the array in place — those are already per-plan.
+
 ## Priority-10 Max tier scaffolding — judgement calls (2026-07-12)
 
 - **UI tier bucket ≠ DB tier enum**: DB stores
