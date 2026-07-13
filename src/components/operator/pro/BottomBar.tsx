@@ -10,11 +10,9 @@ const TRANSITIONS = ["Fade", "Dissolve", "Slide", "Cut", "Amoeba", "Wipe"];
 export type SlideViewMode = "grid" | "list" | "text";
 
 export function BottomBar({
-  ctx, slideSize, onSlideSize, onOpenShortcutsHelp,
+  ctx, onOpenShortcutsHelp,
 }: {
   ctx: OperatorShellCtx;
-  slideSize: number;
-  onSlideSize: (n: number) => void;
   onOpenShortcutsHelp?: () => void;
 }) {
   const [transitionName, setTransitionName] = useState("Amoeba");
@@ -95,6 +93,18 @@ export function BottomBar({
             </Popover.Content>
           </Popover.Portal>
         </Popover.Root>
+        <input
+          type="range"
+          min={0}
+          max={5}
+          step={0.1}
+          value={transitionDuration}
+          onChange={(e) => setTransitionDuration(parseFloat(e.target.value))}
+          className="w-24"
+          style={{ accentColor: "var(--color-brand)" }}
+          title={`Transition duration: ${transitionDuration.toFixed(1)}s`}
+          aria-label="Transition duration"
+        />
         <button onClick={next} disabled={!hasNext} className="h-7 px-2 rounded hover:bg-[var(--color-elevated)] disabled:opacity-50">Verse &gt;</button>
       </div>
 
@@ -106,15 +116,6 @@ export function BottomBar({
           <button title="Text view — coming soon" data-todo="1" onClick={() => setViewMode("text")} className="w-7 h-7 flex items-center justify-center text-[var(--color-muted-foreground)] border-l border-[var(--color-border)] hover:bg-[var(--color-elevated)]"><Type className="w-3.5 h-3.5" /></button>
         </div>
         <button data-todo="1" title="Emoji — coming soon" disabled className="w-7 h-7 flex items-center justify-center rounded text-[var(--color-muted-foreground)] opacity-50 cursor-not-allowed"><Smile className="w-4 h-4" /></button>
-        <input
-          type="range"
-          min={96}
-          max={240}
-          value={slideSize}
-          onChange={(e) => onSlideSize(parseInt(e.target.value, 10))}
-          className="w-24 accent-[var(--color-brand)]"
-          title={`Slide size: ${slideSize}px`}
-        />
         <button data-todo="1" title="Filters — coming soon" disabled className="w-7 h-7 flex items-center justify-center rounded text-[var(--color-muted-foreground)] opacity-50 cursor-not-allowed"><SlidersHorizontal className="w-4 h-4" /></button>
         <button
           type="button"

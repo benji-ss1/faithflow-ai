@@ -369,7 +369,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
 
         {/* CENTER */}
         <main data-tour="center" className="flex-1 min-w-0 flex flex-col bg-[var(--color-app-bg)]">
-          <CenterHeader ctx={ctx} centerMode={centerMode} />
+          <CenterHeader ctx={ctx} centerMode={centerMode} slideSize={slideSize} onSlideSize={setSlideSize} />
           <div className="flex-1 min-h-0 overflow-y-auto">
             {centerMode === "bible" ? (
               <BibleMode ctx={ctx} session={bibleSession} />
@@ -397,8 +397,6 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       <div data-tour="bottom">
         <BottomBar
           ctx={ctx}
-          slideSize={slideSize}
-          onSlideSize={setSlideSize}
           onOpenShortcutsHelp={() => setShortcutsHelpOpen(true)}
         />
       </div>

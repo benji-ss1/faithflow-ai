@@ -12,7 +12,17 @@ function safeMode() {
   return raw !== "0";
 }
 
-export function CenterHeader({ ctx, centerMode }: { ctx: OperatorShellCtx; centerMode: CenterMode }) {
+export function CenterHeader({
+  ctx,
+  centerMode,
+  slideSize,
+  onSlideSize,
+}: {
+  ctx: OperatorShellCtx;
+  centerMode: CenterMode;
+  slideSize?: number;
+  onSlideSize?: (n: number) => void;
+}) {
   const item = ctx.plan.items[ctx.previewItemIdx];
   // R6/Y4: mode-aware titles. Read-only per the earlier decision — rename
   // routes through the item edit flow in slides mode only.
@@ -46,6 +56,20 @@ export function CenterHeader({ ctx, centerMode }: { ctx: OperatorShellCtx; cente
         title={isLibraryMode ? undefined : "Rename coming soon"}
         className="flex-1 bg-transparent text-[14px] font-medium outline-none px-2 py-1 rounded cursor-default"
       />
+      {typeof slideSize === "number" && onSlideSize && centerMode === "slides" && (
+        <div className="flex items-center gap-2 pr-2" title={`Slide size: ${slideSize}px`}>
+          <input
+            type="range"
+            min={96}
+            max={240}
+            value={slideSize}
+            onChange={(e) => onSlideSize(parseInt(e.target.value, 10))}
+            className="w-[150px]"
+            style={{ accentColor: "#5b9bd5" }}
+            aria-label="Slide size"
+          />
+        </div>
+      )}
       <div className="flex items-center gap-1">
         <button className="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--color-elevated)] text-[var(--color-muted-foreground)]" title="Grid">
           <LayoutGrid className="w-4 h-4" />
