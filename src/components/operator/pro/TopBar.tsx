@@ -11,6 +11,7 @@ import {
   MoreHorizontal, Sparkles, Image as ImageIcon, MonitorSpeaker, Circle, Radio, ScreenShare,
   Music, Printer, Copy, ChevronDown, LayoutGrid,
 } from "lucide-react";
+import Image from "next/image";
 import type { OperatorShellCtx } from "../shell/types";
 import type { CenterMode } from "./ProOperatorShell";
 import { cn } from "@/lib/utils";
@@ -165,9 +166,25 @@ export function TopBar({
 
   return (
     <div className="h-11 shrink-0 border-b border-[var(--color-border)] bg-[var(--color-panel)] flex items-center px-2 gap-1">
+      {/* Prominent search input (Task A) — read-only proxy for the SearchPalette. */}
+      <button
+        type="button"
+        onClick={() => setSearchOpen(true)}
+        aria-label="Open search (Cmd+K)"
+        className="group flex items-center h-[28px] w-[240px] rounded-md border border-[var(--color-border)] bg-[var(--color-app-bg)] hover:border-[var(--color-muted-foreground)] transition-colors px-2 gap-1.5 shrink-0"
+        style={{ fontFamily: "var(--font-sans)" }}
+      >
+        <Search className="w-[14px] h-[14px] text-[var(--color-muted-foreground)] shrink-0" />
+        <span className="flex-1 text-left text-[12px] text-[var(--color-muted-foreground)] truncate">
+          Search lyrics, songs, Bible, media…
+        </span>
+        <kbd className="text-[9px] font-mono px-1 py-[1px] rounded border border-[var(--color-border)] text-[var(--color-muted-foreground)] shrink-0">
+          ⌘K
+        </kbd>
+      </button>
+      <div className="mx-1 h-5 w-px bg-[var(--color-border)]" aria-hidden />
       <div className="flex items-center" style={{ gap: 4 }}>
         {/* Action cluster */}
-        <IconBtn icon={Search} label="Search (Cmd+K)" onClick={() => setSearchOpen(true)} />
         <IconBtn icon={Type} label="Text" todo />
         <IconBtn icon={Palette} label="Theme" todo />
         <div className="mx-1 h-5 w-px bg-[var(--color-border)]" aria-hidden />
@@ -324,15 +341,49 @@ export function TopBar({
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
-        <div className="flex items-center gap-1 px-2 h-8" title={isLive ? "LIVE" : "Cleared"}>
-          <Circle className={cn("w-2.5 h-2.5", isLive ? "fill-[var(--color-destructive)] text-[var(--color-destructive)]" : "fill-[var(--color-muted-foreground)] text-[var(--color-muted-foreground)]")} />
-          <span className="text-[10px] font-mono uppercase tracking-wider">Live</span>
+        {/* Task F — PP-parity output pills */}
+        <button
+          type="button"
+          title={isLive ? "LIVE — click to scroll preview" : "Live output cleared"}
+          onClick={() => {
+            const el = document.querySelector('[data-tour="right"]');
+            if (el && "scrollIntoView" in el) (el as HTMLElement).scrollIntoView({ behavior: "smooth", block: "nearest" });
+          }}
+          className={cn(
+            "flex items-center gap-1 h-[22px] px-1.5 rounded-md text-[10px] font-medium border transition-colors",
+            isLive
+              ? "border-[var(--color-destructive)] bg-[color-mix(in_srgb,var(--color-destructive)_15%,transparent)] text-[var(--color-destructive)]"
+              : "border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:bg-[var(--color-elevated)]",
+          )}
+        >
+          <Circle className={cn("w-2 h-2", isLive ? "fill-[var(--color-destructive)] text-[var(--color-destructive)]" : "fill-[var(--color-muted-foreground)] text-[var(--color-muted-foreground)]")} />
+          <span>Live</span>
+        </button>
+        <div
+          className={cn(
+            "flex items-center gap-1 h-[22px] px-1.5 rounded-md text-[10px] font-medium border",
+            displays.length > 1
+              ? "border-[var(--color-success)] text-[var(--color-success)] bg-[color-mix(in_srgb,var(--color-success)_10%,transparent)]"
+              : "border-[var(--color-border)] text-[var(--color-muted-foreground)]",
+          )}
+          title={`Audience output — ${displays.length > 1 ? "available" : "single display"}`}
+        >
+          <Circle className={cn("w-2 h-2", displays.length > 1 ? "fill-[var(--color-success)] text-[var(--color-success)]" : "fill-[var(--color-muted-foreground)] text-[var(--color-muted-foreground)]")} />
+          <span className="hidden sm:inline">Audience</span>
+          <MonitorSpeaker className="w-3 h-3 sm:hidden" />
         </div>
-        <div className="flex items-center gap-1 px-1" title={`Audience output — ${displays.length > 1 ? "available" : "single display"}`}>
-          <MonitorSpeaker className={cn("w-4 h-4", displays.length > 1 ? "text-[var(--color-success)]" : "text-[var(--color-muted-foreground)]")} />
-        </div>
-        <div className="flex items-center gap-1 px-1" title={`Stage output — ${displays.length > 2 ? "available" : "not assigned"}`}>
-          <ScreenShare className={cn("w-4 h-4", displays.length > 2 ? "text-[var(--color-success)]" : "text-[var(--color-muted-foreground)]")} />
+        <div
+          className={cn(
+            "flex items-center gap-1 h-[22px] px-1.5 rounded-md text-[10px] font-medium border",
+            displays.length > 2
+              ? "border-[var(--color-success)] text-[var(--color-success)] bg-[color-mix(in_srgb,var(--color-success)_10%,transparent)]"
+              : "border-[var(--color-border)] text-[var(--color-muted-foreground)]",
+          )}
+          title={`Stage output — ${displays.length > 2 ? "available" : "not assigned"}`}
+        >
+          <Circle className={cn("w-2 h-2", displays.length > 2 ? "fill-[var(--color-success)] text-[var(--color-success)]" : "fill-[var(--color-muted-foreground)] text-[var(--color-muted-foreground)]")} />
+          <span className="hidden sm:inline">Stage</span>
+          <ScreenShare className="w-3 h-3 sm:hidden" />
         </div>
         <button
           type="button"
@@ -342,6 +393,47 @@ export function TopBar({
         >
           <Radio className={cn("w-4 h-4", aiDotClass)} />
         </button>
+        {/* Task G — Present Flow logo */}
+        <Popover.Root>
+          <Popover.Trigger asChild>
+            <button
+              type="button"
+              aria-label="Present Flow"
+              className="ml-1 flex items-center gap-1 h-[22px] px-1.5 rounded-md hover:bg-[var(--color-elevated)]"
+              title="Present Flow"
+            >
+              <Image
+                src="/brand/pf-logo-mark.png"
+                alt="Present Flow"
+                width={20}
+                height={20}
+                className="w-[20px] h-[20px] object-contain"
+              />
+            </button>
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content
+              side="bottom"
+              align="end"
+              sideOffset={4}
+              className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-3 text-[12px] shadow-xl z-50 w-[220px]"
+            >
+              <div className="font-semibold text-[13px]" style={{ color: "var(--color-brand)", fontFamily: "var(--font-display)" }}>
+                Present Flow
+              </div>
+              <div className="mt-1 text-[11px] text-[var(--color-muted-foreground)] font-mono">v0.1.0</div>
+              <button
+                type="button"
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent("presentflow:open-tour"));
+                }}
+                className="mt-2 text-[11px] text-[var(--color-brand)] hover:underline"
+              >
+                About / Guided tour
+              </button>
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
       </div>
 
       <SearchPalette open={searchOpen} onOpenChange={setSearchOpen} ctx={ctx} onCenterMode={onCenterMode} />
