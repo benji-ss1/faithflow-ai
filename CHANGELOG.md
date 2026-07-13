@@ -1,5 +1,43 @@
 # Changelog
 
+## [main] PP-parity polish — pass 2 (2026-07-12)
+
+Completes Tasks 3, 4, 5, 6, 7 of the PP-parity backlog.
+
+- **Task 3 (finish) transition duration in broadcast** — BottomBar persists
+  `{name, durationMs}` and pushes a full `TransitionSpec` (name+durationMs+
+  easing) into shell ctx on any change; `isValidTransitionSpec` added with
+  effect-name whitelist and 0..5000ms bounds; `isValidOutputState` now
+  validates `state.transition`.
+- **Task 4 themes gallery** — `ThemesTab` gets `+ Add New Blank Slide` and
+  `+ Create Your Own Theme` Radix Dialogs; custom themes render at the top
+  of the swatch grid with a "Custom" badge and hover-delete; blank slides
+  under a "My Blank Slides" heading. New shared hook
+  `src/hooks/useCustomThemes.ts` (localStorage + storage/custom events).
+- **Task 5 Max-gated OutputRoutingRow** — new
+  `src/components/operator/pro/right/OutputRoutingRow.tsx` mounted above
+  `LivePreviewPanel`. 6 pills (Media / Inhouse Stream / Live / Audience /
+  Stage / Status). Non-Max users see ghost pills + lock; click opens the
+  `MaxUpgradePrompt` modal via `pro-content` feature key. `tier === null`
+  renders a spacer to avoid flash.
+- **Task 6 TransitionChooser** — extracted from BottomBar to
+  `BottomBar/TransitionChooser.tsx`. Radix Tabs (All / Favorites), name
+  filter input, 3-col card grid with star favorites (persisted to
+  `presentflow.pro.transitions.favorites.v1`), 11 transitions, empty-state
+  copy for Favorites.
+- **Task 7 (finish) Bible reference-or-phrase** — new heuristic
+  `isProbablyReference` in `src/lib/bible-parser.ts`; `BibleMode` input now
+  accepts both, hint text below input, `REFERENCE` / `PHRASE` badge inside
+  input, phrase hits render as cards with matched span wrapped in
+  `<mark>`.
+- **Tests** — `test/projector-output.test.ts` +4 transition cases
+  (38 → 42 passing). `test/bible-mode.test.ts` new (6 heuristic cases).
+
+Typecheck: clean (pre-existing jsdom warning unchanged).
+electron:build:tsc: clean.
+
+---
+
 ## [main] Priority 10 — Present Flow Max tier scaffolding (2026-07-12)
 
 Pure UI + gating scaffolding for the Max tier. No payment processing, no
