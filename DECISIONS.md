@@ -1,3 +1,58 @@
+## PP-parity polish pass 4 — deferred tasks landed (2026-07-12)
+
+Finished the items deferred from pass 3.
+
+**Task C — reorderItemSlides shipped.**
+- New server action `reorderItemSlides(planId, itemId, newOrder)` in
+  `src/lib/actions.ts`. Two-hop ownership check: plan.churchId === user.churchId
+  AND item belongs to that plan.
+- Song items: writes per-plan override at
+  `serviceItems.payload.slideOrder: string[]` (songSlide IDs). Never mutates
+  `songSlides.order` (church-global; would leak reorderings across plans and
+  churches).
+- Scripture/sermon/media items: reorders `payload.slides` array in place.
+  newOrder is treated as slide IDs when present, else stringified indices.
+- Pure validator `validateReorderItemSlides` extracted for DB-free unit tests
+  in `test/actions.test.ts` (6 tests, all pass).
+- `getExpandedServicePlan` reads `payload.slideOrder` and applies it to song
+  items before returning; rows not present in the override are appended in
+  their original order for defensive resilience against stale overrides.
+- Client wiring: `SlideGrid` wraps cards in `SortableContext` (@dnd-kit) with
+  `PointerSensor` (6px activation) + keyboard sensor. IDs are per-song
+  `songSlideRows[i].id` or fallback `slide-{i}`. On drop:
+  `ctx.onReorderSlidesInItem(itemIdx, newOrder)` → optimistic local reorder
+  in OperatorConsole, then `reorderItemSlides` action, then `router.refresh()`.
+  Failure paths toast + refresh to revert.
+
+**Task E — visual noise reduction.**
+- Standardized hover state to `hover:bg-white/5` across TopBar, BottomBar,
+  CenterHeader, LibrarySection, PlaylistSection, MediaSection.
+- Standardized icon size to 16px (`w-4 h-4`) in TopBar clusters (was mix of
+  14/18px).
+- Removed the redundant border from MediaStrip tile placeholders (kept
+  bg-elevated to carry the boundary).
+- Tightened list-row padding from `px-3 py-1.5` to `px-2 py-1` in
+  PlaylistSection, LibrarySection, MediaSection (12→8px horizontal, 6→4px
+  vertical).
+- Playlist item icons bumped to 16px for consistency.
+
+**Task B remainder — 6px gutter.** `SlideGrid` main + stage grids now use
+`gap: 6px` (was `gap-3` = 12px, `gap-2` = 8px).
+
+**Task F remainder — Max-gated default output dropdown.**
+- New pill dropdown in TopBar right cluster ("Default" + chevron), between
+  ProContent popover and Media browser IconBtn. Options: Default, In-house
+  Stream, Livestream, Custom…
+- Custom opens a small modal to name a profile.
+- Max gate via `canAccess(tier, "pro-content")`. Non-Max renders as a ghost
+  pill (opacity 60) that opens a `MaxUpgradePrompt` popover on click.
+- Persisted to `localStorage["presentflow.pro.defaultOutput.v1"]`.
+- **UI-only for now.** No routing wired; documented as placeholder pending
+  the real output-profile plumbing.
+
+**No church_id / auth surface expanded without guards.** reorderItemSlides
+enforces the same two-hop ownership check pattern used by reorderServiceItems.
+
 ## PP-parity polish pass 3 — judgement calls (2026-07-12)
 
 Scope brief called for 7 tasks (A-G). CLAUDE.md #2 requires three parallel

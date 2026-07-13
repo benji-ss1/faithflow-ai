@@ -1,5 +1,32 @@
 # Changelog
 
+## [main] PP-parity polish — pass 4 (2026-07-12)
+
+Ships Tasks C (drag-reorder slides), E (visual noise reduction), F remainder
+(Max-gated default output dropdown), and B remainder (6px slide-grid gutter).
+
+- **New server action** `reorderItemSlides(planId, itemId, newOrder)` with
+  two-hop church ownership guard. Song items persist a per-plan
+  `serviceItems.payload.slideOrder` override (NEVER touches church-global
+  `songSlides.order`). Scripture/sermon/media items reorder `payload.slides`
+  in place.
+- **getExpandedServicePlan** honors `payload.slideOrder` for song items,
+  with defensive fallback for stale overrides.
+- **SlideGrid drag-reorder** via @dnd-kit SortableContext. Optimistic local
+  reorder in OperatorConsole, then persist, then router.refresh().
+- **Test file** `test/actions.test.ts` — 6 tests for validator.
+- **Visual polish** — standardized `hover:bg-white/5`, 16px icons, tighter
+  list-row padding (8px), removed redundant border on MediaStrip tiles.
+- **6px slide-grid gutter** in both main and stage rows.
+- **Max-gated default output dropdown** in TopBar. UI-only; persists to
+  `presentflow.pro.defaultOutput.v1`.
+
+Typecheck: clean (pre-existing jsdom warning unchanged).
+electron:build:tsc: clean.
+Tests: 6 new (actions.test), tier.test (42) still passing.
+
+---
+
 ## [main] PP-parity polish — pass 3 (2026-07-12)
 
 Ships Tasks A (prominent search input), D (single-click sends live / Safe
