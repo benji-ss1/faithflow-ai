@@ -284,8 +284,8 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     isSafeMode: () => {
       try {
         const raw = window.localStorage.getItem(SAFE_MODE_KEY);
-        return raw !== "0"; // default ON
-      } catch { return true; }
+        return raw === "1"; // default OFF — single-click sends live
+      } catch { return false; }
     },
     onSafeModeSwallowed: () => {
       // Y2: debounce to once per 3s. Warns the operator that Enter didn't
@@ -386,7 +386,13 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
 
         {/* RIGHT */}
         <aside data-tour="right" className="w-[300px] shrink-0 border-l border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col overflow-hidden">
-          <OutputRoutingRow ctx={ctx} />
+          {/* Task F polish pass: TopBar right cluster is now the single source of truth
+              for output routing indicators. OutputRoutingRow retired from the sidebar to
+              reduce duplication. Kept in-tree behind a localStorage flag for A/B: set
+              `presentflow.pro.showRoutingRow=1` to re-enable. */}
+          {typeof window !== "undefined" && window.localStorage.getItem("presentflow.pro.showRoutingRow") === "1" && (
+            <OutputRoutingRow ctx={ctx} />
+          )}
           <LivePreviewPanel ctx={ctx} />
           <div className="flex-1 min-h-0 border-t border-[var(--color-border)]">
             <RightTabs ctx={ctx} timer={timer} messages={messages} />

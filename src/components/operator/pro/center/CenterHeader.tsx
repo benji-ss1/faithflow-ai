@@ -7,9 +7,9 @@ import type { CenterMode } from "../ProOperatorShell";
 // Y5: mirror SlideGrid's Safe Mode source of truth.
 const SAFE_MODE_KEY = "presentflow.operator.safeMode";
 function safeMode() {
-  if (typeof window === "undefined") return true;
+  if (typeof window === "undefined") return false;
   const raw = window.localStorage.getItem(SAFE_MODE_KEY);
-  return raw !== "0";
+  return raw === "1"; // default OFF per user directive
 }
 
 export function CenterHeader({

@@ -17,13 +17,13 @@ const SAFE_MODE_KEY = "presentflow.safeMode";
  * addition and can land independently without changing this shell.
  */
 export function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const [safeMode, setSafeMode] = useState(true); // default ON (R2)
+  const [safeMode, setSafeMode] = useState(false); // default OFF — user directive: single-click sends live
   useEffect(() => {
     if (!open) return;
     try {
       const v = window.localStorage.getItem(SAFE_MODE_KEY);
-      // Missing key → default ON. Only "0" flips off.
-      setSafeMode(v === null ? true : v === "1");
+      // Missing key → default OFF. Only "1" flips on.
+      setSafeMode(v === "1");
     } catch { /* noop */ }
   }, [open]);
 
@@ -82,8 +82,9 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
                   </span>
                 </div>
                 <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">
-                  Default: ON. Double-click stages to Preview only — click Send-to-Live to broadcast.
-                  Turn OFF to enable ProPresenter-style double-click straight to Live (advanced).
+                  {safeMode
+                    ? "Safe Mode ON — click to preview, double-click to send live."
+                    : "Safe Mode OFF (default) — single click sends live. Turn on for a preview step before broadcasting."}
                 </p>
               </div>
             </button>

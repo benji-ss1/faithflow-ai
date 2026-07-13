@@ -12,8 +12,9 @@ type Row = { keys: string; label: string };
 const NAV_ROWS: Row[] = [
   { keys: "Space / →", label: "Next slide" },
   { keys: "←", label: "Previous slide" },
-  { keys: "Enter", label: "Send preview to live (respects Safe Mode)" },
+  { keys: "Enter", label: "Send preview to live (Safe Mode-aware; default: sends immediately)" },
   { keys: "Shift + Enter", label: "Force send live (bypasses Safe Mode)" },
+  { keys: "Click slide", label: "Single click sends live (default). Turn on Safe Mode to require double-click." },
   { keys: "Escape", label: "Kill live output (blank)" },
   { keys: "1 – 9", label: "Jump to slide N in current item" },
   { keys: "?", label: "Open this help overlay" },

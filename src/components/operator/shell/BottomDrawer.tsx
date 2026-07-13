@@ -16,12 +16,12 @@ import { toast } from "sonner";
 // explicitly disable Safe Mode from Settings to enable double-click-to-live.
 const SAFE_MODE_KEY = "presentflow.safeMode";
 function readSafeMode(): boolean {
-  if (typeof window === "undefined") return true;
+  // Polish pass: default OFF per user directive — single-click sends live.
+  if (typeof window === "undefined") return false;
   try {
     const v = window.localStorage.getItem(SAFE_MODE_KEY);
-    if (v === null) return true;   // default ON
     return v === "1";
-  } catch { return true; }
+  } catch { return false; }
 }
 
 // R2: 250ms debounce so accidental fast double-clicks (or trackpad noise)
