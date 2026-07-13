@@ -202,6 +202,27 @@ async function main() {
     assert.strictEqual(isValidLiveMessage({ type: "output", state: bad } as unknown), false);
   });
 
+  // --- 2c. Transition spec validation --------------------------------------
+  await check("output state accepts valid transition with duration 600ms", () => {
+    const s = { ...EMPTY_OUTPUT, transition: { effectId: "Fade", name: "Fade", durationMs: 600, easing: "ease" } };
+    assert.strictEqual(isValidLiveMessage({ type: "output", state: s } as unknown), true);
+  });
+
+  await check("output state rejects transition with durationMs > 5000", () => {
+    const s = { ...EMPTY_OUTPUT, transition: { effectId: "Fade", name: "Fade", durationMs: 5001, easing: "ease" } };
+    assert.strictEqual(isValidLiveMessage({ type: "output", state: s } as unknown), false);
+  });
+
+  await check("output state rejects transition with unknown name", () => {
+    const s = { ...EMPTY_OUTPUT, transition: { effectId: "Shellcode", name: "Shellcode", durationMs: 300, easing: "ease" } };
+    assert.strictEqual(isValidLiveMessage({ type: "output", state: s } as unknown), false);
+  });
+
+  await check("output state rejects transition with negative duration", () => {
+    const s = { ...EMPTY_OUTPUT, transition: { effectId: "Fade", name: "Fade", durationMs: -1, easing: "ease" } };
+    assert.strictEqual(isValidLiveMessage({ type: "output", state: s } as unknown), false);
+  });
+
   // --- 3. Role → URL mapping matches real Next routes ---------------------
   const ROLE_TO_PATH: Record<string, string> = {
     Projector: "/live",

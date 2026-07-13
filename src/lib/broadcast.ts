@@ -39,7 +39,28 @@ export type TransitionSpec = {
   effectId: string;      // EffectId — kept as string here to avoid circular imports
   durationMs: number;
   easing: string;
+  name?: string;         // human-readable name (e.g. "Fade", "Amoeba")
 };
+
+// Whitelist of transition effect names accepted by /live consumers.
+export const ALLOWED_TRANSITION_NAMES = new Set<string>([
+  "Cut", "Fade", "Dissolve",
+  "Slide", "Slide (L→R)", "Slide (R→L)",
+  "Wipe", "Amoeba", "Dispersion Blur", "Color Burn", "Iris", "Push",
+]);
+
+export function isValidTransitionSpec(t: unknown): t is TransitionSpec {
+  if (t === null) return true;
+  if (!t || typeof t !== "object") return false;
+  if (hasPollutionKey(t)) return false;
+  const p = t as Record<string, unknown>;
+  const name = typeof p.name === "string" ? p.name : typeof p.effectId === "string" ? p.effectId : "";
+  if (!name || name.length > 64) return false;
+  if (!ALLOWED_TRANSITION_NAMES.has(name)) return false;
+  if (typeof p.durationMs !== "number" || !Number.isFinite(p.durationMs)) return false;
+  if (p.durationMs < 0 || p.durationMs > 5000) return false;
+  return true;
+}
 
 export type OutputState = {
   live: SlidePayload;                // audience/projector output
@@ -234,6 +255,7 @@ export function isValidOutputState(s: unknown): s is OutputState {
     if (c > Date.now() + MAX_COUNTDOWN_FUTURE_MS) return false;
   }
   if (st.nextItem !== undefined && !isValidNextItem(st.nextItem)) return false;
+  if (st.transition !== undefined && !isValidTransitionSpec(st.transition)) return false;
   return true;
 }
 

@@ -1,11 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
-import * as Popover from "@radix-ui/react-popover";
 import { Plus, Pause, Play, SkipForward, SkipBack, ChevronDown, LayoutGrid, List, Type, Smile, SlidersHorizontal, HelpCircle } from "lucide-react";
 import type { OperatorShellCtx } from "../shell/types";
+import { TransitionChooser } from "./BottomBar/TransitionChooser";
 
-const TRANSITION_KEY = "presentflow.pro.transition.v1";
-const TRANSITIONS = ["Fade", "Dissolve", "Slide", "Cut", "Amoeba", "Wipe"];
+export const TRANSITION_KEY = "presentflow.pro.transition.v1";
 
 export type SlideViewMode = "grid" | "list" | "text";
 
@@ -25,16 +24,23 @@ export function BottomBar({
       if (raw) {
         const p = JSON.parse(raw);
         if (p.name) setTransitionName(p.name);
-        if (typeof p.duration === "number") setTransitionDuration(p.duration);
+        // Accept new durationMs or legacy duration (seconds)
+        if (typeof p.durationMs === "number") setTransitionDuration(p.durationMs / 1000);
+        else if (typeof p.duration === "number") setTransitionDuration(p.duration);
       }
     } catch { /* noop */ }
   }, []);
 
   useEffect(() => {
+    const durationMs = Math.max(0, Math.min(5000, Math.round(transitionDuration * 1000)));
     try {
-      window.localStorage.setItem(TRANSITION_KEY, JSON.stringify({ name: transitionName, duration: transitionDuration }));
+      window.localStorage.setItem(TRANSITION_KEY, JSON.stringify({ name: transitionName, durationMs }));
     } catch { /* noop */ }
-  }, [transitionName, transitionDuration]);
+    // Push into the live TransitionSpec so the OutputState effect picks it up.
+    try {
+      ctx.onSetTransitionSpec?.({ effectId: transitionName, durationMs, easing: "ease", name: transitionName });
+    } catch { /* noop */ }
+  }, [transitionName, transitionDuration, ctx]);
 
   const item = ctx.plan.items[ctx.previewItemIdx];
   const hasPrev = ctx.previewSlideIdx > 0;
@@ -60,39 +66,12 @@ export function BottomBar({
       {/* Center */}
       <div className="flex-1 flex items-center justify-center gap-2 text-[11px] text-[var(--color-muted-foreground)]">
         <button onClick={prev} disabled={!hasPrev} className="h-7 px-2 rounded hover:bg-[var(--color-elevated)] disabled:opacity-50">&lt; Verse</button>
-        <Popover.Root>
-          <Popover.Trigger asChild>
-            <button className="font-mono hover:text-[var(--color-foreground)]" title="Transition settings">
-              {transitionName}: {transitionDuration.toFixed(1)}s
-            </button>
-          </Popover.Trigger>
-          <Popover.Portal>
-            <Popover.Content side="top" align="center" className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-3 text-[12px] shadow-lg z-50 w-[240px] flex flex-col gap-2">
-              <div className="eyebrow">Transition</div>
-              <div className="grid grid-cols-3 gap-1">
-                {TRANSITIONS.map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => setTransitionName(t)}
-                    className={`h-7 rounded border ${transitionName === t ? "border-[var(--color-brand)] text-[var(--color-foreground)]" : "border-[var(--color-border)] text-[var(--color-muted-foreground)]"}`}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
-              <div className="eyebrow mt-1">Duration: {transitionDuration.toFixed(1)}s</div>
-              <input
-                type="range"
-                min={0}
-                max={5}
-                step={0.1}
-                value={transitionDuration}
-                onChange={(e) => setTransitionDuration(parseFloat(e.target.value))}
-                className="w-full accent-[var(--color-brand)]"
-              />
-            </Popover.Content>
-          </Popover.Portal>
-        </Popover.Root>
+        <TransitionChooser
+          transitionName={transitionName}
+          transitionDuration={transitionDuration}
+          onSelect={(name) => setTransitionName(name)}
+          onDurationChange={(d) => setTransitionDuration(d)}
+        />
         <input
           type="range"
           min={0}
