@@ -33,14 +33,14 @@ function IconBtn({
             title={todo ? `${label} — coming soon` : label}
             className={cn(
               "w-[34px] h-[34px] flex items-center justify-center rounded-md transition-colors",
-              "hover:bg-[var(--color-elevated)] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",
+              "hover:bg-white/5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",
               active && "text-[var(--color-foreground)] border-b-2 border-[var(--color-brand)] rounded-b-none",
               todo && !onClick && "opacity-50 cursor-not-allowed",
             )}
             aria-label={label}
             style={{ fontFamily: "var(--font-display)" }}
           >
-            <Icon className="w-[18px] h-[18px]" />
+            <Icon className="w-4 h-4" />
           </button>
         </Tooltip.Trigger>
         <Tooltip.Portal>
@@ -77,7 +77,7 @@ function ModeBtn({
         emphasized ? "min-w-[88px] px-3" : "min-w-[72px] px-2.5",
         active
           ? "bg-[var(--color-elevated)] text-[var(--color-foreground)] border-[var(--color-brand)]"
-          : "bg-transparent text-[var(--color-muted-foreground)] border-[var(--color-border)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-elevated)]",
+          : "bg-transparent text-[var(--color-muted-foreground)] border-[var(--color-border)] hover:text-[var(--color-foreground)] hover:bg-white/5",
         emphasized && active && "border-b-[3px]",
         emphasized && !active && "border-[var(--color-border)] hover:border-[var(--color-brand)]",
       )}
@@ -89,6 +89,22 @@ function ModeBtn({
 }
 
 const PREVIEW_DISPLAY_KEY = "presentflow.pro.previewDisplay";
+const DEFAULT_OUTPUT_KEY = "presentflow.pro.defaultOutput.v1";
+
+type DefaultOutputOption =
+  | { kind: "default" }
+  | { kind: "in-house" }
+  | { kind: "livestream" }
+  | { kind: "custom"; name: string };
+
+function labelForOutput(o: DefaultOutputOption): string {
+  switch (o.kind) {
+    case "default": return "Default";
+    case "in-house": return "In-house Stream";
+    case "livestream": return "Livestream";
+    case "custom": return o.name || "Custom";
+  }
+}
 
 export function TopBar({
   centerMode, onCenterMode, onToggleMediaStrip, mediaStripOpen, ctx,
@@ -136,6 +152,27 @@ export function TopBar({
   const canProContent = tier !== null && canAccess(tier, "pro-content");
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
   const [previewDisplay, setPreviewDisplay] = useState<number | null>(null);
+  // Task F: Max-gated default output selection. UI-only for now; routing
+  // itself is a placeholder — documented in DECISIONS.md.
+  const [defaultOutput, setDefaultOutput] = useState<DefaultOutputOption>({ kind: "default" });
+  const [customDialogOpen, setCustomDialogOpen] = useState(false);
+  const [customName, setCustomName] = useState("");
+  const [maxPromptOpen, setMaxPromptOpen] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(DEFAULT_OUTPUT_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as DefaultOutputOption;
+        if (parsed && typeof parsed.kind === "string") setDefaultOutput(parsed);
+      }
+    } catch { /* noop */ }
+  }, []);
+  const persistOutput = (o: DefaultOutputOption) => {
+    setDefaultOutput(o);
+    try { window.localStorage.setItem(DEFAULT_OUTPUT_KEY, JSON.stringify(o)); } catch { /* noop */ }
+  };
 
   useEffect(() => {
     if (typeof window === "undefined" || !window.electronAPI) return;
@@ -174,7 +211,7 @@ export function TopBar({
         className="group flex items-center h-[28px] w-[240px] rounded-md border border-[var(--color-border)] bg-[var(--color-app-bg)] hover:border-[var(--color-muted-foreground)] transition-colors px-2 gap-1.5 shrink-0"
         style={{ fontFamily: "var(--font-sans)" }}
       >
-        <Search className="w-[14px] h-[14px] text-[var(--color-muted-foreground)] shrink-0" />
+        <Search className="w-4 h-4 text-[var(--color-muted-foreground)] shrink-0" />
         <span className="flex-1 text-left text-[12px] text-[var(--color-muted-foreground)] truncate">
           Search lyrics, songs, Bible, media…
         </span>
@@ -214,10 +251,10 @@ export function TopBar({
             <button
               type="button"
               title="More"
-              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-[var(--color-elevated)] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
               aria-label="More actions"
             >
-              <MoreHorizontal className="w-[18px] h-[18px]" />
+              <MoreHorizontal className="w-4 h-4" />
             </button>
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
@@ -275,9 +312,9 @@ export function TopBar({
               type="button"
               title="ProContent"
               aria-label="ProContent"
-              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-[var(--color-elevated)] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
             >
-              <Sparkles className="w-[18px] h-[18px]" />
+              <Sparkles className="w-4 h-4" />
             </button>
           </Popover.Trigger>
           <Popover.Portal>
@@ -299,6 +336,92 @@ export function TopBar({
             </Popover.Content>
           </Popover.Portal>
         </Popover.Root>
+        {/* Task F — Max-gated default output profile dropdown. */}
+        {canProContent ? (
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <button
+                type="button"
+                title="Default output profile"
+                className="flex items-center gap-1 h-[22px] px-1.5 rounded-md border border-[var(--color-border)] text-[11px] text-[var(--color-muted-foreground)] hover:bg-white/5 hover:text-[var(--color-foreground)]"
+              >
+                <span>{labelForOutput(defaultOutput)}</span>
+                <ChevronDown className="w-3 h-3" />
+              </button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content
+                align="end"
+                sideOffset={4}
+                className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[180px]"
+              >
+                <DropdownMenu.Item onSelect={() => persistOutput({ kind: "default" })} className="px-3 py-1.5 rounded hover:bg-white/5 outline-none cursor-pointer">Default</DropdownMenu.Item>
+                <DropdownMenu.Item onSelect={() => persistOutput({ kind: "in-house" })} className="px-3 py-1.5 rounded hover:bg-white/5 outline-none cursor-pointer">In-house Stream</DropdownMenu.Item>
+                <DropdownMenu.Item onSelect={() => persistOutput({ kind: "livestream" })} className="px-3 py-1.5 rounded hover:bg-white/5 outline-none cursor-pointer">Livestream</DropdownMenu.Item>
+                <DropdownMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
+                <DropdownMenu.Item onSelect={(e) => { e.preventDefault(); setCustomDialogOpen(true); }} className="px-3 py-1.5 rounded hover:bg-white/5 outline-none cursor-pointer">Custom…</DropdownMenu.Item>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
+        ) : (
+          <Popover.Root open={maxPromptOpen} onOpenChange={setMaxPromptOpen}>
+            <Popover.Trigger asChild>
+              <button
+                type="button"
+                title="Default output profile — Max feature"
+                className="flex items-center gap-1 h-[22px] px-1.5 rounded-md border border-[var(--color-border)] text-[11px] text-[var(--color-muted-foreground)] opacity-60 hover:opacity-100 hover:bg-white/5"
+              >
+                <span>{labelForOutput(defaultOutput)}</span>
+                <ChevronDown className="w-3 h-3" />
+              </button>
+            </Popover.Trigger>
+            <Popover.Portal>
+              <Popover.Content
+                side="bottom"
+                align="end"
+                sideOffset={4}
+                className="w-[280px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-3 text-[12px] shadow-xl z-50"
+              >
+                <MaxUpgradePrompt feature="pro-content" variant="card" />
+              </Popover.Content>
+            </Popover.Portal>
+          </Popover.Root>
+        )}
+        {customDialogOpen && (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50"
+            role="dialog"
+            aria-modal="true"
+            onClick={() => setCustomDialogOpen(false)}
+          >
+            <div
+              className="w-[320px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="text-[13px] font-medium mb-2">Custom output profile</div>
+              <input
+                autoFocus
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+                placeholder="Profile name"
+                className="w-full h-8 px-2 rounded-md border border-[var(--color-border)] bg-[var(--color-app-bg)] text-[12px]"
+              />
+              <div className="mt-3 flex justify-end gap-2">
+                <button type="button" onClick={() => setCustomDialogOpen(false)} className="px-2 h-7 rounded-md text-[11px] hover:bg-white/5">Cancel</button>
+                <button
+                  type="button"
+                  disabled={!customName.trim()}
+                  onClick={() => {
+                    persistOutput({ kind: "custom", name: customName.trim() });
+                    setCustomDialogOpen(false);
+                    setCustomName("");
+                  }}
+                  className="px-2 h-7 rounded-md text-[11px] border border-[var(--color-brand)] text-[var(--color-brand)] disabled:opacity-50"
+                >Save</button>
+              </div>
+            </div>
+          </div>
+        )}
         <IconBtn
           icon={ImageIcon}
           label="Media browser"
@@ -311,7 +434,7 @@ export function TopBar({
             <button
               type="button"
               title="Preview output display"
-              className="px-2 h-8 flex items-center gap-1 text-[11px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)] rounded-md border border-[var(--color-border)] hover:bg-[var(--color-elevated)]"
+              className="px-2 h-8 flex items-center gap-1 text-[11px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)] rounded-md border border-[var(--color-border)] hover:bg-white/5"
             >
               {displayLabel} <ChevronDown className="w-3 h-3" />
             </button>
@@ -353,7 +476,7 @@ export function TopBar({
             "flex items-center gap-1 h-[22px] px-1.5 rounded-md text-[10px] font-medium border transition-colors",
             isLive
               ? "border-[var(--color-destructive)] bg-[color-mix(in_srgb,var(--color-destructive)_15%,transparent)] text-[var(--color-destructive)]"
-              : "border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:bg-[var(--color-elevated)]",
+              : "border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:bg-white/5",
           )}
         >
           <Circle className={cn("w-2 h-2", isLive ? "fill-[var(--color-destructive)] text-[var(--color-destructive)]" : "fill-[var(--color-muted-foreground)] text-[var(--color-muted-foreground)]")} />
@@ -389,7 +512,7 @@ export function TopBar({
           type="button"
           onClick={ctx.onListenToggle}
           title={aiTitle}
-          className="flex items-center gap-1 px-1 rounded hover:bg-[var(--color-elevated)]"
+          className="flex items-center gap-1 px-1 rounded hover:bg-white/5"
         >
           <Radio className={cn("w-4 h-4", aiDotClass)} />
         </button>
@@ -399,7 +522,7 @@ export function TopBar({
             <button
               type="button"
               aria-label="Present Flow"
-              className="ml-1 flex items-center gap-1 h-[22px] px-1.5 rounded-md hover:bg-[var(--color-elevated)]"
+              className="ml-1 flex items-center gap-1 h-[22px] px-1.5 rounded-md hover:bg-white/5"
               title="Present Flow"
             >
               <Image
