@@ -5,12 +5,23 @@ import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload } from "@/lib/broadcast";
 
-// Safe Mode toggle: when ON, double-click only selects. Persisted per-tab.
+// Safe Mode toggle. User-directive polish pass: default is OFF — single-click
+// sends live. When ON: single-click selects, double-click sends live. Persisted
+// per-machine in localStorage.
 const SAFE_MODE_KEY = "presentflow.operator.safeMode";
 function safeMode() {
-  if (typeof window === "undefined") return true;
+  if (typeof window === "undefined") return false;
   const raw = window.localStorage.getItem(SAFE_MODE_KEY);
-  return raw !== "0"; // default ON
+  return raw === "1"; // default OFF
+}
+
+// Debounce accidental fast repeat clicks / trackpad noise (250ms).
+let __lastLiveFire = 0;
+function fireLive(fn: () => void) {
+  const now = Date.now();
+  if (now - __lastLiveFire < 250) return;
+  __lastLiveFire = now;
+  fn();
 }
 
 export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize: number }) {
@@ -27,8 +38,8 @@ export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize
         style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${slideSize}px, 1fr))` }}
       >
         {slides.length === 0 && (
-          <div className="col-span-full text-[12px] text-[var(--color-muted-foreground)] py-8 text-center">
-            No slides. Select an item on the left, or add one via +.
+          <div className="col-span-full text-[12px] text-[var(--color-muted-foreground)] py-12 text-center">
+            No slides yet
           </div>
         )}
         {slides.map((s, idx) => (
@@ -37,13 +48,19 @@ export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize
             slide={s}
             index={idx + 1}
             selected={idx === ctx.previewSlideIdx}
-            onSelect={() => ctx.onJumpSlide(ctx.previewItemIdx, idx)}
-            onDouble={() => {
+            onSelect={() => {
+              // Safe Mode OFF (default): single-click sends live.
+              // Safe Mode ON: single-click selects only.
               if (safeMode()) {
                 ctx.onJumpSlide(ctx.previewItemIdx, idx);
               } else {
-                ctx.onSendSlideToLive(s);
+                ctx.onJumpSlide(ctx.previewItemIdx, idx);
+                fireLive(() => ctx.onSendSlideToLive(s));
               }
+            }}
+            onDouble={() => {
+              // Safe Mode ON: double-click sends live. (Off: single-click already fired.)
+              if (safeMode()) fireLive(() => ctx.onSendSlideToLive(s));
             }}
             // R2: pass explicit indices; no more synthetic keydown.
             onDelete={() => ctx.onDeleteSlide?.(ctx.previewItemIdx, idx)}
@@ -97,15 +114,19 @@ function SlideCard({
           onClick={onSelect}
           onDoubleClick={onDouble}
           className={cn(
-            "relative aspect-video rounded-md overflow-hidden border-2 transition-all text-left",
+            "relative aspect-video rounded-[6px] overflow-hidden transition-all text-left",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
             selected
-              ? "border-[var(--color-brand)] shadow-[0_0_0_2px_var(--color-glow)]"
-              : "border-[var(--color-border)] hover:border-[var(--color-muted-foreground)]",
+              ? "border-2 border-[var(--color-brand)] shadow-[0_2px_8px_rgba(0,0,0,0.25)]"
+              : "border border-[var(--color-border)] hover:border-[var(--color-muted-foreground)]",
           )}
         >
           <SlideRenderer slide={slide} />
-          <div className="absolute top-1 left-1 text-[10px] font-mono text-white/70 bg-black/40 px-1 rounded">
+          <div
+            className="absolute top-1 left-1 w-[18px] h-[18px] flex items-center justify-center rounded-full text-[10px] font-semibold text-white"
+            style={{ background: "var(--color-brand)" }}
+            aria-hidden
+          >
             {index}
           </div>
         </button>
