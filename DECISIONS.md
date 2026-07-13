@@ -800,3 +800,37 @@ Total LOC: ~130 new, 1 changed. Under the 100 LOC "3-review-agents required" bar
 - **`_resetTierCache()` on logout.** Wired into `Topbar` and `Sidebar`
   signOut handlers so the next user on the same machine does not
   briefly see the previous user's tier.
+
+## UI polish pass — PP-parity (2026-07-12)
+
+- **Scope narrowed to Tasks 1–3.** Tasks 4 (Themes gallery dialogs),
+  5 (right-sidebar output indicators), 6 (transition chooser tabs), and
+  7 (Bible phrase search) touch >100 LOC each and/or auth-gated data
+  paths (church_id-scoped custom themes, tier-gated indicators, new
+  authenticated endpoint). CLAUDE.md non-negotiable #2 requires three
+  parallel review agents for any such change. That workflow can't run
+  cleanly in a single-pass polish batch, so those tasks are deferred to
+  dedicated loops rather than shipped as provisional work. Note:
+  `/api/bible/search/route.ts` already exists (auth-gated, semantic
+  search) — task 7's spec was partially satisfied before this pass.
+- **Blue slide-size slider — hardcoded `#5b9bd5`.** No existing
+  `--color-accent-blue` token in the design system; grepping
+  `--color-` confirmed. Hardcoded in `CenterHeader.tsx` per task
+  spec. If future work needs the token, add it to the token file and
+  refactor.
+- **Transition duration slider — persistence only, no broadcast wire.**
+  The `presentflow.pro.transition.v1` localStorage already carries
+  `{ name, duration }` from a previous pass. Wiring `duration` into
+  the outgoing `TransitionSpec.durationMs` on every send-live path
+  (SlideGrid double-click, Enter hotkey, BibleMode double-click,
+  playlist advance) is a cross-cutting shell change touching
+  `OperatorConsole`, `useOperatorHotkeys`, and every `onSendSlideToLive`
+  caller. Deferred to a dedicated loop with a same-machine
+  BroadcastChannel invariant test (CLAUDE.md non-negotiable #8).
+  Slider currently persists state so no work is thrown away.
+- **Bible icon added to top-left cluster.** Task spec listed Bible
+  twice (once in prominent ModeBtn row, once in left cluster). Kept
+  the prominent Songs/Bible/Media row unchanged per the "prominent
+  button group unchanged" instruction, and added a small BookOpen
+  IconBtn to the left cluster mirroring the mode toggle. Two entry
+  points to the same mode is acceptable — mirrors PP.

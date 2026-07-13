@@ -1130,3 +1130,36 @@ Closed 6 🔴 and 14 🟡 findings from the ProOperatorShell review.
 - **chore(tier)**: `MaxUpgradePrompt` validates `NEXT_PUBLIC_APP_URL` (must be `https:`) before use; falls back to `https://presentflow.app`.
 - **chore(auth)**: `_resetTierCache()` wired into Topbar + Sidebar sign-out handlers.
 - **test(tier)**: 21 → 42 assertions. Added pilot early-access invariants, unknown-feature falls-open per tier, `isMaxOnly` case-sensitivity assertions, `dbTierToPlanLabel` cases, and `FEATURE_BLURB` ↔ `MAX_FEATURES` drift guard.
+
+## 2026-07-12 — UI polish pass (PP-parity, Tasks 1–3)
+
+### feat(operator/pro/topbar): cleaner PP-parity toolbar with dividers
+- `src/components/operator/pro/TopBar.tsx` — 34×34 hit area, 18px
+  icon, 4px gap; vertical 1px `--color-border` divider between
+  action cluster (Search/Text/Theme) and content cluster
+  (Show/Edit/Reflow/Bible). Removed `Arrangement` icon; collapsed
+  into More menu. Tooltip + label use `--font-display`. Added Bible
+  IconBtn shortcut that toggles bible center mode.
+
+### feat(operator/pro/center): slide-size slider in center header
+- `src/components/operator/pro/center/CenterHeader.tsx` — accepts
+  optional `slideSize`/`onSlideSize` props; renders a 150px
+  horizontal slider (accent `#5b9bd5`) in the right of the header
+  when `centerMode === "slides"`.
+- `src/components/operator/pro/ProOperatorShell.tsx` — plumbs the
+  same `slideSize` state that already backs SlideGrid into
+  CenterHeader; drops the prop from BottomBar.
+- `src/components/operator/pro/BottomBar.tsx` — removed the
+  duplicate slider and its two props; simpler signature.
+
+### feat(operator/pro/bottom): transition duration inline slider
+- `src/components/operator/pro/BottomBar.tsx` — inline range input
+  (0.0–5.0s, step 0.1) beside the transition popover trigger.
+  Persists via the existing `presentflow.pro.transition.v1` key
+  (already extended to `{ name, duration }` in a prior pass).
+  Broadcast wiring deferred — see DECISIONS.md.
+
+### Tasks deferred (see DECISIONS.md)
+- Task 4 (Themes dialogs), Task 5 (right-sidebar output indicators),
+  Task 6 (transition chooser tabs), Task 7 (Bible phrase search UI —
+  endpoint already exists at `/api/bible/search`).
