@@ -48,8 +48,29 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
     if (it.type === "song" && payload.songId) {
       songId = String(payload.songId);
       const rows = await db.select().from(songSlides).where(eq(songSlides.songId, songId)).orderBy(asc(songSlides.order));
-      songSlideRows = rows.map((r) => ({ id: r.id, lyrics: r.lyrics, objectsJson: r.objectsJson }));
-      slides = rows.map((r) => ({ kind: "text" as const, text: r.lyrics }));
+      // Task C: apply per-plan slideOrder override if present. The override
+      // is an array of songSlide IDs in the desired order — church-scoped
+      // via the containing plan. Rows not present in the override fall to
+      // the end in their original order (defensive against stale override
+      // arrays that predate a slide add).
+      const overrideRaw = payload.slideOrder;
+      const override = Array.isArray(overrideRaw)
+        ? (overrideRaw as unknown[]).filter((x): x is string => typeof x === "string")
+        : null;
+      let orderedRows = rows;
+      if (override && override.length > 0) {
+        const byId = new Map(rows.map((r) => [r.id, r]));
+        const seen = new Set<string>();
+        const front: typeof rows = [];
+        for (const id of override) {
+          const r = byId.get(id);
+          if (r && !seen.has(id)) { front.push(r); seen.add(id); }
+        }
+        const tail = rows.filter((r) => !seen.has(r.id));
+        orderedRows = [...front, ...tail];
+      }
+      songSlideRows = orderedRows.map((r) => ({ id: r.id, lyrics: r.lyrics, objectsJson: r.objectsJson }));
+      slides = orderedRows.map((r) => ({ kind: "text" as const, text: r.lyrics }));
     } else if (it.type === "scripture") {
       const scriptureSlides = Array.isArray(payload.slides) ? (payload.slides as { text: string }[]) : [];
       slides = scriptureSlides.map((s) => ({ kind: "text" as const, text: s.text }));

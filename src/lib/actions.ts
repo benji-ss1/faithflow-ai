@@ -152,6 +152,103 @@ export async function reorderServiceItems(planId: string, orderedIds: string[]):
   return { ok: true };
 }
 
+/**
+ * Pure validator for reorderItemSlides. Extracted so it can be unit-tested
+ * without a live DB. Returns { ok: true } if `newOrder` is a valid
+ * permutation of `existingIds`; else a specific error string.
+ */
+export function validateReorderItemSlides(
+  newOrder: string[],
+  existingIds: string[]
+): { ok: true } | { ok: false; error: string } {
+  if (newOrder.length !== existingIds.length) {
+    return { ok: false, error: "newOrder length mismatch" };
+  }
+  const existingSet = new Set(existingIds);
+  const seen = new Set<string>();
+  for (const id of newOrder) {
+    if (!existingSet.has(id)) return { ok: false, error: "Unknown slide id" };
+    if (seen.has(id)) return { ok: false, error: "Duplicate slide id" };
+    seen.add(id);
+  }
+  return { ok: true };
+}
+
+/**
+ * Reorder slides within a single service item.
+ *
+ * SONG items: DO NOT touch songSlides.order — that column is church-global
+ * and mutating it would reorder that song's slides across every plan and
+ * every church using the same song row. Instead we write a per-plan-item
+ * override at serviceItems.payload.slideOrder (string[] of songSlideId).
+ * getExpandedServicePlan reads this override before falling back to
+ * songSlides.order.
+ *
+ * SCRIPTURE / SERMON / MEDIA / other items: reorder payload.slides in
+ * place. newOrder here is treated as an array of slide IDs matching
+ * payload.slides[i].id — if payload.slides lack ids, we accept a
+ * stringified numeric index instead.
+ */
+export async function reorderItemSlides(
+  planId: string,
+  itemId: string,
+  newOrder: string[]
+): Promise<Result> {
+  const user = await requireUser();
+  const db = getDb();
+  // Two-hop ownership check: plan.churchId === user.churchId, AND item
+  // belongs to that plan.
+  const [plan] = await db.select()
+    .from(servicePlans)
+    .where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, user.churchId)))
+    .limit(1);
+  if (!plan) return { ok: false, error: "Plan not found" };
+
+  const [item] = await db.select().from(serviceItems)
+    .where(and(eq(serviceItems.id, itemId), eq(serviceItems.servicePlanId, planId)))
+    .limit(1);
+  if (!item) return { ok: false, error: "Item not part of this plan" };
+
+  const payload = (item.payload || {}) as Record<string, unknown>;
+
+  if (item.type === "song") {
+    const songId = typeof payload.songId === "string" ? payload.songId : null;
+    if (!songId) return { ok: false, error: "Song item missing songId" };
+    const rows = await db.select({ id: songSlides.id })
+      .from(songSlides)
+      .where(eq(songSlides.songId, songId));
+    const existingIds = rows.map((r) => r.id);
+    const guard = validateReorderItemSlides(newOrder, existingIds);
+    if (!guard.ok) return guard;
+    const nextPayload = { ...payload, slideOrder: newOrder };
+    await db.update(serviceItems)
+      .set({ payload: nextPayload })
+      .where(eq(serviceItems.id, itemId));
+  } else if (item.type === "scripture" || item.type === "sermon" || item.type === "media") {
+    // For payload.slides — treat newOrder as slide IDs when present,
+    // otherwise as stringified indices ("0", "1", …).
+    const slides = Array.isArray(payload.slides) ? [...(payload.slides as unknown[])] : [];
+    if (slides.length === 0) return { ok: false, error: "Item has no reorderable slides" };
+    const existingIds = slides.map((s, i) => {
+      const rec = s as Record<string, unknown>;
+      return typeof rec?.id === "string" ? rec.id : String(i);
+    });
+    const guard = validateReorderItemSlides(newOrder, existingIds);
+    if (!guard.ok) return guard;
+    const byId = new Map(existingIds.map((id, i) => [id, slides[i]]));
+    const reordered = newOrder.map((id) => byId.get(id));
+    const nextPayload = { ...payload, slides: reordered };
+    await db.update(serviceItems)
+      .set({ payload: nextPayload })
+      .where(eq(serviceItems.id, itemId));
+  } else {
+    return { ok: false, error: `Cannot reorder slides for item type ${item.type}` };
+  }
+
+  revalidatePath(`/services/${planId}`);
+  return { ok: true };
+}
+
 // Songs ----------------------------------------------------------------------
 export async function createSong(formData: FormData): Promise<Result<{ id: string }>> {
   const user = await requireUser();
