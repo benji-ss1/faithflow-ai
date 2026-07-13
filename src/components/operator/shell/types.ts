@@ -105,6 +105,12 @@ export type OperatorShellCtx = {
   // R2: right-click delete passes explicit indices to avoid the "delete
   // uses current preview cursor" bug. Optional so legacy shells stay valid.
   onDeleteSlide?: (itemIdx: number, slideIdx: number) => void;
+  // Task C: drag-reorder slides within a playlist item. newOrder is an
+  // array of slide identifiers matching the item's expanded slide count.
+  // For song items → songSlide IDs; for scripture/sermon/media → the
+  // per-slide id (or stringified index if none). Optional so legacy shells
+  // that never dnd-wrap can omit it.
+  onReorderSlidesInItem?: (itemIdx: number, newOrder: string[]) => void;
   onSendSlideToLive: (slide: SlidePayload, transition?: import("@/lib/broadcast").TransitionSpec | null) => void;
   onStageSlide: (slide: SlidePayload) => void;
   onBankAddReference: (ref: { book: string; chapter: number; verseStart: number; verseEnd: number }) => Promise<BankedVerse | null>;

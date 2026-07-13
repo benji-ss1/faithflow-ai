@@ -983,6 +983,57 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode, confid
   // state. When a slide-delete action lands, replace the toast with a
   // server call scoped by (planId, itemIdx, slideIdx). Documented in
   // DECISIONS.md.
+  // Task C: reorder slides within a playlist item. Optimistic local
+  // update, then persist via server action. Song items write a per-plan
+  // slideOrder override at serviceItems.payload.slideOrder — NEVER touch
+  // songSlides.order (church-global). See DECISIONS.md.
+  const onReorderSlidesInItem = useCallback((itemIdx: number, newOrder: string[]) => {
+    const item = plan.items[itemIdx];
+    if (!item) return;
+    // Optimistic reorder locally.
+    setPlan((prev) => {
+      const items = [...prev.items];
+      const target = items[itemIdx];
+      if (!target) return prev;
+      // Build maps by the same id scheme used in SlideGrid.
+      const idOf = (i: number) => {
+        if (target.type === "song" && target.songSlideRows?.[i]?.id) return target.songSlideRows[i].id;
+        return `slide-${i}`;
+      };
+      const currentIds = target.slides.map((_, i) => idOf(i));
+      const bySlideId = new Map(currentIds.map((id, i) => [id, target.slides[i]]));
+      const byRowId = target.songSlideRows
+        ? new Map(currentIds.map((id, i) => [id, target.songSlideRows![i]]))
+        : null;
+      const reorderedSlides = newOrder.map((id) => bySlideId.get(id)!).filter(Boolean);
+      const reorderedRows = byRowId
+        ? newOrder.map((id) => byRowId.get(id)!).filter(Boolean)
+        : undefined;
+      items[itemIdx] = {
+        ...target,
+        slides: reorderedSlides,
+        ...(reorderedRows ? { songSlideRows: reorderedRows } : {}),
+      };
+      return { ...prev, items };
+    });
+    // Persist.
+    (async () => {
+      try {
+        const { reorderItemSlides } = await import("@/lib/actions");
+        const res = await reorderItemSlides(plan.id, item.id, newOrder);
+        if (!res.ok) {
+          toast.error(res.error || "Reorder failed");
+          router.refresh();
+          return;
+        }
+        router.refresh();
+      } catch (err) {
+        toast.error("Reorder failed");
+        router.refresh();
+      }
+    })();
+  }, [plan.items, plan.id, router]);
+
   const onDeleteSlide = useCallback((itemIdx: number, slideIdx: number) => {
     const item = plan.items[itemIdx];
     if (!item) return;
@@ -1061,6 +1112,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode, confid
     onSendBankedToLive: sendBankedToLive,
     onRemoveBanked: removeBanked,
     onDeleteSlide, // R2
+    onReorderSlidesInItem, // Task C
     // Library → Playlist add (drag or click).
     onAddLibraryItem: async (kind, ref) => {
       const payload =
@@ -1113,7 +1165,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode, confid
     queueUnified, rejectUnified, importSong, internetSearchLibrary,
     internetImport, internetCreateDraft, internetReject, simulateTranscript,
     setAnnouncement, setTransitionSpec, sendSlideToLive, stageSlide,
-    bankAdd, sendBankedToLive, removeBanked, onDeleteSlide,
+    bankAdd, sendBankedToLive, removeBanked, onDeleteSlide, onReorderSlidesInItem,
     startAudio, stopAudio,
   ]);
 

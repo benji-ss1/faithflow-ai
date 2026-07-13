@@ -4,6 +4,23 @@ import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload } from "@/lib/broadcast";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  rectSortingStrategy,
+  arrayMove,
+  sortableKeyboardCoordinates,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 // Safe Mode toggle. User-directive polish pass: default is OFF — single-click
 // sends live. When ON: single-click selects, double-click sends live. Persisted
@@ -28,53 +45,83 @@ export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize
   const item = ctx.plan.items[ctx.previewItemIdx];
   const slides: SlidePayload[] = item?.slides ?? [];
 
+  // Task C: derive stable per-slide IDs for dnd + server call. For song
+  // items we have real songSlide IDs on songSlideRows; for other item
+  // types the reorder validator accepts stringified indices.
+  const slideIds: string[] = slides.map((_, i) => {
+    if (item?.type === "song" && item.songSlideRows?.[i]?.id) return item.songSlideRows[i].id;
+    return `slide-${i}`;
+  });
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const onDragEnd = (e: DragEndEvent) => {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const oldIdx = slideIds.indexOf(String(active.id));
+    const newIdx = slideIds.indexOf(String(over.id));
+    if (oldIdx < 0 || newIdx < 0) return;
+    const nextOrder = arrayMove(slideIds, oldIdx, newIdx);
+    ctx.onReorderSlidesInItem?.(ctx.previewItemIdx, nextOrder);
+  };
+
   return (
-    <div className="p-3 flex flex-col gap-6">
-      {/* Main slide grid — Y10: semantic grid + gridcell roles for a11y */}
-      <div
-        role="grid"
-        aria-label="Slides"
-        className="grid gap-3"
-        style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${slideSize}px, 1fr))` }}
-      >
-        {slides.length === 0 && (
-          <div className="col-span-full text-[12px] text-[var(--color-muted-foreground)] py-12 text-center">
-            No slides yet
+    <div className="p-2 flex flex-col gap-6">
+      {/* Main slide grid — Task B: 6px gutter. Y10: semantic grid + gridcell roles. */}
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <SortableContext items={slideIds} strategy={rectSortingStrategy}>
+          <div
+            role="grid"
+            aria-label="Slides"
+            className="grid"
+            style={{
+              gap: 6,
+              gridTemplateColumns: `repeat(auto-fill, minmax(${slideSize}px, 1fr))`,
+            }}
+          >
+            {slides.length === 0 && (
+              <div className="col-span-full text-[12px] text-[var(--color-muted-foreground)] py-12 text-center">
+                No slides yet
+              </div>
+            )}
+            {slides.map((s, idx) => (
+              <SortableSlideCard
+                key={slideIds[idx]}
+                id={slideIds[idx]}
+                slide={s}
+                index={idx + 1}
+                selected={idx === ctx.previewSlideIdx}
+                onSelect={() => {
+                  if (safeMode()) {
+                    ctx.onJumpSlide(ctx.previewItemIdx, idx);
+                  } else {
+                    ctx.onJumpSlide(ctx.previewItemIdx, idx);
+                    fireLive(() => ctx.onSendSlideToLive(s));
+                  }
+                }}
+                onDouble={() => {
+                  if (safeMode()) fireLive(() => ctx.onSendSlideToLive(s));
+                }}
+                onDelete={() => ctx.onDeleteSlide?.(ctx.previewItemIdx, idx)}
+              />
+            ))}
           </div>
-        )}
-        {slides.map((s, idx) => (
-          <SlideCard
-            key={idx}
-            slide={s}
-            index={idx + 1}
-            selected={idx === ctx.previewSlideIdx}
-            onSelect={() => {
-              // Safe Mode OFF (default): single-click sends live.
-              // Safe Mode ON: single-click selects only.
-              if (safeMode()) {
-                ctx.onJumpSlide(ctx.previewItemIdx, idx);
-              } else {
-                ctx.onJumpSlide(ctx.previewItemIdx, idx);
-                fireLive(() => ctx.onSendSlideToLive(s));
-              }
-            }}
-            onDouble={() => {
-              // Safe Mode ON: double-click sends live. (Off: single-click already fired.)
-              if (safeMode()) fireLive(() => ctx.onSendSlideToLive(s));
-            }}
-            // R2: pass explicit indices; no more synthetic keydown.
-            onDelete={() => ctx.onDeleteSlide?.(ctx.previewItemIdx, idx)}
-          />
-        ))}
-      </div>
+        </SortableContext>
+      </DndContext>
 
       {/* Stage row (half-size mirror) */}
       {slides.length > 0 && (
         <div>
           <div className="eyebrow mb-2">Stage</div>
           <div
-            className="grid gap-2"
-            style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${Math.round(slideSize / 1.6)}px, 1fr))` }}
+            className="grid"
+            style={{
+              gap: 6,
+              gridTemplateColumns: `repeat(auto-fill, minmax(${Math.round(slideSize / 1.6)}px, 1fr))`,
+            }}
           >
             {slides.map((s, idx) => (
               <div
@@ -90,6 +137,36 @@ export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function SortableSlideCard(props: {
+  id: string;
+  slide: SlidePayload;
+  index: number;
+  selected: boolean;
+  onSelect: () => void;
+  onDouble: () => void;
+  onDelete: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: props.id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <SlideCard
+        slide={props.slide}
+        index={props.index}
+        selected={props.selected}
+        onSelect={props.onSelect}
+        onDouble={props.onDouble}
+        onDelete={props.onDelete}
+      />
     </div>
   );
 }
