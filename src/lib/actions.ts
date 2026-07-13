@@ -5,6 +5,7 @@ import { getDb } from "./db/client";
 import { servicePlans, serviceItems, songs, songSlides, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes } from "./db/schema";
 import { requireUser } from "./session";
 import { deleteObject } from "./s3";
+import { validateReorderItemSlides } from "./reorder-validator";
 
 type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
 
@@ -152,27 +153,7 @@ export async function reorderServiceItems(planId: string, orderedIds: string[]):
   return { ok: true };
 }
 
-/**
- * Pure validator for reorderItemSlides. Extracted so it can be unit-tested
- * without a live DB. Returns { ok: true } if `newOrder` is a valid
- * permutation of `existingIds`; else a specific error string.
- */
-export function validateReorderItemSlides(
-  newOrder: string[],
-  existingIds: string[]
-): { ok: true } | { ok: false; error: string } {
-  if (newOrder.length !== existingIds.length) {
-    return { ok: false, error: "newOrder length mismatch" };
-  }
-  const existingSet = new Set(existingIds);
-  const seen = new Set<string>();
-  for (const id of newOrder) {
-    if (!existingSet.has(id)) return { ok: false, error: "Unknown slide id" };
-    if (seen.has(id)) return { ok: false, error: "Duplicate slide id" };
-    seen.add(id);
-  }
-  return { ok: true };
-}
+// validateReorderItemSlides moved to ./reorder-validator (see import above)
 
 /**
  * Reorder slides within a single service item.

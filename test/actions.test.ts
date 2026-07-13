@@ -3,7 +3,7 @@
 // Auth + ownership guards are exercised via cross-church.test.ts elsewhere.
 // Run: npx tsx test/actions.test.ts
 
-import { validateReorderItemSlides } from "../src/lib/actions";
+import { validateReorderItemSlides } from "../src/lib/reorder-validator";
 
 let passed = 0;
 let failed = 0;
