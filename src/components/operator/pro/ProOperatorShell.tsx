@@ -29,6 +29,7 @@ import { BibleMode } from "./center/BibleMode";
 import { SongsBrowser } from "./center/SongsBrowser";
 import { MediaBrowser } from "./center/MediaBrowser";
 import { LivePreviewPanel } from "./right/LivePreviewPanel";
+import { OutputRoutingRow } from "./right/OutputRoutingRow";
 import { RightTabs } from "./right/RightTabs";
 import { BottomBar } from "./BottomBar";
 import { MediaStrip } from "./MediaStrip";
@@ -385,6 +386,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
 
         {/* RIGHT */}
         <aside data-tour="right" className="w-[300px] shrink-0 border-l border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col overflow-hidden">
+          <OutputRoutingRow ctx={ctx} />
           <LivePreviewPanel ctx={ctx} />
           <div className="flex-1 min-h-0 border-t border-[var(--color-border)]">
             <RightTabs ctx={ctx} timer={timer} messages={messages} />

@@ -399,3 +399,23 @@ export function parseReference(text: string): SimpleReference | null {
   if (r.chapterEnd !== undefined) out.chapterEnd = r.chapterEnd;
   return out;
 }
+
+/**
+ * Cheap heuristic: does this look like a Bible reference (vs a phrase)?
+ * Used by the BibleMode input to pick between /api/bible/lookup and
+ * /api/bible/search. Refined by parseReference() when uncertain.
+ */
+export function isProbablyReference(s: string): boolean {
+  if (!s || typeof s !== "string") return false;
+  const t = s.trim();
+  if (!t) return false;
+  // Contains "chapter:verse"
+  if (/\d+\s*:\s*\d+/.test(t)) return true;
+  // Book + chapter (e.g. "Psalm 23", "1 Cor 13", "III John 1")
+  if (/^\s*(1|2|3|I{1,3}|1st|2nd|3rd)?\s*[A-Za-z][A-Za-z\s\.]{1,}\s+\d+\b/.test(t)) {
+    // Confirm with parser
+    try { return parseReference(t) !== null; } catch { return true; }
+  }
+  // Fallback to the parser for edge cases
+  try { return parseReference(t) !== null; } catch { return false; }
+}

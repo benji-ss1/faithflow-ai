@@ -50,13 +50,47 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
     }
   }, [translation, mode, setCards, setSelectedIdx, setLoading]);
 
+  const [phraseHits, setPhraseHits] = useState<Array<{ book: string; chapter: number; verse: number; text: string; matched?: string }>>([]);
+
   const lookup = useCallback(async () => {
-    const parseRefs = await import("@/lib/bible-parser").then((m) => m.parseReferences);
-    const parsed = parseRefs(ref);
-    if (parsed.length === 0) { toast.info("Couldn't parse reference"); return; }
-    const p = parsed[0];
-    await runLookup({ book: p.book, chapter: p.chapter, verseStart: p.verseStart, verseEnd: p.verseEnd });
-  }, [ref, runLookup]);
+    const parser = await import("@/lib/bible-parser");
+    const treatAsRef = parser.isProbablyReference(ref);
+    if (treatAsRef) {
+      const parsed = parser.parseReferences(ref);
+      if (parsed.length === 0) { toast.info("Couldn't parse reference"); return; }
+      const p = parsed[0];
+      setPhraseHits([]);
+      await runLookup({ book: p.book, chapter: p.chapter, verseStart: p.verseStart, verseEnd: p.verseEnd });
+    } else {
+      // Phrase search
+      setLoading(true);
+      try {
+        const res = await fetch("/api/bible/search", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ q: ref, translation, limit: 10 }),
+        }).then((r) => r.json());
+        if (res.error) { toast.error(res.error); return; }
+        const hits = (res.results || res.hits || []) as Array<{ book: string; chapter: number; verse: number; text: string }>;
+        setPhraseHits(hits.map((h) => ({ ...h, matched: ref.trim() })));
+        setCards([]);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Search failed");
+      } finally {
+        setLoading(false);
+      }
+    }
+  }, [ref, runLookup, translation, setCards, setLoading]);
+
+  const isRef = (() => {
+    try {
+      // Sync heuristic; import is dynamic elsewhere but safe here for a hint.
+      const s = ref.trim();
+      if (!s) return true;
+      if (/\d+\s*:\s*\d+/.test(s)) return true;
+      if (/^\s*(1|2|3|I{1,3})?\s*[A-Za-z][A-Za-z\s\.]{1,}\s+\d+\b/.test(s)) return true;
+      return false;
+    } catch { return true; }
+  })();
 
   // Called from the Browse tab: single verse → load into card area & switch tab.
   const pickBrowsedVerse = useCallback((r: { book: string; chapter: number; verse: number }) => {
@@ -97,13 +131,21 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
-        <input
-          value={ref}
-          onChange={(e) => setRef(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void lookup(); } }}
-          placeholder="John 3:16-18"
-          className="flex-1 min-w-[200px] bg-[var(--color-elevated)] border border-[var(--color-border)] rounded-md px-3 h-9 text-sm outline-none focus:border-[var(--color-brand)]"
-        />
+        <div className="flex-1 min-w-[200px] relative">
+          <input
+            value={ref}
+            onChange={(e) => setRef(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void lookup(); } }}
+            placeholder="John 3:16 or 'The Lord is my shepherd'"
+            className="w-full bg-[var(--color-elevated)] border border-[var(--color-border)] rounded-md px-3 pr-20 h-9 text-sm outline-none focus:border-[var(--color-brand)]"
+          />
+          <span
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--color-brand)]/15 text-[var(--color-brand)] font-mono"
+            title={isRef ? "Treated as a reference" : "Treated as a phrase search"}
+          >
+            {isRef ? "REFERENCE" : "PHRASE"}
+          </span>
+        </div>
         <select
           value={translation}
           onChange={(e) => setTranslation(e.target.value)}
@@ -131,6 +173,32 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
         </button>
         <BibleOptionsPopover />
       </div>
+
+      <div className="text-[11px] text-[var(--color-muted-foreground)] -mt-2">
+        Try a reference (John 3:16) or a phrase (The Lord is my shepherd)
+      </div>
+
+      {tab === "reference" && phraseHits.length > 0 && (
+        <div className="grid gap-2">
+          {phraseHits.map((h, i) => {
+            const label = `${h.book} ${h.chapter}:${h.verse}`;
+            const slide: SlidePayload = { kind: "text", text: `${h.text}\n\n${label}` };
+            const parts = h.matched ? h.text.split(new RegExp(`(${h.matched.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "i")) : [h.text];
+            return (
+              <div key={`${label}-${i}`} className="p-3 rounded border border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col gap-1"
+                onDoubleClick={() => ctx.onSendSlideToLive(slide)}
+              >
+                <div className="text-[10px] font-mono text-[var(--color-muted-foreground)]">{label}</div>
+                <div className="text-sm">
+                  {parts.map((p, idx) => h.matched && p.toLowerCase() === h.matched.toLowerCase()
+                    ? <mark key={idx} className="bg-[color:var(--color-brand)]/25 rounded">{p}</mark>
+                    : <span key={idx}>{p}</span>)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {tab === "browse" && (
         <BibleBookBrowser translation={translation} onPickVerse={pickBrowsedVerse} />
