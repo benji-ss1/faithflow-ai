@@ -7,9 +7,9 @@ import { useTier } from "@/hooks/useTier";
 import { canAccess } from "@/lib/tier";
 import { MaxUpgradePrompt } from "@/components/tier/MaxUpgradePrompt";
 import {
-  Search, Type, Palette, LayoutGrid, Play, Pencil, Repeat, BookOpen,
+  Search, Type, Palette, Play, Pencil, Repeat, BookOpen,
   MoreHorizontal, Sparkles, Image as ImageIcon, MonitorSpeaker, Circle, Radio, ScreenShare,
-  Music, Printer, Copy, ChevronDown,
+  Music, Printer, Copy, ChevronDown, LayoutGrid,
 } from "lucide-react";
 import type { OperatorShellCtx } from "../shell/types";
 import type { CenterMode } from "./ProOperatorShell";
@@ -31,18 +31,23 @@ function IconBtn({
             disabled={todo && !onClick}
             title={todo ? `${label} — coming soon` : label}
             className={cn(
-              "w-8 h-8 flex items-center justify-center rounded-md transition-colors",
+              "w-[34px] h-[34px] flex items-center justify-center rounded-md transition-colors",
               "hover:bg-[var(--color-elevated)] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",
               active && "text-[var(--color-foreground)] border-b-2 border-[var(--color-brand)] rounded-b-none",
               todo && !onClick && "opacity-50 cursor-not-allowed",
             )}
             aria-label={label}
+            style={{ fontFamily: "var(--font-display)" }}
           >
             <Icon className="w-[18px] h-[18px]" />
           </button>
         </Tooltip.Trigger>
         <Tooltip.Portal>
-          <Tooltip.Content sideOffset={4} className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] px-2 py-1 text-[11px] z-50">
+          <Tooltip.Content
+            sideOffset={4}
+            className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] px-2 py-1 text-[11px] z-50"
+            style={{ fontFamily: "var(--font-display)" }}
+          >
             {label}{todo ? " — coming soon" : ""}
           </Tooltip.Content>
         </Tooltip.Portal>
@@ -160,14 +165,22 @@ export function TopBar({
 
   return (
     <div className="h-11 shrink-0 border-b border-[var(--color-border)] bg-[var(--color-panel)] flex items-center px-2 gap-1">
-      <div className="flex items-center gap-0.5">
+      <div className="flex items-center" style={{ gap: 4 }}>
+        {/* Action cluster */}
         <IconBtn icon={Search} label="Search (Cmd+K)" onClick={() => setSearchOpen(true)} />
         <IconBtn icon={Type} label="Text" todo />
         <IconBtn icon={Palette} label="Theme" todo />
-        <IconBtn icon={LayoutGrid} label="Arrangement" todo />
+        <div className="mx-1 h-5 w-px bg-[var(--color-border)]" aria-hidden />
+        {/* Content cluster */}
         <IconBtn icon={Play} label="Show" onClick={ctx.onSendToLive} />
         <IconBtn icon={Pencil} label="Edit" todo />
         <IconBtn icon={Repeat} label="Reflow" todo />
+        <IconBtn
+          icon={BookOpen}
+          label="Bible"
+          active={centerMode === "bible"}
+          onClick={() => onCenterMode(centerMode === "bible" ? "slides" : "bible")}
+        />
       </div>
 
       <div className="mx-2 h-6 w-px bg-[var(--color-border)]" />
@@ -196,6 +209,13 @@ export function TopBar({
               sideOffset={4}
               className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[180px]"
             >
+              <DropdownMenu.Item
+                disabled
+                className="px-3 py-1.5 rounded opacity-50 cursor-not-allowed flex items-center gap-2"
+                title="Arrangement — coming soon"
+              >
+                <LayoutGrid className="w-3.5 h-3.5" /> Arrangement
+              </DropdownMenu.Item>
               <DropdownMenu.Item
                 disabled
                 className="px-3 py-1.5 rounded opacity-50 cursor-not-allowed"
