@@ -26,7 +26,7 @@ export function LivePreviewPanel({ ctx }: { ctx: OperatorShellCtx }) {
             className="absolute top-1 right-1 w-6 h-6 flex items-center justify-center rounded bg-black/60 text-white hover:bg-[var(--color-destructive)]"
             title="Clear live"
           >
-            <X className="w-3.5 h-3.5" />
+            <X className="w-4 h-4" />
           </button>
         )}
         <div className="absolute bottom-1 left-1 text-[9px] font-mono uppercase tracking-wider text-white/70 bg-black/50 px-1 rounded">

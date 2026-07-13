@@ -71,13 +71,13 @@ export function CenterHeader({
         </div>
       )}
       <div className="flex items-center gap-1">
-        <button className="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--color-elevated)] text-[var(--color-muted-foreground)]" title="Grid">
+        <button className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-muted-foreground)]" title="Grid">
           <LayoutGrid className="w-4 h-4" />
         </button>
-        <button className="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--color-elevated)] text-[var(--color-muted-foreground)]" title="List">
+        <button className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-muted-foreground)]" title="List">
           <List className="w-4 h-4" />
         </button>
-        <button className="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--color-elevated)] text-[var(--color-muted-foreground)]" title="Preview">
+        <button className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-muted-foreground)]" title="Preview">
           <Eye className="w-4 h-4" />
         </button>
         <button
@@ -91,7 +91,7 @@ export function CenterHeader({
               ctx.onSendSlideToLive(s);
             }
           }}
-          className="w-7 h-7 flex items-center justify-center rounded hover:bg-[var(--color-elevated)] text-[var(--color-brand)]"
+          className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-brand)]"
           title="Play first slide (respects Safe Mode)"
         >
           <Play className="w-4 h-4" />

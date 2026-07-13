@@ -15,7 +15,7 @@ export function MediaStrip() {
             key={i}
             data-todo="1"
             title="Media browser strip — coming soon (use the Media mode above)"
-            className="shrink-0 w-[160px] h-[90px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] flex items-center justify-center text-[11px] text-[var(--color-muted-foreground)] opacity-70"
+            className="shrink-0 w-[160px] h-[90px] rounded-md bg-[var(--color-elevated)] flex items-center justify-center text-[11px] text-[var(--color-muted-foreground)] opacity-70"
           >
             {i === 0 ? "Input 1" : "Media"}
           </div>

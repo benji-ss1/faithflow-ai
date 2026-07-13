@@ -33,7 +33,7 @@ export function MediaSection({ onCenterMode }: { onCenterMode?: (m: CenterMode) 
                   disabled={soon}
                   title={soon ? `${c} — coming soon` : `Browse ${c}`}
                   onClick={() => !soon && onCenterMode?.("media")}
-                  className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--color-muted-foreground)] hover:bg-[var(--color-elevated)] hover:text-[var(--color-foreground)] disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full text-left px-2 py-1 text-[12px] text-[var(--color-muted-foreground)] hover:bg-white/5 hover:text-[var(--color-foreground)] disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {c}
                 </button>
