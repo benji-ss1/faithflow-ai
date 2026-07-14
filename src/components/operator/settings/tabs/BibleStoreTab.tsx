@@ -1,26 +1,70 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BookOpen, Check } from "lucide-react";
 import { SectionHeader } from "./DisplayTab";
 
-type Row = { code: string; name: string; kind: "free" | "paid"; downloaded?: boolean };
+// Paid translations — always show as Paid regardless of DB state.
+const PAID_CODES = new Set(["AMP", "AMPC", "ASV", "HCSB", "TPT"]);
 
-const ROWS: Row[] = [
-  { code: "KJV", name: "King James Version", kind: "free", downloaded: true },
-  { code: "NKJV", name: "New King James Version", kind: "free", downloaded: true },
-  { code: "NLT", name: "New Living Translation", kind: "free", downloaded: true },
-  { code: "NIV", name: "New International Version", kind: "free", downloaded: true },
-  { code: "ESV", name: "English Standard Version", kind: "free", downloaded: true },
-  { code: "NASB", name: "New American Standard Bible", kind: "free", downloaded: true },
-  { code: "AMP", name: "Amplified Bible", kind: "paid" },
-  { code: "AMPC", name: "Amplified Bible Classic", kind: "paid" },
-  { code: "ASV", name: "American Standard Version", kind: "paid" },
-  { code: "HCSB", name: "Holman Christian Standard", kind: "paid" },
-  { code: "TPT", name: "The Passion Translation", kind: "paid" },
+// Fallback row list mirrors the previous hard-coded set so the tab still
+// renders something on API failure. When the /status endpoint returns,
+// these are merged with real DB state.
+const FALLBACK_ROWS: { code: string; name: string }[] = [
+  { code: "KJV", name: "King James Version" },
+  { code: "NKJV", name: "New King James Version" },
+  { code: "NLT", name: "New Living Translation" },
+  { code: "NIV", name: "New International Version" },
+  { code: "ESV", name: "English Standard Version" },
+  { code: "NASB", name: "New American Standard Bible" },
+  { code: "AMP", name: "Amplified Bible" },
+  { code: "AMPC", name: "Amplified Bible Classic" },
+  { code: "ASV", name: "American Standard Version" },
+  { code: "HCSB", name: "Holman Christian Standard" },
+  { code: "TPT", name: "The Passion Translation" },
 ];
+
+type StatusRow = {
+  code: string;
+  name: string;
+  licenseRequired: boolean;
+  books: number;
+  downloaded: boolean;
+  partial: boolean;
+};
 
 export function BibleStoreTab({ onUpgrade }: { onUpgrade: () => void }) {
   const [toast, setToast] = useState<string | null>(null);
+  const [rows, setRows] = useState<StatusRow[]>(
+    FALLBACK_ROWS.map((r) => ({ ...r, licenseRequired: PAID_CODES.has(r.code), books: 0, downloaded: false, partial: false })),
+  );
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/bible/translations/status", { credentials: "include" });
+        if (!r.ok) return;
+        const j = await r.json();
+        if (cancelled) return;
+        if (Array.isArray(j.translations) && j.translations.length > 0) {
+          const byCode = new Map<string, StatusRow>();
+          for (const t of j.translations as StatusRow[]) byCode.set(t.code.toUpperCase(), t);
+          const merged: StatusRow[] = FALLBACK_ROWS.map((f) => {
+            const dbrow = byCode.get(f.code.toUpperCase());
+            if (dbrow) return dbrow;
+            return { code: f.code, name: f.name, licenseRequired: PAID_CODES.has(f.code), books: 0, downloaded: false, partial: false };
+          });
+          for (const [code, dbrow] of byCode) {
+            if (!merged.some((m) => m.code.toUpperCase() === code)) merged.push(dbrow);
+          }
+          setRows(merged);
+        }
+      } catch { /* offline / not signed in — keep fallback */ }
+      finally { if (!cancelled) setLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   function download(code: string) {
     setToast(`Bible download for ${code} — coming soon`);
@@ -40,54 +84,70 @@ export function BibleStoreTab({ onUpgrade }: { onUpgrade: () => void }) {
           <span className="text-zinc-200">English</span>
           <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={{ background: "rgba(16,185,129,0.15)", color: "#6ee7b7" }}>Active</span>
         </span>
-        <span className="text-[10px] px-2 py-0.5 rounded-full font-mono self-center" style={{ background: "rgba(56,189,248,0.12)", color: "#7dd3fc" }}>Bundled</span>
+        {loading && (
+          <span className="text-[10px] px-2 py-0.5 rounded-full font-mono self-center" style={{ background: "rgba(56,189,248,0.12)", color: "#7dd3fc" }}>Loading…</span>
+        )}
       </div>
 
       <div className="space-y-1.5">
-        {ROWS.map((r) => (
-          <div
-            key={r.code}
-            className="flex items-center justify-between h-11 px-3 rounded-md border"
-            style={{ borderColor: "#2a3232", background: "#171c1c" }}
-          >
-            <div className="flex items-center gap-2.5">
-              <BookOpen className="w-4 h-4 text-zinc-500" />
-              <div>
-                <div className="text-[12px] font-semibold text-zinc-100">{r.code}</div>
-                <div className="text-[10px] text-zinc-500">{r.name}</div>
+        {rows.map((r) => {
+          const paid = PAID_CODES.has(r.code) || r.licenseRequired;
+          return (
+            <div
+              key={r.code}
+              className="flex items-center justify-between h-11 px-3 rounded-md border"
+              style={{ borderColor: "#2a3232", background: "#171c1c" }}
+            >
+              <div className="flex items-center gap-2.5">
+                <BookOpen className="w-4 h-4 text-zinc-500" />
+                <div>
+                  <div className="text-[12px] font-semibold text-zinc-100">{r.code}</div>
+                  <div className="text-[10px] text-zinc-500">{r.name}</div>
+                </div>
               </div>
-            </div>
-            <div>
-              {r.kind === "free" && r.downloaded && (
-                <span className="text-[10px] font-mono inline-flex items-center gap-1 px-2 py-0.5 rounded" style={{ background: "rgba(16,185,129,0.15)", color: "#6ee7b7" }}>
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  <Check className="w-3 h-3" /> Downloaded
-                </span>
-              )}
-              {r.kind === "free" && !r.downloaded && (
-                <button
-                  onClick={() => download(r.code)}
-                  className="h-7 px-2.5 rounded-md text-[10px] font-semibold text-white"
-                  style={{ background: "#f97316" }}
-                >
-                  Download
-                </button>
-              )}
-              {r.kind === "paid" && (
-                <div className="flex items-center gap-2">
-                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={{ background: "rgba(249,115,22,0.15)", color: "#fdba74" }}>Paid</span>
+              <div>
+                {paid ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={{ background: "rgba(249,115,22,0.15)", color: "#fdba74" }}>Paid</span>
+                    <button
+                      onClick={onUpgrade}
+                      className="h-7 px-2.5 rounded-md text-[10px] font-semibold text-white"
+                      style={{ background: "#f97316" }}
+                    >
+                      Upgrade
+                    </button>
+                  </div>
+                ) : r.downloaded ? (
+                  <span className="text-[10px] font-mono inline-flex items-center gap-1 px-2 py-0.5 rounded" style={{ background: "rgba(16,185,129,0.15)", color: "#6ee7b7" }}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    <Check className="w-3 h-3" /> Downloaded
+                  </span>
+                ) : r.partial ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded" style={{ background: "rgba(234,179,8,0.15)", color: "#fde68a" }}>
+                      Partial ({r.books}/66 books)
+                    </span>
+                    <button
+                      onClick={() => download(r.code)}
+                      className="h-7 px-2.5 rounded-md text-[10px] font-semibold text-white"
+                      style={{ background: "#f97316" }}
+                    >
+                      Download
+                    </button>
+                  </div>
+                ) : (
                   <button
-                    onClick={onUpgrade}
+                    onClick={() => download(r.code)}
                     className="h-7 px-2.5 rounded-md text-[10px] font-semibold text-white"
                     style={{ background: "#f97316" }}
                   >
-                    Upgrade
+                    Download
                   </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {toast && (
