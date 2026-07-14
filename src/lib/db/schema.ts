@@ -413,6 +413,21 @@ export const devicePairs = pgTable("device_pairs", {
   revokedAt: timestamp("revoked_at"),
 });
 
+// Feedback — bug reports / feature requests submitted from the Settings tab.
+// Stored so support can triage without relying on log retention. Rows are NOT
+// automatically deleted; the operator/admin is responsible for purging PII.
+export const feedbackTypeEnum = pgEnum("feedback_type", ["problem", "feature"]);
+export const feedback = pgTable("feedback", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id, { onDelete: "cascade" }).notNull(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  type: feedbackTypeEnum("type").notNull().default("problem"),
+  message: text("message").notNull(),
+  blocker: boolean("blocker").notNull().default(false),
+  email: text("email"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const servicePlanRelations = relations(servicePlans, ({ many }) => ({ items: many(serviceItems) }));
 export const serviceItemRelations = relations(serviceItems, ({ one }) => ({ plan: one(servicePlans, { fields: [serviceItems.servicePlanId], references: [servicePlans.id] }) }));
 export const songRelations = relations(songs, ({ many }) => ({ slides: many(songSlides) }));

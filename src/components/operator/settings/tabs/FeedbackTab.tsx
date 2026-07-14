@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import { Paperclip } from "lucide-react";
 import { SectionHeader, Toggle } from "./DisplayTab";
@@ -10,6 +10,23 @@ export function FeedbackTab() {
   const [message, setMessage] = useState("");
   const [blocker, setBlocker] = useState(false);
   const [status, setStatus] = useState<{ kind: "idle" | "sending" | "ok" | "error"; msg?: string }>({ kind: "idle" });
+
+  // Y7: prefill email from /api/me so operators don't retype it every time.
+  // Only overwrites when the field is still empty (user's edits win).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/me", { credentials: "include" });
+        if (!r.ok) return;
+        const j = await r.json();
+        if (!cancelled && typeof j?.email === "string") {
+          setEmail((cur) => cur || j.email);
+        }
+      } catch { /* ignore — email is optional anyway */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   async function submit() {
     if (!message.trim()) {
