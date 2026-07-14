@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Plus, Pause, Play, SkipForward, SkipBack, ChevronDown, LayoutGrid, List, Type, Smile, SlidersHorizontal, HelpCircle } from "lucide-react";
 import type { OperatorShellCtx } from "../shell/types";
 import { TransitionChooser } from "./BottomBar/TransitionChooser";
@@ -31,16 +31,19 @@ export function BottomBar({
     } catch { /* noop */ }
   }, []);
 
+  const ctxRef = useRef(ctx);
+  ctxRef.current = ctx;
   useEffect(() => {
     const durationMs = Math.max(0, Math.min(5000, Math.round(transitionDuration * 1000)));
     try {
       window.localStorage.setItem(TRANSITION_KEY, JSON.stringify({ name: transitionName, durationMs }));
     } catch { /* noop */ }
     // Push into the live TransitionSpec so the OutputState effect picks it up.
+    // ctxRef avoids re-running this on every OperatorConsole re-render (would cause infinite loop).
     try {
-      ctx.onSetTransitionSpec?.({ effectId: transitionName, durationMs, easing: "ease", name: transitionName });
+      ctxRef.current.onSetTransitionSpec?.({ effectId: transitionName, durationMs, easing: "ease", name: transitionName });
     } catch { /* noop */ }
-  }, [transitionName, transitionDuration, ctx]);
+  }, [transitionName, transitionDuration]);
 
   const item = ctx.plan.items[ctx.previewItemIdx];
   const hasPrev = ctx.previewSlideIdx > 0;
