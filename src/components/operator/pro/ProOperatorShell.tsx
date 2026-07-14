@@ -61,12 +61,6 @@ const SAFE_MODE_KEY = "presentflow.operator.safeMode";
  */
 function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
   const audio = ctx.audio;
-  if (!audio.listening && !audio.error && audio.transcript.length === 0) return null;
-
-  const last = audio.transcript.slice(-3).map((t) => t.text).join(" ");
-  const shown = audio.interim
-    ? `${last} ${audio.interim}`.slice(-140)
-    : last.slice(-140);
 
   const threshold = ctx.confidenceThreshold ?? 50;
   const scriptureCards = audio.suggestions
@@ -117,20 +111,20 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
     handleSongChipClick(songId, songTitle, inPlaylist);
   };
 
+  // The rolling transcript text has moved to the right-sidebar
+  // LiveTranscriptPanel; the AI Live pill in the top-right is the connection
+  // status indicator. This strip is now purely an actionable chip row, so
+  // hide it entirely when there's nothing to act on.
+  if (scriptureCards.length === 0 && songCards.length === 0) return null;
+
   return (
     <div
       className="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-1.5 flex items-center gap-3 min-h-[32px]"
       data-testid="ai-transcript-ticker"
     >
-      {audio.error ? (
-        <span className="text-[11px] font-medium text-[var(--color-destructive)] truncate">
-          {audio.error}
-        </span>
-      ) : (
-        <span className="text-[11px] text-[var(--color-muted-foreground)] truncate flex-1 font-mono">
-          {shown || (audio.listening ? "Listening…" : "")}
-        </span>
-      )}
+      <span className="text-[9px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)] shrink-0">
+        AI chips
+      </span>
       {scriptureCards.length > 0 && (
         <div className="flex items-center gap-1.5 shrink-0">
           {scriptureCards.map((s) => {
@@ -200,6 +194,70 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Live transcript panel — auto-scrolling feed of the last ~30s of transcript
+ * (interim + final). Sits between LivePreviewPanel and RecentDetectionsPanel
+ * in the right sidebar. Small monospace-adjacent font so the operator can
+ * glance at what the mic is actually hearing without leaving the shell.
+ */
+function LiveTranscriptPanel({ ctx }: { ctx: OperatorShellCtx }) {
+  const audio = ctx.audio;
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const recent = audio.transcript.slice(-8);
+  const now = Date.now();
+  // Keep only the last 30s of finals for the visible window.
+  const windowed = recent.filter((t) => now - t.ts < 30_000);
+  const hasContent = windowed.length > 0 || !!audio.interim;
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [audio.transcript, audio.interim]);
+
+  const isRecording = audio.listening && audio.ready;
+
+  return (
+    <div className="border-t border-[var(--color-border)] px-2 py-2" data-testid="live-transcript-panel">
+      <div className="flex items-center gap-1.5 mb-1">
+        <span className="text-[9px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)]">
+          Live transcript
+        </span>
+        {isRecording && (
+          <span
+            aria-label="recording"
+            className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 pf-ai-live-dot"
+          />
+        )}
+      </div>
+      <div
+        ref={scrollRef}
+        className="h-[96px] overflow-y-auto rounded bg-[var(--color-elevated)] border border-[var(--color-border)] px-2 py-1 text-[12px] leading-snug"
+        style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
+      >
+        {!hasContent ? (
+          <div className="text-[11px] italic text-[var(--color-muted-foreground)] py-1">
+            {audio.listening ? "Listening…" : "Say something with AI Live on…"}
+          </div>
+        ) : (
+          <>
+            {windowed.map((t) => (
+              <div key={t.id} className="text-[var(--color-foreground)] break-words">
+                {t.text}
+              </div>
+            ))}
+            {audio.interim && (
+              <div className="text-[var(--color-muted-foreground)] break-words opacity-70">
+                {audio.interim}
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -530,6 +588,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
             <OutputRoutingRow ctx={ctx} />
           )}
           <LivePreviewPanel ctx={ctx} />
+          <LiveTranscriptPanel ctx={ctx} />
           <RecentDetectionsPanel ctx={ctx} />
           <div className="flex-1 min-h-0 border-t border-[var(--color-border)]">
             <RightTabs ctx={ctx} timer={timer} messages={messages} />
