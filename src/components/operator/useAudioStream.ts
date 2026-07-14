@@ -115,7 +115,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   useEffect(() => { libraryRef.current = opts?.library || []; }, [opts?.library]);
   useEffect(() => { getCtxRef.current = opts?.getDetectContext; }, [opts?.getDetectContext]);
 
-  const runDetectAll = useCallback(async (segmentId: string, text: string) => {
+  const runDetectAll = useCallback(async (segmentId: string, text: string, opts?: { dgConfidence?: number }) => {
     const provider = getCtxRef.current;
     const base = provider ? provider() : { churchId: "", hasVerseContext: false, hasSlideContext: false, hasSongContext: false };
     let result: DetectAllResult;
@@ -136,10 +136,21 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       (s as UnifiedSuggestion & { _refresh?: boolean })._refresh = decision === "refresh";
     };
 
+    // Blend parser confidence (0-100) with Deepgram utterance confidence (0-1)
+    // when we have one. Formula: round(parser * dgConf). Preserves the parser's
+    // absolute ceiling — a shaky utterance can only lower confidence, never
+    // raise it. Fallback to parser confidence alone when DG conf is missing.
+    const blendScripture = (parserConf: number): number => {
+      const dg = opts?.dgConfidence;
+      if (typeof dg !== "number" || dg <= 0 || dg > 1) return Math.round(parserConf);
+      return Math.max(1, Math.min(100, Math.round(parserConf * dg)));
+    };
+
     for (const r of result.scripture) {
       const id = `sc-${segmentId}-${r.book}-${r.chapter}-${r.verseStart}-${r.verseEnd}`;
       const key = `${r.book} ${r.chapter}:${r.verseStart}-${r.verseEnd}`;
-      push({ id, type: "scripture", segmentId, ts, confidence: r.confidence, matchedText: r.matchedText, ref: { book: r.book, chapter: r.chapter, verseStart: r.verseStart, verseEnd: r.verseEnd } }, key);
+      const conf = blendScripture(r.confidence);
+      push({ id, type: "scripture", segmentId, ts, confidence: conf, matchedText: r.matchedText, ref: { book: r.book, chapter: r.chapter, verseStart: r.verseStart, verseEnd: r.verseEnd } }, key);
     }
     for (const m of result.song) {
       const id = `sg-${segmentId}-${m.songId}`;
@@ -345,6 +356,15 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         if (msg.type === "detection" || msg.type === "song" || msg.type === "command") log(`9 ${msg.type}`);
         if (msg.type === "ready") setState((s) => ({ ...s, ready: true }));
         else if (msg.type === "interim") { lastTranscriptAtRef.current = Date.now(); setState((s) => ({ ...s, interim: msg.text })); }
+        else if (msg.type === "interim_final_candidate") {
+          // Perf fix #2E: run detection on a high-confidence, sufficiently-
+          // long interim so verse cards can render 1-2s earlier than the
+          // final transcript would normally allow. Client-side dedupe
+          // (SuggestionDedupe by reference key) prevents a duplicate card
+          // when the same reference lands again in the eventual "final".
+          const segmentId = `interim-${Date.now()}`;
+          runDetectAll(segmentId, msg.text, { dgConfidence: msg.confidence });
+        }
         else if (msg.type === "final") {
           lastTranscriptAtRef.current = Date.now();
           setState((s) => ({
@@ -353,7 +373,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
             transcript: [...s.transcript, { id: msg.segmentId, text: msg.text, final: true, ts: Date.now() }].slice(-100),
           }));
           // Phase 5A: run unified detection client-side. Fire-and-forget.
-          runDetectAll(msg.segmentId, msg.text);
+          runDetectAll(msg.segmentId, msg.text, { dgConfidence: msg.confidence });
           // Runtime hook — check user-added custom voice commands and, on
           // match, dispatch a `presentflow:voice-command` event. Shell owns
           // the actual side-effect (calls ctx callback + toast).
