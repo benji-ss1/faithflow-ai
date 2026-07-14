@@ -1,5 +1,27 @@
 # Changelog
 
+## [main] Auto-approve pipeline hardening — R1-R9 + Y1-Y9 (2026-07-12)
+
+Closes 9 red + 9 yellow findings from the reviewer + security + stress agent triangulation on the auto-approve → LIVE path.
+
+- **security(logging)** — `[detection-confidence]` + `[auto-approve] firing` logs now behind `pfTraceOn()` / `isDevOrTraceOn()`. Pastoral content no longer leaks in prod.
+- **fix(auto-approve rate-limit)** — 4s default min-gap between auto-fires (`presentflow.pro.autoFireMinGap.v1`). Single-slot queue; newer detection displaces older.
+- **fix(auto-approve OFF)** — TopBar dispatches `presentflow:auto-approve-changed`; shell clears any running interval; belt-and-braces check inside interval tick.
+- **fix(auto-approve replay)** — Last-fired refs persisted to `sessionStorage.presentflow.pro.autoFired.v1` (5min TTL, 30min trim). Remount no longer re-projects.
+- **fix(dedupe)** — `SuggestionDedupe` TTL sweep (5min) + LRU cap (500).
+- **fix(session expiry)** — `useAudioStream` catches 401 on ticket mint and surfaces re-auth toast; shell wraps `onSendSlideToLive`.
+- **fix(placeholder)** — `VerseCard.placeholder: true` flag; auto-fire skips loading + no-text + lookup-failed cards.
+- **fix(interval leak)** — Prior interval unconditionally cleared at top of effect body.
+- **security(events)** — New `src/lib/internal-events.ts`: nonce-gated dispatch for `presentflow:bible-next/prev/voice-command`.
+- **fix(confidence boost)** — Boost capped at `parserConf + 10`. `John 3:16-99` can no longer leap to 100%.
+- **security(auto-approve flag)** — `localStorage` → `sessionStorage`. Operator re-arms per session.
+- **perf(sendLive)** — Ref-based useEvent pattern for `ctx.onSendSlideToLive`.
+- **fix(bible-parser)** — New `verse_of_book_ch` singular pattern; new `MAX_CHAPTERS_FOR_BOOK` table rejects `John 99:1`, `Revelation 50`, `chapter 0`.
+- **feat(settings)** — "Hold Bible auto-approve during active song" toggle (default OFF) in Audio settings.
+- **perf(useAudioStream)** — `slidePrefetchRef` LRU-capped at 50 entries.
+
+Tests: bible-parser 21 → 27; +8 in `auto-approve-safeguards.test.ts`; +8 in `auto-approve-shell-rules.test.ts`. typecheck + electron:build:tsc pass.
+
 ## [main] AIDetectionsPanel — dedicated Bible + Song sections (2026-07-12)
 
 - **src/components/operator/pro/right/AIDetectionsPanel.tsx** (new) — replaces the single-list `RecentDetectionsPanel`. Two stacked sections (Bible top, Songs bottom), each fixed 200px, scrollable, up to 8 unique rows.
