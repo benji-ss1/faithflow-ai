@@ -125,7 +125,6 @@ export type VerseCard = {
 export type BibleSessionState = {
   ref: string;
   translation: string;
-  mode: "verse" | "passage"; // Y7: verse=1 per card; passage=up to 4 per card
   cards: VerseCard[];
   selectedIdx: number | null;
   loading: boolean;
@@ -135,7 +134,6 @@ export type BibleSessionApi = {
   state: BibleSessionState;
   setRef: (v: string) => void;
   setTranslation: (v: string) => void;
-  setMode: (v: "verse" | "passage") => void;
   setCards: (c: VerseCard[]) => void;
   setSelectedIdx: (i: number | null) => void;
   setLoading: (v: boolean) => void;
@@ -145,7 +143,6 @@ export function useBibleSession(defaultTranslationCode: string): BibleSessionApi
   const [state, setState] = useState<BibleSessionState>({
     ref: "John 3:16",
     translation: defaultTranslationCode || "KJV",
-    mode: "passage",
     cards: [],
     selectedIdx: null,
     loading: false,
@@ -155,7 +152,6 @@ export function useBibleSession(defaultTranslationCode: string): BibleSessionApi
     state,
     setRef: (v) => setState((s) => ({ ...s, ref: v })),
     setTranslation: (v) => setState((s) => ({ ...s, translation: v })),
-    setMode: (v) => setState((s) => ({ ...s, mode: v })),
     setCards: (c) => setState((s) => ({ ...s, cards: c })),
     setSelectedIdx: (i) => setState((s) => ({ ...s, selectedIdx: i })),
     setLoading: (v) => setState((s) => ({ ...s, loading: v })),

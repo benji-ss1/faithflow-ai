@@ -18,8 +18,8 @@ import { cn } from "@/lib/utils";
  * card; Passage mode = up to 4 verses per card.
  */
 export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: BibleSessionApi }) {
-  const { state, setRef, setTranslation, setMode, setCards, setSelectedIdx, setLoading } = session;
-  const { ref, translation, mode, cards, selectedIdx, loading } = state;
+  const { state, setRef, setTranslation, setCards, setSelectedIdx, setLoading } = session;
+  const { ref, translation, cards, selectedIdx, loading } = state;
   const [opts] = useBibleOptions();
   const [tab, setTab] = useState<"reference" | "browse">("reference");
 
@@ -33,13 +33,13 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
       if (res.error) { toast.error(res.error); return; }
       const verses: Array<{ verse: number; text: string }> = res.verses || [];
       const label = `${p.book} ${p.chapter}:${p.verseStart}${p.verseStart !== p.verseEnd ? `-${p.verseEnd}` : ""} (${res.translation || translation})`;
-      // Y7: verse=1 per card, passage=up to 4 per card
-      const perCard = mode === "verse" ? 1 : 4;
-      const pages: VerseCard[] = [];
-      for (let i = 0; i < verses.length; i += perCard) {
-        const chunk = verses.slice(i, i + perCard);
-        pages.push({ id: `${label}-${i}`, label, verses: chunk });
-      }
+      // Passage/verse toggle removed — always render one verse per card. If a
+      // reference resolves to a range, each verse gets its own numbered card.
+      const pages: VerseCard[] = verses.map((v, i) => ({
+        id: `${label}-${i}`,
+        label: `${p.book} ${p.chapter}:${v.verse} (${res.translation || translation})`,
+        verses: [v],
+      }));
       if (pages.length === 0) pages.push({ id: label, label, verses: [] });
       setCards(pages);
       setSelectedIdx(0);
@@ -48,7 +48,7 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
     } finally {
       setLoading(false);
     }
-  }, [translation, mode, setCards, setSelectedIdx, setLoading]);
+  }, [translation, setCards, setSelectedIdx, setLoading]);
 
   const [phraseHits, setPhraseHits] = useState<Array<{ book: string; chapter: number; verse: number; text: string; matched?: string }>>([]);
 
@@ -62,16 +62,22 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
       setPhraseHits([]);
       await runLookup({ book: p.book, chapter: p.chapter, verseStart: p.verseStart, verseEnd: p.verseEnd });
     } else {
-      // Phrase search
+      // Phrase search — server requires min 3 chars (pgvector embedding cost).
+      // Enforce client-side too so we don't fire a doomed request.
+      const trimmed = ref.trim();
+      if (trimmed.length < 3) {
+        toast.info("Type at least 3 characters to search.");
+        return;
+      }
       setLoading(true);
       try {
         const res = await fetch("/api/bible/search", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ q: ref, translation, limit: 10 }),
+          body: JSON.stringify({ query: trimmed, translation, limit: 10 }),
         }).then((r) => r.json());
         if (res.error) { toast.error(res.error); return; }
-        const hits = (res.results || res.hits || []) as Array<{ book: string; chapter: number; verse: number; text: string }>;
-        setPhraseHits(hits.map((h) => ({ ...h, matched: ref.trim() })));
+        const hits = (res.hits || res.results || []) as Array<{ book: string; chapter: number; verse: number; text: string }>;
+        setPhraseHits(hits.map((h) => ({ ...h, matched: trimmed })));
         setCards([]);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Search failed");
@@ -155,15 +161,6 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
           <option value="WEB">World English Bible</option>
           <option value="ASV">American Standard Version</option>
         </select>
-        <div className="inline-flex rounded-md border border-[var(--color-border)] overflow-hidden text-[11px] uppercase tracking-wider font-mono h-9">
-          {(["verse", "passage"] as const).map((m) => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              className={cn("px-2 h-full", mode === m ? "bg-[var(--color-brand)] text-black" : "text-[var(--color-muted-foreground)]")}
-            >{m}</button>
-          ))}
-        </div>
         <button
           onClick={() => void lookup()}
           disabled={loading}
