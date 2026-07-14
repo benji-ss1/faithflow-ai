@@ -13,7 +13,13 @@ import { FeedbackTab } from "./tabs/FeedbackTab";
 import { MaxUpgradePrompt } from "@/components/tier/MaxUpgradePrompt";
 
 const TAB_KEY = "presentflow.pro.settings.tab.v1";
-const SAFE_MODE_KEY = "presentflow.safeMode";
+// Unified Safe Mode key across the operator shell (SlideGrid, useOperatorHotkeys,
+// ProOperatorShell all read this). The legacy `presentflow.safeMode` key wrote
+// here from the settings modal but was ignored by SlideGrid — meaning toggling
+// Safe Mode in Settings had no effect and users saw stale double-click behaviour
+// from an old value. One key now, everywhere.
+const SAFE_MODE_KEY = "presentflow.operator.safeMode";
+const LEGACY_SAFE_MODE_KEY = "presentflow.safeMode";
 
 type TabId = "display" | "audio" | "language" | "usage" | "bible" | "license" | "help" | "feedback";
 
@@ -47,6 +53,13 @@ export function SettingsModal({ open, onClose }: { open: boolean; onClose: () =>
     try {
       const t = localStorage.getItem(TAB_KEY) as TabId | null;
       if (t && TABS.some((x) => x.id === t)) setTab(t);
+      // Migrate any lingering value from the legacy key so users who toggled
+      // Safe Mode in old builds keep their choice — then delete the legacy key.
+      const legacy = localStorage.getItem(LEGACY_SAFE_MODE_KEY);
+      if (legacy !== null && localStorage.getItem(SAFE_MODE_KEY) === null) {
+        localStorage.setItem(SAFE_MODE_KEY, legacy);
+      }
+      if (legacy !== null) localStorage.removeItem(LEGACY_SAFE_MODE_KEY);
       setSafeMode(localStorage.getItem(SAFE_MODE_KEY) === "1");
     } catch {}
   }, [open]);

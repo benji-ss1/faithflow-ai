@@ -83,8 +83,11 @@ export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize
             }}
           >
             {slides.length === 0 && (
-              <div className="col-span-full text-[12px] text-[var(--color-muted-foreground)] py-12 text-center">
-                No slides yet
+              <div className="col-span-full text-[12px] text-[var(--color-muted-foreground)] py-12 text-center space-y-1">
+                <div>No slides yet</div>
+                <div className="text-[11px] opacity-70">
+                  Tip: click any slide to send it live. Enable Safe Mode in Settings to require double-click.
+                </div>
               </div>
             )}
             {slides.map((s, idx) => (
