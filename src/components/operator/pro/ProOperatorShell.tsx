@@ -297,6 +297,51 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const messages = useMessagesSession();
   const bibleSession = useBibleSession(ctx.defaultTranslationCode);
 
+  // Auto-route AI scripture detections into the Bible session so switching
+  // into Bible mode shows the detected passage immediately — even if the
+  // operator was on the slides / songs / media tab when it fired.
+  const lastRoutedScriptureRef = useRef<string | null>(null);
+  useEffect(() => {
+    const suggestions = ctx.audio.suggestions;
+    if (!suggestions || suggestions.length === 0) return;
+    const threshold = ctx.confidenceThreshold ?? 50;
+    // Newest first (unshift in useAudioStream). Find the freshest confident
+    // scripture suggestion.
+    const scripture = suggestions.find((s) => s.type === "scripture" && s.confidence >= threshold);
+    if (!scripture || scripture.type !== "scripture") return;
+    const key = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}-${scripture.ref.verseEnd}`;
+    if (lastRoutedScriptureRef.current === key) return;
+    lastRoutedScriptureRef.current = key;
+    // Fire-and-forget lookup — mirrors BibleMode.runLookup.
+    (async () => {
+      try {
+        const res = await fetch("/api/bible/lookup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            book: scripture.ref.book,
+            chapter: scripture.ref.chapter,
+            verseStart: scripture.ref.verseStart,
+            verseEnd: scripture.ref.verseEnd,
+            translationCode: bibleSession.state.translation,
+          }),
+        }).then((r) => r.json());
+        if (res.error) return;
+        const verses: Array<{ verse: number; text: string }> = res.verses || [];
+        const label = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}${scripture.ref.verseStart !== scripture.ref.verseEnd ? `-${scripture.ref.verseEnd}` : ""} (${res.translation || bibleSession.state.translation})`;
+        const cards = verses.map((v, i) => ({
+          id: `ai-${label}-${i}`,
+          label: `${scripture.ref.book} ${scripture.ref.chapter}:${v.verse} (${res.translation || bibleSession.state.translation})`,
+          verses: [v],
+        }));
+        if (cards.length === 0) return;
+        bibleSession.setRef(key);
+        bibleSession.setCards(cards);
+        bibleSession.setSelectedIdx(0);
+      } catch { /* ignore */ }
+    })();
+  }, [ctx.audio.suggestions, ctx.confidenceThreshold, bibleSession]);
+
   // Priority 4 — global operator hotkeys.
   useOperatorHotkeys({
     onNext: () => {
