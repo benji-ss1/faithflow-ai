@@ -12,6 +12,7 @@ const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let nextServerProc: ChildProcess | null = null;
+let audioServerProc: ChildProcess | null = null;
 let appUrl = "http://localhost:3000";
 
 // First-party hosts allowed to receive the x-pf-shell header. Computed once
@@ -337,6 +338,53 @@ app.whenReady().then(async () => {
   if (isDev) {
     const devPort = process.env.PRESENTFLOW_DEV_PORT || "3000";
     appUrl = `http://localhost:${devPort}`;
+    // Auto-start the local audio-server (WebSocket bridge to Deepgram) so the
+    // AI Live pill isn't stuck showing "AI error" in a fresh dev environment.
+    // The subprocess reads .env.local for DEEPGRAM_API_KEY + AUTH_SECRET; if
+    // spawn fails we log and continue — Electron shouldn't die because the
+    // audio bridge can't start.
+    try {
+      const appRoot = path.resolve(__dirname, "..");
+      const tsxCli = require.resolve("tsx/cli", { paths: [appRoot] });
+      audioServerProc = spawn(
+        process.execPath,
+        [tsxCli, "scripts/audio-server.ts"],
+        {
+          cwd: appRoot,
+          env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+      audioServerProc.stdout?.on("data", (d) => process.stdout.write(`[ws-server] ${d}`));
+      audioServerProc.stderr?.on("data", (d) => process.stderr.write(`[ws-server!] ${d}`));
+      audioServerProc.on("exit", (code, sig) => {
+        console.warn(`[ws-server] exited code=${code} sig=${sig}`);
+        audioServerProc = null;
+      });
+      // Wait up to ~5s for the audio bridge to answer HTTP on 3001, then
+      // continue regardless — startup shouldn't block on it.
+      const audioPort = Number(process.env.AUDIO_WS_PORT || 3001);
+      const audioHealth = `http://127.0.0.1:${audioPort}/`;
+      const startWait = Date.now();
+      while (Date.now() - startWait < 5000) {
+        try {
+          await new Promise<void>((resolve, reject) => {
+            const req = require("http").get(audioHealth, (res: any) => {
+              res.destroy();
+              if (res.statusCode && res.statusCode < 500) resolve(); else reject(new Error("bad status"));
+            });
+            req.on("error", reject);
+            req.setTimeout(400, () => req.destroy(new Error("timeout")));
+          });
+          console.log(`[ws-server] ready on port ${audioPort}`);
+          break;
+        } catch {
+          await new Promise((r) => setTimeout(r, 250));
+        }
+      }
+    } catch (err) {
+      console.warn("[ws-server] failed to spawn audio bridge:", err);
+    }
   } else {
     try {
       appUrl = await startNextServer();
@@ -470,6 +518,9 @@ app.on("before-quit", () => {
   closeAllOutputWindows();
   if (nextServerProc && !nextServerProc.killed) {
     try { nextServerProc.kill(); } catch {}
+  }
+  if (audioServerProc && !audioServerProc.killed) {
+    try { audioServerProc.kill(); } catch {}
   }
 });
 
