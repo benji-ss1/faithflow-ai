@@ -148,6 +148,32 @@ export function TopBar({
   const [customName, setCustomName] = useState("");
   const [maxPromptOpen, setMaxPromptOpen] = useState(false);
 
+  // #4 — Big Auto-approve toggle. Simplifies the 4-mode autopilot to on/off:
+  //   OFF => "suggestion" (chips shown, operator must click)
+  //   ON  => "active"    (high-confidence detections auto-send)
+  // The "armed" intermediate mode is skipped for demo simplicity, but the
+  // confirm() ceremony is preserved when toggling ON.
+  const autoApproveOn = ctx.autopilotMode === "active";
+  const AUTO_APPROVE_KEY = "presentflow.pro.autoApprove.v1";
+  useEffect(() => {
+    // Persist the derived on/off separately from the autopilot mode key so
+    // the setting survives even if the console downgrades "active" → "armed"
+    // on reload (safety behavior in OperatorConsole).
+    try { window.localStorage.setItem(AUTO_APPROVE_KEY, autoApproveOn ? "1" : "0"); } catch { /* ignore */ }
+  }, [autoApproveOn]);
+  const toggleAutoApprove = () => {
+    if (autoApproveOn) {
+      ctx.onAutopilotModeChange("suggestion");
+    } else {
+      // Confirm ceremony preserved.
+      const ok = typeof window !== "undefined"
+        ? window.confirm("Turn ON Auto-approve?\n\nHigh-confidence detections will send to LIVE without operator input. Songs on free/pilot tiers are always excluded. Continue?")
+        : true;
+      if (!ok) return;
+      ctx.onAutopilotModeChange("active");
+    }
+  };
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -484,6 +510,30 @@ export function TopBar({
                 </Tooltip.Content>
               </Tooltip.Portal>
             </Tooltip.Root>
+            {/* #4 — Big Auto-approve toggle. Sits next to the AI Live pill so
+                operators can spot the mode at a glance. */}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoApproveOn}
+              onClick={toggleAutoApprove}
+              title={autoApproveOn ? "Auto-approve is ON — high-confidence detections auto-send to LIVE" : "Auto-approve is OFF — click chips to send"}
+              className={cn(
+                "relative flex items-center gap-1.5 h-[28px] w-[100px] px-2 rounded-full border text-[10px] font-bold uppercase tracking-wider transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
+                autoApproveOn
+                  ? "bg-[var(--color-brand)] text-white border-[var(--color-brand)] hover:brightness-110"
+                  : "bg-[var(--color-panel)] text-[var(--color-muted-foreground)] border-[var(--color-border)] hover:bg-white/5",
+              )}
+            >
+              <span
+                aria-hidden
+                className={cn(
+                  "inline-block w-3 h-3 rounded-full shrink-0 transition-transform",
+                  autoApproveOn ? "bg-white translate-x-0" : "bg-[var(--color-muted-foreground)]",
+                )}
+              />
+              <span className="truncate">{autoApproveOn ? "AUTO" : "Manual"}</span>
+            </button>
             {aiError && (
               <button
                 type="button"

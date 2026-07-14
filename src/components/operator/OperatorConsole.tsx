@@ -98,11 +98,15 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
   );
   useEffect(() => {
     try {
+      // #4: honor the simplified auto-approve toggle first — it's the
+      // primary switch operators interact with. If the toggle key is set
+      // it wins over the legacy autopilot mode key.
+      const autoRaw = window.localStorage.getItem("presentflow.pro.autoApprove.v1");
+      if (autoRaw === "1") { setAutopilotModeInner("active"); return; }
+      if (autoRaw === "0") { setAutopilotModeInner("suggestion"); return; }
       const raw = window.localStorage.getItem(AUTOPILOT_MODE_KEY);
-      if (raw === "manual" || raw === "suggestion" || raw === "armed") {
+      if (raw === "manual" || raw === "suggestion" || raw === "armed" || raw === "active") {
         setAutopilotModeInner(raw);
-      } else if (raw === "active") {
-        setAutopilotModeInner("armed"); // safety downgrade on reload
       }
     } catch { /* noop */ }
   }, []);
