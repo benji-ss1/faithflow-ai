@@ -1,3 +1,33 @@
+## Reviewer/security follow-ups — R4/R5, Y1–Y5, Y7 (2026-07-12)
+
+Judgment calls made while closing the remaining 🔴/🟡 findings:
+
+- **Feedback DB insert failure ⇒ 200, not 500.** If the `feedback` table
+  hasn't been migrated yet (drizzle push not run), we log a warning
+  (`[feedback] persist failed:`) and still 200 the client. Rationale:
+  losing a feedback submission because of an operator DB-migration lag is a
+  worse UX than the user thinking their bug report went through. The log
+  line still captures the payload for triage in that window.
+- **Transcription minutes estimate = segments × 5s.** `transcriptSegments`
+  doesn't currently record `durationMs`. Rather than block Y5 on a schema
+  change and backfill, we surface the count-based estimate and clearly
+  label the other counters as pending (`used: null` → "—" + "Estimated
+  soon"). Precision comes when we wire real duration/context-search logs.
+- **License IPC failure ⇒ in-memory only, never plaintext fallback.** If
+  `safeStorage.isEncryptionAvailable()` returns false (rare on macOS but
+  possible on some Linux configs), we accept the value in memory and skip
+  persistence rather than silently downgrading to `localStorage`. Users
+  on those platforms can re-enter the key next launch; not a common path.
+- **`signOutFully` is best-effort for license clear.** We `await` the
+  keychain-clear call before invoking `next-auth`'s `signOut`, but wrap in
+  try/catch so a keychain error never blocks the actual auth sign-out.
+- **`/api/me` deliberately narrow.** Returns only `{ id, email, name }` —
+  no role/church/tier. Anything more should get its own endpoint scoped
+  to its use.
+- **Middleware allowlist stays exact.** Added `/api/me`, `/api/feedback`,
+  `/api/usage` as exact entries (not a `/api/*` prefix), keeping the R1
+  intent of an explicit allowlist per-route.
+
 ## Settings expansion — Pewbeam-inspired 8-tab modal (2026-07-12)
 
 Ships the large Pewbeam-modeled Settings pass. The modal grew from a small

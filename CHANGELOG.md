@@ -1,5 +1,55 @@
 # Changelog
 
+## [main] Reviewer/security follow-ups — R4/R5 + Y1–Y5, Y7 (2026-07-12)
+
+Closed the remaining 🔴/🟡 findings from the reviewer + security pass.
+
+- **R4 (middleware):** `/theme-designer` added to `DESKTOP_ALLOWED_PAGE_PREFIXES`
+  so the HelpTab tour + placeholder route no longer bounce to `/operator` in
+  the desktop shell.
+- **R5 (feedback):** `/api/feedback` now sanitizes the message before logging
+  (strips CR/LF/NUL/control chars, truncates preview to 200 chars) and
+  persists the submission to a new `feedback` Drizzle table
+  (`churchId`, `userId`, `type`, `message`, `blocker`, `email`, `createdAt`).
+  Email is no longer written to logs verbatim — only `hasEmail: boolean`.
+- **Y1:** Feedback email now validated with a strict regex; returns 400 on
+  malformed input.
+- **Y2:** Extra per-user 1/day cap on `blocker: true` submissions on top of
+  the existing 3/hour cap.
+- **Y3 (license):** LicenseTab now stores the license key in Electron's
+  `safeStorage` (keychain) via new IPC handlers `license:get|set|clear` in
+  `electron/main.ts` and exposed on the preload bridge. Legacy plaintext
+  localStorage value auto-migrates on first read and is wiped. Web build
+  keeps localStorage (labelled cleartext in the UI). Sign-out clears the
+  keychain blob via a new shared `signOutFully()` helper wired into both
+  Sidebar + Topbar sign-out handlers.
+- **Y4 (AudioTab):** Extracted `parseAudioInput` + `parseCustomCommands`
+  validators; rejects unknown shapes on read instead of trusting arbitrary
+  localStorage JSON.
+- **Y5 (usage):** `/api/usage` now returns real transcription-minutes for
+  the current week (segments-per-week via join to `service_plans` scoped by
+  `church_id`, ~5s/segment estimate). Context searches and custom themes
+  now return `used: null` so UsageTab renders "—" and an "Estimated soon"
+  caption instead of fake zeros.
+- **Y7 (feedback prefill):** New `/api/me` endpoint returns
+  `{ id, email, name }` for the current user. FeedbackTab prefills the
+  email field on mount (never overwrites user's own edits).
+- **Middleware allowlist:** `/api/me`, `/api/feedback`, `/api/usage` added
+  to `DESKTOP_ALLOWED_API_EXACT` so the desktop shell can hit them.
+
+**Tests added:** `test/feedback-validation.test.ts` — 6 tests covering the
+sanitizer, the email regex, and the blocker rate-limit primitive.
+All 6 pass; existing `test/voice-commands.test.ts` (6) still passes.
+`npm run typecheck` clean (only pre-existing jsdom types warning in
+`test/adversarial/audio-reconnect.test.ts`, unrelated to this change).
+`npm run electron:build:tsc` clean.
+
+**Schema change:** new `feedback` table + `feedback_type` enum. Requires
+`drizzle-kit push` (or generated migration + `db:migrate`) before the
+`/api/feedback` insert will succeed against a fresh DB. The route
+gracefully falls back to a warning log if the insert fails so early
+feedback isn't dropped during deploy.
+
 ## [main] Settings expansion — 8-tab Pewbeam-inspired modal (2026-07-12)
 
 Major expansion of the operator Settings modal, modeled on Pewbeam reference
