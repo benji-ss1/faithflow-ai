@@ -1,5 +1,18 @@
 # Changelog
 
+## [main] Perf + PD fallback + Auto-approve toggle + Bible cache expansion (2026-07-12)
+
+- **src/lib/ai-detection/lyric-fragment.ts** — no runtime change; `SongIndex` type now exported so it can be prebuilt by callers.
+- **src/lib/ai-detection/song-match.ts** — `MatchContext.prebuiltIndex?: SongIndex`. When present, `matchSongCue` reuses it instead of rebuilding trigrams per detection.
+- **src/lib/ai-detection/index.ts** — threads `prebuiltIndex` through `DetectAllContext` into `MatchContext`.
+- **src/components/operator/useAudioStream.ts** — `songIndexRef` built once per library change via `buildIndex`; passed on every `detectAll` call. Interim-final-candidate detection now scheduled via `queueMicrotask` (was inline). `prefetchSongSlides(songId)` fires immediately on any song/lyric detection and caches by songId in `slidePrefetchRef` (Map) with an in-flight set to dedupe concurrent detections.
+- **src/components/operator/AIAssistantPanel.tsx** — song chips now render a two-line lyrics preview from the best-matching slide (truncated to 120ch/line) plus a color-coded confidence badge (>=90 green, 70-89 muted, <70 warning).
+- **src/app/api/songs/public-domain/search/route.ts** (new) — GET `?q=...` (min 3, max 300 chars). Auth-gated via `apiUser`, rate-limited 60/min/user. Tries Hymnary.org first, falls back to Groq (JSON mode, 6s timeout). LRU cache (200 entries, 1h TTL) keyed on lowercased query. Every candidate sanitised: control chars stripped, HTML-escaped, per-slide text capped at 400 chars, max 12 slides. Groq call is gated on `GROQ_API_KEY` — missing key returns `[]` gracefully.
+- **src/lib/actions.ts** — `importPublicDomainSong({title, author, lyrics, source})`. Church-scoped, requires user session. Idempotent on `(churchId, title, source=public_domain)` — duplicate returns existing id with `duplicate: true`. Writes `songs` row with `source: "public_domain"` and `settings.importedFrom` plus per-slide `songSlides` rows.
+- **src/components/operator/pro/TopBar.tsx** — big Auto-approve toggle (100×28px, `role="switch"`) next to the AI Live pill. OFF => grey "Manual", ON => solid brand-orange "AUTO". Toggling ON triggers `window.confirm()` explaining that high-confidence detections will auto-send to LIVE and that songs on free/pilot tiers are excluded. State persisted to `presentflow.pro.autoApprove.v1`. Maps to autopilot mode `"suggestion"` (OFF) or `"active"` (ON) — the "armed" ceremonial state is skipped.
+- **src/components/operator/OperatorConsole.tsx** — autopilot init effect now reads `presentflow.pro.autoApprove.v1` first and honours it; falls back to the legacy `AUTOPILOT_MODE_KEY`. The prior "downgrade active→armed on reload" safety belt is bypassed when the toggle has been explicitly set.
+- **src/lib/server/bible-cache.ts** — `COMMON_REFERENCES` expanded from 50 → 232 popular sermon/service verses (John 14:6, Romans 8:28, Isaiah 40:31, Jeremiah 29:11, Philippians 4:6-7, the Beatitudes, Psalm 91, plus broad coverage across every NT epistle and the Psalter). `getCached`/`setCached`/`warmCache` now emit `[bible-cache] HIT|MISS ${key}` and `[bible-cache] warmed N/M` logs in dev (gated on NODE_ENV or `PF_BIBLE_CACHE_LOG=1`).
+
 ## [main] Multi-verse rendering + Bible lookup caches + interim detection + real confidence (2026-07-12)
 
 - **src/lib/server/bible.ts** — `lookupReference` now accepts an optional `chapterEnd`. Single-chapter path unchanged (BETWEEN verseStart..verseEnd). Cross-chapter path issues a single query spanning `(ch=start AND v>=vs) OR (ch BETWEEN start+1..end-1) OR (ch=end AND v<=ve)` so `Col 3:20-4:2` returns 8 verses across the boundary in one roundtrip.
