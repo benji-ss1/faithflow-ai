@@ -32,8 +32,21 @@ const PORT = Number(process.env.AUDIO_WS_PORT || 3001);
 const DG_KEY = process.env.DEEPGRAM_API_KEY;
 const TICKET_SECRET = process.env.AUTH_SECRET;
 
-if (!DG_KEY) { console.error("Missing DEEPGRAM_API_KEY"); process.exit(1); }
-if (!TICKET_SECRET) { console.error("Missing AUTH_SECRET"); process.exit(1); }
+// Historically the bridge exited hard on a missing key so the operator got a
+// "connection refused" with no context. In dev we now stay up and reply to
+// every WS handshake with an explicit close code so the client can render
+// "deepgram key missing" instead of a generic "AI error". Prod (Fly.io) still
+// wants the fast-fail because a misconfigured deploy should not silently
+// accept traffic — gated by NODE_ENV.
+const KEY_MISSING = !DG_KEY;
+const SECRET_MISSING = !TICKET_SECRET;
+if ((KEY_MISSING || SECRET_MISSING) && process.env.NODE_ENV === "production") {
+  if (KEY_MISSING) console.error("Missing DEEPGRAM_API_KEY");
+  if (SECRET_MISSING) console.error("Missing AUTH_SECRET");
+  process.exit(1);
+}
+if (KEY_MISSING) console.warn("[audio] DEEPGRAM_API_KEY missing — clients will get close code 1011 'deepgram key missing'");
+if (SECRET_MISSING) console.warn("[audio] AUTH_SECRET missing — tickets cannot be verified");
 
 const db = getDb();
 
@@ -155,7 +168,16 @@ type ServerMessage =
   | { type: "command"; command: { suggestionId: string; segmentId: string; verb: string; payload: Record<string, unknown>; confidence: number; matchedText: string } }
   | { type: "error"; message: string };
 
-const httpServer = http.createServer((_req, res) => {
+const httpServer = http.createServer((req, res) => {
+  if (req.url === "/health") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      ok: !KEY_MISSING && !SECRET_MISSING,
+      deepgramKey: KEY_MISSING ? "missing" : "present",
+      authSecret: SECRET_MISSING ? "missing" : "present",
+    }));
+    return;
+  }
   res.writeHead(200, { "Content-Type": "text/plain" });
   res.end("PresentFlow audio bridge OK\n");
 });
@@ -193,10 +215,17 @@ wss.on("connection", async (ws: WebSocket, req) => {
   const exp = url.searchParams.get("exp") || "";
   const sig = url.searchParams.get("sig") || "";
 
-  if (!verifyTicket(planId, churchId, userId, exp, sig)) { ws.close(4001, "Invalid ticket"); return; }
+  // Explicit close codes let the client render a specific error instead of
+  // the generic "AI error" pill state.
+  //   1008 = policy violation (bad ticket / expired / replayed)
+  //   1011 = server-side config problem (missing key/secret)
+  //   4004 = plan not found
+  if (KEY_MISSING) { ws.close(1011, "deepgram key missing"); return; }
+  if (SECRET_MISSING) { ws.close(1011, "auth secret missing"); return; }
+  if (!verifyTicket(planId, churchId, userId, exp, sig)) { ws.close(1008, "invalid ticket"); return; }
 
   const [plan] = await db.select().from(servicePlans).where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, churchId))).limit(1);
-  if (!plan) { ws.close(4004, "Unknown plan"); return; }
+  if (!plan) { ws.close(1008, "unknown plan"); return; }
 
   console.log(`[audio] client connected planId=${planId}`);
   const send = (msg: ServerMessage) => { try { ws.send(JSON.stringify(msg)); } catch { /* ignore */ } };
