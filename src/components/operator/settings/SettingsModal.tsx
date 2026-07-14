@@ -1,109 +1,150 @@
 "use client";
 import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, ExternalLink, Shield } from "lucide-react";
+import { X, Monitor, Volume2, Languages, BarChart3, BookOpen, KeyRound, HelpCircle, MessageSquare, Shield } from "lucide-react";
+import { DisplayTab } from "./tabs/DisplayTab";
+import { AudioTab } from "./tabs/AudioTab";
+import { LanguageTab } from "./tabs/LanguageTab";
+import { UsageTab } from "./tabs/UsageTab";
+import { BibleStoreTab } from "./tabs/BibleStoreTab";
+import { LicenseTab } from "./tabs/LicenseTab";
+import { HelpTab } from "./tabs/HelpTab";
+import { FeedbackTab } from "./tabs/FeedbackTab";
+import { MaxUpgradePrompt } from "@/components/tier/MaxUpgradePrompt";
 
+const TAB_KEY = "presentflow.pro.settings.tab.v1";
 const SAFE_MODE_KEY = "presentflow.safeMode";
 
+type TabId = "display" | "audio" | "language" | "usage" | "bible" | "license" | "help" | "feedback";
+
+const TABS: { id: TabId; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { id: "display", label: "Display", icon: Monitor },
+  { id: "audio", label: "Audio", icon: Volume2 },
+  { id: "language", label: "Language", icon: Languages },
+  { id: "usage", label: "Usage", icon: BarChart3 },
+  { id: "bible", label: "Bible Store", icon: BookOpen },
+  { id: "license", label: "License", icon: KeyRound },
+  { id: "help", label: "Help", icon: HelpCircle },
+  { id: "feedback", label: "Send Feedback", icon: MessageSquare },
+];
+
 /**
- * PropPresenter-style operator settings modal. This is a MINIMAL first-cut
- * that surfaces the operator-critical toggles inline (Safe Mode is the only
- * per-shell behavior toggle right now). All other settings still live on the
- * web portal and open there via `shell:openExternal`.
+ * Expanded operator Settings modal. 8-tab layout with left rail nav.
+ * Individual tab components live in `./tabs/*`. Selected tab persists
+ * to localStorage (`presentflow.pro.settings.tab.v1`).
  *
- * Follow-ups (see DECISIONS.md): inline Audio Input picker, inline Screen
- * Assignment editor (extract from `/settings/screens`), AI Listening default,
- * Default Bible Translation, Transition Defaults. Each is a section-sized
- * addition and can land independently without changing this shell.
+ * Safe Mode toggle is preserved as a compact chip in the header — the
+ * user directive is that Safe Mode is off by default (single-click
+ * sends live).
  */
 export function SettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const [safeMode, setSafeMode] = useState(false); // default OFF — user directive: single-click sends live
+  const [tab, setTab] = useState<TabId>("display");
+  const [safeMode, setSafeMode] = useState(false);
+  const [showUpgrade, setShowUpgrade] = useState(false);
+
   useEffect(() => {
     if (!open) return;
     try {
-      const v = window.localStorage.getItem(SAFE_MODE_KEY);
-      // Missing key → default OFF. Only "1" flips on.
-      setSafeMode(v === "1");
-    } catch { /* noop */ }
+      const t = localStorage.getItem(TAB_KEY) as TabId | null;
+      if (t && TABS.some((x) => x.id === t)) setTab(t);
+      setSafeMode(localStorage.getItem(SAFE_MODE_KEY) === "1");
+    } catch {}
   }, [open]);
 
-  function toggleSafeMode() {
+  function selectTab(id: TabId) {
+    setTab(id);
+    try { localStorage.setItem(TAB_KEY, id); } catch {}
+  }
+
+  function toggleSafe() {
     setSafeMode((v) => {
       const nv = !v;
-      try { window.localStorage.setItem(SAFE_MODE_KEY, nv ? "1" : "0"); } catch { /* noop */ }
+      try { localStorage.setItem(SAFE_MODE_KEY, nv ? "1" : "0"); } catch {}
       return nv;
     });
   }
 
-  function openWebPortal() {
-    const url = process.env.NEXT_PUBLIC_APP_URL || "https://presentflow.app";
-    const api = typeof window !== "undefined" ? window.electronAPI : undefined;
-    if (api?.shell?.openExternal) {
-      api.shell.openExternal(url);
-    } else {
-      window.open(url, "_blank", "noopener");
-    }
-  }
-
-  // Y7: switched to Radix Dialog — provides role="dialog", aria-modal, focus
-  // trap, ESC-to-close, backdrop-click-to-close, and portal by default.
   return (
     <Dialog.Root open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[60]" style={{ background: "rgba(0,0,0,0.7)" }} />
         <Dialog.Content
           aria-describedby={undefined}
-          className="fixed left-1/2 top-1/2 z-[61] w-full max-w-[560px] max-h-[85vh] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border shadow-2xl focus:outline-none"
+          className="fixed left-1/2 top-1/2 z-[61] w-full max-w-[880px] h-[640px] max-h-[90vh] -translate-x-1/2 -translate-y-1/2 rounded-lg border shadow-2xl focus:outline-none overflow-hidden flex flex-col"
           style={{ borderColor: "#2a3232", background: "#1e2525" }}
         >
-        <div className="flex items-center justify-between h-11 px-4 border-b" style={{ borderColor: "#2a3232" }}>
-          <Dialog.Title className="text-[12px] font-semibold uppercase tracking-[0.16em] text-zinc-200">Settings</Dialog.Title>
-          <Dialog.Close asChild>
-            <button className="h-7 w-7 rounded-md inline-flex items-center justify-center text-zinc-400 hover:bg-white/5 hover:text-zinc-100" aria-label="Close settings">
-              <X className="w-4 h-4" />
-            </button>
-          </Dialog.Close>
-        </div>
+          {/* Header */}
+          <div className="flex items-center justify-between h-11 px-4 border-b shrink-0" style={{ borderColor: "#2a3232" }}>
+            <Dialog.Title className="text-[12px] font-semibold uppercase tracking-[0.16em] text-zinc-200">Settings</Dialog.Title>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={toggleSafe}
+                title="Safe Mode"
+                className="h-7 px-2 rounded-md inline-flex items-center gap-1.5 text-[10px] font-mono border"
+                style={{
+                  borderColor: "#2a3232",
+                  background: safeMode ? "rgba(20,184,166,0.15)" : "#1a2020",
+                  color: safeMode ? "#5eead4" : "#a1a1aa",
+                }}
+              >
+                <Shield className="w-3 h-3" />
+                Safe Mode {safeMode ? "ON" : "OFF"}
+              </button>
+              <Dialog.Close asChild>
+                <button className="h-7 w-7 rounded-md inline-flex items-center justify-center text-zinc-400 hover:bg-white/5 hover:text-zinc-100" aria-label="Close settings">
+                  <X className="w-4 h-4" />
+                </button>
+              </Dialog.Close>
+            </div>
+          </div>
 
-        <div className="p-4 space-y-4">
-          <section className="space-y-2">
-            <div className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">Operator behavior</div>
-            <button onClick={toggleSafeMode}
-              className="w-full flex items-start gap-3 p-3 rounded-md border text-left hover:bg-white/5"
-              style={{ borderColor: "#2a3232", background: "#1a2020" }}>
-              <div className="mt-0.5">
-                <Shield className={safeMode ? "w-4 h-4 text-teal-300" : "w-4 h-4 text-zinc-500"} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-[12px] font-semibold text-zinc-100 flex items-center gap-2">
-                  Safe Mode
-                  <span className={"text-[9px] font-mono px-1.5 py-0.5 rounded " + (safeMode ? "bg-teal-500/20 text-teal-200" : "bg-zinc-700/50 text-zinc-400")}>
-                    {safeMode ? "ON" : "OFF"}
-                  </span>
-                </div>
-                <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">
-                  {safeMode
-                    ? "Safe Mode ON — click to preview, double-click to send live."
-                    : "Safe Mode OFF (default) — single click sends live. Turn on for a preview step before broadcasting."}
-                </p>
-              </div>
-            </button>
-          </section>
+          {/* Body: left rail + content */}
+          <div className="flex flex-1 min-h-0">
+            <nav className="w-[200px] shrink-0 border-r py-3 overflow-y-auto" style={{ borderColor: "#2a3232", background: "#191f1f" }}>
+              {TABS.map((t) => {
+                const Icon = t.icon;
+                const active = tab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => selectTab(t.id)}
+                    className={"w-full flex items-center gap-2 text-left px-3 py-2 text-[12px] transition-colors " + (active ? "text-white" : "text-zinc-400 hover:text-zinc-200 hover:bg-white/5")}
+                    style={active ? { background: "rgba(249,115,22,0.10)", borderLeft: "3px solid #f97316", paddingLeft: "9px" } : { borderLeft: "3px solid transparent" }}
+                  >
+                    <Icon className="w-3.5 h-3.5 shrink-0" />
+                    <span>{t.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
 
-          <section className="space-y-2">
-            <div className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">More</div>
-            <p className="text-[11px] text-zinc-500 leading-relaxed">
-              Screens, audio input, AI defaults, Bible translation, transition defaults,
-              and church-wide preferences live on the web portal.
-            </p>
-            <button onClick={openWebPortal}
-              className="w-full h-9 px-3 rounded-md border text-[11px] font-semibold text-zinc-100 hover:bg-white/5 inline-flex items-center gap-2"
-              style={{ borderColor: "#2a3232", background: "#1a2020" }}>
-              <ExternalLink className="w-3.5 h-3.5" />
-              Manage your church account online
-            </button>
-          </section>
-        </div>
+            <div className="flex-1 min-w-0 overflow-y-auto p-6">
+              {tab === "display" && <DisplayTab />}
+              {tab === "audio" && <AudioTab />}
+              {tab === "language" && <LanguageTab />}
+              {tab === "usage" && <UsageTab onUpgrade={() => setShowUpgrade(true)} />}
+              {tab === "bible" && <BibleStoreTab onUpgrade={() => setShowUpgrade(true)} />}
+              {tab === "license" && <LicenseTab />}
+              {tab === "help" && <HelpTab />}
+              {tab === "feedback" && <FeedbackTab />}
+            </div>
+          </div>
+
+          {showUpgrade && (
+            <div className="fixed inset-0 z-[80] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }}>
+              <div className="relative">
+                <MaxUpgradePrompt feature="unlimited access" variant="card" />
+                <button
+                  onClick={() => setShowUpgrade(false)}
+                  className="absolute -top-2 -right-2 h-6 w-6 rounded-full inline-flex items-center justify-center text-zinc-200"
+                  style={{ background: "#2a3232" }}
+                  aria-label="Close"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
