@@ -5,7 +5,6 @@ import { cn } from "@/lib/utils";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import type { OperatorShellCtx } from "./types";
 import { SlideContextMenu } from "../SlideContextMenu";
-import { toast } from "sonner";
 
 // Safe Mode toggle (localStorage). When ON (default now — see R2), double-
 // click on a slide only stages it to Preview — the operator must click
@@ -114,8 +113,6 @@ export function BottomDrawer({ ctx }: { ctx: OperatorShellCtx }) {
                       <SlideContextMenu
                         key={i}
                         onEdit={() => ctx.onJumpSlide(ctx.previewItemIdx, i)}
-                        onDisable={() => toast.info("Disable slide — coming soon")}
-                        onDelete={() => toast.info("Delete slide — coming soon")}
                       >
                       <button
                         onClick={() => ctx.onJumpSlide(ctx.previewItemIdx, i)}

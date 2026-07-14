@@ -57,7 +57,7 @@ export type AutopilotMode = "manual" | "suggestion" | "armed" | "active";
 
 const AUTOPILOT_MODE_KEY = "presentflow.autopilot.mode";
 
-export function OperatorConsole({ plan: planProp, defaultTranslationCode, confidenceThreshold, autoApprove: autoApproveProp, initialShell }: {
+export function OperatorConsole({ plan: planProp, defaultTranslationCode: initialTranslationCode, confidenceThreshold, autoApprove: autoApproveProp, initialShell }: {
   plan: ExpandedPlan;
   defaultTranslationCode: string;
   confidenceThreshold: number;
@@ -65,6 +65,21 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode, confid
   initialShell?: "desktop" | "web";
 }) {
   const router = useRouter();
+  // Voice command "give me NIV" (and future variants) can override the
+  // active translation without reloading. Seeded from the server-provided
+  // prop; listener below responds to `presentflow:switch-translation`.
+  const [defaultTranslationCode, setDefaultTranslationCode] = useState(initialTranslationCode);
+  useEffect(() => { setDefaultTranslationCode(initialTranslationCode); }, [initialTranslationCode]);
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ code?: string }>).detail;
+      const code = detail?.code?.toUpperCase();
+      if (!code || !/^[A-Z0-9]{2,10}$/.test(code)) return;
+      setDefaultTranslationCode(code);
+    };
+    window.addEventListener("presentflow:switch-translation", handler);
+    return () => window.removeEventListener("presentflow:switch-translation", handler);
+  }, []);
   // R2: optimistic plan state. Seeded from server-rendered `planProp` and
   // updated when the prop changes (i.e. after `router.refresh()`). Local
   // append lets the operator UI reflect a library add immediately without
@@ -1034,13 +1049,14 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode, confid
     })();
   }, [plan.items, plan.id, router]);
 
-  const onDeleteSlide = useCallback((itemIdx: number, slideIdx: number) => {
-    const item = plan.items[itemIdx];
-    if (!item) return;
-    const label = `Slide ${slideIdx + 1} of "${item.title}"`;
-    if (typeof window !== "undefined" && !window.confirm(`Delete ${label}?`)) return;
-    toast.info("Slide delete coming soon — logged.");
-  }, [plan.items]);
+  // Slide-level delete is intentionally not exposed as a bare callback here.
+  // Individual slide removal for song/scripture items requires per-type
+  // schema editing (song lyric split vs scripture range) and lives in the
+  // slide editor path. Callers that used to hit `onDeleteSlide` now just
+  // treat the callback as a no-op.
+  const onDeleteSlide = useCallback((_itemIdx: number, _slideIdx: number) => {
+    /* handled inside the item editor */
+  }, []);
 
   const shellCtx: OperatorShellCtx = useMemo(() => ({
     plan,

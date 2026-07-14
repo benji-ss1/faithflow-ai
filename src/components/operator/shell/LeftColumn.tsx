@@ -201,7 +201,7 @@ export function LeftColumn({ ctx }: { ctx: OperatorShellCtx }) {
                         </ul>
                       )}
                       {key === "sermon" && <div className="text-[10px] text-zinc-500 italic px-1 py-2">Use Imports to bring in sermon slides.</div>}
-                      {key === "playlists" && <div className="text-[10px] text-zinc-500 italic px-1 py-2">Playlists coming soon.</div>}
+                      {key === "playlists" && <div className="text-[10px] text-zinc-500 italic px-1 py-2">No playlists yet.</div>}
                     </div>
                   </div>
                 )}
