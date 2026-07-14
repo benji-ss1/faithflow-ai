@@ -26,14 +26,40 @@ export default function SignUpPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (loading) return;
     setLoading(true);
-    const res = await signUp({ email, password, name });
+    let res;
+    try {
+      res = await signUp({ email, password, name });
+    } catch (err) {
+      // Server action threw — most likely DATABASE_URL missing or
+      // unreachable on this deploy. Never leave the button spinning.
+      setLoading(false);
+      toast.error("Sign-up unavailable — server error. Try again in a moment.");
+      return;
+    }
     if (!res.ok) {
       toast.error(res.error);
       setLoading(false);
       return;
     }
-    await signIn("credentials", { email, password, redirect: false });
+    let signInRes;
+    try {
+      signInRes = await signIn("credentials", { email, password, redirect: false });
+    } catch (err) {
+      setLoading(false);
+      toast.error("Account created, but sign-in failed. Please sign in manually.");
+      router.push("/login");
+      return;
+    }
+    if (!signInRes || signInRes.error) {
+      // Account exists but auto-sign-in didn't take. Don't strand the user
+      // on the "sending" screen — send them to /login with a hint.
+      setLoading(false);
+      toast.success("Account created. Please sign in.");
+      router.push("/login");
+      return;
+    }
     setSent(true);
     setLoading(false);
     setTimeout(() => router.push("/onboarding"), 800);
@@ -62,7 +88,7 @@ export default function SignUpPage() {
             ✉
           </div>
           <div className="text-[14px] leading-[1.55]" style={{ color: "#c4bcaf" }}>
-            We sent a confirmation link to{" "}
+            Account created for{" "}
             <span className="font-mono">{email}</span>. Continuing to onboarding…
           </div>
         </div>

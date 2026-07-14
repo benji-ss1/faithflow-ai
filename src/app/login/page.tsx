@@ -26,10 +26,26 @@ function LoginForm() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    const res = await signIn("credentials", { email, password, redirect: false });
+    let res;
+    try {
+      res = await signIn("credentials", { email, password, redirect: false });
+    } catch (err) {
+      // Network failure or NextAuth boot error (missing AUTH_SECRET →
+      // /api/auth/providers returns 500). "Invalid credentials" is misleading
+      // in this case — the server never even checked them.
+      setLoading(false);
+      toast.error("Sign-in unavailable — server error. Try again in a moment.");
+      return;
+    }
     setLoading(false);
-    if (res?.error) {
-      toast.error("Invalid credentials");
+    if (!res || (res.error && res.status === 500)) {
+      toast.error("Sign-in unavailable — server error. Try again in a moment.");
+      return;
+    }
+    if (res.error) {
+      // Could be bad password OR rate-limit lockout. We deliberately don't
+      // distinguish so an attacker can't tell the difference.
+      toast.error("Invalid email or password.");
       return;
     }
     // Prefer explicit next=… (guards against open-redirect: must be a
@@ -107,9 +123,11 @@ function LoginForm() {
           </Link>
         </div>
 
-        <div className="text-center mt-6 text-xs" style={{ color: "#6f685e" }}>
-          Demo login: operator@demo.church / operator123
-        </div>
+        {process.env.NEXT_PUBLIC_SHOW_DEMO_CREDS === "1" && (
+          <div className="text-center mt-6 text-xs" style={{ color: "#6f685e" }}>
+            Demo login: operator@demo.church / operator123
+          </div>
+        )}
       </form>
     </>
   );
