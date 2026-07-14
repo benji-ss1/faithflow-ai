@@ -12,7 +12,7 @@ import { detectSectionCommand, type SectionCommand } from "./section-command";
 import { matchSongCue, type SongMatchResult, type MatchContext } from "./song-match";
 import { detectSongInTranscript, resetSongDedupe } from "./song-detection";
 export { resetSongDedupe };
-import type { IndexedSong } from "./lyric-fragment";
+import type { IndexedSong, SongIndex } from "./lyric-fragment";
 
 export type DetectAllContext = {
   churchId: string;
@@ -20,6 +20,7 @@ export type DetectAllContext = {
   planSongIds?: string[];
   recentSongIds?: string[];
   library?: IndexedSong[];
+  prebuiltIndex?: SongIndex;
   hasVerseContext: boolean;
   hasSlideContext: boolean;
   hasSongContext: boolean;
@@ -50,6 +51,7 @@ export async function detectAll(chunk: string, ctx: DetectAllContext): Promise<D
     planSongIds: ctx.planSongIds,
     recentSongIds: ctx.recentSongIds,
     library: ctx.library,
+    prebuiltIndex: ctx.prebuiltIndex,
     spokenCuePrefix: cue.length > 0,
   };
 

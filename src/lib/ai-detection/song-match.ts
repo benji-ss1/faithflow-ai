@@ -11,7 +11,7 @@
 // If none of these carry lyrics, we return NO candidate. The UI is then
 // required to show "Import Song / Search Library" and hide Send Live.
 
-import { buildIndex, matchLyricFragment, type IndexedSong, type LyricMatch } from "./lyric-fragment";
+import { buildIndex, matchLyricFragment, type IndexedSong, type LyricMatch, type SongIndex } from "./lyric-fragment";
 import type { SlidePayload } from "@/lib/broadcast";
 
 export type SongMatchResult = {
@@ -33,6 +33,7 @@ export type MatchContext = {
   recentSongIds?: string[];         // song IDs seen recently in transcript
   spokenCuePrefix?: boolean;        // true if we came from a song-cue detector
   library?: IndexedSong[];          // preloaded library (client cache)
+  prebuiltIndex?: SongIndex;        // perf: prebuilt trigram index (avoids rebuild per detection)
 };
 
 /** Rough title-similarity: token overlap with normalization. */
@@ -81,9 +82,9 @@ export async function matchSongCue(
   const planIdSet = new Set(ctx.planSongIds || []);
   const recentIdSet = new Set(ctx.recentSongIds || []);
 
-  // Build (or accept prebuilt) index. Callers typically pass a prebuilt
-  // library, so buildIndex is called client-side once per library refresh.
-  const index = buildIndex(library);
+  // Build (or accept prebuilt) index. Perf: callers can pass a prebuilt
+  // index via ctx.prebuiltIndex so we skip trigram rebuild per detection.
+  const index = ctx.prebuiltIndex ?? buildIndex(library);
 
   // Lyric-fragment matches
   const lyricMatches = matchLyricFragment(chunk, index, { limit: 8, minWords: 4 });
