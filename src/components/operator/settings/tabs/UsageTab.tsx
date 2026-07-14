@@ -3,9 +3,11 @@ import { useEffect, useState } from "react";
 import { SectionHeader } from "./DisplayTab";
 
 type UsageData = {
-  transcription: { used: number; quota: number | null; label: string };
-  contextSearches: { used: number; quota: number | null; label: string };
-  customThemes: { used: number; quota: number | null; label: string };
+  // `used` may be null when the counter isn't yet wired to a real store —
+  // renders as "—" with an "Estimated soon" caption in the tile.
+  transcription: { used: number | null; quota: number | null; label: string };
+  contextSearches: { used: number | null; quota: number | null; label: string };
+  customThemes: { used: number | null; quota: number | null; label: string };
   broadcastOutputs: { label: string };
   tier: "free" | "pilot" | "max";
 };
@@ -77,18 +79,21 @@ export function UsageTab({ onUpgrade }: { onUpgrade: () => void }) {
   );
 }
 
-function QuotaTile({ title, desc, used, quota, unit }: { title: string; desc: string; used: number; quota: number | null; unit: string }) {
+function QuotaTile({ title, desc, used, quota, unit }: { title: string; desc: string; used: number | null; quota: number | null; unit: string }) {
   const unlimited = quota == null;
-  const pct = unlimited ? 100 : Math.min(100, Math.round((used / Math.max(1, quota)) * 100));
+  const pending = used == null;
+  const pct = unlimited || pending ? (unlimited ? 100 : 0) : Math.min(100, Math.round(((used ?? 0) / Math.max(1, quota!)) * 100));
   return (
     <div className="p-3 rounded-md border" style={{ borderColor: "#2a3232", background: "#1a2020" }}>
       <div className="flex items-center justify-between">
         <div>
           <div className="text-[12px] font-semibold text-zinc-100">{title}</div>
-          <div className="text-[10px] uppercase tracking-wide text-zinc-500 mt-0.5">{desc}</div>
+          <div className="text-[10px] uppercase tracking-wide text-zinc-500 mt-0.5">
+            {pending ? "Estimated soon" : desc}
+          </div>
         </div>
         <div className="text-[11px] font-mono text-zinc-300">
-          {unlimited ? "Unlimited" : `${used} / ${quota} ${unit}`}
+          {unlimited ? "Unlimited" : pending ? `— / ${quota} ${unit}` : `${used} / ${quota} ${unit}`}
         </div>
       </div>
       <div className="mt-2 h-1.5 rounded-full overflow-hidden" style={{ background: "#232929" }}>
