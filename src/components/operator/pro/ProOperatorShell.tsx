@@ -204,6 +204,63 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
   );
 }
 
+/**
+ * Recent detections panel — last 5 unified suggestions. Sits below the
+ * LivePreviewPanel in the right sidebar. When the AI pipeline auto-pauses
+ * after 10 min of silence, shows a small pill + Resume button.
+ */
+function RecentDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
+  const audio = ctx.audio;
+  const recent = audio.suggestions.slice(0, 5);
+  const paused = audio.stage === "paused";
+  return (
+    <div className="border-t border-[var(--color-border)] px-2 py-2 space-y-1.5" data-testid="recent-detections">
+      <div className="text-[9px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)]">
+        Recent Detections
+      </div>
+      {recent.length === 0 ? (
+        <div className="text-[10px] text-[var(--color-muted-foreground)] italic py-2">
+          No detections yet. Turn on AI listening to see live scripture and song matches here.
+        </div>
+      ) : (
+        <ul className="space-y-1">
+          {recent.map((s) => {
+            let label = "";
+            if (s.type === "scripture") {
+              label = `${s.ref.book} ${s.ref.chapter}:${s.ref.verseStart}${s.ref.verseEnd !== s.ref.verseStart ? `-${s.ref.verseEnd}` : ""}`;
+            } else if (s.type === "song" || s.type === "lyric") {
+              label = `♪ ${s.match.title}`;
+            } else {
+              label = `§ ${s.section}${s.index ? " " + s.index : ""}`;
+            }
+            return (
+              <li key={s.id} className="flex items-center justify-between text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-elevated)]">
+                <span className="truncate">{label}</span>
+                <span className="font-mono opacity-60 shrink-0 ml-1">{s.confidence}%</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {paused && (
+        <div className="flex items-center gap-2 mt-1 text-[10px]">
+          <span className="px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-300 truncate">
+            Transcription paused — No voice activity detected for 10 minutes
+          </span>
+          <button
+            type="button"
+            onClick={() => ctx.onResumeAudio?.()}
+            className="ml-auto px-2 py-0.5 rounded text-[10px] font-semibold text-white shrink-0"
+            style={{ background: "#f97316" }}
+          >
+            Resume
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const [centerMode, setCenterMode] = useState<CenterMode>("slides");
   const [mediaStripOpen, setMediaStripOpen] = useState(true);
@@ -304,6 +361,40 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     },
   });
 
+  // Runtime hook for user-added voice commands. useAudioStream matches the
+  // transcript against `presentflow.pro.voiceCommands.v1` and dispatches
+  // `presentflow:voice-command` with { action, phrase }. Route the action to
+  // the matching ctx callback + surface a toast so operator can see it fired.
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ action: string; phrase: string }>).detail;
+      if (!detail) return;
+      const { action, phrase } = detail;
+      switch (action) {
+        case "next_verse":
+          if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("presentflow:hotkey-next"));
+          break;
+        case "prev_verse":
+          if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("presentflow:hotkey-prev"));
+          break;
+        case "give_me_niv":
+          if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("presentflow:switch-translation", { detail: { code: "NIV" } }));
+          break;
+        case "blank_screen":
+          ctx.onBlank();
+          break;
+        case "kill_live":
+          ctx.onKill();
+          break;
+        default:
+          break;
+      }
+      toast.info(`Voice command: ${phrase}`);
+    };
+    window.addEventListener("presentflow:voice-command", handler);
+    return () => window.removeEventListener("presentflow:voice-command", handler);
+  }, [ctx]);
+
   // Electron Help > Keyboard Shortcuts — main sends IPC, we open the overlay.
   useEffect(() => {
     const w = typeof window !== "undefined" ? (window as Window & { electronAPI?: { on: (c: string, h: () => void) => void; off: (c: string, h: () => void) => void } }) : undefined;
@@ -394,6 +485,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
             <OutputRoutingRow ctx={ctx} />
           )}
           <LivePreviewPanel ctx={ctx} />
+          <RecentDetectionsPanel ctx={ctx} />
           <div className="flex-1 min-h-0 border-t border-[var(--color-border)]">
             <RightTabs ctx={ctx} timer={timer} messages={messages} />
           </div>

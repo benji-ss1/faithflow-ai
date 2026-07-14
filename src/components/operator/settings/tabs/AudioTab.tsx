@@ -9,6 +9,7 @@ const INPUT_GAIN_KEY = "presentflow.pro.inputGain.v1";
 const TRANSCRIPTION_MODE_KEY = "presentflow.pro.transcriptionMode.v1";
 const VOICE_COMMANDS_KEY = "presentflow.pro.voiceCommandsEnabled.v1";
 const CUSTOM_COMMANDS_KEY = "presentflow.pro.voiceCommands.v1";
+const AUTO_PAUSE_KEY = "presentflow.pro.autoPause.enabled";
 
 type AudioInputSel = { kind: "device" | "ndi"; id: string; label: string };
 
@@ -33,6 +34,7 @@ export function AudioTab() {
   const [mode, setMode] = useState<"online" | "offline">("online");
   const [gain, setGain] = useState(75);
   const [voiceOn, setVoiceOn] = useState(true);
+  const [autoPause, setAutoPause] = useState(true);
   const [selected, setSelected] = useState<AudioInputSel>({ kind: "ndi", id: "ndi:default", label: "NDI Audio (Routed)" });
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [ndiSources, setNdiSources] = useState<{ id: string; label: string }[]>(NDI_PLACEHOLDERS);
@@ -48,6 +50,8 @@ export function AudioTab() {
       if (!Number.isNaN(g) && g > 0) setGain(g);
       const v = localStorage.getItem(VOICE_COMMANDS_KEY);
       setVoiceOn(v !== "0");
+      const ap = localStorage.getItem(AUTO_PAUSE_KEY);
+      setAutoPause(ap !== "0");
       const raw = localStorage.getItem(AUDIO_INPUT_KEY);
       if (raw) { try { setSelected(JSON.parse(raw)); } catch {} }
       const cRaw = localStorage.getItem(CUSTOM_COMMANDS_KEY);
@@ -73,6 +77,8 @@ export function AudioTab() {
   function persistSelection(sel: AudioInputSel) {
     setSelected(sel);
     try { localStorage.setItem(AUDIO_INPUT_KEY, JSON.stringify(sel)); } catch {}
+    // Notify useAudioStream so it restarts the pipeline with the new device.
+    try { window.dispatchEvent(new CustomEvent("presentflow:audio-input-changed", { detail: sel })); } catch {}
   }
   function persistCustoms(next: CustomCommand[]) {
     setCustoms(next);
@@ -169,6 +175,17 @@ export function AudioTab() {
       </Row>
 
       <div className="pt-3 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-[12px] font-semibold text-zinc-100">Auto-pause after 10 min of silence</div>
+            <div className="text-[11px] text-zinc-500 mt-0.5">Close the transcription connection when no voice activity is detected to save cost.</div>
+          </div>
+          <Toggle
+            on={autoPause}
+            onChange={(v) => { setAutoPause(v); try { localStorage.setItem(AUTO_PAUSE_KEY, v ? "1" : "0"); } catch {} }}
+          />
+        </div>
+
         <div className="flex items-center justify-between">
           <div>
             <div className="text-[12px] font-semibold text-zinc-100">Voice Commands</div>

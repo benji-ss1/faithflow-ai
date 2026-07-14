@@ -38,6 +38,7 @@ const STAGE_LABEL: Record<PipelineStage, string> = {
   deepgram_ready: "11. Deepgram ready",
   receiving_interim: "12. Receiving interim",
   receiving_final: "13. Receiving final",
+  paused: "14. Paused (silence)",
 };
 
 const COMMAND_LABEL: Record<CommandSuggestion["verb"], string> = {

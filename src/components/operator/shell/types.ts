@@ -33,6 +33,7 @@ export type OperatorShellCtx = {
 
   audio: AudioStreamState;
   onListenToggle: () => void;
+  onResumeAudio?: () => void;
   confidenceThreshold: number;
   defaultTranslationCode: string;
 

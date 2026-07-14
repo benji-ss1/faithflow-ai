@@ -31,6 +31,7 @@ const STAGE_LABEL: Record<PipelineStage, string> = {
   deepgram_ready: "11. Transcription provider connected",
   receiving_interim: "12. Transcript received",
   receiving_final: "13. Transcript rendered in UI",
+  paused: "14. Auto-paused (silence)",
 };
 
 const STAGE_ORDER: PipelineStage[] = [

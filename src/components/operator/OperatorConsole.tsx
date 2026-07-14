@@ -258,7 +258,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode, confid
     hasSongContext: false, // updated below via ref
   }), [plan.id, planSongIds, plan]);
 
-  const { state: audio, start: startAudio, stop: stopAudio, dismissDetection, dismissSong, dismissCommand, dismissSuggestion, simulateTranscript } = useAudioStream(plan.id, {
+  const { state: audio, start: startAudio, stop: stopAudio, resume: resumeAudio, dismissDetection, dismissSong, dismissCommand, dismissSuggestion, simulateTranscript } = useAudioStream(plan.id, {
     library: songLibrary,
     getDetectContext,
   });
@@ -1058,6 +1058,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode, confid
     autoSendToLive: autoApprove.autoSendToLive,
     audio,
     onListenToggle: () => audio.listening ? stopAudio() : startAudio(),
+    onResumeAudio: resumeAudio,
     confidenceThreshold,
     defaultTranslationCode,
     onJumpSlide: jumpTo,

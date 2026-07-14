@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { detectAll, SuggestionDedupe, type DetectAllResult } from "@/lib/ai-detection";
 import type { IndexedSong } from "@/lib/ai-detection/lyric-fragment";
 import type { SongMatchResult } from "@/lib/ai-detection/song-match";
+import { matchCustomCommand, readCustomCommands, readAudioInputPref, audioConstraintsFor } from "@/lib/voice-commands";
 
 export type Detection = {
   id: string;
@@ -67,7 +68,8 @@ export type PipelineStage =
   | "deepgram_ready"          // server sent { type: "ready" }
   | "first_chunk_sent"        // first audio chunk sent over WS
   | "receiving_interim"       // first interim transcript received
-  | "receiving_final";        // first final transcript received
+  | "receiving_final"         // first final transcript received
+  | "paused";                 // auto-paused after prolonged silence
 
 export type AudioStreamState = {
   listening: boolean;
@@ -195,6 +197,19 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stallWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startRef = useRef<() => Promise<void>>(async () => {});
+  // Auto-pause: track when the last transcript arrived and check periodically.
+  // If no transcript for AUTO_PAUSE_MS while listening, transition to paused
+  // and close the WS to save Deepgram cost.
+  const AUTO_PAUSE_MS = 10 * 60 * 1000; // 10 minutes
+  const lastTranscriptAtRef = useRef<number>(Date.now());
+  const autoPauseTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isAutoPauseEnabled = useCallback((): boolean => {
+    try {
+      if (typeof localStorage === "undefined") return true;
+      const raw = localStorage.getItem("presentflow.pro.autoPause.enabled");
+      return raw !== "0"; // default true
+    } catch { return true; }
+  }, []);
 
   const teardown = useCallback(() => {
     if (stallWatchdogRef.current) { clearTimeout(stallWatchdogRef.current); stallWatchdogRef.current = null; }
@@ -269,6 +284,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
 
   const start = useCallback(async () => {
     intentionalStopRef.current = false;
+    lastTranscriptAtRef.current = Date.now();
     setState((s) => ({ ...s, error: null, stage: "idle", stageHistory: [], chunksSent: 0, dgMessagesReceived: 0 }));
     // PF_AI_TRACE gate: dev + localStorage("presentflow.aiTrace","1") enable numbered logs.
     // Off in prod unless explicitly opted in so the demo console stays quiet.
@@ -324,8 +340,9 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         if (msg.type === "final") { setStage("receiving_final"); log("8 final", msg.text); }
         if (msg.type === "detection" || msg.type === "song" || msg.type === "command") log(`9 ${msg.type}`);
         if (msg.type === "ready") setState((s) => ({ ...s, ready: true }));
-        else if (msg.type === "interim") setState((s) => ({ ...s, interim: msg.text }));
+        else if (msg.type === "interim") { lastTranscriptAtRef.current = Date.now(); setState((s) => ({ ...s, interim: msg.text })); }
         else if (msg.type === "final") {
+          lastTranscriptAtRef.current = Date.now();
           setState((s) => ({
             ...s,
             interim: "",
@@ -333,6 +350,16 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           }));
           // Phase 5A: run unified detection client-side. Fire-and-forget.
           runDetectAll(msg.segmentId, msg.text);
+          // Runtime hook — check user-added custom voice commands and, on
+          // match, dispatch a `presentflow:voice-command` event. Shell owns
+          // the actual side-effect (calls ctx callback + toast).
+          try {
+            const customs = readCustomCommands();
+            const match = matchCustomCommand(msg.text, customs);
+            if (match && typeof window !== "undefined") {
+              window.dispatchEvent(new CustomEvent("presentflow:voice-command", { detail: match }));
+            }
+          } catch { /* ignore */ }
         }
         else if (msg.type === "detection") setState((s) => ({ ...s, detections: [msg.detection, ...s.detections].slice(0, 50) }));
         else if (msg.type === "song") setState((s) => ({ ...s, songSuggestions: [msg.song, ...s.songSuggestions].slice(0, 30) }));
@@ -356,9 +383,16 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       };
 
       setStage("requesting_mic"); log("4a requesting mic");
+      // Honour user's Audio Input picker preference. NDI is not yet wired
+      // to a real capture path — log and fall back to default device.
+      const inputPref = readAudioInputPref();
+      if (inputPref?.kind === "ndi") {
+        console.log("[ai-pipeline:1] NDI source selected — falling back to default device (NDI capture not yet implemented)");
+      }
+      const constraints = audioConstraintsFor(inputPref);
       let stream: MediaStream;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 16000 } });
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
       } catch (micErr) {
         throw new Error(`Microphone access denied or unavailable: ${micErr instanceof Error ? micErr.message : "unknown"}`);
       }
@@ -426,6 +460,48 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   // every render (would restart the backoff clock).
   useEffect(() => { startRef.current = start; }, [start]);
 
+  // Auto-pause after prolonged silence. Cheap 30s interval poll (no per-render
+  // side effect). Stops the pipeline and closes the WS to save Deepgram cost.
+  useEffect(() => {
+    if (autoPauseTimerRef.current) { clearInterval(autoPauseTimerRef.current); autoPauseTimerRef.current = null; }
+    if (!state.listening) return;
+    const iv = setInterval(() => {
+      if (!isAutoPauseEnabled()) return;
+      const elapsed = Date.now() - lastTranscriptAtRef.current;
+      if (elapsed < AUTO_PAUSE_MS) return;
+      // Only auto-pause when we were actually receiving final transcripts —
+      // don't yank a pipeline still mid-init.
+      setState((s) => {
+        if (s.stage !== "receiving_final") return s;
+        // Trigger teardown but keep the "paused" state visible.
+        intentionalStopRef.current = true;
+        try { teardown(); } catch { /* ignore */ }
+        return { ...s, stage: "paused", listening: false, ready: false, interim: "" };
+      });
+    }, 30_000);
+    autoPauseTimerRef.current = iv;
+    return () => { clearInterval(iv); if (autoPauseTimerRef.current === iv) autoPauseTimerRef.current = null; };
+  }, [state.listening, isAutoPauseEnabled, teardown]);
+
+  // Restart pipeline when the operator changes the audio input mid-service.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handler = () => {
+      if (!state.listening) return;
+      // Full restart so getUserMedia picks up the new deviceId.
+      stop();
+      setTimeout(() => { startRef.current().catch(() => { /* ignore */ }); }, 100);
+    };
+    window.addEventListener("presentflow:audio-input-changed", handler);
+    return () => window.removeEventListener("presentflow:audio-input-changed", handler);
+  }, [state.listening, stop]);
+
+  const resume = useCallback(() => {
+    lastTranscriptAtRef.current = Date.now();
+    intentionalStopRef.current = false;
+    startRef.current().catch(() => { /* ignore */ });
+  }, []);
+
   useEffect(() => () => stop(), [stop]);
 
   const dismissDetection = useCallback((id: string) => {
@@ -457,5 +533,5 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     runDetectAll(segmentId, text);
   }, [runDetectAll]);
 
-  return { state, start, stop, dismissDetection, dismissSong, dismissCommand, dismissSuggestion, simulateTranscript };
+  return { state, start, stop, resume, dismissDetection, dismissSong, dismissCommand, dismissSuggestion, simulateTranscript };
 }
