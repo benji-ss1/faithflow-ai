@@ -246,10 +246,6 @@ function VideoSlot({ label, src, poster }: { label: string; src?: string; poster
       </div>
     );
   }
-  return (
-    <div className="border border-dashed border-border rounded-md p-3 bg-muted/20 flex items-center gap-2 text-xs text-muted-foreground mt-2">
-      <PlayCircle className="w-4 h-4" />
-      <div>Video coming soon: <em>{label}</em></div>
-    </div>
-  );
+  // No clip yet — render nothing rather than a placeholder promise.
+  return null;
 }

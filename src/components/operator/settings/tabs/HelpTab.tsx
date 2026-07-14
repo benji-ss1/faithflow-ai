@@ -31,11 +31,6 @@ export function HelpTab() {
           desc="Learn how to use PresentFlow with an interactive guide"
           onClick={() => openTour()}
         />
-        <TutorialRow
-          title="Theme Designer Tutorial"
-          desc="Walk through building custom slide themes"
-          onClick={() => openTour("theme-designer")}
-        />
       </div>
 
       <div>

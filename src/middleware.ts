@@ -30,7 +30,6 @@ const OUTPUT_SURFACE_PATHS = ["/live", "/stage", "/livestream"];
 // assumes an already-onboarded org (see DECISIONS.md).
 const DESKTOP_ALLOWED_PAGE_PREFIXES = [
   "/operator",
-  "/theme-designer",
   "/_next",
   "/favicon",
 ];

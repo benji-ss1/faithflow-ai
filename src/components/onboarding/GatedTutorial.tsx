@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  Lock, CheckCircle2, ArrowRight, PlayCircle,
+  Lock, CheckCircle2, ArrowRight,
   LayoutDashboard, ListOrdered, Music, BookOpen, Presentation, Image as ImageIcon,
   Monitor, Radio, Mic, Sparkles, ShieldAlert, Archive,
 } from "lucide-react";
@@ -190,11 +190,6 @@ function ChannelCard({ channel, locked, done, active, onConfirm, onReset }: {
                   className="inline-flex items-center gap-1 h-8 px-3 text-xs border border-border rounded-md hover:bg-accent">
                   {channel.action.label} <ArrowRight className="w-3 h-3" />
                 </Link>
-              )}
-              {channel.video && (
-                <div className="border border-dashed border-border rounded-md p-2 flex items-center gap-2 text-[11px] text-muted-foreground">
-                  <PlayCircle className="w-3.5 h-3.5" /> Video coming soon: {channel.video}
-                </div>
               )}
               <div className="flex gap-2 pt-1">
                 <button onClick={onConfirm}
