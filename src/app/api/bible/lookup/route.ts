@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiUser } from "@/lib/session";
 import { lookupReference, lookupReferenceWithWindow, listTranslations } from "@/lib/server/bible";
+import { cacheKey, getCached, setCached, warmCache } from "@/lib/server/bible-cache";
 import { createLimiter } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -9,6 +10,9 @@ export const runtime = "nodejs";
 // replace with Redis-backed limiter in prod.
 const lookupLimiter = createLimiter("bible-lookup", 60, 60 * 1000);
 
+// Fire-and-forget cache warm on module load. Won't block cold requests.
+void warmCache();
+
 export async function POST(req: Request) {
   const user = await apiUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -16,7 +20,7 @@ export async function POST(req: Request) {
   const ok = await lookupLimiter(user.id);
   if (!ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
 
-  const { book, chapter, verseStart, verseEnd, translationCode, withWindow } = await req.json().catch(() => ({}));
+  const { book, chapter, verseStart, verseEnd, chapterEnd, translationCode, withWindow } = await req.json().catch(() => ({}));
 
   // Y14: cap + sanitize book input.
   if (typeof book !== "string" || book.length === 0 || book.length > 64 || /[\x00-\x1F]/.test(book)) {
@@ -34,6 +38,14 @@ export async function POST(req: Request) {
     );
     return NextResponse.json({ translation: t.code, primary, before, after, verses: primary });
   }
-  const verses = await lookupReference(t.id, book, Number(chapter), Number(verseStart), Number(verseEnd));
+
+  // Cache lookup path: single roundtrip for the whole range (including cross-chapter).
+  const chEnd = chapterEnd ? Number(chapterEnd) : undefined;
+  const key = cacheKey(t.code, book, Number(chapter), Number(verseStart), Number(verseEnd), chEnd);
+  const hit = getCached(key);
+  if (hit) return NextResponse.json({ translation: t.code, verses: hit, cached: true });
+
+  const verses = await lookupReference(t.id, book, Number(chapter), Number(verseStart), Number(verseEnd), chEnd);
+  if (verses.length > 0) setCached(key, verses);
   return NextResponse.json({ translation: t.code, verses });
 }

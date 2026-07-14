@@ -8,6 +8,7 @@ import { BibleOptionsPopover, useBibleOptions } from "./BibleOptionsPopover";
 import { BibleBookBrowser } from "./BibleBookBrowser";
 import type { BibleSessionApi, VerseCard } from "../hooks";
 import { cn } from "@/lib/utils";
+import { cachedLookup } from "@/lib/bible-client-cache";
 
 /**
  * R5: All session state (ref, translation, mode, cards, selectedIdx) is
@@ -23,23 +24,28 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
   const [opts] = useBibleOptions();
   const [tab, setTab] = useState<"reference" | "browse">("reference");
 
-  const runLookup = useCallback(async (p: { book: string; chapter: number; verseStart: number; verseEnd: number }) => {
+  const runLookup = useCallback(async (p: { book: string; chapter: number; verseStart: number; verseEnd: number; chapterEnd?: number }) => {
     setLoading(true);
     try {
-      const res = await fetch("/api/bible/lookup", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ book: p.book, chapter: p.chapter, verseStart: p.verseStart, verseEnd: p.verseEnd, translationCode: translation }),
-      }).then((r) => r.json());
-      if (res.error) { toast.error(res.error); return; }
-      const verses: Array<{ verse: number; text: string }> = res.verses || [];
-      const label = `${p.book} ${p.chapter}:${p.verseStart}${p.verseStart !== p.verseEnd ? `-${p.verseEnd}` : ""} (${res.translation || translation})`;
-      // Passage/verse toggle removed — always render one verse per card. If a
-      // reference resolves to a range, each verse gets its own numbered card.
-      const pages: VerseCard[] = verses.map((v, i) => ({
-        id: `${label}-${i}`,
-        label: `${p.book} ${p.chapter}:${v.verse} (${res.translation || translation})`,
-        verses: [v],
-      }));
+      const res = await cachedLookup({
+        book: p.book, chapter: p.chapter, verseStart: p.verseStart, verseEnd: p.verseEnd,
+        chapterEnd: p.chapterEnd, translationCode: translation,
+      });
+      const verses = res.verses;
+      const crossCh = p.chapterEnd && p.chapterEnd !== p.chapter;
+      const rangeLabel = crossCh
+        ? `${p.chapter}:${p.verseStart}-${p.chapterEnd}:${p.verseEnd}`
+        : `${p.chapter}:${p.verseStart}${p.verseStart !== p.verseEnd ? `-${p.verseEnd}` : ""}`;
+      const label = `${p.book} ${rangeLabel} (${res.translation})`;
+      // Always one verse per card so a range fans out to N cards.
+      const pages: VerseCard[] = verses.map((v, i) => {
+        const ch = (v as { chapter?: number }).chapter ?? p.chapter;
+        return {
+          id: `${label}-${i}`,
+          label: `${p.book} ${ch}:${v.verse} (${res.translation})`,
+          verses: [{ verse: v.verse, text: v.text }],
+        };
+      });
       if (pages.length === 0) pages.push({ id: label, label, verses: [] });
       setCards(pages);
       setSelectedIdx(0);
@@ -62,7 +68,7 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
       if (parsed.length === 0) { toast.info("Couldn't parse reference"); return; }
       const p = parsed[0];
       setPhraseHits([]);
-      await runLookup({ book: p.book, chapter: p.chapter, verseStart: p.verseStart, verseEnd: p.verseEnd });
+      await runLookup({ book: p.book, chapter: p.chapter, verseStart: p.verseStart, verseEnd: p.verseEnd, chapterEnd: p.chapterEnd });
     } else {
       // Phrase search — server requires min 3 chars (pgvector embedding cost).
       // Enforce client-side too so we don't fire a doomed request.

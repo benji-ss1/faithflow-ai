@@ -48,17 +48,47 @@ export async function getChapter(translationId: string, book: string, chapter: n
   return rows.map((r) => ({ id: r.id, book: r.book, bookOrder: r.bookOrder, chapter: r.chapter, verse: r.verse, text: r.text }));
 }
 
-export async function lookupReference(translationId: string, book: string, chapter: number, verseStart: number, verseEnd: number): Promise<Verse[]> {
+/**
+ * Look up a verse range for a book. Supports cross-chapter ranges via the
+ * optional `chapterEnd` param — when provided (and > `chapter`), returns
+ * verses from (chapter:verseStart) through (chapterEnd:verseEnd) inclusive.
+ * Single-chapter is unchanged: chapter=chapterEnd means BETWEEN verseStart..verseEnd.
+ */
+export async function lookupReference(
+  translationId: string,
+  book: string,
+  chapter: number,
+  verseStart: number,
+  verseEnd: number,
+  chapterEnd?: number,
+): Promise<Verse[]> {
   if (await isLicensedTranslation(translationId)) return [];
   const db = getDb();
+  const chEnd = chapterEnd && chapterEnd > chapter ? chapterEnd : chapter;
+  if (chEnd === chapter) {
+    const rows = (await db.execute(sql`
+      SELECT id, book, book_order AS "bookOrder", chapter, verse, text
+      FROM bible_verses
+      WHERE translation_id = ${translationId}
+        AND LOWER(book) = LOWER(${book})
+        AND chapter = ${chapter}
+        AND verse BETWEEN ${verseStart} AND ${verseEnd}
+      ORDER BY verse
+    `)).rows as Verse[];
+    return rows;
+  }
+  // Cross-chapter: (chapter=start AND verse>=verseStart) OR (chapter BETWEEN start+1..end-1) OR (chapter=end AND verse<=verseEnd)
   const rows = (await db.execute(sql`
     SELECT id, book, book_order AS "bookOrder", chapter, verse, text
     FROM bible_verses
     WHERE translation_id = ${translationId}
       AND LOWER(book) = LOWER(${book})
-      AND chapter = ${chapter}
-      AND verse BETWEEN ${verseStart} AND ${verseEnd}
-    ORDER BY verse
+      AND (
+        (chapter = ${chapter} AND verse >= ${verseStart})
+        OR (chapter > ${chapter} AND chapter < ${chEnd})
+        OR (chapter = ${chEnd} AND verse <= ${verseEnd})
+      )
+    ORDER BY chapter, verse
   `)).rows as Verse[];
   return rows;
 }
