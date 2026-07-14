@@ -162,7 +162,8 @@ type ClientMessage =
 type ServerMessage =
   | { type: "ready" }
   | { type: "interim"; text: string }
-  | { type: "final"; segmentId: string; text: string }
+  | { type: "final"; segmentId: string; text: string; confidence?: number }
+  | { type: "interim_final_candidate"; text: string; confidence?: number }
   | { type: "detection"; detection: { id: string; segmentId: string; book: string; chapter: number; verseStart: number; verseEnd: number; confidence: number; matchedText: string } }
   | { type: "song"; song: { suggestionId: string; segmentId: string; songId: string | null; title: string; confidence: number; matchedText: string } }
   | { type: "command"; command: { suggestionId: string; segmentId: string; verb: string; payload: Record<string, unknown>; confidence: number; matchedText: string } }
@@ -267,7 +268,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
   dg.on("message", async (raw: WebSocket.RawData) => {
     dgMessages++;
-    let data: { type?: string; is_final?: boolean; channel?: { alternatives?: { transcript?: string }[] } };
+    let data: { type?: string; is_final?: boolean; speech_final?: boolean; channel?: { alternatives?: { transcript?: string; confidence?: number }[] } };
     try { data = JSON.parse(raw.toString()); } catch { return; }
     if (dgMessages === 1 || dgMessages % 20 === 0) {
       // Y7: gate transcript slice behind DEBUG in prod so transcripts don't
@@ -280,10 +281,21 @@ wss.on("connection", async (ws: WebSocket, req) => {
     const text = data.channel?.alternatives?.[0]?.transcript?.trim();
     if (!text) return;
 
-    if (!data.is_final) { send({ type: "interim", text }); return; }
+    const dgConf = data.channel?.alternatives?.[0]?.confidence;
+
+    if (!data.is_final) {
+      // Fast-path: forward high-confidence long interims to the client for
+      // optimistic detection (perf fix #2E). Client dedupes against final.
+      send({ type: "interim", text });
+      const words = text.split(/\s+/).filter(Boolean).length;
+      if (words >= 4 && typeof dgConf === "number" && dgConf >= 0.8) {
+        send({ type: "interim_final_candidate", text, confidence: dgConf });
+      }
+      return;
+    }
 
     const [seg] = await db.insert(transcriptSegments).values({ servicePlanId: planId, text }).returning();
-    send({ type: "final", segmentId: seg.id, text });
+    send({ type: "final", segmentId: seg.id, text, confidence: dgConf });
 
     const refs = parseReferences(text);
     for (const ref of refs) {
