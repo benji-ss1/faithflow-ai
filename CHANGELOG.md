@@ -1,5 +1,18 @@
 # Changelog
 
+## [main] Multi-verse rendering + Bible lookup caches + interim detection + real confidence (2026-07-12)
+
+- **src/lib/server/bible.ts** — `lookupReference` now accepts an optional `chapterEnd`. Single-chapter path unchanged (BETWEEN verseStart..verseEnd). Cross-chapter path issues a single query spanning `(ch=start AND v>=vs) OR (ch BETWEEN start+1..end-1) OR (ch=end AND v<=ve)` so `Col 3:20-4:2` returns 8 verses across the boundary in one roundtrip.
+- **src/lib/server/bible-cache.ts** (new) — 500-entry LRU with 1h TTL keyed by `translation:book:ch:vs-ve[:chEnd]`. `warmCache()` prewarms ~50 of the most-cited references (John 3:16, Psalm 23, Rom 8:28, ...) on module load. Idempotent.
+- **src/lib/bible-client-cache.ts** (new) — session-scoped in-memory client cache + `cachedLookup()` wrapper for `/api/bible/lookup`. Cap 500; keys match the server cache. Used by BibleMode and the ProOperatorShell scripture auto-router.
+- **src/app/api/bible/lookup/route.ts** — accepts `chapterEnd`; checks server cache before hitting the DB; fires `warmCache()` at module load.
+- **src/components/operator/pro/center/BibleMode.tsx** — routes through `cachedLookup`; forwards `chapterEnd` from the parser so cross-chapter refs like `Col 4:4-5:2` fan out to N verse cards. Card labels show the correct per-verse `book ch:v` even across chapters.
+- **src/components/operator/pro/ProOperatorShell.tsx** — scripture auto-router renders an optimistic "Loading…" placeholder card the instant the detection lands, then replaces it once `cachedLookup` resolves. Cache-hit path resolves synchronously in the microtask queue → no visible flicker. Recent-Detections confidence pill is now color-coded (>=90 green, 70-89 amber, <70 grey).
+- **scripts/audio-server.ts** — Deepgram utterance `confidence` is now passed through on `final` messages, and a new `interim_final_candidate` message fires when an interim has >=4 words AND confidence >=0.8 so the client can run detection ~1-2s earlier than the final.
+- **src/components/operator/useAudioStream.ts** — handles `interim_final_candidate` by invoking `runDetectAll` with the DG confidence. Scripture suggestions now blend `round(parserConf * dgConf)` (clamped 1..100). Existing SuggestionDedupe by reference key prevents duplicate cards when the same ref appears in interim then final.
+- **test/bible-completeness.test.ts** — 3 new DB-backed cases: `lookupReference(Genesis 4:1-7)` returns 7 verses; `Psalms 23:1-6` returns 6; cross-chapter `Col 3:20-4:2` returns >=8 with correct chapter-then-verse ordering.
+- **test/bible-perf.test.ts** (new) — 15 cases covering client + server cache hit/miss/key semantics, confidence-blending math including missing-dg and clamp behavior, and lyric-fragment matching against an indexed library.
+
 ## [main] Audio bridge auto-start + Live transcript panel + Safe Mode unify + phrase-hit rendering (2026-07-12)
 
 - **electron/main.ts** — dev spawns `scripts/audio-server.ts` via bundled tsx CLI as a managed child (`[ws-server]` log prefix), polls `http://127.0.0.1:3001/` up to 5s for readiness, kills on `before-quit`. Fixes "AI error" in fresh dev environments where nobody remembered to run `npm run ws`.

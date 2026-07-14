@@ -10,6 +10,7 @@ import assert from "node:assert";
 import { getDb } from "../src/lib/db/client";
 import { sql } from "drizzle-orm";
 import { parseReference } from "../src/lib/bible-parser";
+import { lookupReference } from "../src/lib/server/bible";
 
 let pass = 0;
 let fail = 0;
@@ -140,6 +141,33 @@ async function main() {
   await check("invalid ref John 99:99 has no verse row", async () => {
     const v = await getVerse(kjv, "John", 99, 99);
     assert.strictEqual(v, undefined);
+  });
+
+  // Multi-verse rendering (fix #1). lookupReference must return every verse in
+  // the range, not just the first one.
+  await check("lookupReference(Genesis 4:1-7) returns 7 verses", async () => {
+    const verses = await lookupReference(kjv, "Genesis", 4, 1, 7);
+    assert.strictEqual(verses.length, 7, `expected 7 verses, got ${verses.length}`);
+    assert.strictEqual(verses[0].verse, 1);
+    assert.strictEqual(verses[6].verse, 7);
+  });
+  await check("lookupReference(Psalms 23:1-6) returns 6 verses", async () => {
+    const verses = await lookupReference(kjv, "Psalms", 23, 1, 6);
+    assert.strictEqual(verses.length, 6);
+  });
+  await check("lookupReference cross-chapter (Colossians 4:4-5) returns >=2 chapters worth", async () => {
+    // Col 3 has 25 verses; Col 4 has 18. Range 3:20-4:2 spans a chapter boundary.
+    const verses = await lookupReference(kjv, "Colossians", 3, 20, 2, 4);
+    assert.ok(verses.length >= 8, `expected >=8 verses across chapters, got ${verses.length}`);
+    assert.ok(verses.some((v) => v.chapter === 3), "must include a chapter 3 verse");
+    assert.ok(verses.some((v) => v.chapter === 4), "must include a chapter 4 verse");
+    // Ordering: chapter asc then verse asc.
+    for (let i = 1; i < verses.length; i++) {
+      const prev = verses[i - 1];
+      const cur = verses[i];
+      const cmp = cur.chapter !== prev.chapter ? cur.chapter - prev.chapter : cur.verse - prev.verse;
+      assert.ok(cmp > 0, `verses out of order at ${i}`);
+    }
   });
 
   console.log(`\n${pass} passed, ${fail} failed`);
