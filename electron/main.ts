@@ -1,5 +1,6 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, session, ipcMain, shell } from "electron";
+import { app, BrowserWindow, Tray, Menu, nativeImage, session, ipcMain, shell, safeStorage } from "electron";
 import * as path from "path";
+import * as fs from "fs";
 import { spawn, ChildProcess } from "child_process";
 import * as net from "net";
 import { registerScreenIpc, closeAllOutputWindows, openOutputForRole } from "./ipc/screens";
@@ -410,6 +411,45 @@ app.whenReady().then(async () => {
       return { ok: true };
     } catch (err: any) {
       return { ok: false, error: String(err?.message || err) };
+    }
+  });
+
+  // Y3: license key storage backed by the OS keychain via safeStorage.
+  // Writes an encrypted blob under userData/license.enc so the raw key is
+  // never in localStorage/plaintext on disk. If safeStorage isn't available
+  // on this platform, the handlers return null so the renderer falls back
+  // to (clearly-labelled) localStorage on web.
+  const licenseFilePath = () => path.join(app.getPath("userData"), "license.enc");
+  ipcMain.handle("license:get", async () => {
+    try {
+      if (!safeStorage.isEncryptionAvailable()) return { ok: false, key: null, reason: "unavailable" };
+      const p = licenseFilePath();
+      if (!fs.existsSync(p)) return { ok: true, key: null };
+      const buf = fs.readFileSync(p);
+      const key = safeStorage.decryptString(buf);
+      return { ok: true, key };
+    } catch (err) {
+      return { ok: false, key: null, reason: err instanceof Error ? err.message : String(err) };
+    }
+  });
+  ipcMain.handle("license:set", async (_e, key: unknown) => {
+    try {
+      if (typeof key !== "string") return { ok: false, reason: "invalid key" };
+      if (!safeStorage.isEncryptionAvailable()) return { ok: false, reason: "unavailable" };
+      const enc = safeStorage.encryptString(key);
+      fs.writeFileSync(licenseFilePath(), enc, { mode: 0o600 });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    }
+  });
+  ipcMain.handle("license:clear", async () => {
+    try {
+      const p = licenseFilePath();
+      if (fs.existsSync(p)) fs.unlinkSync(p);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, reason: err instanceof Error ? err.message : String(err) };
     }
   });
 

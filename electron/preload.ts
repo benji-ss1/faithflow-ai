@@ -32,6 +32,11 @@ const api = {
   shell: {
     openExternal: (url: string) => ipcRenderer.invoke("shell:openExternal", url),
   },
+  license: {
+    get: () => ipcRenderer.invoke("license:get"),
+    set: (key: string) => ipcRenderer.invoke("license:set", key),
+    clear: () => ipcRenderer.invoke("license:clear"),
+  },
   on: (channel: string, handler: Handler) => {
     const wrapped = (_e: IpcRendererEvent, ...args: any[]) => handler(...args);
     listeners.set(handler, wrapped);
