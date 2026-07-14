@@ -206,7 +206,20 @@ export type ParsedReference = {
   end?: number;
 };
 
+import { maxChapterFor } from "./bible-max-chapters";
+
 const SINGLE_CHAPTER_BOOKS = new Set(["Obadiah", "Philemon", "2 John", "3 John", "Jude"]);
+
+/**
+ * Y6: reject parses where chapter is <=0 or exceeds MAX_CHAPTERS_FOR_BOOK.
+ * Returns false if the (book, chapter) pair is impossible.
+ */
+function isValidChapter(book: string, chapter: number): boolean {
+  if (!Number.isFinite(chapter) || chapter <= 0) return false;
+  const max = maxChapterFor(book);
+  if (typeof max === "number" && chapter > max) return false;
+  return true;
+}
 
 // Pattern order matters — most specific first.
 // Group 1: book (from BOOK_PATTERN), Group 2/3/... numbers.
@@ -236,8 +249,24 @@ const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => Pa
       const bookKey = m[3].toLowerCase().replace(/\s+/g, " ");
       const book = VARIANT_TO_BOOK.get(bookKey);
       const chapter = chunkToNum(m[4]);
-      if (!book || !isFinite(chapter) || !isFinite(vStart) || !isFinite(vEnd)) return null;
+      if (!book || !isValidChapter(book, chapter) || !isFinite(vStart) || !isFinite(vEnd)) return null;
       return { book, chapter, verseStart: vStart, verseEnd: vEnd, confidence: 94, matchedText: m[0], needsSemanticFallback: false };
+    },
+  },
+  // Y7: Inverted singular — "verse N of Book chapter C"
+  {
+    name: "verse_of_book_ch",
+    regex: new RegExp(
+      `\\bverse\\s+${NUM_CHUNK}\\s+of\\s+(${BOOK_PATTERN})\\s+(?:chapter\\s+)?${NUM_CHUNK}\\b`,
+      "gi"
+    ),
+    parse: (m) => {
+      const verse = chunkToNum(m[1]);
+      const bookKey = m[2].toLowerCase().replace(/\s+/g, " ");
+      const book = VARIANT_TO_BOOK.get(bookKey);
+      const chapter = chunkToNum(m[3]);
+      if (!book || !isValidChapter(book, chapter) || !isFinite(verse) || verse <= 0) return null;
+      return { book, chapter, verseStart: verse, verseEnd: verse, confidence: 94, matchedText: m[0], needsSemanticFallback: false };
     },
   },
   // Cross-chapter range: "Book C:V - C:V" (only supports colon form to stay unambiguous)
@@ -254,7 +283,7 @@ const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => Pa
       const vStart = chunkToNum(m[3]);
       const chEnd = chunkToNum(m[4]);
       const vEnd = chunkToNum(m[5]);
-      if (!book || !isFinite(chStart) || !isFinite(vStart) || !isFinite(chEnd) || !isFinite(vEnd)) return null;
+      if (!book || !isValidChapter(book, chStart) || !isValidChapter(book, chEnd) || !isFinite(vStart) || !isFinite(vEnd)) return null;
       if (chEnd < chStart) return null;
       return { book, chapter: chStart, verseStart: vStart, chapterEnd: chEnd, verseEnd: vEnd, confidence: 96, matchedText: m[0], needsSemanticFallback: false };
     },
@@ -272,7 +301,7 @@ const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => Pa
       const chapter = chunkToNum(m[2]);
       const vStart = chunkToNum(m[3]);
       const vEnd = chunkToNum(m[4]);
-      if (!book || !isFinite(chapter) || !isFinite(vStart) || !isFinite(vEnd)) return null;
+      if (!book || !isValidChapter(book, chapter) || !isFinite(vStart) || !isFinite(vEnd)) return null;
       return { book, chapter, verseStart: vStart, verseEnd: vEnd, confidence: 95, matchedText: m[0], needsSemanticFallback: false };
     },
   },
@@ -293,6 +322,7 @@ const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => Pa
       if (SINGLE_CHAPTER_BOOKS.has(book)) {
         return { book, chapter: 1, verseStart: chapter, verseEnd: chapter, confidence: 90, matchedText: m[0], needsSemanticFallback: false };
       }
+      if (!isValidChapter(book, chapter)) return null;
       return { book, chapter, verseStart: verse, verseEnd: verse, confidence: 92, matchedText: m[0], needsSemanticFallback: false };
     },
   },
@@ -313,6 +343,7 @@ const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => Pa
       if (SINGLE_CHAPTER_BOOKS.has(book)) {
         return { book, chapter: 1, verseStart: chapter, verseEnd: chapter, confidence: 85, matchedText: m[0], needsSemanticFallback: false };
       }
+      if (!isValidChapter(book, chapter)) return null;
       return { book, chapter, verseStart: verse, verseEnd: verse, confidence: 85, matchedText: m[0], needsSemanticFallback: false };
     },
   },
@@ -328,6 +359,8 @@ const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => Pa
       if (SINGLE_CHAPTER_BOOKS.has(book)) {
         return { book, chapter: 1, verseStart: chapter, verseEnd: chapter, confidence: 78, matchedText: m[0], needsSemanticFallback: false };
       }
+      // Y6: reject chapter <=0 or > MAX_CHAPTERS_FOR_BOOK.
+      if (!isValidChapter(book, chapter)) return null;
       return { book, chapter, verseStart: 1, verseEnd: 1, confidence: 72, matchedText: m[0], needsSemanticFallback: false };
     },
   },

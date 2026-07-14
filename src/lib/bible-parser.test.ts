@@ -65,5 +65,45 @@ for (const [w, expected] of NUM_CASES) {
   }
 }
 
+// Y6: max-chapter validation — impossible chapters must NOT parse.
+const INVALID: { name: string; input: string }[] = [
+  { name: "John chapter 99 rejected",        input: "John chapter 99" },
+  { name: "John 99:1 rejected",              input: "John 99:1" },
+  { name: "Revelation 50 rejected",          input: "Revelation 50" },
+  { name: "chapter 0 rejected",              input: "John chapter 0" },
+];
+for (const c of INVALID) {
+  const refs = parseReferences(c.input);
+  if (refs.length === 0) {
+    console.log(`  PASS  ${c.name}`);
+    pass++;
+  } else {
+    console.error(`  FAIL  ${c.name} — parsed as ${JSON.stringify(refs[0])}`);
+    fail++;
+  }
+}
+
+// Y7: verse_of_book_ch singular
+const Y7_CASES: Case[] = [
+  { name: "verse 4 of Colossians chapter 3",     input: "in verse 4 of Colossians chapter 3", expect: { book: "Colossians", chapter: 3, verseStart: 4, verseEnd: 4 } },
+  { name: "verse one of John chapter three",     input: "verse one of John chapter three",    expect: { book: "John", chapter: 3, verseStart: 1, verseEnd: 1 } },
+];
+for (const c of Y7_CASES) {
+  const refs = parseReferences(c.input);
+  const r = refs[0];
+  try {
+    assert.ok(r, `no ref parsed`);
+    assert.strictEqual(r.book, c.expect.book);
+    assert.strictEqual(r.chapter, c.expect.chapter);
+    assert.strictEqual(r.verseStart, c.expect.verseStart);
+    assert.strictEqual(r.verseEnd, c.expect.verseEnd);
+    console.log(`  PASS  ${c.name}`);
+    pass++;
+  } catch (e) {
+    console.error(`  FAIL  ${c.name}  refs=${JSON.stringify(refs)}  ${(e as Error).message}`);
+    fail++;
+  }
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

@@ -171,20 +171,54 @@ export type SuggestionKey = { type: string; key: string };
  *    in which case we allow a refresh (returns "refresh").
  */
 export class SuggestionDedupe {
+  // R6: TTL sweep + LRU cap so a 12h service can't grow this map unbounded.
+  // Map's insertion-order iteration gives us free LRU eviction.
   private map = new Map<string, { ts: number; confidence: number }>();
+  private lastSweep = 0;
+  private static readonly TTL_MS = 5 * 60 * 1000; // 5 minutes
+  private static readonly SWEEP_INTERVAL_MS = 60 * 1000; // sweep at most once/min
+  private static readonly MAX_ENTRIES = 500;
+
   constructor(private cooldownMs: number = 30_000) {}
 
   private k(type: string, key: string): string { return `${type}::${key.toLowerCase()}`; }
 
+  private sweep(nowMs: number) {
+    if (nowMs - this.lastSweep < SuggestionDedupe.SWEEP_INTERVAL_MS) return;
+    this.lastSweep = nowMs;
+    const cutoff = nowMs - SuggestionDedupe.TTL_MS;
+    for (const [k, v] of this.map) {
+      if (v.ts < cutoff) this.map.delete(k);
+    }
+  }
+
+  private evictIfOverCap() {
+    while (this.map.size >= SuggestionDedupe.MAX_ENTRIES) {
+      const oldest = this.map.keys().next().value;
+      if (oldest === undefined) break;
+      this.map.delete(oldest);
+    }
+  }
+
+  private set(k: string, ts: number, confidence: number) {
+    // Delete-then-set so the key moves to the tail (most-recently-inserted)
+    // for LRU eviction semantics.
+    this.map.delete(k);
+    this.evictIfOverCap();
+    this.map.set(k, { ts, confidence });
+  }
+
   shouldEmit(type: string, key: string, confidence: number, nowMs = Date.now()): "new" | "refresh" | "suppress" {
+    this.sweep(nowMs);
     const k = this.k(type, key);
     const prev = this.map.get(k);
-    if (!prev) { this.map.set(k, { ts: nowMs, confidence }); return "new"; }
+    if (!prev) { this.set(k, nowMs, confidence); return "new"; }
     const elapsed = nowMs - prev.ts;
-    if (elapsed >= this.cooldownMs) { this.map.set(k, { ts: nowMs, confidence }); return "new"; }
-    if (confidence - prev.confidence >= 10) { this.map.set(k, { ts: nowMs, confidence }); return "refresh"; }
+    if (elapsed >= this.cooldownMs) { this.set(k, nowMs, confidence); return "new"; }
+    if (confidence - prev.confidence >= 10) { this.set(k, nowMs, confidence); return "refresh"; }
     return "suppress";
   }
 
+  size(): number { return this.map.size; }
   clear() { this.map.clear(); }
 }
