@@ -537,7 +537,26 @@ function UnifiedCard({
         </span>
         {s.type === "lyric" && <span className="text-[9px] uppercase tracking-wider text-muted-foreground">lyric fragment</span>}
         {s.type === "song" && <span className="text-[9px] uppercase tracking-wider text-muted-foreground">title cue</span>}
+        <span
+          title={`AI confidence: ${s.confidence}%`}
+          className={cn(
+            "ml-auto inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded-full border",
+            s.confidence >= 90 ? "border-success/50 bg-success/10 text-success"
+              : s.confidence >= 70 ? "border-border bg-muted/40 text-foreground"
+              : "border-warning/40 bg-warning/10 text-warning",
+          )}
+        >{s.confidence}%</span>
       </div>
+      {/* #2 Lyrics preview: first 2 lines of the best-matching slide,
+          rendered directly on the chip so operators can identify the song
+          without opening it. Truncated + safe against very long lines. */}
+      {hasLyrics && (match.previewPayload as { text?: string }).text && (
+        <div className="mb-2 rounded-sm border border-border/40 bg-muted/20 px-2 py-1">
+          {((match.previewPayload as { text: string }).text.split(/\n+/).slice(0, 2)).map((ln, i) => (
+            <div key={i} className="text-[10.5px] text-foreground/85 leading-snug truncate">{ln.slice(0, 120)}</div>
+          ))}
+        </div>
+      )}
       {isStub ? (
         <div className="space-y-1.5">
           <p className="text-[10px] text-warning italic">
