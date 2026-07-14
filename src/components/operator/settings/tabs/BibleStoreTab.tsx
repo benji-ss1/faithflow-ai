@@ -67,7 +67,18 @@ export function BibleStoreTab({ onUpgrade }: { onUpgrade: () => void }) {
   }, []);
 
   function download(code: string) {
-    setToast(`Bible download for ${code} — coming soon`);
+    // Bulk translation ingestion is a server-side seed job (see
+    // scripts/seed-bible.ts) that requires admin credentials and OSIS
+    // licensing checks. Rather than expose a toast that promises magic,
+    // route the operator to support with a pre-filled email so they can
+    // request the translation on their tenant.
+    const subject = encodeURIComponent(`Bible translation request: ${code}`);
+    const body = encodeURIComponent(
+      `Please enable the ${code} translation on my church account.\n\n(Sent from Settings › Bible Store)`,
+    );
+    const mailto = `mailto:support@presentflow.app?subject=${subject}&body=${body}`;
+    if (typeof window !== "undefined") window.location.href = mailto;
+    setToast(`Opening email to request ${code}…`);
     setTimeout(() => setToast(null), 2500);
   }
 
@@ -132,7 +143,7 @@ export function BibleStoreTab({ onUpgrade }: { onUpgrade: () => void }) {
                       className="h-7 px-2.5 rounded-md text-[10px] font-semibold text-white"
                       style={{ background: "#f97316" }}
                     >
-                      Download
+                      Request
                     </button>
                   </div>
                 ) : (
@@ -141,7 +152,7 @@ export function BibleStoreTab({ onUpgrade }: { onUpgrade: () => void }) {
                     className="h-7 px-2.5 rounded-md text-[10px] font-semibold text-white"
                     style={{ background: "#f97316" }}
                   >
-                    Download
+                    Request
                   </button>
                 )}
               </div>

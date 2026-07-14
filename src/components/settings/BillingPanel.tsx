@@ -74,7 +74,7 @@ export function BillingPanel({ tier, status, currentPeriodEnd, trialEnd, hasStri
 
       {tier === "pilot" && (
         <section className="border border-border rounded-md bg-card p-4">
-          <div className="eyebrow text-muted-foreground mb-3">Coming soon</div>
+          <div className="eyebrow text-muted-foreground mb-3">Upgrade plans</div>
           <div className="grid grid-cols-2 gap-3">
             <TierCard name="Starter" price="TBD" description="Full AI stack for a single-service church."
               onUpgrade={() => upgrade("starter")} disabled={pending} />

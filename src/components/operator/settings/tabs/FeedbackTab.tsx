@@ -10,6 +10,23 @@ export function FeedbackTab() {
   const [message, setMessage] = useState("");
   const [blocker, setBlocker] = useState(false);
   const [status, setStatus] = useState<{ kind: "idle" | "sending" | "ok" | "error"; msg?: string }>({ kind: "idle" });
+  const [screenshotDataUrl, setScreenshotDataUrl] = useState<string | null>(null);
+  const [screenshotName, setScreenshotName] = useState<string | null>(null);
+
+  function pickScreenshot(file: File) {
+    // 4MB cap so we don't blow past request-body limits
+    if (file.size > 4 * 1024 * 1024) {
+      setStatus({ kind: "error", msg: "Screenshot too large (max 4 MB)." });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : null;
+      setScreenshotDataUrl(result);
+      setScreenshotName(file.name);
+    };
+    reader.readAsDataURL(file);
+  }
 
   // Y7: prefill email from /api/me so operators don't retype it every time.
   // Only overwrites when the field is still empty (user's edits win).
@@ -39,7 +56,14 @@ export function FeedbackTab() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ type, email: email || undefined, message, blocker }),
+        body: JSON.stringify({
+          type,
+          email: email || undefined,
+          message,
+          blocker,
+          screenshot: screenshotDataUrl || undefined,
+          screenshotName: screenshotName || undefined,
+        }),
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
@@ -48,6 +72,7 @@ export function FeedbackTab() {
       }
       setStatus({ kind: "ok", msg: "Thanks — feedback received." });
       setMessage(""); setBlocker(false);
+      setScreenshotDataUrl(null); setScreenshotName(null);
     } catch (e) {
       setStatus({ kind: "error", msg: e instanceof Error ? e.message : String(e) });
     }
@@ -100,14 +125,34 @@ export function FeedbackTab() {
             />
           </div>
 
-          <button
-            disabled
-            title="Coming soon"
-            className="h-8 px-3 rounded-md border text-[11px] text-zinc-500 inline-flex items-center gap-2 cursor-not-allowed"
-            style={{ borderColor: "#2a3232", background: "#171c1c" }}
-          >
-            <Paperclip className="w-3.5 h-3.5" /> + Add screenshot or video
-          </button>
+          <div className="flex items-center gap-2">
+            <label
+              className="h-8 px-3 rounded-md border text-[11px] text-zinc-200 inline-flex items-center gap-2 cursor-pointer hover:bg-white/5"
+              style={{ borderColor: "#2a3232", background: "#171c1c" }}
+            >
+              <Paperclip className="w-3.5 h-3.5" /> + Add screenshot
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) pickScreenshot(f);
+                  e.currentTarget.value = "";
+                }}
+              />
+            </label>
+            {screenshotName && (
+              <div className="flex items-center gap-2 text-[10px] text-zinc-400">
+                <span className="truncate max-w-[200px]">{screenshotName}</span>
+                <button
+                  type="button"
+                  onClick={() => { setScreenshotDataUrl(null); setScreenshotName(null); }}
+                  className="text-zinc-500 hover:text-zinc-200"
+                >remove</button>
+              </div>
+            )}
+          </div>
 
           {type === "problem" && (
             <div className="flex items-center justify-between py-2">

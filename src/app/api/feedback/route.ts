@@ -51,10 +51,24 @@ export async function POST(req: Request) {
   const type = b.type === "feature" ? "feature" : "problem";
   const rawEmail = typeof b.email === "string" ? b.email.trim().slice(0, 200) : "";
   const email = rawEmail || undefined;
-  const message = typeof b.message === "string" ? b.message.trim().slice(0, 4000) : "";
+  const rawMessage = typeof b.message === "string" ? b.message.trim().slice(0, 4000) : "";
   const blocker = Boolean(b.blocker);
 
-  if (!message) {
+  // Optional screenshot: accept image data URLs up to ~6 MB base64. No S3
+  // upload for attachments yet — record presence + size in the message so
+  // triage sees it, and log the size. Oversize/malformed payloads are
+  // silently dropped rather than 400'd; text feedback is the primary signal.
+  const rawScreenshot = typeof b.screenshot === "string" ? b.screenshot : "";
+  const screenshotName = typeof b.screenshotName === "string" ? b.screenshotName.slice(0, 200) : "";
+  let screenshotNote = "";
+  let screenshotBytes = 0;
+  if (rawScreenshot.startsWith("data:image/") && rawScreenshot.length < 6 * 1024 * 1024) {
+    screenshotBytes = Math.floor((rawScreenshot.length * 3) / 4);
+    screenshotNote = `\n\n[screenshot attached: ${screenshotName || "image"}, ~${Math.round(screenshotBytes / 1024)} KB]`;
+  }
+  const message = (rawMessage + screenshotNote).slice(0, 4200);
+
+  if (!rawMessage) {
     return NextResponse.json({ error: "Message is required" }, { status: 400 });
   }
   if (email && !EMAIL_RE.test(email)) {
@@ -103,6 +117,7 @@ export async function POST(req: Request) {
     persisted,
     messageLength: message.length,
     messagePreview: sanitizeForLog(message),
+    screenshotKB: screenshotBytes > 0 ? Math.round(screenshotBytes / 1024) : 0,
   }));
 
   return NextResponse.json({ ok: true });
