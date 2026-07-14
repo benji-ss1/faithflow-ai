@@ -38,6 +38,11 @@ export type DetectAllResult = {
 export async function detectAll(chunk: string, ctx: DetectAllContext): Promise<DetectAllResult> {
   const scripture = parseReferences(chunk);
   const cue = detectSongCues(chunk);
+  // Min-word gate for song detection: only fire on transcripts with >=4
+  // words unless a cue phrase was recognized (in which case a short
+  // "let's sing X" is fine).
+  const wordCount = chunk.trim().split(/\s+/).filter(Boolean).length;
+  const allowSong = wordCount >= 4 || cue.length > 0;
   const cmd = parseContextCommand(chunk, {
     hasVerseContext: ctx.hasVerseContext,
     hasSlideContext: ctx.hasSlideContext,
@@ -66,7 +71,7 @@ export async function detectAll(chunk: string, ctx: DetectAllContext): Promise<D
   // SuggestionDedupe, so we opt-out of song-detection's own map with
   // useDedupe:false to avoid double-suppression.
   let triggerHit: SongMatchResult | null = null;
-  if (ctx.library && ctx.library.length > 0) {
+  if (allowSong && ctx.library && ctx.library.length > 0) {
     const hit = detectSongInTranscript(chunk, ctx.library, { useDedupe: false });
     if (hit && (hit.matchType === "exact" || hit.matchType === "substring")) {
       const song = ctx.library.find((s) => s.songId === hit.songId);
@@ -93,7 +98,7 @@ export async function detectAll(chunk: string, ctx: DetectAllContext): Promise<D
     }
   }
 
-  if (cue.length > 0) {
+  if (allowSong && cue.length > 0) {
     for (const c of cue) {
       const query = c.candidateTitle || chunk;
       const matches = await matchSongCue(query, matchCtx);
@@ -101,7 +106,9 @@ export async function detectAll(chunk: string, ctx: DetectAllContext): Promise<D
     }
   }
 
-  const lyricMatches = await matchSongCue(chunk, { ...matchCtx, spokenCuePrefix: false });
+  const lyricMatches = allowSong
+    ? await matchSongCue(chunk, { ...matchCtx, spokenCuePrefix: false })
+    : [];
   for (const m of lyricMatches) {
     // Anything with a matched lyric line goes into "lyric"; things without
     // a body match but with a strong title match go into "song".
@@ -122,10 +129,26 @@ export async function detectAll(chunk: string, ctx: DetectAllContext): Promise<D
     return Array.from(seen.values()).sort((a, b) => b.confidence - a.confidence).slice(0, 3);
   };
 
+  // Cross-bucket dedupe: if the same songId shows up in BOTH song (title /
+  // cue-match) and lyric (lyric-fragment), surface it only in the bucket
+  // where it has higher confidence.
+  const dedupedSong = dedupe(songResults);
+  const dedupedLyric = dedupe(lyricResults);
+  const bySong = new Map(dedupedSong.map((m) => [m.songId, m.confidence]));
+  const byLyric = new Map(dedupedLyric.map((m) => [m.songId, m.confidence]));
+  const finalSong = dedupedSong.filter((m) => {
+    const l = byLyric.get(m.songId);
+    return l === undefined || m.confidence >= l;
+  });
+  const finalLyric = dedupedLyric.filter((m) => {
+    const s = bySong.get(m.songId);
+    return s === undefined || m.confidence > s;
+  });
+
   return {
     scripture,
-    song: dedupe(songResults),
-    lyric: dedupe(lyricResults),
+    song: finalSong,
+    lyric: finalLyric,
     command: cmd ? [cmd] : [],
     cue,
     section,
