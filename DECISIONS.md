@@ -1,3 +1,49 @@
+## No-more-scaffolding pass (2026-07-12)
+
+Judgment calls made while executing the "wire or remove" placeholder sweep:
+
+- **Removal preferred over half-wiring.** The mandate explicitly said "wire it
+  to real functionality OR REMOVE the UI element entirely." For features that
+  need new server actions with church-scoped ownership + adversarial tests
+  (updateSlideStyle, applySlideTheme, addSlideToItem, createSlideClip, macro
+  triggering, arrangement editor, per-slide auto-fit reflow), the responsible
+  choice inside a single pass was removal, not a shallow half-wire that would
+  produce a fresh crop of buttons-that-do-nothing on the next audit.
+- **Theme Designer route deleted, not stubbed.** The prior pass shipped a
+  friendly "coming soon" hero at `/theme-designer` behind the desktop
+  allow-list. That's exactly the kind of scaffolding this pass eliminates.
+  The route file is gone, HelpTab tutorial row removed, middleware allow-list
+  trimmed. The full canvas editor can be re-introduced as a real feature
+  when the schema + apply pipeline exist.
+- **ThemesTab premium tiles for Max users → status line, not buttons.**
+  Rendering enabled tiles that don't apply a theme would be a new lie.
+  Locked tiles for non-Max users are unchanged (they honestly link to the
+  upgrade prompt).
+- **BibleStore download → mailto, not seed pipeline.** Running the
+  `scripts/seed-bible.ts` job from a per-tenant button requires admin auth,
+  OSIS licensing gating, background-task infra, and a progress stream. The
+  honest fallback is a pre-filled support email, per the mandate's stated
+  alternative ("Contact support to enable"). Renamed the button to "Request".
+- **Feedback screenshot stored inline in message, no schema change.** The
+  `feedback` table has no attachment column and no S3 upload flow for
+  attachments. Recording presence + size + filename in the persisted message
+  gets triagers the signal they need without a migration.
+- **Voice-command translation swap via local state override.** The
+  `defaultTranslationCode` prop is server-provided at page render. Rather
+  than round-tripping a user preference through the server on every voice
+  command, the OperatorConsole now shadows the prop with local state that
+  the `presentflow:switch-translation` listener updates. Prop changes still
+  reset the override (re-seed).
+- **CenterHeader title → read-only span.** The previous input rendered
+  `readOnly` and threw a toast on click. Removed the whole faux-editable
+  surface; renaming lives on the library entry page.
+- **onDeleteSlide silenced, not wired.** Real per-slide deletion for
+  scripture-range and song items requires per-type editing logic that lives
+  in the slide editor path. The callback is now a documented no-op so
+  BottomDrawer no longer surfaces a "coming soon" toast on right-click.
+- **Pre-existing typecheck error unchanged.** `test/adversarial/audio-reconnect.test.ts`
+  needs `@types/jsdom`. Out of scope for this pass; predates it.
+
 ## Reviewer/security follow-ups — R4/R5, Y1–Y5, Y7 (2026-07-12)
 
 Judgment calls made while closing the remaining 🔴/🟡 findings:

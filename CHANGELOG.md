@@ -1,5 +1,62 @@
 # Changelog
 
+## [main] No-more-scaffolding pass — remove/wire every placeholder (2026-07-12)
+
+Systematic sweep of `data-todo`, "coming soon", and greyed-out UI. Rule of the
+pass: wire it or remove it — no more toasts promising features that don't exist.
+
+Wired (real behaviour):
+- **BottomBar** view modes (grid/list/text) — active state persists and emits
+  `presentflow:slide-view-mode` for consumers.
+- **MediaStrip** — now fetches recent assets from `/api/media/list` and each
+  tile opens Media Library on click.
+- **FeedbackTab screenshot** — file input accepts images up to 4 MB, sent as
+  base64 data URL to `/api/feedback`; server-side records size + filename in
+  the persisted message (no schema change).
+- **Voice command "give me NIV"** — OperatorConsole listens for
+  `presentflow:switch-translation` and re-drives its verse-bank hook against
+  the new translation code (regex-validated).
+- **BibleStore Request** — replaces "Download coming soon" toast with a real
+  pre-filled mailto to support@presentflow.app for the requested translation.
+
+Removed (was greyed / lying):
+- TopBar icons: Text, Palette (Theme), Edit, Reflow, Arrangement, Export,
+  Duplicate slide — all deleted along with the `todo` prop on `IconBtn`.
+- TopBar ProContent popover — hidden for Max tier (was "Coming soon — Max
+  content marketplace"); non-Max users still see the upgrade prompt.
+- BottomBar: Add-slide, Save-As dropdown, Emoji, Filters buttons.
+- StageTab: NDI / Syphon / Placeholder new-source buttons.
+- MessagesTab: Presets, Upload, Theme placeholder tile.
+- MediaSection subcategories: Playlists, Video Inputs.
+- LivePreviewPanel: 16/9 / 4/3 / … aspect-ratio placeholder pills.
+- MediaStrip Filter button + placeholder tile array.
+- CenterHeader "Rename coming soon" toast + read-only input replaced with a
+  plain title label.
+- BottomDrawer SlideContextMenu Disable/Delete toasts (props omitted).
+- OperatorConsole `onDeleteSlide` no longer toasts — no-op with a comment
+  pointing at the slide-editor path.
+- Theme Designer placeholder route + HelpTab tour entry deleted; middleware
+  desktop allow-list trimmed.
+- GatedTutorial "Video coming soon" strip + first-sunday page VideoSlot
+  fallback both removed (returns `null` when no clip).
+- ThemesTab premium tiles for Max users now render a status line
+  ("Premium themes are included in your plan…") instead of dead buttons.
+- BillingPanel "Coming soon" eyebrow renamed to "Upgrade plans".
+- LeftColumn "Playlists coming soon" → "No playlists yet".
+
+Server / API:
+- `/api/feedback` accepts optional `screenshot` (data URL) + `screenshotName`;
+  size cap 6 MB base64 (~4.5 MB raw); silently drops oversize/malformed
+  rather than 400. Appends `[screenshot attached: name, ~N KB]` to persisted
+  message. `screenshotKB` added to sanitized console log line.
+
+Verification:
+- `npm run typecheck` — pass. Pre-existing unrelated jsdom-types error in
+  `test/adversarial/audio-reconnect.test.ts` unchanged.
+- `npm run electron:build:tsc` — pass.
+- `grep -rn "data-todo" src/` — 0 results.
+- `grep -rni "coming soon" src/` — 0 results.
+
 ## [main] Reviewer/security follow-ups — R4/R5 + Y1–Y5, Y7 (2026-07-12)
 
 Closed the remaining 🔴/🟡 findings from the reviewer + security pass.
