@@ -31,6 +31,7 @@ import { MediaBrowser } from "./center/MediaBrowser";
 import { LivePreviewPanel } from "./right/LivePreviewPanel";
 import { OutputRoutingRow } from "./right/OutputRoutingRow";
 import { RightTabs } from "./right/RightTabs";
+import { AIDetectionsPanel } from "./right/AIDetectionsPanel";
 import { BottomBar } from "./BottomBar";
 import { MediaStrip } from "./MediaStrip";
 import { useTimerSession, useMessagesSession, useBibleSession } from "./hooks";
@@ -260,66 +261,6 @@ function LiveTranscriptPanel({ ctx }: { ctx: OperatorShellCtx }) {
           </>
         )}
       </div>
-    </div>
-  );
-}
-
-/**
- * Recent detections panel — last 5 unified suggestions. Sits below the
- * LivePreviewPanel in the right sidebar. When the AI pipeline auto-pauses
- * after 10 min of silence, shows a small pill + Resume button.
- */
-function RecentDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
-  const audio = ctx.audio;
-  const recent = audio.suggestions.slice(0, 5);
-  const paused = audio.stage === "paused";
-  return (
-    <div className="border-t border-[var(--color-border)] px-2 py-2 space-y-1.5" data-testid="recent-detections">
-      <div className="text-[9px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)]">
-        Recent Detections
-      </div>
-      {recent.length === 0 ? (
-        <div className="text-[10px] text-[var(--color-muted-foreground)] italic py-2">
-          No detections yet. Turn on AI listening to see live scripture and song matches here.
-        </div>
-      ) : (
-        <ul className="space-y-1">
-          {recent.map((s) => {
-            let label = "";
-            if (s.type === "scripture") {
-              label = `${s.ref.book} ${s.ref.chapter}:${s.ref.verseStart}${s.ref.verseEnd !== s.ref.verseStart ? `-${s.ref.verseEnd}` : ""}`;
-            } else if (s.type === "song" || s.type === "lyric") {
-              label = `♪ ${s.match.title}`;
-            } else {
-              label = `§ ${s.section}${s.index ? " " + s.index : ""}`;
-            }
-            const conf = Math.round(s.confidence);
-            // Confidence color: >=90 green, 70-89 amber, <70 grey.
-            const confColor = conf >= 90 ? "text-emerald-400" : conf >= 70 ? "text-amber-400" : "text-[var(--color-muted-foreground)]";
-            return (
-              <li key={s.id} className="flex items-center justify-between text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-elevated)]">
-                <span className="truncate">{label}</span>
-                <span className={cn("font-mono shrink-0 ml-1", confColor)}>{conf}%</span>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      {paused && (
-        <div className="flex items-center gap-2 mt-1 text-[10px]">
-          <span className="px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-300 truncate">
-            Transcription paused — No voice activity detected for 10 minutes
-          </span>
-          <button
-            type="button"
-            onClick={() => ctx.onResumeAudio?.()}
-            className="ml-auto px-2 py-0.5 rounded text-[10px] font-semibold text-white shrink-0"
-            style={{ background: "#f97316" }}
-          >
-            Resume
-          </button>
-        </div>
-      )}
     </div>
   );
 }
@@ -612,7 +553,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           )}
           <LivePreviewPanel ctx={ctx} />
           <LiveTranscriptPanel ctx={ctx} />
-          <RecentDetectionsPanel ctx={ctx} />
+          <AIDetectionsPanel ctx={ctx} />
           <div className="flex-1 min-h-0 border-t border-[var(--color-border)]">
             <RightTabs ctx={ctx} timer={timer} messages={messages} />
           </div>
