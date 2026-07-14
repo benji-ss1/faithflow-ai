@@ -44,7 +44,11 @@ export async function POST(req: Request) {
   }
 
   try {
-    const hits = await semanticSearch(translationId, finalQuery, Math.min(limit || 20, 50));
+    // Cap at 100 — the client Results limit dropdown offers 10/20/50/100 and
+    // the operator can raise it when they want more context. Above 100 the
+    // pgvector query cost climbs sharply for diminishing UX value.
+    const requested = typeof limit === "number" && limit > 0 ? limit : 20;
+    const hits = await semanticSearch(translationId, finalQuery, Math.min(requested, 100));
     // Backwards-compat: expose both `hits` and `results` so older callers
     // that read `res.results` keep working.
     return NextResponse.json({ hits, results: hits, translation: translationCode });

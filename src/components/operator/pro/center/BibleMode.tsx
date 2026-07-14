@@ -51,6 +51,8 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
   }, [translation, setCards, setSelectedIdx, setLoading]);
 
   const [phraseHits, setPhraseHits] = useState<Array<{ book: string; chapter: number; verse: number; text: string; matched?: string }>>([]);
+  const [phraseQuery, setPhraseQuery] = useState<string>("");
+  const [resultsLimit, setResultsLimit] = useState<number>(20);
 
   const lookup = useCallback(async () => {
     const parser = await import("@/lib/bible-parser");
@@ -73,11 +75,12 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
       try {
         const res = await fetch("/api/bible/search", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: trimmed, translation, limit: 10 }),
+          body: JSON.stringify({ query: trimmed, translation, limit: resultsLimit }),
         }).then((r) => r.json());
         if (res.error) { toast.error(res.error); return; }
         const hits = (res.hits || res.results || []) as Array<{ book: string; chapter: number; verse: number; text: string }>;
         setPhraseHits(hits.map((h) => ({ ...h, matched: trimmed })));
+        setPhraseQuery(trimmed);
         setCards([]);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Search failed");
@@ -85,7 +88,7 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
         setLoading(false);
       }
     }
-  }, [ref, runLookup, translation, setCards, setLoading]);
+  }, [ref, runLookup, translation, setCards, setLoading, resultsLimit]);
 
   const isRef = (() => {
     try {
@@ -176,7 +179,25 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
       </div>
 
       {tab === "reference" && phraseHits.length > 0 && (
-        <div className="grid gap-2">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2 text-[11px] text-[var(--color-muted-foreground)]">
+            <span>
+              {phraseHits.length} result{phraseHits.length === 1 ? "" : "s"} for &quot;{phraseQuery}&quot; in {translation}
+            </span>
+            <label className="flex items-center gap-1">
+              <span className="uppercase tracking-wider text-[9px] font-mono">Limit</span>
+              <select
+                value={resultsLimit}
+                onChange={(e) => setResultsLimit(parseInt(e.target.value, 10))}
+                className="h-6 px-1 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded text-[11px]"
+                aria-label="Results limit"
+              >
+                {[10, 20, 50, 100].map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </label>
+          </div>
           {phraseHits.map((h, i) => {
             const label = `${h.book} ${h.chapter}:${h.verse}`;
             const slide: SlidePayload = { kind: "text", text: `${h.text}\n\n${label}` };
