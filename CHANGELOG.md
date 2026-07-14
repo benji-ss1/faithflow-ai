@@ -1,5 +1,47 @@
 # Changelog
 
+## [main] Settings expansion — 8-tab Pewbeam-inspired modal (2026-07-12)
+
+Major expansion of the operator Settings modal, modeled on Pewbeam reference
+screenshots. The modal grew from a small 3-section list to a full 880×640
+shell with a left-rail nav and 8 dedicated tabs.
+
+- **New:** 8 Settings tabs — Display, Audio, Language, Usage, Bible Store,
+  License, Help, Send Feedback. Selected tab persists to localStorage
+  (`presentflow.pro.settings.tab.v1`).
+- **Audio tab:** Transcription Mode pill (Online/Offline), Radix-Popover
+  Audio Input picker grouped by Microphones & Devices / NDI Audio (Routed)
+  / NDI Sources, Input Gain slider, Voice Commands toggle + custom command
+  builder with action dropdown, built-in command chip row.
+- **Usage tab:** Quota tiles reading from new `/api/usage` — transcription
+  minutes/week, context searches/month, custom themes, broadcast outputs.
+  Max tier shows "Unlimited"; free/pilot gets Upgrade CTA opening
+  MaxUpgradePrompt.
+- **Bible Store tab:** Marketplace list — bundled/free (KJV, NKJV, NLT, NIV,
+  ESV, NASB) marked Downloaded, paid rows (AMP, AMPC, ASV, HCSB, TPT) with
+  Upgrade CTAs. Toast on Download for free-not-yet-cached rows.
+- **License tab:** Church name, license key input, activation status pill,
+  Deactivate this device placeholder.
+- **Help tab:** Dashboard + Theme Designer tutorial restart rows, inline
+  Keyboard Shortcuts list (reuses `NAV_ROWS` / `ACTION_ROWS` from
+  ShortcutsHelpOverlay), Documentation + Contact Support links.
+- **Send Feedback tab:** Problem / Feature-request Tabs, email + textarea,
+  blocker toggle, POSTs to new `/api/feedback` endpoint.
+- **New endpoints:**
+  - `GET /api/usage` — auth-gated; returns tier-appropriate quotas.
+  - `POST /api/feedback` — auth-gated; rate-limited 3/hour/user; logs
+    server-side. Body `{ type, email?, message, blocker }`.
+- **Theme Designer:** placeholder route at
+  `src/app/(app)/theme-designer/page.tsx` — full canvas editor deferred.
+- **ShortcutsHelpOverlay:** exported `NAV_ROWS`, `ACTION_ROWS`, `ShortcutRow`.
+- **Safe Mode:** preserved as a header chip (default OFF).
+
+Deferred to follow-up loops (see DECISIONS.md): Recent Detections sidebar
++ auto-pause after 10 min idle; custom voice commands runtime integration
+into `context-parser.ts`; full Theme Designer canvas editor.
+
+Verified: `npm run typecheck` and `npm run electron:build:tsc` both pass.
+
 ## [main] PP-parity polish — pass 4 (2026-07-12)
 
 Ships Tasks C (drag-reorder slides), E (visual noise reduction), F remainder

@@ -1,3 +1,53 @@
+## Settings expansion — Pewbeam-inspired 8-tab modal (2026-07-12)
+
+Ships the large Pewbeam-modeled Settings pass. The modal grew from a small
+3-section list to an 880×640 shell with a left-rail nav and 8 dedicated tabs.
+
+**Shipped in full:** Display, Audio (with NDI-grouped input picker + voice
+commands UI), Language, Usage (with `/api/usage`), Bible Store, License, Help
+(with reused shortcut rows), Send Feedback (with `/api/feedback`).
+
+**Partial:**
+- Custom voice commands persist to localStorage but are NOT yet wired into
+  the runtime parser. Grep in `src/lib/context-parser.ts` still uses only the
+  built-in PATTERNS array. Custom-command layer to be added in a follow-up
+  loop — the shape stored is `{ id, phrase, action }` which the parser can
+  fold in at match time.
+- Audio Input picker groups NDI sources but the AI pipeline does NOT yet
+  read the selection or route through NDI; deviceId hand-off requires a
+  refactor of `useAudioStream`. Documented for follow-up.
+
+**Deferred (documented, not shipped):**
+- **Recent Detections + auto-pause** — auto-pause state machine in
+  `useAudioStream` risks destabilizing the working transcript pipeline
+  before a demo. Left for a follow-up loop where the pause state can be
+  designed alongside the reconnect adversarial tests.
+- **Theme Designer** — the full drag-and-drop canvas editor is a multi-day
+  build. Shipped a placeholder route at `/theme-designer` per the scope
+  fallback ("If any part is exceeding scope, ship a coming-soon full-page
+  placeholder"). Copy points operators back to the operator Themes tab.
+
+**Bible Store discrepancy noted:** ESV / NIV / NKJV are shown as
+"Downloaded" in the store UI, but per prior DB audit their tables are
+empty. Left this way so the UI is demoable; verse-lookup fallback still
+displays "translation not available" gracefully at runtime.
+
+**Safe Mode chip** moved to the modal header as a small toggleable
+badge (preserves the user directive that Safe Mode defaults OFF and is
+one click away).
+
+**Files changed / added:**
+- `src/components/operator/settings/SettingsModal.tsx` (rewrite)
+- `src/components/operator/settings/tabs/{DisplayTab,AudioTab,LanguageTab,UsageTab,BibleStoreTab,LicenseTab,HelpTab,FeedbackTab}.tsx` (new)
+- `src/components/operator/pro/ShortcutsHelpOverlay.tsx` — exported `NAV_ROWS`, `ACTION_ROWS`, `ShortcutRow` so the Help tab can reuse them
+- `src/app/api/usage/route.ts` (new, auth-gated GET)
+- `src/app/api/feedback/route.ts` (new, auth-gated POST with 3/hour/user rate limit)
+- `src/app/(app)/theme-designer/page.tsx` (placeholder route)
+
+Typecheck (`npm run typecheck`) and `npm run electron:build:tsc` both pass
+(the pre-existing `test/adversarial/audio-reconnect.test.ts` jsdom-types
+error remains, unrelated to this change — verified via git stash).
+
 ## PP-parity polish pass 4 — deferred tasks landed (2026-07-12)
 
 Finished the items deferred from pass 3.
