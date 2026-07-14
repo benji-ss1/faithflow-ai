@@ -13,6 +13,36 @@ const AUTO_PAUSE_KEY = "presentflow.pro.autoPause.enabled";
 
 type AudioInputSel = { kind: "device" | "ndi"; id: string; label: string };
 
+// Y4: validate shapes read from localStorage. Untrusted input (older builds,
+// manual edits, extensions) can otherwise crash the pipeline downstream.
+function isAudioInputSel(v: unknown): v is AudioInputSel {
+  if (!v || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  return (o.kind === "device" || o.kind === "ndi")
+    && typeof o.id === "string"
+    && typeof o.label === "string";
+}
+function parseAudioInput(raw: string | null): AudioInputSel | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw);
+    return isAudioInputSel(v) ? v : null;
+  } catch { return null; }
+}
+function isCustomCommand(v: unknown): v is CustomCommand {
+  if (!v || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  return typeof o.id === "string" && typeof o.phrase === "string" && typeof o.action === "string";
+}
+function parseCustomCommands(raw: string | null): CustomCommand[] {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    if (!Array.isArray(v)) return [];
+    return v.filter(isCustomCommand);
+  } catch { return []; }
+}
+
 const NDI_PLACEHOLDERS = [
   { id: "ndi:JPDBROACASTCOMP", label: "JPDBROACASTCOMP (macOS AV Output)" },
   { id: "ndi:JPDBROPRESENTER", label: "JPDBROPRESENTER (JPD's Mac mini - NDI 1)" },
@@ -52,10 +82,9 @@ export function AudioTab() {
       setVoiceOn(v !== "0");
       const ap = localStorage.getItem(AUTO_PAUSE_KEY);
       setAutoPause(ap !== "0");
-      const raw = localStorage.getItem(AUDIO_INPUT_KEY);
-      if (raw) { try { setSelected(JSON.parse(raw)); } catch {} }
-      const cRaw = localStorage.getItem(CUSTOM_COMMANDS_KEY);
-      if (cRaw) { try { setCustoms(JSON.parse(cRaw)); } catch {} }
+      const parsedSel = parseAudioInput(localStorage.getItem(AUDIO_INPUT_KEY));
+      if (parsedSel) setSelected(parsedSel);
+      setCustoms(parseCustomCommands(localStorage.getItem(CUSTOM_COMMANDS_KEY)));
     } catch {}
     // enumerate devices
     if (navigator.mediaDevices?.enumerateDevices) {
