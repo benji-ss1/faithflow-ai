@@ -1,5 +1,27 @@
 # Changelog
 
+## [main] AI Live pill + Bible phrase fix + passage-toggle removal (2026-07-12)
+
+- **TopBar AI Live pill** — replaces the tiny Radio icon with a prominent
+  ~90x28 pill (OFF red / CONNECTING amber pulse / LIVE green subtle pulse),
+  positioned before the Live/Audience/Stage indicators. Tooltip surfaces
+  the current pipeline stage. Added `pf-pulse-live` +
+  `pf-pulse-connecting` keyframes.
+- **Phrase-search fix** — `/api/bible/search` now accepts translation
+  code (resolves to id) and `query` OR `q`, returns both `hits` and
+  `results`. Client sends `{ query, translation }` and gates min-3-chars
+  before dispatch.
+- **Removed verse/passage toggle from BibleMode** — always one verse per
+  card. `mode` dropped from `BibleSessionState`.
+- **AI pipeline shell routing** — high-confidence scripture detections
+  now populate the Bible session cards even if the operator is on a
+  different center tab.
+- **New test** `test/bible-phrase-search.test.ts` — 3 cases, all pass.
+
+Verified: `npm run typecheck` (one pre-existing jsdom types warning
+unrelated to this pass) + `npm run electron:build:tsc` both pass.
+Existing tests still green (ai-pipeline 28/28, bible-mode 6/6).
+
 ## [main] No-more-scaffolding pass — remove/wire every placeholder (2026-07-12)
 
 Systematic sweep of `data-todo`, "coming soon", and greyed-out UI. Rule of the
