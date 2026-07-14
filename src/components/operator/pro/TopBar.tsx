@@ -420,61 +420,80 @@ export function TopBar({
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
-        {/* Big-bright AI Live pill — prominent OFF/CONNECTING/LIVE indicator.
-            Replaces the tiny Radio icon. Sits BEFORE the Live/Audience/Stage
-            pills so operators can spot AI state at a glance. */}
+        {/* Big-bright AI Live pill — prominent OFF/CONNECTING/LIVE/OFFLINE indicator.
+            Sits BEFORE the Live/Audience/Stage pills so operators can spot AI
+            state at a glance. When errored, the pill splits into a status
+            chip + inline Retry button. */}
         <Tooltip.Provider delayDuration={200}>
-          <Tooltip.Root>
-            <Tooltip.Trigger asChild>
+          <div className="flex items-center gap-1">
+            <Tooltip.Root>
+              <Tooltip.Trigger asChild>
+                <button
+                  type="button"
+                  onClick={ctx.onListenToggle}
+                  aria-pressed={listening}
+                  aria-label={aiTitle}
+                  className={cn(
+                    "flex items-center gap-1.5 h-[28px] min-w-[90px] px-2 rounded-full border text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
+                    aiError
+                      ? "bg-red-600/25 text-red-100 border-red-500/70"
+                      : listening && aiReady && aiFlowing
+                      ? "bg-green-500/20 text-green-200 border-green-500/50 hover:bg-green-500/25"
+                      : listening
+                      ? "bg-amber-500/15 text-amber-200 border-amber-500/50 hover:bg-amber-500/25"
+                      : "bg-red-500/15 text-red-300 border-red-500/40 hover:bg-red-500/25",
+                  )}
+                >
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "inline-block w-2 h-2 rounded-full shrink-0",
+                      aiError
+                        ? "bg-red-500"
+                        : listening && aiReady && aiFlowing
+                        ? "bg-green-400 pf-ai-live-dot"
+                        : listening
+                        ? "bg-amber-400 pf-ai-connecting-dot"
+                        : "bg-red-500",
+                    )}
+                  />
+                  <span className="truncate">
+                    {aiError
+                      ? "AI Live · offline"
+                      : listening && aiReady && aiFlowing
+                      ? "AI Live"
+                      : listening
+                      ? "AI Live · connecting…"
+                      : "AI Live"}
+                  </span>
+                  {aiError && (
+                    <span
+                      aria-hidden
+                      title="Audio bridge unreachable — click Retry to reconnect"
+                      className="ml-1 inline-flex items-center justify-center w-3 h-3 rounded-full bg-red-500/60 text-white text-[8px] font-bold"
+                    >i</span>
+                  )}
+                </button>
+              </Tooltip.Trigger>
+              <Tooltip.Portal>
+                <Tooltip.Content
+                  sideOffset={6}
+                  className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] px-2 py-1 text-[11px] z-50 font-mono max-w-[260px]"
+                >
+                  {aiError ? aiError : `stage: ${ctx.audio.stage}`}
+                </Tooltip.Content>
+              </Tooltip.Portal>
+            </Tooltip.Root>
+            {aiError && (
               <button
                 type="button"
-                onClick={ctx.onListenToggle}
-                aria-pressed={listening}
-                aria-label={aiTitle}
-                className={cn(
-                  "flex items-center gap-1.5 h-[28px] min-w-[90px] px-2 rounded-full border text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
-                  aiError
-                    ? "bg-red-500/20 text-red-200 border-red-500/60"
-                    : listening && aiReady && aiFlowing
-                    ? "bg-green-500/20 text-green-200 border-green-500/50 hover:bg-green-500/25"
-                    : listening
-                    ? "bg-amber-500/15 text-amber-200 border-amber-500/50 hover:bg-amber-500/25"
-                    : "bg-red-500/15 text-red-300 border-red-500/40 hover:bg-red-500/25",
-                )}
-              >
-                <span
-                  aria-hidden
-                  className={cn(
-                    "inline-block w-2 h-2 rounded-full shrink-0",
-                    aiError
-                      ? "bg-red-500"
-                      : listening && aiReady && aiFlowing
-                      ? "bg-green-400 pf-ai-live-dot"
-                      : listening
-                      ? "bg-amber-400 pf-ai-connecting-dot"
-                      : "bg-red-500",
-                  )}
-                />
-                <span className="truncate">
-                  {aiError
-                    ? "AI error"
-                    : listening && aiReady && aiFlowing
-                    ? "AI Live"
-                    : listening
-                    ? "AI Live · connecting…"
-                    : "AI Live"}
-                </span>
-              </button>
-            </Tooltip.Trigger>
-            <Tooltip.Portal>
-              <Tooltip.Content
-                sideOffset={6}
-                className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] px-2 py-1 text-[11px] z-50 font-mono"
-              >
-                {aiError ? aiError : `stage: ${ctx.audio.stage}`}
-              </Tooltip.Content>
-            </Tooltip.Portal>
-          </Tooltip.Root>
+                onClick={() => { ctx.onResumeAudio?.() ?? ctx.onListenToggle(); }}
+                title="Retry AI listener"
+                aria-label="Retry AI listener"
+                className="h-[24px] px-2 rounded-md text-[10px] font-semibold bg-red-500/20 text-red-100 border border-red-500/50 hover:bg-red-500/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
+              >Retry</button>
+            )}
+          </div>
         </Tooltip.Provider>
         {/* Task F — PP-parity output pills */}
         <button

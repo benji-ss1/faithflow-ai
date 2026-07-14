@@ -272,7 +272,11 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     const base = Math.min(500 * Math.pow(2, attempt - 1), 15_000);
     const delay = base + Math.floor(Math.random() * 500);
     if (isDevOrTraceOn()) console.log(`[presentflow-audio] scheduling reconnect attempt ${attempt} in ${delay}ms`);
-    setState((s) => ({ ...s, error: `Reconnecting AI listener (attempt ${attempt})…` }));
+    // Don't set a user-facing error string during the transient reconnect
+    // loop — the AI Live pill already carries the "connecting…" state and
+    // the operator doesn't need a red banner for every Fly hiccup. Keep the
+    // console log for debugging; only the exhaustion case (>8 attempts,
+    // handled above) surfaces a real error.
     reconnectTimerRef.current = setTimeout(() => {
       reconnectTimerRef.current = null;
       // Tear the old pipeline down before starting fresh — mic tracks and
@@ -371,7 +375,17 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       ws.onclose = (e) => {
         log("WS close", { code: e.code, reason: e.reason });
         const abnormal = e.code !== 1000 && e.code !== 1005;
-        setState((s) => ({ ...s, ready: false }));
+        // Server sends 1008 for auth / ticket problems and 1011 for missing
+        // config (e.g. DEEPGRAM_API_KEY). Both are non-recoverable by
+        // reconnecting — surface the reason directly and stop the loop.
+        const fatal = e.code === 1008 || e.code === 1011;
+        setState((s) => ({ ...s, ready: false, error: fatal && e.reason ? `Audio bridge: ${e.reason}` : s.error }));
+        if (fatal) {
+          intentionalStopRef.current = true;
+          if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
+          setState((s) => ({ ...s, listening: false }));
+          return;
+        }
         if (abnormal && !intentionalStopRef.current) {
           // Keep `listening` true so the top-bar pill still shows "on" while
           // we reconnect behind the scenes — the operator shouldn't have to
