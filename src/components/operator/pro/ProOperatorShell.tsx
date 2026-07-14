@@ -34,6 +34,8 @@ import { RightTabs } from "./right/RightTabs";
 import { BottomBar } from "./BottomBar";
 import { MediaStrip } from "./MediaStrip";
 import { useTimerSession, useMessagesSession, useBibleSession } from "./hooks";
+import { cachedLookup } from "@/lib/bible-client-cache";
+import { cn } from "@/lib/utils";
 import { useOperatorHotkeys } from "@/hooks/useOperatorHotkeys";
 import { ShortcutsHelpOverlay } from "./ShortcutsHelpOverlay";
 import { OperatorTour, hasSeenTour } from "@/components/tutorial/OperatorTour";
@@ -291,10 +293,13 @@ function RecentDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
             } else {
               label = `§ ${s.section}${s.index ? " " + s.index : ""}`;
             }
+            const conf = Math.round(s.confidence);
+            // Confidence color: >=90 green, 70-89 amber, <70 grey.
+            const confColor = conf >= 90 ? "text-emerald-400" : conf >= 70 ? "text-amber-400" : "text-[var(--color-muted-foreground)]";
             return (
               <li key={s.id} className="flex items-center justify-between text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-elevated)]">
                 <span className="truncate">{label}</span>
-                <span className="font-mono opacity-60 shrink-0 ml-1">{s.confidence}%</span>
+                <span className={cn("font-mono shrink-0 ml-1", confColor)}>{conf}%</span>
               </li>
             );
           })}
@@ -370,33 +375,51 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     const key = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}-${scripture.ref.verseEnd}`;
     if (lastRoutedScriptureRef.current === key) return;
     lastRoutedScriptureRef.current = key;
-    // Fire-and-forget lookup — mirrors BibleMode.runLookup.
+    // Optimistic render: show a placeholder card immediately so operator sees
+    // detection landed before the DB roundtrip completes. Cache-hit path
+    // resolves synchronously below and overwrites — no visible flicker.
+    const label = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}${scripture.ref.verseStart !== scripture.ref.verseEnd ? `-${scripture.ref.verseEnd}` : ""} (${bibleSession.state.translation})`;
+    bibleSession.setRef(key);
+    bibleSession.setCards([{
+      id: `ai-placeholder-${key}`,
+      label,
+      verses: [{ verse: scripture.ref.verseStart, text: "Loading…" }],
+    }]);
+    bibleSession.setSelectedIdx(0);
     (async () => {
       try {
-        const res = await fetch("/api/bible/lookup", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            book: scripture.ref.book,
-            chapter: scripture.ref.chapter,
-            verseStart: scripture.ref.verseStart,
-            verseEnd: scripture.ref.verseEnd,
-            translationCode: bibleSession.state.translation,
-          }),
-        }).then((r) => r.json());
-        if (res.error) return;
-        const verses: Array<{ verse: number; text: string }> = res.verses || [];
-        const label = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}${scripture.ref.verseStart !== scripture.ref.verseEnd ? `-${scripture.ref.verseEnd}` : ""} (${res.translation || bibleSession.state.translation})`;
+        const res = await cachedLookup({
+          book: scripture.ref.book,
+          chapter: scripture.ref.chapter,
+          verseStart: scripture.ref.verseStart,
+          verseEnd: scripture.ref.verseEnd,
+          translationCode: bibleSession.state.translation,
+        });
+        const verses = res.verses;
+        const finalLabel = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}${scripture.ref.verseStart !== scripture.ref.verseEnd ? `-${scripture.ref.verseEnd}` : ""} (${res.translation})`;
         const cards = verses.map((v, i) => ({
-          id: `ai-${label}-${i}`,
-          label: `${scripture.ref.book} ${scripture.ref.chapter}:${v.verse} (${res.translation || bibleSession.state.translation})`,
-          verses: [v],
+          id: `ai-${finalLabel}-${i}`,
+          label: `${scripture.ref.book} ${scripture.ref.chapter}:${v.verse} (${res.translation})`,
+          verses: [{ verse: v.verse, text: v.text }],
         }));
-        if (cards.length === 0) return;
-        bibleSession.setRef(key);
+        if (cards.length === 0) {
+          // lookup came back empty — replace placeholder with error card
+          bibleSession.setCards([{
+            id: `ai-error-${key}`,
+            label,
+            verses: [{ verse: scripture.ref.verseStart, text: "(no verse text available)" }],
+          }]);
+          return;
+        }
         bibleSession.setCards(cards);
         bibleSession.setSelectedIdx(0);
-      } catch { /* ignore */ }
+      } catch {
+        bibleSession.setCards([{
+          id: `ai-error-${key}`,
+          label,
+          verses: [{ verse: scripture.ref.verseStart, text: "(lookup failed)" }],
+        }]);
+      }
     })();
   }, [ctx.audio.suggestions, ctx.confidenceThreshold, bibleSession]);
 
