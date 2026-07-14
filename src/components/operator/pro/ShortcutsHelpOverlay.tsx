@@ -7,9 +7,10 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 
-type Row = { keys: string; label: string };
+export type ShortcutRow = { keys: string; label: string };
+type Row = ShortcutRow;
 
-const NAV_ROWS: Row[] = [
+export const NAV_ROWS: Row[] = [
   { keys: "Space / →", label: "Next slide" },
   { keys: "←", label: "Previous slide" },
   { keys: "Enter", label: "Send preview to live (Safe Mode-aware; default: sends immediately)" },
@@ -20,7 +21,7 @@ const NAV_ROWS: Row[] = [
   { keys: "?", label: "Open this help overlay" },
 ];
 
-const ACTION_ROWS: Row[] = [
+export const ACTION_ROWS: Row[] = [
   { keys: "B", label: "Blank screen" },
   { keys: "L", label: "Church logo screen" },
   { keys: "⌘/Ctrl + K", label: "Open search palette" },
