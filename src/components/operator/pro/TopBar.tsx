@@ -8,7 +8,7 @@ import { canAccess } from "@/lib/tier";
 import { MaxUpgradePrompt } from "@/components/tier/MaxUpgradePrompt";
 import {
   Search, Play, BookOpen,
-  MoreHorizontal, Sparkles, Image as ImageIcon, MonitorSpeaker, Circle, Radio, ScreenShare,
+  MoreHorizontal, Sparkles, Image as ImageIcon, MonitorSpeaker, Circle, ScreenShare,
   Music, Printer, ChevronDown,
 } from "lucide-react";
 import Image from "next/image";
@@ -127,13 +127,6 @@ export function TopBar({
   const aiFlowing = ctx.audio.dgMessagesReceived > 0
     || ctx.audio.stage === "receiving_interim"
     || ctx.audio.stage === "receiving_final";
-  const aiDotClass = aiError
-    ? "text-[var(--color-destructive)]"
-    : listening && aiReady && aiFlowing
-    ? "text-[var(--color-ai-listening)]"
-    : listening
-    ? "text-[var(--color-warning,#f5a524)]"
-    : "text-[var(--color-muted-foreground)]";
   const aiTitle = aiError
     ? `AI error: ${aiError} — click to retry`
     : listening && aiReady && aiFlowing
@@ -427,6 +420,62 @@ export function TopBar({
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
+        {/* Big-bright AI Live pill — prominent OFF/CONNECTING/LIVE indicator.
+            Replaces the tiny Radio icon. Sits BEFORE the Live/Audience/Stage
+            pills so operators can spot AI state at a glance. */}
+        <Tooltip.Provider delayDuration={200}>
+          <Tooltip.Root>
+            <Tooltip.Trigger asChild>
+              <button
+                type="button"
+                onClick={ctx.onListenToggle}
+                aria-pressed={listening}
+                aria-label={aiTitle}
+                className={cn(
+                  "flex items-center gap-1.5 h-[28px] min-w-[90px] px-2 rounded-full border text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
+                  aiError
+                    ? "bg-red-500/20 text-red-200 border-red-500/60"
+                    : listening && aiReady && aiFlowing
+                    ? "bg-green-500/20 text-green-200 border-green-500/50 hover:bg-green-500/25"
+                    : listening
+                    ? "bg-amber-500/15 text-amber-200 border-amber-500/50 hover:bg-amber-500/25"
+                    : "bg-red-500/15 text-red-300 border-red-500/40 hover:bg-red-500/25",
+                )}
+              >
+                <span
+                  aria-hidden
+                  className={cn(
+                    "inline-block w-2 h-2 rounded-full shrink-0",
+                    aiError
+                      ? "bg-red-500"
+                      : listening && aiReady && aiFlowing
+                      ? "bg-green-400 pf-ai-live-dot"
+                      : listening
+                      ? "bg-amber-400 pf-ai-connecting-dot"
+                      : "bg-red-500",
+                  )}
+                />
+                <span className="truncate">
+                  {aiError
+                    ? "AI error"
+                    : listening && aiReady && aiFlowing
+                    ? "AI Live"
+                    : listening
+                    ? "AI Live · connecting…"
+                    : "AI Live"}
+                </span>
+              </button>
+            </Tooltip.Trigger>
+            <Tooltip.Portal>
+              <Tooltip.Content
+                sideOffset={6}
+                className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] px-2 py-1 text-[11px] z-50 font-mono"
+              >
+                {aiError ? aiError : `stage: ${ctx.audio.stage}`}
+              </Tooltip.Content>
+            </Tooltip.Portal>
+          </Tooltip.Root>
+        </Tooltip.Provider>
         {/* Task F — PP-parity output pills */}
         <button
           type="button"
@@ -471,14 +520,6 @@ export function TopBar({
           <span className="hidden sm:inline">Stage</span>
           <ScreenShare className="w-3 h-3 sm:hidden" />
         </div>
-        <button
-          type="button"
-          onClick={ctx.onListenToggle}
-          title={aiTitle}
-          className="flex items-center gap-1 px-1 rounded hover:bg-white/5"
-        >
-          <Radio className={cn("w-4 h-4", aiDotClass)} />
-        </button>
         {/* Task G — Present Flow logo */}
         <Popover.Root>
           <Popover.Trigger asChild>
