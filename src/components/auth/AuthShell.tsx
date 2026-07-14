@@ -83,16 +83,16 @@ function BrandPanel() {
           <br />
           Created <span className="pf-brand-text">effortlessly.</span>
         </h1>
-        <p className="text-[16.5px] leading-[1.6] mt-[22px] max-w-[452px]" style={{ color: "#a7a096" }}>
+        <p className="text-[17px] font-medium leading-[1.6] mt-[22px] max-w-[452px]" style={{ color: "#efe8d9" }}>
           PresentFlow is AI-native — it listens, understands, and helps you deliver powerful presentations in real time.
         </p>
-        <p className="text-[16.5px] leading-[1.6] mt-[14px] max-w-[452px]" style={{ color: "#a7a096" }}>
+        <p className="text-[17px] font-medium leading-[1.6] mt-[14px] max-w-[452px]" style={{ color: "#efe8d9" }}>
           Create slides, show lyrics, display verses, and engage your audience — all from one intuitive platform.
         </p>
 
         {/* Rotating "Trusted for" tag */}
         <div className="flex items-center gap-2.5 mt-8 min-h-[26px]">
-          <span className="text-sm" style={{ color: "#847d72" }}>
+          <span className="text-sm font-semibold" style={{ color: "#d5cdc1" }}>
             Trusted for
           </span>
           <div
@@ -106,7 +106,7 @@ function BrandPanel() {
       </div>
 
       {/* Footer proof points */}
-      <div className="relative z-[2] flex gap-[26px] text-[13px]" style={{ color: "#847d72" }}>
+      <div className="relative z-[2] flex gap-[26px] text-[13.5px] font-semibold" style={{ color: "#e6ded0" }}>
         {PROOF_POINTS.map((p) => (
           <div key={p} className="flex items-center gap-2.5">
             <CheckCircle2 className="w-[18px] h-[18px]" style={{ color: "#ff9048" }} strokeWidth={1.8} />
