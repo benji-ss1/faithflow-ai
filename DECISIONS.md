@@ -1002,3 +1002,31 @@ Total LOC: ~130 new, 1 changed. Under the 100 LOC "3-review-agents required" bar
   button group unchanged" instruction, and added a small BookOpen
   IconBtn to the left cluster mirroring the mode toggle. Two entry
   points to the same mode is acceptable — mirrors PP.
+
+## Voice commands + audio input + auto-pause + Bible Store
+
+- **Voice command debounce = 5s per action.** Spec asked "same command
+  matched within 5s doesn't refire" — implemented per-action, not
+  per-phrase, so if two phrases map to `next_verse` neither fires
+  twice inside the window. Matches operator intent.
+- **Voice command dispatch = window CustomEvent, not React state.**
+  Keeps the useAudioStream hook decoupled from the shell. The shell
+  is the one place that knows how to map `action` → ctx callback.
+- **"Give me NIV" dispatches `presentflow:switch-translation`.** No
+  wiring exists for a global translation change today —
+  `defaultTranslationCode` is a top-level prop from server data. Rather
+  than block on that plumbing, dispatched an event the shell can wire
+  in a follow-up.
+- **NDI still not implemented.** The Audio Input picker respects the
+  NDI selection at the pref level but falls back to the default device
+  and logs the documented `[ai-pipeline:1] NDI source selected …` line.
+  Real NDI capture is a separate loop.
+- **Auto-pause closes the WS, not just the mic.** Cheaper — Deepgram
+  bills per open connection. Trade-off is a ~2s reconnect delay when
+  the operator hits Resume; acceptable since the auto-pause only fires
+  after 10 min of silence, which by definition is not mid-service.
+- **Auto-pause only triggers from `receiving_final`.** Prevents yanking
+  a pipeline still in ticket/mic/deepgram-ready init phases.
+- **Bible Store endpoint uses `listBooks` per translation.** Simple
+  N queries; N ≤ 11 today, and the tab is not on the hot path.
+  Optimisable later with a single grouped SQL if it matters.

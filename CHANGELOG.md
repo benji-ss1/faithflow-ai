@@ -1306,3 +1306,59 @@ Closed 6 🔴 and 14 🟡 findings from the ProOperatorShell review.
 - Task 4 (Themes dialogs), Task 5 (right-sidebar output indicators),
   Task 6 (transition chooser tabs), Task 7 (Bible phrase search UI —
   endpoint already exists at `/api/bible/search`).
+
+## Voice commands + Audio input + Auto-pause + Bible Store real state
+
+### feat(voice-commands): runtime wiring
+- `src/lib/voice-commands.ts` — new module. `matchCustomCommand`
+  (whole-word, case-insensitive, 5s per-action debounce, longest
+  wins), `readCustomCommands`, `readAudioInputPref`,
+  `audioConstraintsFor`. Pure functions so tests can drive them.
+- `src/components/operator/useAudioStream.ts` — after every final
+  transcript, match against `presentflow.pro.voiceCommands.v1` and
+  dispatch `presentflow:voice-command` with `{action, phrase}`.
+- `src/components/operator/pro/ProOperatorShell.tsx` — listens for
+  the event and routes to `hotkey-next` / `hotkey-prev` /
+  `switch-translation` (NIV) / `ctx.onBlank` / `ctx.onKill`. Toasts
+  "Voice command: <phrase>" so operator sees it fired.
+
+### feat(ai-pipeline): honour audio-input preference; restart on change
+- `useAudioStream` reads `presentflow.pro.audioInput.v1` before
+  `getUserMedia`, passes `deviceId: { exact }` for `kind: "device"`,
+  logs the documented NDI fallback line for `kind: "ndi"`.
+- Restarts the pipeline on `presentflow:audio-input-changed`.
+- `AudioTab` dispatches that event on every selection change.
+
+### feat(operator/pro): recent detections + 10-min auto-pause
+- New `RecentDetectionsPanel` under `LivePreviewPanel` in the right
+  sidebar. Last 5 unified suggestions. Empty state text and
+  formatting per spec.
+- `useAudioStream` tracks `lastTranscriptAtRef` (interim + final);
+  30s poll checks silence; after 10 min while `receiving_final`,
+  tears down the pipeline and transitions stage to new `paused`
+  value. Closes the WS to avoid Deepgram cost.
+- `resume()` exposed from the hook, plumbed via
+  `OperatorShellCtx.onResumeAudio`. Orange Resume button in the
+  panel shows only when paused.
+- Auto-pause toggle in Settings > Audio; localStorage
+  `presentflow.pro.autoPause.enabled` (default on).
+
+### feat(bible-store): reflect real DB state
+- New endpoint `GET /api/bible/translations/status` — `apiUser`-gated,
+  returns per-translation `{code, name, licenseRequired, books,
+  downloaded, partial}`. Licensed translations report 0 books (matches
+  the server-side `isLicensedTranslation` guard). Single roundtrip;
+  church-scoped read via the same DB session used elsewhere.
+- `BibleStoreTab` fetches on mount. Renders "Downloaded" when
+  `books >= 66`, "Partial (X/66 books)" when 0 < books < 66, or a
+  "Download" button otherwise. Paid rows (AMP, AMPC, ASV, HCSB, TPT)
+  still render as Paid + Upgrade regardless of DB state.
+
+### test
+- `test/voice-commands.test.ts` — 6 new tests covering empty list,
+  case-insensitivity, whole-word rule, 5s debounce (before/after),
+  and longest-phrase-wins.
+- `test/ai-pipeline.test.ts` — 7 new tests for `readAudioInputPref`
+  (null / valid / malformed / invalid kind) and `audioConstraintsFor`
+  (device / NDI / null). Existing PipelineStage test updated to
+  include `paused`.

@@ -17,6 +17,7 @@ import type { PipelineStage } from "../src/components/operator/useAudioStream";
 import { detectSongInTranscript, resetSongDedupe } from "../src/lib/ai-detection/song-detection";
 import { detectAll } from "../src/lib/ai-detection";
 import type { IndexedSong } from "../src/lib/ai-detection/lyric-fragment";
+import { readAudioInputPref, audioConstraintsFor } from "../src/lib/voice-commands";
 
 let passed = 0;
 let failed = 0;
@@ -115,10 +116,11 @@ async function main() {
       "first_chunk_sent",
       "receiving_interim",
       "receiving_final",
+      "paused",
     ];
     // If any of the above is missing from the union, TS fails to compile
     // (and this test never runs). At runtime we just verify the list.
-    assert.ok(required.length === 14);
+    assert.ok(required.length === 15);
   });
 
   // ---- WS URL config gate ----
@@ -236,6 +238,59 @@ async function main() {
     // Grace is <4 chars single-word title → exact-only, so "grace of God today"
     // does NOT match.
     assert.equal(r, null);
+  });
+
+  // ---- Audio input preference reading (pure function) ----
+  test("readAudioInputPref: missing key returns null", () => {
+    const store = new Map<string, string>();
+    const pref = readAudioInputPref({ getItem: (k) => store.get(k) ?? null });
+    assert.equal(pref, null);
+  });
+
+  test("readAudioInputPref: parses valid device entry", () => {
+    const store = new Map<string, string>([
+      ["presentflow.pro.audioInput.v1", JSON.stringify({ kind: "device", id: "abc123", label: "Mic 1" })],
+    ]);
+    const pref = readAudioInputPref({ getItem: (k) => store.get(k) ?? null });
+    assert.ok(pref);
+    assert.equal(pref!.kind, "device");
+    assert.equal(pref!.id, "abc123");
+  });
+
+  test("readAudioInputPref: rejects malformed JSON", () => {
+    const store = new Map<string, string>([["presentflow.pro.audioInput.v1", "{not-json"]]);
+    const pref = readAudioInputPref({ getItem: (k) => store.get(k) ?? null });
+    assert.equal(pref, null);
+  });
+
+  test("readAudioInputPref: rejects invalid kind", () => {
+    const store = new Map<string, string>([
+      ["presentflow.pro.audioInput.v1", JSON.stringify({ kind: "bogus", id: "x", label: "y" })],
+    ]);
+    const pref = readAudioInputPref({ getItem: (k) => store.get(k) ?? null });
+    assert.equal(pref, null);
+  });
+
+  test("audioConstraintsFor: device pref uses exact deviceId", () => {
+    const c = audioConstraintsFor({ kind: "device", id: "dev-1", label: "" });
+    const audio = c.audio as MediaTrackConstraints;
+    assert.ok(audio && typeof audio === "object");
+    const did = audio.deviceId as { exact: string };
+    assert.equal(did.exact, "dev-1");
+  });
+
+  test("audioConstraintsFor: NDI pref falls back to default (no deviceId)", () => {
+    const c = audioConstraintsFor({ kind: "ndi", id: "ndi:default", label: "" });
+    const audio = c.audio as MediaTrackConstraints;
+    assert.ok(audio && typeof audio === "object");
+    assert.equal((audio as { deviceId?: unknown }).deviceId, undefined);
+  });
+
+  test("audioConstraintsFor: null pref returns default constraints", () => {
+    const c = audioConstraintsFor(null);
+    const audio = c.audio as MediaTrackConstraints;
+    assert.ok(audio && typeof audio === "object");
+    assert.equal((audio as { deviceId?: unknown }).deviceId, undefined);
   });
 
   await Promise.all(pending);
