@@ -1,3 +1,11 @@
+## Audio bridge + Safe Mode + transcript panel pass (2026-07-12)
+
+- **Root cause of "double-click required":** two Safe Mode localStorage keys existed. The SettingsModal wrote `presentflow.safeMode` while SlideGrid + useOperatorHotkeys read `presentflow.operator.safeMode`. If the operator (or an older build) had set the operator key to `"1"`, no UI could clear it. Fix: unify on `presentflow.operator.safeMode` and migrate the legacy key on Settings open. The click handler logic itself was already correct.
+- **Auto-start audio-server in dev only.** Prod runs on Fly (`fly.toml`); shipping an in-process spawn there would be wrong. Guarded by `isDev`. Failure to spawn does NOT abort Electron — the AI Live pill will just show the new "offline" error state with a Retry affordance.
+- **Kept `AITranscriptTicker` as a slim chip strip** rather than deleting it. Song/scripture chips are the primary "add-to-playlist" flow for operators — removing them would regress a wired feature. The rolling transcript text moved to the sidebar panel where operators can watch it without eating vertical shell space.
+- **Fatal WS close codes stop the reconnect loop.** 1008/1011 mean the client can't fix the problem by retrying (bad ticket, missing key) so we stop and surface the reason directly. Only truly transient closes (abnormal, non-1008/1011) still trigger backoff.
+- **Server search cap raised from 50 → 100** to match the new 100 dropdown option. Above 100 the pgvector cosine scan becomes noticeably slower and returns tail results the operator won't actually project.
+
 ## No-more-scaffolding pass (2026-07-12)
 
 Judgment calls made while executing the "wire or remove" placeholder sweep:

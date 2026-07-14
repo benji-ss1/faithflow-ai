@@ -1,5 +1,17 @@
 # Changelog
 
+## [main] Audio bridge auto-start + Live transcript panel + Safe Mode unify + phrase-hit rendering (2026-07-12)
+
+- **electron/main.ts** — dev spawns `scripts/audio-server.ts` via bundled tsx CLI as a managed child (`[ws-server]` log prefix), polls `http://127.0.0.1:3001/` up to 5s for readiness, kills on `before-quit`. Fixes "AI error" in fresh dev environments where nobody remembered to run `npm run ws`.
+- **scripts/audio-server.ts** — explicit WS close codes: `1011` for `deepgram key missing` / `auth secret missing`, `1008` for `invalid ticket` / `unknown plan`. Dev no longer hard-exits on missing key; prod still does. New `/health` JSON endpoint reports config status.
+- **useAudioStream.ts** — treats close codes 1008/1011 as fatal (no reconnect loop) and surfaces `Audio bridge: <reason>` verbatim. Removes the transient "Reconnecting AI listener (attempt N)…" status string; the AI Live pill is now the sole status indicator.
+- **TopBar AI Live pill** — errored state renders "AI Live · offline" with red bg, tiny info dot, and an inline Retry button beside the pill.
+- **ProOperatorShell** — new `LiveTranscriptPanel` in the right sidebar between LivePreviewPanel and RecentDetections. Fixed 96px scroll box, monospace font, final text foreground / interim text dim, recording pulse dot. Old `AITranscriptTicker` slimmed to chips-only (transcript text + error text removed to reduce noise; scripture/song chips stay since they're actionable). Hidden entirely when there are no chips to show.
+- **SlideGrid** — empty-state tip added: "Tip: click any slide to send it live. Enable Safe Mode in Settings to require double-click."
+- **SettingsModal Safe Mode key unification** — the modal was writing `presentflow.safeMode` but SlideGrid + useOperatorHotkeys read `presentflow.operator.safeMode`. Toggling the chip did nothing. Now writes the operator key, migrates any lingering legacy value on open, deletes the legacy key.
+- **BibleMode phrase search** — full hit list is rendered (was already looping but capped by `limit: 10` client-side). Added Results limit dropdown (10 / 20 / 50 / 100, default 20) and a summary line "N results for '…' in <TR>". Server route now accepts up to 100 (was capped at 50).
+- **test/bible-phrase-search.test.ts** — three new tests cover multi-hit rendering, the `limit` param on the outgoing request, and the 100 cap. 6 tests pass.
+
 ## [main] AI Live pill + Bible phrase fix + passage-toggle removal (2026-07-12)
 
 - **TopBar AI Live pill** — replaces the tiny Radio icon with a prominent
