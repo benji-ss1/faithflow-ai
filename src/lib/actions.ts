@@ -1015,3 +1015,62 @@ export async function updateSongSettings(songId: string, patch: Record<string, u
   await db.update(songs).set({ settings: { ...prev, ...patch } }).where(eq(songs.id, songId));
   return { ok: true };
 }
+
+// -----------------------------------------------------------------------
+// Public-domain hymn import (from /api/songs/public-domain/search results)
+// -----------------------------------------------------------------------
+/**
+ * Import a public-domain hymn candidate into the church library.
+ *
+ * Church-scoped: writes to the caller's churchId only. Marks the row as
+ * source = "public_domain" so downstream detection knows the licensing
+ * story. Idempotent on (churchId, title, source) — a duplicate call returns
+ * the existing songId instead of inserting a second copy.
+ */
+export async function importPublicDomainSong(input: {
+  title: string;
+  author?: string | null;
+  lyrics: string[];
+  source: "hymnary" | "llm";
+}): Promise<Result<{ id: string; duplicate: boolean }>> {
+  const user = await requireUser();
+  const title = String(input?.title || "").trim().slice(0, 200);
+  if (!title) return { ok: false, error: "Title required" };
+  const artist = input?.author ? String(input.author).trim().slice(0, 120) : null;
+  const rawLyrics = Array.isArray(input?.lyrics) ? input.lyrics : [];
+  const lyricSlides = rawLyrics
+    .map((s) => (typeof s === "string" ? s.trim() : ""))
+    .filter((s) => s.length > 0)
+    .slice(0, 24);
+  if (lyricSlides.length === 0) return { ok: false, error: "No lyrics provided" };
+  if (input?.source !== "hymnary" && input?.source !== "llm") {
+    return { ok: false, error: "Invalid source" };
+  }
+
+  const db = getDb();
+  // Idempotency guard: dedupe by (churchId, title, source=public_domain).
+  const [existing] = await db.select({ id: songs.id })
+    .from(songs)
+    .where(and(
+      eq(songs.churchId, user.churchId),
+      eq(songs.title, title),
+      eq(songs.source, "public_domain"),
+    ))
+    .limit(1);
+  if (existing) {
+    return { ok: true, data: { id: existing.id, duplicate: true } };
+  }
+
+  const [row] = await db.insert(songs).values({
+    churchId: user.churchId,
+    title,
+    artist,
+    source: "public_domain",
+    settings: { importedFrom: input.source },
+  }).returning();
+  await db.insert(songSlides).values(
+    lyricSlides.map((lyrics, i) => ({ songId: row.id, order: i, lyrics })),
+  );
+  revalidatePath("/library/songs");
+  return { ok: true, data: { id: row.id, duplicate: false } };
+}
