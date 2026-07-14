@@ -1,5 +1,19 @@
 # Changelog
 
+## [main] AIDetectionsPanel — dedicated Bible + Song sections (2026-07-12)
+
+- **src/components/operator/pro/right/AIDetectionsPanel.tsx** (new) — replaces the single-list `RecentDetectionsPanel`. Two stacked sections (Bible top, Songs bottom), each fixed 200px, scrollable, up to 8 unique rows.
+  - Dedupe by canonical key: Bible `book chapter:vs-ve`, Song `songId`. Higher-confidence match REPLACES and bumps to top; equal/lower conf refreshes timestamp only.
+  - Row shows: label, verse preview (first 40ch) or lyric preview (first line), color-coded confidence badge (>=90 green, 70-89 amber, <70 grey), relative timestamp ("just now"/"12s ago"/"1m ago"), and dismiss `×`.
+  - Bible row: orange dot when AutoApprove ON + conf >= 85. Click loads/banks the verse via `onBankAddReference`; double-click also calls `onSendBankedToLive(0)`.
+  - Song row: match-type badge (Title/Lyric/PD), `+` add-to-playlist button. Click & double-click BOTH load the song only — songs never auto-project (CLAUDE.md rule 7).
+  - Invalid Bible refs (lookup returns 0 verses, e.g. `John 99:99`) are filtered out at ingest and cached in an in-memory `Set` to avoid re-scoring. Partial refs (chapter=0) are rejected at `bibleRowFromSuggestion` before touching state.
+  - Rows expire 10 min after `ts`. Interval tick every 15s prunes + refreshes relative labels.
+  - Preserves the "Transcription paused" pill + Resume button from the old panel.
+- **src/components/operator/pro/ProOperatorShell.tsx** — mounts `AIDetectionsPanel` in place of `RecentDetectionsPanel`; old function removed.
+- **src/lib/ai-detection/index.ts** — added min-word gate: `detectAll` only runs song/lyric matching when the chunk has >=4 words OR a song cue phrase was detected. Cross-bucket dedupe: same `songId` filtered to appear only in the higher-confidence bucket (song vs lyric).
+- **test/ai-pipeline.test.ts** — +5 tests: `mergeBibleRows` bump-on-higher-conf, `mergeSongRows` dedupe, `bibleRowFromSuggestion` rejects `chapter=0`, `detectAll` short-chunk-no-cue returns 0 song/lyric, `detectAll` cross-bucket dedupe. 33/33 passing.
+
 ## [main] Perf + PD fallback + Auto-approve toggle + Bible cache expansion (2026-07-12)
 
 - **src/lib/ai-detection/lyric-fragment.ts** — no runtime change; `SongIndex` type now exported so it can be prebuilt by callers.

@@ -1,3 +1,11 @@
+## AIDetectionsPanel split (2026-07-12)
+
+- **Bible + Song get dedicated sections, always visible.** The previous mixed list forced the operator to hunt for the type they cared about; splitting them removes that scan cost and makes it obvious when a mic is or isn't picking up either signal.
+- **Dedupe by canonical key, not row id.** The unified-suggestion `id` embeds a segmentId, so a spoken reference across multiple utterances would stack; keying on `book chapter:vs-ve` / `songId` collapses those to one row with the highest observed confidence.
+- **Invalid Bible refs filtered against the DB lookup, not a static max-verse table.** Building a client-side {book,chapter → maxVerse} table would duplicate ~66 books of metadata. Instead, we do a `cachedLookup` on first sighting: 0 verses means invalid, remembered in a Set so the same bogus ref (e.g. `John 99:99`) is never re-scored or shown. Cheap because the lookup is cached and the invalid Set is process-local.
+- **Songs never auto-project on double-click.** Double-click on the song row calls `loadSong` and shows a toast prompting the operator to press SEND LIVE. Copyright-safety per CLAUDE.md rule 7 — enforcing at the panel means the shell-level rule can't be accidentally bypassed here.
+- **Min-word gate at 4 words for song matching.** Short interim transcripts like "grace" or "sing" were producing noisy matches; a 4-word floor cuts those without hurting cue-triggered short phrases ("let's sing X" still passes because a cue was detected).
+
 ## Perf + PD fallback + auto-approve pass (2026-07-12)
 
 - **Song trigram index is now built once per library refresh, not per detection.** `useAudioStream` now holds a `songIndexRef` populated eagerly from the fetched library and passed to `matchSongCue` via `ctx.prebuiltIndex`. On a 200-song library this drops per-detection cost from ~40-80ms of trigram construction to <5ms of set intersection. `buildIndex` itself was already correct — the fix was calling it once instead of per invocation.
