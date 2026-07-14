@@ -16,7 +16,7 @@
  *   │  MediaStrip (140px, collapsible)                         │
  *   └──────────────────────────────────────────────────────────┘
  */
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { OperatorShellCtx } from "../shell/types";
 import { TopBar } from "./TopBar";
@@ -40,6 +40,26 @@ import { cn } from "@/lib/utils";
 import { useOperatorHotkeys } from "@/hooks/useOperatorHotkeys";
 import { ShortcutsHelpOverlay } from "./ShortcutsHelpOverlay";
 import { OperatorTour, hasSeenTour } from "@/components/tutorial/OperatorTour";
+import { dispatchInternal, isInternalEvent } from "@/lib/internal-events";
+
+// PF trace gate (R2). Mirrors useAudioStream.isDevOrTraceOn — cheap re-impl
+// here so the shell doesn't have to receive it via ctx.
+function pfTraceOn(): boolean {
+  try {
+    if (process.env.NODE_ENV !== "production") return true;
+    if (typeof localStorage === "undefined") return false;
+    const raw = localStorage.getItem("presentflow.aiTrace");
+    if (!raw) return false;
+    try {
+      const parsed = JSON.parse(raw) as { value?: string; exp?: number };
+      if (parsed && typeof parsed === "object" && "value" in parsed) {
+        if (typeof parsed.exp === "number" && Date.now() > parsed.exp) return false;
+        return parsed.value === "1";
+      }
+    } catch { /* fall through */ }
+    return raw === "1";
+  } catch { return false; }
+}
 
 /**
  * centerMode drives what fills the center pane.
@@ -325,6 +345,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       id: `ai-placeholder-${key}`,
       label,
       verses: [{ verse: scripture.ref.verseStart, text: "Loading…" }],
+      placeholder: true, // R8: never auto-fire the loading card
     }]);
     bibleSession.setSelectedIdx(0);
     (async () => {
@@ -344,11 +365,13 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           verses: [{ verse: v.verse, text: v.text }],
         }));
         if (cards.length === 0) {
-          // lookup came back empty — replace placeholder with error card
+          // lookup came back empty — replace placeholder with error card.
+          // R8: mark as placeholder so auto-fire skips.
           bibleSession.setCards([{
             id: `ai-error-${key}`,
             label,
             verses: [{ verse: scripture.ref.verseStart, text: "(no verse text available)" }],
+            placeholder: true,
           }]);
           return;
         }
@@ -359,59 +382,233 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           id: `ai-error-${key}`,
           label,
           verses: [{ verse: scripture.ref.verseStart, text: "(lookup failed)" }],
+          placeholder: true,
         }]);
       }
     })();
   }, [ctx.audio.suggestions, ctx.confidenceThreshold, bibleSession]);
 
   // ── Auto-approve → INSTANT LIVE for scripture ─────────────────────────────
-  // When bibleSession cards land AND auto-approve is ON AND the freshest
-  // scripture detection was ≥85%, immediately broadcast the FIRST verse to
-  // live via ctx.onSendSlideToLive. Manual verse-by-verse advance from there
-  // unless the operator sets an "Auto-advance interval" > 0 in Settings.
+  // Y3: auto-approve flag lives in sessionStorage now (was localStorage). XSS
+  // can no longer pre-arm auto-live across tab restarts.
+  // R3: 4s min-gap between auto-fires with a single-slot displacement queue.
+  // R4: auto-advance interval clears on AutoApprove OFF via custom event.
+  // R5: fired-refs persisted to sessionStorage so remounts don't replay.
+  // R7: try/catch onSendSlideToLive; surface a re-auth toast on failure.
+  // R8: skip placeholder cards (loading / no-text / lookup-failed).
+  // R9: unconditionally clear prior interval at the top of the effect body.
+  // Y4: useEvent-like ref pattern for ctx.onSendSlideToLive.
+  // Y8: "Hold Bible auto-approve during active song" (default OFF) setting.
   const AUTO_APPROVE_KEY_INSTANT = "presentflow.pro.autoApprove.v1";
   const AUTO_ADVANCE_KEY = "presentflow.pro.autoAdvanceSec.v1";
+  const AUTO_FIRE_MIN_GAP_KEY = "presentflow.pro.autoFireMinGap.v1"; // R3
+  const AUTO_FIRED_SESSION_KEY = "presentflow.pro.autoFired.v1"; // R5
+  const HOLD_DURING_SONG_KEY = "presentflow.pro.holdAutoApproveDuringSong.v1"; // Y8
+  const DEFAULT_MIN_GAP_MS = 4000;
+
+  // Y4: latest send/kill callbacks captured in refs so stale closures in the
+  // interval / queued timer don't fire against a dead callback.
+  const sendLiveRef = useRef(ctx.onSendSlideToLive);
+  useEffect(() => { sendLiveRef.current = ctx.onSendSlideToLive; });
+
+  // R3: rate-limit bookkeeping.
+  const lastAutoFireAtRef = useRef<number>(0);
+  const queuedAutoFireRef = useRef<{ slide: import("@/lib/broadcast").SlidePayload; key: string; ref: string; conf: number } | null>(null);
+  const queuedTimerRef = useRef<number | null>(null);
+  const autoAdvanceIntervalRef = useRef<number | null>(null); // R4/R9
   const lastAutoLiveKeyRef = useRef<string | null>(null);
+  const lastLiveWasSongRef = useRef<boolean>(false); // Y8
+
+  // Y8: track whether the last live slide came from a song so we can hold
+  // Bible auto-fires during song playback if the operator has opted in.
   useEffect(() => {
+    // Heuristic: the ctx doesn't tell us directly, but songs are always sent
+    // as text slides with the current live slide populated. We just mirror
+    // the current live kind — the shell caller flips lastLiveWasSongRef when
+    // it sends a song manually. This is a best-effort hook.
+    if (ctx.liveSlide?.kind === "empty") lastLiveWasSongRef.current = false;
+  }, [ctx.liveSlide]);
+
+  // R7: wrap send with error handling + toast.
+  const safeSendLive = useCallback((slide: import("@/lib/broadcast").SlidePayload): boolean => {
+    try {
+      const res = sendLiveRef.current(slide) as unknown;
+      // Support async callbacks.
+      if (res && typeof (res as { then?: unknown }).then === "function") {
+        (res as Promise<unknown>).catch(() => {
+          toast.error("Live output failed — sign in again to resume");
+        });
+      }
+      return true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Live output failed";
+      if (/401|auth|sign in/i.test(msg)) {
+        toast.error("AI listener needs re-auth — sign in again to resume");
+      } else {
+        toast.error(`Live output failed — ${msg}`);
+      }
+      return false;
+    }
+  }, []);
+
+  // R3: fire helper — enforces min-gap, queues newer detections.
+  const doAutoFire = useCallback((slide: import("@/lib/broadcast").SlidePayload, key: string, ref: string, conf: number) => {
+    let minGap = DEFAULT_MIN_GAP_MS;
+    try {
+      const raw = window.localStorage.getItem(AUTO_FIRE_MIN_GAP_KEY);
+      const parsed = raw ? parseInt(raw, 10) : NaN;
+      if (Number.isFinite(parsed) && parsed >= 0) minGap = parsed;
+    } catch { /* noop */ }
+    const now = Date.now();
+    const wait = lastAutoFireAtRef.current + minGap - now;
+    if (wait <= 0) {
+      lastAutoFireAtRef.current = now;
+      if (pfTraceOn()) console.log("[auto-approve] firing:", ref, conf);
+      safeSendLive(slide);
+      // R5: persist fired key to sessionStorage (5min replay window).
+      try {
+        const raw = window.sessionStorage.getItem(AUTO_FIRED_SESSION_KEY);
+        const map: Record<string, number> = raw ? JSON.parse(raw) : {};
+        map[key] = now;
+        // Trim entries older than 30min on write.
+        const cutoff = now - 30 * 60 * 1000;
+        for (const k of Object.keys(map)) if (map[k] < cutoff) delete map[k];
+        window.sessionStorage.setItem(AUTO_FIRED_SESSION_KEY, JSON.stringify(map));
+      } catch { /* noop */ }
+      return;
+    }
+    // Queued: newer displaces older (single-slot).
+    if (queuedAutoFireRef.current && pfTraceOn()) {
+      console.log("[auto-approve] displaced by newer:", queuedAutoFireRef.current.ref, "->", ref);
+    }
+    queuedAutoFireRef.current = { slide, key, ref, conf };
+    if (queuedTimerRef.current !== null) { window.clearTimeout(queuedTimerRef.current); queuedTimerRef.current = null; }
+    queuedTimerRef.current = window.setTimeout(() => {
+      queuedTimerRef.current = null;
+      const q = queuedAutoFireRef.current;
+      queuedAutoFireRef.current = null;
+      if (!q) return;
+      // Re-check auto-approve is still on before firing the queued one (R4).
+      try {
+        if (window.sessionStorage.getItem(AUTO_APPROVE_KEY_INSTANT) !== "1"
+            && window.localStorage.getItem(AUTO_APPROVE_KEY_INSTANT) !== "1") return;
+      } catch { /* noop */ }
+      lastAutoFireAtRef.current = Date.now();
+      if (pfTraceOn()) console.log("[auto-approve] firing (queued):", q.ref, q.conf);
+      safeSendLive(q.slide);
+    }, wait);
+  }, [safeSendLive]);
+
+  // R4: clear all auto-advance state on AutoApprove OFF.
+  const clearAutoAdvance = useCallback(() => {
+    if (autoAdvanceIntervalRef.current !== null) {
+      window.clearInterval(autoAdvanceIntervalRef.current);
+      autoAdvanceIntervalRef.current = null;
+    }
+    if (queuedTimerRef.current !== null) {
+      window.clearTimeout(queuedTimerRef.current);
+      queuedTimerRef.current = null;
+    }
+    queuedAutoFireRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ on: boolean }>).detail;
+      if (detail && detail.on === false) clearAutoAdvance();
+    };
+    window.addEventListener("presentflow:auto-approve-changed", handler);
+    return () => window.removeEventListener("presentflow:auto-approve-changed", handler);
+  }, [clearAutoAdvance]);
+
+  useEffect(() => {
+    // R9: unconditionally clear prior interval before any early return.
+    if (autoAdvanceIntervalRef.current !== null) {
+      window.clearInterval(autoAdvanceIntervalRef.current);
+      autoAdvanceIntervalRef.current = null;
+    }
+
     const cards = bibleSession.state.cards;
     if (cards.length === 0) return;
-    // Only fire when auto-approve is on
+    // Y3: auto-approve now in sessionStorage; fall back to localStorage for
+    // migration so existing operators aren't dropped mid-service.
     let autoOn = false;
-    try { autoOn = window.localStorage.getItem(AUTO_APPROVE_KEY_INSTANT) === "1"; } catch { /* noop */ }
+    try {
+      autoOn = window.sessionStorage.getItem(AUTO_APPROVE_KEY_INSTANT) === "1"
+        || window.localStorage.getItem(AUTO_APPROVE_KEY_INSTANT) === "1";
+    } catch { /* noop */ }
     if (!autoOn) return;
+    // Y8: hold auto-fire during active song if operator opted in.
+    let holdDuringSong = false;
+    try { holdDuringSong = window.localStorage.getItem(HOLD_DURING_SONG_KEY) === "1"; } catch { /* noop */ }
+    if (holdDuringSong && lastLiveWasSongRef.current && ctx.liveSlide?.kind === "text") {
+      if (pfTraceOn()) console.log("[auto-approve] held (song active)");
+      return;
+    }
     // Need a matching high-confidence detection
     const suggestions = ctx.audio.suggestions || [];
     const scripture = suggestions.find((s) => s.type === "scripture" && s.confidence >= 85);
     if (!scripture || scripture.type !== "scripture") return;
     const first = cards[0];
-    if (!first || !first.verses?.length || first.verses[0].text === "Loading…") return;
+    // R8: skip placeholder cards (loading / no-text / lookup-failed) AND
+    // empty-text guard as belt-and-braces.
+    if (!first || first.placeholder === true || !first.verses?.length) return;
+    const firstText = first.verses[0]?.text ?? "";
+    if (!firstText || firstText === "Loading…" || firstText.length === 0) return;
+
     const key = first.id;
+    // R5: check sessionStorage for recent replays (5 min TTL).
+    try {
+      const raw = window.sessionStorage.getItem(AUTO_FIRED_SESSION_KEY);
+      const map: Record<string, number> = raw ? JSON.parse(raw) : {};
+      const firedAt = map[key];
+      if (typeof firedAt === "number" && Date.now() - firedAt < 5 * 60 * 1000) {
+        // Already fired this key within 5 min — don't replay across remount.
+        lastAutoLiveKeyRef.current = key;
+        return;
+      }
+    } catch { /* noop */ }
     if (lastAutoLiveKeyRef.current === key) return;
     lastAutoLiveKeyRef.current = key;
+
     const body = first.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
-    const slide = { kind: "text" as const, text: `${body}\n\n${first.label}` };
+    const slide: import("@/lib/broadcast").SlidePayload = { kind: "text", text: `${body}\n\n${first.label}` };
     const ref = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}${scripture.ref.verseEnd !== scripture.ref.verseStart ? `-${scripture.ref.verseEnd}` : ""}`;
-    console.log("[auto-approve] firing:", ref, scripture.confidence);
-    ctx.onSendSlideToLive(slide);
+    doAutoFire(slide, key, ref, scripture.confidence);
     bibleSession.setSelectedIdx(0);
+    lastLiveWasSongRef.current = false;
 
     // Optional auto-advance
     let intervalSec = 0;
     try { intervalSec = Math.max(0, parseInt(window.localStorage.getItem(AUTO_ADVANCE_KEY) || "0", 10) || 0); } catch { /* noop */ }
     if (intervalSec > 0 && cards.length > 1) {
       let i = 1;
-      const timer = window.setInterval(() => {
-        if (i >= cards.length) { window.clearInterval(timer); return; }
+      const iv = window.setInterval(() => {
+        // R4 belt-and-braces: if operator flipped AutoApprove OFF, stop.
+        try {
+          if (window.sessionStorage.getItem(AUTO_APPROVE_KEY_INSTANT) !== "1"
+              && window.localStorage.getItem(AUTO_APPROVE_KEY_INSTANT) !== "1") {
+            window.clearInterval(iv);
+            autoAdvanceIntervalRef.current = null;
+            return;
+          }
+        } catch { /* noop */ }
+        if (i >= cards.length) { window.clearInterval(iv); autoAdvanceIntervalRef.current = null; return; }
         const c = cards[i];
+        if (c.placeholder) { i += 1; return; } // R8
         const b = c.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
-        ctx.onSendSlideToLive({ kind: "text", text: `${b}\n\n${c.label}` });
+        safeSendLive({ kind: "text", text: `${b}\n\n${c.label}` });
         bibleSession.setSelectedIdx(i);
         i += 1;
       }, intervalSec * 1000);
-      return () => window.clearInterval(timer);
+      autoAdvanceIntervalRef.current = iv;
+      return () => {
+        window.clearInterval(iv);
+        if (autoAdvanceIntervalRef.current === iv) autoAdvanceIntervalRef.current = null;
+      };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bibleSession.state.cards, ctx.audio.suggestions]);
+  }, [bibleSession.state.cards, ctx.audio.suggestions, ctx.liveSlide, doAutoFire, safeSendLive]);
 
   // ── Mode-switch live follow ──────────────────────────────────────────────
   // When operator switches centerMode AND auto-approve is ON, auto-send the
@@ -453,17 +650,18 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       bibleSession.setSelectedIdx(next);
       const c = cards[next];
       const body = c.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
-      ctx.onSendSlideToLive({ kind: "text", text: `${body}\n\n${c.label}` });
+      sendLiveRef.current({ kind: "text", text: `${body}\n\n${c.label}` });
     };
-    const nx = () => send(1);
-    const pv = () => send(-1);
+    // Y1: nonce-gated. Ignore any external dispatchEvent from page scripts.
+    const nx = (ev: Event) => { if (!isInternalEvent(ev)) return; send(1); };
+    const pv = (ev: Event) => { if (!isInternalEvent(ev)) return; send(-1); };
     window.addEventListener("presentflow:bible-next", nx);
     window.addEventListener("presentflow:bible-prev", pv);
     return () => {
       window.removeEventListener("presentflow:bible-next", nx);
       window.removeEventListener("presentflow:bible-prev", pv);
     };
-  }, [centerMode, bibleSession, ctx]);
+  }, [centerMode, bibleSession]);
 
   // Priority 4 — global operator hotkeys.
   useOperatorHotkeys({
@@ -535,9 +733,12 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // the matching ctx callback + surface a toast so operator can see it fired.
   useEffect(() => {
     const handler = (ev: Event) => {
-      const detail = (ev as CustomEvent<{ action: string; phrase: string }>).detail;
-      if (!detail) return;
-      const { action, phrase } = detail;
+      // Y1: require internal nonce so an XSS/extension can't drive the shell.
+      if (!isInternalEvent(ev)) return;
+      const detail = (ev as CustomEvent<{ nonce: symbol; payload: { action: string; phrase: string } } | { action: string; phrase: string }>).detail as { payload?: { action: string; phrase: string }; action?: string; phrase?: string };
+      const p = detail.payload ?? (detail as { action: string; phrase: string });
+      if (!p || typeof p.action !== "string") return;
+      const { action, phrase } = p;
       switch (action) {
         case "next_verse":
           if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("presentflow:hotkey-next"));
@@ -557,7 +758,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         default:
           break;
       }
-      toast.info(`Voice command: ${phrase}`);
+      toast.info(`Voice command: ${phrase ?? ""}`);
     };
     window.addEventListener("presentflow:voice-command", handler);
     return () => window.removeEventListener("presentflow:voice-command", handler);

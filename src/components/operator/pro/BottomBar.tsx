@@ -4,6 +4,7 @@ import { Pause, Play, SkipForward, SkipBack, LayoutGrid, List, Type, HelpCircle 
 import type { OperatorShellCtx } from "../shell/types";
 import { TransitionChooser } from "./BottomBar/TransitionChooser";
 import { cn } from "@/lib/utils";
+import { dispatchInternal } from "@/lib/internal-events";
 
 export const TRANSITION_KEY = "presentflow.pro.transition.v1";
 
@@ -58,14 +59,14 @@ export function BottomBar({
   // playlist slides. Falls back to slide prev/next in every other mode.
   const versePrev = () => {
     if (centerMode === "bible") {
-      try { window.dispatchEvent(new CustomEvent("presentflow:bible-prev")); } catch { /* noop */ }
+      dispatchInternal("presentflow:bible-prev");
       return;
     }
     prev();
   };
   const verseNext = () => {
     if (centerMode === "bible") {
-      try { window.dispatchEvent(new CustomEvent("presentflow:bible-next")); } catch { /* noop */ }
+      dispatchInternal("presentflow:bible-next");
       return;
     }
     next();

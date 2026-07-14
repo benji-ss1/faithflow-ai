@@ -11,6 +11,8 @@ const VOICE_COMMANDS_KEY = "presentflow.pro.voiceCommandsEnabled.v1";
 const CUSTOM_COMMANDS_KEY = "presentflow.pro.voiceCommands.v1";
 const AUTO_PAUSE_KEY = "presentflow.pro.autoPause.enabled";
 const AUTO_ADVANCE_KEY = "presentflow.pro.autoAdvanceSec.v1";
+// Y8: hold Bible auto-approve while a song is currently on live output.
+const HOLD_DURING_SONG_KEY = "presentflow.pro.holdAutoApproveDuringSong.v1";
 
 type AudioInputSel = { kind: "device" | "ndi"; id: string; label: string };
 
@@ -67,6 +69,7 @@ export function AudioTab() {
   const [voiceOn, setVoiceOn] = useState(true);
   const [autoPause, setAutoPause] = useState(true);
   const [autoAdvanceSec, setAutoAdvanceSec] = useState(0);
+  const [holdDuringSong, setHoldDuringSong] = useState(false);
   const [selected, setSelected] = useState<AudioInputSel>({ kind: "ndi", id: "ndi:default", label: "NDI Audio (Routed)" });
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [ndiSources, setNdiSources] = useState<{ id: string; label: string }[]>(NDI_PLACEHOLDERS);
@@ -86,6 +89,8 @@ export function AudioTab() {
       setAutoPause(ap !== "0");
       const aa = Number(localStorage.getItem(AUTO_ADVANCE_KEY));
       if (!Number.isNaN(aa) && aa >= 0) setAutoAdvanceSec(aa);
+      const hs = localStorage.getItem(HOLD_DURING_SONG_KEY);
+      setHoldDuringSong(hs === "1");
       const parsedSel = parseAudioInput(localStorage.getItem(AUDIO_INPUT_KEY));
       if (parsedSel) setSelected(parsedSel);
       setCustoms(parseCustomCommands(localStorage.getItem(CUSTOM_COMMANDS_KEY)));
@@ -238,6 +243,17 @@ export function AudioTab() {
             className="w-20 h-8 px-2 rounded-md text-[12px] text-zinc-100 text-right"
             style={{ background: "#1a2020", border: "1px solid #2a3232" }}
             aria-label="Auto-advance seconds"
+          />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-[12px] font-semibold text-zinc-100">Hold Bible auto-approve during active song</div>
+            <div className="text-[11px] text-zinc-500 mt-0.5">When ON, a Bible detection won't cut over the projector while a song is currently live. Operator advances past the song first.</div>
+          </div>
+          <Toggle
+            on={holdDuringSong}
+            onChange={(v) => { setHoldDuringSong(v); try { localStorage.setItem(HOLD_DURING_SONG_KEY, v ? "1" : "0"); } catch {} }}
           />
         </div>
 

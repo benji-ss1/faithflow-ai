@@ -7,7 +7,7 @@
  * via the returned tuple; the shell mounts each hook once so ticks/timers
  * run independently of tab visibility.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // ---------------------------------------------------------------- Timer (R4)
 const TIMER_KEY = "presentflow.pro.timer.v1";
@@ -120,6 +120,8 @@ export type VerseCard = {
   label: string;
   // Y7: per-verse structure lets us respect showVerseNumbers/refFormat
   verses: Array<{ verse: number; text: string }>;
+  /** R8: placeholder cards (loading / lookup-failed / out-of-range) must NEVER auto-fire. */
+  placeholder?: boolean;
 };
 
 export type BibleSessionState = {
@@ -148,12 +150,15 @@ export function useBibleSession(defaultTranslationCode: string): BibleSessionApi
     loading: false,
   });
 
-  return {
-    state,
-    setRef: (v) => setState((s) => ({ ...s, ref: v })),
-    setTranslation: (v) => setState((s) => ({ ...s, translation: v })),
-    setCards: (c) => setState((s) => ({ ...s, cards: c })),
-    setSelectedIdx: (i) => setState((s) => ({ ...s, selectedIdx: i })),
-    setLoading: (v) => setState((s) => ({ ...s, loading: v })),
-  };
+  // Y5: memoize the returned api so effects with `bibleSession` in the deps
+  // list don't re-fire on every render. Only `state` changes should trigger.
+  const setRef = useCallback((v: string) => setState((s) => ({ ...s, ref: v })), []);
+  const setTranslation = useCallback((v: string) => setState((s) => ({ ...s, translation: v })), []);
+  const setCards = useCallback((c: VerseCard[]) => setState((s) => ({ ...s, cards: c })), []);
+  const setSelectedIdx = useCallback((i: number | null) => setState((s) => ({ ...s, selectedIdx: i })), []);
+  const setLoading = useCallback((v: boolean) => setState((s) => ({ ...s, loading: v })), []);
+
+  return useMemo(() => ({
+    state, setRef, setTranslation, setCards, setSelectedIdx, setLoading,
+  }), [state, setRef, setTranslation, setCards, setSelectedIdx, setLoading]);
 }

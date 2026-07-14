@@ -156,10 +156,19 @@ export function TopBar({
   const autoApproveOn = ctx.autopilotMode === "active";
   const AUTO_APPROVE_KEY = "presentflow.pro.autoApprove.v1";
   useEffect(() => {
-    // Persist the derived on/off separately from the autopilot mode key so
-    // the setting survives even if the console downgrades "active" → "armed"
-    // on reload (safety behavior in OperatorConsole).
-    try { window.localStorage.setItem(AUTO_APPROVE_KEY, autoApproveOn ? "1" : "0"); } catch { /* ignore */ }
+    // Y3: sessionStorage instead of localStorage. Cleared on tab close;
+    // operator must re-arm each session — XSS-flipping the flag no longer
+    // arms auto-live silently across restarts. We ALSO wipe the legacy
+    // localStorage key so a compromised value there can't override.
+    try {
+      window.sessionStorage.setItem(AUTO_APPROVE_KEY, autoApproveOn ? "1" : "0");
+      // Retire the legacy localStorage entry.
+      window.localStorage.removeItem(AUTO_APPROVE_KEY);
+    } catch { /* ignore */ }
+    // R4: notify the shell so any live auto-advance interval is cleared.
+    try {
+      window.dispatchEvent(new CustomEvent("presentflow:auto-approve-changed", { detail: { on: autoApproveOn } }));
+    } catch { /* ignore */ }
   }, [autoApproveOn]);
   const toggleAutoApprove = () => {
     if (autoApproveOn) {
