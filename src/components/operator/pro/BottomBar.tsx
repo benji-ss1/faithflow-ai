@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { Plus, Pause, Play, SkipForward, SkipBack, ChevronDown, LayoutGrid, List, Type, Smile, SlidersHorizontal, HelpCircle } from "lucide-react";
+import { Pause, Play, SkipForward, SkipBack, LayoutGrid, List, Type, HelpCircle } from "lucide-react";
 import type { OperatorShellCtx } from "../shell/types";
 import { TransitionChooser } from "./BottomBar/TransitionChooser";
+import { cn } from "@/lib/utils";
 
 export const TRANSITION_KEY = "presentflow.pro.transition.v1";
 
@@ -16,7 +17,7 @@ export function BottomBar({
 }) {
   const [transitionName, setTransitionName] = useState("Amoeba");
   const [transitionDuration, setTransitionDuration] = useState(0.6);
-  const [_viewMode, setViewMode] = useState<SlideViewMode>("grid");
+  const [viewMode, setViewMode] = useState<SlideViewMode>("grid");
 
   useEffect(() => {
     try {
@@ -56,14 +57,10 @@ export function BottomBar({
     <div className="h-10 shrink-0 border-t border-[var(--color-border)] bg-[var(--color-panel)] flex items-center px-2 gap-2">
       {/* Left */}
       <div className="flex items-center gap-1">
-        <button data-todo="1" title="Add slide — coming soon" disabled className="w-7 h-7 flex items-center justify-center rounded text-[var(--color-muted-foreground)] opacity-50 cursor-not-allowed"><Plus className="w-4 h-4" /></button>
         <button title="Blank" onClick={ctx.onBlank} className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-muted-foreground)]"><Pause className="w-4 h-4" /></button>
         <button title="Send to live" onClick={ctx.onSendToLive} className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-muted-foreground)]"><Play className="w-4 h-4" /></button>
         <button title="Previous slide" onClick={prev} disabled={!hasPrev} className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-muted-foreground)] disabled:opacity-50"><SkipBack className="w-4 h-4" /></button>
         <button title="Next slide" onClick={next} disabled={!hasNext} className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-muted-foreground)] disabled:opacity-50"><SkipForward className="w-4 h-4" /></button>
-        <button data-todo="1" title="Save As — coming soon" disabled className="h-7 px-2 rounded text-[11px] flex items-center gap-1 border border-[var(--color-border)] opacity-50 cursor-not-allowed">
-          Save As <ChevronDown className="w-3 h-3" />
-        </button>
       </div>
 
       {/* Center */}
@@ -93,12 +90,10 @@ export function BottomBar({
       {/* Right */}
       <div className="flex items-center gap-2">
         <div className="inline-flex rounded border border-[var(--color-border)] overflow-hidden">
-          <button title="Grid view" onClick={() => setViewMode("grid")} className="w-7 h-7 flex items-center justify-center text-[var(--color-muted-foreground)] hover:bg-white/5"><LayoutGrid className="w-3.5 h-3.5" /></button>
-          <button title="List view — coming soon" data-todo="1" onClick={() => setViewMode("list")} className="w-7 h-7 flex items-center justify-center text-[var(--color-muted-foreground)] border-l border-[var(--color-border)] hover:bg-white/5"><List className="w-3.5 h-3.5" /></button>
-          <button title="Text view — coming soon" data-todo="1" onClick={() => setViewMode("text")} className="w-7 h-7 flex items-center justify-center text-[var(--color-muted-foreground)] border-l border-[var(--color-border)] hover:bg-white/5"><Type className="w-3.5 h-3.5" /></button>
+          <button title="Grid view" aria-pressed={viewMode === "grid"} onClick={() => { setViewMode("grid"); try { window.dispatchEvent(new CustomEvent("presentflow:slide-view-mode", { detail: "grid" })); } catch { /* noop */ } }} className={cn("w-7 h-7 flex items-center justify-center hover:bg-white/5", viewMode === "grid" ? "text-[var(--color-foreground)] bg-white/5" : "text-[var(--color-muted-foreground)]")}><LayoutGrid className="w-3.5 h-3.5" /></button>
+          <button title="List view" aria-pressed={viewMode === "list"} onClick={() => { setViewMode("list"); try { window.dispatchEvent(new CustomEvent("presentflow:slide-view-mode", { detail: "list" })); } catch { /* noop */ } }} className={cn("w-7 h-7 flex items-center justify-center border-l border-[var(--color-border)] hover:bg-white/5", viewMode === "list" ? "text-[var(--color-foreground)] bg-white/5" : "text-[var(--color-muted-foreground)]")}><List className="w-3.5 h-3.5" /></button>
+          <button title="Text view" aria-pressed={viewMode === "text"} onClick={() => { setViewMode("text"); try { window.dispatchEvent(new CustomEvent("presentflow:slide-view-mode", { detail: "text" })); } catch { /* noop */ } }} className={cn("w-7 h-7 flex items-center justify-center border-l border-[var(--color-border)] hover:bg-white/5", viewMode === "text" ? "text-[var(--color-foreground)] bg-white/5" : "text-[var(--color-muted-foreground)]")}><Type className="w-3.5 h-3.5" /></button>
         </div>
-        <button data-todo="1" title="Emoji — coming soon" disabled className="w-7 h-7 flex items-center justify-center rounded text-[var(--color-muted-foreground)] opacity-50 cursor-not-allowed"><Smile className="w-4 h-4" /></button>
-        <button data-todo="1" title="Filters — coming soon" disabled className="w-7 h-7 flex items-center justify-center rounded text-[var(--color-muted-foreground)] opacity-50 cursor-not-allowed"><SlidersHorizontal className="w-4 h-4" /></button>
         <button
           type="button"
           onClick={onOpenShortcutsHelp}

@@ -40,15 +40,6 @@ export function LivePreviewPanel({ ctx }: { ctx: OperatorShellCtx }) {
           <option>Stage</option>
           <option>Livestream</option>
         </select>
-        <div className="flex items-center gap-1">
-          {["16/9", "4/3", "…"].map((l) => (
-            <button
-              key={l}
-              data-todo="1"
-              className="h-7 px-1.5 text-[10px] font-mono rounded border border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
-            >{l}</button>
-          ))}
-        </div>
       </div>
     </div>
   );

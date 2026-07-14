@@ -46,25 +46,6 @@ export function StageTab({ ctx: _ctx }: { ctx: OperatorShellCtx }) {
         )}
       </div>
 
-      <div>
-        <div className="eyebrow mb-1">NDI</div>
-        <button data-todo="1" className="w-full h-8 rounded border border-[var(--color-border)] hover:bg-[var(--color-elevated)]">
-          New NDI
-        </button>
-      </div>
-      <div>
-        <div className="eyebrow mb-1">Syphon</div>
-        <button data-todo="1" className="w-full h-8 rounded border border-[var(--color-border)] hover:bg-[var(--color-elevated)]">
-          New Syphon
-        </button>
-      </div>
-      <div>
-        <div className="eyebrow mb-1">Placeholder</div>
-        <button data-todo="1" className="w-full h-8 rounded border border-[var(--color-border)] hover:bg-[var(--color-elevated)]">
-          New Placeholder
-        </button>
-      </div>
-
       <Dialog.Root>
         <Dialog.Trigger asChild>
           <button className="w-full h-9 rounded-md bg-[var(--color-brand)] text-black font-semibold">

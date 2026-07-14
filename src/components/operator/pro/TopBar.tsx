@@ -7,9 +7,9 @@ import { useTier } from "@/hooks/useTier";
 import { canAccess } from "@/lib/tier";
 import { MaxUpgradePrompt } from "@/components/tier/MaxUpgradePrompt";
 import {
-  Search, Type, Palette, Play, Pencil, Repeat, BookOpen,
+  Search, Play, BookOpen,
   MoreHorizontal, Sparkles, Image as ImageIcon, MonitorSpeaker, Circle, Radio, ScreenShare,
-  Music, Printer, Copy, ChevronDown, LayoutGrid,
+  Music, Printer, ChevronDown,
 } from "lucide-react";
 import Image from "next/image";
 import type { OperatorShellCtx } from "../shell/types";
@@ -19,23 +19,20 @@ import { SearchPalette } from "./SearchPalette";
 import type { DisplayInfo } from "@/types/electron";
 
 function IconBtn({
-  icon: Icon, label, active, onClick, todo,
-}: { icon: typeof Search; label: string; active?: boolean; onClick?: () => void; todo?: boolean }) {
+  icon: Icon, label, active, onClick,
+}: { icon: typeof Search; label: string; active?: boolean; onClick?: () => void }) {
   return (
     <Tooltip.Provider delayDuration={300}>
       <Tooltip.Root>
         <Tooltip.Trigger asChild>
           <button
             type="button"
-            data-todo={todo ? "1" : undefined}
             onClick={onClick}
-            disabled={todo && !onClick}
-            title={todo ? `${label} — coming soon` : label}
+            title={label}
             className={cn(
               "w-[34px] h-[34px] flex items-center justify-center rounded-md transition-colors",
               "hover:bg-white/5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",
               active && "text-[var(--color-foreground)] border-b-2 border-[var(--color-brand)] rounded-b-none",
-              todo && !onClick && "opacity-50 cursor-not-allowed",
             )}
             aria-label={label}
             style={{ fontFamily: "var(--font-display)" }}
@@ -49,7 +46,7 @@ function IconBtn({
             className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] px-2 py-1 text-[11px] z-50"
             style={{ fontFamily: "var(--font-display)" }}
           >
-            {label}{todo ? " — coming soon" : ""}
+            {label}
           </Tooltip.Content>
         </Tooltip.Portal>
       </Tooltip.Root>
@@ -152,8 +149,7 @@ export function TopBar({
   const canProContent = tier !== null && canAccess(tier, "pro-content");
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
   const [previewDisplay, setPreviewDisplay] = useState<number | null>(null);
-  // Task F: Max-gated default output selection. UI-only for now; routing
-  // itself is a placeholder — documented in DECISIONS.md.
+  // Task F: Max-gated default output selection. Persists to localStorage.
   const [defaultOutput, setDefaultOutput] = useState<DefaultOutputOption>({ kind: "default" });
   const [customDialogOpen, setCustomDialogOpen] = useState(false);
   const [customName, setCustomName] = useState("");
@@ -221,14 +217,8 @@ export function TopBar({
       </button>
       <div className="mx-1 h-5 w-px bg-[var(--color-border)]" aria-hidden />
       <div className="flex items-center" style={{ gap: 4 }}>
-        {/* Action cluster */}
-        <IconBtn icon={Type} label="Text" todo />
-        <IconBtn icon={Palette} label="Theme" todo />
-        <div className="mx-1 h-5 w-px bg-[var(--color-border)]" aria-hidden />
         {/* Content cluster */}
         <IconBtn icon={Play} label="Show" onClick={ctx.onSendToLive} />
-        <IconBtn icon={Pencil} label="Edit" todo />
-        <IconBtn icon={Repeat} label="Reflow" todo />
         <IconBtn
           icon={BookOpen}
           label="Bible"
@@ -264,31 +254,10 @@ export function TopBar({
               className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[180px]"
             >
               <DropdownMenu.Item
-                disabled
-                className="px-3 py-1.5 rounded opacity-50 cursor-not-allowed flex items-center gap-2"
-                title="Arrangement — coming soon"
-              >
-                <LayoutGrid className="w-3.5 h-3.5" /> Arrangement
-              </DropdownMenu.Item>
-              <DropdownMenu.Item
-                disabled
-                className="px-3 py-1.5 rounded opacity-50 cursor-not-allowed"
-                title="Export — coming soon"
-              >
-                Export…
-              </DropdownMenu.Item>
-              <DropdownMenu.Item
                 onSelect={() => window.print()}
                 className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none flex items-center gap-2 cursor-pointer"
               >
                 <Printer className="w-3.5 h-3.5" /> Print
-              </DropdownMenu.Item>
-              <DropdownMenu.Item
-                disabled
-                className="px-3 py-1.5 rounded opacity-50 cursor-not-allowed flex items-center gap-2"
-                title="Duplicate slide — coming soon"
-              >
-                <Copy className="w-3.5 h-3.5" /> Duplicate slide
               </DropdownMenu.Item>
               <DropdownMenu.Item
                 onSelect={() => alert(`PresentFlow Pro\nCenter: ${centerMode}\nLive: ${isLive ? "on" : "off"}\nDisplays: ${displays.length}\nAI: ${listening ? "listening" : "idle"}`)}
@@ -306,36 +275,30 @@ export function TopBar({
       </div>
 
       <div className="flex items-center gap-0.5">
-        <Popover.Root>
-          <Popover.Trigger asChild>
-            <button
-              type="button"
-              title="ProContent"
-              aria-label="ProContent"
-              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
-            >
-              <Sparkles className="w-4 h-4" />
-            </button>
-          </Popover.Trigger>
-          <Popover.Portal>
-            <Popover.Content
-              side="bottom"
-              align="end"
-              sideOffset={4}
-              className="w-[300px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-3 text-[12px] shadow-xl z-50"
-            >
-              {tier === null ? (
-                <div className="h-8" aria-hidden />
-              ) : canProContent ? (
-                <div className="text-[var(--color-muted-foreground)]">
-                  Coming soon — Max content marketplace.
-                </div>
-              ) : (
+        {tier !== null && !canProContent && (
+          <Popover.Root>
+            <Popover.Trigger asChild>
+              <button
+                type="button"
+                title="ProContent — Max upgrade"
+                aria-label="ProContent"
+                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+              >
+                <Sparkles className="w-4 h-4" />
+              </button>
+            </Popover.Trigger>
+            <Popover.Portal>
+              <Popover.Content
+                side="bottom"
+                align="end"
+                sideOffset={4}
+                className="w-[300px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-3 text-[12px] shadow-xl z-50"
+              >
                 <MaxUpgradePrompt feature="pro-content" variant="card" />
-              )}
-            </Popover.Content>
-          </Popover.Portal>
-        </Popover.Root>
+              </Popover.Content>
+            </Popover.Portal>
+          </Popover.Root>
+        )}
         {/* Task F — Max-gated default output profile dropdown. */}
         {canProContent ? (
           <DropdownMenu.Root>

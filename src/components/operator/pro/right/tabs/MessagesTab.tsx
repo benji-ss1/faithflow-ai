@@ -29,9 +29,6 @@ export function MessagesTab({ api }: { api: MessagesApi }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <button data-todo="1" title="Presets coming soon" disabled className="h-9 rounded-md border border-[var(--color-border)] opacity-50 cursor-not-allowed">
-        + New Message
-      </button>
       <div className="eyebrow">Message Detail</div>
       <textarea
         ref={taRef}
@@ -42,7 +39,6 @@ export function MessagesTab({ api }: { api: MessagesApi }) {
         placeholder="Message text…"
       />
       <div className="flex items-center gap-2">
-        <button data-todo="1" title="Upload — coming soon" disabled className="flex-1 h-8 rounded border border-[var(--color-border)] opacity-50 cursor-not-allowed">Upload</button>
         <select
           onChange={(e) => {
             const v = e.target.value;
@@ -57,10 +53,6 @@ export function MessagesTab({ api }: { api: MessagesApi }) {
           <option value="{{date}}">Date</option>
           <option value="{{currentSlide}}">Current Slide</option>
         </select>
-      </div>
-      <div>
-        <div className="eyebrow mb-1">Theme</div>
-        <div className="h-10 rounded border border-[var(--color-border)] bg-[var(--color-panel)]" title="Themes coming soon" />
       </div>
       <div>
         <div className="eyebrow mb-1">Dismiss</div>

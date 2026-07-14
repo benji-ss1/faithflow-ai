@@ -1,5 +1,4 @@
 "use client";
-import { toast } from "sonner";
 import { LayoutGrid, List, Eye, Play, Music, BookOpen, Image as ImageIcon } from "lucide-react";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { CenterMode } from "../ProOperatorShell";
@@ -37,25 +36,17 @@ export function CenterHeader({
     : centerMode === "songs" ? "Songs Library"
     : centerMode === "media" ? "Media Library"
     : (item?.title ?? "No item selected");
-  const isLibraryMode = centerMode === "songs" || centerMode === "media" || centerMode === "bible";
 
   return (
     <div className="h-11 shrink-0 border-b border-[var(--color-border)] flex items-center px-3 gap-2">
       <Icon className="w-4 h-4 text-[var(--color-muted-foreground)]" />
-      {/* R6/Y4: item-title editing not yet wired to a server action; render
-          read-only so keystrokes aren't silently dropped. When rename lands,
-          switch to a controlled input backed by renameServiceItem(). */}
-      <input
-        key={item?.id ?? "no-item"}
-        type="text"
-        value={title}
-        readOnly
-        onClick={() => {
-          if (!isLibraryMode) toast.info("Rename coming soon");
-        }}
-        title={isLibraryMode ? undefined : "Rename coming soon"}
-        className="flex-1 bg-transparent text-[14px] font-medium outline-none px-2 py-1 rounded cursor-default"
-      />
+      {/* Item title is read-only; edit via the library entry. */}
+      <div
+        className="flex-1 text-[14px] font-medium px-2 py-1 truncate"
+        title={title}
+      >
+        {title}
+      </div>
       {typeof slideSize === "number" && onSlideSize && centerMode === "slides" && (
         <div className="flex items-center gap-2 pr-2" title={`Slide size: ${slideSize}px`}>
           <input
