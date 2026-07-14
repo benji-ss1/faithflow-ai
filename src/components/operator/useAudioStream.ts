@@ -4,6 +4,7 @@ import { detectAll, SuggestionDedupe, type DetectAllResult } from "@/lib/ai-dete
 import { buildIndex, type IndexedSong, type SongIndex } from "@/lib/ai-detection/lyric-fragment";
 import type { SongMatchResult } from "@/lib/ai-detection/song-match";
 import { matchCustomCommand, readCustomCommands, readAudioInputPref, audioConstraintsFor } from "@/lib/voice-commands";
+import { dispatchInternal } from "@/lib/internal-events";
 
 export type Detection = {
   id: string;
@@ -130,8 +131,35 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   }, [opts?.library]);
   useEffect(() => { getCtxRef.current = opts?.getDetectContext; }, [opts?.getDetectContext]);
 
+  // Dev-or-trace log gate: quiet in packaged prod builds unless the operator
+  // explicitly opts in via localStorage. Hoisted above runDetectAll so the
+  // detection-confidence log (R1) can reference it.
+  const isDevOrTraceOn = useCallback((): boolean => {
+    try {
+      if (process.env.NODE_ENV !== "production") return true;
+      if (typeof localStorage !== "undefined") {
+        const raw = localStorage.getItem("presentflow.aiTrace");
+        if (!raw) return false;
+        try {
+          const parsed = JSON.parse(raw) as { value?: string; exp?: number };
+          if (parsed && typeof parsed === "object" && "value" in parsed) {
+            if (typeof parsed.exp === "number" && Date.now() > parsed.exp) {
+              try { localStorage.removeItem("presentflow.aiTrace"); } catch { /* ignore */ }
+              return false;
+            }
+            return parsed.value === "1";
+          }
+        } catch { /* legacy plain "1" fallthrough */ }
+        return raw === "1";
+      }
+    } catch { /* ignore */ }
+    return false;
+  }, []);
+
   // Prefetch slides for a detected song. Fire-and-forget; caches by songId so
   // an operator click on the chip resolves from memory instead of round-tripping.
+  // Y9: LRU cap at 50 entries so a long service can't grow the cache unbounded.
+  const SLIDE_PREFETCH_CAP = 50;
   const prefetchSongSlides = useCallback((songId: string) => {
     if (!songId) return;
     if (slidePrefetchRef.current.has(songId)) return;
@@ -140,7 +168,14 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     fetch(`/api/songs/${encodeURIComponent(songId)}/slides`)
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => {
-        if (json) slidePrefetchRef.current.set(songId, json);
+        if (!json) return;
+        // Y9: evict oldest when at cap. Map iteration order = insertion order.
+        while (slidePrefetchRef.current.size >= SLIDE_PREFETCH_CAP) {
+          const oldest = slidePrefetchRef.current.keys().next().value;
+          if (oldest === undefined) break;
+          slidePrefetchRef.current.delete(oldest);
+        }
+        slidePrefetchRef.current.set(songId, json);
       })
       .catch(() => { /* non-fatal; a later click will fetch */ })
       .finally(() => { inFlightSlideFetchRef.current.delete(songId); });
@@ -179,10 +214,17 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       const parserConf = r.confidence;
       const dgConf = typeof dg === "number" && dg > 0 && dg <= 1 ? dg : 1;
       const wellFormed = /\d+\s*:\s*\d+/.test(r.matchedText);
-      const boost = (wellFormed ? 10 : 0) + (r.verseEnd > r.verseStart ? 5 : 0);
+      // Y2: cap the boost so a garbage range ("John 3:16-99") can never leap
+      // past parserConf by more than 10. Combined with Y6 chapter validation
+      // in bible-parser, this keeps false positives well below auto-fire.
+      const rawBoost = (wellFormed ? 10 : 0) + (r.verseEnd > r.verseStart ? 5 : 0);
+      const boost = Math.min(rawBoost, 10);
       const base = Math.round(parserConf * dgConf);
-      const final = Math.max(1, Math.min(100, base + boost));
-      console.log("[detection-confidence]", r.matchedText, { parserConf, dgConf, boost, final });
+      const final = Math.max(1, Math.min(100, Math.min(base + boost, parserConf + 10)));
+      // R1: gate behind PF_AI_TRACE — leaks pastoral content in prod otherwise.
+      if (isDevOrTraceOn()) {
+        console.log("[detection-confidence]", r.matchedText, { parserConf, dgConf, boost, final });
+      }
       return final;
     };
 
@@ -228,7 +270,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       }
       return { ...prev, suggestions: merged.slice(0, 40) };
     });
-  }, []);
+  }, [isDevOrTraceOn, prefetchSongSlides]);
 
   const setStage = useCallback((stage: PipelineStage) => {
     setState((s) => ({
@@ -277,31 +319,6 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     try { audioCtxRef.current?.suspend(); } catch { /* ignore */ }
     try { audioCtxRef.current?.close(); } catch { /* ignore */ }
     audioCtxRef.current = null;
-  }, []);
-
-  // Dev-or-trace log gate: quiet in packaged prod builds unless the operator
-  // explicitly opts in via localStorage.
-  const isDevOrTraceOn = useCallback((): boolean => {
-    try {
-      if (process.env.NODE_ENV !== "production") return true;
-      if (typeof localStorage !== "undefined") {
-        const raw = localStorage.getItem("presentflow.aiTrace");
-        if (!raw) return false;
-        // Y6: support {value, exp} envelope with 1h auto-expire.
-        try {
-          const parsed = JSON.parse(raw) as { value?: string; exp?: number };
-          if (parsed && typeof parsed === "object" && "value" in parsed) {
-            if (typeof parsed.exp === "number" && Date.now() > parsed.exp) {
-              try { localStorage.removeItem("presentflow.aiTrace"); } catch { /* ignore */ }
-              return false;
-            }
-            return parsed.value === "1";
-          }
-        } catch { /* legacy plain "1" fallthrough */ }
-        return raw === "1";
-      }
-    } catch { /* ignore */ }
-    return false;
   }, []);
 
   const stop = useCallback(() => {
@@ -370,6 +387,12 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ planId }),
       });
+      // R7: session-expiry surfacing. A 401 here means the operator's session
+      // silently expired mid-service — without this branch the AI Live pill
+      // shows connecting forever with no explanation.
+      if (ticketRes.status === 401) {
+        throw new Error("AI listener needs re-auth — sign in again to resume");
+      }
       const ticket = await ticketRes.json();
       if (!ticket.url) throw new Error(ticket.error || "Ticket endpoint returned no URL");
       setStage("ticket_ok"); log("2 ticket ok", ticket.url);
@@ -429,7 +452,9 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
             const customs = readCustomCommands();
             const match = matchCustomCommand(msg.text, customs);
             if (match && typeof window !== "undefined") {
-              window.dispatchEvent(new CustomEvent("presentflow:voice-command", { detail: match }));
+              // Y1: nonce-gated dispatch. Handlers verify the nonce and drop
+              // anything else on the floor.
+              dispatchInternal("presentflow:voice-command", match);
             }
           } catch { /* ignore */ }
         }
