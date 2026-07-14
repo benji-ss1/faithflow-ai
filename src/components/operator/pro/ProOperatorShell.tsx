@@ -501,7 +501,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         />
       </div>
 
-      {mediaStripOpen && <MediaStrip />}
+      {mediaStripOpen && <MediaStrip onCenterMode={setCenterMode} />}
 
       <ShortcutsHelpOverlay open={shortcutsHelpOpen} onOpenChange={setShortcutsHelpOpen} />
       <OperatorTour open={tourOpen} onClose={() => setTourOpen(false)} />

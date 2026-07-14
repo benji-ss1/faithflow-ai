@@ -111,32 +111,25 @@ export function ThemesTab() {
       </div>
       {tier === null ? (
         <div className="h-8" aria-hidden />
+      ) : canPremiumThemes ? (
+        // Max users already own the premium tier — until the theme-apply
+        // pipeline is wired end-to-end, show a compact status line instead
+        // of tiles that do nothing on click.
+        <div className="text-[11px] text-[var(--color-muted-foreground)]">
+          Premium themes are included in your plan. Apply themes via the
+          slide editor.
+        </div>
       ) : (
-      <div className="grid grid-cols-2 gap-2">
-        {PREMIUM_THEMES.map((t) =>
-          canPremiumThemes ? (
-            <button
-              key={t.label}
-              type="button"
-              disabled
-              title="Coming soon"
-              className="relative aspect-video rounded border border-[var(--color-border)] overflow-hidden opacity-70 cursor-not-allowed"
-              style={{ background: t.gradient }}
-            >
-              <span className="absolute bottom-1 left-1 text-[10px] font-medium text-white uppercase tracking-wider">
-                {t.label}
-              </span>
-            </button>
-          ) : (
+        <div className="grid grid-cols-2 gap-2">
+          {PREMIUM_THEMES.map((t) => (
             <LockedTile
               key={t.label}
               label={t.label}
               gradient={t.gradient}
               feature="premium-themes"
             />
-          ),
-        )}
-      </div>
+          ))}
+        </div>
       )}
     </div>
   );
