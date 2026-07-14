@@ -30,6 +30,7 @@ const OUTPUT_SURFACE_PATHS = ["/live", "/stage", "/livestream"];
 // assumes an already-onboarded org (see DECISIONS.md).
 const DESKTOP_ALLOWED_PAGE_PREFIXES = [
   "/operator",
+  "/theme-designer",
   "/_next",
   "/favicon",
 ];
@@ -49,6 +50,9 @@ const DESKTOP_ALLOWED_SERVICE_SUFFIX = /^\/services\/[^/]+\/operate(?:$|\/)/;
 const DESKTOP_ALLOWED_API_EXACT = new Set<string>([
   "/api/health",
   "/api/health/db",
+  "/api/me",
+  "/api/feedback",
+  "/api/usage",
   "/api/health/storage",
   "/api/ai/lookup-song-metadata",
   "/api/announcements/presets",
