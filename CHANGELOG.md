@@ -1543,3 +1543,13 @@ Closed 6 🔴 and 14 🟡 findings from the ProOperatorShell review.
   (null / valid / malformed / invalid kind) and `audioConstraintsFor`
   (device / NDI / null). Existing PipelineStage test updated to
   include `paused`.
+
+## 2026-07-12
+
+- feat(bible-parser): spoken multi-verse range patterns (word "dash"/"until" → "to"; "verses N to N of Book C" inverted form)
+- feat(auto-approve): instant push on scripture detection ≥85% via ProOperatorShell + bibleSession; optional auto-advance timer
+- feat(operator): center-mode switch triggers auto-approve broadcast when eligible (bible/slides only; songs/media never)
+- feat(bottom-bar): verse nav bridged to Bible session cursor when in bible mode via CustomEvents
+- fix(detection): confidence blend uses boost formula (+10 well-formed, +5 real range); 90%+ on well-formed refs
+- feat(settings): Auto-advance verses (seconds) input in Audio tab, default 0 = manual
+- test(bible-parser): 5 new spoken-range cases (all pass)

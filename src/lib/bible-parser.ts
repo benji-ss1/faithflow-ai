@@ -184,6 +184,8 @@ function normalize(text: string): string {
 
   // Explicitize digit ranges so "3:16-17" doesn't fight NUM_CHUNK's greedy hyphen.
   s = s.replace(/(\d+)\s*[-–—]\s*(\d+)/g, "$1 to $2");
+  // Spoken "dash" / "until" between number words → canonical " to "
+  s = s.replace(/\s+(dash|until)\s+/g, " to ");
 
   return s.replace(/\s+/g, " ").trim();
 }
@@ -219,6 +221,23 @@ const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => Pa
       const verse = chunkToNum(m[2]);
       if (!book || !isFinite(verse)) return null;
       return { book, chapter: 1, verseStart: verse, verseEnd: verse, confidence: 94, matchedText: m[0], needsSemanticFallback: false };
+    },
+  },
+  // Inverted: "verses N to N of Book C" / "verse N of Book C"
+  {
+    name: "verses_of_book_ch",
+    regex: new RegExp(
+      `\\bverses?\\s+${NUM_CHUNK}\\s*(?:to|through|thru|-|–|—)\\s*${NUM_CHUNK}\\s+of\\s+(${BOOK_PATTERN})\\s+(?:chapter\\s+)?${NUM_CHUNK}\\b`,
+      "gi"
+    ),
+    parse: (m) => {
+      const vStart = chunkToNum(m[1]);
+      const vEnd = chunkToNum(m[2]);
+      const bookKey = m[3].toLowerCase().replace(/\s+/g, " ");
+      const book = VARIANT_TO_BOOK.get(bookKey);
+      const chapter = chunkToNum(m[4]);
+      if (!book || !isFinite(chapter) || !isFinite(vStart) || !isFinite(vEnd)) return null;
+      return { book, chapter, verseStart: vStart, verseEnd: vEnd, confidence: 94, matchedText: m[0], needsSemanticFallback: false };
     },
   },
   // Cross-chapter range: "Book C:V - C:V" (only supports colon form to stay unambiguous)

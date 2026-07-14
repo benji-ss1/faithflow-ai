@@ -168,19 +168,28 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     };
 
     // Blend parser confidence (0-100) with Deepgram utterance confidence (0-1)
-    // when we have one. Formula: round(parser * dgConf). Preserves the parser's
-    // absolute ceiling — a shaky utterance can only lower confidence, never
-    // raise it. Fallback to parser confidence alone when DG conf is missing.
-    const blendScripture = (parserConf: number): number => {
+    // using a floor formula so well-formed refs still surface as ≥90%.
+    //   final = min(100, round(parser * dgConf) + boost)
+    // boost: +10 for well-formed patterns (colon "John 3:16" style),
+    //        +5 additional if a real multi-verse range is detected.
+    // Missing dgConf → treat as 1.0 (parser-only). A shaky utterance can lower
+    // but the boost still lifts obvious refs into auto-approve territory.
+    const blendScripture = (r: { confidence: number; matchedText: string; verseStart: number; verseEnd: number }): number => {
       const dg = opts?.dgConfidence;
-      if (typeof dg !== "number" || dg <= 0 || dg > 1) return Math.round(parserConf);
-      return Math.max(1, Math.min(100, Math.round(parserConf * dg)));
+      const parserConf = r.confidence;
+      const dgConf = typeof dg === "number" && dg > 0 && dg <= 1 ? dg : 1;
+      const wellFormed = /\d+\s*:\s*\d+/.test(r.matchedText);
+      const boost = (wellFormed ? 10 : 0) + (r.verseEnd > r.verseStart ? 5 : 0);
+      const base = Math.round(parserConf * dgConf);
+      const final = Math.max(1, Math.min(100, base + boost));
+      console.log("[detection-confidence]", r.matchedText, { parserConf, dgConf, boost, final });
+      return final;
     };
 
     for (const r of result.scripture) {
       const id = `sc-${segmentId}-${r.book}-${r.chapter}-${r.verseStart}-${r.verseEnd}`;
       const key = `${r.book} ${r.chapter}:${r.verseStart}-${r.verseEnd}`;
-      const conf = blendScripture(r.confidence);
+      const conf = blendScripture(r);
       push({ id, type: "scripture", segmentId, ts, confidence: conf, matchedText: r.matchedText, ref: { book: r.book, chapter: r.chapter, verseStart: r.verseStart, verseEnd: r.verseEnd } }, key);
     }
     for (const m of result.song) {

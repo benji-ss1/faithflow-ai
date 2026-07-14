@@ -10,10 +10,11 @@ export const TRANSITION_KEY = "presentflow.pro.transition.v1";
 export type SlideViewMode = "grid" | "list" | "text";
 
 export function BottomBar({
-  ctx, onOpenShortcutsHelp,
+  ctx, onOpenShortcutsHelp, centerMode,
 }: {
   ctx: OperatorShellCtx;
   onOpenShortcutsHelp?: () => void;
+  centerMode?: "slides" | "bible" | "songs" | "media";
 }) {
   const [transitionName, setTransitionName] = useState("Amoeba");
   const [transitionDuration, setTransitionDuration] = useState(0.6);
@@ -53,6 +54,23 @@ export function BottomBar({
   const prev = () => hasPrev && ctx.onJumpSlide(ctx.previewItemIdx, ctx.previewSlideIdx - 1);
   const next = () => hasNext && ctx.onJumpSlide(ctx.previewItemIdx, ctx.previewSlideIdx + 1);
 
+  // Bible-mode verse buttons navigate the bible session (via events), not
+  // playlist slides. Falls back to slide prev/next in every other mode.
+  const versePrev = () => {
+    if (centerMode === "bible") {
+      try { window.dispatchEvent(new CustomEvent("presentflow:bible-prev")); } catch { /* noop */ }
+      return;
+    }
+    prev();
+  };
+  const verseNext = () => {
+    if (centerMode === "bible") {
+      try { window.dispatchEvent(new CustomEvent("presentflow:bible-next")); } catch { /* noop */ }
+      return;
+    }
+    next();
+  };
+
   return (
     <div className="h-10 shrink-0 border-t border-[var(--color-border)] bg-[var(--color-panel)] flex items-center px-2 gap-2">
       {/* Left */}
@@ -65,7 +83,7 @@ export function BottomBar({
 
       {/* Center */}
       <div className="flex-1 flex items-center justify-center gap-2 text-[11px] text-[var(--color-muted-foreground)]">
-        <button onClick={prev} disabled={!hasPrev} className="h-7 px-2 rounded hover:bg-white/5 disabled:opacity-50">&lt; Verse</button>
+        <button onClick={versePrev} disabled={centerMode !== "bible" && !hasPrev} className="h-7 px-2 rounded hover:bg-white/5 disabled:opacity-50">&lt; Verse</button>
         <TransitionChooser
           transitionName={transitionName}
           transitionDuration={transitionDuration}
@@ -84,7 +102,7 @@ export function BottomBar({
           title={`Transition duration: ${transitionDuration.toFixed(1)}s`}
           aria-label="Transition duration"
         />
-        <button onClick={next} disabled={!hasNext} className="h-7 px-2 rounded hover:bg-white/5 disabled:opacity-50">Verse &gt;</button>
+        <button onClick={verseNext} disabled={centerMode !== "bible" && !hasNext} className="h-7 px-2 rounded hover:bg-white/5 disabled:opacity-50">Verse &gt;</button>
       </div>
 
       {/* Right */}

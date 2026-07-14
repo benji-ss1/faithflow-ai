@@ -20,6 +20,12 @@ const CASES: Case[] = [
   { name: "Romans 8 verse 28",   input: "Romans 8 verse 28",               expect: { book: "Romans",  chapter: 8,  verseStart: 28, verseEnd: 28 } },
   { name: "Psalm 91",            input: "Psalm 91",                        expect: { book: "Psalms",  chapter: 91, verseStart: 1,  verseEnd: 1  } },
   { name: "Genesis range",       input: "Genesis 1 from verse 1 to 3",     expect: { book: "Genesis", chapter: 1,  verseStart: 1,  verseEnd: 3  } },
+  // Spoken multi-verse ranges (task 3):
+  { name: "Matthew four verse one to seven", input: "Matthew four verse one to seven", expect: { book: "Matthew", chapter: 4, verseStart: 1, verseEnd: 7 } },
+  { name: "Matthew 4:1 through 7",          input: "Matthew 4:1 through 7",           expect: { book: "Matthew", chapter: 4, verseStart: 1, verseEnd: 7 } },
+  { name: "Matthew four one dash seven",    input: "Matthew four one dash seven",     expect: { book: "Matthew", chapter: 4, verseStart: 1, verseEnd: 7 } },
+  { name: "verses one to five of Psalm 23", input: "verses one to five of Psalm 23",  expect: { book: "Psalms",  chapter: 23, verseStart: 1, verseEnd: 5 } },
+  { name: "Colossians three verses one through three", input: "read Colossians three verses one through three", expect: { book: "Colossians", chapter: 3, verseStart: 1, verseEnd: 3 } },
 ];
 
 let pass = 0;

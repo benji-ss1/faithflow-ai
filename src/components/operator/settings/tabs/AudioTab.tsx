@@ -10,6 +10,7 @@ const TRANSCRIPTION_MODE_KEY = "presentflow.pro.transcriptionMode.v1";
 const VOICE_COMMANDS_KEY = "presentflow.pro.voiceCommandsEnabled.v1";
 const CUSTOM_COMMANDS_KEY = "presentflow.pro.voiceCommands.v1";
 const AUTO_PAUSE_KEY = "presentflow.pro.autoPause.enabled";
+const AUTO_ADVANCE_KEY = "presentflow.pro.autoAdvanceSec.v1";
 
 type AudioInputSel = { kind: "device" | "ndi"; id: string; label: string };
 
@@ -65,6 +66,7 @@ export function AudioTab() {
   const [gain, setGain] = useState(75);
   const [voiceOn, setVoiceOn] = useState(true);
   const [autoPause, setAutoPause] = useState(true);
+  const [autoAdvanceSec, setAutoAdvanceSec] = useState(0);
   const [selected, setSelected] = useState<AudioInputSel>({ kind: "ndi", id: "ndi:default", label: "NDI Audio (Routed)" });
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [ndiSources, setNdiSources] = useState<{ id: string; label: string }[]>(NDI_PLACEHOLDERS);
@@ -82,6 +84,8 @@ export function AudioTab() {
       setVoiceOn(v !== "0");
       const ap = localStorage.getItem(AUTO_PAUSE_KEY);
       setAutoPause(ap !== "0");
+      const aa = Number(localStorage.getItem(AUTO_ADVANCE_KEY));
+      if (!Number.isNaN(aa) && aa >= 0) setAutoAdvanceSec(aa);
       const parsedSel = parseAudioInput(localStorage.getItem(AUDIO_INPUT_KEY));
       if (parsedSel) setSelected(parsedSel);
       setCustoms(parseCustomCommands(localStorage.getItem(CUSTOM_COMMANDS_KEY)));
@@ -212,6 +216,28 @@ export function AudioTab() {
           <Toggle
             on={autoPause}
             onChange={(v) => { setAutoPause(v); try { localStorage.setItem(AUTO_PAUSE_KEY, v ? "1" : "0"); } catch {} }}
+          />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-[12px] font-semibold text-zinc-100">Auto-advance verses (seconds)</div>
+            <div className="text-[11px] text-zinc-500 mt-0.5">When AutoApprove is ON and a multi-verse range is detected, advance every N seconds. 0 = manual (default).</div>
+          </div>
+          <input
+            type="number"
+            min={0}
+            max={120}
+            step={1}
+            value={autoAdvanceSec}
+            onChange={(e) => {
+              const n = Math.max(0, Math.min(120, Number(e.target.value) || 0));
+              setAutoAdvanceSec(n);
+              try { localStorage.setItem(AUTO_ADVANCE_KEY, String(n)); } catch {}
+            }}
+            className="w-20 h-8 px-2 rounded-md text-[12px] text-zinc-100 text-right"
+            style={{ background: "#1a2020", border: "1px solid #2a3232" }}
+            aria-label="Auto-advance seconds"
           />
         </div>
 

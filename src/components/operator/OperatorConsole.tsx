@@ -512,6 +512,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
         setAutopilotActivity({ source: "auto-approve", ref: refLabel, ts: Date.now() });
         if (autoApprove.autoSendToLive) {
           // Bypass Preview → go straight to Live via the standard send() path
+          console.log("[auto-approve] firing:", refLabel, d.confidence);
           setLive(slide);
           chRef.current?.postMessage({ type: "set", slide } as LiveMessage);
           toast.info(`Autopilot → LIVE · ${refLabel}`, { duration: 2000 });

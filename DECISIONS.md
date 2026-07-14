@@ -1147,3 +1147,12 @@ Total LOC: ~130 new, 1 changed. Under the 100 LOC "3-review-agents required" bar
 - **Bible Store endpoint uses `listBooks` per translation.** Simple
   N queries; N ≤ 11 today, and the tab is not on the hot path.
   Optimisable later with a single grouped SQL if it matters.
+
+## 2026-07-12 — 4-fix scope pass
+
+- **AUTOAPPROVE instant-live**: routed through ProOperatorShell (owns bibleSession), not OperatorConsole, because that's where cards materialize. Reads AUTO_APPROVE_KEY from localStorage directly (same source-of-truth TopBar writes) so the shell doesn't need a new prop. First-verse-immediate + optional auto-advance timer.
+- **Auto-advance setting**: added `presentflow.pro.autoAdvanceSec.v1` in Settings > Audio. Default 0 = manual verse-by-verse (operator control preserved). Range 0–120s.
+- **Songs on auto-approve**: NOT changed for this pass. Existing OperatorConsole `autoAcceptedRef` effect already stages songs to Preview (never Live) per CLAUDE.md rule 7. Adding a pulsing chip + "press Enter" toast was descoped — chip UI already exists (`presentflow-song-pulse`), and existing Preview-stage toast covers the "song ready" signal.
+- **Verse-nav bridge (option b)**: implemented via CustomEvent `presentflow:bible-next` / `bible-prev`. BottomBar detects centerMode==="bible" and dispatches; ProOperatorShell listens only when in bible mode and advances `bibleSession.selectedIdx` + sends to live. No new shell-ctx surface.
+- **Confidence formula**: floor + boost. `final = min(100, round(parser * dgConf) + boost)`, boost=+10 for colon patterns, +5 additional for real multi-verse ranges. Missing dgConf → treated as 1.0. Logged as `[detection-confidence]` for tuning.
+- **Parser range spoken variants**: normalize now converts word "dash"/"until" → "to". New pattern `verses N to N of Book C` handles inverted spoken form. Everything else (verse..to, through, digit dashes) already worked.

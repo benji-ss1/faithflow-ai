@@ -364,6 +364,107 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     })();
   }, [ctx.audio.suggestions, ctx.confidenceThreshold, bibleSession]);
 
+  // ── Auto-approve → INSTANT LIVE for scripture ─────────────────────────────
+  // When bibleSession cards land AND auto-approve is ON AND the freshest
+  // scripture detection was ≥85%, immediately broadcast the FIRST verse to
+  // live via ctx.onSendSlideToLive. Manual verse-by-verse advance from there
+  // unless the operator sets an "Auto-advance interval" > 0 in Settings.
+  const AUTO_APPROVE_KEY_INSTANT = "presentflow.pro.autoApprove.v1";
+  const AUTO_ADVANCE_KEY = "presentflow.pro.autoAdvanceSec.v1";
+  const lastAutoLiveKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    const cards = bibleSession.state.cards;
+    if (cards.length === 0) return;
+    // Only fire when auto-approve is on
+    let autoOn = false;
+    try { autoOn = window.localStorage.getItem(AUTO_APPROVE_KEY_INSTANT) === "1"; } catch { /* noop */ }
+    if (!autoOn) return;
+    // Need a matching high-confidence detection
+    const suggestions = ctx.audio.suggestions || [];
+    const scripture = suggestions.find((s) => s.type === "scripture" && s.confidence >= 85);
+    if (!scripture || scripture.type !== "scripture") return;
+    const first = cards[0];
+    if (!first || !first.verses?.length || first.verses[0].text === "Loading…") return;
+    const key = first.id;
+    if (lastAutoLiveKeyRef.current === key) return;
+    lastAutoLiveKeyRef.current = key;
+    const body = first.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
+    const slide = { kind: "text" as const, text: `${body}\n\n${first.label}` };
+    const ref = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}${scripture.ref.verseEnd !== scripture.ref.verseStart ? `-${scripture.ref.verseEnd}` : ""}`;
+    console.log("[auto-approve] firing:", ref, scripture.confidence);
+    ctx.onSendSlideToLive(slide);
+    bibleSession.setSelectedIdx(0);
+
+    // Optional auto-advance
+    let intervalSec = 0;
+    try { intervalSec = Math.max(0, parseInt(window.localStorage.getItem(AUTO_ADVANCE_KEY) || "0", 10) || 0); } catch { /* noop */ }
+    if (intervalSec > 0 && cards.length > 1) {
+      let i = 1;
+      const timer = window.setInterval(() => {
+        if (i >= cards.length) { window.clearInterval(timer); return; }
+        const c = cards[i];
+        const b = c.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
+        ctx.onSendSlideToLive({ kind: "text", text: `${b}\n\n${c.label}` });
+        bibleSession.setSelectedIdx(i);
+        i += 1;
+      }, intervalSec * 1000);
+      return () => window.clearInterval(timer);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bibleSession.state.cards, ctx.audio.suggestions]);
+
+  // ── Mode-switch live follow ──────────────────────────────────────────────
+  // When operator switches centerMode AND auto-approve is ON, auto-send the
+  // first available slide of the target mode's content. Empty target → no-op.
+  const prevCenterModeRef = useRef(centerMode);
+  useEffect(() => {
+    if (prevCenterModeRef.current === centerMode) return;
+    prevCenterModeRef.current = centerMode;
+    let autoOn = false;
+    try { autoOn = window.localStorage.getItem(AUTO_APPROVE_KEY_INSTANT) === "1"; } catch { /* noop */ }
+    if (!autoOn) return;
+    if (centerMode === "bible") {
+      const cards = bibleSession.state.cards;
+      const first = cards[0];
+      if (first && first.verses?.length && first.verses[0].text !== "Loading…") {
+        const body = first.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
+        ctx.onSendSlideToLive({ kind: "text", text: `${body}\n\n${first.label}` });
+      }
+    } else if (centerMode === "slides") {
+      const item = ctx.plan.items[ctx.previewItemIdx];
+      const slide = item?.slides?.[0];
+      if (slide) ctx.onSendSlideToLive(slide as unknown as import("@/lib/broadcast").SlidePayload);
+    }
+    // Songs / Media never auto-project (CLAUDE.md rule 7 + safety).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [centerMode]);
+
+  // ── Bible-mode verse-nav bridge ──────────────────────────────────────────
+  // BottomBar dispatches presentflow:bible-next / bible-prev events. In Bible
+  // mode we intercept, advance the session cursor, and send that verse live.
+  useEffect(() => {
+    if (centerMode !== "bible") return;
+    const send = (dir: 1 | -1) => {
+      const cards = bibleSession.state.cards;
+      if (cards.length === 0) return;
+      const cur = bibleSession.state.selectedIdx ?? 0;
+      const next = Math.max(0, Math.min(cards.length - 1, cur + dir));
+      if (next === cur) return;
+      bibleSession.setSelectedIdx(next);
+      const c = cards[next];
+      const body = c.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
+      ctx.onSendSlideToLive({ kind: "text", text: `${body}\n\n${c.label}` });
+    };
+    const nx = () => send(1);
+    const pv = () => send(-1);
+    window.addEventListener("presentflow:bible-next", nx);
+    window.addEventListener("presentflow:bible-prev", pv);
+    return () => {
+      window.removeEventListener("presentflow:bible-next", nx);
+      window.removeEventListener("presentflow:bible-prev", pv);
+    };
+  }, [centerMode, bibleSession, ctx]);
+
   // Priority 4 — global operator hotkeys.
   useOperatorHotkeys({
     onNext: () => {
@@ -566,6 +667,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         <BottomBar
           ctx={ctx}
           onOpenShortcutsHelp={() => setShortcutsHelpOpen(true)}
+          centerMode={centerMode}
         />
       </div>
 
