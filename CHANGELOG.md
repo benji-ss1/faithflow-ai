@@ -1,5 +1,66 @@
 # Changelog
 
+## [main] Deepgram streaming hardening — completion pass (2026-07-12)
+
+Completes the remaining 11 hardening tasks (3, 4, 5, 6, 8, 9, 10, 11, 13,
+14, 15). Adds 1 new DB table (`audio_sessions`) — requires `npm run db:push`.
+Adds 1 new endpoint (`/api/audio/session-metrics`, auth-gated + 60/min
+rate-limited). 18 new tests, all pass. `npm run typecheck` +
+`npm run electron:build:tsc` clean.
+
+### Resilience
+- **`src/components/operator/useAudioStream.ts`** — reconnect backoff cap
+  15s→8s per spec; added `reconnectFailed`/`reconnectAttempts` state;
+  added `restart()` and `warmStart()`; added 5s (160KB) PCM ring buffer
+  that accumulates during WS-closed windows and flushes FIFO on re-open
+  (log: `[audio-buffer] retained N ms during reconnect`).
+- **`src/components/operator/pro/AICaptionsBanner.tsx` (new)** — persistent
+  amber banner + "Retry now" button; only visible when reconnect exhausted.
+
+### Performance
+- **`src/components/operator/pro/useDebouncedInterim.ts` (new)** — interim
+  debouncer (≥3 char OR ≥300ms delta); wired into LiveTranscriptPanel.
+- **Warm-start** — ProOperatorShell calls `ctx.onWarmStartAudio` mount-once.
+
+### Intelligence
+- **`scripts/audio-server.ts`** — forwards `words[]` (compact `{w, c}`)
+  on final + interim_final_candidate messages.
+- **Low-conf autopilot gate** — ProOperatorShell filters auto-approve
+  candidates whose matched span contains any word below
+  `CONFIDENCE_THRESHOLD (0.45)`. Log: `[autopilot] blocked — low-confidence
+  words in span: <words>`.
+- **RMS silence gate** — worklet handler drops chunks (mic stays open) when
+  RMS < −55 dBFS held ≥2s; reopens instantly. Logs `[audio-silence] gate
+  closed|opened`.
+
+### Observability
+- **`src/lib/db/schema.ts`** — new `audioSessions` table
+  (numeric(3,2) avg_confidence). Import added for `numeric`. Requires
+  `npm run db:push`.
+- **`src/app/api/audio/session-metrics/route.ts` (new)** — POST endpoint;
+  auth-gated via `apiUser()`; church_id from session, not body; plan
+  ownership verified before insert; rate-limited 60/min per user.
+- **`useAudioStream.flushSessionMetrics`** — on stop() emits
+  `[audio-session] planId=X duration=Ns reconnects=N avgConfidence=0.XX
+  wordsHigh=N wordsLow=N` and POSTs with `keepalive: true`.
+- **`src/components/operator/dev/AudioDebugOverlay.tsx` (new)** — floating
+  dev-only pill (NODE_ENV === "development") with WS state, msg/s, latency,
+  reconnect count, avg conf, RMS gate.
+
+### Wiring
+- **`src/components/operator/shell/types.ts`** — `onRestartAudio` +
+  `onWarmStartAudio` added to `OperatorShellCtx`.
+- **`src/components/operator/OperatorConsole.tsx`** — destructures
+  `restart` + `warmStart`, plumbs both into ctx.
+- **`src/components/operator/pro/TopBar.tsx`** — `↻` restart icon
+  (`data-testid="restart-audio-btn"`) next to AI Live pill.
+- **`src/components/operator/settings/tabs/AudioTab.tsx`** — "Restart AI
+  listener" row (`data-testid="settings-restart-ai-btn"`); dispatches
+  `presentflow:restart-audio` window event.
+- **`test/audio-hardening.test.ts` (new)** — 18 tests, all pass (ring
+  buffer FIFO, interim debouncer, word-conf gate 0.45 boundary, RMS
+  hold-time, route module load).
+
 ## [main] Deepgram streaming hardening — partial pass (2026-07-12)
 
 Completed 4 of 13 planned hardening tasks; 9 remain (see DECISIONS.md

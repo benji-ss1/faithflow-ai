@@ -1,3 +1,63 @@
+## Deepgram streaming hardening — completion pass (2026-07-12)
+
+Shipped the remaining 11 tasks from the hardening spec (renumbered 3, 4, 5,
+6, 8, 9, 10, 11, 13, 14, 15). User-locked decisions honored:
+
+- **Ring buffer sized to 5s** (160,000 bytes at 16kHz/16-bit mono) — evicts
+  oldest chunk when full; flushed FIFO on WS re-open with an
+  `[audio-buffer] retained N ms during reconnect` log line.
+- **RMS silence gate at −55 dBFS held for 2s** — computed per-chunk in the
+  worklet output handler; mic stays open, chunks are dropped from the wire
+  while the gate is closed; opens instantly on non-silent audio. Compatible
+  with the existing 10-min auto-pause (which is now-effectively unreachable
+  during actual preaching because word-cadence audio never triggers it).
+- **Warm-start WS on operator mount** — `useAudioStream.warmStart()` opens
+  the WS + Deepgram with `micMutedRef=true` so the first user toggle to ON
+  flips the mute flag instead of paying the ticket→WS→Deepgram handshake.
+  Billing note: a warm session counts as an open Deepgram connection from
+  mount until either the 10-min silent auto-pause fires (transcript recency
+  keeps refreshing only when the mic is unmuted → silent warm sessions do
+  hit auto-pause after 10min) or the operator navigates away. User locked
+  in "OK" on this trade-off.
+- **Keyterm JSON shape `{"terms": [...]}`** — already shipped that way in
+  the prior pass; no re-work needed.
+- **Reconnect backoff**: previous impl had cap=15s. Adjusted to cap=8s per
+  spec (base=500ms, jitter up to +500ms, max 8 attempts). New series is
+  ~0.5, 1, 2, 4, 8, 8, 8, 8s (+jitter). Total ceiling ≈40s before the
+  operator-visible banner appears.
+
+### New autonomous decisions this pass
+
+- **Autopilot low-conf gate uses a "contains" match** between
+  `matchedText` (the parser's original span) and each low-conf word,
+  normalized to lowercase alphanumerics. This trades a small false-block
+  rate on adjacent-token collisions (e.g. word "John" appearing in an
+  unrelated span) for zero missed blocks on the true target span. Cheaper
+  than aligning transcript word offsets to parser spans and adequate for
+  the 0.45 threshold.
+- **`onWarmStartAudio` is called mount-once** with an empty dep array
+  (guarded internally against duplicate warm-starts and stripped when
+  listening is already on). If the operator remounts the shell (rare —
+  requires plan swap), a fresh warm-start fires. Documented in code.
+- **Settings > Audio → Restart AI listener** uses a window
+  `presentflow:restart-audio` CustomEvent to route into the shell rather
+  than plumbing another prop; matches the existing pattern used by
+  `presentflow:auto-approve-changed`, `presentflow:voice-command`,
+  `presentflow:bible-next/prev`.
+- **`/api/audio/session-metrics`** derives churchId from the session
+  (`apiUser().churchId`); the request body's `planId` is validated by
+  scoping the ownership query against that churchId. Rate limit 60/min
+  per user via the shared `createLimiter` helper (in-memory backend).
+- **DB migration**: new `audio_sessions` table added to
+  `src/lib/db/schema.ts`. Requires `npm run db:push` before the endpoint
+  can persist. Endpoint fails closed with a 500 in the pre-migration
+  window; the client's `keepalive: true` POST swallows the error so no UX
+  breakage.
+
+### Deferred / not attempted
+
+- None. All 11 remaining tasks shipped.
+
 ## Deepgram streaming hardening — partial pass (2026-07-12)
 
 Scope was a 13-task hardening pass on the Deepgram streaming integration.
