@@ -3,7 +3,7 @@
 // persistence contract without a running server.
 // Run: npx tsx test/pd-search-and-actions.test.ts
 
-import { _internal } from "../src/app/api/songs/public-domain/search/route";
+import { _internal } from "../src/app/api/songs/public-domain/search/sanitizers";
 
 let passed = 0;
 let failed = 0;

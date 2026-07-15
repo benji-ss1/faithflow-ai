@@ -23,38 +23,10 @@ const searchLimiter = createLimiter("pd-search", 60, 60 * 1000);
 // Types + sanitizer
 // -----------------------------------------------------------------------
 
-export type PublicDomainCandidate = {
-  source: "hymnary" | "llm";
-  title: string;
-  author: string | null;
-  lyrics: string[];                          // slide-sized chunks
-  slidesGuess: { text: string }[][];         // grouped for the operator preview
-};
-
-const HTML_ESCAPE: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
-function sanitiseText(input: unknown, cap = 400): string {
-  if (typeof input !== "string") return "";
-  // Strip control chars, HTML-escape, cap length.
-  const stripped = input.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
-  const escaped = stripped.replace(/[&<>"']/g, (c) => HTML_ESCAPE[c] || c);
-  return escaped.slice(0, cap);
-}
-
-function sanitiseCandidate(c: Partial<PublicDomainCandidate>): PublicDomainCandidate | null {
-  const source = c.source === "hymnary" || c.source === "llm" ? c.source : null;
-  if (!source) return null;
-  const title = sanitiseText(c.title, 200);
-  if (!title) return null;
-  const author = typeof c.author === "string" ? sanitiseText(c.author, 120) : null;
-  const rawLyrics = Array.isArray(c.lyrics) ? c.lyrics : [];
-  const lyrics = rawLyrics
-    .map((s) => sanitiseText(s, 400))
-    .filter((s) => s.length > 0)
-    .slice(0, 12);
-  if (lyrics.length === 0) return null;
-  const slidesGuess = lyrics.map((l) => [{ text: l }]);
-  return { source, title, author, lyrics, slidesGuess };
-}
+// Types + sanitizers live in ./sanitizers so test files can import them
+// without violating Next 15's route-file export restrictions.
+import { sanitiseText, sanitiseCandidate, type PublicDomainCandidate } from "./sanitizers";
+export type { PublicDomainCandidate };
 
 // -----------------------------------------------------------------------
 // LRU cache (200 entries, 1h TTL)
@@ -195,5 +167,4 @@ export async function GET(req: Request) {
   return NextResponse.json({ candidates, cached: false });
 }
 
-// Exported for tests
-export const _internal = { sanitiseCandidate, sanitiseText };
+// _internal for tests lives in ./sanitizers now.

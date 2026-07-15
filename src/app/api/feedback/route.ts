@@ -123,6 +123,7 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true });
 }
 
-// Exported for test-only import; unit tests exercise the validator without
-// spinning up the route.
-export const __test = { sanitizeForLog, EMAIL_RE };
+// Note: Next 15 rejects arbitrary exports from route files. Test-only
+// helpers (previously exported here as __test) have been dropped —
+// sanitizeForLog / EMAIL_RE are local to this module. If future tests
+// need them, extract into a sibling non-route file.

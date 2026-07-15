@@ -1,3 +1,29 @@
+## Tester build creds baking + route-file export cleanup (2026-07-12)
+
+- **`scripts/build-tester.sh` copies `.env.local` → `.env.production.local`
+  before `next build`** so Next's standalone output picks up Supabase / Groq
+  keys. The copy is deleted on script exit (trap). This is for internal
+  tester distribution only — production distribution needs runtime env
+  injection (Electron `.env` at userData, or a bootstrap prompt) so we
+  don't ship keys inside the .app bundle. `.gitignore` already excludes
+  `.env*.local` so the temp copy can't be accidentally committed.
+- **Code signing skipped via `CSC_IDENTITY_AUTO_DISCOVERY=false`** — no
+  Apple Developer cert. Testers must right-click → Open to bypass
+  Gatekeeper. Documented in INSTALL.md.
+- **Removed `__test` / `_internal` exports from route files.** Next 15's
+  route type-check rejects any export whose name isn't in a fixed set
+  (`GET`, `POST`, `runtime`, `dynamic`, …). `src/app/api/feedback/route.ts`
+  lost the unused `__test` export outright; `src/app/api/songs/public-domain
+  /search/route.ts`'s `_internal` and its `sanitiseText` / `sanitiseCandidate`
+  helpers moved into a sibling `sanitizers.ts` so `pd-search-and-actions.test.ts`
+  can still import them without breaking the build.
+- **Build blocker: disk space.** With ~173MB free on `/`, `hdiutil create`
+  during DMG assembly failed ("No space left on device"). The `.app` bundle
+  built successfully at `release/mac/Present Flow.app` (~1.1GB); only the
+  DMG-wrapping step failed. Freeing ~5GB and re-running
+  `npm run electron:build:tester` should complete the DMG without further
+  code changes.
+
 ## AIDetectionsPanel split (2026-07-12)
 
 - **Bible + Song get dedicated sections, always visible.** The previous mixed list forced the operator to hunt for the type they cared about; splitting them removes that scan cost and makes it obvious when a mic is or isn't picking up either signal.

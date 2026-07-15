@@ -1,5 +1,26 @@
 # Changelog
 
+## [main] Bible add-verse buttons + tester build script (2026-07-12)
+
+- BibleMode gained a top-right `+` overlay on every verse card that
+  appends the verse as a `scripture` service item to the current plan
+  (reuses `addServiceItem` + its church-scoping guard). When >1 verse is
+  rendered a `+ Add all verses` batch button appears above the grid.
+- New `scripts/build-tester.sh` (wired as `npm run electron:build:tester`)
+  bakes `.env.local` into a temp `.env.production.local`, runs
+  `next build`, compiles the Electron main, and packages an unsigned
+  macOS `.dmg` (skips code signing via `CSC_IDENTITY_AUTO_DISCOVERY=false`).
+- `INSTALL.md` documents the Gatekeeper right-click-open dance and
+  demo creds for testers.
+- Fixed two `next build` blockers: `src/app/api/feedback/route.ts` had a
+  disallowed `__test` export (removed) and
+  `src/app/api/songs/public-domain/search/route.ts` had a disallowed
+  `_internal` export (moved with the sanitizer helpers into a sibling
+  `sanitizers.ts` so tests still import cleanly).
+- Build status: `.app` bundle produced at `release/mac/Present Flow.app`
+  (~1.1GB). `.dmg` step blocked by disk space (~173MB free at time of
+  build); see DECISIONS.md.
+
 ## [main] Auto-approve pipeline hardening — R1-R9 + Y1-Y9 (2026-07-12)
 
 Closes 9 red + 9 yellow findings from the reviewer + security + stress agent triangulation on the auto-approve → LIVE path.

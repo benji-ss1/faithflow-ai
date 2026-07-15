@@ -8,6 +8,7 @@
     "electron:dev": "concurrently -k \"next dev\" \"wait-on http://localhost:3000 && npm run electron:build:tsc && cross-env NODE_ENV=development electron .\"",
     "electron:build:tsc": "tsc -p electron/tsconfig.json",
     "electron:build": "next build && npm run electron:build:tsc && electron-builder --mac dmg",
+    "electron:build:tester": "bash scripts/build-tester.sh",
     "electron:build:win": "next build && npm run electron:build:tsc && electron-builder --win nsis",
     "electron:preview": "next build && npm run electron:build:tsc && cross-env NODE_ENV=production electron .",
     "ws": "tsx --env-file=.env.local scripts/audio-server.ts",
