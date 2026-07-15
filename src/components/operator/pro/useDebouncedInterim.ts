@@ -19,6 +19,9 @@ export function useDebouncedInterim(text: string, minDeltaChars = 3, minDeltaMs 
   const [out, setOut] = useState<string>(text);
   const lastPushedRef = useRef<string>(text);
   const lastAtRef = useRef<number>(Date.now());
+  // R4: first push of an utterance is immediate — the 300ms / 3-char thresholds
+  // only apply to subsequent updates within the same utterance.
+  const hasPushedRef = useRef<boolean>(text.length > 0);
 
   useEffect(() => {
     if (text === lastPushedRef.current) return;
@@ -26,7 +29,17 @@ export function useDebouncedInterim(text: string, minDeltaChars = 3, minDeltaMs 
     if (text.length === 0) {
       lastPushedRef.current = "";
       lastAtRef.current = Date.now();
+      // R4: reset first-push flag so the NEXT utterance's first frame is instant.
+      hasPushedRef.current = false;
       setOut("");
+      return;
+    }
+    // R4: first non-empty push after an empty state — render immediately.
+    if (!hasPushedRef.current) {
+      hasPushedRef.current = true;
+      lastPushedRef.current = text;
+      lastAtRef.current = Date.now();
+      setOut(text);
       return;
     }
     const now = Date.now();

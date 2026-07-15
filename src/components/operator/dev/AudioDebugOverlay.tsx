@@ -9,7 +9,16 @@
 import type { AudioStreamState } from "../useAudioStream";
 
 export function AudioDebugOverlay({ audio }: { audio: AudioStreamState }) {
-  if (process.env.NODE_ENV !== "development") return null;
+  // Y5: NODE_ENV OR runtime localStorage flag (so operators can enable in
+  // packaged builds when triaging).
+  const devEnv = process.env.NODE_ENV === "development";
+  let runtimeOn = false;
+  try {
+    if (typeof localStorage !== "undefined") {
+      runtimeOn = localStorage.getItem("presentflow.debugOverlay") === "1";
+    }
+  } catch { /* ignore */ }
+  if (!devEnv && !runtimeOn) return null;
   const wsState = audio.reconnectFailed
     ? "failed"
     : audio.stage === "idle"

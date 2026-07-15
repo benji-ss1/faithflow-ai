@@ -23,7 +23,7 @@ export function AICaptionsBanner({ ctx }: { ctx: OperatorShellCtx }) {
       className="shrink-0 w-full flex items-center gap-3 px-3 py-1.5 bg-amber-500/90 text-amber-950 border-b border-amber-700 text-[12px] font-semibold"
     >
       <span aria-hidden>⚠</span>
-      <span className="flex-1 truncate">Live captions paused, reconnecting…</span>
+      <span className="flex-1 truncate">Live captions offline — click to retry</span>
       <button
         type="button"
         onClick={onRetry}
