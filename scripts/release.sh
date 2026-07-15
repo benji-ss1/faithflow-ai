@@ -14,7 +14,14 @@ if [ -z "$VERSION" ]; then
 fi
 
 # Bump package.json version (strip leading v — npm version rejects the prefix).
-npm version "${VERSION#v}" --no-git-tag-version
+# Skip if already at target (initial release cutting the current version).
+TARGET="${VERSION#v}"
+CURRENT="$(node -p "require('./package.json').version")"
+if [ "$CURRENT" != "$TARGET" ]; then
+  npm version "$TARGET" --no-git-tag-version
+else
+  echo "package.json already at $TARGET — skipping npm version bump"
+fi
 
 # electron-builder needs a GitHub token with `repo` scope to create/upload the
 # release. Easiest source: `gh auth token`.
