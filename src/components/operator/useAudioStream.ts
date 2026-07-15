@@ -5,6 +5,7 @@ import { buildIndex, type IndexedSong, type SongIndex } from "@/lib/ai-detection
 import type { SongMatchResult } from "@/lib/ai-detection/song-match";
 import { matchCustomCommand, readCustomCommands, readAudioInputPref, audioConstraintsFor } from "@/lib/voice-commands";
 import { dispatchInternal } from "@/lib/internal-events";
+import { CONFIDENCE_THRESHOLD } from "@/lib/audio-thresholds";
 
 export type Detection = {
   id: string;
@@ -217,7 +218,11 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       // Y2: cap the boost so a garbage range ("John 3:16-99") can never leap
       // past parserConf by more than 10. Combined with Y6 chapter validation
       // in bible-parser, this keeps false positives well below auto-fire.
-      const rawBoost = (wellFormed ? 10 : 0) + (r.verseEnd > r.verseStart ? 5 : 0);
+      // Confidence floor: if Deepgram utterance confidence is below the
+      // canonical CONFIDENCE_THRESHOLD, drop the boost entirely — a shaky
+      // transcript shouldn't ride the well-formed pattern into auto-approve.
+      const belowFloor = typeof dg === "number" && dg < CONFIDENCE_THRESHOLD;
+      const rawBoost = belowFloor ? 0 : ((wellFormed ? 10 : 0) + (r.verseEnd > r.verseStart ? 5 : 0));
       const boost = Math.min(rawBoost, 10);
       const base = Math.round(parserConf * dgConf);
       const final = Math.max(1, Math.min(100, Math.min(base + boost, parserConf + 10)));
