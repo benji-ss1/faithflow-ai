@@ -37,6 +37,24 @@ const api = {
     set: (key: string) => ipcRenderer.invoke("license:set", key),
     clear: () => ipcRenderer.invoke("license:clear"),
   },
+  update: {
+    onAvailable: (cb: (info: { version: string; releaseDate: string }) => void) => {
+      const handler = (_e: IpcRendererEvent, info: { version: string; releaseDate: string }) => cb(info);
+      ipcRenderer.on("update:available", handler);
+      return () => ipcRenderer.removeListener("update:available", handler);
+    },
+    onDownloaded: (cb: (info: { version: string }) => void) => {
+      const handler = (_e: IpcRendererEvent, info: { version: string }) => cb(info);
+      ipcRenderer.on("update:downloaded", handler);
+      return () => ipcRenderer.removeListener("update:downloaded", handler);
+    },
+    onError: (cb: (info: { message: string }) => void) => {
+      const handler = (_e: IpcRendererEvent, info: { message: string }) => cb(info);
+      ipcRenderer.on("update:error", handler);
+      return () => ipcRenderer.removeListener("update:error", handler);
+    },
+    installNow: () => ipcRenderer.invoke("update:install-now"),
+  },
   on: (channel: string, handler: Handler) => {
     const wrapped = (_e: IpcRendererEvent, ...args: any[]) => handler(...args);
     listeners.set(handler, wrapped);

@@ -48,6 +48,17 @@ export interface ElectronAPI {
   shell: {
     openExternal: (url: string) => Promise<{ ok: boolean; error?: string }>;
   };
+  license?: {
+    get: () => Promise<{ ok: boolean; key: string | null; reason?: string }>;
+    set: (key: string) => Promise<{ ok: boolean; reason?: string }>;
+    clear: () => Promise<{ ok: boolean; reason?: string }>;
+  };
+  update?: {
+    onAvailable: (cb: (info: { version: string; releaseDate: string }) => void) => () => void;
+    onDownloaded: (cb: (info: { version: string }) => void) => () => void;
+    onError: (cb: (info: { message: string }) => void) => () => void;
+    installNow: () => Promise<{ ok: boolean; error?: string }>;
+  };
   on: (channel: string, handler: (...args: any[]) => void) => void;
   off: (channel: string, handler: (...args: any[]) => void) => void;
 }
