@@ -35,6 +35,6 @@ fi
 # on machines that happen to have a code-signing identity in the keychain.
 npm run build
 npm run electron:build:tsc
-CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac dmg zip --publish always
+CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac --arm64 --publish always
 
 echo "✓ Released $VERSION → https://github.com/benji-ss1/faithflow-ai/releases/tag/$VERSION"
