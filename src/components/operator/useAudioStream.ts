@@ -43,18 +43,22 @@ export type CommandSuggestion = {
   matchedText: string;
 };
 
-export type TranscriptChunk = { id: string; text: string; final: boolean; ts: number; words?: { w: string; c: number }[] };
+export type TranscriptChunk = { id: string; text: string; final: boolean; ts: number; words?: { w: string; c: number; s?: number; e?: number }[] };
 
 /**
  * Unified suggestion — Phase 5A. Runs client-side on every transcript
  * finalization. Lives alongside detections/songSuggestions/commandSuggestions
  * so existing UI flows keep working.
  */
+/** R1: char offsets of matchedText within the source transcript segment.
+ *  Populated at detection time so the autopilot gate can map low-conf words
+ *  by (segmentId, [start,end]) instead of naive substring includes(). */
+export type MatchedSpan = { start: number; end: number };
 export type UnifiedSuggestion =
-  | { id: string; type: "scripture"; segmentId: string; ts: number; confidence: number; matchedText: string; ref: { book: string; chapter: number; verseStart: number; verseEnd: number } }
-  | { id: string; type: "song"; segmentId: string; ts: number; confidence: number; matchedText: string; match: SongMatchResult }
-  | { id: string; type: "lyric"; segmentId: string; ts: number; confidence: number; matchedText: string; match: SongMatchResult }
-  | { id: string; type: "section"; segmentId: string; ts: number; confidence: number; matchedText: string; section: "chorus" | "verse" | "bridge" | "outro" | "tag"; index?: number };
+  | { id: string; type: "scripture"; segmentId: string; ts: number; confidence: number; matchedText: string; matchedSpan?: MatchedSpan; ref: { book: string; chapter: number; verseStart: number; verseEnd: number } }
+  | { id: string; type: "song"; segmentId: string; ts: number; confidence: number; matchedText: string; matchedSpan?: MatchedSpan; match: SongMatchResult }
+  | { id: string; type: "lyric"; segmentId: string; ts: number; confidence: number; matchedText: string; matchedSpan?: MatchedSpan; match: SongMatchResult }
+  | { id: string; type: "section"; segmentId: string; ts: number; confidence: number; matchedText: string; matchedSpan?: MatchedSpan; section: "chorus" | "verse" | "bridge" | "outro" | "tag"; index?: number };
 
 export type PipelineStage =
   | "idle"                    // not started
@@ -200,6 +204,8 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const runDetectAll = useCallback(async (segmentId: string, text: string, opts?: { dgConfidence?: number }) => {
     const provider = getCtxRef.current;
     const base = provider ? provider() : { churchId: "", hasVerseContext: false, hasSlideContext: false, hasSongContext: false };
+    // R6/R10: capture generation to abort stale detections after restart.
+    const capturedGeneration = pipelineGenerationRef.current;
     let result: DetectAllResult;
     try {
       result = await detectAll(text, { ...base, library: libraryRef.current, prebuiltIndex: songIndexRef.current ?? undefined });
@@ -209,6 +215,13 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     }
     const ts = Date.now();
     const newSuggestions: UnifiedSuggestion[] = [];
+    // R1: compute char offset for matchedText within source text.
+    const spanFor = (matchedText: string): MatchedSpan | undefined => {
+      if (!matchedText) return undefined;
+      const idx = text.toLowerCase().indexOf(matchedText.toLowerCase());
+      if (idx < 0) return undefined;
+      return { start: idx, end: idx + matchedText.length };
+    };
 
     const push = (s: UnifiedSuggestion, key: string) => {
       const decision = dedupeRef.current.shouldEmit(s.type, key, s.confidence, ts);
@@ -252,26 +265,30 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       const id = `sc-${segmentId}-${r.book}-${r.chapter}-${r.verseStart}-${r.verseEnd}`;
       const key = `${r.book} ${r.chapter}:${r.verseStart}-${r.verseEnd}`;
       const conf = blendScripture(r);
-      push({ id, type: "scripture", segmentId, ts, confidence: conf, matchedText: r.matchedText, ref: { book: r.book, chapter: r.chapter, verseStart: r.verseStart, verseEnd: r.verseEnd } }, key);
+      push({ id, type: "scripture", segmentId, ts, confidence: conf, matchedText: r.matchedText, matchedSpan: spanFor(r.matchedText), ref: { book: r.book, chapter: r.chapter, verseStart: r.verseStart, verseEnd: r.verseEnd } }, key);
     }
     for (const m of result.song) {
       const id = `sg-${segmentId}-${m.songId}`;
-      push({ id, type: "song", segmentId, ts, confidence: m.confidence, matchedText: m.matchedLine || m.title, match: m }, m.songId);
+      const mt = m.matchedLine || m.title;
+      push({ id, type: "song", segmentId, ts, confidence: m.confidence, matchedText: mt, matchedSpan: spanFor(mt), match: m }, m.songId);
       prefetchSongSlides(m.songId);
     }
     for (const m of result.lyric) {
       const id = `ly-${segmentId}-${m.songId}`;
-      push({ id, type: "lyric", segmentId, ts, confidence: m.confidence, matchedText: m.matchedLine || m.title, match: m }, `lyric:${m.songId}`);
+      const mt = m.matchedLine || m.title;
+      push({ id, type: "lyric", segmentId, ts, confidence: m.confidence, matchedText: mt, matchedSpan: spanFor(mt), match: m }, `lyric:${m.songId}`);
       prefetchSongSlides(m.songId);
     }
     for (const s of result.section) {
       const id = `se-${segmentId}-${s.section}-${s.index ?? "x"}`;
       const key = `${s.section}:${s.index ?? ""}`;
-      push({ id, type: "section", segmentId, ts, confidence: s.confidence, matchedText: s.matchedText, section: s.section, index: s.index }, key);
+      push({ id, type: "section", segmentId, ts, confidence: s.confidence, matchedText: s.matchedText, matchedSpan: spanFor(s.matchedText), section: s.section, index: s.index }, key);
     }
 
     if (newSuggestions.length === 0) return;
     setState((prev) => {
+      // R10: stale detection guard — drop if generation flipped mid-flight.
+      if (capturedGeneration !== pipelineGenerationRef.current) return prev;
       const merged = [...prev.suggestions];
       for (const n of newSuggestions) {
         const refresh = (n as UnifiedSuggestion & { _refresh?: boolean })._refresh;
@@ -308,11 +325,19 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const RING_CAP_BYTES = 160_000;
   const ringBufferRef = useRef<Uint8Array[]>([]);
   const ringBufferBytesRef = useRef<number>(0);
-  // Task 13: RMS silence gate state.
+  // Task 13 / R8: RMS silence gate state with hysteresis + lookback ring.
   const silenceStartRef = useRef<number | null>(null);
   const silenceClosedRef = useRef<boolean>(false);
-  const SILENCE_DBFS_THRESHOLD = -55;
-  const SILENCE_HOLD_MS = 2000;
+  // R8: hysteresis — close at -60 dBFS, reopen at -55.
+  const SILENCE_CLOSE_DBFS = -60;
+  const SILENCE_OPEN_DBFS = -55;
+  const SILENCE_HOLD_MS = 4000; // R8: extend from 2s to 4s for preacher pauses
+  // R8: 200ms lookback ring. Even while the gate is CLOSED we keep the most
+  // recent ~200ms of PCM around so that on reopen we flush the leading edge —
+  // otherwise the first word of resumed speech is truncated at Deepgram.
+  const LOOKBACK_CAP_BYTES = Math.round(0.2 * 16000 * 2); // 200ms
+  const lookbackRingRef = useRef<Uint8Array[]>([]);
+  const lookbackBytesRef = useRef<number>(0);
   // Task 14/15: session metrics.
   const sessionStartRef = useRef<number>(0);
   const reconnectsCountRef = useRef<number>(0);
@@ -324,6 +349,63 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const firstChunkAtRef = useRef<number | null>(null);
   // Task 9: warm-start — mic muted flag.
   const micMutedRef = useRef<boolean>(false);
+  // R9: keep-alive silence pings (256 bytes of silence PCM16) every 5s while
+  // warm-muted, so Deepgram doesn't close the idle connection before the
+  // operator actually starts speaking.
+  const keepAliveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startKeepAlive = useCallback(() => {
+    if (keepAliveTimerRef.current) return;
+    keepAliveTimerRef.current = setInterval(() => {
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (!micMutedRef.current && !silenceClosedRef.current) return; // audio flowing, no need
+      try {
+        // 256 bytes = 128 samples PCM16 mono = 8ms at 16kHz. Silence.
+        const silence = new Uint8Array(256);
+        let bin = "";
+        for (let i = 0; i < silence.length; i++) bin += String.fromCharCode(silence[i]);
+        const b64 = btoa(bin);
+        ws.send(JSON.stringify({ type: "audio", b64 }));
+      } catch { /* ignore */ }
+    }, 5000);
+  }, []);
+  const stopKeepAlive = useCallback(() => {
+    if (keepAliveTimerRef.current) { clearInterval(keepAliveTimerRef.current); keepAliveTimerRef.current = null; }
+  }, []);
+  // R11: recent detection-text dedupe. Map<normalizedText, tsMs>. 800ms window.
+  const recentDetectionTextsRef = useRef<Map<string, number>>(new Map());
+  const RECENT_DETECT_WINDOW_MS = 800;
+  const shouldSkipRedetect = (text: string): boolean => {
+    const now = Date.now();
+    const norm = text.toLowerCase().replace(/\s+/g, " ").trim();
+    if (!norm) return false;
+    // Prune stale entries.
+    for (const [k, ts] of recentDetectionTextsRef.current) {
+      if (now - ts > RECENT_DETECT_WINDOW_MS) recentDetectionTextsRef.current.delete(k);
+    }
+    // Match: text is contained in a recent entry OR a recent entry is contained in text.
+    for (const [k] of recentDetectionTextsRef.current) {
+      if (k === norm || k.includes(norm) || norm.includes(k)) return true;
+    }
+    recentDetectionTextsRef.current.set(norm, now);
+    // Cap size.
+    if (recentDetectionTextsRef.current.size > 50) {
+      const oldestKey = recentDetectionTextsRef.current.keys().next().value;
+      if (oldestKey !== undefined) recentDetectionTextsRef.current.delete(oldestKey);
+    }
+    return false;
+  };
+  // R6/R10: monotonic pipeline generation. Every start() bumps this and
+  // every async callback captures it at spawn time. When completion runs and
+  // the current generation has advanced, the callback aborts (stale).
+  const pipelineGenerationRef = useRef(0);
+  // R3: client-generated session UUID for dedupe on the metrics endpoint.
+  // Fresh on every start() (not restart(), which continues the same session).
+  const sessionIdRef = useRef<string | null>(null);
+  // Y8: split reconnect attempt scheduling from actual successful reconnects.
+  const reconnectSuccessesRef = useRef(0);
+  // Y12: last known metric-flush failure info for the localStorage retry queue.
+  const METRICS_RETRY_KEY = "presentflow.metrics.retryQueue.v1";
   // Auto-reconnect bookkeeping. `intentionalStopRef` distinguishes an
   // operator-initiated stop (never reconnect) from an abnormal WS close
   // (Fly bridge blip, transient network drop). `reconnectTimerRef` lets
@@ -349,6 +431,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
 
   const teardown = useCallback(() => {
     if (stallWatchdogRef.current) { clearTimeout(stallWatchdogRef.current); stallWatchdogRef.current = null; }
+    if (keepAliveTimerRef.current) { clearInterval(keepAliveTimerRef.current); keepAliveTimerRef.current = null; }
     try { workletNodeRef.current?.port?.close?.(); } catch { /* ignore */ }
     try { workletNodeRef.current?.disconnect(); } catch { /* ignore */ }
     workletNodeRef.current = null;
@@ -377,23 +460,48 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     console.log(
       `[audio-session] planId=${planId} duration=${durationSec}s reconnects=${reconnects} avgConfidence=${avgConfidence.toFixed(2)} wordsHigh=${wordsHigh} wordsLow=${wordsLow}`,
     );
+    const sessionId = sessionIdRef.current;
     try {
-      const body = JSON.stringify({ planId, durationSec, reconnects, avgConfidence, wordsHigh, wordsLow, startedAt, endedAt });
+      const payload = { sessionId, planId, durationSec, reconnects, avgConfidence, wordsHigh, wordsLow, startedAt, endedAt };
+      const body = JSON.stringify(payload);
       fetch("/api/audio/session-metrics", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body,
         keepalive: true,
-      }).catch(() => { /* non-fatal */ });
+      }).then((r) => {
+        if (!r.ok) {
+          // Y12: enqueue for retry — bounded to 10 entries.
+          try {
+            const raw = localStorage.getItem(METRICS_RETRY_KEY);
+            const arr: unknown[] = raw ? JSON.parse(raw) : [];
+            arr.push(payload);
+            while (arr.length > 10) arr.shift();
+            localStorage.setItem(METRICS_RETRY_KEY, JSON.stringify(arr));
+          } catch { /* ignore */ }
+          console.warn(`[audio-session] metrics POST failed status=${r.status}`);
+        }
+      }).catch((err) => {
+        try {
+          const raw = localStorage.getItem(METRICS_RETRY_KEY);
+          const arr: unknown[] = raw ? JSON.parse(raw) : [];
+          arr.push(payload);
+          while (arr.length > 10) arr.shift();
+          localStorage.setItem(METRICS_RETRY_KEY, JSON.stringify(arr));
+        } catch { /* ignore */ }
+        console.warn("[audio-session] metrics POST failed:", err instanceof Error ? err.message : err);
+      });
     } catch { /* ignore */ }
     // Reset counters.
     sessionStartRef.current = 0;
     reconnectsCountRef.current = 0;
+    reconnectSuccessesRef.current = 0;
     wordsHighRef.current = 0;
     wordsLowRef.current = 0;
     confSumRef.current = 0;
     confCountRef.current = 0;
     firstChunkAtRef.current = null;
+    sessionIdRef.current = null;
   }, [planId]);
 
   const stop = useCallback(() => {
@@ -439,12 +547,32 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   }, [teardown, isDevOrTraceOn]);
 
   const start = useCallback(async () => {
+    // R6: reentry guard — if we're mid-init, don't spawn a duplicate pipeline.
+    // Check the LATEST committed state via a ref check on wsRef, which is set
+    // synchronously below.
+    // (Fine-grained state check happens against pipelineGenerationRef.)
     intentionalStopRef.current = false;
+    // R6: bump generation. Every async callback captures this synchronously.
+    const generation = ++pipelineGenerationRef.current;
     lastTranscriptAtRef.current = Date.now();
-    // Task 14: start a session window (only if not already open from a warm-start).
-    if (!sessionStartRef.current) sessionStartRef.current = Date.now();
-    micMutedRef.current = false;
-    setState((s) => ({ ...s, warmStarted: false }));
+    // Y7: only open a metrics session when mic is actually going to send audio.
+    // Warm-start opens WS with mic muted → don't accumulate a 0-metrics
+    // session that pollutes the audio_sessions rollup. sessionStart is opened
+    // lazily below on first unmuted chunk instead.
+    // R3: fresh session UUID per new start(). restart() and warmStart() reuse.
+    if (!sessionIdRef.current) {
+      try {
+        sessionIdRef.current = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `sess-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      } catch {
+        sessionIdRef.current = `sess-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      }
+    }
+    // Y7: honor pre-set mute (warmStart flips before calling start()).
+    if (!micMutedRef.current) {
+      setState((s) => ({ ...s, warmStarted: false }));
+    }
     setState((s) => ({ ...s, error: null, stage: "idle", stageHistory: [], chunksSent: 0, dgMessagesReceived: 0 }));
     // PF_AI_TRACE gate: dev + localStorage("presentflow.aiTrace","1") enable numbered logs.
     // Off in prod unless explicitly opted in so the demo console stays quiet.
@@ -481,6 +609,8 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       }
       const ticket = await ticketRes.json();
       if (!ticket.url) throw new Error(ticket.error || "Ticket endpoint returned no URL");
+      // R6: ticket returned but a newer start() superseded us — abort quietly.
+      if (generation !== pipelineGenerationRef.current) return;
       setStage("ticket_ok"); log("2 ticket ok", ticket.url);
 
       setStage("opening_ws");
@@ -489,10 +619,19 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       wsRef.current = ws;
 
       ws.onopen = () => {
+        // R6: stale-generation abort — a newer start() has superseded us.
+        if (generation !== pipelineGenerationRef.current) {
+          try { ws.close(1000, "superseded"); } catch { /* ignore */ }
+          return;
+        }
         setStage("ws_open"); log("3 WS open");
+        // Y8: count successful open (post-first) as a reconnect success.
+        if (reconnectAttemptsRef.current > 0) reconnectSuccessesRef.current += 1;
         // Fresh connection stable — reset backoff so a later drop starts at attempt 1.
         reconnectAttemptsRef.current = 0;
         setState((s) => ({ ...s, error: null, reconnectFailed: false, reconnectAttempts: 0 }));
+        // R9: fire up keep-alive so warm-muted sessions don't get idled out.
+        startKeepAlive();
         // Task 4: flush the ring buffer of PCM captured while WS was closed.
         // Chunks are queued in arrival order; drained oldest-first before
         // live audio resumes so the transcript catches up.
@@ -515,7 +654,17 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       };
 
       ws.onmessage = (e) => {
-        const msg = JSON.parse(e.data);
+        // Y13: guard JSON.parse — a corrupt/oversized frame shouldn't kill the pipeline.
+        // Match the pre-existing typing (implicit any from JSON.parse) so downstream
+        // property reads keep their previous shape.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let msg: any;
+        try {
+          msg = JSON.parse(e.data);
+        } catch (err) {
+          console.warn("[presentflow-audio] malformed WS message", err instanceof Error ? err.message : err);
+          return;
+        }
         // Task 15: msg/sec rolling window (5s) + first-transcript latency.
         const now = Date.now();
         msgTimestampsRef.current.push(now);
@@ -563,9 +712,12 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           // setTimeout(0) so detection runs immediately after the WS
           // message handler yields, keeping interim→chip latency <200ms.
           const segmentId = `interim-${Date.now()}`;
-          const text = msg.text;
+          const text: string = msg.text;
           const dgConfidence = msg.confidence;
-          queueMicrotask(() => { runDetectAll(segmentId, text, { dgConfidence }); });
+          // R11: dedupe candidate-vs-final within 800ms.
+          if (!shouldSkipRedetect(text)) {
+            queueMicrotask(() => { runDetectAll(segmentId, text, { dgConfidence }); });
+          }
         }
         else if (msg.type === "final") {
           lastTranscriptAtRef.current = Date.now();
@@ -576,7 +728,11 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
             transcript: [...s.transcript, { id: msg.segmentId, text: msg.text, final: true, ts: Date.now(), words }].slice(-100),
           }));
           // Phase 5A: run unified detection client-side. Fire-and-forget.
-          runDetectAll(msg.segmentId, msg.text, { dgConfidence: msg.confidence });
+          // R11: skip if we already ran detection on this text within 800ms
+          // (e.g. from a preceding interim_final_candidate).
+          if (!shouldSkipRedetect(msg.text)) {
+            runDetectAll(msg.segmentId, msg.text, { dgConfidence: msg.confidence });
+          }
           // Runtime hook — check user-added custom voice commands and, on
           // match, dispatch a `presentflow:voice-command` event. Shell owns
           // the actual side-effect (calls ctx callback + toast).
@@ -635,6 +791,12 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       } catch (micErr) {
         throw new Error(`Microphone access denied or unavailable: ${micErr instanceof Error ? micErr.message : "unknown"}`);
       }
+      // R6: mic acquired but a newer start() superseded us — release + abort.
+      if (generation !== pipelineGenerationRef.current) {
+        try { stream.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
+        try { ws.close(1000, "superseded"); } catch { /* ignore */ }
+        return;
+      }
       setStage("mic_granted"); log("4b mic granted", stream.getAudioTracks().map((t) => t.label));
       streamRef.current = stream;
       const audioCtx = new AudioContext({ sampleRate: 16000 });
@@ -675,6 +837,8 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         const bytes = new Uint8Array(raw);
         // Task 9: warm-start / mic-muted → do not send.
         if (micMutedRef.current) return;
+        // Y7: lazily open session window on first unmuted chunk.
+        if (!sessionStartRef.current) sessionStartRef.current = Date.now();
         // Task 13: RMS silence gate. Compute RMS over PCM16 samples.
         const i16 = new Int16Array(raw);
         let sumSq = 0;
@@ -682,20 +846,43 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         const rms = Math.sqrt(sumSq / Math.max(1, i16.length));
         const dbfs = rms > 0 ? 20 * Math.log10(rms) : -Infinity;
         const nowMs = Date.now();
-        if (dbfs < SILENCE_DBFS_THRESHOLD) {
+        // R8: hysteresis. Close only after HOLD_MS below -60 dBFS; reopen
+        // when audio climbs back above -55 dBFS.
+        if (dbfs < SILENCE_CLOSE_DBFS) {
           if (silenceStartRef.current === null) silenceStartRef.current = nowMs;
           if (!silenceClosedRef.current && nowMs - (silenceStartRef.current ?? nowMs) >= SILENCE_HOLD_MS) {
             silenceClosedRef.current = true;
             setState((s) => ({ ...s, silenceGateClosed: true }));
             console.log("[audio-silence] gate closed");
           }
-        } else {
+        } else if (dbfs > SILENCE_OPEN_DBFS) {
           silenceStartRef.current = null;
           if (silenceClosedRef.current) {
             silenceClosedRef.current = false;
             setState((s) => ({ ...s, silenceGateClosed: false }));
             console.log("[audio-silence] gate opened");
+            // R8: flush lookback ring on reopen so DG hears the leading edge.
+            if (ws.readyState === WebSocket.OPEN) {
+              for (const chunk of lookbackRingRef.current) {
+                try {
+                  let bin = "";
+                  for (let i = 0; i < chunk.length; i++) bin += String.fromCharCode(chunk[i]);
+                  const b64 = btoa(bin);
+                  ws.send(JSON.stringify({ type: "audio", b64 }));
+                } catch { break; }
+              }
+            }
+            lookbackRingRef.current = [];
+            lookbackBytesRef.current = 0;
           }
+        }
+        // R8: always buffer into 200ms lookback ring (even while closed) so
+        // the leading edge of resumed speech isn't chopped off.
+        lookbackRingRef.current.push(bytes);
+        lookbackBytesRef.current += bytes.length;
+        while (lookbackBytesRef.current > LOOKBACK_CAP_BYTES && lookbackRingRef.current.length > 0) {
+          const d = lookbackRingRef.current.shift();
+          if (d) lookbackBytesRef.current -= d.length;
         }
         // If gate closed, skip send (but keep the mic open).
         if (silenceClosedRef.current) return;
@@ -775,23 +962,47 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const resume = useCallback(() => {
     lastTranscriptAtRef.current = Date.now();
     intentionalStopRef.current = false;
+    micMutedRef.current = false;
+    setState((s) => ({ ...s, warmStarted: false }));
     startRef.current().catch(() => { /* ignore */ });
   }, []);
 
   // Task 6: manual "Restart listening" — stop + fresh ticket + start.
   const restart = useCallback(() => {
     if (isDevOrTraceOn()) console.log("[presentflow-audio] restart() called");
-    // Full stop first (flushes metrics, resets counters).
+    // Y4: flush metrics BEFORE teardown so the aborted session is recorded.
+    try { flushSessionMetrics(); } catch { /* ignore */ }
+    // Full stop first.
     intentionalStopRef.current = true;
     if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
     reconnectAttemptsRef.current = 0;
     ringBufferRef.current = [];
     ringBufferBytesRef.current = 0;
+    // Y4: reset the missing state — session windows, word buckets, conf sums,
+    // rate windows, chunk latency, silence gate, mic mute flag.
+    sessionStartRef.current = 0;
+    wordsHighRef.current = 0;
+    wordsLowRef.current = 0;
+    confSumRef.current = 0;
+    confCountRef.current = 0;
+    msgTimestampsRef.current = [];
+    firstChunkAtRef.current = null;
+    silenceStartRef.current = null;
+    silenceClosedRef.current = false;
+    micMutedRef.current = false;
+    lookbackRingRef.current = [];
+    lookbackBytesRef.current = 0;
+    // R10/Y4: reset dedupe + recent-detection cache so a new session doesn't
+    // inherit suppressed keys from the previous one.
+    dedupeRef.current = new SuggestionDedupe(30_000);
+    recentDetectionTextsRef.current.clear();
+    // R6: bump generation so any inflight callback from the prior pipeline aborts.
+    pipelineGenerationRef.current += 1;
     teardown();
-    setState((s) => ({ ...s, reconnectFailed: false, reconnectAttempts: 0, error: null, listening: false, ready: false, interim: "", stage: "idle" }));
+    setState((s) => ({ ...s, reconnectFailed: false, reconnectAttempts: 0, error: null, listening: false, ready: false, interim: "", stage: "idle", silenceGateClosed: false }));
     // Small tick so React commits stop-state before starting fresh.
     setTimeout(() => { startRef.current().catch(() => { /* ignore */ }); }, 50);
-  }, [teardown, isDevOrTraceOn]);
+  }, [teardown, isDevOrTraceOn, flushSessionMetrics]);
 
   // Task 9: warm-start — open WS + Deepgram, keep mic muted until listening
   // is toggled ON. Called at operator mount so the first user-toggle has zero
