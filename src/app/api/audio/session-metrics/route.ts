@@ -69,7 +69,13 @@ export async function POST(req: Request) {
   }
 
   const avgConfidence = toNum(body.avgConfidence, 0);
+  // R3: dedupe by client-supplied sessionId. StrictMode + keepalive can retry
+  // the same request; onConflictDoNothing keeps the table honest.
+  const sessionId = typeof body.sessionId === "string" && body.sessionId.length > 0 && body.sessionId.length <= 64
+    ? body.sessionId
+    : null;
   await db.insert(audioSessions).values({
+    sessionId,
     churchId: user.churchId,
     userId: user.id,
     planId,
@@ -80,7 +86,7 @@ export async function POST(req: Request) {
     wordsLow: toInt(body.wordsLow),
     startedAt,
     endedAt,
-  });
+  }).onConflictDoNothing({ target: audioSessions.sessionId });
 
   return NextResponse.json({ ok: true });
 }

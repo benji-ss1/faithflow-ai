@@ -432,6 +432,10 @@ export const feedback = pgTable("feedback", {
 // finalized on WS close. Fed by /api/audio/session-metrics.
 export const audioSessions = pgTable("audio_sessions", {
   id: uuid("id").primaryKey().defaultRandom(),
+  // R3: client-generated dedupe key. StrictMode + keepalive:true retries can
+  // POST the same session's metrics twice; unique + onConflictDoNothing keeps
+  // the table honest.
+  sessionId: text("session_id").unique(),
   churchId: uuid("church_id").references(() => churches.id, { onDelete: "cascade" }).notNull(),
   userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   planId: uuid("plan_id").references(() => servicePlans.id, { onDelete: "cascade" }).notNull(),
