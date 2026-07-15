@@ -34,6 +34,10 @@ export type OperatorShellCtx = {
   audio: AudioStreamState;
   onListenToggle: () => void;
   onResumeAudio?: () => void;
+  // Task 6 — manual "Restart listening": full teardown + fresh ticket + start.
+  onRestartAudio?: () => void;
+  // Task 9 — warm-start: open WS + Deepgram with mic muted.
+  onWarmStartAudio?: () => void;
   confidenceThreshold: number;
   defaultTranslationCode: string;
 

@@ -277,7 +277,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     hasSongContext: false, // updated below via ref
   }), [plan.id, planSongIds, plan]);
 
-  const { state: audio, start: startAudio, stop: stopAudio, resume: resumeAudio, dismissDetection, dismissSong, dismissCommand, dismissSuggestion, simulateTranscript } = useAudioStream(plan.id, {
+  const { state: audio, start: startAudio, stop: stopAudio, resume: resumeAudio, restart: restartAudio, warmStart: warmStartAudio, dismissDetection, dismissSong, dismissCommand, dismissSuggestion, simulateTranscript } = useAudioStream(plan.id, {
     library: songLibrary,
     getDetectContext,
   });
@@ -1080,6 +1080,8 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     audio,
     onListenToggle: () => audio.listening ? stopAudio() : startAudio(),
     onResumeAudio: resumeAudio,
+    onRestartAudio: restartAudio,
+    onWarmStartAudio: warmStartAudio,
     confidenceThreshold,
     defaultTranslationCode,
     onJumpSlide: jumpTo,

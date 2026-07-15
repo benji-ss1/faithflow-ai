@@ -43,7 +43,7 @@ export type CommandSuggestion = {
   matchedText: string;
 };
 
-export type TranscriptChunk = { id: string; text: string; final: boolean; ts: number };
+export type TranscriptChunk = { id: string; text: string; final: boolean; ts: number; words?: { w: string; c: number }[] };
 
 /**
  * Unified suggestion — Phase 5A. Runs client-side on every transcript
@@ -87,6 +87,19 @@ export type AudioStreamState = {
   stageHistory: { stage: PipelineStage; ts: number }[];
   chunksSent: number;
   dgMessagesReceived: number;
+  // Reconnect surfacing (Task 5): true after >8 backoff attempts fail. Client
+  // shell renders a persistent banner + a Retry Now button that flips this
+  // back to false via manual restart.
+  reconnectFailed: boolean;
+  reconnectAttempts: number;
+  // Warm-start (Task 9): WS is open but mic is not flowing.
+  warmStarted: boolean;
+  // RMS silence gate (Task 13).
+  silenceGateClosed: boolean;
+  // Observability (Task 15).
+  msgsPerSec: number;
+  lastLatencyMs: number | null;
+  avgConfidence: number;
 };
 
 /**
@@ -108,6 +121,8 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     listening: false, ready: false, error: null, transcript: [], interim: "",
     detections: [], songSuggestions: [], commandSuggestions: [], suggestions: [],
     stage: "idle", stageHistory: [], chunksSent: 0, dgMessagesReceived: 0,
+    reconnectFailed: false, reconnectAttempts: 0, warmStarted: false,
+    silenceGateClosed: false, msgsPerSec: 0, lastLatencyMs: null, avgConfidence: 0,
   });
 
   // Dedupe primitive: 30s cooldown per (type, key), refresh on +10 confidence.
@@ -288,6 +303,27 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const audioCtxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
+  // Task 4: 5-second PCM ring buffer used while the WS is closed to backfill
+  // on reconnect. 16kHz * 2 bytes/sample * 5s = 160,000 bytes cap.
+  const RING_CAP_BYTES = 160_000;
+  const ringBufferRef = useRef<Uint8Array[]>([]);
+  const ringBufferBytesRef = useRef<number>(0);
+  // Task 13: RMS silence gate state.
+  const silenceStartRef = useRef<number | null>(null);
+  const silenceClosedRef = useRef<boolean>(false);
+  const SILENCE_DBFS_THRESHOLD = -55;
+  const SILENCE_HOLD_MS = 2000;
+  // Task 14/15: session metrics.
+  const sessionStartRef = useRef<number>(0);
+  const reconnectsCountRef = useRef<number>(0);
+  const wordsHighRef = useRef<number>(0);
+  const wordsLowRef = useRef<number>(0);
+  const confSumRef = useRef<number>(0);
+  const confCountRef = useRef<number>(0);
+  const msgTimestampsRef = useRef<number[]>([]);
+  const firstChunkAtRef = useRef<number | null>(null);
+  // Task 9: warm-start — mic muted flag.
+  const micMutedRef = useRef<boolean>(false);
   // Auto-reconnect bookkeeping. `intentionalStopRef` distinguishes an
   // operator-initiated stop (never reconnect) from an abnormal WS close
   // (Fly bridge blip, transient network drop). `reconnectTimerRef` lets
@@ -326,25 +362,66 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     audioCtxRef.current = null;
   }, []);
 
+  // Task 14: fire-and-forget metrics POST on session finalize.
+  const flushSessionMetrics = useCallback(() => {
+    const startedAt = sessionStartRef.current;
+    if (!startedAt) return;
+    const endedAt = Date.now();
+    const durationSec = Math.max(0, Math.round((endedAt - startedAt) / 1000));
+    const reconnects = reconnectsCountRef.current;
+    const wordsHigh = wordsHighRef.current;
+    const wordsLow = wordsLowRef.current;
+    const avgConfidence = confCountRef.current > 0
+      ? Math.round((confSumRef.current / confCountRef.current) * 100) / 100
+      : 0;
+    console.log(
+      `[audio-session] planId=${planId} duration=${durationSec}s reconnects=${reconnects} avgConfidence=${avgConfidence.toFixed(2)} wordsHigh=${wordsHigh} wordsLow=${wordsLow}`,
+    );
+    try {
+      const body = JSON.stringify({ planId, durationSec, reconnects, avgConfidence, wordsHigh, wordsLow, startedAt, endedAt });
+      fetch("/api/audio/session-metrics", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        keepalive: true,
+      }).catch(() => { /* non-fatal */ });
+    } catch { /* ignore */ }
+    // Reset counters.
+    sessionStartRef.current = 0;
+    reconnectsCountRef.current = 0;
+    wordsHighRef.current = 0;
+    wordsLowRef.current = 0;
+    confSumRef.current = 0;
+    confCountRef.current = 0;
+    firstChunkAtRef.current = null;
+  }, [planId]);
+
   const stop = useCallback(() => {
     if (isDevOrTraceOn()) console.log("[presentflow-audio] stop() called — hard-stopping pipeline");
     intentionalStopRef.current = true;
     if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
     reconnectAttemptsRef.current = 0;
+    // Task 4: drop any buffered PCM — a hard stop discards backlog.
+    ringBufferRef.current = [];
+    ringBufferBytesRef.current = 0;
+    flushSessionMetrics();
     teardown();
-    setState((s) => ({ ...s, listening: false, ready: false, interim: "", stage: "idle" }));
-  }, [teardown]);
+    setState((s) => ({ ...s, listening: false, ready: false, interim: "", stage: "idle", reconnectFailed: false, reconnectAttempts: 0, warmStarted: false, silenceGateClosed: false }));
+  }, [teardown, flushSessionMetrics]);
 
   const scheduleReconnect = useCallback(() => {
     if (intentionalStopRef.current) return;
     const attempt = ++reconnectAttemptsRef.current;
+    reconnectsCountRef.current += 1;
+    setState((s) => ({ ...s, reconnectAttempts: attempt }));
     if (attempt > 8) {
       if (isDevOrTraceOn()) console.warn("[presentflow-audio] auto-reconnect gave up after 8 attempts");
-      setState((s) => ({ ...s, error: "AI listener disconnected. Toggle AI Listening OFF then ON." }));
+      setState((s) => ({ ...s, reconnectFailed: true, error: null }));
       return;
     }
-    // Exponential backoff w/ jitter: ~0.5s, 1s, 2s, 4s, 8s, 15s (capped), + up to 500ms jitter.
-    const base = Math.min(500 * Math.pow(2, attempt - 1), 15_000);
+    // Task 3: exponential backoff, base=500ms, cap=8s, +up to 500ms jitter.
+    // Attempts 1..8 → 500, 1000, 2000, 4000, 8000, 8000, 8000, 8000 (+jitter).
+    const base = Math.min(500 * Math.pow(2, attempt - 1), 8_000);
     const delay = base + Math.floor(Math.random() * 500);
     if (isDevOrTraceOn()) console.log(`[presentflow-audio] scheduling reconnect attempt ${attempt} in ${delay}ms`);
     // Don't set a user-facing error string during the transient reconnect
@@ -364,6 +441,10 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const start = useCallback(async () => {
     intentionalStopRef.current = false;
     lastTranscriptAtRef.current = Date.now();
+    // Task 14: start a session window (only if not already open from a warm-start).
+    if (!sessionStartRef.current) sessionStartRef.current = Date.now();
+    micMutedRef.current = false;
+    setState((s) => ({ ...s, warmStarted: false }));
     setState((s) => ({ ...s, error: null, stage: "idle", stageHistory: [], chunksSent: 0, dgMessagesReceived: 0 }));
     // PF_AI_TRACE gate: dev + localStorage("presentflow.aiTrace","1") enable numbered logs.
     // Off in prod unless explicitly opted in so the demo console stays quiet.
@@ -411,12 +492,57 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         setStage("ws_open"); log("3 WS open");
         // Fresh connection stable — reset backoff so a later drop starts at attempt 1.
         reconnectAttemptsRef.current = 0;
-        setState((s) => ({ ...s, error: null }));
+        setState((s) => ({ ...s, error: null, reconnectFailed: false, reconnectAttempts: 0 }));
+        // Task 4: flush the ring buffer of PCM captured while WS was closed.
+        // Chunks are queued in arrival order; drained oldest-first before
+        // live audio resumes so the transcript catches up.
+        const buffered = ringBufferRef.current;
+        if (buffered.length > 0) {
+          const bytes = ringBufferBytesRef.current;
+          const ms = Math.round((bytes / 2 / 16_000) * 1000);
+          console.log(`[audio-buffer] retained ${ms} ms during reconnect`);
+          for (const chunk of buffered) {
+            try {
+              let bin = "";
+              for (let i = 0; i < chunk.length; i++) bin += String.fromCharCode(chunk[i]);
+              const b64 = btoa(bin);
+              ws.send(JSON.stringify({ type: "audio", b64 }));
+            } catch { /* drop on error */ break; }
+          }
+          ringBufferRef.current = [];
+          ringBufferBytesRef.current = 0;
+        }
       };
 
       ws.onmessage = (e) => {
         const msg = JSON.parse(e.data);
-        setState((s) => ({ ...s, dgMessagesReceived: s.dgMessagesReceived + 1 }));
+        // Task 15: msg/sec rolling window (5s) + first-transcript latency.
+        const now = Date.now();
+        msgTimestampsRef.current.push(now);
+        while (msgTimestampsRef.current.length && now - msgTimestampsRef.current[0] > 5000) {
+          msgTimestampsRef.current.shift();
+        }
+        const rate = Math.round(msgTimestampsRef.current.length / 5);
+        let lat: number | null = null;
+        if ((msg.type === "interim" || msg.type === "final") && firstChunkAtRef.current) {
+          lat = now - firstChunkAtRef.current;
+          firstChunkAtRef.current = null;
+        }
+        setState((s) => ({ ...s, dgMessagesReceived: s.dgMessagesReceived + 1, msgsPerSec: rate, lastLatencyMs: lat ?? s.lastLatencyMs }));
+        // Task 10/11: track word-level confidence buckets for autopilot gating.
+        if ((msg.type === "final" || msg.type === "interim_final_candidate") && Array.isArray(msg.words)) {
+          for (const w of msg.words as { w?: string; c?: number }[]) {
+            if (typeof w?.c !== "number") continue;
+            if (w.c >= CONFIDENCE_THRESHOLD) wordsHighRef.current += 1;
+            else wordsLowRef.current += 1;
+          }
+        }
+        if (msg.type === "final" && typeof msg.confidence === "number") {
+          confSumRef.current += msg.confidence;
+          confCountRef.current += 1;
+          const avg = confSumRef.current / confCountRef.current;
+          setState((s) => ({ ...s, avgConfidence: Math.round(avg * 100) / 100 }));
+        }
         if (msg.type === "ready") {
           if (stallWatchdogRef.current) { clearTimeout(stallWatchdogRef.current); stallWatchdogRef.current = null; }
           setStage("deepgram_ready"); log("5 deepgram ready"); setState((s) => ({ ...s, ready: true })); return;
@@ -443,10 +569,11 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         }
         else if (msg.type === "final") {
           lastTranscriptAtRef.current = Date.now();
+          const words = Array.isArray(msg.words) ? msg.words as { w: string; c: number }[] : undefined;
           setState((s) => ({
             ...s,
             interim: "",
-            transcript: [...s.transcript, { id: msg.segmentId, text: msg.text, final: true, ts: Date.now() }].slice(-100),
+            transcript: [...s.transcript, { id: msg.segmentId, text: msg.text, final: true, ts: Date.now(), words }].slice(-100),
           }));
           // Phase 5A: run unified detection client-side. Fire-and-forget.
           runDetectAll(msg.segmentId, msg.text, { dgConfidence: msg.confidence });
@@ -544,8 +671,45 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       workletNodeRef.current = node;
       let sentChunks = 0;
       node.port.onmessage = (e) => {
-        if (ws.readyState !== WebSocket.OPEN) return;
-        const bytes = new Uint8Array(e.data as ArrayBuffer);
+        const raw = e.data as ArrayBuffer;
+        const bytes = new Uint8Array(raw);
+        // Task 9: warm-start / mic-muted → do not send.
+        if (micMutedRef.current) return;
+        // Task 13: RMS silence gate. Compute RMS over PCM16 samples.
+        const i16 = new Int16Array(raw);
+        let sumSq = 0;
+        for (let i = 0; i < i16.length; i++) { const v = i16[i] / 0x8000; sumSq += v * v; }
+        const rms = Math.sqrt(sumSq / Math.max(1, i16.length));
+        const dbfs = rms > 0 ? 20 * Math.log10(rms) : -Infinity;
+        const nowMs = Date.now();
+        if (dbfs < SILENCE_DBFS_THRESHOLD) {
+          if (silenceStartRef.current === null) silenceStartRef.current = nowMs;
+          if (!silenceClosedRef.current && nowMs - (silenceStartRef.current ?? nowMs) >= SILENCE_HOLD_MS) {
+            silenceClosedRef.current = true;
+            setState((s) => ({ ...s, silenceGateClosed: true }));
+            console.log("[audio-silence] gate closed");
+          }
+        } else {
+          silenceStartRef.current = null;
+          if (silenceClosedRef.current) {
+            silenceClosedRef.current = false;
+            setState((s) => ({ ...s, silenceGateClosed: false }));
+            console.log("[audio-silence] gate opened");
+          }
+        }
+        // If gate closed, skip send (but keep the mic open).
+        if (silenceClosedRef.current) return;
+        // Task 4: WS closed → buffer into 5s ring, evicting oldest.
+        if (ws.readyState !== WebSocket.OPEN) {
+          ringBufferRef.current.push(bytes);
+          ringBufferBytesRef.current += bytes.length;
+          while (ringBufferBytesRef.current > RING_CAP_BYTES && ringBufferRef.current.length > 0) {
+            const dropped = ringBufferRef.current.shift();
+            if (dropped) ringBufferBytesRef.current -= dropped.length;
+          }
+          return;
+        }
+        if (firstChunkAtRef.current === null) firstChunkAtRef.current = nowMs;
         let bin = "";
         for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
         const b64 = btoa(bin);
@@ -614,6 +778,32 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     startRef.current().catch(() => { /* ignore */ });
   }, []);
 
+  // Task 6: manual "Restart listening" — stop + fresh ticket + start.
+  const restart = useCallback(() => {
+    if (isDevOrTraceOn()) console.log("[presentflow-audio] restart() called");
+    // Full stop first (flushes metrics, resets counters).
+    intentionalStopRef.current = true;
+    if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
+    reconnectAttemptsRef.current = 0;
+    ringBufferRef.current = [];
+    ringBufferBytesRef.current = 0;
+    teardown();
+    setState((s) => ({ ...s, reconnectFailed: false, reconnectAttempts: 0, error: null, listening: false, ready: false, interim: "", stage: "idle" }));
+    // Small tick so React commits stop-state before starting fresh.
+    setTimeout(() => { startRef.current().catch(() => { /* ignore */ }); }, 50);
+  }, [teardown, isDevOrTraceOn]);
+
+  // Task 9: warm-start — open WS + Deepgram, keep mic muted until listening
+  // is toggled ON. Called at operator mount so the first user-toggle has zero
+  // handshake latency. Billing behavior documented in DECISIONS.md.
+  const warmStart = useCallback(() => {
+    if (wsRef.current || state.warmStarted || state.listening) return;
+    if (isDevOrTraceOn()) console.log("[presentflow-audio] warmStart() called");
+    micMutedRef.current = true;
+    setState((s) => ({ ...s, warmStarted: true }));
+    startRef.current().catch(() => { /* ignore */ });
+  }, [state.warmStarted, state.listening, isDevOrTraceOn]);
+
   useEffect(() => () => stop(), [stop]);
 
   const dismissDetection = useCallback((id: string) => {
@@ -645,5 +835,5 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     runDetectAll(segmentId, text);
   }, [runDetectAll]);
 
-  return { state, start, stop, resume, dismissDetection, dismissSong, dismissCommand, dismissSuggestion, simulateTranscript };
+  return { state, start, stop, resume, restart, warmStart, dismissDetection, dismissSong, dismissCommand, dismissSuggestion, simulateTranscript };
 }
