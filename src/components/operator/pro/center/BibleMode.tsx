@@ -9,6 +9,9 @@ import { BibleBookBrowser } from "./BibleBookBrowser";
 import type { BibleSessionApi, VerseCard } from "../hooks";
 import { cn } from "@/lib/utils";
 import { cachedLookup } from "@/lib/bible-client-cache";
+import { addServiceItem } from "@/lib/actions";
+import { Plus } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 /**
  * R5: All session state (ref, translation, mode, cards, selectedIdx) is
@@ -23,6 +26,35 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
   const { ref, translation, cards, selectedIdx, loading } = state;
   const [opts] = useBibleOptions();
   const [tab, setTab] = useState<"reference" | "browse">("reference");
+  const router = useRouter();
+
+  // Build a scripture add payload for a single verse card and dispatch the
+  // existing addServiceItem server action. Reused by the per-card `+` button
+  // and by the batch "add all" control below.
+  const addVerseToPlaylist = useCallback(async (c: VerseCard) => {
+    if (!ctx.planId) { toast.info("No plan open"); return; }
+    // Prefer a compact "Book Ch:Vs" reference (strip trailing "(TRANS)").
+    const ref = c.label.replace(/\s*\([^)]*\)\s*$/, "").trim();
+    const verses = c.verses.map((v) => ({ verse: v.verse, text: v.text }));
+    const res = await addServiceItem(ctx.planId, "scripture", ref, { reference: ref, verses });
+    if (!res.ok) { toast.error(res.error || "Add failed"); return; }
+    toast.success(`Added: ${ref}`);
+    router.refresh();
+  }, [ctx.planId, router]);
+
+  const addAllVerses = useCallback(async () => {
+    if (cards.length === 0) return;
+    let added = 0;
+    for (const c of cards) {
+      if (!ctx.planId) break;
+      const ref = c.label.replace(/\s*\([^)]*\)\s*$/, "").trim();
+      const verses = c.verses.map((v) => ({ verse: v.verse, text: v.text }));
+      const res = await addServiceItem(ctx.planId, "scripture", ref, { reference: ref, verses });
+      if (res.ok) added++;
+    }
+    if (added > 0) { toast.success(`Added ${added} verse${added === 1 ? "" : "s"}`); router.refresh(); }
+    else toast.error("No verses added");
+  }, [cards, ctx.planId, router]);
 
   const runLookup = useCallback(async (p: { book: string; chapter: number; verseStart: number; verseEnd: number; chapterEnd?: number }) => {
     setLoading(true);
@@ -229,6 +261,17 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
       )}
 
       {/* Verse cards */}
+      {tab === "reference" && cards.length > 1 && (
+        <div className="flex justify-end -mb-2">
+          <button
+            onClick={() => void addAllVerses()}
+            className="h-7 px-2 rounded border border-[var(--color-border)] text-[11px] font-mono uppercase tracking-wider hover:bg-[var(--color-elevated)]"
+            title="Add every verse as a separate scripture item"
+          >
+            + Add all verses
+          </button>
+        </div>
+      )}
       {tab === "reference" && (
       <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}>
         {cards.length === 0 && (
@@ -253,6 +296,16 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
               <div className="absolute top-1 left-1 text-[10px] font-mono text-white/70 bg-black/40 px-1 rounded">
                 {idx + 1}
               </div>
+              <span
+                role="button"
+                aria-label={`Add ${c.label} to playlist`}
+                title="Add to playlist"
+                onClick={(e) => { e.stopPropagation(); void addVerseToPlaylist(c); }}
+                onDoubleClick={(e) => e.stopPropagation()}
+                className="absolute top-1 right-1 h-5 w-5 inline-flex items-center justify-center rounded bg-black/50 text-white/80 hover:bg-[var(--color-brand)] hover:text-black transition-colors"
+              >
+                <Plus className="h-3 w-3" />
+              </span>
             </button>
           );
         })}
