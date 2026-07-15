@@ -71,6 +71,11 @@ function readJsonTerms(file: string): string[] | null {
  * Cached per-churchId for 5 minutes.
  */
 export function loadKeyterms(churchId: string | null | undefined): string[] {
+  // Y15: strict UUID validation to prevent path traversal via crafted churchId.
+  // Anything not a UUID gets treated as "default" — no disk access with the bad value.
+  if (churchId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(churchId)) {
+    churchId = null;
+  }
   const key = churchId || "__default__";
   const now = Date.now();
   const hit = cache.get(key);
