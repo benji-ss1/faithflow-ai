@@ -33,7 +33,7 @@ fi
 # Build .next standalone + tsc electron main + run electron-builder with the
 # github publisher. CSC_IDENTITY_AUTO_DISCOVERY=false forces an unsigned build
 # on machines that happen to have a code-signing identity in the keychain.
-next build
+npm run build
 npm run electron:build:tsc
 CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac dmg zip --publish always
 
