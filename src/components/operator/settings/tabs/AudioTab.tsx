@@ -132,6 +132,20 @@ export function AudioTab() {
     <div className="space-y-6">
       <SectionHeader title="Audio" description="Transcription mode, input device, gain, and voice commands." />
 
+      {/* Task 6 — manual "Restart AI listener" recovery control. Dispatches
+          a window event that ProOperatorShell handles by calling
+          ctx.onRestartAudio (full teardown + fresh ticket + start). */}
+      <Row label="AI Listener">
+        <button
+          data-testid="settings-restart-ai-btn"
+          onClick={() => { try { window.dispatchEvent(new CustomEvent("presentflow:restart-audio")); } catch {} }}
+          className="h-8 px-3 rounded-md border text-[11px] font-medium text-zinc-100 hover:bg-white/5"
+          style={{ borderColor: "#2a3232", background: "#1a2020" }}
+        >
+          ↻ Restart AI listener
+        </button>
+      </Row>
+
       <Row label="Transcription Mode">
         <div className="inline-flex rounded-md p-0.5" style={{ background: "#1a2020", border: "1px solid #2a3232" }}>
           {(["online", "offline"] as const).map((m) => (

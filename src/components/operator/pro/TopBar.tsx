@@ -552,6 +552,19 @@ export function TopBar({
                 className="h-[24px] px-2 rounded-md text-[10px] font-semibold bg-red-500/20 text-red-100 border border-red-500/50 hover:bg-red-500/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
               >Retry</button>
             )}
+            {/* Task 6 — manual "Restart listening" icon. Full teardown +
+                fresh ticket + start. Available whenever the pipeline is
+                initialised (listening OR warm-started). */}
+            {(listening || ctx.audio.warmStarted) && ctx.onRestartAudio && (
+              <button
+                type="button"
+                onClick={() => ctx.onRestartAudio?.()}
+                title="Restart AI listener"
+                aria-label="Restart AI listener"
+                data-testid="restart-audio-btn"
+                className="h-[24px] w-[24px] rounded-md text-[13px] font-bold text-[var(--color-muted-foreground)] border border-[var(--color-border)] hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)] flex items-center justify-center"
+              >↻</button>
+            )}
           </div>
         </Tooltip.Provider>
         {/* Task F — PP-parity output pills */}

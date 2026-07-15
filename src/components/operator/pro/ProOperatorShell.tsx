@@ -39,6 +39,10 @@ import { cachedLookup } from "@/lib/bible-client-cache";
 import { cn } from "@/lib/utils";
 import { useOperatorHotkeys } from "@/hooks/useOperatorHotkeys";
 import { ShortcutsHelpOverlay } from "./ShortcutsHelpOverlay";
+import { AICaptionsBanner } from "./AICaptionsBanner";
+import { AudioDebugOverlay } from "../dev/AudioDebugOverlay";
+import { useDebouncedInterim } from "./useDebouncedInterim";
+import { CONFIDENCE_THRESHOLD } from "@/lib/audio-thresholds";
 import { OperatorTour, hasSeenTour } from "@/components/tutorial/OperatorTour";
 import { dispatchInternal, isInternalEvent } from "@/lib/internal-events";
 
@@ -234,13 +238,15 @@ function LiveTranscriptPanel({ ctx }: { ctx: OperatorShellCtx }) {
   const now = Date.now();
   // Keep only the last 30s of finals for the visible window.
   const windowed = recent.filter((t) => now - t.ts < 30_000);
-  const hasContent = windowed.length > 0 || !!audio.interim;
+  // Task 8: debounce interim renders to ≥3 char OR ≥300ms delta.
+  const interim = useDebouncedInterim(audio.interim, 3, 300);
+  const hasContent = windowed.length > 0 || !!interim;
 
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [audio.transcript, audio.interim]);
+  }, [audio.transcript, interim]);
 
   const isRecording = audio.listening && audio.ready;
 
@@ -273,9 +279,9 @@ function LiveTranscriptPanel({ ctx }: { ctx: OperatorShellCtx }) {
                 {t.text}
               </div>
             ))}
-            {audio.interim && (
+            {interim && (
               <div className="text-[var(--color-muted-foreground)] break-words opacity-70">
-                {audio.interim}
+                {interim}
               </div>
             )}
           </>
@@ -315,6 +321,52 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // SlideGrid. The CSS var was redundant and drifted from the prop.
     try { window.localStorage.setItem(SLIDE_SIZE_KEY, String(slideSize)); } catch { /* noop */ }
   }, [slideSize]);
+
+  // Task 6: Settings > Audio "Restart AI listener" button dispatches a
+  // window event; forward to ctx.onRestartAudio.
+  useEffect(() => {
+    const h = () => { ctx.onRestartAudio?.(); };
+    window.addEventListener("presentflow:restart-audio", h);
+    return () => window.removeEventListener("presentflow:restart-audio", h);
+  }, [ctx]);
+
+  // Task 9: warm-start the audio pipeline on operator mount (mic muted).
+  // First user-toggle then flips from warm → live with zero handshake wait.
+  useEffect(() => {
+    ctx.onWarmStartAudio?.();
+    // Intentionally mount-once; ctx changes shouldn't retrigger warm-start.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Task 11: block auto-approve when any word inside the detection's matched
+  // span has confidence below CONFIDENCE_THRESHOLD. Wired via a ref read
+  // inside the auto-approve effect (below) — we compute a Set of "blocked
+  // matched-text tokens" per render pass off the newest final transcript.
+  const lowConfBlockedSpansRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const blocked = new Set<string>();
+    // Consider recent final chunks with word-level confidence data.
+    const recent = ctx.audio.transcript.slice(-8);
+    for (const chunk of recent) {
+      if (!chunk.words || chunk.words.length === 0) continue;
+      const lowWords = chunk.words.filter((w) => typeof w.c === "number" && w.c < CONFIDENCE_THRESHOLD);
+      if (lowWords.length === 0) continue;
+      // Match against active scripture suggestions' matchedText.
+      for (const s of ctx.audio.suggestions) {
+        if (s.type !== "scripture") continue;
+        const mt = s.matchedText.toLowerCase();
+        const lowSet = lowWords.map((w) => w.w.toLowerCase().replace(/[^a-z0-9]/g, ""));
+        for (const lw of lowSet) {
+          if (lw && mt.includes(lw)) {
+            blocked.add(s.id);
+            if (pfTraceOn()) console.log(`[autopilot] blocked — low-confidence words in span: ${lowWords.map((w) => w.w).join(", ")}`);
+            break;
+          }
+        }
+      }
+    }
+    lowConfBlockedSpansRef.current = blocked;
+  }, [ctx.audio.transcript, ctx.audio.suggestions]);
 
   // R4/R5: session hooks live at the shell so state survives tab/mode swap.
   const timer = useTimerSession();
@@ -547,7 +599,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     }
     // Need a matching high-confidence detection
     const suggestions = ctx.audio.suggestions || [];
-    const scripture = suggestions.find((s) => s.type === "scripture" && s.confidence >= 85);
+    const scripture = suggestions.find((s) => s.type === "scripture" && s.confidence >= 85 && !lowConfBlockedSpansRef.current.has(s.id));
     if (!scripture || scripture.type !== "scripture") return;
     const first = cards[0];
     // R8: skip placeholder cards (loading / no-text / lookup-failed) AND
@@ -810,6 +862,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-[var(--color-app-bg)] text-[var(--color-foreground)]">
+      <AICaptionsBanner ctx={ctx} />
       <div data-tour="top">
         <TopBar
           centerMode={centerMode}
@@ -875,6 +928,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       {mediaStripOpen && <MediaStrip onCenterMode={setCenterMode} />}
 
       <ShortcutsHelpOverlay open={shortcutsHelpOpen} onOpenChange={setShortcutsHelpOpen} />
+      <AudioDebugOverlay audio={ctx.audio} />
       <OperatorTour open={tourOpen} onClose={() => setTourOpen(false)} />
     </div>
   );
