@@ -25,7 +25,7 @@ import { extractSongCandidates, fuzzyMatchSong } from "../src/lib/song-parser";
 import { parseCommands } from "../src/lib/command-parser";
 import { semanticSearch } from "../src/lib/server/bible";
 import { songs, aiSuggestions } from "../src/lib/db/schema";
-import { DEEPGRAM_KEYTERMS } from "../src/lib/deepgram-keyterms";
+import { loadKeyterms } from "../src/lib/deepgram-keyterms";
 import { and, eq } from "drizzle-orm";
 import crypto from "node:crypto";
 
@@ -57,7 +57,7 @@ const db = getDb();
  * though the same URL + params + audio worked when driven by hand-rolled
  * WS. Simpler, fewer moving parts.
  */
-function openDeepgram(): Promise<WebSocket> {
+function openDeepgram(churchId: string): Promise<WebSocket> {
   const params = new URLSearchParams({
     model: "nova-3",
     language: "en",
@@ -65,18 +65,23 @@ function openDeepgram(): Promise<WebSocket> {
     interim_results: "true",
     punctuate: "true",
     numerals: "true",
-    // endpointing=300ms was chosen to avoid mid-sentence cutoffs. A prior
-    // value of 10ms was far too aggressive and would end utterances between
-    // words. Sent as the integer 300 (string-encoded per URL params spec).
-    endpointing: "300",
+    // endpointing=200ms. Progression: initial 10ms was far too aggressive
+    // (utterances ended mid-word); 400ms and 300ms both felt slightly slow
+    // for reactive Bible-ref surfacing during preaching cadence. 200ms is
+    // the current sweet spot — snappy without cutting mid-clause. Sent as
+    // the integer 200 (string-encoded per URL params spec).
+    endpointing: "200",
     encoding: "linear16",
     sample_rate: "16000",
     channels: "1",
   });
   // Keyterm prompts biasing scripture / worship vocabulary. Each term is a
   // separate `keyterm=...` query param — do NOT collapse into a single
-  // comma-joined value. See src/lib/deepgram-keyterms.ts to edit.
-  for (const term of DEEPGRAM_KEYTERMS) params.append("keyterm", term);
+  // comma-joined value. Per-church override loaded from
+  // `config/deepgram-keyterms/<churchId>.json`, falling back to default.json,
+  // falling back to the hard-coded list. Cached 5min in-process.
+  const keyterms = loadKeyterms(churchId);
+  for (const term of keyterms) params.append("keyterm", term);
   const url = `wss://api.deepgram.com/v1/listen?${params}`;
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url, { headers: { Authorization: `Token ${DG_KEY}` } });
@@ -242,7 +247,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
   let dg: WebSocket;
   try {
-    dg = await openDeepgram();
+    dg = await openDeepgram(churchId);
   } catch (e) {
     console.error("[audio] Deepgram connect failed:", e instanceof Error ? e.message : e);
     send({ type: "error", message: "Could not reach Deepgram" });
