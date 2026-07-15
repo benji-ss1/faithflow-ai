@@ -1074,3 +1074,34 @@ export async function importPublicDomainSong(input: {
   revalidatePath("/library/songs");
   return { ok: true, data: { id: row.id, duplicate: false } };
 }
+
+// Per-church Deepgram keyterm override -----------------------------------------
+// Writes to `config/deepgram-keyterms/<churchId>.json`. Church-scoped +
+// ownership-guarded via requireUser. Admin UI wiring is a follow-up; the
+// action exists so the UI can call it once built. Terms are trimmed, dedup'd,
+// length-capped, and count-capped to protect the URL length limit on
+// the Deepgram streaming endpoint.
+export async function updateChurchKeyterms(terms: string[]): Promise<Result<{ count: number }>> {
+  const user = await requireUser();
+  if (!Array.isArray(terms)) return { ok: false, error: "terms must be an array" };
+  const cleaned = Array.from(new Set(
+    terms
+      .filter((t): t is string => typeof t === "string")
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0 && t.length <= 64),
+  )).slice(0, 200);
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const dir = process.env.PF_CONFIG_DIR || path.resolve(process.cwd(), "config");
+  const targetDir = path.join(dir, "deepgram-keyterms");
+  await fs.mkdir(targetDir, { recursive: true });
+  // Church IDs are UUIDs; still, guard against path traversal defensively.
+  if (!/^[a-zA-Z0-9_-]+$/.test(user.churchId)) return { ok: false, error: "invalid churchId format" };
+  const file = path.join(targetDir, `${user.churchId}.json`);
+  await fs.writeFile(file, JSON.stringify({ terms: cleaned }, null, 2) + "\n", "utf8");
+  // Invalidate in-process cache so the bridge picks up the change on next
+  // connection (within one 5-min TTL window at most).
+  const mod = await import("./deepgram-keyterms");
+  mod._clearKeytermCache();
+  return { ok: true, data: { count: cleaned.length } };
+}

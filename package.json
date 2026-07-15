@@ -109,6 +109,7 @@
       ".next/standalone/**",
       ".next/static/**",
       "public/**",
+      "config/**",
       "package.json"
     ],
     "extraResources": [
