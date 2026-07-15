@@ -40,6 +40,7 @@ import { cn } from "@/lib/utils";
 import { useOperatorHotkeys } from "@/hooks/useOperatorHotkeys";
 import { ShortcutsHelpOverlay } from "./ShortcutsHelpOverlay";
 import { AICaptionsBanner } from "./AICaptionsBanner";
+import { UpdateBanner } from "./UpdateBanner";
 import { AudioDebugOverlay } from "../dev/AudioDebugOverlay";
 import { useDebouncedInterim } from "./useDebouncedInterim";
 import { CONFIDENCE_THRESHOLD } from "@/lib/audio-thresholds";
@@ -884,6 +885,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-[var(--color-app-bg)] text-[var(--color-foreground)]">
+      <UpdateBanner />
       <AICaptionsBanner ctx={ctx} />
       <div data-tour="top">
         <TopBar
