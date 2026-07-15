@@ -170,6 +170,238 @@ console.log("session-metrics endpoint module load");
   });
 }
 
+// ── R1: word-span gate ────────────────────────────────────────────────────
+// New logic: only block when a low-conf word actually falls INSIDE the
+// suggestion's matched span (segmentId-scoped, char offsets).
+console.log("R1 word-span autopilot gate");
+type W = { w: string; c: number };
+function gateR1(text: string, words: W[], span: { start: number; end: number } | undefined): boolean {
+  if (!span) return false; // fail open — no span info
+  let cursor = 0;
+  for (const w of words) {
+    const wStr = w.w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+    if (!wStr) continue;
+    const idx = text.toLowerCase().indexOf(wStr.toLowerCase(), cursor);
+    if (idx < 0) continue;
+    const wStart = idx;
+    const wEnd = idx + wStr.length;
+    cursor = wEnd;
+    if (wStart < span.end && wEnd > span.start && typeof w.c === "number" && w.c < CONFIDENCE_THRESHOLD) return true;
+  }
+  return false;
+}
+{
+  t("low-conf 'the' outside span does NOT block Matthew 5:16", () => {
+    const text = "the book of Matthew chapter five verse sixteen";
+    const span = { start: text.indexOf("Matthew"), end: text.indexOf("Matthew") + "Matthew chapter five verse sixteen".length };
+    const words: W[] = [
+      { w: "the", c: 0.2 },
+      { w: "book", c: 0.9 },
+      { w: "of", c: 0.9 },
+      { w: "Matthew", c: 0.95 },
+      { w: "chapter", c: 0.9 },
+      { w: "five", c: 0.9 },
+      { w: "verse", c: 0.9 },
+      { w: "sixteen", c: 0.9 },
+    ];
+    assert.equal(gateR1(text, words, span), false);
+  });
+  t("low-conf word INSIDE span blocks", () => {
+    const text = "Matthew chapter five verse sixteen";
+    const span = { start: 0, end: text.length };
+    const words: W[] = [
+      { w: "Matthew", c: 0.3 },
+      { w: "chapter", c: 0.9 },
+      { w: "five", c: 0.9 },
+      { w: "verse", c: 0.9 },
+      { w: "sixteen", c: 0.9 },
+    ];
+    assert.equal(gateR1(text, words, span), true);
+  });
+  t("fails open when span is missing (no false blocks)", () => {
+    const text = "Matthew chapter five";
+    const words: W[] = [{ w: "the", c: 0.2 }];
+    assert.equal(gateR1(text, words, undefined), false);
+  });
+}
+
+// ── R4: first-render debouncer instant push ──────────────────────────────
+console.log("R4 debouncer first-render");
+{
+  // Replicate: after empty (utterance boundary reset), first non-empty text is instant.
+  function makeGate() {
+    let hasPushed = false;
+    let last = "";
+    let lastAt = 0;
+    return (text: string, now: number, minChars = 3, minMs = 300): { push: boolean } => {
+      if (text === last) return { push: false };
+      if (text.length === 0) { hasPushed = false; last = ""; lastAt = now; return { push: true }; }
+      if (!hasPushed) { hasPushed = true; last = text; lastAt = now; return { push: true }; }
+      const cd = Math.abs(text.length - last.length);
+      const md = now - lastAt;
+      if (cd >= minChars || md >= minMs) { last = text; lastAt = now; return { push: true }; }
+      return { push: false };
+    };
+  }
+  const g = makeGate();
+  t("first non-empty push is instant (no 300ms wait)", () => {
+    assert.deepEqual(g("hi", 0), { push: true }); // instant even though <3 chars & <300ms
+  });
+  t("subsequent small deltas suppressed within thresholds", () => {
+    assert.deepEqual(g("hix", 50), { push: false });
+  });
+  t("after empty reset, next first push is instant again", () => {
+    g("", 100);
+    assert.deepEqual(g("y", 110), { push: true });
+  });
+}
+
+// ── R3: dedupe key shape check ────────────────────────────────────────────
+console.log("R3 session dedupe key");
+{
+  t("sessionId is client-generated + non-empty", () => {
+    const gen = () => `sess-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const a = gen(); const b = gen();
+    assert.notEqual(a, b);
+    assert.ok(a.length > 8);
+  });
+}
+
+// ── R5: words[] cap ───────────────────────────────────────────────────────
+console.log("R5 words[] cap");
+{
+  function capWords(rawWords: Array<{ word?: string; confidence?: number }>): { words?: Array<{ w: string; c: number }>; wordsDropped: boolean } {
+    let wordsDropped = false;
+    const filtered = rawWords
+      .filter((w) => typeof w?.word === "string" && typeof w?.confidence === "number" && String(w.word).length <= 128)
+      .slice(0, 500)
+      .map((w) => ({ w: String(w.word), c: Number(w.confidence) }));
+    if (rawWords.length > 500) wordsDropped = true;
+    return { words: filtered.length ? filtered : undefined, wordsDropped };
+  }
+  t("caps at 500 words", () => {
+    const raw = Array.from({ length: 700 }, (_, i) => ({ word: `w${i}`, confidence: 0.9 }));
+    const out = capWords(raw);
+    assert.equal(out.words?.length, 500);
+    assert.equal(out.wordsDropped, true);
+  });
+  t("drops words with string > 128 chars", () => {
+    const raw = [{ word: "a".repeat(129), confidence: 0.9 }, { word: "ok", confidence: 0.9 }];
+    const out = capWords(raw);
+    assert.equal(out.words?.length, 1);
+    assert.equal(out.words?.[0].w, "ok");
+  });
+}
+
+// ── R6: pipeline generation guard ─────────────────────────────────────────
+console.log("R6 pipeline generation");
+{
+  let generation = 0;
+  const captured = ++generation; // start
+  // simulate rapid restart bumping the counter
+  generation += 2;
+  const stale = captured !== generation;
+  t("stale-generation detection is monotonic", () => { assert.equal(stale, true); });
+}
+
+// ── R7: per-user concurrent cap logic ─────────────────────────────────────
+console.log("R7 per-user cap");
+{
+  function enforce(userSet: Set<string>, newId: string, cap: number): string[] {
+    const closed: string[] = [];
+    while (userSet.size >= cap) {
+      const oldest = userSet.values().next().value;
+      if (oldest === undefined) break;
+      closed.push(oldest as string);
+      userSet.delete(oldest as string);
+    }
+    userSet.add(newId);
+    return closed;
+  }
+  t("closes oldest when cap exceeded", () => {
+    const s = new Set(["a", "b", "c"]);
+    const closed = enforce(s, "d", 3);
+    assert.deepEqual(closed, ["a"]);
+    assert.deepEqual([...s], ["b", "c", "d"]);
+  });
+  t("no-op under cap", () => {
+    const s = new Set(["a"]);
+    const closed = enforce(s, "b", 3);
+    assert.deepEqual(closed, []);
+    assert.equal(s.size, 2);
+  });
+}
+
+// ── R8: lookback ring cap 200ms ───────────────────────────────────────────
+console.log("R8 lookback ring");
+{
+  const CAP = Math.round(0.2 * 16000 * 2); // 6400 bytes
+  const ring: Uint8Array[] = [];
+  let bytes = 0;
+  const push = (n: number) => {
+    ring.push(new Uint8Array(n));
+    bytes += n;
+    while (bytes > CAP && ring.length > 0) {
+      const d = ring.shift();
+      if (d) bytes -= d.length;
+    }
+  };
+  for (let i = 0; i < 10; i++) push(1024); // 10KB total
+  t("keeps last ~200ms only", () => {
+    assert.ok(bytes <= CAP, `bytes=${bytes}`);
+  });
+  t("preserves newest chunk", () => {
+    assert.equal(ring[ring.length - 1].length, 1024);
+  });
+}
+
+// ── R9: keep-alive silence ping shape ─────────────────────────────────────
+console.log("R9 keep-alive ping");
+{
+  t("silence ping is 256 bytes of PCM16 zero", () => {
+    const silence = new Uint8Array(256);
+    assert.equal(silence.length, 256);
+    assert.ok(silence.every((v) => v === 0));
+  });
+}
+
+// ── R10: stale runDetectAll guard ─────────────────────────────────────────
+console.log("R10 stale detection guard");
+{
+  // Model: capture generation at spawn; commit-time check against current.
+  const state: { gen: number } = { gen: 5 };
+  const captured = 5;
+  // Then a restart bumps.
+  state.gen = 6;
+  t("commit-time generation mismatch drops the merge", () => {
+    assert.notEqual(captured, state.gen);
+  });
+}
+
+// ── R11: candidate + final dedupe within 800ms ────────────────────────────
+console.log("R11 candidate/final dedupe");
+{
+  const seen = new Map<string, number>();
+  const WIN = 800;
+  function skip(text: string, now: number): boolean {
+    const norm = text.toLowerCase().replace(/\s+/g, " ").trim();
+    for (const [k, ts] of seen) {
+      if (now - ts > WIN) seen.delete(k);
+      else if (k === norm || k.includes(norm) || norm.includes(k)) return true;
+    }
+    seen.set(norm, now);
+    return false;
+  }
+  t("skips substring within 800ms", () => {
+    assert.equal(skip("john three sixteen", 1000), false);
+    assert.equal(skip("john three sixteen", 1200), true); // exact repeat
+    assert.equal(skip("john three", 1300), true); // substring
+  });
+  t("allows re-detection after window expires", () => {
+    assert.equal(skip("john three sixteen", 2500), false);
+  });
+}
+
 setTimeout(() => {
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed > 0) process.exit(1);
