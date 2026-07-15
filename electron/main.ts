@@ -7,6 +7,7 @@ import { registerScreenIpc, closeAllOutputWindows, openOutputForRole } from "./i
 import { registerAudioIpc } from "./ipc/audio";
 import { registerDialogIpc } from "./ipc/dialog";
 import { registerFsIpc } from "./ipc/fs";
+import { autoUpdater } from "electron-updater";
 
 const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
 let mainWindow: BrowserWindow | null = null;
@@ -510,6 +511,54 @@ app.whenReady().then(async () => {
   installApplicationMenu();
   createTray();
   await createMainWindow();
+
+  // electron-updater: only active in packaged builds. Pulls .zip + latest-mac.yml
+  // from the GitHub Release feed (configured in package.json build.publish) and
+  // atomically swaps the app on next restart. Signed builds get automatic
+  // signature verification; unsigned tester builds fall back to zip replace.
+  if (app.isPackaged) {
+    try {
+      autoUpdater.autoDownload = true;
+      autoUpdater.autoInstallOnAppQuit = true;
+      autoUpdater.on("update-available", (info) => {
+        try {
+          mainWindow?.webContents.send("update:available", {
+            version: info.version,
+            releaseDate: info.releaseDate,
+          });
+        } catch { /* noop */ }
+      });
+      autoUpdater.on("update-downloaded", (info) => {
+        try {
+          mainWindow?.webContents.send("update:downloaded", { version: info.version });
+        } catch { /* noop */ }
+      });
+      autoUpdater.on("error", (err) => {
+        console.error("[updater] error", err?.message || err);
+        try {
+          mainWindow?.webContents.send("update:error", { message: String(err?.message || err) });
+        } catch { /* noop */ }
+      });
+      autoUpdater
+        .checkForUpdatesAndNotify()
+        .catch((e) => console.error("[updater] initial check failed", e));
+      setInterval(
+        () => autoUpdater.checkForUpdates().catch((e) => console.error("[updater] periodic check failed", e)),
+        60 * 60 * 1000,
+      );
+    } catch (err) {
+      console.error("[updater] setup failed", err);
+    }
+  }
+
+  ipcMain.handle("update:install-now", () => {
+    try {
+      autoUpdater.quitAndInstall(false, true);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
