@@ -16,7 +16,7 @@
  *   │  MediaStrip (140px, collapsible)                         │
  *   └──────────────────────────────────────────────────────────┘
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { OperatorShellCtx } from "../shell/types";
 import { TopBar } from "./TopBar";
@@ -324,11 +324,13 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
 
   // Task 6: Settings > Audio "Restart AI listener" button dispatches a
   // window event; forward to ctx.onRestartAudio.
+  // Y1: depend on ctx.onRestartAudio only (not entire ctx) to avoid re-render churn.
+  const onRestartAudio = ctx.onRestartAudio;
   useEffect(() => {
-    const h = () => { ctx.onRestartAudio?.(); };
+    const h = () => { onRestartAudio?.(); };
     window.addEventListener("presentflow:restart-audio", h);
     return () => window.removeEventListener("presentflow:restart-audio", h);
-  }, [ctx]);
+  }, [onRestartAudio]);
 
   // Task 9: warm-start the audio pipeline on operator mount (mic muted).
   // First user-toggle then flips from warm → live with zero handshake wait.
@@ -338,34 +340,54 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Task 11: block auto-approve when any word inside the detection's matched
-  // span has confidence below CONFIDENCE_THRESHOLD. Wired via a ref read
-  // inside the auto-approve effect (below) — we compute a Set of "blocked
-  // matched-text tokens" per render pass off the newest final transcript.
-  const lowConfBlockedSpansRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
+  // R1/R2/Y2: block auto-approve when a low-confidence word actually falls
+  // INSIDE the detection's matched span (not the whole utterance). Match by
+  // segmentId first — only words from the same transcript chunk as the
+  // suggestion's source segment count. If word timestamps or matchedSpan is
+  // missing we FAIL OPEN (don't block) — better a false positive than
+  // silently blocking every suggestion containing "the".
+  const lowConfBlockedSpans = useMemo<Set<string>>(() => {
     const blocked = new Set<string>();
-    // Consider recent final chunks with word-level confidence data.
-    const recent = ctx.audio.transcript.slice(-8);
-    for (const chunk of recent) {
-      if (!chunk.words || chunk.words.length === 0) continue;
+    const transcript = ctx.audio.transcript;
+    const suggestions = ctx.audio.suggestions;
+    // Build fast lookup: segmentId -> chunk (finals only).
+    const bySeg = new Map<string, typeof transcript[number]>();
+    for (const t of transcript) bySeg.set(t.id, t);
+    for (const s of suggestions) {
+      if (s.type !== "scripture") continue;
+      const chunk = bySeg.get(s.segmentId);
+      // No matching final chunk (e.g. interim segment) → fail open.
+      if (!chunk || !chunk.words || chunk.words.length === 0) continue;
+      const span = s.matchedSpan;
+      // No span info → fail open.
+      if (!span) continue;
+      // Compute char offset for each word within the transcript text.
+      // Deepgram's w might repeat within text; scan left-to-right.
       const lowWords = chunk.words.filter((w) => typeof w.c === "number" && w.c < CONFIDENCE_THRESHOLD);
       if (lowWords.length === 0) continue;
-      // Match against active scripture suggestions' matchedText.
-      for (const s of ctx.audio.suggestions) {
-        if (s.type !== "scripture") continue;
-        const mt = s.matchedText.toLowerCase();
-        const lowSet = lowWords.map((w) => w.w.toLowerCase().replace(/[^a-z0-9]/g, ""));
-        for (const lw of lowSet) {
-          if (lw && mt.includes(lw)) {
-            blocked.add(s.id);
-            if (pfTraceOn()) console.log(`[autopilot] blocked — low-confidence words in span: ${lowWords.map((w) => w.w).join(", ")}`);
-            break;
-          }
+      const text = chunk.text;
+      let cursor = 0;
+      let hitSpan = false;
+      for (const w of chunk.words) {
+        const wStr = w.w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+        if (!wStr) continue;
+        const idx = text.toLowerCase().indexOf(wStr.toLowerCase(), cursor);
+        if (idx < 0) continue;
+        const wStart = idx;
+        const wEnd = idx + wStr.length;
+        cursor = wEnd;
+        // Overlap with matched span?
+        const overlaps = wStart < span.end && wEnd > span.start;
+        if (!overlaps) continue;
+        if (typeof w.c === "number" && w.c < CONFIDENCE_THRESHOLD) {
+          hitSpan = true;
+          if (pfTraceOn()) console.log(`[autopilot] blocked — low-confidence word "${w.w}" in matched span for ${s.id}`);
+          break;
         }
       }
+      if (hitSpan) blocked.add(s.id);
     }
-    lowConfBlockedSpansRef.current = blocked;
+    return blocked;
   }, [ctx.audio.transcript, ctx.audio.suggestions]);
 
   // R4/R5: session hooks live at the shell so state survives tab/mode swap.
@@ -599,7 +621,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     }
     // Need a matching high-confidence detection
     const suggestions = ctx.audio.suggestions || [];
-    const scripture = suggestions.find((s) => s.type === "scripture" && s.confidence >= 85 && !lowConfBlockedSpansRef.current.has(s.id));
+    const scripture = suggestions.find((s) => s.type === "scripture" && s.confidence >= 85 && !lowConfBlockedSpans.has(s.id));
     if (!scripture || scripture.type !== "scripture") return;
     const first = cards[0];
     // R8: skip placeholder cards (loading / no-text / lookup-failed) AND
