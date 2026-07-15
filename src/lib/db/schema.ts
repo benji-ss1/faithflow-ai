@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, integer, jsonb, boolean, pgEnum, date, vector, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, integer, jsonb, boolean, pgEnum, date, vector, index, numeric } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
 export const serviceItemTypeEnum = pgEnum("service_item_type", ["song", "scripture", "media", "sermon", "blank", "logo"]);
@@ -425,6 +425,23 @@ export const feedback = pgTable("feedback", {
   message: text("message").notNull(),
   blocker: boolean("blocker").notNull().default(false),
   email: text("email"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Task 14: audio session metrics. One row per operator listening session,
+// finalized on WS close. Fed by /api/audio/session-metrics.
+export const audioSessions = pgTable("audio_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id, { onDelete: "cascade" }).notNull(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  planId: uuid("plan_id").references(() => servicePlans.id, { onDelete: "cascade" }).notNull(),
+  durationSec: integer("duration_sec").notNull(),
+  reconnects: integer("reconnects").notNull(),
+  avgConfidence: numeric("avg_confidence", { precision: 3, scale: 2 }).notNull(),
+  wordsHigh: integer("words_high").notNull(),
+  wordsLow: integer("words_low").notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+  endedAt: timestamp("ended_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
