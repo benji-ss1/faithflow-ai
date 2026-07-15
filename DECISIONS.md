@@ -1,3 +1,36 @@
+## Deepgram hardening — reviewer/security/stress fix pass (2026-07-12)
+
+Autonomous decisions taken while resolving the 3-agent review findings:
+
+- **Y6 — `audio_sessions` FK cascade retained.** Kept `ON DELETE CASCADE`
+  as documented. Switching to `SET NULL` would preserve analytics if
+  plans are deleted; flagged for product decision, not changed.
+  IMPACT: deleting a plan today wipes its audio_sessions rows.
+- **Y14 — rAF throttle deferred.** Interim renders already pass through
+  `useDebouncedInterim` (≥3 chars or ≥300ms) and the low-conf gate is
+  now memoized (Y2). Adding a rAF layer without measuring first would
+  be premature; flagged for follow-up if profiling shows churn.
+- **R7 per-user cap default = 3.** `AUDIO_WS_PER_USER_CAP` env override
+  provided. Rationale: pastor+operator+one dev tool = 3; anything more
+  is almost certainly duplicate tabs or a runaway session.
+- **R11 dedupe window = 800ms both sides.** Client + server both track
+  emitted final text and skip candidate/final on containing text within
+  800ms. Matches Deepgram's typical interim→final gap.
+- **R8 hysteresis −60 close / −55 open + 4s hold.** Prior 2s@−55 gate
+  clipped preacher pauses; new bounds keep the gate closed only when
+  the room is genuinely silent while still snapping open on resumed
+  speech. 200ms lookback ring flushed on reopen so DG hears the leading
+  edge.
+- **R9 keep-alive silence pings** (256B zero-PCM every 5s while
+  warm-muted/gate-closed) chosen over "delay DG-open until first
+  non-silent audio" because it matches Deepgram's expected input model
+  and lets the warm-start path preserve its zero-latency toggle.
+- **R3 dedupe via client-generated sessionId** rather than composite
+  unique `(user_id, plan_id, started_at)` — simpler, robust against
+  clock skew, and survives the client's own StrictMode/keepalive retry.
+  Schema change: `audio_sessions.session_id text unique` — requires
+  `npm run db:push`.
+
 ## Deepgram streaming hardening — completion pass (2026-07-12)
 
 Shipped the remaining 11 tasks from the hardening spec (renumbered 3, 4, 5,

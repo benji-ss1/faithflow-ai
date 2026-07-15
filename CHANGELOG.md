@@ -1,6 +1,109 @@
 # Changelog
 
-## [main] Deepgram streaming hardening — completion pass (2026-07-12)
+## [main] Deepgram hardening — reviewer/security/stress fix pass (2026-07-12)
+
+Addresses all 11 🔴 findings + 17 🟡 findings from the three-agent review.
+Schema change (`audio_sessions.session_id text unique`) requires
+`npm run db:push`. Endpoint contract change: `/api/audio/session-metrics`
+now accepts `sessionId` in the body and dedupes via
+`onConflictDoNothing`. `npm run typecheck` + `npm run electron:build:tsc`
+pass. Audio hardening suite grew from 20 → 36 tests. Added
+`test/adversarial/audio-sessions-cross-church.test.ts` (4 tests).
+
+### Reds (all fixed)
+- **R1** — Autopilot word-conf gate now maps low-conf words to the
+  matched span by segmentId + char offsets (was naive `includes()`
+  matching "the" across the whole transcript). Fails open when span info
+  is missing. `UnifiedSuggestion` extended with optional `matchedSpan`
+  (`{start,end}` char offsets computed at detection time in
+  `useAudioStream.runDetectAll`).
+- **R2** — Global `wordsHigh`/`wordsLow` refs kept only for session
+  metrics; gating logic in `ProOperatorShell` now uses per-detection span
+  analysis (see R1). No more previous-utterance pollution of current
+  detection.
+- **R3** — Client generates a `sessionId` UUID on each `start()` (reused
+  on `restart()`), posts it to `/api/audio/session-metrics`; endpoint
+  inserts with `onConflictDoNothing({ target: audioSessions.sessionId })`.
+  Schema: `audio_sessions.session_id text unique` added.
+  **Requires `npm run db:push`.**
+- **R4** — `useDebouncedInterim` tracks `hasPushedRef`; first non-empty
+  push after an empty utterance boundary is instant (no 300ms wait).
+- **R5** — Bridge caps `words[]` at 500 entries, rejects individual `w`
+  strings > 128 chars, and drops the whole `words[]` (setting
+  `wordsDropped: true`) if the outbound JSON exceeds 128KB.
+- **R6** — Added `pipelineGenerationRef`. Every `start()` bumps it; every
+  async callback (fetch ticket, requestMic, ws.onopen) captures the
+  generation at start and aborts on completion if the generation moved.
+- **R7** — Bridge tracks `openByUser: Map<userId, Set<WebSocket>>`. New
+  connection closes older same-plan sessions with 1013
+  "superseded by newer session"; over-cap connections close oldest LRU
+  with 1013 "too many concurrent sessions". Cap default 3, override via
+  `AUDIO_WS_PER_USER_CAP`.
+- **R8** — Silence gate: extended hold 2s → 4s, added hysteresis
+  (close at −60 dBFS, reopen at −55), and a 200ms PCM lookback ring that
+  flushes to Deepgram on gate reopen so the leading edge of resumed
+  speech isn't truncated.
+- **R9** — Client keep-alive silence pings (256B PCM16 zero every 5s)
+  fire while warm-muted OR gate-closed so Deepgram doesn't idle out.
+  Server-side: DG close with 1011/1006 while WS still open + no audio
+  yet flags `dgNeedsReopen`; next audio chunk lazily reopens DG.
+- **R10** — `runDetectAll` captures `pipelineGenerationRef.current` at
+  spawn and drops the state merge in the `setState((prev) => …)`
+  callback if generation advanced. `dedupeRef` (SuggestionDedupe) reset
+  on `restart()`.
+- **R11** — Server-side: emit-time dedupe map skips
+  `interim_final_candidate` if a final with the same/containing text
+  fired in the last 800ms. Client-side: `shouldSkipRedetect(text)`
+  suppresses running detection twice on candidate+final within 800ms.
+
+### Yellows
+- **Y1** — Restart-audio effect deps now key on `ctx.onRestartAudio`, not the entire `ctx`.
+- **Y2** — Low-conf blocked spans lifted from ref-in-effect to a
+  `useMemo` so the auto-approve effect reads a stable value.
+- **Y3** — `AICaptionsBanner` text updated: "Live captions offline —
+  click to retry".
+- **Y4** — `restart()` now flushes metrics FIRST, then resets all missing
+  state (`sessionStartRef`, word buckets, conf sums, `msgTimestampsRef`,
+  `firstChunkAtRef`, silence gate, `micMutedRef`, lookback ring,
+  `dedupeRef`, recent-detection cache, pipeline generation).
+- **Y5** — `AudioDebugOverlay` respects a runtime
+  `localStorage.getItem("presentflow.debugOverlay") === "1"` toggle in
+  packaged builds.
+- **Y6** — DEFERRED / infrastructure decision: kept
+  `audio_sessions ON DELETE CASCADE`; noted `SET NULL` alternative in
+  `DECISIONS.md` for future consideration.
+- **Y7** — Warm-start no longer opens a metrics session on mount; the
+  session window is opened lazily on the first non-muted audio chunk.
+- **Y8** — Split `reconnectAttemptsRef` from `reconnectSuccessesRef`
+  (new). Successes counted only on `ws.onopen` after a prior reconnect
+  schedule fired.
+- **Y9** — Bridge boots a 5-min periodic sweep that prunes stale
+  `usedTicketSigs` and `rateLimitBuckets` and caps both at 10k entries
+  (LRU).
+- **Y10** — Bridge tracks `lastDgResultAt` + `lastAudioAt`; if audio is
+  flowing (chunks in last 5s) with no DG Results for 30s, closes DG with
+  1006 to trigger client reconnect.
+- **Y11** — See Y9. `openByUser` bounded implicitly by `PER_USER_CAP`.
+- **Y12** — `flushSessionMetrics` now logs failure reason and enqueues
+  the failed payload to `localStorage.presentflow.metrics.retryQueue.v1`
+  (bounded 10 entries).
+- **Y13** — `ws.onmessage` `JSON.parse` wrapped in try/catch.
+- **Y14** — DEFERRED: rAF throttle for interim renders. Existing
+  debouncer + memoized gate already keeps render cost low; measured
+  before adding another layer. Flagged for follow-up if profiling shows
+  churn under fast speech.
+- **Y15** — `loadKeyterms` validates `churchId` is UUID before path
+  join; bridge upgrade also rejects non-UUID `churchId`/`userId`/`planId`
+  with 1008.
+- **Y16** — `WebSocketServer` set `maxPayload: 256*1024`; per-audio
+  chunk drop when > 64KB.
+- **Y17** — Electron packaged spawn forces `NODE_ENV=production` for the
+  audio bridge child so DEBUG-gated transcript slices don't leak.
+- **Y18** — New `test/adversarial/audio-sessions-cross-church.test.ts`
+  (4 tests) asserts the endpoint uses `user.churchId` (never body),
+  scopes the plan lookup, returns 403 for cross-church, and dedupes.
+
+
 
 Completes the remaining 11 hardening tasks (3, 4, 5, 6, 8, 9, 10, 11, 13,
 14, 15). Adds 1 new DB table (`audio_sessions`) — requires `npm run db:push`.
