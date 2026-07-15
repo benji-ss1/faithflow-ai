@@ -155,6 +155,39 @@ function isOriginAllowed(origin: string | undefined): boolean {
   return false;
 }
 
+// R7: per-user concurrent-connection cap. Each user is bounded to
+// AUDIO_WS_PER_USER_CAP concurrent sessions (default 3). When exceeded, the
+// oldest (LRU) is closed with 1013 "too many concurrent sessions". Also:
+// same-plan dedupe — a newer connection for the same planId supersedes older.
+const PER_USER_CAP = Number(process.env.AUDIO_WS_PER_USER_CAP || 3);
+const openByUser = new Map<string, Set<WebSocket>>();
+const wsMeta = new WeakMap<WebSocket, { userId: string; planId: string; openedAt: number }>();
+
+// Y10: per-connection DG stall watchdog. If audio is flowing but no Results
+// for 30s, close DG (client will reconnect).
+const stallByConn = new WeakMap<WebSocket, { lastDgResultAt: number; lastAudioAt: number; timer: NodeJS.Timeout }>();
+
+// Y11: periodic sweep of unbounded maps. Prune every 5 min; cap at 10k entries.
+const MAP_ENTRY_CAP = 10_000;
+function lruCapMap<K, V>(m: Map<K, V>) {
+  while (m.size > MAP_ENTRY_CAP) {
+    const oldest = m.keys().next().value;
+    if (oldest === undefined) break;
+    m.delete(oldest);
+  }
+}
+setInterval(() => {
+  pruneUsedSigs();
+  const now = Date.now();
+  for (const [ip, arr] of rateLimitBuckets) {
+    const kept = arr.filter((t) => now - t < RATE_LIMIT_WINDOW_MS);
+    if (kept.length === 0) rateLimitBuckets.delete(ip);
+    else rateLimitBuckets.set(ip, kept);
+  }
+  lruCapMap(usedTicketSigs);
+  lruCapMap(rateLimitBuckets);
+}, 5 * 60 * 1000).unref?.();
+
 // Y10: per-IP connection rate limit (single-instance in-memory Map — matches
 // current Fly deployment). N connections per 60s window.
 const RATE_LIMIT_N = Number(process.env.AUDIO_WS_RATE_LIMIT || 10);
@@ -176,8 +209,8 @@ type ClientMessage =
 type ServerMessage =
   | { type: "ready" }
   | { type: "interim"; text: string }
-  | { type: "final"; segmentId: string; text: string; confidence?: number; words?: { w: string; c: number }[] }
-  | { type: "interim_final_candidate"; text: string; confidence?: number; words?: { w: string; c: number }[] }
+  | { type: "final"; segmentId: string; text: string; confidence?: number; words?: { w: string; c: number; s?: number; e?: number }[]; wordsDropped?: boolean }
+  | { type: "interim_final_candidate"; text: string; confidence?: number; words?: { w: string; c: number; s?: number; e?: number }[]; wordsDropped?: boolean }
   | { type: "detection"; detection: { id: string; segmentId: string; book: string; chapter: number; verseStart: number; verseEnd: number; confidence: number; matchedText: string } }
   | { type: "song"; song: { suggestionId: string; segmentId: string; songId: string | null; title: string; confidence: number; matchedText: string } }
   | { type: "command"; command: { suggestionId: string; segmentId: string; verb: string; payload: Record<string, unknown>; confidence: number; matchedText: string } }
@@ -199,6 +232,9 @@ const httpServer = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({
   server: httpServer,
+  // Y16: hard cap inbound frame size to 256KB (audio chunks are ~4KB;
+  // anything above 64KB is malformed and dropped inline below).
+  maxPayload: 256 * 1024,
   // Y8: origin allowlist enforced during the upgrade handshake.
   verifyClient: (info, cb) => {
     const origin = info.origin as string | undefined;
@@ -225,10 +261,16 @@ wss.on("connection", async (ws: WebSocket, req) => {
   }
 
   const planId = url.searchParams.get("planId") || "";
-  const churchId = url.searchParams.get("churchId") || "";
+  const churchIdRaw = url.searchParams.get("churchId") || "";
   const userId = url.searchParams.get("userId") || "";
   const exp = url.searchParams.get("exp") || "";
   const sig = url.searchParams.get("sig") || "";
+  // Y15: churchId must be UUID or empty (bible-only default). Bad format = reject.
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (churchIdRaw && !UUID_RE.test(churchIdRaw)) { ws.close(1008, "invalid churchId"); return; }
+  if (userId && !UUID_RE.test(userId)) { ws.close(1008, "invalid userId"); return; }
+  if (planId && !UUID_RE.test(planId)) { ws.close(1008, "invalid planId"); return; }
+  const churchId = churchIdRaw;
 
   // Explicit close codes let the client render a specific error instead of
   // the generic "AI error" pill state.
@@ -242,10 +284,53 @@ wss.on("connection", async (ws: WebSocket, req) => {
   const [plan] = await db.select().from(servicePlans).where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, churchId))).limit(1);
   if (!plan) { ws.close(1008, "unknown plan"); return; }
 
+  // R7: enforce per-user concurrent-connection cap + same-plan dedupe.
+  // - Same planId, same user → newer supersedes; close older with 1013.
+  // - Total per user > cap → close oldest (LRU) with 1013.
+  let userSet = openByUser.get(userId);
+  if (!userSet) { userSet = new Set(); openByUser.set(userId, userSet); }
+  for (const other of Array.from(userSet)) {
+    const meta = wsMeta.get(other);
+    if (meta && meta.planId === planId) {
+      try { other.close(1013, "superseded by newer session"); } catch { /* ignore */ }
+      userSet.delete(other);
+    }
+  }
+  while (userSet.size >= PER_USER_CAP) {
+    // LRU = oldest by openedAt. Set iteration is insertion order.
+    const oldest = userSet.values().next().value as WebSocket | undefined;
+    if (!oldest) break;
+    try { oldest.close(1013, "too many concurrent sessions"); } catch { /* ignore */ }
+    userSet.delete(oldest);
+  }
+  userSet.add(ws);
+  wsMeta.set(ws, { userId, planId, openedAt: Date.now() });
+
   console.log(`[audio] client connected planId=${planId}`);
   const send = (msg: ServerMessage) => { try { ws.send(JSON.stringify(msg)); } catch { /* ignore */ } };
 
   let dg: WebSocket;
+  // R11: server-side dedupe of interim_final_candidate vs recent final on same
+  // (or containing) text. 800ms window. Prevents duplicate detection triggers.
+  const recentEmittedTexts = new Map<string, number>();
+  const R11_WINDOW_MS = 800;
+  const isRecentFinal = (t: string): boolean => {
+    const now = Date.now();
+    const norm = t.toLowerCase().replace(/\s+/g, " ").trim();
+    for (const [k, ts] of recentEmittedTexts) {
+      if (now - ts > R11_WINDOW_MS) { recentEmittedTexts.delete(k); continue; }
+      if (k === norm || k.includes(norm) || norm.includes(k)) return true;
+    }
+    return false;
+  };
+  const noteEmittedFinal = (t: string) => {
+    const norm = t.toLowerCase().replace(/\s+/g, " ").trim();
+    if (norm) recentEmittedTexts.set(norm, Date.now());
+    if (recentEmittedTexts.size > 50) {
+      const oldest = recentEmittedTexts.keys().next().value;
+      if (oldest !== undefined) recentEmittedTexts.delete(oldest);
+    }
+  };
   try {
     dg = await openDeepgram(churchId);
   } catch (e) {
@@ -280,7 +365,20 @@ wss.on("connection", async (ws: WebSocket, req) => {
   console.log(`[audio] Deepgram OPEN for plan ${planId}`);
   send({ type: "ready" });
 
-  dg.on("message", async (raw: WebSocket.RawData) => {
+  // Y10: server-side DG stall watchdog. If audio is flowing (chunks in last
+  // 5s) but no DG Results in 30s, close DG so the client's reconnect kicks in.
+  let lastDgResultAt = Date.now();
+  let lastAudioAt = 0;
+  const stallTimer = setInterval(() => {
+    const now = Date.now();
+    if (lastAudioAt > 0 && now - lastAudioAt < 5000 && now - lastDgResultAt > 30_000) {
+      console.warn(`[audio] DG stall detected — no Results in 30s while audio flowing. Closing DG for reconnect.`);
+      try { dg.close(1006, "stall"); } catch { /* ignore */ }
+    }
+  }, 5_000);
+  stallTimer.unref?.();
+
+  const dgOnMessage = async (raw: WebSocket.RawData) => {
     dgMessages++;
     let data: { type?: string; is_final?: boolean; speech_final?: boolean; channel?: { alternatives?: { transcript?: string; confidence?: number; words?: { word?: string; start?: number; end?: number; confidence?: number }[] }[] } };
     try { data = JSON.parse(raw.toString()); } catch { return; }
@@ -300,11 +398,35 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // Results payload includes `channel.alternatives[0].words` with per-word
     // confidence; client uses this to gate autopilot on low-confidence spans.
     const rawWords = data.channel?.alternatives?.[0]?.words;
-    const words = Array.isArray(rawWords)
-      ? rawWords
-          .filter((w) => typeof w?.word === "string" && typeof w?.confidence === "number")
-          .map((w) => ({ w: String(w.word), c: Number(w.confidence) }))
-      : undefined;
+    // R5: hard cap unbounded words[] to prevent memory/WS-frame bloat.
+    //   - max 500 words per message
+    //   - per-word: drop entries with w string > 128 chars
+    //   - forward w/c and optional s/e (start/end seconds) for span mapping
+    let words: { w: string; c: number; s?: number; e?: number }[] | undefined;
+    let wordsDropped = false;
+    if (Array.isArray(rawWords)) {
+      const filtered = rawWords
+        .filter((w) => typeof w?.word === "string" && typeof w?.confidence === "number" && String(w.word).length <= 128)
+        .slice(0, 500)
+        .map((w) => {
+          const out: { w: string; c: number; s?: number; e?: number } = { w: String(w.word), c: Number(w.confidence) };
+          if (typeof w.start === "number") out.s = w.start;
+          if (typeof w.end === "number") out.e = w.end;
+          return out;
+        });
+      words = filtered.length ? filtered : undefined;
+      if (Array.isArray(rawWords) && rawWords.length > 500) wordsDropped = true;
+    }
+    // R5: size-check outbound payload; if > 128KB drop words[].
+    const capWordsIfHuge = <T extends { words?: unknown }>(msg: T): T => {
+      try {
+        const size = JSON.stringify(msg).length;
+        if (size > 128 * 1024) {
+          return { ...msg, words: undefined, wordsDropped: true } as T;
+        }
+      } catch { /* ignore */ }
+      return wordsDropped ? ({ ...msg, wordsDropped: true } as T) : msg;
+    };
 
     if (!data.is_final) {
       // Fast-path: forward high-confidence long interims to the client for
@@ -312,13 +434,19 @@ wss.on("connection", async (ws: WebSocket, req) => {
       send({ type: "interim", text });
       const wordCount = text.split(/\s+/).filter(Boolean).length;
       if (wordCount >= 4 && typeof dgConf === "number" && dgConf >= 0.8) {
-        send({ type: "interim_final_candidate", text, confidence: dgConf, words });
+        // R11: skip candidate emission if we already fired a final for the
+        // same/containing text within the 800ms window.
+        if (!isRecentFinal(text)) {
+          send(capWordsIfHuge({ type: "interim_final_candidate", text, confidence: dgConf, words }) as ServerMessage);
+        }
       }
       return;
     }
+    lastDgResultAt = Date.now();
 
     const [seg] = await db.insert(transcriptSegments).values({ servicePlanId: planId, text }).returning();
-    send({ type: "final", segmentId: seg.id, text, confidence: dgConf, words });
+    noteEmittedFinal(text);
+    send(capWordsIfHuge({ type: "final", segmentId: seg.id, text, confidence: dgConf, words }) as ServerMessage);
 
     const refs = parseReferences(text);
     for (const ref of refs) {
@@ -417,7 +545,8 @@ wss.on("connection", async (ws: WebSocket, req) => {
         confidence: cmd.confidence, matchedText: cmd.matchedText,
       }});
     }
-  });
+  };
+  dg.on("message", dgOnMessage);
 
   dg.on("error", (err: Error) => {
     console.error("[audio] Deepgram error:", err.message);
@@ -426,15 +555,46 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
   dg.on("close", (code: number, reason: Buffer) => {
     console.log(`[audio] Deepgram closed code=${code} reason=${reason.toString() || "(none)"} after ${dgMessages} msgs`);
+    // R9: if the client is still connected AND we haven't sent much audio yet
+    // (warm-start idle case), flag DG for lazy reopen on next audio chunk.
+    if (ws.readyState === WebSocket.OPEN && (code === 1011 || code === 1006 || audioChunks === 0)) {
+      dgNeedsReopen = true;
+    }
   });
+
+  let dgNeedsReopen = false;
 
   ws.on("message", (raw) => {
     let msg: ClientMessage;
     try { msg = JSON.parse(raw.toString()) as ClientMessage; } catch { return; }
     if (msg.type === "audio") {
       const buf = Buffer.from(msg.b64, "base64");
+      // Y16: drop chunks > 64KB (audio should be ~4KB each; anything larger is malformed).
+      if (buf.length > 64 * 1024) { return; }
       audioChunks++;
+      lastAudioAt = Date.now();
       if (audioChunks === 1 || audioChunks % 500 === 0) console.log(`[audio] received chunk #${audioChunks} (${buf.length} bytes)`);
+      // R9: lazy-reopen DG if it closed while we were idle.
+      if (dgNeedsReopen && dg.readyState !== WebSocket.OPEN) {
+        dgNeedsReopen = false;
+        openDeepgram(churchId).then((newDg) => {
+          dg = newDg;
+          console.log(`[audio] DG reopened lazily on audio resume`);
+          // Rewire handlers on the new socket.
+          dg.on("message", dgOnMessage);
+          dg.on("error", (err: Error) => { console.error("[audio] Deepgram error:", err.message); send({ type: "error", message: "Deepgram error" }); });
+          dg.on("close", (code: number, reason: Buffer) => {
+            console.log(`[audio] Deepgram closed code=${code} reason=${reason.toString() || "(none)"}`);
+            if (ws.readyState === WebSocket.OPEN && (code === 1011 || code === 1006)) dgNeedsReopen = true;
+          });
+          send({ type: "ready" });
+          try { dg.send(buf); } catch { /* ignore */ }
+        }).catch((err) => {
+          console.error("[audio] DG lazy reopen failed:", err instanceof Error ? err.message : err);
+          dgNeedsReopen = true;
+        });
+        return;
+      }
       // Only forward if Deepgram socket is still open.
       if (dg.readyState === WebSocket.OPEN) {
         try { dg.send(buf); } catch (e) { console.error("[audio] send err", e); }
@@ -450,6 +610,14 @@ wss.on("connection", async (ws: WebSocket, req) => {
       if (dg.readyState === WebSocket.OPEN) dg.send(JSON.stringify({ type: "CloseStream" }));
       dg.close();
     } catch { /* ignore */ }
+    // R7: remove from per-user set.
+    const set = openByUser.get(userId);
+    if (set) {
+      set.delete(ws);
+      if (set.size === 0) openByUser.delete(userId);
+    }
+    // Y10: clear stall watchdog.
+    try { clearInterval(stallTimer); } catch { /* ignore */ }
   });
 });
 
