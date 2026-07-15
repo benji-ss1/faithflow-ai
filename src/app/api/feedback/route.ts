@@ -20,14 +20,7 @@ import { feedback } from "@/lib/db/schema";
 const feedbackLimiter = createLimiter("feedback", 3, 60 * 60 * 1000);
 const feedbackBlockerLimiter = createLimiter("feedback-blocker", 1, 24 * 60 * 60 * 1000);
 
-// Y1: reject if email is present-but-malformed. Empty/undefined stays allowed.
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-// R5.1: strip CR/LF/NUL/control chars from message before logging so a user
-// cannot forge a fake log line via a payload like "foo\n[feedback] fake\n".
-function sanitizeForLog(s: string): string {
-  return s.replace(/[\r\n\x00-\x1f\x7f]/g, " ").slice(0, 200);
-}
+import { EMAIL_RE, sanitizeForLog } from "./validators";
 
 export async function POST(req: Request) {
   const user = await apiUser();

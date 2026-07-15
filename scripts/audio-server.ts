@@ -25,6 +25,7 @@ import { extractSongCandidates, fuzzyMatchSong } from "../src/lib/song-parser";
 import { parseCommands } from "../src/lib/command-parser";
 import { semanticSearch } from "../src/lib/server/bible";
 import { songs, aiSuggestions } from "../src/lib/db/schema";
+import { DEEPGRAM_KEYTERMS } from "../src/lib/deepgram-keyterms";
 import { and, eq } from "drizzle-orm";
 import crypto from "node:crypto";
 
@@ -58,16 +59,24 @@ const db = getDb();
  */
 function openDeepgram(): Promise<WebSocket> {
   const params = new URLSearchParams({
-    model: "nova-2",
-    language: "en-US",
+    model: "nova-3",
+    language: "en",
     smart_format: "true",
     interim_results: "true",
     punctuate: "true",
+    numerals: "true",
+    // endpointing=300ms was chosen to avoid mid-sentence cutoffs. A prior
+    // value of 10ms was far too aggressive and would end utterances between
+    // words. Sent as the integer 300 (string-encoded per URL params spec).
+    endpointing: "300",
     encoding: "linear16",
     sample_rate: "16000",
     channels: "1",
-    endpointing: "400",
   });
+  // Keyterm prompts biasing scripture / worship vocabulary. Each term is a
+  // separate `keyterm=...` query param — do NOT collapse into a single
+  // comma-joined value. See src/lib/deepgram-keyterms.ts to edit.
+  for (const term of DEEPGRAM_KEYTERMS) params.append("keyterm", term);
   const url = `wss://api.deepgram.com/v1/listen?${params}`;
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url, { headers: { Authorization: `Token ${DG_KEY}` } });
