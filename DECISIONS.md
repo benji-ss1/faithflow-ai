@@ -1,3 +1,25 @@
+## electron-updater wiring (2026-07-12)
+
+- **GitHub owner/repo = `benji-ss1/faithflow-ai`** per scope. If the
+  Present Flow desktop artifacts should live in their own repo (e.g.
+  `benji-ss1/presentflow-releases`) this is a one-line change in
+  `package.json > build.publish`.
+- **`mac.identity: null` explicit.** Prevents electron-builder from
+  quietly grabbing a keychain code-signing identity on a dev machine and
+  publishing an inconsistently-signed artifact. When Apple Developer
+  signing is added, flip this to the identity name.
+- **`autoInstallOnAppQuit: true`.** Even if the tester ignores the
+  green banner, the update installs on next quit-and-relaunch — mirrors
+  Chrome/Slack behaviour.
+- **60-minute periodic check.** Balance between "tester gets fixes fast"
+  and "no thundering herd on GitHub Release CDN". Adjustable.
+- **`ipcMain.handle("update:install-now")` registered unconditionally.**
+  Sits outside the `app.isPackaged` gate so a stray renderer call in dev
+  fails predictably instead of crashing on missing handler.
+- **Preload on* listeners return unsubscribe fns.** Divergence from the
+  scope doc's raw `ipcRenderer.on` pattern — needed so React StrictMode
+  double-mounts don't leak listeners.
+
 ## Deepgram hardening — reviewer/security/stress fix pass (2026-07-12)
 
 Autonomous decisions taken while resolving the 3-agent review findings:

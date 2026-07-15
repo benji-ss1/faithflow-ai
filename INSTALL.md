@@ -23,6 +23,21 @@ redistribute publicly.
 Demo credentials are for review only. Do **not** post them in public
 channels or reuse them for production data.
 
+## Updates
+
+The app checks for updates on launch and every hour. When a new version is
+available:
+
+1. A blue banner appears at the top: `⬇ Downloading update X.Y.Z…` (the
+   download happens silently in the background — keep working).
+2. Once downloaded and verified, the banner turns green:
+   `✓ Update X.Y.Z ready. Click to restart & install.`
+3. Click it — the app closes, replaces itself, and reopens on the new
+   version. No manual re-download required.
+
+Auto-updates bypass the Gatekeeper prompt because they replace the already
+approved bundle in place.
+
 ## Reporting issues
 
 Include:

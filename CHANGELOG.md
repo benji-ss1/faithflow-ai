@@ -1,5 +1,36 @@
 # Changelog
 
+## [main] electron-updater + GitHub Releases (2026-07-12)
+
+Wired `electron-updater` so packaged tester builds auto-update from the
+GitHub Release feed at
+`https://github.com/benji-ss1/faithflow-ai/releases/latest`. Testers install
+once and thereafter get silent background downloads + a click-to-restart
+banner — no more manual redistribution.
+
+- Installed `electron-updater@^6.8.9`.
+- `package.json`: added `build.publish` (github, owner `benji-ss1`, repo
+  `faithflow-ai`, `vPrefixedTagName: true`). Changed `mac.target` from
+  `"dmg"` to `["dmg", "zip"]` (updater needs zip for atomic replace on
+  macOS). Set `mac.identity: null`. Added `release` npm script.
+- `electron/main.ts`: only wires updater when `app.isPackaged`. Checks on
+  launch + every hour. Emits `update:available` / `update:downloaded` /
+  `update:error` IPC. `update:install-now` handler calls
+  `autoUpdater.quitAndInstall(false, true)`.
+- `electron/preload.ts`: exposed `window.electronAPI.update.*` with
+  unsubscribe functions returned from the on* listeners.
+- `src/types/electron.d.ts`: declared `update` + `license` surfaces.
+- `src/components/operator/pro/UpdateBanner.tsx`: blue/green/orange
+  banner mounted above `AICaptionsBanner` in `ProOperatorShell`. No-ops
+  on web.
+- `scripts/release.sh` (chmod +x): bumps version, needs `GH_TOKEN`, runs
+  `next build && tsc && electron-builder --mac dmg zip --publish always`
+  with `CSC_IDENTITY_AUTO_DISCOVERY=false`.
+- `RELEASING.md` (new) + `INSTALL.md` (updated) document the flow.
+- `npm run typecheck` — passes (only pre-existing `jsdom` types error
+  in `test/adversarial/audio-reconnect.test.ts`, unrelated).
+- `npm run electron:build:tsc` — passes.
+
 ## [main] Deepgram hardening — reviewer/security/stress fix pass (2026-07-12)
 
 Addresses all 11 🔴 findings + 17 🟡 findings from the three-agent review.
