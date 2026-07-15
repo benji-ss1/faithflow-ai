@@ -1,3 +1,82 @@
+## Deepgram streaming hardening — partial pass (2026-07-12)
+
+Scope was a 13-task hardening pass on the Deepgram streaming integration.
+This session **completed 4 of 13 tasks fully** and left the remaining 9
+explicitly untouched. Rationale: the full scope (auto-reconnect ring buffer,
+warm-start WS lifecycle change, word-level confidence forwarding, autopilot
+gating rewrite, RMS silence gate, dev status indicator, session metrics
+endpoint + new DB table, banner UI, restart controls, interim debouncer,
+tests for all above) is 4–6 hours of careful work touching auth-gated
+paths, live streaming, DB schema, and church-service-critical UI. Per
+`CLAUDE.md` non-negotiable #1 ("skipping steps produces provisional work,
+not done work") and #2 (three parallel review agents required for >100
+LOC / auth / AI / church_id / output-channel changes), attempting all 13
+in one autonomous pass would produce provisional code that violates the
+repo's own workflow standard and risks breaking Sunday-morning live use.
+
+**Completed this pass:**
+
+1. **Endpointing 300 → 200.** `scripts/audio-server.ts`. Progression note
+   added: 10ms (mid-word cutoffs) → 400 → 300 → 200 (current sweet spot).
+2. **Canonical CONFIDENCE_THRESHOLD = 0.45.** New module
+   `src/lib/audio-thresholds.ts`. Wired into `blendScripture` in
+   `useAudioStream.ts` as the DG-confidence floor below which no boost
+   applies (was implicit; now explicit). **Not yet consumed** by an
+   autopilot approval gate or word-level flagging (tasks 9/11 not done).
+7. **Verified linear16 + 16000.** `useAudioStream.ts:513` uses
+   `new AudioContext({ sampleRate: 16000 })` and the inline AudioWorklet
+   outputs Int16Array — matches bridge `encoding=linear16 sample_rate=16000
+   channels=1`. No change.
+12. **Per-church keyterm config.** Hard-coded list moved to
+    `config/deepgram-keyterms/default.json` (checked in). New loader
+    `loadKeyterms(churchId)` in `src/lib/deepgram-keyterms.ts` reads
+    `config/deepgram-keyterms/<churchId>.json` if present, else default,
+    else the hard-coded const as ultimate fallback. In-memory cache
+    with 5-min TTL. Bridge (`audio-server.ts`) calls it on every WS
+    upgrade. `package.json` `build.files` now includes `config/**`.
+    New server action `updateChurchKeyterms(terms)` in `src/lib/actions.ts`
+    — church-scoped via `requireUser()`, guards churchId against path
+    traversal, trims/dedups/caps terms at 64 chars and 200 items,
+    clears the in-process cache after write. UI wiring deferred.
+
+**Not attempted this pass** (each needs its own loop pass with 3 reviewers):
+
+- Task 3 — auto-reconnect backoff verification/tuning
+- Task 4 — 5s PCM ring buffer during reconnect
+- Task 5 — reconnect-failure UI banner
+- Task 6 — manual "Restart listening" control
+- Task 8 — interim rendering debounce
+- Task 9 — warm-start pre-established WS
+- Task 10 — word-level confidence forwarding
+- Task 11 — autopilot low-confidence gate (depends on 10)
+- Task 13 — RMS silence gate
+- Task 14 — session metrics endpoint + `audio_sessions` DB table
+- Task 15 — dev-only floating status indicator
+
+**Judgment calls (need user sign-off before implementing):**
+
+- **Ring buffer size (Task 4):** spec says 5s × 16kHz × 2B = 160KB.
+  Confirm 5s is acceptable — a longer reconnect (>5s) will still lose
+  audio silently. Alternative: cap at 5s but surface "N ms lost" in UI.
+- **Silence threshold (Task 13):** −60 dBFS / 2s continuous is
+  aggressive; a quiet lapel mic at low gain can dip below −60 during
+  normal preaching pauses. Suggest −55 dBFS as a safer default.
+- **Warm-start (Task 9):** always-open WS from operator mount is a
+  behaviour change — Deepgram bills per audio-second not per-connection
+  so $ impact is zero, but this holds a concurrency slot per opened
+  operator tab. Confirm intent.
+- **Per-church keyterms JSON format:** current shape is
+  `{"terms": ["..."]}`. Wrapped form is future-proof (can add
+  `updatedAt`, `updatedBy` without migration). OK as-is?
+
+**Verification:**
+
+- `npm run typecheck`: passes with same single pre-existing error
+  (`test/adversarial/audio-reconnect.test.ts` missing `@types/jsdom`)
+  as the baseline. Net-zero new errors from this pass.
+- `npm run electron:build:tsc`: passes.
+- New tests: `test/deepgram-keyterms.test.ts` — 5 cases, 5 pass.
+
 ## Tester build creds baking + route-file export cleanup (2026-07-12)
 
 - **`scripts/build-tester.sh` copies `.env.local` → `.env.production.local`

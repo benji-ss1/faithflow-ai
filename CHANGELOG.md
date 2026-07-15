@@ -1,5 +1,40 @@
 # Changelog
 
+## [main] Deepgram streaming hardening — partial pass (2026-07-12)
+
+Completed 4 of 13 planned hardening tasks; 9 remain (see DECISIONS.md
+"Deepgram streaming hardening — partial pass" for reasoning + judgment
+calls needing user sign-off).
+
+- **`scripts/audio-server.ts`** — endpointing 300 → 200ms (progression
+  10 → 400 → 300 → 200). Also now calls per-church keyterm loader
+  instead of the module-level const.
+- **`src/lib/audio-thresholds.ts` (new)** — canonical
+  `CONFIDENCE_THRESHOLD = 0.45` for cross-module reuse.
+- **`src/components/operator/useAudioStream.ts`** — `blendScripture`
+  now drops the boost entirely when Deepgram utterance confidence is
+  below `CONFIDENCE_THRESHOLD` (previously implicit; now explicit and
+  centralized). Verified linear16 + 16000 pipeline unchanged.
+- **`src/lib/deepgram-keyterms.ts`** — rewritten. Preserves the
+  hard-coded `DEEPGRAM_KEYTERMS` const as ultimate fallback and adds
+  `loadKeyterms(churchId)` that reads
+  `config/deepgram-keyterms/<churchId>.json` → falls back to
+  `default.json` → falls back to the const. 5-min in-memory TTL cache.
+- **`config/deepgram-keyterms/default.json` (new)** — externalised
+  the 12 scripture book keyterms.
+- **`package.json`** — `build.files` now includes `config/**` so the
+  Electron package ships the keyterm JSONs.
+- **`src/lib/actions.ts`** — new server action `updateChurchKeyterms`
+  (church-scoped via `requireUser`, path-traversal guarded on churchId,
+  trims/dedups/caps entries at 64 chars / 200 items, invalidates the
+  in-process cache after write). Admin UI not wired this pass.
+- **`test/deepgram-keyterms.test.ts` (new)** — 5 cases covering
+  per-church override, default fallback, hard-coded fallback,
+  cache-within-TTL, and non-string filtering. All pass.
+- **Typecheck:** `npm run typecheck` — same single pre-existing
+  jsdom error as baseline; no new errors introduced.
+- **Build:** `npm run electron:build:tsc` — passes.
+
 ## [main] Bible add-verse buttons + tester build script (2026-07-12)
 
 - BibleMode gained a top-right `+` overlay on every verse card that
