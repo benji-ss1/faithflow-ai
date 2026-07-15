@@ -351,7 +351,13 @@ app.whenReady().then(async () => {
         [tsxCli, "scripts/audio-server.ts"],
         {
           cwd: appRoot,
-          env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+          // Y17: force NODE_ENV=production when spawned from a packaged Electron
+          // so DEBUG-gated logs (transcript slices) don't leak into the bridge.
+          env: {
+            ...process.env,
+            ELECTRON_RUN_AS_NODE: "1",
+            NODE_ENV: app.isPackaged ? "production" : (process.env.NODE_ENV || "development"),
+          },
           stdio: ["ignore", "pipe", "pipe"],
         },
       );
