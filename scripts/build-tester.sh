@@ -30,8 +30,8 @@ cleanup() {
 trap cleanup EXIT
 
 export CSC_IDENTITY_AUTO_DISCOVERY=false
-echo "[tester-build] next build ..."
-npx next build
+# Thin-client shell: skip next build — the packaged app loads the hosted
+# Next.js app at PF_APP_URL (default https://faithflow-ai.vercel.app).
 
 echo "[tester-build] compile electron main ..."
 npm run electron:build:tsc

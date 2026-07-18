@@ -30,10 +30,11 @@ if [ -z "${GH_TOKEN:-}" ]; then
   exit 1
 fi
 
-# Build .next standalone + tsc electron main + run electron-builder with the
-# github publisher. CSC_IDENTITY_AUTO_DISCOVERY=false forces an unsigned build
-# on machines that happen to have a code-signing identity in the keychain.
-npm run build
+# Thin-client shell: no `next build` needed — the desktop app loads the
+# hosted Next.js app at PF_APP_URL (default https://faithflow-ai.vercel.app).
+# Just compile the Electron main/preload and package. CSC_IDENTITY_AUTO_DISCOVERY=false
+# forces an unsigned build on machines that happen to have a code-signing
+# identity in the keychain.
 npm run electron:build:tsc
 CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac --arm64 --publish always
 

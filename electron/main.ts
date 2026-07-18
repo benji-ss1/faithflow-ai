@@ -1,8 +1,6 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage, session, ipcMain, shell, safeStorage } from "electron";
 import * as path from "path";
 import * as fs from "fs";
-import { spawn, ChildProcess } from "child_process";
-import * as net from "net";
 import { registerScreenIpc, closeAllOutputWindows, openOutputForRole } from "./ipc/screens";
 import { registerAudioIpc } from "./ipc/audio";
 import { registerDialogIpc } from "./ipc/dialog";
@@ -10,11 +8,13 @@ import { registerFsIpc } from "./ipc/fs";
 import { autoUpdater } from "electron-updater";
 
 const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
+// Hosted Next.js app URL. Override with PF_APP_URL for staging/local testing.
+// The desktop shell is a thin client — all auth/DB/API stays on Vercel and
+// no secrets ship inside the .app bundle.
+const DEFAULT_HOSTED_URL = "https://faithflow-ai.vercel.app";
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
-let nextServerProc: ChildProcess | null = null;
-let audioServerProc: ChildProcess | null = null;
-let appUrl = "http://localhost:3000";
+let appUrl = DEFAULT_HOSTED_URL;
 
 // First-party hosts allowed to receive the x-pf-shell header. Computed once
 // after appUrl is known (see registerFirstPartyHosts). Also used by the
@@ -23,8 +23,11 @@ const FIRST_PARTY_HOSTS = new Set<string>(["localhost", "127.0.0.1"]);
 const EXTERNAL_URL_ALLOWED_HOSTS = new Set<string>([
   "presentflow.app",
   "app.presentflow.com",
-  "localhost",
-  "127.0.0.1",
+  "faithflow-ai.vercel.app",
+  // localhost/127.0.0.1 only trusted in dev; in a packaged app there's no
+  // first-party local service and allowing them lets an XSS pivot into
+  // whatever the tester happens to run locally.
+  ...(isDev ? ["localhost", "127.0.0.1"] : []),
 ]);
 
 // S3: Hardened allowlist for hosts derived from NEXT_PUBLIC_APP_URL. The
@@ -36,6 +39,7 @@ const STATIC_SAFE_HOST_ALLOWLIST: ReadonlyArray<RegExp> = [
   /^127\.0\.0\.1$/,
   /^([a-z0-9-]+\.)*presentflow\.app$/i,
   /^([a-z0-9-]+\.)*presentflow\.com$/i,
+  /^faithflow-ai\.vercel\.app$/i,
 ];
 function isStaticSafeHost(hostname: string): boolean {
   return STATIC_SAFE_HOST_ALLOWLIST.some((re) => re.test(hostname));
@@ -69,77 +73,27 @@ function registerFirstPartyHosts() {
 
 let shellHeaderListenerRegistered = false;
 
-async function pickFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.unref();
-    srv.on("error", reject);
-    srv.listen(0, () => {
-      const port = (srv.address() as net.AddressInfo).port;
-      srv.close(() => resolve(port));
-    });
-  });
-}
-
-async function startNextServer(): Promise<string> {
-  const port = await pickFreePort();
-  // Resolve standalone server.js relative to app resources
-  const resourcesPath = process.resourcesPath || path.join(__dirname, "..");
-  const candidates = [
-    path.join(resourcesPath, ".next", "standalone", "server.js"),
-    path.join(__dirname, "..", ".next", "standalone", "server.js"),
-    path.join(process.cwd(), ".next", "standalone", "server.js"),
-  ];
-  const serverJs = candidates.find((p) => {
+// Resolve the URL the desktop shell should point at.
+//   1. `PF_APP_URL` env override (dev/staging).
+//   2. In dev: http://localhost:${PRESENTFLOW_DEV_PORT || 3000}.
+//   3. Otherwise: the hosted production URL.
+// The desktop app no longer runs its own Next server — see DECISIONS.md.
+function resolveAppUrl(): string {
+  const override = process.env.PF_APP_URL;
+  if (override) {
     try {
-      require("fs").accessSync(p);
-      return true;
+      const u = new URL(override);
+      if (u.protocol === "http:" || u.protocol === "https:") return override.replace(/\/$/, "");
+      console.warn(`[main] Ignoring PF_APP_URL with unsupported protocol: ${u.protocol}`);
     } catch {
-      return false;
-    }
-  });
-  if (!serverJs) {
-    throw new Error(
-      "Could not locate .next/standalone/server.js. Run `next build` first (output: 'standalone')."
-    );
-  }
-  const cwd = path.dirname(serverJs);
-  nextServerProc = spawn(process.execPath, [serverJs], {
-    cwd,
-    env: {
-      ...process.env,
-      PORT: String(port),
-      HOSTNAME: "127.0.0.1",
-      NODE_ENV: "production",
-      // Electron sets ELECTRON_RUN_AS_NODE=1 so the child runs as pure Node
-      ELECTRON_RUN_AS_NODE: "1",
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  nextServerProc.stdout?.on("data", (d) => process.stdout.write(`[next] ${d}`));
-  nextServerProc.stderr?.on("data", (d) => process.stderr.write(`[next!] ${d}`));
-
-  // Wait for readiness by polling
-  const url = `http://127.0.0.1:${port}`;
-  const start = Date.now();
-  while (Date.now() - start < 30000) {
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const req = require("http").get(url, (res: any) => {
-          res.destroy();
-          resolve();
-        });
-        req.on("error", reject);
-        req.setTimeout(500, () => {
-          req.destroy(new Error("timeout"));
-        });
-      });
-      return url;
-    } catch {
-      await new Promise((r) => setTimeout(r, 300));
+      console.warn(`[main] Ignoring unparseable PF_APP_URL: ${override}`);
     }
   }
-  throw new Error("Next server never became ready");
+  if (isDev) {
+    const devPort = process.env.PRESENTFLOW_DEV_PORT || "3000";
+    return `http://localhost:${devPort}`;
+  }
+  return DEFAULT_HOSTED_URL;
 }
 
 // Build the application menu bar. Help items open URLs in the SYSTEM browser
@@ -300,7 +254,7 @@ async function createMainWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       preload: path.join(__dirname, "preload.js"),
     },
   });
@@ -312,95 +266,78 @@ async function createMainWindow() {
     mainWindow.webContents.openDevTools({ mode: "detach" });
   }
 
+  // Lock navigation to the appUrl origin. A compromised page in the hosted
+  // Next app must not be able to redirect the shell to a third-party origin
+  // and keep IPC access to preload.
+  try {
+    const trustedOrigin = new URL(appUrl).origin;
+    mainWindow.webContents.on("will-navigate", (e, url) => {
+      try {
+        if (new URL(url).origin !== trustedOrigin) {
+          e.preventDefault();
+          void shell.openExternal(url).catch(() => { /* noop */ });
+        }
+      } catch { e.preventDefault(); }
+    });
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+      void shell.openExternal(url).catch(() => { /* noop */ });
+      return { action: "deny" };
+    });
+  } catch { /* invalid appUrl; loadURL below will fail loudly */ }
+
   mainWindow.webContents.on(
     "did-fail-load",
     (_e, code, desc, url) => {
       console.error(`[main] did-fail-load ${code} ${desc} → ${url}`);
     }
   );
-  mainWindow.webContents.on(
-    "console-message",
-    (_e, level, message, line, sourceId) => {
-      console.log(`[renderer:${level}] ${message} (${sourceId}:${line})`);
-    }
-  );
+  if (isDev) {
+    mainWindow.webContents.on(
+      "console-message",
+      (_e, level, message, line, sourceId) => {
+        console.log(`[renderer:${level}] ${message} (${sourceId}:${line})`);
+      }
+    );
+  }
 
   const initialUrl = appUrl + (appUrl.includes("?") ? "&" : "?") + "ff_shell=desktop";
   await mainWindow.loadURL(initialUrl);
 }
 
+// Enforce single-instance: a second launch (double-click) just refocuses the
+// existing window instead of spawning a duplicate BrowserWindow that races the
+// same license.enc file and BroadcastChannel state.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+}
+
 app.whenReady().then(async () => {
-  // Pre-approve media permissions so navigator.mediaDevices works without prompts
+  // Only auto-approve permissions the operator UI actually needs. Anything
+  // else (geolocation, notifications, midi…) must be denied — a compromised
+  // page mustn't be able to escalate silently.
   session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => {
-    if (permission === "media" || (permission as string) === "audioCapture") cb(true);
-    else cb(true);
+    const allowed = new Set([
+      "media",
+      "audioCapture",
+      "videoCapture",
+      "display-capture",
+    ]);
+    cb(allowed.has(permission as string));
   });
 
-  if (isDev) {
-    const devPort = process.env.PRESENTFLOW_DEV_PORT || "3000";
-    appUrl = `http://localhost:${devPort}`;
-    // Auto-start the local audio-server (WebSocket bridge to Deepgram) so the
-    // AI Live pill isn't stuck showing "AI error" in a fresh dev environment.
-    // The subprocess reads .env.local for DEEPGRAM_API_KEY + AUTH_SECRET; if
-    // spawn fails we log and continue — Electron shouldn't die because the
-    // audio bridge can't start.
-    try {
-      const appRoot = path.resolve(__dirname, "..");
-      const tsxCli = require.resolve("tsx/cli", { paths: [appRoot] });
-      audioServerProc = spawn(
-        process.execPath,
-        [tsxCli, "scripts/audio-server.ts"],
-        {
-          cwd: appRoot,
-          // Y17: force NODE_ENV=production when spawned from a packaged Electron
-          // so DEBUG-gated logs (transcript slices) don't leak into the bridge.
-          env: {
-            ...process.env,
-            ELECTRON_RUN_AS_NODE: "1",
-            NODE_ENV: app.isPackaged ? "production" : (process.env.NODE_ENV || "development"),
-          },
-          stdio: ["ignore", "pipe", "pipe"],
-        },
-      );
-      audioServerProc.stdout?.on("data", (d) => process.stdout.write(`[ws-server] ${d}`));
-      audioServerProc.stderr?.on("data", (d) => process.stderr.write(`[ws-server!] ${d}`));
-      audioServerProc.on("exit", (code, sig) => {
-        console.warn(`[ws-server] exited code=${code} sig=${sig}`);
-        audioServerProc = null;
-      });
-      // Wait up to ~5s for the audio bridge to answer HTTP on 3001, then
-      // continue regardless — startup shouldn't block on it.
-      const audioPort = Number(process.env.AUDIO_WS_PORT || 3001);
-      const audioHealth = `http://127.0.0.1:${audioPort}/`;
-      const startWait = Date.now();
-      while (Date.now() - startWait < 5000) {
-        try {
-          await new Promise<void>((resolve, reject) => {
-            const req = require("http").get(audioHealth, (res: any) => {
-              res.destroy();
-              if (res.statusCode && res.statusCode < 500) resolve(); else reject(new Error("bad status"));
-            });
-            req.on("error", reject);
-            req.setTimeout(400, () => req.destroy(new Error("timeout")));
-          });
-          console.log(`[ws-server] ready on port ${audioPort}`);
-          break;
-        } catch {
-          await new Promise((r) => setTimeout(r, 250));
-        }
-      }
-    } catch (err) {
-      console.warn("[ws-server] failed to spawn audio bridge:", err);
-    }
-  } else {
-    try {
-      appUrl = await startNextServer();
-    } catch (err) {
-      console.error("Failed to start Next server:", err);
-      app.quit();
-      return;
-    }
-  }
+  // Thin-client shell: point at the hosted Next.js app (or dev/staging
+  // override via PF_APP_URL). No local Next server, no local audio bridge —
+  // the hosted app talks to the Fly.io Deepgram bridge via
+  // NEXT_PUBLIC_AUDIO_WS_URL configured server-side on Vercel.
+  appUrl = resolveAppUrl();
+  console.log(`[main] shell loading appUrl=${appUrl}`);
 
   registerFirstPartyHosts();
 
@@ -571,12 +508,6 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   closeAllOutputWindows();
-  if (nextServerProc && !nextServerProc.killed) {
-    try { nextServerProc.kill(); } catch {}
-  }
-  if (audioServerProc && !audioServerProc.killed) {
-    try { audioServerProc.kill(); } catch {}
-  }
 });
 
 // Export for other modules

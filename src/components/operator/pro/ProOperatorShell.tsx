@@ -852,6 +852,16 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // Guided tour: opens via Help > Guided Tutorial (IPC) or auto-opens on the
   // first desktop launch. LocalStorage flag `presentflow.tour.seen` gates the
   // auto-open so subsequent launches stay quiet.
+  // Web-side: TopBar dispatches window "presentflow:open-tour" from the
+  // logo/about menu. Bridge it to the tour opener regardless of Electron
+  // availability so the button works in both shell and pure-web contexts.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const winHandler = () => setTourOpen(true);
+    window.addEventListener("presentflow:open-tour", winHandler);
+    return () => window.removeEventListener("presentflow:open-tour", winHandler);
+  }, []);
+
   useEffect(() => {
     const w = typeof window !== "undefined" ? (window as Window & { electronAPI?: { on: (c: string, h: () => void) => void; off: (c: string, h: () => void) => void } }) : undefined;
     const api = w?.electronAPI;

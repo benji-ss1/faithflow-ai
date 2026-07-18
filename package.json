@@ -1,6 +1,6 @@
 {
   "name": "presentflow",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
@@ -108,25 +108,26 @@
     },
     "files": [
       "dist-electron/**",
-      ".next/standalone/**",
-      ".next/static/**",
-      "public/**",
       "config/**",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": ".next/standalone",
-        "to": ".next/standalone"
-      },
-      {
-        "from": ".next/static",
-        "to": ".next/standalone/.next/static"
-      },
-      {
-        "from": "public",
-        "to": ".next/standalone/public"
-      }
+      "package.json",
+      "!node_modules/**/*",
+      "node_modules/electron-updater/**/*",
+      "node_modules/builder-util-runtime/**/*",
+      "node_modules/@types/**/*",
+      "node_modules/lazy-val/**/*",
+      "node_modules/sax/**/*",
+      "node_modules/js-yaml/**/*",
+      "node_modules/argparse/**/*",
+      "node_modules/semver/**/*",
+      "node_modules/lodash.escaperegexp/**/*",
+      "node_modules/lodash.isequal/**/*",
+      "node_modules/fs-extra/**/*",
+      "node_modules/graceful-fs/**/*",
+      "node_modules/universalify/**/*",
+      "node_modules/jsonfile/**/*",
+      "node_modules/tiny-typed-emitter/**/*",
+      "node_modules/debug/**/*",
+      "node_modules/ms/**/*"
     ],
     "mac": {
       "target": [

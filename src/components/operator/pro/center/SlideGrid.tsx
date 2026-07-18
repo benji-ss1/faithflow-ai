@@ -1,9 +1,13 @@
 "use client";
+import { useEffect, useState } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload } from "@/lib/broadcast";
+
+type ViewMode = "grid" | "list" | "text";
+const VIEW_MODE_KEY = "presentflow.operator.slideViewMode";
 import {
   DndContext,
   closestCenter,
@@ -45,6 +49,25 @@ export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize
   const item = ctx.plan.items[ctx.previewItemIdx];
   const slides: SlidePayload[] = item?.slides ?? [];
 
+  // View mode is toggled by the BottomBar (fires "presentflow:slide-view-mode").
+  // Persist per-machine so operators keep their preferred layout across launches.
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(VIEW_MODE_KEY);
+      if (raw === "list" || raw === "text" || raw === "grid") setViewMode(raw);
+    } catch { /* noop */ }
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<ViewMode>).detail;
+      if (detail === "grid" || detail === "list" || detail === "text") {
+        setViewMode(detail);
+        try { window.localStorage.setItem(VIEW_MODE_KEY, detail); } catch { /* noop */ }
+      }
+    };
+    window.addEventListener("presentflow:slide-view-mode", handler);
+    return () => window.removeEventListener("presentflow:slide-view-mode", handler);
+  }, []);
+
   // Task C: derive stable per-slide IDs for dnd + server call. For song
   // items we have real songSlide IDs on songSlideRows; for other item
   // types the reorder validator accepts stringified indices.
@@ -76,11 +99,13 @@ export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize
           <div
             role="grid"
             aria-label="Slides"
-            className="grid"
-            style={{
-              gap: 6,
-              gridTemplateColumns: `repeat(auto-fill, minmax(${slideSize}px, 1fr))`,
-            }}
+            className={cn(viewMode === "text" ? "flex flex-col" : "grid")}
+            style={viewMode === "text"
+              ? { gap: 4 }
+              : viewMode === "list"
+                ? { gap: 6, gridTemplateColumns: `repeat(auto-fill, minmax(${Math.max(slideSize * 2, 220)}px, 1fr))` }
+                : { gap: 6, gridTemplateColumns: `repeat(auto-fill, minmax(${slideSize}px, 1fr))` }
+            }
           >
             {slides.length === 0 && (
               <div className="col-span-full text-[12px] text-[var(--color-muted-foreground)] py-12 text-center space-y-1">

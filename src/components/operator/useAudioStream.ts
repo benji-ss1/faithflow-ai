@@ -464,6 +464,15 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     try {
       const payload = { sessionId, planId, durationSec, reconnects, avgConfidence, wordsHigh, wordsLow, startedAt, endedAt };
       const body = JSON.stringify(payload);
+      // Prefer sendBeacon when the tab is unloading — fetch(keepalive) is
+      // best-effort on unload and drops on some browsers if teardown is
+      // already mid-flight. sendBeacon is guaranteed to be queued by the UA.
+      const hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
+      if (hidden && typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+        try {
+          navigator.sendBeacon("/api/audio/session-metrics", new Blob([body], { type: "application/json" }));
+        } catch { /* fall through to fetch */ }
+      }
       fetch("/api/audio/session-metrics", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -699,8 +708,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         if (msg.type === "interim") { setStage("receiving_interim"); log("7 interim", msg.text); }
         if (msg.type === "final") { setStage("receiving_final"); log("8 final", msg.text); }
         if (msg.type === "detection" || msg.type === "song" || msg.type === "command") log(`9 ${msg.type}`);
-        if (msg.type === "ready") setState((s) => ({ ...s, ready: true }));
-        else if (msg.type === "interim") { lastTranscriptAtRef.current = Date.now(); setState((s) => ({ ...s, interim: msg.text })); }
+        if (msg.type === "interim") { lastTranscriptAtRef.current = Date.now(); setState((s) => ({ ...s, interim: msg.text })); }
         else if (msg.type === "interim_final_candidate") {
           // Perf fix #2E: run detection on a high-confidence, sufficiently-
           // long interim so verse cards can render 1-2s earlier than the
@@ -925,26 +933,53 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
 
   // Auto-pause after prolonged silence. Cheap 30s interval poll (no per-render
   // side effect). Stops the pipeline and closes the WS to save Deepgram cost.
+  //
+  // Browsers throttle setInterval on hidden tabs to ~1min, so we also listen
+  // for visibilitychange and re-check on tab-return so the operator doesn't
+  // see a "still on" pill 12 min after silence started.
   useEffect(() => {
     if (autoPauseTimerRef.current) { clearInterval(autoPauseTimerRef.current); autoPauseTimerRef.current = null; }
     if (!state.listening) return;
-    const iv = setInterval(() => {
+    const check = () => {
       if (!isAutoPauseEnabled()) return;
       const elapsed = Date.now() - lastTranscriptAtRef.current;
       if (elapsed < AUTO_PAUSE_MS) return;
-      // Only auto-pause when we were actually receiving final transcripts —
-      // don't yank a pipeline still mid-init.
       setState((s) => {
         if (s.stage !== "receiving_final") return s;
-        // Trigger teardown but keep the "paused" state visible.
         intentionalStopRef.current = true;
         try { teardown(); } catch { /* ignore */ }
         return { ...s, stage: "paused", listening: false, ready: false, interim: "" };
       });
-    }, 30_000);
+    };
+    const iv = setInterval(check, 30_000);
     autoPauseTimerRef.current = iv;
-    return () => { clearInterval(iv); if (autoPauseTimerRef.current === iv) autoPauseTimerRef.current = null; };
+    const onVisibility = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      clearInterval(iv);
+      if (autoPauseTimerRef.current === iv) autoPauseTimerRef.current = null;
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [state.listening, isAutoPauseEnabled, teardown]);
+
+  // Flush metrics + attempt clean teardown when the tab is unloaded or
+  // backgrounded for good. Uses sendBeacon inside flushSessionMetrics when
+  // document.visibilityState === "hidden".
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onHide = () => {
+      if (!sessionStartRef.current) return;
+      try { flushSessionMetrics(); } catch { /* ignore */ }
+    };
+    const onPageHide = () => onHide();
+    const onVisibility = () => { if (document.visibilityState === "hidden") onHide(); };
+    window.addEventListener("pagehide", onPageHide);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [flushSessionMetrics]);
 
   // Restart pipeline when the operator changes the audio input mid-service.
   useEffect(() => {
