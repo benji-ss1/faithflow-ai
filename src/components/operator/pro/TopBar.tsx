@@ -678,6 +678,23 @@ export function TopBar({
               >
                 Diagnose AI listener
               </button>
+              <div className="mt-3 pt-3 border-t border-[var(--color-border)]">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const mod = await import("@/lib/sign-out");
+                      await mod.signOutFully("/login");
+                    } catch {
+                      // Fallback: nav directly to a sign-out URL if the module fails.
+                      try { window.location.href = "/api/auth/signout?callbackUrl=/login"; } catch { /* noop */ }
+                    }
+                  }}
+                  className="w-full h-8 rounded-md border border-red-500/40 text-[11px] font-semibold text-red-300 hover:bg-red-500/10 hover:border-red-500/60"
+                >
+                  Log out
+                </button>
+              </div>
             </Popover.Content>
           </Popover.Portal>
         </Popover.Root>
