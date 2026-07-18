@@ -1,15 +1,25 @@
 import { NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { apiUser } from "@/lib/session";
+import { createLimiter } from "@/lib/rate-limit";
 import { getDb } from "@/lib/db/client";
 import { servicePlans } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 
 export const runtime = "nodejs";
 
+// Gate to Deepgram spend. Ticket mint costs nothing, but a stolen or leaked
+// session cookie could otherwise mint unlimited tickets and stream unlimited
+// audio to the Fly bridge. 30/min covers legitimate reconnect storms during
+// a Sunday service (each disconnect burns one ticket) but cuts off abuse.
+const ticketLimiter = createLimiter("audio-ticket", 30, 60_000);
+
 export async function POST(req: Request) {
   const user = await apiUser();
   if (!user) return NextResponse.json({ error: "Session expired — please sign in again" }, { status: 401 });
+  if (!(await ticketLimiter(user.id))) {
+    return NextResponse.json({ error: "Too many audio session starts — wait a minute" }, { status: 429 });
+  }
 
   const { planId } = await req.json().catch(() => ({}));
   if (!planId || typeof planId !== "string") return NextResponse.json({ error: "planId required" }, { status: 400 });

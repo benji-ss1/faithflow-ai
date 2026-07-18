@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LayoutGrid, List, Eye, Play, Music, BookOpen, Image as ImageIcon, Type } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
@@ -107,15 +107,19 @@ function CenterSizeSlider({
   // Debounce localStorage + broadcast writes so a drag doesn't fire ~100
   // storage writes per second. The visual state (localSize) updates
   // immediately so the slider still feels responsive.
-  const debounceRef = useState<{ t: ReturnType<typeof setTimeout> | null }>({ t: null })[0];
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Clean up pending debounce on unmount so a mid-drag mode swap doesn't
+  // fire a stale setState/broadcast after the component has torn down.
+  useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current); }, []);
   const onChange = (n: number) => {
     if (centerMode === "slides" && onSlideSize) {
       onSlideSize(n);
       return;
     }
     setLocalSize(n);
-    if (debounceRef.t) clearTimeout(debounceRef.t);
-    debounceRef.t = setTimeout(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
       try { window.localStorage.setItem("presentflow.center.slideSize", String(n)); } catch { /* noop */ }
       try { window.dispatchEvent(new CustomEvent("presentflow:center-slide-size", { detail: n })); } catch { /* noop */ }
     }, 100);
