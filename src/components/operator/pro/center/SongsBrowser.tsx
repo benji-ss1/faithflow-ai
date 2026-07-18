@@ -203,17 +203,16 @@ function AddSongDialog({ onCreated, existingTitles }: { onCreated: (row: SongRow
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [artist, setArtist] = useState("");
+  const [theme, setTheme] = useState<"default" | "dark" | "light" | "brand">("default");
+  const [aspect, setAspect] = useState<"16:9" | "4:3" | "1:1">("16:9");
+  const [seedFirstSlide, setSeedFirstSlide] = useState(true);
   const [busy, setBusy] = useState(false);
   const save = async () => {
     if (busy) return;
     const t = title.trim();
     if (!t) { toast.error("Song title required"); return; }
     if (t.length > 200) { toast.error("Title too long (max 200 chars)"); return; }
-    // Require at least one letter/digit so emoji-only titles ("🙏") or
-    // punctuation-only titles are caught before a useless DB row lands.
     if (!/[\p{L}\p{N}]/u.test(t)) { toast.error("Song title needs letters or numbers"); return; }
-    // Soft dedupe warning — schema has no unique constraint but a duplicate
-    // usually indicates a misclick. Operator can override by clicking again.
     const dup = existingTitles.some((x) => x.trim().toLowerCase() === t.toLowerCase());
     if (dup && !window.confirm(`A song titled "${t}" already exists. Create another anyway?`)) return;
     setBusy(true);
@@ -223,9 +222,26 @@ function AddSongDialog({ onCreated, existingTitles }: { onCreated: (row: SongRow
       if (artist.trim()) fd.set("artist", artist.trim().slice(0, 120));
       const res = await createSong(fd);
       if (!res.ok) { toast.error(res.error); return; }
-      onCreated({ id: res.data!.id, title: t, artist: artist.trim() || null });
-      toast.success(`"${t}" created — add lyric slides on the right`);
-      setTitle(""); setArtist(""); setOpen(false);
+      const newId = res.data!.id;
+      // Seed a first blank slide template so the operator lands ready-to-type
+      // instead of an empty-state prompt. Mirrors ProPresenter's flow —
+      // filename + theme + size → dialog closes into the slide editor with
+      // one placeholder slide already present. Theme + aspect are persisted
+      // per-song via localStorage so future edits reload the chosen template.
+      if (seedFirstSlide) {
+        try {
+          await createSongSlide(newId, undefined, { objects: [], lyrics: "" });
+        } catch { /* non-fatal — user can add manually */ }
+      }
+      try {
+        window.localStorage.setItem(
+          `presentflow.song.template.${newId}`,
+          JSON.stringify({ theme, aspect }),
+        );
+      } catch { /* noop */ }
+      onCreated({ id: newId, title: t, artist: artist.trim() || null });
+      toast.success(`"${t}" created${seedFirstSlide ? " with blank slide" : ""} — edit lyrics on the right`);
+      setTitle(""); setArtist(""); setTheme("default"); setAspect("16:9"); setOpen(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Create failed");
     } finally {
@@ -245,15 +261,15 @@ function AddSongDialog({ onCreated, existingTitles }: { onCreated: (row: SongRow
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/60 z-50" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[420px] bg-[var(--color-panel)] border border-[var(--color-border)] rounded-lg p-4 flex flex-col gap-3">
+        <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[440px] bg-[var(--color-panel)] border border-[var(--color-border)] rounded-lg p-4 flex flex-col gap-3">
           <Dialog.Title className="text-sm font-semibold">New song</Dialog.Title>
           <label className="text-[11px] flex flex-col gap-1">
-            Title
+            <span>Title <span className="text-[var(--color-muted-foreground)]">(required)</span></span>
             <input
               autoFocus
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") void save(); }}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) void save(); }}
               maxLength={200}
               placeholder="Amazing Grace"
               className="h-9 px-3 rounded border border-[var(--color-border)] bg-[var(--color-elevated)] text-sm"
@@ -264,11 +280,47 @@ function AddSongDialog({ onCreated, existingTitles }: { onCreated: (row: SongRow
             <input
               value={artist}
               onChange={(e) => setArtist(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") void save(); }}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) void save(); }}
               maxLength={120}
               placeholder="John Newton"
               className="h-9 px-3 rounded border border-[var(--color-border)] bg-[var(--color-elevated)] text-sm"
             />
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-[11px] flex flex-col gap-1">
+              Theme
+              <select
+                value={theme}
+                onChange={(e) => setTheme(e.target.value as typeof theme)}
+                className="h-9 px-2 rounded border border-[var(--color-border)] bg-[var(--color-elevated)] text-sm"
+              >
+                <option value="default">Default</option>
+                <option value="dark">Dark</option>
+                <option value="light">Light</option>
+                <option value="brand">Brand</option>
+              </select>
+            </label>
+            <label className="text-[11px] flex flex-col gap-1">
+              Size
+              <select
+                value={aspect}
+                onChange={(e) => setAspect(e.target.value as typeof aspect)}
+                className="h-9 px-2 rounded border border-[var(--color-border)] bg-[var(--color-elevated)] text-sm"
+              >
+                <option value="16:9">1920 × 1080 (16:9)</option>
+                <option value="4:3">1024 × 768 (4:3)</option>
+                <option value="1:1">1080 × 1080 (Square)</option>
+              </select>
+            </label>
+          </div>
+          <label className="text-[11px] inline-flex items-center gap-2 select-none">
+            <input
+              type="checkbox"
+              checked={seedFirstSlide}
+              onChange={(e) => setSeedFirstSlide(e.target.checked)}
+              className="h-3.5 w-3.5"
+            />
+            Create a blank slide template ready to edit
           </label>
           <div className="flex justify-end gap-2 mt-2">
             <Dialog.Close asChild>

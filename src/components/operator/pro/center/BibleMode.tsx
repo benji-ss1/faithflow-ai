@@ -29,6 +29,22 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
   const searchAbortRef = useRef<AbortController | null>(null);
   // Abort any in-flight search when the component unmounts (mode switch).
   useEffect(() => () => { searchAbortRef.current?.abort(); }, []);
+  // Shared view mode from CenterHeader / BottomBar toggle. In "list" mode
+  // Bible renders a Songs-Library-style layout: compact verse rows on the
+  // left, big selected preview card on the right.
+  const [viewMode, setViewMode] = useState<"grid" | "list" | "text">("grid");
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem("presentflow.operator.slideViewMode");
+      if (raw === "grid" || raw === "list" || raw === "text") setViewMode(raw);
+    } catch { /* noop */ }
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent<"grid" | "list" | "text">).detail;
+      if (d === "grid" || d === "list" || d === "text") setViewMode(d);
+    };
+    window.addEventListener("presentflow:slide-view-mode", handler);
+    return () => window.removeEventListener("presentflow:slide-view-mode", handler);
+  }, []);
   // Shared card size from the CenterHeader slider (same key + event as SongsBrowser).
   const [cardSize, setCardSize] = useState(280);
   useEffect(() => {
@@ -318,7 +334,70 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
           </button>
         </div>
       )}
-      {tab === "reference" && (
+      {tab === "reference" && viewMode === "list" && cards.length > 0 && (
+        // Songs-Library-style split: compact verse-row list left, big
+        // selected preview right. Same click semantics as the grid (single
+        // = select, double = send live, + button = add to playlist).
+        <div className="grid gap-3 h-full min-h-[400px]" style={{ gridTemplateColumns: "minmax(240px, 320px) 1fr" }}>
+          <div className="flex flex-col border border-[var(--color-border)] rounded-md overflow-hidden">
+            <div className="px-3 py-2 border-b border-[var(--color-border)] eyebrow text-[var(--color-muted-foreground)]">
+              {cards.length} verse{cards.length === 1 ? "" : "s"}
+            </div>
+            <ul className="flex-1 overflow-y-auto">
+              {cards.slice(0, 200).map((c, idx) => {
+                const selected = selectedIdx === idx;
+                const preview = c.verses[0]?.text?.slice(0, 80) ?? "";
+                return (
+                  <li key={c.id}>
+                    <button
+                      onClick={() => setSelectedIdx(idx)}
+                      onDoubleClick={() => ctx.onSendSlideToLive(cardToSlide(c, idx, cards.length))}
+                      className={cn(
+                        "w-full text-left px-3 py-2 border-b border-[var(--color-border)] hover:bg-[var(--color-elevated)]",
+                        selected && "bg-[var(--color-elevated)] border-l-2 border-l-[var(--color-brand)]",
+                      )}
+                    >
+                      <div className="text-[12px] font-semibold truncate">{c.label}</div>
+                      {preview && (
+                        <div className="text-[11px] text-[var(--color-muted-foreground)] truncate mt-0.5">{preview}{c.verses[0]?.text && c.verses[0].text.length > 80 ? "…" : ""}</div>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+              {cards.length > 200 && (
+                <li className="px-3 py-2 text-[11px] text-[var(--color-muted-foreground)]">Showing first 200 of {cards.length}</li>
+              )}
+            </ul>
+          </div>
+          <div className="flex flex-col border border-[var(--color-border)] rounded-md overflow-hidden">
+            <div className="px-3 py-2 border-b border-[var(--color-border)] flex items-center gap-2">
+              <div className="flex-1 text-[12px] font-medium truncate">
+                {selectedIdx != null && cards[selectedIdx] ? cards[selectedIdx].label : "Select a verse to preview"}
+              </div>
+              {selectedIdx != null && cards[selectedIdx] && (
+                <button
+                  onClick={() => ctx.onSendSlideToLive(cardToSlide(cards[selectedIdx], selectedIdx, cards.length))}
+                  className="h-7 px-3 rounded bg-[var(--color-brand)] text-black text-[11px] font-semibold"
+                >
+                  Send to live
+                </button>
+              )}
+            </div>
+            <div className="flex-1 p-3">
+              {selectedIdx != null && cards[selectedIdx] ? (
+                <div className="aspect-video rounded overflow-hidden border border-[var(--color-border)]">
+                  <SlideRenderer slide={cardToSlide(cards[selectedIdx], selectedIdx, cards.length)} />
+                </div>
+              ) : (
+                <div className="text-[11px] text-[var(--color-muted-foreground)] text-center py-8">Click a verse in the list.</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === "reference" && viewMode !== "list" && (
       <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cardSize}px, 1fr))` }}>
         {cards.length === 0 && (
           <div className="col-span-full text-[12px] text-[var(--color-muted-foreground)] py-8 text-center">
