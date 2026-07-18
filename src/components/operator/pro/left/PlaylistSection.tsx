@@ -1,5 +1,7 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import * as Popover from "@radix-ui/react-popover";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { ChevronDown, ChevronRight, Plus, Music, BookOpen, Image as ImageIcon, Square } from "lucide-react";
@@ -21,14 +23,26 @@ export function PlaylistSection({
   onCenterMode?: (m: "slides" | "bible" | "songs" | "media") => void;
 }) {
   const [open, setOpen] = useState(true);
+  const router = useRouter();
   const items = ctx.plan.items;
 
+  // Every server action returns a `Result<T>` shape. Surface failures via
+  // toast and always refresh the server component so the sidebar's item
+  // count updates without a full page reload. Was silently swallowing
+  // errors + never refreshing → clicking + Blank looked broken.
+  const handleResult = (res: { ok: boolean; error?: string } | void, successMsg?: string) => {
+    if (!res) return;
+    if (!res.ok) { toast.error(res.error ?? "Action failed"); return; }
+    if (successMsg) toast.success(successMsg);
+    router.refresh();
+  };
+
   const addBlank = async () => {
-    try { await addServiceItem(ctx.planId, "blank", "Blank", {}); } catch { /* noop */ }
+    handleResult(await addServiceItem(ctx.planId, "blank", "Blank", {}));
   };
 
   const remove = async (id: string) => {
-    try { await removeServiceItem(id); } catch { /* noop */ }
+    handleResult(await removeServiceItem(id));
   };
 
   const move = async (idx: number, dir: -1 | 1) => {
@@ -36,17 +50,17 @@ export function PlaylistSection({
     const to = idx + dir;
     if (to < 0 || to >= newOrder.length) return;
     [newOrder[idx], newOrder[to]] = [newOrder[to], newOrder[idx]];
-    try { await reorderServiceItems(ctx.planId, newOrder); } catch { /* noop */ }
+    handleResult(await reorderServiceItems(ctx.planId, newOrder));
   };
 
   const duplicate = async (idx: number) => {
     const it = items[idx];
     if (!it) return;
-    try {
-      // Best-effort duplicate: create a new item with same type/title/payload.
-      const t = (it.type ?? "blank") as "song" | "scripture" | "media" | "sermon" | "blank" | "logo";
-      await addServiceItem(ctx.planId, t, `${it.title} (copy)`, (it as unknown as { payload?: Record<string, unknown> }).payload ?? {});
-    } catch { /* noop */ }
+    const t = (it.type ?? "blank") as "song" | "scripture" | "media" | "sermon" | "blank" | "logo";
+    handleResult(
+      await addServiceItem(ctx.planId, t, `${it.title} (copy)`, (it as unknown as { payload?: Record<string, unknown> }).payload ?? {}),
+      "Duplicated",
+    );
   };
 
   return (

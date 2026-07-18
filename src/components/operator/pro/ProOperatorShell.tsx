@@ -783,11 +783,17 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       const newRef = `${parsed.book} ${parsed.chapter}:${nextVerse}`;
       bibleSession.setRef(newRef);
       // Trigger lookup via the same code path the Bible mode input uses.
+      // 3s timeout so a slow Vercel response doesn't leave the operator's
+      // "next verse" hotkey feeling dead. On timeout we toast so they know
+      // to retry (the hotkey stays available — no state corruption).
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 3000);
       try {
         const res = await fetch("/api/bible/lookup", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ref: newRef, translation: bibleSession.state.translation }),
+          signal: controller.signal,
         });
         if (!res.ok) return;
         const data = await res.json() as { verses?: Array<{ verse: number; text: string }> };
@@ -800,7 +806,14 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         bibleSession.setCards([card]);
         bibleSession.setSelectedIdx(0);
         sendLiveRef.current({ kind: "text", text: `${card.verses.map((v) => `${v.verse} ${v.text}`).join(" ")}\n\n${card.label}` });
-      } catch { /* silent — operator can retry */ }
+      } catch (err) {
+        if ((err as { name?: string })?.name === "AbortError") {
+          toast.error("Verse lookup slow — retrying");
+        }
+        // else silent; operator can hit next again
+      } finally {
+        clearTimeout(timer);
+      }
     };
     const send = (dir: 1 | -1) => {
       const cards = bibleSession.state.cards;

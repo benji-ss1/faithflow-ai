@@ -46,9 +46,11 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
           <li>
             <button
               type="button"
+              onClick={() => onCenterMode?.("slides")}
+              title="Return to the current service plan's slide view"
               className={cn(
-                "w-full flex items-center gap-2 px-2 py-1 text-[12px] text-left",
-                "border-l-2 border-[var(--color-brand)] bg-[var(--color-elevated)] text-[var(--color-foreground)]",
+                "w-full flex items-center gap-2 px-2 py-1 text-[12px] text-left transition-colors",
+                "border-l-2 border-[var(--color-brand)] bg-[var(--color-elevated)] text-[var(--color-foreground)] hover:bg-[var(--color-panel)]",
               )}
             >
               <BookOpen className="w-4 h-4" />

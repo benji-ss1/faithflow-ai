@@ -315,7 +315,16 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
             Enter a reference above and hit Lookup — or switch to Browse.
           </div>
         )}
-        {cards.map((c, idx) => {
+        {/* Cap the visible grid at 50 previews — a full-Psalm 119 lookup
+            returns 176 verses which would render 176 aspect-video previews
+            in one grid and jank the shell. Full text is still in `cards`
+            and reachable via next-verse nav; this only trims the DOM. */}
+        {cards.length > 50 && (
+          <div className="col-span-full text-[11px] text-[var(--color-muted-foreground)] py-2 text-center">
+            Showing first 50 of {cards.length} verses — refine the range or use the Verse ▸ button to walk through them all.
+          </div>
+        )}
+        {cards.slice(0, 50).map((c, idx) => {
           const selected = selectedIdx === idx;
           const slide = cardToSlide(c, idx, cards.length);
           return (

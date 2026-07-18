@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { LayoutGrid, List, Eye, Play, Music, BookOpen, Image as ImageIcon } from "lucide-react";
+import { LayoutGrid, List, Eye, Play, Music, BookOpen, Image as ImageIcon, Type } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { CenterMode } from "../ProOperatorShell";
@@ -104,14 +104,21 @@ function CenterSizeSlider({
   const value = centerMode === "slides" && typeof slideSize === "number" ? slideSize : localSize;
   const min = centerMode === "slides" ? 96 : 160;
   const max = centerMode === "slides" ? 240 : 480;
+  // Debounce localStorage + broadcast writes so a drag doesn't fire ~100
+  // storage writes per second. The visual state (localSize) updates
+  // immediately so the slider still feels responsive.
+  const debounceRef = useState<{ t: ReturnType<typeof setTimeout> | null }>({ t: null })[0];
   const onChange = (n: number) => {
     if (centerMode === "slides" && onSlideSize) {
       onSlideSize(n);
-    } else {
-      setLocalSize(n);
+      return;
+    }
+    setLocalSize(n);
+    if (debounceRef.t) clearTimeout(debounceRef.t);
+    debounceRef.t = setTimeout(() => {
       try { window.localStorage.setItem("presentflow.center.slideSize", String(n)); } catch { /* noop */ }
       try { window.dispatchEvent(new CustomEvent("presentflow:center-slide-size", { detail: n })); } catch { /* noop */ }
-    }
+    }, 100);
   };
   return (
     <div className="flex items-center gap-2 pr-2" title={`Card size: ${value}px`}>
@@ -159,6 +166,11 @@ function ViewModeToggle() {
         className={cn("w-7 h-7 flex items-center justify-center border-l border-[var(--color-border)] hover:bg-white/5",
           mode === "list" ? "text-[var(--color-foreground)] bg-white/5" : "text-[var(--color-muted-foreground)]")}>
         <List className="w-4 h-4" />
+      </button>
+      <button title="Text view" aria-pressed={mode === "text"} onClick={() => set("text")}
+        className={cn("w-7 h-7 flex items-center justify-center border-l border-[var(--color-border)] hover:bg-white/5",
+          mode === "text" ? "text-[var(--color-foreground)] bg-white/5" : "text-[var(--color-muted-foreground)]")}>
+        <Type className="w-4 h-4" />
       </button>
     </div>
   );
