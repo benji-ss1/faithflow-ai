@@ -335,6 +335,40 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     return () => window.removeEventListener("presentflow:restart-audio", h);
   }, [onRestartAudio]);
 
+  // Global safety net: any promise that rejects without a handler OR any
+  // synchronous throw outside a React tree normally shows up as a red dev
+  // overlay AND leaves the operator staring at a silent void. Surface both
+  // as a toast so at least the operator knows something's wrong + the
+  // support-log line is grep-able.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let recentToasts = 0;
+    const bump = () => {
+      recentToasts++;
+      setTimeout(() => { recentToasts = Math.max(0, recentToasts - 1); }, 3000);
+      return recentToasts <= 3; // suppress after 3 in 3s so we don't spam
+    };
+    const onRej = (e: PromiseRejectionEvent) => {
+      const reason = e.reason;
+      const msg = reason instanceof Error ? reason.message : String(reason ?? "unhandled rejection");
+      console.error("[operator-global-error] unhandledrejection:", msg, reason);
+      if (bump()) toast.error(`Background task failed: ${msg.slice(0, 120)}`);
+    };
+    const onErr = (e: ErrorEvent) => {
+      // React error boundaries catch render errors; this catches
+      // event-handler throws and native-callback errors.
+      const msg = e.message || String(e.error ?? "unknown error");
+      console.error("[operator-global-error] window.onerror:", msg, e.error);
+      if (bump()) toast.error(`Runtime error: ${msg.slice(0, 120)}`);
+    };
+    window.addEventListener("unhandledrejection", onRej);
+    window.addEventListener("error", onErr);
+    return () => {
+      window.removeEventListener("unhandledrejection", onRej);
+      window.removeEventListener("error", onErr);
+    };
+  }, []);
+
   // Task 9: warm-start the audio pipeline on operator mount (mic muted).
   // First user-toggle then flips from warm → live with zero handshake wait.
   useEffect(() => {
