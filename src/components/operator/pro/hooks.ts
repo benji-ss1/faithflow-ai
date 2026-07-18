@@ -130,6 +130,12 @@ export type BibleSessionState = {
   cards: VerseCard[];
   selectedIdx: number | null;
   loading: boolean;
+  // Phrase-search results survive tab switches. Local state in BibleMode
+  // would be wiped when the operator flips to Songs/Media (Radix Tabs
+  // unmounts inactive content).
+  phraseHits: Array<{ book: string; chapter: number; verse: number; text: string; matched?: string }>;
+  phraseQuery: string;
+  resultsLimit: number;
 };
 
 export type BibleSessionApi = {
@@ -139,6 +145,9 @@ export type BibleSessionApi = {
   setCards: (c: VerseCard[]) => void;
   setSelectedIdx: (i: number | null) => void;
   setLoading: (v: boolean) => void;
+  setPhraseHits: (h: BibleSessionState["phraseHits"]) => void;
+  setPhraseQuery: (q: string) => void;
+  setResultsLimit: (n: number) => void;
 };
 
 export function useBibleSession(defaultTranslationCode: string): BibleSessionApi {
@@ -148,6 +157,9 @@ export function useBibleSession(defaultTranslationCode: string): BibleSessionApi
     cards: [],
     selectedIdx: null,
     loading: false,
+    phraseHits: [],
+    phraseQuery: "",
+    resultsLimit: 20,
   });
 
   // Y5: memoize the returned api so effects with `bibleSession` in the deps
@@ -157,8 +169,13 @@ export function useBibleSession(defaultTranslationCode: string): BibleSessionApi
   const setCards = useCallback((c: VerseCard[]) => setState((s) => ({ ...s, cards: c })), []);
   const setSelectedIdx = useCallback((i: number | null) => setState((s) => ({ ...s, selectedIdx: i })), []);
   const setLoading = useCallback((v: boolean) => setState((s) => ({ ...s, loading: v })), []);
+  const setPhraseHits = useCallback((h: BibleSessionState["phraseHits"]) => setState((s) => ({ ...s, phraseHits: h })), []);
+  const setPhraseQuery = useCallback((q: string) => setState((s) => ({ ...s, phraseQuery: q })), []);
+  const setResultsLimit = useCallback((n: number) => setState((s) => ({ ...s, resultsLimit: n })), []);
 
   return useMemo(() => ({
     state, setRef, setTranslation, setCards, setSelectedIdx, setLoading,
-  }), [state, setRef, setTranslation, setCards, setSelectedIdx, setLoading]);
+    setPhraseHits, setPhraseQuery, setResultsLimit,
+  }), [state, setRef, setTranslation, setCards, setSelectedIdx, setLoading,
+       setPhraseHits, setPhraseQuery, setResultsLimit]);
 }

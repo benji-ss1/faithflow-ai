@@ -88,9 +88,10 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
     }
   }, [translation, setCards, setSelectedIdx, setLoading]);
 
-  const [phraseHits, setPhraseHits] = useState<Array<{ book: string; chapter: number; verse: number; text: string; matched?: string }>>([]);
-  const [phraseQuery, setPhraseQuery] = useState<string>("");
-  const [resultsLimit, setResultsLimit] = useState<number>(20);
+  // Session-scoped: results survive tab switches (Songs / Media / Bible).
+  // Local state would be wiped when Radix Tabs unmounts BibleMode.
+  const { phraseHits, phraseQuery, resultsLimit } = session.state;
+  const { setPhraseHits, setPhraseQuery, setResultsLimit } = session;
 
   const lookup = useCallback(async () => {
     const parser = await import("@/lib/bible-parser");
@@ -283,12 +284,24 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
           const selected = selectedIdx === idx;
           const slide = cardToSlide(c, idx, cards.length);
           return (
-            <button
+            // Outer is a div (not a button) so the inner "+ add to playlist"
+            // control can be a real <button> without nested-interactive-role
+            // hydration warnings. Keyboard support: Enter selects, Shift+Enter
+            // sends to live (mirrors the single-click / double-click mouse UX).
+            <div
               key={c.id}
+              role="button"
+              tabIndex={0}
               onClick={() => setSelectedIdx(idx)}
               onDoubleClick={() => ctx.onSendSlideToLive(slide)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  if (e.shiftKey) ctx.onSendSlideToLive(slide);
+                  else setSelectedIdx(idx);
+                }
+              }}
               className={cn(
-                "relative aspect-video rounded-md overflow-hidden border-2 transition-all",
+                "relative aspect-video rounded-md overflow-hidden border-2 transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
                 selected ? "border-[var(--color-brand)]" : "border-[var(--color-border)] hover:border-[var(--color-muted-foreground)]",
               )}
             >
@@ -296,8 +309,8 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
               <div className="absolute top-1 left-1 text-[10px] font-mono text-white/70 bg-black/40 px-1 rounded">
                 {idx + 1}
               </div>
-              <span
-                role="button"
+              <button
+                type="button"
                 aria-label={`Add ${c.label} to playlist`}
                 title="Add to playlist"
                 onClick={(e) => { e.stopPropagation(); void addVerseToPlaylist(c); }}
@@ -305,8 +318,8 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
                 className="absolute top-1 right-1 h-5 w-5 inline-flex items-center justify-center rounded bg-black/50 text-white/80 hover:bg-[var(--color-brand)] hover:text-black transition-colors"
               >
                 <Plus className="h-3 w-3" />
-              </span>
-            </button>
+              </button>
+            </div>
           );
         })}
       </div>

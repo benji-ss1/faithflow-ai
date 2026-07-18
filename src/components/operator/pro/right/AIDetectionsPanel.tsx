@@ -271,9 +271,11 @@ export function AIDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
 
   // ---------- Song actions ----------
   const loadSong = (row: SongRow) => {
-    if (ctx.onAddLibraryItem) {
-      void ctx.onAddLibraryItem("song", { id: row.songId, title: row.title });
+    if (!ctx.onAddLibraryItem) {
+      toast.info("Playlist add not available until a service plan is open");
+      return;
     }
+    void ctx.onAddLibraryItem("song", { id: row.songId, title: row.title });
   };
 
   // CLAUDE.md rule 7 — songs never auto-project. Double-click = load, not send.
