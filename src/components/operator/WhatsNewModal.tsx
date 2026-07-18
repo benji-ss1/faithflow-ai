@@ -126,7 +126,51 @@ export function WhatsNewModal() {
               </div>
             ))}
           </div>
-          <div className="px-5 py-3 border-t border-[var(--color-border)] flex justify-end">
+          <div className="px-5 py-3 border-t border-[var(--color-border)] flex justify-between items-center gap-2">
+            <button
+              onClick={async () => {
+                // "Reset & re-sync" — nuclear option for stale caches:
+                //  1. Clear all Cache Storage entries (service-worker caches)
+                //  2. Unregister service workers
+                //  3. Preserve auth-related localStorage (session cookie is HttpOnly
+                //     so a reload keeps you signed in) but wipe app-state keys so
+                //     the fresh bundle starts clean
+                //  4. location.reload(true) — hard reload bypassing memory cache
+                try {
+                  if (typeof caches !== "undefined") {
+                    const keys = await caches.keys();
+                    await Promise.all(keys.map((k) => caches.delete(k)));
+                  }
+                } catch { /* noop */ }
+                try {
+                  if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+                    const regs = await navigator.serviceWorker.getRegistrations();
+                    await Promise.all(regs.map((r) => r.unregister()));
+                  }
+                } catch { /* noop */ }
+                try {
+                  // Keep only keys that would be inconvenient to lose (theme, tour flag).
+                  const keep = new Set([
+                    "presentflow.pro.autoApprove.v1",
+                    "presentflow.operator.safeMode",
+                    "presentflow.tour.seen",
+                  ]);
+                  const toRemove: string[] = [];
+                  for (let i = 0; i < window.localStorage.length; i++) {
+                    const k = window.localStorage.key(i);
+                    if (k && !keep.has(k)) toRemove.push(k);
+                  }
+                  for (const k of toRemove) window.localStorage.removeItem(k);
+                } catch { /* noop */ }
+                try {
+                  window.location.reload();
+                } catch { /* noop */ }
+              }}
+              className="h-9 px-3 rounded-md border border-[var(--color-border)] text-[12px] font-semibold text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-elevated)]"
+              title="Clear all caches + service workers + reload with a fresh bundle from the server"
+            >
+              Reset & re-sync
+            </button>
             <button
               onClick={dismiss}
               className="h-9 px-4 rounded-md bg-[var(--color-brand)] text-black text-sm font-semibold"
