@@ -3,6 +3,32 @@ import type { NextConfig } from "next";
 // Global security headers. Applied to every response via Next headers()
 // hook. Kept modest so features that legitimately need it (Deepgram WSS,
 // Supabase API, Stripe, GitHub Releases updater) aren't broken.
+//
+// CSP is deployed in REPORT-ONLY mode intentionally — browsers log
+// violations to the console instead of blocking, so we get real telemetry
+// on what our pages actually load before flipping to enforce. Move
+// `Content-Security-Policy-Report-Only` → `Content-Security-Policy` when
+// the violation-report console goes quiet across a Sunday service.
+const CSP_REPORT_ONLY = [
+  "default-src 'self'",
+  // Next.js needs 'unsafe-inline' for streaming SSR hydration + Radix inline
+  // styles; 'unsafe-eval' for React devtools (dev). Prod-only lockdown would
+  // drop 'unsafe-eval'.
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "media-src 'self' blob: https:",
+  "font-src 'self' data:",
+  // Deepgram (Fly bridge) via wss://; Supabase Realtime via wss://; Stripe.
+  "connect-src 'self' wss://faithflow-audio.fly.dev wss://*.supabase.co https://*.supabase.co https://api.stripe.com https://api.github.com",
+  "frame-src https://js.stripe.com https://hooks.stripe.com",
+  "worker-src 'self' blob:", // AudioWorklet uses blob: URLs
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'", // matches X-Frame-Options: DENY
+].join("; ");
+
 const SECURITY_HEADERS = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "X-Content-Type-Options", value: "nosniff" },
@@ -11,6 +37,7 @@ const SECURITY_HEADERS = [
   // HSTS: force HTTPS for the domain + subdomains for a year. Only sent on
   // https responses (browsers ignore on http anyway).
   { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
+  { key: "Content-Security-Policy-Report-Only", value: CSP_REPORT_ONLY },
 ];
 
 const nextConfig: NextConfig = {
