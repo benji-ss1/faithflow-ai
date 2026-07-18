@@ -359,7 +359,13 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       if (s.type !== "scripture") continue;
       const chunk = bySeg.get(s.segmentId);
       // No matching final chunk (e.g. interim segment) → fail open.
-      if (!chunk || !chunk.words || chunk.words.length === 0) continue;
+      if (!chunk) continue;
+      // Server dropped word telemetry (500+ words trimmed on a very long
+      // utterance) — fail CLOSED. We can't rule out low-conf fillers in the
+      // span without word data, and mis-projecting a bogus verse mid-service
+      // is worse than a false-positive block that operator can override.
+      if (chunk.wordsDropped) { blocked.add(s.id); continue; }
+      if (!chunk.words || chunk.words.length === 0) continue;
       const span = s.matchedSpan;
       // No span info → fail open.
       if (!span) continue;

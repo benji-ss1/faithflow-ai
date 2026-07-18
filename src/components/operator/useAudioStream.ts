@@ -43,7 +43,7 @@ export type CommandSuggestion = {
   matchedText: string;
 };
 
-export type TranscriptChunk = { id: string; text: string; final: boolean; ts: number; words?: { w: string; c: number; s?: number; e?: number }[] };
+export type TranscriptChunk = { id: string; text: string; final: boolean; ts: number; words?: { w: string; c: number; s?: number; e?: number }[]; wordsDropped?: boolean };
 
 /**
  * Unified suggestion — Phase 5A. Runs client-side on every transcript
@@ -225,12 +225,36 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     }
     const ts = Date.now();
     const newSuggestions: UnifiedSuggestion[] = [];
-    // R1: compute char offset for matchedText within source text.
+    // R1: compute char offset for matchedText within source text. Deepgram
+    // punctuates ("John 3, verse 16") but the parser normalises to
+    // "John 3:16", so a naive indexOf misses and the word-conf gate falls
+    // back to a permissive fail-open path. Try exact first; if that misses,
+    // fuzzy-match by stripping punctuation and matching token positions.
     const spanFor = (matchedText: string): MatchedSpan | undefined => {
       if (!matchedText) return undefined;
-      const idx = text.toLowerCase().indexOf(matchedText.toLowerCase());
-      if (idx < 0) return undefined;
-      return { start: idx, end: idx + matchedText.length };
+      const lower = text.toLowerCase();
+      const idx = lower.indexOf(matchedText.toLowerCase());
+      if (idx >= 0) return { start: idx, end: idx + matchedText.length };
+      // Fuzzy: strip punctuation from both sides, align on the first token
+      // of the match. Good enough for word-conf overlap detection — the gate
+      // only needs an approximate span.
+      const strip = (s: string) => s.replace(/[.,;:!?()"'\-]/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+      const strippedText = strip(text);
+      const strippedMatch = strip(matchedText);
+      if (!strippedMatch) return undefined;
+      const sIdx = strippedText.indexOf(strippedMatch);
+      if (sIdx < 0) return undefined;
+      // Walk the original text and count non-punctuation chars until we hit
+      // sIdx worth, then compute the original-text offset. Approximate but
+      // strictly within the utterance bounds.
+      let origIdx = 0;
+      let seen = 0;
+      while (origIdx < text.length && seen < sIdx) {
+        const ch = text[origIdx];
+        if (/[\p{L}\p{N}\s]/u.test(ch)) seen++;
+        origIdx++;
+      }
+      return { start: origIdx, end: Math.min(text.length, origIdx + matchedText.length) };
     };
 
     const push = (s: UnifiedSuggestion, key: string) => {
@@ -588,6 +612,37 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     // synchronously below.
     // (Fine-grained state check happens against pipelineGenerationRef.)
     intentionalStopRef.current = false;
+
+    // Two-tab defense: if another tab on the same origin has already claimed
+    // the audio pipeline for this planId, don't open a second WebSocket that
+    // would double-bill Deepgram. The Electron single-instance lock covers
+    // desktop but multiple browser tabs on faithflow-ai.vercel.app bypass it.
+    // Use BroadcastChannel as a lightweight lease — first tab wins, others
+    // stay idle until the first releases (tab close or manual stop).
+    if (typeof window !== "undefined" && typeof BroadcastChannel !== "undefined") {
+      try {
+        const leaseCh = new BroadcastChannel(`pf-audio-lease:${planId}`);
+        let conflict = false;
+        const ownerId = Math.random().toString(36).slice(2);
+        const onLease = (e: MessageEvent) => {
+          const d = e.data as { type?: string; owner?: string };
+          if (d?.type === "ping" && d.owner !== ownerId) {
+            conflict = true;
+          }
+        };
+        leaseCh.onmessage = onLease;
+        leaseCh.postMessage({ type: "ping", owner: ownerId });
+        // 100ms window for other tabs to respond with their own ping (also on
+        // this channel). If we see any conflict, back off.
+        await new Promise((r) => setTimeout(r, 100));
+        leaseCh.close();
+        if (conflict) {
+          setState((s) => ({ ...s, error: "Audio pipeline already active in another tab of this app. Close the other tab and try again." }));
+          intentionalStopRef.current = true;
+          return;
+        }
+      } catch { /* channel unavailable — proceed */ }
+    }
     // R6: bump generation. Every async callback captures this synchronously.
     const generation = ++pipelineGenerationRef.current;
     lastTranscriptAtRef.current = Date.now();
@@ -755,10 +810,14 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         else if (msg.type === "final") {
           lastTranscriptAtRef.current = Date.now();
           const words = Array.isArray(msg.words) ? msg.words as { w: string; c: number }[] : undefined;
+          // Server sets wordsDropped when > 500 words were trimmed off a long
+          // utterance. Persist that so the auto-approve gate can conservatively
+          // block auto-live (no words to check → can't rule out low-conf).
+          const wordsDropped = (msg as { wordsDropped?: boolean }).wordsDropped === true;
           setState((s) => ({
             ...s,
             interim: "",
-            transcript: [...s.transcript, { id: msg.segmentId, text: msg.text, final: true, ts: Date.now(), words }].slice(-100),
+            transcript: [...s.transcript, { id: msg.segmentId, text: msg.text, final: true, ts: Date.now(), words, wordsDropped }].slice(-100),
           }));
           // Phase 5A: run unified detection client-side. Fire-and-forget.
           // R11: skip if we already ran detection on this text within 800ms
