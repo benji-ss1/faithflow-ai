@@ -35,6 +35,9 @@ export default function LivestreamPage() {
   const [announcement, setAnnouncement] = useState<AnnouncementPayload | null>(null);
   const [transition, setTransition] = useState<TransitionSpec | null>(null);
   const [transitionsEnabled, setTransitionsEnabled] = useState(false);
+  const [messageOverlay, setMessageOverlay] = useState<string | null>(null);
+  const messageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [timerOverlay, setTimerOverlay] = useState<{ name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed" } | null>(null);
   const [connected, setConnected] = useState(false);
   const [pairBadge, setPairBadge] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(true);
@@ -80,6 +83,17 @@ export default function LivestreamPage() {
           setLowerThird(msg.state.lowerThird);
           setAnnouncement(msg.state.announcement ?? null);
           setTransition(msg.state.transition ?? null);
+        } else if (msg.type === "message") {
+          if (messageTimerRef.current) { clearTimeout(messageTimerRef.current); messageTimerRef.current = null; }
+          if ("clear" in msg.overlay && msg.overlay.clear) setMessageOverlay(null);
+          else if ("text" in msg.overlay) {
+            setMessageOverlay(msg.overlay.text);
+            const ms = msg.overlay.dismissAfterMs;
+            if (typeof ms === "number" && ms > 0) messageTimerRef.current = setTimeout(() => setMessageOverlay(null), ms);
+          }
+        } else if (msg.type === "timer") {
+          if ("clear" in msg.overlay && msg.overlay.clear) setTimerOverlay(null);
+          else setTimerOverlay(msg.overlay);
         }
       } catch (err) {
         console.warn("[livestream] message handler error:", err instanceof Error ? err.message : String(err));
@@ -208,6 +222,24 @@ export default function LivestreamPage() {
           payload. The previous fallback of rendering any text-kind slide
           leaked song lyrics into the OBS overlay. Cleaner boundary: only
           the operator's explicit lower-third string ever renders here. */}
+
+      {messageOverlay && mode === "full" && (
+        <div className="absolute left-[6%] right-[6%] bottom-[10%] pointer-events-none">
+          <div className="bg-black/70 backdrop-blur-sm border-l-4 p-6 rounded-sm" style={{ borderColor: "var(--color-brand, #06b6d4)" }}>
+            <div className="text-white text-2xl md:text-4xl font-semibold leading-tight text-left">{messageOverlay}</div>
+          </div>
+        </div>
+      )}
+      {timerOverlay && mode === "full" && (
+        <div className="absolute top-[6%] right-[6%] pointer-events-none">
+          <div className="bg-black/70 backdrop-blur-sm px-6 py-3 rounded-md border" style={{ borderColor: timerOverlay.remainingSec < 0 ? "#ef4444" : "var(--color-brand, #06b6d4)" }}>
+            {timerOverlay.name && <div className="text-white/70 text-xs uppercase tracking-wider mb-1">{timerOverlay.name}</div>}
+            <div className={`text-white text-3xl md:text-5xl font-mono font-bold tabular-nums leading-none ${timerOverlay.remainingSec < 0 ? "text-red-400" : ""}`}>
+              {(() => { const n = timerOverlay.remainingSec < 0; const a = Math.abs(Math.round(timerOverlay.remainingSec)); const m = Math.floor(a / 60); const s = a % 60; return `${n ? "-" : ""}${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`; })()}
+            </div>
+          </div>
+        </div>
+      )}
 
       {showHelp && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/80 text-white text-xs px-3 py-2 rounded-md flex items-center gap-3 cursor-pointer pointer-events-auto"

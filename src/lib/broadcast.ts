@@ -90,13 +90,22 @@ export type MessageOverlay =
   | { text: string; dismissAfterMs?: number | null; clear?: false }
   | { clear: true };
 
+/**
+ * Timer overlay — countdown / count-up displayed on outputs. `remainingSec`
+ * is authoritative; renderers just format it. Send `{clear:true}` to hide.
+ */
+export type TimerOverlay =
+  | { name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed"; clear?: false }
+  | { clear: true };
+
 export type LiveMessage =
   | { type: "set"; slide: SlidePayload }              // legacy: just live surface
   | { type: "clear" }
   | { type: "ping" }
   | { type: "pong"; slide: SlidePayload }
   | { type: "output"; state: OutputState }             // new: full multi-surface state
-  | { type: "message"; overlay: MessageOverlay };      // P2: transient message overlay
+  | { type: "message"; overlay: MessageOverlay }       // P2: transient message overlay
+  | { type: "timer"; overlay: TimerOverlay };          // F1: timer overlay on outputs
 
 /**
  * Runtime validator for LiveMessage. Renderer pages should NEVER trust an
@@ -132,9 +141,27 @@ export function isValidLiveMessage(m: unknown): m is LiveMessage {
       return isValidOutputState((m as { state?: unknown }).state);
     case "message":
       return isValidMessageOverlay((m as { overlay?: unknown }).overlay);
+    case "timer":
+      return isValidTimerOverlay((m as { overlay?: unknown }).overlay);
     default:
       return false;
   }
+}
+
+/** Timer overlay validator. Bounds keep a malicious payload from pinning
+ * a 999-hour timer or shipping through NaN/Infinity. */
+export function isValidTimerOverlay(overlay: unknown): overlay is TimerOverlay {
+  if (!overlay || typeof overlay !== "object") return false;
+  if (hasPollutionKey(overlay)) return false;
+  const o = overlay as Record<string, unknown>;
+  if (o.clear === true) return true;
+  if (typeof o.remainingSec !== "number" || !Number.isFinite(o.remainingSec)) return false;
+  // Allow -3600s (0 mm:ss with negatives for overtime), cap upper at 24h.
+  if (o.remainingSec < -3600 || o.remainingSec > 24 * 60 * 60) return false;
+  if (typeof o.running !== "boolean") return false;
+  if (o.kind !== "countdown" && o.kind !== "elapsed") return false;
+  if (o.name != null && (typeof o.name !== "string" || o.name.length > 120)) return false;
+  return true;
 }
 
 /** Y7: bounded message overlay validation. */

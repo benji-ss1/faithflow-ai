@@ -38,6 +38,9 @@ export default function StagePage() {
   const [countdownEndsAt, setCountdownEndsAt] = useState<number | null>(null);
   const [announcement, setAnnouncement] = useState<AnnouncementPayload | null>(null);
   const [transition, setTransition] = useState<TransitionSpec | null>(null);
+  const [messageOverlay, setMessageOverlay] = useState<string | null>(null);
+  const messageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [timerOverlay, setTimerOverlay] = useState<{ name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed" } | null>(null);
   const [connected, setConnected] = useState(false);
   const [pairBadge, setPairBadge] = useState<string | null>(null);
   // null on server + first client render to avoid hydration mismatch on the clock.
@@ -79,6 +82,17 @@ export default function StagePage() {
           setCountdownEndsAt(msg.state.countdownEndsAt);
           setAnnouncement(msg.state.announcement ?? null);
           setTransition(msg.state.transition ?? null);
+        } else if (msg.type === "message") {
+          if (messageTimerRef.current) { clearTimeout(messageTimerRef.current); messageTimerRef.current = null; }
+          if ("clear" in msg.overlay && msg.overlay.clear) setMessageOverlay(null);
+          else if ("text" in msg.overlay) {
+            setMessageOverlay(msg.overlay.text);
+            const ms = msg.overlay.dismissAfterMs;
+            if (typeof ms === "number" && ms > 0) messageTimerRef.current = setTimeout(() => setMessageOverlay(null), ms);
+          }
+        } else if (msg.type === "timer") {
+          if ("clear" in msg.overlay && msg.overlay.clear) setTimerOverlay(null);
+          else setTimerOverlay(msg.overlay);
         }
       } catch (err) {
         console.warn("[stage] message handler error:", err instanceof Error ? err.message : String(err));
@@ -201,7 +215,16 @@ export default function StagePage() {
             {now ? now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }) : "--:--:--"}
           </div>
         </div>
-        {countdownStr ? (
+        {timerOverlay ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-1">
+            <div className="text-[10px] font-mono uppercase tracking-widest text-white/50">
+              {timerOverlay.name || "Timer"}{!timerOverlay.running && " (paused)"}
+            </div>
+            <div className={`text-5xl font-mono font-light tabular-nums ${timerOverlay.remainingSec < 0 ? "text-red-400" : ""}`}>
+              {formatStageTimer(timerOverlay.remainingSec)}
+            </div>
+          </div>
+        ) : countdownStr ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-1">
             <div className="text-[10px] font-mono uppercase tracking-widest text-white/50">Countdown</div>
             <div className="text-5xl font-mono font-light">{countdownStr}</div>
@@ -212,6 +235,13 @@ export default function StagePage() {
           </div>
         )}
       </div>
+      {messageOverlay && (
+        <div className="absolute left-[6%] right-[6%] bottom-[36%] pointer-events-none z-20">
+          <div className="bg-black/70 backdrop-blur-sm border-l-4 p-4 rounded-sm" style={{ borderColor: "var(--color-brand, #06b6d4)" }}>
+            <div className="text-white text-xl md:text-3xl font-semibold leading-tight text-left">{messageOverlay}</div>
+          </div>
+        </div>
+      )}
 
       {/* Middle row: current + next slide */}
       <div className="flex-1 grid grid-cols-2 min-h-0">
@@ -277,6 +307,14 @@ export default function StagePage() {
       )}
     </div>
   );
+}
+
+function formatStageTimer(sec: number): string {
+  const negative = sec < 0;
+  const abs = Math.abs(Math.round(sec));
+  const mm = Math.floor(abs / 60);
+  const ss = abs % 60;
+  return `${negative ? "-" : ""}${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 }
 
 function stageIdentity(s: SlidePayload): string {

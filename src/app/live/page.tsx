@@ -46,6 +46,7 @@ export default function LivePage() {
   const [aspectRatio, setAspectRatio] = useState<"16:9" | "4:3" | "custom">("16:9");
   const [messageOverlay, setMessageOverlay] = useState<string | null>(null);
   const messageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [timerOverlay, setTimerOverlay] = useState<{ name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed" } | null>(null);
   const [connected, setConnected] = useState(false);
   const [showHelp, setShowHelp] = useState(true);
   const [warning, setWarning] = useState<string | null>(null);
@@ -105,6 +106,9 @@ export default function LivePage() {
               messageTimerRef.current = setTimeout(() => setMessageOverlay(null), ms);
             }
           }
+        } else if (msg.type === "timer") {
+          if ("clear" in msg.overlay && msg.overlay.clear) setTimerOverlay(null);
+          else setTimerOverlay(msg.overlay);
         }
       } catch (err) {
         console.warn("[live] message handler error:", err instanceof Error ? err.message : String(err));
@@ -259,6 +263,23 @@ export default function LivePage() {
               </div>
             </div>
           )}
+          {timerOverlay && (
+            <div className="absolute top-[6%] right-[6%] pointer-events-none">
+              <div
+                className="bg-black/70 backdrop-blur-sm px-6 py-3 rounded-md border"
+                style={{ borderColor: timerOverlay.remainingSec < 0 ? "#ef4444" : "var(--color-brand, #06b6d4)" }}
+              >
+                {timerOverlay.name && (
+                  <div className="text-white/70 text-xs uppercase tracking-wider mb-1">{timerOverlay.name}</div>
+                )}
+                <div
+                  className={`text-white text-3xl md:text-5xl font-mono font-bold tabular-nums leading-none ${timerOverlay.remainingSec < 0 ? "text-red-400" : ""}`}
+                >
+                  {formatTimerMMSS(timerOverlay.remainingSec)}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -293,6 +314,14 @@ export default function LivePage() {
       )}
     </div>
   );
+}
+
+function formatTimerMMSS(sec: number): string {
+  const negative = sec < 0;
+  const abs = Math.abs(Math.round(sec));
+  const mm = Math.floor(abs / 60);
+  const ss = abs % 60;
+  return `${negative ? "-" : ""}${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 }
 
 function slideIdentity(s: SlidePayload): string {

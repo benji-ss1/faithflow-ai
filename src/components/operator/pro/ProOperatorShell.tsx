@@ -35,6 +35,7 @@ import { AIDetectionsPanel } from "./right/AIDetectionsPanel";
 import { BottomBar } from "./BottomBar";
 import { MediaStrip } from "./MediaStrip";
 import { useTimerSession, useMessagesSession, useBibleSession } from "./hooks";
+import { openLiveChannel, safePost } from "@/lib/broadcast";
 import { cachedLookup } from "@/lib/bible-client-cache";
 import { cn } from "@/lib/utils";
 import { useOperatorHotkeys } from "@/hooks/useOperatorHotkeys";
@@ -395,6 +396,55 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const timer = useTimerSession();
   const messages = useMessagesSession();
   const bibleSession = useBibleSession(ctx.defaultTranslationCode);
+
+  // F1/F2: publish timer + message overlays to the live/stage/livestream outputs
+  // via BroadcastChannel. The output pages already know how to render these —
+  // ProOperatorShell just wasn't posting. Channel is same-machine only per
+  // CLAUDE.md rule 8 (primary sync path).
+  const overlayChRef = useRef<BroadcastChannel | null>(null);
+  useEffect(() => {
+    overlayChRef.current = openLiveChannel();
+    return () => { try { overlayChRef.current?.close(); } catch { /* noop */ } overlayChRef.current = null; };
+  }, []);
+
+  // Publish messages when show toggled or text changes while showing.
+  useEffect(() => {
+    const ch = overlayChRef.current;
+    if (!ch) return;
+    if (messages.state.showing && messages.state.text.trim().length > 0) {
+      // Simple {{time}}/{{date}}/{{currentSlide}} token expansion at post time.
+      const now = new Date();
+      const text = messages.state.text
+        .replace(/\{\{time\}\}/g, now.toLocaleTimeString())
+        .replace(/\{\{date\}\}/g, now.toLocaleDateString())
+        .replace(/\{\{currentSlide\}\}/g, String((ctx.previewSlideIdx ?? 0) + 1));
+      const DISMISS_MS: Record<string, number | null> = {
+        "5s": 5000, "10s": 10000, "30s": 30000, "1min": 60000, "5min": 300000, manual: null,
+      };
+      safePost(ch, { type: "message", overlay: { text, dismissAfterMs: DISMISS_MS[messages.state.dismiss] ?? null } });
+    } else {
+      safePost(ch, { type: "message", overlay: { clear: true } });
+    }
+  }, [messages.state.showing, messages.state.text, messages.state.dismiss, ctx.previewSlideIdx]);
+
+  // Publish timer at ~2Hz while running, plus edge on run/stop/reset.
+  useEffect(() => {
+    const ch = overlayChRef.current;
+    if (!ch) return;
+    const post = () => safePost(ch, {
+      type: "timer",
+      overlay: {
+        name: timer.state.name,
+        remainingSec: Math.max(-3600, Math.min(24 * 60 * 60, Math.round(timer.state.remaining))),
+        running: timer.state.running,
+        kind: timer.state.type === "elapsed" ? "elapsed" : "countdown",
+      },
+    });
+    post();
+    if (!timer.state.running) return;
+    const id = setInterval(post, 500);
+    return () => clearInterval(id);
+  }, [timer.state.running, timer.state.name, timer.state.type, timer.state.remaining]);
 
   // Auto-route AI scripture detections into the Bible session so switching
   // into Bible mode shows the detected passage immediately — even if the

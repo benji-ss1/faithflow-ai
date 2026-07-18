@@ -807,25 +807,61 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       }
       setStage("mic_granted"); log("4b mic granted", stream.getAudioTracks().map((t) => t.label));
       streamRef.current = stream;
-      const audioCtx = new AudioContext({ sampleRate: 16000 });
+      // Bluetooth / AirPods often refuse a 16kHz AudioContext (macOS HFP path
+      // forces 8/16kHz mono; some drivers force 44.1kHz stereo). Try 16k
+      // first; on failure fall back to the device's native rate and let the
+      // worklet resample down to 16k PCM16 for the WS bridge.
+      let audioCtx: AudioContext;
+      try {
+        audioCtx = new AudioContext({ sampleRate: 16000 });
+      } catch (rateErr) {
+        log("audioctx 16k unavailable, falling back to device rate", rateErr instanceof Error ? rateErr.message : String(rateErr));
+        try {
+          audioCtx = new AudioContext();
+        } catch (fallbackErr) {
+          throw new Error(`AudioContext creation failed on this device: ${fallbackErr instanceof Error ? fallbackErr.message : "unknown"}. Try switching from Bluetooth to a wired mic in Audio Input settings.`);
+        }
+      }
       audioCtxRef.current = audioCtx;
       if (audioCtx.state === "suspended") await audioCtx.resume();
       setStage("audioctx_ready"); log("4c audioctx", { state: audioCtx.state, sampleRate: audioCtx.sampleRate });
       const source = audioCtx.createMediaStreamSource(stream);
 
-      // Load inline worklet: downsamples to Int16 and posts to main thread.
+      // Load inline worklet: downsamples to Int16 at 16 kHz and posts to main
+      // thread. If the AudioContext is not natively 16 kHz (Bluetooth path),
+      // the worklet linear-interpolates the incoming frame to the 16 kHz grid
+      // — cheap, good-enough quality for speech, avoids shipping a WASM lib.
+      const ctxRate = audioCtx.sampleRate;
       const workletCode = `
+        const TARGET_RATE = 16000;
+        const INPUT_RATE = ${ctxRate};
+        const RATIO = INPUT_RATE / TARGET_RATE;
         class PCMSender extends AudioWorkletProcessor {
           process(inputs) {
             const input = inputs[0];
             if (!input || !input[0]) return true;
             const ch = input[0];
-            const buf = new Int16Array(ch.length);
-            for (let i = 0; i < ch.length; i++) {
-              const s = Math.max(-1, Math.min(1, ch[i]));
-              buf[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+            let out;
+            if (RATIO === 1) {
+              out = new Int16Array(ch.length);
+              for (let i = 0; i < ch.length; i++) {
+                const s = Math.max(-1, Math.min(1, ch[i]));
+                out[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+              }
+            } else {
+              const outLen = Math.floor(ch.length / RATIO);
+              out = new Int16Array(outLen);
+              for (let i = 0; i < outLen; i++) {
+                const srcIdx = i * RATIO;
+                const i0 = Math.floor(srcIdx);
+                const i1 = Math.min(ch.length - 1, i0 + 1);
+                const frac = srcIdx - i0;
+                const sample = ch[i0] * (1 - frac) + ch[i1] * frac;
+                const s = Math.max(-1, Math.min(1, sample));
+                out[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+              }
             }
-            this.port.postMessage(buf.buffer, [buf.buffer]);
+            this.port.postMessage(out.buffer, [out.buffer]);
             return true;
           }
         }
