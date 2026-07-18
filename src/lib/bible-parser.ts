@@ -386,9 +386,15 @@ const MAX_PARSE_INPUT_BYTES = 4096;
 
 export function parseReferences(rawText: string): ParsedReference[] {
   if (typeof rawText !== "string" || rawText.length === 0) return [];
-  const capped = rawText.length > MAX_PARSE_INPUT_BYTES
+  let capped = rawText.length > MAX_PARSE_INPUT_BYTES
     ? rawText.slice(0, MAX_PARSE_INPUT_BYTES)
     : rawText;
+  // If the slice landed mid-surrogate-pair, trim the orphan high surrogate.
+  // Downstream regex tolerates lone surrogates but the input is cleaner.
+  if (capped.length > 0) {
+    const last = capped.charCodeAt(capped.length - 1);
+    if (last >= 0xD800 && last <= 0xDBFF) capped = capped.slice(0, -1);
+  }
   const text = normalize(capped);
   const found: ParsedReference[] = [];
   const seenSpans = new Set<string>();

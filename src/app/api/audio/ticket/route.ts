@@ -38,11 +38,26 @@ export async function POST(req: Request) {
   // before — the URL got returned, WS constructor threw or failed silently,
   // pill stayed "connecting…", zero Fly logs.
   const wsBase = process.env.NEXT_PUBLIC_AUDIO_WS_URL || "ws://localhost:3001";
-  const isLocalhost = /^wss?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(wsBase);
-  const isSecure = wsBase.startsWith("wss://");
+  // Parse via URL constructor rather than regex — regex on origin-shaped
+  // strings can be fooled by userinfo (`ws://localhost@evil.com/`) or
+  // suffix collisions (`ws://LOCALHOST.evil.com/`).
+  let wsUrl: URL;
+  try {
+    wsUrl = new URL(wsBase);
+  } catch {
+    return NextResponse.json(
+      { error: "Audio bridge misconfigured — NEXT_PUBLIC_AUDIO_WS_URL is not a valid URL" },
+      { status: 503 },
+    );
+  }
+  if (wsUrl.protocol !== "ws:" && wsUrl.protocol !== "wss:") {
+    return NextResponse.json({ error: "Audio bridge misconfigured — protocol must be ws:/wss:" }, { status: 503 });
+  }
+  const isLocalhost = wsUrl.hostname === "localhost" || wsUrl.hostname === "127.0.0.1";
+  const isSecure = wsUrl.protocol === "wss:";
   const isProdOrigin = new URL(req.url).protocol === "https:";
   if (isProdOrigin && !isSecure && !isLocalhost) {
-    console.error(`[audio/ticket] refusing ticket — NEXT_PUBLIC_AUDIO_WS_URL missing or insecure: ${wsBase}`);
+    console.error(`[audio/ticket] refusing ticket — NEXT_PUBLIC_AUDIO_WS_URL insecure: ${wsUrl.origin}`);
     return NextResponse.json(
       { error: "Audio bridge not configured — set NEXT_PUBLIC_AUDIO_WS_URL to wss://<fly-app>.fly.dev" },
       { status: 503 },

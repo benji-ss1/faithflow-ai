@@ -145,6 +145,7 @@
           ]
         }
       ],
+      "artifactName": "Present-Flow-${version}-${arch}-mac.${ext}",
       "category": "public.app-category.productivity",
       "hardenedRuntime": true,
       "identity": null

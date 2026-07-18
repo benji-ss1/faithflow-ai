@@ -69,8 +69,8 @@ jobs:
           set -euo pipefail
           VERSION=$(node -p "require('./package.json').version")
           APP="release/mac-arm64/Present Flow.app"
-          ZIP="release/Present Flow-${VERSION}-arm64-mac.zip"
-          BLOCKMAP="release/Present Flow-${VERSION}-arm64-mac.zip.blockmap"
+          ZIP="release/Present-Flow-${VERSION}-arm64-mac.zip"
+          BLOCKMAP="release/Present-Flow-${VERSION}-arm64-mac.zip.blockmap"
 
           if [ ! -d "$APP" ]; then
             echo "::error::App bundle not found at $APP"
@@ -88,7 +88,7 @@ jobs:
           cd "release/mac-arm64"
           # ditto preserves resource forks + xattrs — required for macOS
           # to treat the extracted .app as valid.
-          ditto -c -k --sequesterRsrc --keepParent "Present Flow.app" "../Present Flow-${VERSION}-arm64-mac.zip"
+          ditto -c -k --sequesterRsrc --keepParent "Present Flow.app" "../Present-Flow-${VERSION}-arm64-mac.zip"
           cd -
           ls -lh "$ZIP"
 
@@ -98,7 +98,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION=$(node -p "require('./package.json').version")
-          ZIP="release/Present Flow-${VERSION}-arm64-mac.zip"
+          ZIP="release/Present-Flow-${VERSION}-arm64-mac.zip"
           TAG="v${VERSION}"
 
           # Create GH Release if it doesn't exist (workflow_dispatch path).

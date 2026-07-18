@@ -854,6 +854,12 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       };
       ws.onclose = (e) => {
         log("WS close", { code: e.code, reason: e.reason });
+        // Null wsRef if this is still the current ws — prior code only reset
+        // wsRef in stop()/teardown(), so a warmStart() after an abnormal
+        // close could see wsRef.current pointing at a CLOSED socket and
+        // early-return `if (wsRef.current)`, wedging the pipeline until app
+        // restart. Guarded so we don't clobber a newer ws already assigned.
+        if (wsRef.current === ws) wsRef.current = null;
         const abnormal = e.code !== 1000 && e.code !== 1005;
         // Server sends 1008 for auth / ticket problems and 1011 for missing
         // config (e.g. DEEPGRAM_API_KEY). Both are non-recoverable by

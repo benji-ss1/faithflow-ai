@@ -500,8 +500,15 @@ app.whenReady().then(async () => {
   // Manual retry after a stalled download — the renderer's UpdateBanner
   // stall watchdog surfaces a Retry button so the operator doesn't have to
   // quit + relaunch the whole app to trigger another download attempt.
-  ipcMain.handle("update:retry-download", async () => {
+  // Frame-guarded: only the main frame (operator UI) can trigger a retry,
+  // not any subframe/iframe that might slip in via a compromised page.
+  ipcMain.handle("update:retry-download", async (event) => {
     try {
+      const senderFrame = event.senderFrame;
+      const isMainFrame = senderFrame ? senderFrame === mainWindow?.webContents.mainFrame : true;
+      if (!isMainFrame) {
+        return { ok: false, error: "retry only allowed from main frame" };
+      }
       await autoUpdater.downloadUpdate();
       return { ok: true };
     } catch (err) {

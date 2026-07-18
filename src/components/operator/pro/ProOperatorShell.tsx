@@ -414,6 +414,14 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   }, []);
 
   // Publish messages when show toggled or text changes while showing.
+  // Track whether we've ever posted a message overlay so we don't spam
+  // clear:true on every slide change while the message tab has never been
+  // toggled on. Also: previewSlideIdx used to be in the dep list to keep
+  // the {{currentSlide}} token fresh — moved to a ref so slide navigation
+  // doesn't re-broadcast the same message overlay N times.
+  const previewSlideIdxRef = useRef<number | undefined>(undefined);
+  useEffect(() => { previewSlideIdxRef.current = ctx.previewSlideIdx; }, [ctx.previewSlideIdx]);
+  const messagePostedRef = useRef(false);
   useEffect(() => {
     const ch = overlayChRef.current;
     if (!ch) return;
@@ -423,15 +431,19 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       const text = messages.state.text
         .replace(/\{\{time\}\}/g, now.toLocaleTimeString())
         .replace(/\{\{date\}\}/g, now.toLocaleDateString())
-        .replace(/\{\{currentSlide\}\}/g, String((ctx.previewSlideIdx ?? 0) + 1));
+        .replace(/\{\{currentSlide\}\}/g, String((previewSlideIdxRef.current ?? 0) + 1));
       const DISMISS_MS: Record<string, number | null> = {
         "5s": 5000, "10s": 10000, "30s": 30000, "1min": 60000, "5min": 300000, manual: null,
       };
       safePost(ch, { type: "message", overlay: { text, dismissAfterMs: DISMISS_MS[messages.state.dismiss] ?? null } });
-    } else {
+      messagePostedRef.current = true;
+    } else if (messagePostedRef.current) {
+      // Only broadcast clear:true after at least one show — otherwise every
+      // slide navigation on a fresh operator would spam `{clear:true}`.
       safePost(ch, { type: "message", overlay: { clear: true } });
+      messagePostedRef.current = false;
     }
-  }, [messages.state.showing, messages.state.text, messages.state.dismiss, ctx.previewSlideIdx]);
+  }, [messages.state.showing, messages.state.text, messages.state.dismiss]);
 
   // Publish timer at ~2Hz while running, plus edge on run/stop/reset.
   // Read `remaining` via a ref inside the interval — putting it in the dep

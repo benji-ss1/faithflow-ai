@@ -108,6 +108,11 @@ export async function POST(req: Request) {
   }
 
   // Sanitized single-line log — safe against CRLF injection, truncated.
+  // Message preview only in DEBUG=1 — production support looks at the DB
+  // row for content; log is for ops signal (rate, blocker %, screenshot
+  // size) so pastoral content (prayer requests, private complaints) never
+  // rides in a log aggregator.
+  const debugOn = process.env.DEBUG === "1";
   // eslint-disable-next-line no-console
   console.log("[feedback]", JSON.stringify({
     userId: user.id,
@@ -117,7 +122,7 @@ export async function POST(req: Request) {
     blocker,
     persisted,
     messageLength: message.length,
-    messagePreview: sanitizeForLog(message),
+    ...(debugOn ? { messagePreview: sanitizeForLog(message) } : {}),
     screenshotKB: screenshotBytes > 0 ? Math.round(screenshotBytes / 1024) : 0,
   }));
 
