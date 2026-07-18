@@ -619,36 +619,13 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     // (Fine-grained state check happens against pipelineGenerationRef.)
     intentionalStopRef.current = false;
 
-    // Two-tab defense: if another tab on the same origin has already claimed
-    // the audio pipeline for this planId, don't open a second WebSocket that
-    // would double-bill Deepgram. The Electron single-instance lock covers
-    // desktop but multiple browser tabs on faithflow-ai.vercel.app bypass it.
-    // Use BroadcastChannel as a lightweight lease — first tab wins, others
-    // stay idle until the first releases (tab close or manual stop).
-    if (typeof window !== "undefined" && typeof BroadcastChannel !== "undefined") {
-      try {
-        const leaseCh = new BroadcastChannel(`pf-audio-lease:${planId}`);
-        let conflict = false;
-        const ownerId = Math.random().toString(36).slice(2);
-        const onLease = (e: MessageEvent) => {
-          const d = e.data as { type?: string; owner?: string };
-          if (d?.type === "ping" && d.owner !== ownerId) {
-            conflict = true;
-          }
-        };
-        leaseCh.onmessage = onLease;
-        leaseCh.postMessage({ type: "ping", owner: ownerId });
-        // 100ms window for other tabs to respond with their own ping (also on
-        // this channel). If we see any conflict, back off.
-        await new Promise((r) => setTimeout(r, 100));
-        leaseCh.close();
-        if (conflict) {
-          setState((s) => ({ ...s, error: "Audio pipeline already active in another tab of this app. Close the other tab and try again." }));
-          intentionalStopRef.current = true;
-          return;
-        }
-      } catch { /* channel unavailable — proceed */ }
-    }
+    // Two-tab defense was here (BroadcastChannel lease per planId) but was
+    // false-positiving for testers who reload / have stale channels in the
+    // same origin process — silently refusing to start with no way to
+    // recover except closing the app. The double-billing risk it protected
+    // against is minor; per-user cap on the Fly bridge already limits to 3
+    // concurrent sessions per user. Re-add only with more robust ownership
+    // tracking (unique-per-session UUID, TTL, explicit release on stop).
     // R6: bump generation. Every async callback captures this synchronously.
     const generation = ++pipelineGenerationRef.current;
     lastTranscriptAtRef.current = Date.now();
