@@ -42,10 +42,11 @@ export function ThemesTab() {
 
   return (
     <div className="flex flex-col gap-3">
-      <select className="w-full h-8 px-2 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded">
-        <option>Default Collection</option>
-      </select>
       <div className="eyebrow">Themes</div>
+      <div className="text-[10px] text-[var(--color-muted-foreground)] leading-relaxed">
+        Preset swatches are previews. Use <em>Create Your Own Theme</em> or the
+        slide editor to apply a theme to slides.
+      </div>
       <div className="grid grid-cols-3 gap-2">
         {customThemes.map((t) => (
           <div

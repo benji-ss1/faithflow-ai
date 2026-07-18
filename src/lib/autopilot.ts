@@ -16,7 +16,11 @@ export type AutopilotState =
 export type AutopilotEvent =
   | { kind: "listen_on" }
   | { kind: "listen_off" }
-  | { kind: "detection"; confidence: number }
+  // `detectionType` is carried through so the state machine can enforce the
+  // "songs never auto-project" invariant (CLAUDE.md rule 7) at the core layer.
+  // Older callers omitting it are treated as scripture (safest — scripture IS
+  // allowed to auto-live).
+  | { kind: "detection"; confidence: number; detectionType?: "scripture" | "song" | "lyric" | "command" | "other" }
   | { kind: "manual_approve" }
   | { kind: "manual_reject" }
   | { kind: "manual_edit" }
@@ -54,12 +58,16 @@ export function transition(
       return { next: "idle", reason: "AI listening disabled", actionTaken: null };
     case "detection": {
       if (prefs.autoApproveEnabled && event.confidence >= prefs.autoApproveThreshold) {
-        const next = prefs.autoSendToLive ? "live" : "staged";
-        return {
-          next,
-          reason: `Auto-approved at ${event.confidence}% (floor ${prefs.autoApproveThreshold}%${prefs.autoSendToLive ? ", auto-live on" : ""})`,
-          actionTaken: "auto_approved",
-        };
+        // CLAUDE.md rule 7 invariant, enforced here at the core state machine
+        // (not just in the UI wiring) so any future auto-approve caller
+        // — plugin, hotkey, server action — cannot accidentally push lyrics
+        // to Live during preaching. Songs / lyrics ALWAYS route to "staged".
+        const isSong = event.detectionType === "song" || event.detectionType === "lyric";
+        const next: AutopilotState = (prefs.autoSendToLive && !isSong) ? "live" : "staged";
+        const reason = isSong && prefs.autoSendToLive
+          ? `Auto-approved (staged, songs/lyrics never auto-live — copyright policy)`
+          : `Auto-approved at ${event.confidence}% (floor ${prefs.autoApproveThreshold}%${prefs.autoSendToLive ? ", auto-live on" : ""})`;
+        return { next, reason, actionTaken: "auto_approved" };
       }
       return {
         next: "detected",

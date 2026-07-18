@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { apiUser } from "@/lib/session";
+import { createLimiter } from "@/lib/rate-limit";
 import { semanticSearch, listTranslations } from "@/lib/server/bible";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
+
+// pgvector search is expensive — 20/min/user is generous for interactive
+// operator use but stops runaway scripts. Keyed on user.id so signing out
+// and back in doesn't reset the bucket.
+const searchLimiter = createLimiter("bible-search", 20, 60_000);
 
 /**
  * POST /api/bible/search
@@ -15,8 +21,10 @@ export const maxDuration = 30;
  * query per pgvector cost — the client also gates client-side.
  */
 export async function POST(req: Request) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const user = await apiUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const allowed = await searchLimiter(user.id);
+  if (!allowed) return NextResponse.json({ error: "Too many searches — try again in a minute" }, { status: 429 });
   const body = await req.json().catch(() => ({}));
   const {
     translationId: bodyTranslationId,

@@ -10,6 +10,7 @@ export function DisplayTab() {
   const [defaultOut, setDefaultOut] = useState<string>("main");
   const [aspect, setAspect] = useState<string>("16:9");
   const [safeArea, setSafeArea] = useState(false);
+  const [hasElectron, setHasElectron] = useState<boolean>(false);
 
   useEffect(() => {
     try {
@@ -17,6 +18,7 @@ export function DisplayTab() {
       setAspect(localStorage.getItem(ASPECT_KEY) || "16:9");
       setSafeArea(localStorage.getItem(SAFE_AREA_KEY) === "1");
     } catch {}
+    setHasElectron(typeof window !== "undefined" && !!window.electronAPI);
   }, []);
 
   function openScreens() {
@@ -30,13 +32,19 @@ export function DisplayTab() {
       <SectionHeader title="Display" description="Screen assignment, default output, and aspect ratio." />
 
       <Row label="Screen assignment">
-        <button
-          onClick={openScreens}
-          className="h-8 px-3 rounded-md border text-[11px] font-semibold text-zinc-100 hover:bg-white/5 inline-flex items-center gap-2"
-          style={{ borderColor: "#2a3232", background: "#1a2020" }}
-        >
-          <Monitor className="w-3.5 h-3.5" /> Open Screens panel…
-        </button>
+        <div className="flex flex-col items-end gap-1">
+          <button
+            onClick={openScreens}
+            disabled={!hasElectron}
+            className="h-8 px-3 rounded-md border text-[11px] font-semibold inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white/5"
+            style={{ borderColor: "#2a3232", background: "#1a2020", color: hasElectron ? "#f5f5f4" : "#a3a3a3" }}
+          >
+            <Monitor className="w-3.5 h-3.5" /> Open Screens panel…
+          </button>
+          {!hasElectron && (
+            <div className="text-[10px] text-zinc-500">Only available in the Present Flow desktop app.</div>
+          )}
+        </div>
       </Row>
 
       <Row label="Default output">

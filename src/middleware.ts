@@ -111,6 +111,42 @@ function desktopPathAllowed(pathname: string): boolean {
   return DESKTOP_ALLOWED_PAGE_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
 
+// CSRF Origin/Referer allowlist for state-changing API POSTs. Auth.js JWT
+// cookie is SameSite=Lax, which permits top-level POST navigation and simple
+// cross-origin form submits from third-party sites while the operator is
+// logged in. Verify the request originated from a first-party origin before
+// any DB-writing / spend-inducing route runs.
+const CSRF_ALLOWED_ORIGINS = [
+  "https://faithflow-ai.vercel.app",
+  "https://presentflow.app",
+  "https://app.presentflow.com",
+];
+// Preview deploys land on *-git-*.vercel.app or *.vercel.app under the
+// benjamin-sanusis-projects scope — match them via suffix.
+const CSRF_ALLOWED_ORIGIN_SUFFIXES = [".vercel.app"];
+// GET-safe methods and callbacks / webhooks that use their own verification.
+const CSRF_EXEMPT_PREFIXES = [
+  "/api/auth/",
+  "/api/stripe/", // Stripe verifies via HMAC signature
+  "/api/health",
+];
+function isCsrfExempt(pathname: string, method: string): boolean {
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") return true;
+  return CSRF_EXEMPT_PREFIXES.some((p) => pathname.startsWith(p));
+}
+function isAllowedOrigin(origin: string | null): boolean {
+  if (!origin) return false;
+  try {
+    const u = new URL(origin);
+    // Dev: allow localhost:*
+    if (u.hostname === "localhost" || u.hostname === "127.0.0.1") return true;
+    if (CSRF_ALLOWED_ORIGINS.some((o) => o === u.origin)) return true;
+    return CSRF_ALLOWED_ORIGIN_SUFFIXES.some((s) => u.hostname.endsWith(s));
+  } catch {
+    return false;
+  }
+}
+
 export async function middleware(req: NextRequest) {
   const { pathname, searchParams } = req.nextUrl;
 
@@ -118,6 +154,21 @@ export async function middleware(req: NextRequest) {
   // param from Electron's initial loadURL. Once set, cookie + header both
   // signal desktop for the rest of the session.
   const setShellCookie = searchParams.get("ff_shell") === "desktop";
+
+  // CSRF guard: reject state-changing /api/* from unknown origins BEFORE
+  // any auth / route work runs. Origin header is set by browsers on all
+  // cross-origin POSTs (including simple form posts) and cannot be spoofed
+  // from JS on a foreign origin.
+  if (pathname.startsWith("/api/") && !isCsrfExempt(pathname, req.method)) {
+    const origin = req.headers.get("origin");
+    // Same-origin fetch from our own pages sends Origin equal to the request
+    // host — allow that too. Server-to-server or curl calls carry no Origin
+    // and are treated as trusted (they don't have a session cookie to abuse).
+    const selfOrigin = req.nextUrl.origin;
+    if (origin && origin !== selfOrigin && !isAllowedOrigin(origin)) {
+      return NextResponse.json({ error: "Origin not allowed" }, { status: 403 });
+    }
+  }
 
   if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
     const res = NextResponse.next();
