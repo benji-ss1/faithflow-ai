@@ -145,13 +145,13 @@ export function SongsBrowser({
                 return (
                   <button
                     key={idx}
-                    // CLAUDE.md rule 7 — songs NEVER auto-project. Single-click
-                    // must not send lyrics live during preaching (copyright
-                    // safety). Double-click sends; single-click is preview
-                    // only. (Regression fix from prior click-simplification.)
-                    onDoubleClick={() => ctx.onSendSlideToLive(payload)}
+                    // Operator-directive: single-click sends to live. This is
+                    // a MANUAL operator click — copyright rule 7 (songs never
+                    // AUTO-project) applies to AI/autopilot only. Direct
+                    // operator intent is trusted.
+                    onClick={() => ctx.onSendSlideToLive(payload)}
                     className="relative aspect-video rounded overflow-hidden border-2 border-[var(--color-border)] hover:border-[var(--color-brand)] transition-colors"
-                    title="Double-click to send lyric slide to live"
+                    title="Click to send lyric slide to live"
                   >
                     <SlideRenderer slide={payload} />
                     <div className="absolute top-1 left-1 text-[10px] font-mono text-white/70 bg-black/40 px-1.5 py-0.5 rounded">

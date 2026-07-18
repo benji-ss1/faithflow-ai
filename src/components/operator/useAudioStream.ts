@@ -681,6 +681,14 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       if (ticketRes.status === 401) {
         throw new Error("AI listener needs re-auth — sign in again to resume");
       }
+      // Surface any non-2xx explicitly so the pill doesn't stay stuck
+      // "connecting…" with no reason. 403 → CSRF/middleware; 429 → rate
+      // limit; 500 → server outage; 402 → tier gate; etc.
+      if (!ticketRes.ok) {
+        let bodyText = "";
+        try { bodyText = (await ticketRes.json())?.error || ""; } catch { /* not JSON */ }
+        throw new Error(`Ticket ${ticketRes.status}${bodyText ? `: ${bodyText}` : ""}`);
+      }
       const ticket = await ticketRes.json();
       if (!ticket.url) throw new Error(ticket.error || "Ticket endpoint returned no URL");
       // R6: ticket returned but a newer start() superseded us — abort quietly.

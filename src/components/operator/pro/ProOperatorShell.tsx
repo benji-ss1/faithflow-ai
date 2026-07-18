@@ -789,15 +789,32 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 3000);
       try {
+        // /api/bible/lookup expects book+chapter+verseStart+verseEnd, NOT a
+        // pre-formatted ref string. Sending {ref, translation} previously
+        // returned 400 and the catch silently swallowed it — that's why
+        // Verse > appeared dead on chapter change but not verse change.
         const res = await fetch("/api/bible/lookup", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ref: newRef, translation: bibleSession.state.translation }),
+          body: JSON.stringify({
+            book: parsed.book,
+            chapter: parsed.chapter,
+            verseStart: nextVerse,
+            verseEnd: nextVerse,
+            translationCode: bibleSession.state.translation,
+          }),
           signal: controller.signal,
         });
-        if (!res.ok) return;
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          toast.error(err.error || "Verse lookup failed");
+          return;
+        }
         const data = await res.json() as { verses?: Array<{ verse: number; text: string }> };
-        if (!data.verses || data.verses.length === 0) return;
+        if (!data.verses || data.verses.length === 0) {
+          toast.info(`No verse ${nextVerse} in ${parsed.book} ${parsed.chapter} — end of chapter?`);
+          return;
+        }
         const card = {
           id: `${newRef}-${Date.now()}`,
           label: `${newRef} (${bibleSession.state.translation})`,
@@ -809,8 +826,9 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       } catch (err) {
         if ((err as { name?: string })?.name === "AbortError") {
           toast.error("Verse lookup slow — retrying");
+        } else {
+          console.error("[verse-nav] lookup failed:", err);
         }
-        // else silent; operator can hit next again
       } finally {
         clearTimeout(timer);
       }
