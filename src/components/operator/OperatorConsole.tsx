@@ -511,11 +511,24 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
         const refLabel = `${d.book} ${d.chapter}:${d.verseStart}${d.verseStart !== d.verseEnd ? `-${d.verseEnd}` : ""}`;
         setAutopilotActivity({ source: "auto-approve", ref: refLabel, ts: Date.now() });
         if (autoApprove.autoSendToLive) {
-          // Bypass Preview → go straight to Live via the standard send() path
+          // Snapshot the previous live slide so the toast can offer a one-tap
+          // undo. Autopilot mistakes on Sunday morning are otherwise permanent
+          // until the operator manually clicks a replacement.
+          const prevLive = live;
           console.log("[auto-approve] firing:", refLabel, d.confidence);
           setLive(slide);
           chRef.current?.postMessage({ type: "set", slide } as LiveMessage);
-          toast.info(`Autopilot → LIVE · ${refLabel}`, { duration: 2000 });
+          toast.info(`Autopilot → LIVE · ${refLabel}`, {
+            duration: 4000,
+            action: {
+              label: "Undo",
+              onClick: () => {
+                setLive(prevLive);
+                chRef.current?.postMessage({ type: "set", slide: prevLive } as LiveMessage);
+                toast.success("Reverted");
+              },
+            },
+          });
         } else {
           setStagedAISlide(slide);
           toast.info(`Autopilot → PREVIEW · ${refLabel}`, { duration: 2000 });
