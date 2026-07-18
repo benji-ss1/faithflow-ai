@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -19,6 +20,7 @@ export function PlaylistEditor({ planId, planTitle, initialItems, songs, media, 
   const [items, setItems] = useState<Item[]>(initialItems);
   const [showPicker, setShowPicker] = useState(false);
   const [, startTransition] = useTransition();
+  const router = useRouter();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   // dnd-kit assigns aria-describedby ids via a global counter that increments
   // differently between SSR and client hydration. Gate the sortable render
@@ -45,7 +47,10 @@ export function PlaylistEditor({ planId, planTitle, initialItems, songs, media, 
     const res = await addServiceItem(planId, type as never, title, payload);
     if (!res.ok) { toast.error(res.error); return; }
     setShowPicker(false);
-    location.reload();
+    // router.refresh() re-runs the server component and streams the new item
+    // without dropping the audio pipeline / scroll position that a full
+    // location.reload() would nuke mid-service.
+    router.refresh();
   }
 
   async function remove(id: string) {
@@ -150,7 +155,11 @@ function ItemPicker({ onClose, onAdd, songs, media, pptx }:
         <div className="flex-1 overflow-y-auto p-4">
           {tab === "song" && (
             <ul className="space-y-1">
-              {songs.length === 0 && <li className="text-sm text-muted-foreground">No songs. Create one in the Songs library.</li>}
+              {songs.length === 0 && (
+                <li className="text-sm text-muted-foreground">
+                  No songs yet. <Link href="/library/songs" className="underline hover:text-foreground">Open Songs library →</Link>
+                </li>
+              )}
               {songs.map((s) => (
                 <li key={s.id}>
                   <button onClick={() => onAdd("song", s.title, { songId: s.id })}
@@ -173,7 +182,11 @@ function ItemPicker({ onClose, onAdd, songs, media, pptx }:
           )}
           {tab === "media" && (
             <ul className="grid grid-cols-2 gap-2">
-              {media.length === 0 && <li className="text-sm text-muted-foreground col-span-2">No media. Upload in the Media library.</li>}
+              {media.length === 0 && (
+                <li className="text-sm text-muted-foreground col-span-2">
+                  No media yet. <Link href="/library/media" className="underline hover:text-foreground">Open Media library →</Link>
+                </li>
+              )}
               {media.map((m) => (
                 <li key={m.id}>
                   <button onClick={() => onAdd("media", m.fileName, { mediaAssetId: m.id, fitMode: "contain" })}
@@ -187,7 +200,11 @@ function ItemPicker({ onClose, onAdd, songs, media, pptx }:
           )}
           {tab === "sermon" && (
             <ul className="space-y-1">
-              {pptx.filter((p) => p.status === "ready").length === 0 && <li className="text-sm text-muted-foreground">No ready PPTX imports.</li>}
+              {pptx.filter((p) => p.status === "ready").length === 0 && (
+                <li className="text-sm text-muted-foreground">
+                  No ready PPTX imports. <Link href="/library/imports" className="underline hover:text-foreground">Open Imports →</Link>
+                </li>
+              )}
               {pptx.filter((p) => p.status === "ready").map((p) => (
                 <li key={p.id}>
                   <button onClick={() => onAdd("sermon", p.originalFileName, { pptxImportId: p.id })}

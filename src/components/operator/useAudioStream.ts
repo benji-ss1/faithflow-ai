@@ -131,6 +131,8 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
 
   // Dedupe primitive: 30s cooldown per (type, key), refresh on +10 confidence.
   const dedupeRef = useRef(new SuggestionDedupe(30_000));
+  // Track the last-seen churchId so we can nuke dedupe on church change.
+  const lastDetectChurchIdRef = useRef<string | null>(null);
   const libraryRef = useRef<IndexedSong[]>(opts?.library || []);
   // Perf #1: prebuild the trigram song index ONCE per library change and
   // reuse it across every detection call, instead of rebuilding per detection
@@ -204,6 +206,14 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const runDetectAll = useCallback(async (segmentId: string, text: string, opts?: { dgConfidence?: number }) => {
     const provider = getCtxRef.current;
     const base = provider ? provider() : { churchId: "", hasVerseContext: false, hasSlideContext: false, hasSongContext: false };
+    // Cross-church leak defense: if the churchId has changed since the last
+    // detection (SPA sign-out → sign-in as different church without a full
+    // reload), the SuggestionDedupe map still holds keys from the previous
+    // church and would suppress fresh detections. Reset it on transition.
+    if (lastDetectChurchIdRef.current !== null && lastDetectChurchIdRef.current !== base.churchId) {
+      dedupeRef.current = new SuggestionDedupe(30_000);
+    }
+    lastDetectChurchIdRef.current = base.churchId;
     // R6/R10: capture generation to abort stale detections after restart.
     const capturedGeneration = pipelineGenerationRef.current;
     let result: DetectAllResult;
@@ -332,6 +342,21 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const SILENCE_CLOSE_DBFS = -60;
   const SILENCE_OPEN_DBFS = -55;
   const SILENCE_HOLD_MS = 4000; // R8: extend from 2s to 4s for preacher pauses
+
+  // Perf helper — chunked Uint8Array → base64. A naive
+  //   String.fromCharCode(...bytes) + btoa()
+  // over ~160 KB blocks the main thread ~200 ms on reconnect flush (the
+  // exact moment the AI Live pill flips green). We chunk the char-code
+  // apply to 8 KB slices so no single call ever holds a huge string.
+  const bytesToBase64 = (bytes: Uint8Array): string => {
+    const CHUNK = 8192;
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      const slice = bytes.subarray(i, Math.min(i + CHUNK, bytes.length));
+      bin += String.fromCharCode.apply(null, slice as unknown as number[]);
+    }
+    return btoa(bin);
+  };
   // R8: 200ms lookback ring. Even while the gate is CLOSED we keep the most
   // recent ~200ms of PCM around so that on reopen we flush the leading edge —
   // otherwise the first word of resumed speech is truncated at Deepgram.
@@ -362,9 +387,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       try {
         // 256 bytes = 128 samples PCM16 mono = 8ms at 16kHz. Silence.
         const silence = new Uint8Array(256);
-        let bin = "";
-        for (let i = 0; i < silence.length; i++) bin += String.fromCharCode(silence[i]);
-        const b64 = btoa(bin);
+        const b64 = bytesToBase64(silence);
         ws.send(JSON.stringify({ type: "audio", b64 }));
       } catch { /* ignore */ }
     }, 5000);
@@ -383,10 +406,14 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     for (const [k, ts] of recentDetectionTextsRef.current) {
       if (now - ts > RECENT_DETECT_WINDOW_MS) recentDetectionTextsRef.current.delete(k);
     }
-    // Match: text is contained in a recent entry OR a recent entry is contained in text.
-    for (const [k] of recentDetectionTextsRef.current) {
-      if (k === norm || k.includes(norm) || norm.includes(k)) return true;
-    }
+    // Only dedupe on exact-normalized equality. Substring matching swallowed
+    // distinct references when the pastor said "John 3" then "John 3:16"
+    // within the window — "john 3" is contained in "john 3:16", so the
+    // fuller reference was suppressed and only the truncated interim card
+    // ever rendered. The core SuggestionDedupe (by reference key) handles
+    // true duplicates; this Map only exists to avoid re-running detectAll on
+    // the same raw text milliseconds apart.
+    if (recentDetectionTextsRef.current.has(norm)) return true;
     recentDetectionTextsRef.current.set(norm, now);
     // Cap size.
     if (recentDetectionTextsRef.current.size > 50) {
@@ -651,9 +678,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           console.log(`[audio-buffer] retained ${ms} ms during reconnect`);
           for (const chunk of buffered) {
             try {
-              let bin = "";
-              for (let i = 0; i < chunk.length; i++) bin += String.fromCharCode(chunk[i]);
-              const b64 = btoa(bin);
+              const b64 = bytesToBase64(chunk);
               ws.send(JSON.stringify({ type: "audio", b64 }));
             } catch { /* drop on error */ break; }
           }

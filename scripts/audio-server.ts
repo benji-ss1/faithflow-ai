@@ -289,6 +289,16 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // - Total per user > cap → close oldest (LRU) with 1013.
   let userSet = openByUser.get(userId);
   if (!userSet) { userSet = new Set(); openByUser.set(userId, userSet); }
+  // Prune ghost sockets first — abnormal disconnects (Fly restart, upstream
+  // reset) don't always fire ws.on("close"), so the Set can retain sockets
+  // whose readyState is CLOSED. Without this pruning, force-closing a dead
+  // socket is a no-op and the per-user cap effectively fails open.
+  for (const other of Array.from(userSet)) {
+    if (other.readyState !== WebSocket.OPEN && other.readyState !== WebSocket.CONNECTING) {
+      userSet.delete(other);
+      wsMeta.delete(other);
+    }
+  }
   for (const other of Array.from(userSet)) {
     const meta = wsMeta.get(other);
     if (meta && meta.planId === planId) {
@@ -367,6 +377,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
   // Y10: server-side DG stall watchdog. If audio is flowing (chunks in last
   // 5s) but no DG Results in 30s, close DG so the client's reconnect kicks in.
+  // The stall handler must close the CURRENT `dg` socket, not whatever the
+  // closed-over reference happened to be at timer-creation time. Lazy-reopen
+  // (dgNeedsReopen path below) mutates `dg`; capturing via a getter avoids
+  // closing the wrong socket if a stall + reopen collide.
   let lastDgResultAt = Date.now();
   let lastAudioAt = 0;
   const stallTimer = setInterval(() => {
@@ -377,15 +391,20 @@ wss.on("connection", async (ws: WebSocket, req) => {
     }
   }, 5_000);
   stallTimer.unref?.();
+  // Ensure the interval doesn't keep running after the client WS closes —
+  // orphaned intervals would try to close a long-gone `dg` reference.
+  ws.on("close", () => { try { clearInterval(stallTimer); } catch { /* ignore */ } });
 
   const dgOnMessage = async (raw: WebSocket.RawData) => {
     dgMessages++;
     let data: { type?: string; is_final?: boolean; speech_final?: boolean; channel?: { alternatives?: { transcript?: string; confidence?: number; words?: { word?: string; start?: number; end?: number; confidence?: number }[] }[] } };
     try { data = JSON.parse(raw.toString()); } catch { return; }
     if (dgMessages === 1 || dgMessages % 20 === 0) {
-      // Y7: gate transcript slice behind DEBUG in prod so transcripts don't
-      // leak into audio-bridge logs.
-      const debugOn = process.env.DEBUG === "1" || process.env.NODE_ENV !== "production";
+      // Y7: gate transcript slice behind EXPLICIT DEBUG=1 only. Any other
+      // NODE_ENV (development, staging) is treated as prod for pastoral
+      // content protection — Fly's staging logs still ship to the same
+      // aggregator, and no operator wants sermon fragments in a log search.
+      const debugOn = process.env.DEBUG === "1";
       const slice = debugOn ? ` text="${(data.channel?.alternatives?.[0]?.transcript ?? "").slice(0, 40)}"` : "";
       console.log(`[audio] dg msg #${dgMessages} type=${data.type ?? "?"} final=${data.is_final ?? "?"}${slice}`);
     }

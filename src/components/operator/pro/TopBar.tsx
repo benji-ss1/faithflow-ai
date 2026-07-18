@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Popover from "@radix-ui/react-popover";
@@ -288,7 +289,11 @@ export function TopBar({
                 <Printer className="w-3.5 h-3.5" /> Print
               </DropdownMenu.Item>
               <DropdownMenu.Item
-                onSelect={() => alert(`PresentFlow Pro\nCenter: ${centerMode}\nLive: ${isLive ? "on" : "off"}\nDisplays: ${displays.length}\nAI: ${listening ? "listening" : "idle"}`)}
+                onSelect={() => {
+                  const info = `Center: ${centerMode} · Live: ${isLive ? "on" : "off"} · Displays: ${displays.length} · AI: ${listening ? "listening" : "idle"}`;
+                  try { navigator.clipboard.writeText(info).catch(() => { /* noop */ }); } catch { /* noop */ }
+                  toast.success("Diagnostics copied", { description: info });
+                }}
                 className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer"
               >
                 Show diagnostics
