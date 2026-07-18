@@ -434,23 +434,31 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   }, [messages.state.showing, messages.state.text, messages.state.dismiss, ctx.previewSlideIdx]);
 
   // Publish timer at ~2Hz while running, plus edge on run/stop/reset.
+  // Read `remaining` via a ref inside the interval — putting it in the dep
+  // list re-created the interval on every tick, so setInterval never
+  // actually fired (was accidentally driven by dep-change edges only).
+  const timerStateRef = useRef(timer.state);
+  useEffect(() => { timerStateRef.current = timer.state; }, [timer.state]);
   useEffect(() => {
     const ch = overlayChRef.current;
     if (!ch) return;
-    const post = () => safePost(ch, {
-      type: "timer",
-      overlay: {
-        name: timer.state.name,
-        remainingSec: Math.max(-3600, Math.min(24 * 60 * 60, Math.round(timer.state.remaining))),
-        running: timer.state.running,
-        kind: timer.state.type === "elapsed" ? "elapsed" : "countdown",
-      },
-    });
+    const post = () => {
+      const s = timerStateRef.current;
+      safePost(ch, {
+        type: "timer",
+        overlay: {
+          name: s.name,
+          remainingSec: Math.max(-3600, Math.min(24 * 60 * 60, Math.round(s.remaining))),
+          running: s.running,
+          kind: s.type === "elapsed" ? "elapsed" : "countdown",
+        },
+      });
+    };
     post();
     if (!timer.state.running) return;
     const id = setInterval(post, 500);
     return () => clearInterval(id);
-  }, [timer.state.running, timer.state.name, timer.state.type, timer.state.remaining]);
+  }, [timer.state.running, timer.state.name, timer.state.type]);
 
   // Auto-route AI scripture detections into the Bible session so switching
   // into Bible mode shows the detected passage immediately — even if the

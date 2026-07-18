@@ -53,9 +53,13 @@ export function SongsBrowser({
     let cancelled = false;
     setLoading(true);
     fetch("/api/songs/list")
-      .then((r) => r.json())
-      .then((data) => { if (!cancelled) setSongs(data.songs || []); })
-      .catch(() => { if (!cancelled) toast.error("Failed to load songs"); })
+      .then(async (r) => {
+        const data = await r.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!r.ok) { toast.error(data.error || `Failed to load songs (${r.status})`); return; }
+        setSongs(Array.isArray(data.songs) ? data.songs : []);
+      })
+      .catch((err) => { if (!cancelled) toast.error(err instanceof Error ? err.message : "Failed to load songs"); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
@@ -96,13 +100,16 @@ export function SongsBrowser({
             placeholder={loading ? "Loading songs…" : `Search ${songs.length} songs…`}
             className="flex-1 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded-md px-3 h-8 text-sm outline-none focus:border-[var(--color-brand)]"
           />
-          <AddSongDialog onCreated={(row) => {
-            // Optimistic: prepend to local list so the operator sees it
-            // instantly, then select it so the preview panel opens the
-            // (still-empty) slide editor path.
-            setSongs((cur) => [{ id: row.id, title: row.title, artist: row.artist }, ...cur]);
-            setSelected({ id: row.id, title: row.title, artist: row.artist });
-          }} />
+          <AddSongDialog
+            existingTitles={songs.map((s) => s.title)}
+            onCreated={(row) => {
+              // Optimistic: prepend to local list so the operator sees it
+              // instantly, then select it so the preview panel opens the
+              // (still-empty) slide editor path.
+              setSongs((cur) => [{ id: row.id, title: row.title, artist: row.artist }, ...cur]);
+              setSelected({ id: row.id, title: row.title, artist: row.artist });
+            }}
+          />
         </div>
         <ul className="flex-1 overflow-y-auto">
           {filtered.length === 0 && !loading && (
@@ -192,7 +199,7 @@ export function SongsBrowser({
   );
 }
 
-function AddSongDialog({ onCreated }: { onCreated: (row: SongRow) => void }) {
+function AddSongDialog({ onCreated, existingTitles }: { onCreated: (row: SongRow) => void; existingTitles: string[] }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [artist, setArtist] = useState("");
@@ -202,6 +209,13 @@ function AddSongDialog({ onCreated }: { onCreated: (row: SongRow) => void }) {
     const t = title.trim();
     if (!t) { toast.error("Song title required"); return; }
     if (t.length > 200) { toast.error("Title too long (max 200 chars)"); return; }
+    // Require at least one letter/digit so emoji-only titles ("🙏") or
+    // punctuation-only titles are caught before a useless DB row lands.
+    if (!/[\p{L}\p{N}]/u.test(t)) { toast.error("Song title needs letters or numbers"); return; }
+    // Soft dedupe warning — schema has no unique constraint but a duplicate
+    // usually indicates a misclick. Operator can override by clicking again.
+    const dup = existingTitles.some((x) => x.trim().toLowerCase() === t.toLowerCase());
+    if (dup && !window.confirm(`A song titled "${t}" already exists. Create another anyway?`)) return;
     setBusy(true);
     try {
       const fd = new FormData();
@@ -287,6 +301,7 @@ function AddLyricSlide({ songId, onAdded }: { songId: string; onAdded: () => voi
       const res = await createSongSlide(songId, undefined, { objects: [], lyrics: t });
       if (!res.ok) { toast.error(res.error); return; }
       setText("");
+      toast.success("Slide added");
       onAdded();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Add slide failed");
