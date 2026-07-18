@@ -12,7 +12,7 @@ type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
 // Service plans ---------------------------------------------------------------
 export async function createServicePlan(formData: FormData): Promise<Result<{ id: string }>> {
   const user = await requireUser();
-  const title = String(formData.get("title") || "").trim();
+  const title = String(formData.get("title") || "").trim().slice(0, 200);
   const applySuggestion = formData.get("applySuggestion") === "1";
   if (!title) return { ok: false, error: "Title required" };
   const db = getDb();

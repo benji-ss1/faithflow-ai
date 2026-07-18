@@ -309,31 +309,37 @@ function StatusChip({ status }: { status: ItemStatus }) {
   );
 }
 
-const SECTION_TITLES: Record<Exclude<RailSection, "service">, { title: string; body: string }> = {
-  songs:         { title: "Songs library", body: "Church-owned + public-domain songs. Full library at /library/songs." },
-  bible:         { title: "Bible browser", body: "Seven translations. Full browser at /library/bible." },
-  sermon:        { title: "Sermon slides", body: "PPTX imports live at /library/imports." },
-  media:         { title: "Media bin", body: "Full library at /library/media." },
-  timers:        { title: "Countdowns", body: "Countdown targets sent to Stage Display + Livestream." },
-  lower_thirds:  { title: "Lower thirds", body: "Speaker / scripture overlays for stream." },
-  stage:         { title: "Stage Display", body: "Confidence monitor. Route: /stage." },
-  livestream:    { title: "Livestream", body: "Broadcast-safe output. Route: /livestream." },
-  imports:       { title: "Imports", body: "PPTX + ProPresenter + CSV. Full at /library/imports." },
-  archive:       { title: "Sermon archive", body: "Past services + AI summaries. Full at /archive." },
-  settings:      { title: "Settings", body: "Church-wide settings at /settings." },
+const SECTION_TITLES: Record<Exclude<RailSection, "service">, { title: string; body: string; href?: string; hrefLabel?: string }> = {
+  songs:         { title: "Songs library", body: "Church-owned + public-domain songs.", href: "/library/songs", hrefLabel: "Open Songs library" },
+  bible:         { title: "Bible browser", body: "Seven translations, verse-by-verse.", href: "/library/bible", hrefLabel: "Open Bible library" },
+  sermon:        { title: "Sermon slides", body: "PPTX imports converted to slides.", href: "/library/imports", hrefLabel: "Open Imports" },
+  media:         { title: "Media bin", body: "Images, videos, audio clips.", href: "/library/media", hrefLabel: "Open Media library" },
+  timers:        { title: "Countdowns", body: "Countdown targets sent to Stage Display + Livestream. Open the Timers tab on the right sidebar." },
+  lower_thirds:  { title: "Lower thirds", body: "Speaker / scripture overlays for stream. Manage from the Messages tab on the right sidebar." },
+  stage:         { title: "Stage Display", body: "Confidence monitor for on-stage speakers.", href: "/stage", hrefLabel: "Open Stage output" },
+  livestream:    { title: "Livestream", body: "Broadcast-safe output for OBS / Zoom.", href: "/livestream", hrefLabel: "Open Livestream output" },
+  imports:       { title: "Imports", body: "PPTX, ProPresenter, CSV converters.", href: "/library/imports", hrefLabel: "Open Imports" },
+  archive:       { title: "Sermon archive", body: "Past services + AI summaries.", href: "/archive", hrefLabel: "Open Archive" },
+  settings:      { title: "Settings", body: "Church-wide preferences and integrations.", href: "/settings", hrefLabel: "Open Settings" },
 };
 
 function RailSectionShell({ section }: { section: Exclude<RailSection, "service"> }) {
   const meta = SECTION_TITLES[section];
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
+    <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3">
       <div>
         <div className="text-sm font-semibold text-[color:var(--color-foreground)]">{meta.title}</div>
         <p className="text-[11px] text-[color:var(--color-muted-foreground)] mt-1 leading-relaxed">{meta.body}</p>
       </div>
-      <p className="text-[10px] text-[color:var(--color-muted-foreground)] italic pt-2 border-t" style={{ borderColor: "var(--color-border)" }}>
-        Workspace panel for this section is on the right.
-      </p>
+      {meta.href && (
+        <a
+          href={meta.href}
+          className="block w-full text-center h-8 leading-8 px-3 rounded-md border text-[11px] font-semibold text-[color:var(--color-foreground)] hover:bg-[color:var(--color-sidebar-item-hover)] transition-colors"
+          style={{ borderColor: "var(--color-border)", background: "color-mix(in oklab, var(--color-panel) 60%, transparent)" }}
+        >
+          {meta.hrefLabel ?? "Open →"}
+        </a>
+      )}
     </div>
   );
 }

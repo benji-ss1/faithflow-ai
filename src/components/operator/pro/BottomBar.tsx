@@ -76,7 +76,17 @@ export function BottomBar({
     <div className="h-10 shrink-0 border-t border-[var(--color-border)] bg-[var(--color-panel)] flex items-center px-2 gap-2">
       {/* Left */}
       <div className="flex items-center gap-1">
-        <button title="Blank" onClick={ctx.onBlank} className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-muted-foreground)]"><Pause className="w-4 h-4" /></button>
+        <button
+          title={ctx.liveSlide?.kind === "empty" || ctx.liveSlide?.kind === "blank" ? "Unblank live output" : "Blank live output"}
+          aria-pressed={ctx.liveSlide?.kind === "empty" || ctx.liveSlide?.kind === "blank"}
+          onClick={ctx.onBlank}
+          className={cn(
+            "w-7 h-7 flex items-center justify-center rounded hover:bg-white/5",
+            (ctx.liveSlide?.kind === "empty" || ctx.liveSlide?.kind === "blank")
+              ? "text-[var(--color-brand)] bg-white/5"
+              : "text-[var(--color-muted-foreground)]",
+          )}
+        ><Pause className="w-4 h-4" /></button>
         <button title="Send to live" onClick={ctx.onSendToLive} className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-muted-foreground)]"><Play className="w-4 h-4" /></button>
         <button title="Previous slide" onClick={prev} disabled={!hasPrev} className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-muted-foreground)] disabled:opacity-50"><SkipBack className="w-4 h-4" /></button>
         <button title="Next slide" onClick={next} disabled={!hasNext} className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-muted-foreground)] disabled:opacity-50"><SkipForward className="w-4 h-4" /></button>
