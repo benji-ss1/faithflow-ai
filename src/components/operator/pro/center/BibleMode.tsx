@@ -231,7 +231,17 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
         </div>
         <select
           value={translation}
-          onChange={(e) => setTranslation(e.target.value)}
+          onChange={(e) => {
+            const next = e.target.value;
+            setTranslation(next);
+            // Immediately re-fetch so the visible cards reflect the new
+            // translation. Was previously updating only the trailing label
+            // "(KJV)" while the verse text stayed the previous translation
+            // — operator could send the wrong translation live.
+            if (cards.length > 0 || phraseHits.length > 0) {
+              setTimeout(() => void lookup(), 0);
+            }
+          }}
           className="h-9 px-2 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded-md text-sm"
         >
           <option value="KJV">King James Version</option>

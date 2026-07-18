@@ -515,6 +515,12 @@ export function TopBar({
                   )}
                 </button>
               </Tooltip.Trigger>
+              {/* SR-only live region so screen readers announce state
+                  transitions (off → connecting → live → error). The pill
+                  button's own aria-label changes but AT clients don't
+                  re-announce name changes on unmoved focus — a polite live
+                  region does. */}
+              <span role="status" aria-live="polite" className="sr-only">{aiTitle}</span>
               <Tooltip.Portal>
                 <Tooltip.Content
                   sideOffset={6}

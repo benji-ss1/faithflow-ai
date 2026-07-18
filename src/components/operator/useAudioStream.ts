@@ -351,6 +351,9 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     }));
   }, []);
   const wsRef = useRef<WebSocket | null>(null);
+  // Throttle counter for chunksSent state updates — keeps the ~50Hz worklet
+  // hot-path from committing React state on every audio frame.
+  const lastChunkStateAtRef = useRef<number>(0);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
@@ -894,7 +897,20 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       try {
         stream = await navigator.mediaDevices.getUserMedia(constraints);
       } catch (micErr) {
-        throw new Error(`Microphone access denied or unavailable: ${micErr instanceof Error ? micErr.message : "unknown"}`);
+        // Give a specific actionable message per browser-level error name
+        // rather than a raw string an operator can't act on.
+        const name = (micErr as { name?: string })?.name || "";
+        const msg = (micErr as { message?: string })?.message || "";
+        if (name === "NotAllowedError" || /denied|permission/i.test(msg)) {
+          throw new Error("Microphone permission denied — enable it in System Settings → Privacy & Security → Microphone, then restart Present Flow.");
+        }
+        if (name === "NotFoundError" || /not found|no device/i.test(msg)) {
+          throw new Error("No microphone found — connect a mic (or select one in Audio Setup) and try again.");
+        }
+        if (name === "NotReadableError" || /in use|busy/i.test(msg)) {
+          throw new Error("Microphone is in use by another app (Zoom, OBS, Chrome tab). Close it and retry.");
+        }
+        throw new Error(`Microphone unavailable: ${msg || name || "unknown"}. Check Audio Setup and retry.`);
       }
       // R6: mic acquired but a newer start() superseded us — release + abort.
       if (generation !== pipelineGenerationRef.current) {
@@ -1038,12 +1054,19 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           return;
         }
         if (firstChunkAtRef.current === null) firstChunkAtRef.current = nowMs;
-        let bin = "";
-        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-        const b64 = btoa(bin);
+        // Use the chunked base64 helper for consistency with reconnect flush
+        // (was reintroducing the O(n²) String.fromCharCode loop here).
+        const b64 = bytesToBase64(bytes);
         ws.send(JSON.stringify({ type: "audio", b64 }));
         sentChunks++;
-        setState((s) => ({ ...s, chunksSent: sentChunks }));
+        // Throttle chunksSent state to ~1Hz. Was firing on every worklet
+        // message (~50Hz) → ~180K React commits/hour × 3h = ~540K commits
+        // over a service just to update a diagnostic counter. UI reads it
+        // via state so we still surface progress, but no more per-chunk churn.
+        if (sentChunks - (lastChunkStateAtRef.current ?? 0) >= 40) {
+          lastChunkStateAtRef.current = sentChunks;
+          setState((s) => ({ ...s, chunksSent: sentChunks }));
+        }
         if (sentChunks === 1) { setStage("first_chunk_sent"); log("6 first audio chunk sent"); }
         else if (sentChunks % 400 === 0) log(`6 sent ${sentChunks} audio chunks`);
       };
@@ -1124,8 +1147,28 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       setTimeout(() => { startRef.current().catch(() => { /* ignore */ }); }, 100);
     };
     window.addEventListener("presentflow:audio-input-changed", handler);
-    return () => window.removeEventListener("presentflow:audio-input-changed", handler);
-  }, [state.listening, stop]);
+    // Also react to the OS-level devicechange event (headphones unplugged
+    // mid-service, USB interface hot-swapped, Bluetooth reconnect). Debounced
+    // by 500ms — some drivers fire 3-4 events in a burst on plug/unplug.
+    let deviceChangeTimer: ReturnType<typeof setTimeout> | null = null;
+    const onDeviceChange = () => {
+      if (deviceChangeTimer) clearTimeout(deviceChangeTimer);
+      deviceChangeTimer = setTimeout(() => {
+        deviceChangeTimer = null;
+        if (!state.listening) return;
+        if (isDevOrTraceOn()) console.log("[presentflow-audio] devicechange — restarting pipeline");
+        stop();
+        setTimeout(() => { startRef.current().catch(() => { /* ignore */ }); }, 100);
+      }, 500);
+    };
+    const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
+    md?.addEventListener?.("devicechange", onDeviceChange);
+    return () => {
+      window.removeEventListener("presentflow:audio-input-changed", handler);
+      md?.removeEventListener?.("devicechange", onDeviceChange);
+      if (deviceChangeTimer) clearTimeout(deviceChangeTimer);
+    };
+  }, [state.listening, stop, isDevOrTraceOn]);
 
   const resume = useCallback(() => {
     lastTranscriptAtRef.current = Date.now();

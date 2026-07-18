@@ -7,14 +7,23 @@ async function create(formData: FormData) {
   "use server";
   const res = await createServicePlan(formData);
   if (res.ok && res.data) redirect(`/services/${res.data.id}`);
-  redirect("/services");
+  // Surface the failure reason via query param instead of silently
+  // bouncing back to /services with no explanation.
+  const err = !res.ok ? res.error : "Create failed";
+  redirect(`/services/new?err=${encodeURIComponent(err)}`);
 }
 
-export default async function NewServicePage() {
+export default async function NewServicePage({ searchParams }: { searchParams: Promise<{ err?: string }> }) {
   await requireUser();
+  const { err } = await searchParams;
   return (
     <div className="max-w-xl mx-auto py-10">
       <PageHeader eyebrow="Services" title="New service plan" />
+      {err && (
+        <div className="mt-4 px-3 py-2 rounded-md border border-red-500/40 bg-red-500/10 text-sm text-red-200">
+          {err}
+        </div>
+      )}
       <form action={create} className="mt-6 space-y-4">
         <label className="block">
           <span className="text-sm font-medium">Title</span>
