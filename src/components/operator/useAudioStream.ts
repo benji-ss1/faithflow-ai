@@ -584,7 +584,13 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     setState((s) => ({ ...s, reconnectAttempts: attempt }));
     if (attempt > 8) {
       if (isDevOrTraceOn()) console.warn("[presentflow-audio] auto-reconnect gave up after 8 attempts");
-      setState((s) => ({ ...s, reconnectFailed: true, error: null }));
+      // Half-dead state fix: flip listening=false so the UI reflects reality
+      // and the operator's mic chunks stop piling into a doomed ring buffer.
+      // The reconnectFailed flag drives a "Retry" affordance in the AI Live pill.
+      ringBufferRef.current = [];
+      ringBufferBytesRef.current = 0;
+      intentionalStopRef.current = true;
+      setState((s) => ({ ...s, reconnectFailed: true, listening: false, ready: false, error: null }));
       return;
     }
     // Task 3: exponential backoff, base=500ms, cap=8s, +up to 500ms jitter.
@@ -844,7 +850,15 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         else if (msg.type === "error") setState((s) => ({ ...s, error: msg.message }));
       };
 
-      ws.onerror = (e) => { log("WS error", e); setState((s) => ({ ...s, error: "WebSocket error" })); };
+      ws.onerror = (e) => {
+        log("WS error", e);
+        // Suppress the "WebSocket error" red banner during transient Fly blips —
+        // the reconnect loop already handles the recovery. Only surface if the
+        // operator intentionally stopped or we've never successfully connected.
+        if (intentionalStopRef.current || reconnectSuccessesRef.current === 0) {
+          setState((s) => ({ ...s, error: "WebSocket error" }));
+        }
+      };
       ws.onclose = (e) => {
         log("WS close", { code: e.code, reason: e.reason });
         const abnormal = e.code !== 1000 && e.code !== 1005;

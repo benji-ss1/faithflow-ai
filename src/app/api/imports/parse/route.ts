@@ -19,7 +19,13 @@
 
 import { NextResponse } from "next/server";
 import { apiUser } from "@/lib/session";
+import { getEntitlement, canUseAI } from "@/lib/server/entitlement";
+import { createLimiter } from "@/lib/rate-limit";
 import { getDb } from "@/lib/db/client";
+
+// Bulk parsing hits S3 + parser CPU + potentially external libs. 10/hour/church
+// covers legitimate multi-file uploads while capping abuse.
+const importsLimiter = createLimiter("imports-parse", 10, 60 * 60 * 1000);
 import { migrationJobs } from "@/lib/db/schema";
 import { getParser, type ParseResult } from "@/lib/parsers";
 import { sanitizeFileName, withTimeout, PER_FILE_PARSE_TIMEOUT_MS } from "@/lib/parsers/safety";
@@ -42,6 +48,11 @@ export const runtime = "nodejs";
 export async function POST(req: Request) {
   const user = await apiUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ent = await getEntitlement(user.churchId);
+  if (!canUseAI(ent)) return NextResponse.json({ error: "Import parsing requires an active subscription" }, { status: 402 });
+  if (!(await importsLimiter(user.churchId))) {
+    return NextResponse.json({ error: "Hourly import limit reached — try again shortly" }, { status: 429 });
+  }
 
   const url = new URL(req.url);
   const sourceId = url.searchParams.get("source") || "";

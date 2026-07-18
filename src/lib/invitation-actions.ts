@@ -51,7 +51,15 @@ export async function updateTeammateRole(userId: string, role: "admin" | "operat
   const [target] = await db.select().from(users).where(and(eq(users.id, userId), eq(users.churchId, admin.churchId))).limit(1);
   if (!target) return { ok: false, error: "User not found" };
   if (target.id === admin.id && role !== "admin") return { ok: false, error: "You cannot demote yourself" };
-  await db.update(users).set({ role }).where(eq(users.id, userId));
+  // TOCTOU defense: repeat the churchId check in the UPDATE WHERE. Without
+  // it, a race window between the select above and this update could see the
+  // target re-attached to another church, letting admin A mutate a user now
+  // belonging to church B. rowsAffected check surfaces the race explicitly.
+  const upd = await db.update(users).set({ role })
+    .where(and(eq(users.id, userId), eq(users.churchId, admin.churchId)));
+  if ((upd as { rowCount?: number }).rowCount === 0) {
+    return { ok: false, error: "User has moved to a different church — refresh and try again" };
+  }
   revalidatePath("/settings/team");
   return { ok: true };
 }
@@ -63,8 +71,12 @@ export async function removeTeammate(userId: string): Promise<Result> {
   const [target] = await db.select().from(users).where(and(eq(users.id, userId), eq(users.churchId, admin.churchId))).limit(1);
   if (!target) return { ok: false, error: "User not found" };
   // Detach rather than hard delete — preserves audit trail on transcripts,
-  // sermon summaries, etc.
-  await db.update(users).set({ churchId: null, role: "operator" }).where(eq(users.id, userId));
+  // sermon summaries, etc. Same TOCTOU-hardened WHERE as updateTeammateRole.
+  const upd = await db.update(users).set({ churchId: null, role: "operator" })
+    .where(and(eq(users.id, userId), eq(users.churchId, admin.churchId)));
+  if ((upd as { rowCount?: number }).rowCount === 0) {
+    return { ok: false, error: "User has moved to a different church — refresh and try again" };
+  }
   revalidatePath("/settings/team");
   return { ok: true };
 }

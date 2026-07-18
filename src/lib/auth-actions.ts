@@ -25,7 +25,7 @@ async function checkSignUpRateLimit(): Promise<boolean> {
   return signUpLimiter(ip);
 }
 
-export async function signUp(input: { email: string; password: string; name: string }): Promise<Result<{ userId: string }>> {
+export async function signUp(input: { email: string; password: string; name: string }): Promise<Result> {
   if (!(await checkSignUpRateLimit())) {
     return { ok: false, error: "Too many sign-up attempts from this network. Please wait an hour and try again." };
   }
@@ -38,14 +38,16 @@ export async function signUp(input: { email: string; password: string; name: str
   const db = getDb();
   const [existing] = await db.select().from(users).where(eq(users.email, email)).limit(1);
   if (existing) {
-    // Non-enumerating response: don't say "email in use" — that's a user
-    // enumeration vector. If the account already exists and isn't verified,
-    // re-send the verification email so the honest user can proceed.
+    // Non-enumerating response: don't return a userId (was leaking existence)
+    // and burn an equivalent bcrypt round so timing doesn't distinguish
+    // existing vs new. If the account is verified we noop; unverified gets
+    // a re-send so the honest user can still proceed.
+    await bcrypt.hash(input.password, 12).catch(() => null);
     if (!existing.emailVerifiedAt) {
       const token = await issueAuthToken(existing.id, "verify_email", 24 * 60 * 60 * 1000);
       await sendVerificationEmail(existing.email, existing.name, token);
     }
-    return { ok: true, data: { userId: existing.id } };
+    return { ok: true };
   }
 
   const passwordHash = await bcrypt.hash(input.password, 12);
@@ -59,7 +61,9 @@ export async function signUp(input: { email: string; password: string; name: str
 
   const token = await issueAuthToken(row.id, "verify_email", 24 * 60 * 60 * 1000);
   await sendVerificationEmail(row.email, row.name, token);
-  return { ok: true, data: { userId: row.id } };
+  // Non-enumerating response: never return userId in the create branch either.
+  // Callers that need the id can fetch it after email verification lands.
+  return { ok: true };
 }
 
 export async function verifyEmail(token: string): Promise<Result<{ userId: string }>> {

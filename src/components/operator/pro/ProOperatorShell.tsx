@@ -951,7 +951,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-[var(--color-app-bg)] text-[var(--color-foreground)]">
-      <UpdateBanner />
+      <UpdateBanner liveSlide={ctx.liveSlide} listening={ctx.audio?.listening} />
       <AICaptionsBanner ctx={ctx} />
       <div data-tour="top">
         <TopBar

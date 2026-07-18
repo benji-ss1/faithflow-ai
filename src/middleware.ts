@@ -80,7 +80,9 @@ const DESKTOP_ALLOWED_API_EXACT = new Set<string>([
 const DESKTOP_ALLOWED_API_PREFIXES: string[] = [
   "/api/auth/",              // NextAuth dynamic handler (public regardless)
   "/api/ai/helpers/",        // /api/ai/helpers/[action]/route.ts
-  "/api/songs/",             // /api/songs/[id]/slides
+  // Note: /api/songs/ removed — was too broad. /api/songs/[id]/slides is
+  // covered by DESKTOP_ALLOWED_API_REGEX below; a future admin route under
+  // /api/songs/* now needs an explicit entry rather than leaking by default.
 ];
 
 // Regex list for routes that must be checked structurally, not by prefix
@@ -121,9 +123,14 @@ const CSRF_ALLOWED_ORIGINS = [
   "https://presentflow.app",
   "https://app.presentflow.com",
 ];
-// Preview deploys land on *-git-*.vercel.app or *.vercel.app under the
-// benjamin-sanusis-projects scope — match them via suffix.
-const CSRF_ALLOWED_ORIGIN_SUFFIXES = [".vercel.app"];
+// Preview deploys land under our project's Vercel scope only. Tightened from
+// the broader ".vercel.app" catch-all so an attacker page hosted on any other
+// project's *.vercel.app can't ride an operator's session cookies via a
+// misinterpreted Origin allowlist.
+const CSRF_ALLOWED_ORIGIN_SUFFIXES = [
+  "-benjamin-sanusis-projects.vercel.app",
+  "-benji-ss1.vercel.app",
+];
 // GET-safe methods and callbacks / webhooks that use their own verification.
 const CSRF_EXEMPT_PREFIXES = [
   "/api/auth/",

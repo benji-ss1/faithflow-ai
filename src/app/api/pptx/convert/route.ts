@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
 import { and, eq, sql } from "drizzle-orm";
 import { apiUser } from "@/lib/session";
+import { getEntitlement, canUseAI } from "@/lib/server/entitlement";
+import { createLimiter } from "@/lib/rate-limit";
 import { getDb } from "@/lib/db/client";
 import { pptxImports } from "@/lib/db/schema";
 import { convertPptxImport } from "@/lib/pptx";
+
+// LibreOffice conversion is CPU-heavy (300s max). Cap per church to prevent
+// a compromised session from grinding Vercel function-seconds. 20/day is
+// generous for weekly service prep — real operators convert once per PPTX.
+const convertLimiter = createLimiter("pptx-convert", 20, 24 * 60 * 60 * 1000);
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -13,6 +20,13 @@ const CONVERSION_TIMEOUT_MS = 4 * 60 * 1000; // 4 minutes
 export async function POST(req: Request) {
   const user = await apiUser();
   if (!user) return NextResponse.json({ error: "Session expired — please sign in again" }, { status: 401 });
+  const ent = await getEntitlement(user.churchId);
+  if (!canUseAI(ent)) {
+    return NextResponse.json({ error: "PPTX conversion requires an active subscription" }, { status: 402 });
+  }
+  if (!(await convertLimiter(user.churchId))) {
+    return NextResponse.json({ error: "Daily PPTX conversion limit reached — try again tomorrow" }, { status: 429 });
+  }
 
   const { importId } = await req.json().catch(() => ({}));
   if (!importId) return NextResponse.json({ error: "importId required" }, { status: 400 });
