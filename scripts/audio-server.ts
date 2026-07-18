@@ -141,16 +141,24 @@ function verifyTicket(planId: string, churchId: string, userId: string, exp: str
 // Y8: WS origin allowlist. Electron file:// sends no Origin (or "null").
 const ORIGIN_ALLOWLIST = new Set<string>([
   "https://presentflow.app",
+  "https://app.presentflow.com",
+  "https://faithflow-ai.vercel.app",
   ...(process.env.EXTRA_ALLOWED_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean),
 ]);
+// Preview + branch deploys under our Vercel scope — matched by suffix so we
+// don't have to redeploy the audio bridge every time a preview URL changes.
+const ORIGIN_ALLOWED_SUFFIXES = [
+  "-benjamin-sanusis-projects.vercel.app",
+  "-benji-ss1.vercel.app",
+];
 function isOriginAllowed(origin: string | undefined): boolean {
   // Electron file:// packaged app: no Origin header, or literal "null".
   if (!origin || origin === "null") return true;
   if (ORIGIN_ALLOWLIST.has(origin)) return true;
-  // Dev: any localhost port.
   try {
     const u = new URL(origin);
     if (u.hostname === "localhost" || u.hostname === "127.0.0.1") return true;
+    if (u.protocol === "https:" && ORIGIN_ALLOWED_SUFFIXES.some((s) => u.hostname.endsWith(s))) return true;
   } catch { /* ignore */ }
   return false;
 }
