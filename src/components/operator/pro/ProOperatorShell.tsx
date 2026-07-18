@@ -832,7 +832,15 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     if (centerMode !== "bible") return;
     const advanceRef = async (dir: 1 | -1) => {
       const parser = await import("@/lib/bible-parser");
-      const parsed = parser.parseReference(bibleSession.state.ref);
+      // Base the advance on the CURRENTLY SELECTED card's label so pressing
+      // Verse > walks: John 3:16 → 3:17 → 3:18 (not stuck on the input ref).
+      // Fall back to the ref field if no cards are loaded yet.
+      const cards = bibleSession.state.cards;
+      const curIdx = bibleSession.state.selectedIdx ?? (cards.length - 1);
+      const anchorRef = cards[curIdx]?.label
+        ? cards[curIdx].label.replace(/\s*\([^)]+\)\s*$/, "") // strip "(KJV)"
+        : bibleSession.state.ref;
+      const parsed = parser.parseReference(anchorRef);
       if (!parsed) return;
       // If ref is a whole chapter (verseEnd == null), advancing by "verse"
       // would silently narrow the display from all-verses to a single verse.
@@ -886,8 +894,19 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           label: `${newRef} (${bibleSession.state.translation})`,
           verses: data.verses,
         };
-        bibleSession.setCards([card]);
-        bibleSession.setSelectedIdx(0);
+        // ProPresenter-style: APPEND (or prepend on reverse) rather than
+        // replace, so operator can keep pressing Verse > to build up a
+        // series of cards for the whole passage they're preaching through.
+        const existing = bibleSession.state.cards;
+        // Deduplicate: if the same reference is already in cards, just select it.
+        const dupIdx = existing.findIndex((c) => c.label === card.label);
+        if (dupIdx >= 0) {
+          bibleSession.setSelectedIdx(dupIdx);
+        } else {
+          const next = dir > 0 ? [...existing, card] : [card, ...existing];
+          bibleSession.setCards(next);
+          bibleSession.setSelectedIdx(dir > 0 ? next.length - 1 : 0);
+        }
         sendLiveRef.current({ kind: "text", text: `${card.verses.map((v) => `${v.verse} ${v.text}`).join(" ")}\n\n${card.label}` });
       } catch (err) {
         if ((err as { name?: string })?.name === "AbortError") {
@@ -901,19 +920,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       }
     };
     const send = (dir: 1 | -1) => {
-      const cards = bibleSession.state.cards;
-      const cur = bibleSession.state.selectedIdx ?? 0;
-      // If more cards are loaded and we can move within them, do so.
-      if (cards.length > 1) {
-        const next = cur + dir;
-        if (next >= 0 && next < cards.length) {
-          bibleSession.setSelectedIdx(next);
-          const c = cards[next];
-          sendLiveRef.current({ kind: "text", text: `${c.verses.map((v) => `${v.verse} ${v.text}`).join(" ")}\n\n${c.label}` });
-          return;
-        }
-      }
-      // Otherwise walk the reference forward/backward by one verse.
+      // Always advance the reference and append a new card — this is the
+      // ProPresenter model. Every press of Verse > appends the next verse
+      // as its own card in the grid. dedupe handles double-clicks by
+      // selecting the existing card instead of duplicating.
       void advanceRef(dir);
     };
     // Y1: nonce-gated. Ignore any external dispatchEvent from page scripts.

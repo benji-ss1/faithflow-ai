@@ -10,7 +10,7 @@ import type { BibleSessionApi, VerseCard } from "../hooks";
 import { cn } from "@/lib/utils";
 import { cachedLookup } from "@/lib/bible-client-cache";
 import { addServiceItem } from "@/lib/actions";
-import { Plus } from "lucide-react";
+import { Plus, Pencil, Check } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 /**
@@ -45,6 +45,12 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
     window.addEventListener("presentflow:slide-view-mode", handler);
     return () => window.removeEventListener("presentflow:slide-view-mode", handler);
   }, []);
+  // Session-scoped edit overrides: verse card id → user-edited text. Lives
+  // only in this session — doesn't touch the Bible DB. The projector renders
+  // the edited text when it exists, original text otherwise.
+  const [editOverrides, setEditOverrides] = useState<Record<string, string>>({});
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<string>("");
   // Shared card size from the CenterHeader slider (same key + event as SongsBrowser).
   const [cardSize, setCardSize] = useState(280);
   useEffect(() => {
@@ -196,6 +202,12 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
   // don't currently split into multiple cards per verse). `displayTranslation`
   // strips the "(KJV)" trailing tag from the ref label when off.
   const cardToSlide = useCallback((c: VerseCard, idx: number, total: number): SlidePayload => {
+    // Session edit override wins over the fetched text so the operator can
+    // fix a typo / adjust line breaks without touching the DB.
+    const override = editOverrides[c.id];
+    if (typeof override === "string" && override.trim().length > 0) {
+      return { kind: "text", text: override };
+    }
     const separator = opts.breakOnNewVerse ? "\n" : " ";
     const body = c.verses
       .map((v) => opts.showVerseNumbers ? `${v.verse} ${v.text}` : v.text)
@@ -211,7 +223,7 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
       text = `${body}\n\n${label}`;
     }
     return { kind: "text", text };
-  }, [opts.showVerseNumbers, opts.refFormat, opts.breakOnNewVerse, opts.displayTranslation]);
+  }, [opts.showVerseNumbers, opts.refFormat, opts.breakOnNewVerse, opts.displayTranslation, editOverrides]);
 
   return (
     <div className="p-4 flex flex-col gap-4">
@@ -271,8 +283,87 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
         >
           {loading ? "…" : "Lookup"}
         </button>
+        <button
+          type="button"
+          title={editingId ? "Exit edit mode (Esc)" : "Edit the selected verse card"}
+          aria-label="Edit selected verse"
+          aria-pressed={!!editingId}
+          onClick={() => {
+            if (editingId) { setEditingId(null); return; }
+            const idx = selectedIdx ?? 0;
+            const card = cards[idx];
+            if (!card) { toast.info("Select a verse card first"); return; }
+            const slide = cardToSlide(card, idx, cards.length);
+            const current = editOverrides[card.id] ?? (slide.kind === "text" ? slide.text : "");
+            setEditDraft(current);
+            setEditingId(card.id);
+          }}
+          className={cn(
+            "h-9 w-9 flex items-center justify-center rounded-md border transition-colors",
+            editingId
+              ? "border-[var(--color-brand)] bg-[var(--color-brand)]/15 text-[var(--color-brand)]"
+              : "border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",
+          )}
+        >
+          <Pencil className="w-4 h-4" />
+        </button>
         <BibleOptionsPopover />
       </div>
+
+      {editingId && (
+        <div className="flex flex-col gap-2 border-2 border-dashed border-[var(--color-brand)] rounded-md p-3 bg-[var(--color-elevated)]">
+          <div className="text-[11px] font-mono uppercase tracking-wider text-[var(--color-brand)]">
+            Editing verse — changes apply to this session only, not the Bible library
+          </div>
+          <textarea
+            value={editDraft}
+            onChange={(e) => setEditDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") { setEditingId(null); return; }
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                e.preventDefault();
+                setEditOverrides((prev) => ({ ...prev, [editingId]: editDraft }));
+                setEditingId(null);
+                toast.success("Verse edited (session)");
+              }
+            }}
+            rows={5}
+            className="w-full px-3 py-2 rounded border border-[var(--color-border)] bg-[var(--color-panel)] text-sm resize-y font-mono"
+          />
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => setEditingId(null)}
+              className="h-8 px-3 rounded border border-[var(--color-border)] text-[12px]"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                setEditOverrides((prev) => {
+                  const next = { ...prev };
+                  delete next[editingId];
+                  return next;
+                });
+                setEditingId(null);
+                toast.info("Reverted to original text");
+              }}
+              className="h-8 px-3 rounded border border-[var(--color-border)] text-[12px]"
+            >
+              Revert
+            </button>
+            <button
+              onClick={() => {
+                setEditOverrides((prev) => ({ ...prev, [editingId]: editDraft }));
+                setEditingId(null);
+                toast.success("Verse edited (session)");
+              }}
+              className="h-8 px-3 rounded bg-[var(--color-brand)] text-black text-[12px] font-semibold inline-flex items-center gap-1"
+            >
+              <Check className="w-3.5 h-3.5" /> Save edit
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="text-[11px] text-[var(--color-muted-foreground)] -mt-2">
         Try a reference (John 3:16) or a phrase (The Lord is my shepherd)

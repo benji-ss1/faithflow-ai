@@ -28,6 +28,7 @@ export function SlideRenderer({ slide, className }: { slide: SlidePayload; class
       <div className={`${base} ${className || ""}`} style={{ background: slide.bgColor || "#0b0b0b" }}>
         <AutoFitText
           text={slide.text}
+          maxPx={120}
           className="text-white font-display font-semibold"
         />
       </div>

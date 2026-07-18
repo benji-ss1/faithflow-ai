@@ -92,9 +92,12 @@ export function BottomBar({
         <button title="Next slide" onClick={next} disabled={!hasNext} className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-muted-foreground)] disabled:opacity-50"><SkipForward className="w-4 h-4" /></button>
       </div>
 
-      {/* Center */}
+      {/* Center — verse-nav is Bible-mode only; other modes just show
+          the transition selector so the space isn't dead. */}
       <div className="flex-1 flex items-center justify-center gap-2 text-[11px] text-[var(--color-muted-foreground)]">
-        <button onClick={versePrev} disabled={centerMode !== "bible" && !hasPrev} className="h-7 px-2 rounded hover:bg-white/5 disabled:opacity-50">&lt; Verse</button>
+        {centerMode === "bible" && (
+          <button onClick={versePrev} className="h-7 px-2 rounded hover:bg-white/5">&lt; Verse</button>
+        )}
         <TransitionChooser
           transitionName={transitionName}
           transitionDuration={transitionDuration}
@@ -110,10 +113,13 @@ export function BottomBar({
           onChange={(e) => setTransitionDuration(parseFloat(e.target.value))}
           className="w-24"
           style={{ accentColor: "var(--color-brand)" }}
-          title={`Transition duration: ${transitionDuration.toFixed(1)}s`}
-          aria-label="Transition duration"
+          title={`Transition Speed: ${transitionDuration.toFixed(1)}s`}
+          aria-label="Transition Speed"
         />
-        <button onClick={verseNext} disabled={centerMode !== "bible" && !hasNext} className="h-7 px-2 rounded hover:bg-white/5 disabled:opacity-50">Verse &gt;</button>
+        <span className="text-[10px] uppercase tracking-wider font-mono text-[var(--color-muted-foreground)]">Speed: {transitionDuration.toFixed(1)}s</span>
+        {centerMode === "bible" && (
+          <button onClick={verseNext} className="h-7 px-2 rounded hover:bg-white/5">Verse &gt;</button>
+        )}
       </div>
 
       {/* Right */}

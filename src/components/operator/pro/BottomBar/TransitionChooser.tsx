@@ -54,8 +54,8 @@ export function TransitionChooser({
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
-        <button className="font-mono hover:text-[var(--color-foreground)]" title="Transition settings">
-          {transitionName}: {transitionDuration.toFixed(1)}s
+        <button className="font-mono hover:text-[var(--color-foreground)]" title={`Transition: ${transitionName}, ${transitionDuration.toFixed(1)}s`}>
+          {transitionName}
         </button>
       </Popover.Trigger>
       <Popover.Portal>

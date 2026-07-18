@@ -1,10 +1,12 @@
 "use client";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-// Congregation-readability floor. Below 32px on a 1080p projector at typical
-// sanctuary distance, verses become squinty. If we can't fit at 32px we
-// paginate rather than shrink further.
-const MIN_READABLE_PX = 32;
+// Congregation-readability floor per operator spec: 24px absolute minimum.
+// Below this on a 1080p projector at sanctuary distance verses become
+// squinty. If we can't fit at 24px we paginate rather than shrink further.
+const MIN_READABLE_PX = 24;
+// Max applies to the top-level clamp in the AutoFitText binary search below —
+// spec cap of 120px keeps a "Jesus wept" from becoming absurdly huge.
 
 /**
  * Binary-search font size until the rendered text fits both container
