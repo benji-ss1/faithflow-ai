@@ -30,22 +30,30 @@ export async function createCheckoutSession(input: { tier: "starter" | "pro" | "
   const s = stripe();
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
-  const session = await s.checkout.sessions.create({
-    mode: "subscription",
-    line_items: [{ price: priceId, quantity: 1 }],
-    customer_email: admin.email,
-    client_reference_id: admin.churchId,
-    metadata: { churchId: admin.churchId, tier: input.tier },
-    success_url: `${appUrl}/settings/billing?ok=1`,
-    cancel_url: `${appUrl}/settings/billing?canceled=1`,
-    ...(sub?.stripeCustomerId ? { customer: sub.stripeCustomerId } : {}),
-    subscription_data: {
-      metadata: { churchId: admin.churchId, churchName: church?.name || "" },
-    },
-  });
-
-  revalidatePath("/settings/billing");
-  return { ok: true, data: { url: session.url! } };
+  // Wrap Stripe call so a transient upstream error returns {ok:false} instead
+  // of 500-ing the billing page. Also guard against Stripe returning no url
+  // (previously non-null-assertion `session.url!` would crash on null).
+  try {
+    const session = await s.checkout.sessions.create({
+      mode: "subscription",
+      line_items: [{ price: priceId, quantity: 1 }],
+      customer_email: admin.email,
+      client_reference_id: admin.churchId,
+      metadata: { churchId: admin.churchId, tier: input.tier },
+      success_url: `${appUrl}/settings/billing?ok=1`,
+      cancel_url: `${appUrl}/settings/billing?canceled=1`,
+      ...(sub?.stripeCustomerId ? { customer: sub.stripeCustomerId } : {}),
+      subscription_data: {
+        metadata: { churchId: admin.churchId, churchName: church?.name || "" },
+      },
+    });
+    if (!session.url) return { ok: false, error: "Stripe returned no checkout URL — try again in a minute" };
+    revalidatePath("/settings/billing");
+    return { ok: true, data: { url: session.url } };
+  } catch (err) {
+    console.error("[billing] createCheckoutSession failed:", err instanceof Error ? err.message : String(err));
+    return { ok: false, error: err instanceof Error ? `Stripe error: ${err.message}` : "Stripe error" };
+  }
 }
 
 export async function openBillingPortal(): Promise<Result<{ url: string }>> {
@@ -58,9 +66,15 @@ export async function openBillingPortal(): Promise<Result<{ url: string }>> {
 
   const s = stripe();
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  const portal = await s.billingPortal.sessions.create({
-    customer: sub.stripeCustomerId,
-    return_url: `${appUrl}/settings/billing`,
-  });
-  return { ok: true, data: { url: portal.url } };
+  try {
+    const portal = await s.billingPortal.sessions.create({
+      customer: sub.stripeCustomerId,
+      return_url: `${appUrl}/settings/billing`,
+    });
+    if (!portal.url) return { ok: false, error: "Stripe returned no portal URL — try again in a minute" };
+    return { ok: true, data: { url: portal.url } };
+  } catch (err) {
+    console.error("[billing] openBillingPortal failed:", err instanceof Error ? err.message : String(err));
+    return { ok: false, error: err instanceof Error ? `Stripe error: ${err.message}` : "Stripe error" };
+  }
 }

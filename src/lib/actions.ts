@@ -79,16 +79,10 @@ async function validateAddServiceItemPayload(
       if (!row) return { ok: false, error: "media asset not found in your church" };
       return { ok: true };
     }
-    case "pptx" as any: {
-      // legacy — pptx items are added as "media"-style refs currently; keep
-      // guarded in case a future caller uses "pptx" as the type key.
-      const pptxImportId = (payload as any).pptxImportId;
-      if (typeof pptxImportId !== "string" || !pptxImportId) return { ok: false, error: "pptx payload requires pptxImportId" };
-      const [row] = await db.select({ id: pptxImports.id }).from(pptxImports)
-        .where(and(eq(pptxImports.id, pptxImportId), eq(pptxImports.churchId, churchId))).limit(1);
-      if (!row) return { ok: false, error: "pptx import not found in your church" };
-      return { ok: true };
-    }
+    // Note: no `case "pptx"` — pptx items are added as "media"-style refs
+    // going through the media path above. If a future caller adds "pptx" to
+    // the type union, add a real case here (was previously stubbed with an
+    // `as any` cast that made it unreachable dead code).
     case "sermon":
     case "blank":
     case "logo":
@@ -110,8 +104,15 @@ export async function addServiceItem(planId: string, type: "song" | "scripture" 
   if (!plan) return { ok: false, error: "Not found" };
   const guard = await validateAddServiceItemPayload(db, user.churchId, type, payload || {});
   if (!guard.ok) return guard;
-  const existing = await db.select().from(serviceItems).where(eq(serviceItems.servicePlanId, planId));
-  await db.insert(serviceItems).values({ servicePlanId: planId, order: existing.length, type, title, payload });
+  // Order = max(existing) + 1. `existing.length` was wrong when items were
+  // deleted (gaps) or when two operators added concurrently (both read
+  // length=N, both insert order=N, collision + broken sort). Reading max
+  // gives a monotonic order that survives deletes; concurrent inserts still
+  // race but the failure mode becomes duplicate `order` (visual reorder needed)
+  // rather than silent overwrite of an existing row's order.
+  const existing = await db.select({ order: serviceItems.order }).from(serviceItems).where(eq(serviceItems.servicePlanId, planId));
+  const nextOrder = existing.length > 0 ? Math.max(...existing.map((e) => e.order)) + 1 : 0;
+  await db.insert(serviceItems).values({ servicePlanId: planId, order: nextOrder, type, title, payload });
   revalidatePath(`/services/${planId}`);
   return { ok: true };
 }

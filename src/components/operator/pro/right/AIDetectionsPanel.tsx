@@ -197,7 +197,8 @@ export function AIDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
                 setBibleRows((prev) => prev.filter((r) => r.key !== row.key));
                 return;
               }
-              const preview = res.verses[0].text.slice(0, 40);
+              const preview = res.verses[0]?.text?.slice(0, 40) ?? "";
+              if (!preview) return; // shape drift — skip rather than render empty
               setBibleRows((prev) => prev.map((r) => r.key === row.key ? { ...r, preview } : r));
             } catch { /* leave without preview */ }
           })();
@@ -339,9 +340,17 @@ export function AIDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
                   key={row.key}
                   role="button"
                   tabIndex={0}
+                  aria-label={`Bible detection ${row.book} ${row.chapter}:${row.verseStart}${row.verseEnd !== row.verseStart ? "-" + row.verseEnd : ""} at ${conf}% confidence — Enter to load, Shift+Enter to send live`}
                   onClick={() => loadBible(row)}
                   onDoubleClick={(e) => { e.preventDefault(); void sendBibleLive(row); }}
-                  className="group flex items-center gap-1.5 px-1.5 py-1 rounded bg-[var(--color-elevated)] hover:bg-[var(--color-elevated-hover,var(--color-elevated))] cursor-pointer border border-transparent hover:border-[var(--color-border)]"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.stopPropagation();
+                      if (e.shiftKey) void sendBibleLive(row);
+                      else loadBible(row);
+                    }
+                  }}
+                  className="group flex items-center gap-1.5 px-1.5 py-1 rounded bg-[var(--color-elevated)] hover:bg-[var(--color-elevated-hover,var(--color-elevated))] cursor-pointer border border-transparent hover:border-[var(--color-border)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
                   data-testid={`bible-row-${row.key}`}
                 >
                   <div className="flex-1 min-w-0">

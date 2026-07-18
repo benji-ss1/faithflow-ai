@@ -66,7 +66,7 @@ export function CenterHeader({
       </button>
         <button
           onClick={() => {
-            const s = ctx.plan.items[ctx.previewItemIdx]?.slides[0];
+            const s = ctx.plan.items[ctx.previewItemIdx]?.slides?.[0];
             if (!s) return;
             // Y5: match SlideGrid — Safe Mode ON = select-only, not live.
             if (safeMode()) {
