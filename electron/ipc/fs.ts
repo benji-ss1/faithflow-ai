@@ -53,15 +53,29 @@ export function registerFsIpc() {
         e.startsWith(".") ? e.toLowerCase() : "." + e.toLowerCase()
       );
       const out: Array<{ absPath: string; relPath: string; size: number; ext: string }> = [];
-      async function walk(current: string) {
+      // Bound the traversal to prevent a maliciously deep or self-symlinked
+      // directory tree from exhausting file descriptors or looping forever.
+      const MAX_DEPTH = 12;
+      const MAX_ENTRIES = 50_000;
+      const visited = new Set<string>();
+      async function walk(current: string, depth: number) {
+        if (depth > MAX_DEPTH) return;
+        if (out.length >= MAX_ENTRIES) return;
+        // Realpath dedupe — follows symlinks once at most. Bare readdir on
+        // a symlink loop would recurse until FD exhaustion.
+        let real: string;
+        try { real = await fs.promises.realpath(current); } catch { return; }
+        if (visited.has(real)) return;
+        visited.add(real);
         let entries: fs.Dirent[];
         try {
           entries = await fs.promises.readdir(current, { withFileTypes: true });
         } catch { return; }
         for (const entry of entries) {
+          if (out.length >= MAX_ENTRIES) return;
           const abs = path.join(current, entry.name);
           if (entry.isDirectory()) {
-            await walk(abs);
+            await walk(abs, depth + 1);
           } else if (entry.isFile()) {
             const ext = path.extname(entry.name).toLowerCase();
             if (normExts.length === 0 || normExts.includes(ext)) {
@@ -78,7 +92,7 @@ export function registerFsIpc() {
           }
         }
       }
-      await walk(dirPath);
+      await walk(dirPath, 0);
       return out;
     }
   );
