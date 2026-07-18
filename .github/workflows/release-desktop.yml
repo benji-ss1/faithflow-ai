@@ -1,0 +1,92 @@
+name: Release desktop app
+
+# Fires when a version tag is pushed (e.g. `git tag v0.1.4 && git push --tags`).
+# Builds the Electron shell on a macOS arm64 runner and publishes an unsigned
+# .zip + latest-mac.yml to the GitHub Release for auto-updater delivery.
+#
+# Manual trigger also supported via workflow_dispatch — enter the version
+# without the v prefix.
+#
+# The .app is the THIN CLIENT — no Next build, no bundled secrets. All the
+# UI/API lives on Vercel and updates instantly on git push to main.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 0.1.4). Leave blank to reuse package.json version."
+        required: false
+
+concurrency:
+  group: release-desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-14 # Apple Silicon runner
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci --no-audit --no-fund
+
+      - name: Sync version (workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.version != ''
+        run: npm version "${{ github.event.inputs.version }}" --no-git-tag-version
+
+      - name: Compile Electron main
+        run: npm run electron:build:tsc
+
+      - name: Build + publish (electron-builder → GitHub Releases)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder --mac zip --arm64 --publish always
+
+      - name: Generate latest-mac.yml if missing
+        # electron-builder sometimes finishes without emitting the manifest when
+        # a GitHub upload retry aborts mid-flight. Reconstruct + upload so the
+        # auto-updater feed is never stale.
+        run: |
+          if [ ! -f "release/latest-mac.yml" ]; then
+            VERSION=$(node -p "require('./package.json').version")
+            ZIP="release/Present Flow-${VERSION}-arm64-mac.zip"
+            if [ ! -f "$ZIP" ]; then
+              echo "::warning::No zip found at $ZIP — skipping manifest generation."
+              exit 0
+            fi
+            SHA=$(shasum -a 512 "$ZIP" | awk '{print $1}' | xxd -r -p | base64)
+            SIZE=$(stat -f%z "$ZIP")
+            DATE=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+            cat > release/latest-mac.yml <<EOF
+          version: ${VERSION}
+          files:
+            - url: Present-Flow-${VERSION}-arm64-mac.zip
+              sha512: ${SHA}
+              size: ${SIZE}
+          path: Present-Flow-${VERSION}-arm64-mac.zip
+          sha512: ${SHA}
+          releaseDate: '${DATE}'
+          EOF
+            echo "Reconstructed latest-mac.yml — uploading."
+            TAG="v${VERSION}"
+            gh release upload "$TAG" release/latest-mac.yml --clobber
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
