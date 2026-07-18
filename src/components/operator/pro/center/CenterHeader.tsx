@@ -52,19 +52,11 @@ export function CenterHeader({
       >
         {title}
       </div>
-      {typeof slideSize === "number" && onSlideSize && centerMode === "slides" && (
-        <div className="flex items-center gap-2 pr-2" title={`Slide size: ${slideSize}px`}>
-          <input
-            type="range"
-            min={96}
-            max={240}
-            value={slideSize}
-            onChange={(e) => onSlideSize(parseInt(e.target.value, 10))}
-            className="w-[150px]"
-            style={{ accentColor: "#5b9bd5" }}
-            aria-label="Slide size"
-          />
-        </div>
+      {/* Unified size slider — slides mode uses the ctx-supplied setter,
+          bible/songs modes broadcast to their own local size state via a
+          shared window event so a single control drives every center panel. */}
+      {(centerMode === "slides" || centerMode === "bible" || centerMode === "songs") && (
+        <CenterSizeSlider centerMode={centerMode} slideSize={slideSize} onSlideSize={onSlideSize} />
       )}
       <ViewModeToggle />
       <button className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-muted-foreground)]" title="Preview (open Live in a new window)"
@@ -88,6 +80,51 @@ export function CenterHeader({
         >
           <Play className="w-4 h-4" />
         </button>
+    </div>
+  );
+}
+
+function CenterSizeSlider({
+  centerMode,
+  slideSize,
+  onSlideSize,
+}: {
+  centerMode: CenterMode;
+  slideSize?: number;
+  onSlideSize?: (n: number) => void;
+}) {
+  const [localSize, setLocalSize] = useState<number>(280);
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem("presentflow.center.slideSize");
+      const n = raw ? parseInt(raw, 10) : NaN;
+      if (Number.isFinite(n) && n >= 120 && n <= 480) setLocalSize(n);
+    } catch { /* noop */ }
+  }, []);
+  const value = centerMode === "slides" && typeof slideSize === "number" ? slideSize : localSize;
+  const min = centerMode === "slides" ? 96 : 160;
+  const max = centerMode === "slides" ? 240 : 480;
+  const onChange = (n: number) => {
+    if (centerMode === "slides" && onSlideSize) {
+      onSlideSize(n);
+    } else {
+      setLocalSize(n);
+      try { window.localStorage.setItem("presentflow.center.slideSize", String(n)); } catch { /* noop */ }
+      try { window.dispatchEvent(new CustomEvent("presentflow:center-slide-size", { detail: n })); } catch { /* noop */ }
+    }
+  };
+  return (
+    <div className="flex items-center gap-2 pr-2" title={`Card size: ${value}px`}>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => onChange(parseInt(e.target.value, 10))}
+        className="w-[150px]"
+        style={{ accentColor: "#5b9bd5" }}
+        aria-label="Card size"
+      />
     </div>
   );
 }

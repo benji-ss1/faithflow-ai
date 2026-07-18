@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import type { OperatorShellCtx } from "../../shell/types";
@@ -26,6 +26,21 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
   const { ref, translation, cards, selectedIdx, loading } = state;
   const [opts] = useBibleOptions();
   const [tab, setTab] = useState<"reference" | "browse">("reference");
+  // Shared card size from the CenterHeader slider (same key + event as SongsBrowser).
+  const [cardSize, setCardSize] = useState(280);
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem("presentflow.center.slideSize");
+      const n = raw ? parseInt(raw, 10) : NaN;
+      if (Number.isFinite(n) && n >= 120 && n <= 480) setCardSize(n);
+    } catch { /* noop */ }
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent<number>).detail;
+      if (typeof d === "number" && d >= 120 && d <= 480) setCardSize(d);
+    };
+    window.addEventListener("presentflow:center-slide-size", handler);
+    return () => window.removeEventListener("presentflow:center-slide-size", handler);
+  }, []);
   const router = useRouter();
 
   // Build a scripture add payload for a single verse card and dispatch the
@@ -281,7 +296,7 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
         </div>
       )}
       {tab === "reference" && (
-      <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}>
+      <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cardSize}px, 1fr))` }}>
         {cards.length === 0 && (
           <div className="col-span-full text-[12px] text-[var(--color-muted-foreground)] py-8 text-center">
             Enter a reference above and hit Lookup — or switch to Browse.

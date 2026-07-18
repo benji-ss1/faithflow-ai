@@ -29,6 +29,22 @@ export function SongsBrowser({
   const [selected, setSelected] = useState<SongRow | null>(null);
   const [slides, setSlides] = useState<SlideRow[] | null>(null);
   const [slidesLoading, setSlidesLoading] = useState(false);
+  // Shared slide-size preference — same event/localStorage key the CenterHeader
+  // and BottomBar use so a single slider works everywhere.
+  const [slideSize, setSlideSize] = useState(280);
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem("presentflow.center.slideSize");
+      const n = raw ? parseInt(raw, 10) : NaN;
+      if (Number.isFinite(n) && n >= 120 && n <= 480) setSlideSize(n);
+    } catch { /* noop */ }
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent<number>).detail;
+      if (typeof d === "number" && d >= 120 && d <= 480) setSlideSize(d);
+    };
+    window.addEventListener("presentflow:center-slide-size", handler);
+    return () => window.removeEventListener("presentflow:center-slide-size", handler);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -121,18 +137,20 @@ export function SongsBrowser({
             <div className="text-[11px] text-[var(--color-muted-foreground)]">No slides for this song.</div>
           )}
           {slides && slides.length > 0 && (
-            <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))" }}>
+            // Match the Bible verse-card grid density: 280px minmax + slightly
+            // larger gap so lyrics don't feel cramped next to Bible cards.
+            <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${slideSize}px, 1fr))` }}>
               {slides.map((sl, idx) => {
                 const payload: SlidePayload = { kind: "text", text: sl.lyrics };
                 return (
                   <button
                     key={idx}
-                    onDoubleClick={() => ctx.onSendSlideToLive(payload)}
-                    className="relative aspect-video rounded overflow-hidden border border-[var(--color-border)] hover:border-[var(--color-brand)]"
-                    title="Double-click to send to live"
+                    onClick={() => ctx.onSendSlideToLive(payload)}
+                    className="relative aspect-video rounded overflow-hidden border-2 border-[var(--color-border)] hover:border-[var(--color-brand)] transition-colors"
+                    title="Click to send to live"
                   >
                     <SlideRenderer slide={payload} />
-                    <div className="absolute top-1 left-1 text-[10px] font-mono text-white/70 bg-black/40 px-1 rounded">
+                    <div className="absolute top-1 left-1 text-[10px] font-mono text-white/70 bg-black/40 px-1.5 py-0.5 rounded">
                       {idx + 1}
                     </div>
                   </button>

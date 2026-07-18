@@ -1,7 +1,10 @@
 "use client";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-const MIN_READABLE_PX = 22;
+// Congregation-readability floor. Below 32px on a 1080p projector at typical
+// sanctuary distance, verses become squinty. If we can't fit at 32px we
+// paginate rather than shrink further.
+const MIN_READABLE_PX = 32;
 
 /**
  * Binary-search font size until the rendered text fits both container
@@ -94,6 +97,8 @@ export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06 
           textWrap: "balance",
           maxWidth: "100%",
           maxHeight: "100%",
+          fontWeight: 700, // bold — pastor projection readability floor
+          textShadow: "0 2px 8px rgba(0,0,0,0.55)", // slight halo so the text pops on busy backgrounds
         }}
       >
         {currentText}
