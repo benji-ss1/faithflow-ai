@@ -249,9 +249,30 @@ export async function updateSongSlides(songId: string, slides: { lyrics: string 
   const db = getDb();
   const [song] = await db.select().from(songs).where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId))).limit(1);
   if (!song) return { ok: false, error: "Song not found" };
-  await db.delete(songSlides).where(eq(songSlides.songId, songId));
-  if (slides.length > 0) {
-    await db.insert(songSlides).values(slides.map((s, i) => ({ songId, order: i, lyrics: s.lyrics })));
+  // Bound the size — autosave (1.5s debounce) can fire hundreds of times
+  // during a long editing session; a mistake or paste-loop shouldn't be
+  // able to write 10k slides per call. Server matches the client-side cap.
+  if (slides.length > 500) {
+    return { ok: false, error: "Song has too many slides (max 500)" };
+  }
+  for (const s of slides) {
+    if (typeof s?.lyrics !== "string") return { ok: false, error: "Bad slide payload" };
+    if (s.lyrics.length > 5000) return { ok: false, error: "Slide text too long (max 5000)" };
+  }
+  // Delete + insert must be atomic — a concurrent autosave hitting this
+  // route mid-delete could otherwise leave the song with zero slides for
+  // a few ms, breaking any operator sending live at that instant. Wrap
+  // in a transaction so the delete + insert commit or roll back together.
+  try {
+    await db.transaction(async (tx) => {
+      await tx.delete(songSlides).where(eq(songSlides.songId, songId));
+      if (slides.length > 0) {
+        await tx.insert(songSlides).values(slides.map((s, i) => ({ songId, order: i, lyrics: s.lyrics })));
+      }
+    });
+  } catch (err) {
+    console.error("[updateSongSlides]", err instanceof Error ? err.message : String(err));
+    return { ok: false, error: "Save failed — please try again" };
   }
   revalidatePath(`/library/songs/${songId}`);
   return { ok: true };

@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { useAudioStream, type Detection, type SongSuggestion, type CommandSuggestion, type UnifiedSuggestion } from "./useAudioStream";
 import type { IndexedSong } from "@/lib/ai-detection/lyric-fragment";
 import { AIAssistantPanel, ListeningToggle } from "./AIAssistantPanel";
+import { OperatorErrorBoundary } from "./OperatorErrorBoundary";
 import { updateDetectionStatus, updateAiSuggestionStatus } from "@/lib/actions";
 import { SuggestionHistory } from "./SuggestionHistory";
 import { EditSuggestionModal, type EditableSuggestion } from "./EditSuggestionModal";
@@ -1232,8 +1233,14 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
           <SyncControl planId={plan.id} churchId={churchIdForChannel} onCodeChange={setPairCode} />
         )}
       </div>
-      {/* R3: Desktop shell = ProOperatorShell; web keeps the legacy OperatorShell. */}
-      {shell === "desktop" ? <ProOperatorShell ctx={shellCtx} /> : <OperatorShell ctx={shellCtx} />}
+      {/* R3: Desktop shell = ProOperatorShell; web keeps the legacy OperatorShell.
+          Wrap the entire shell in an outer error boundary as the last safety
+          net — inner panels have their own boundaries in ProOperatorShell,
+          but a crash in the shell itself (e.g., a hotkey installer, a top-bar
+          layout error) would otherwise white-screen the whole app. */}
+      <OperatorErrorBoundary fallbackLabel="Operator shell crashed">
+        {shell === "desktop" ? <ProOperatorShell ctx={shellCtx} /> : <OperatorShell ctx={shellCtx} />}
+      </OperatorErrorBoundary>
       <ImportSongModal
         open={importModal !== null}
         initialTitle={importModal?.title || ""}

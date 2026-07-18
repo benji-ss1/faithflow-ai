@@ -5,6 +5,7 @@ import { updateSongSlides } from "@/lib/actions";
 import { toast } from "sonner";
 
 const MAX_SLIDE_CHARS = 5000;
+const MAX_SLIDES_PER_SONG = 500;
 const AUTOSAVE_DEBOUNCE_MS = 1500;
 
 type Slide = { lyrics: string };
@@ -78,7 +79,15 @@ export function SongSlideEditor({ songId, initialSlides }: { songId: string; ini
     if (lyrics.length > MAX_SLIDE_CHARS) lyrics = lyrics.slice(0, MAX_SLIDE_CHARS);
     setSlides((cur) => cur.map((s, idx) => (idx === i ? { lyrics } : s)));
   }
-  function add() { setSlides((cur) => [...cur, { lyrics: "" }]); }
+  function add() {
+    setSlides((cur) => {
+      if (cur.length >= MAX_SLIDES_PER_SONG) {
+        toast.error(`Cap of ${MAX_SLIDES_PER_SONG} slides per song`);
+        return cur;
+      }
+      return [...cur, { lyrics: "" }];
+    });
+  }
   function remove(i: number) { setSlides((cur) => cur.filter((_, idx) => idx !== i)); }
 
   function saveNow() {
