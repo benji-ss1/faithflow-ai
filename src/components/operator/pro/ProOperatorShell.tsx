@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { OperatorShellCtx } from "../shell/types";
+import { OperatorErrorBoundary } from "../OperatorErrorBoundary";
 import { TopBar } from "./TopBar";
 import { LibrarySection } from "./left/LibrarySection";
 import { PlaylistSection } from "./left/PlaylistSection";
@@ -1072,15 +1073,20 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         <main data-tour="center" className="flex-1 min-w-0 flex flex-col bg-[var(--color-app-bg)]">
           <CenterHeader ctx={ctx} centerMode={centerMode} slideSize={slideSize} onSlideSize={setSlideSize} />
           <div className="flex-1 min-h-0 overflow-y-auto">
-            {centerMode === "bible" ? (
-              <BibleMode ctx={ctx} session={bibleSession} />
-            ) : centerMode === "songs" ? (
-              <SongsBrowser ctx={ctx} onExitToSlides={() => setCenterMode("slides")} />
-            ) : centerMode === "media" ? (
-              <MediaBrowser ctx={ctx} onExitToSlides={() => setCenterMode("slides")} />
-            ) : (
-              <SlideGrid ctx={ctx} slideSize={slideSize} />
-            )}
+            {/* Error boundary per center-mode panel so a Bible/Songs/Media
+                crash doesn't nuke the whole operator UI mid-service — the
+                operator can hit "Reload panel" and keep going. */}
+            <OperatorErrorBoundary fallbackLabel={`The ${centerMode} panel hit an error`}>
+              {centerMode === "bible" ? (
+                <BibleMode ctx={ctx} session={bibleSession} />
+              ) : centerMode === "songs" ? (
+                <SongsBrowser ctx={ctx} onExitToSlides={() => setCenterMode("slides")} />
+              ) : centerMode === "media" ? (
+                <MediaBrowser ctx={ctx} onExitToSlides={() => setCenterMode("slides")} />
+              ) : (
+                <SlideGrid ctx={ctx} slideSize={slideSize} />
+              )}
+            </OperatorErrorBoundary>
           </div>
         </main>
 
@@ -1093,11 +1099,19 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           {typeof window !== "undefined" && window.localStorage.getItem("presentflow.pro.showRoutingRow") === "1" && (
             <OutputRoutingRow ctx={ctx} />
           )}
-          <LivePreviewPanel ctx={ctx} />
-          <LiveTranscriptPanel ctx={ctx} />
-          <AIDetectionsPanel ctx={ctx} />
+          <OperatorErrorBoundary fallbackLabel="Live preview panel error">
+            <LivePreviewPanel ctx={ctx} />
+          </OperatorErrorBoundary>
+          <OperatorErrorBoundary fallbackLabel="Live transcript panel error">
+            <LiveTranscriptPanel ctx={ctx} />
+          </OperatorErrorBoundary>
+          <OperatorErrorBoundary fallbackLabel="AI detections panel error">
+            <AIDetectionsPanel ctx={ctx} />
+          </OperatorErrorBoundary>
           <div className="flex-1 min-h-0 border-t border-[var(--color-border)]">
-            <RightTabs ctx={ctx} timer={timer} messages={messages} />
+            <OperatorErrorBoundary fallbackLabel="Right sidebar tab error">
+              <RightTabs ctx={ctx} timer={timer} messages={messages} />
+            </OperatorErrorBoundary>
           </div>
         </aside>
       </div>
