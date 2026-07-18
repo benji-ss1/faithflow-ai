@@ -38,6 +38,8 @@ export const SERVICE_SECTIONS = [
 ] as const;
 
 const COLLAPSE_KEY = "presentflow.rail.collapsed";
+// "0" = expanded, "1" = icons only, "2" = fully hidden
+type RailState = "expanded" | "icons" | "hidden";
 
 const SECTIONS: { key: RailSection; label: string; icon: typeof ListMusic; group?: string }[] = [
   { key: "service", label: "Service Order", icon: ListOrdered },
@@ -69,22 +71,46 @@ export function ProductionRail({
   onActiveChange: (s: RailSection) => void;
   onJump: (itemIdx: number) => void;
 }) {
-  const [collapsed, setCollapsed] = useState<boolean>(false);
+  const [state, setState] = useState<RailState>("expanded");
+  const collapsed = state === "icons";
+  const hidden = state === "hidden";
 
-  // Restore collapsed state from localStorage (post-mount to avoid hydration mismatch)
+  // Restore rail state from localStorage (post-mount to avoid hydration mismatch)
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(COLLAPSE_KEY);
-      if (raw === "1") setCollapsed(true);
+      if (raw === "1") setState("icons");
+      else if (raw === "2") setState("hidden");
     } catch { /* noop */ }
   }, []);
-  const toggleCollapsed = () => {
-    setCollapsed((v) => {
-      const next = !v;
-      try { window.localStorage.setItem(COLLAPSE_KEY, next ? "1" : "0"); } catch { /* noop */ }
-      return next;
-    });
+  const persist = (s: RailState) => {
+    setState(s);
+    try {
+      window.localStorage.setItem(
+        COLLAPSE_KEY,
+        s === "hidden" ? "2" : s === "icons" ? "1" : "0",
+      );
+    } catch { /* noop */ }
   };
+  // Cycle: expanded → icons → hidden → expanded
+  const toggleCollapsed = () => {
+    persist(state === "expanded" ? "icons" : state === "icons" ? "hidden" : "expanded");
+  };
+  const reopen = () => persist("expanded");
+
+  // Fully hidden — render only the floating reopen tab
+  if (hidden) {
+    return (
+      <button
+        onClick={reopen}
+        title="Show sidebar"
+        className="shrink-0 w-6 h-full border-r flex items-center justify-center text-[color:var(--color-muted-foreground)] hover:bg-[color:var(--color-sidebar-item-hover)] hover:text-[color:var(--color-foreground)] transition-colors"
+        style={{ borderColor: "var(--color-border)", background: "var(--color-panel)" }}
+      >
+        <PanelLeftOpen className="w-4 h-4" />
+      </button>
+    );
+  }
 
   // Group sections for display
   const grouped: { label?: string; items: typeof SECTIONS }[] = [];
