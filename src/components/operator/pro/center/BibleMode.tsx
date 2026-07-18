@@ -147,20 +147,27 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
     void runLookup({ book: r.book, chapter: r.chapter, verseStart: r.verse, verseEnd: r.verse });
   }, [runLookup, setRef]);
 
-  // Y1/Y7: render each verse honoring showVerseNumbers, and append the
-  // reference per refFormat ("each" → every card, "last" → only last card,
-  // "none" → never).
+  // Y1/Y7: render each verse honoring options. `breakOnNewVerse` puts each
+  // verse on its own line (a soft "slide within a slide" effect since we
+  // don't currently split into multiple cards per verse). `displayTranslation`
+  // strips the "(KJV)" trailing tag from the ref label when off.
   const cardToSlide = useCallback((c: VerseCard, idx: number, total: number): SlidePayload => {
+    const separator = opts.breakOnNewVerse ? "\n" : " ";
     const body = c.verses
       .map((v) => opts.showVerseNumbers ? `${v.verse} ${v.text}` : v.text)
-      .join(" ");
+      .join(separator);
     let text = body;
     const includeRef =
       opts.refFormat === "each" ||
       (opts.refFormat === "last" && idx === total - 1);
-    if (includeRef) text = `${body}\n\n${c.label}`;
+    if (includeRef) {
+      const label = opts.displayTranslation
+        ? c.label
+        : c.label.replace(/\s*\([^)]+\)\s*$/, "");
+      text = `${body}\n\n${label}`;
+    }
     return { kind: "text", text };
-  }, [opts.showVerseNumbers, opts.refFormat]);
+  }, [opts.showVerseNumbers, opts.refFormat, opts.breakOnNewVerse, opts.displayTranslation]);
 
   return (
     <div className="p-4 flex flex-col gap-4">

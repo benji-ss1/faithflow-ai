@@ -768,20 +768,55 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   }, [centerMode]);
 
   // ── Bible-mode verse-nav bridge ──────────────────────────────────────────
-  // BottomBar dispatches presentflow:bible-next / bible-prev events. In Bible
-  // mode we intercept, advance the session cursor, and send that verse live.
+  // BottomBar dispatches presentflow:bible-next / bible-prev events. If the
+  // current cards list has another slot, move the cursor. If we're at the
+  // edge (or only one card is loaded — the common case), advance the ref
+  // itself and fetch: John 3:16 → John 3:17 → …
   useEffect(() => {
     if (centerMode !== "bible") return;
+    const advanceRef = async (dir: 1 | -1) => {
+      const parser = await import("@/lib/bible-parser");
+      const parsed = parser.parseReference(bibleSession.state.ref);
+      if (!parsed) return;
+      const nextVerse = parsed.verseStart + dir;
+      if (nextVerse < 1) return; // don't underflow; caller can lookup a new chapter manually
+      const newRef = `${parsed.book} ${parsed.chapter}:${nextVerse}`;
+      bibleSession.setRef(newRef);
+      // Trigger lookup via the same code path the Bible mode input uses.
+      try {
+        const res = await fetch("/api/bible/lookup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ref: newRef, translation: bibleSession.state.translation }),
+        });
+        if (!res.ok) return;
+        const data = await res.json() as { verses?: Array<{ verse: number; text: string }> };
+        if (!data.verses || data.verses.length === 0) return;
+        const card = {
+          id: `${newRef}-${Date.now()}`,
+          label: `${newRef} (${bibleSession.state.translation})`,
+          verses: data.verses,
+        };
+        bibleSession.setCards([card]);
+        bibleSession.setSelectedIdx(0);
+        sendLiveRef.current({ kind: "text", text: `${card.verses.map((v) => `${v.verse} ${v.text}`).join(" ")}\n\n${card.label}` });
+      } catch { /* silent — operator can retry */ }
+    };
     const send = (dir: 1 | -1) => {
       const cards = bibleSession.state.cards;
-      if (cards.length === 0) return;
       const cur = bibleSession.state.selectedIdx ?? 0;
-      const next = Math.max(0, Math.min(cards.length - 1, cur + dir));
-      if (next === cur) return;
-      bibleSession.setSelectedIdx(next);
-      const c = cards[next];
-      const body = c.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
-      sendLiveRef.current({ kind: "text", text: `${body}\n\n${c.label}` });
+      // If more cards are loaded and we can move within them, do so.
+      if (cards.length > 1) {
+        const next = cur + dir;
+        if (next >= 0 && next < cards.length) {
+          bibleSession.setSelectedIdx(next);
+          const c = cards[next];
+          sendLiveRef.current({ kind: "text", text: `${c.verses.map((v) => `${v.verse} ${v.text}`).join(" ")}\n\n${c.label}` });
+          return;
+        }
+      }
+      // Otherwise walk the reference forward/backward by one verse.
+      void advanceRef(dir);
     };
     // Y1: nonce-gated. Ignore any external dispatchEvent from page scripts.
     const nx = (ev: Event) => { if (!isInternalEvent(ev)) return; send(1); };

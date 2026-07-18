@@ -94,6 +94,12 @@ const VARIANT_TO_BOOK = new Map<string, string>();
 for (const [canonical, variants] of RAW_BOOKS) {
   for (const v of variants) VARIANT_TO_BOOK.set(v, canonical);
   VARIANT_TO_BOOK.set(canonical.toLowerCase(), canonical);
+  // Auto-derive spaceless variants for numbered books ("1john", "2cor",
+  // "1thess", "1john", etc.) — testers naturally type without a space and
+  // the parser used to silently return null on those forms.
+  for (const v of variants) {
+    if (/^[123]\s+\S/.test(v)) VARIANT_TO_BOOK.set(v.replace(/\s+/g, ""), canonical);
+  }
 }
 
 // Longest first, so "1 corinthians" is matched before "1 co".
@@ -305,11 +311,13 @@ const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => Pa
       return { book, chapter, verseStart: vStart, verseEnd: vEnd, confidence: 95, matchedText: m[0], needsSemanticFallback: false };
     },
   },
-  // "Book Chapter:Verse" (colon/comma-separated, digit-friendly)
+  // "Book Chapter:Verse" (colon/comma-separated, digit-friendly). Allow
+  // zero whitespace between book and chapter so "1john1:1" / "psalm23:1"
+  // parse — a lot of testers type without spaces on mobile / when in a hurry.
   {
     name: "book_ch_colon_verse",
     regex: new RegExp(
-      `\\b(${BOOK_PATTERN})\\s+(?:chapter\\s+)?${NUM_CHUNK}\\s*(?::|\\s+verses?\\s+|,\\s*)\\s*${NUM_CHUNK}\\b(?!\\s*(?:to|through|thru|-|–|—))`,
+      `\\b(${BOOK_PATTERN})\\s*(?:chapter\\s+)?${NUM_CHUNK}\\s*(?::|\\s+verses?\\s+|,\\s*)\\s*${NUM_CHUNK}\\b(?!\\s*(?:to|through|thru|-|–|—))`,
       "gi"
     ),
     parse: (m) => {
@@ -330,8 +338,10 @@ const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => Pa
   // so "John three sixteen" resolves to John 3:16 (not John 19).
   {
     name: "book_ch_space_verse",
+    // Allow zero-whitespace between book and chapter ("1john1 1", "psalm23 1")
+    // to match how testers type on mobile / in a hurry.
     regex: new RegExp(
-      `\\b(${BOOK_PATTERN})\\s+(?:chapter\\s+)?${NUM_SINGLE}\\s+${NUM_SINGLE}\\b(?!\\s*(?:to\\b|through\\b|thru\\b|-|–|—|hundred\\b))`,
+      `\\b(${BOOK_PATTERN})\\s*(?:chapter\\s+)?${NUM_SINGLE}\\s+${NUM_SINGLE}\\b(?!\\s*(?:to\\b|through\\b|thru\\b|-|–|—|hundred\\b))`,
       "gi"
     ),
     parse: (m) => {

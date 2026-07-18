@@ -1212,7 +1212,12 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
             </button>
           </div>
         )}
-        <SyncControl planId={plan.id} churchId={churchIdForChannel} onCodeChange={setPairCode} />
+        {/* SyncControl is fixed top-right and collided with ProOperatorShell's
+            Live/Audience/Stage pills in the top toolbar. Only render for the
+            legacy web shell; desktop exposes pair codes via the Settings tab. */}
+        {shell !== "desktop" && (
+          <SyncControl planId={plan.id} churchId={churchIdForChannel} onCodeChange={setPairCode} />
+        )}
       </div>
       {/* R3: Desktop shell = ProOperatorShell; web keeps the legacy OperatorShell. */}
       {shell === "desktop" ? <ProOperatorShell ctx={shellCtx} /> : <OperatorShell ctx={shellCtx} />}

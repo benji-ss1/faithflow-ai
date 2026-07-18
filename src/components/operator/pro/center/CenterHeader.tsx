@@ -1,5 +1,7 @@
 "use client";
+import { useEffect, useState } from "react";
 import { LayoutGrid, List, Eye, Play, Music, BookOpen, Image as ImageIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { CenterMode } from "../ProOperatorShell";
 
@@ -10,6 +12,9 @@ function safeMode() {
   const raw = window.localStorage.getItem(SAFE_MODE_KEY);
   return raw === "1"; // default OFF per user directive
 }
+
+const VIEW_MODE_KEY = "presentflow.operator.slideViewMode";
+type ViewMode = "grid" | "list" | "text";
 
 export function CenterHeader({
   ctx,
@@ -61,16 +66,12 @@ export function CenterHeader({
           />
         </div>
       )}
-      <div className="flex items-center gap-1">
-        <button className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-muted-foreground)]" title="Grid">
-          <LayoutGrid className="w-4 h-4" />
-        </button>
-        <button className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-muted-foreground)]" title="List">
-          <List className="w-4 h-4" />
-        </button>
-        <button className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-muted-foreground)]" title="Preview">
-          <Eye className="w-4 h-4" />
-        </button>
+      <ViewModeToggle />
+      <button className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-muted-foreground)]" title="Preview (open Live in a new window)"
+        onClick={() => { try { window.open("/live", "presentflow-live", "width=1280,height=720"); } catch { /* noop */ } }}
+      >
+        <Eye className="w-4 h-4" />
+      </button>
         <button
           onClick={() => {
             const s = ctx.plan.items[ctx.previewItemIdx]?.slides[0];
@@ -87,7 +88,41 @@ export function CenterHeader({
         >
           <Play className="w-4 h-4" />
         </button>
-      </div>
+    </div>
+  );
+}
+
+function ViewModeToggle() {
+  const [mode, setMode] = useState<ViewMode>("grid");
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(VIEW_MODE_KEY);
+      if (raw === "grid" || raw === "list" || raw === "text") setMode(raw);
+    } catch { /* noop */ }
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent<ViewMode>).detail;
+      if (d === "grid" || d === "list" || d === "text") setMode(d);
+    };
+    window.addEventListener("presentflow:slide-view-mode", handler);
+    return () => window.removeEventListener("presentflow:slide-view-mode", handler);
+  }, []);
+  const set = (m: ViewMode) => {
+    setMode(m);
+    try { window.localStorage.setItem(VIEW_MODE_KEY, m); } catch { /* noop */ }
+    try { window.dispatchEvent(new CustomEvent("presentflow:slide-view-mode", { detail: m })); } catch { /* noop */ }
+  };
+  return (
+    <div className="flex items-center rounded border border-[var(--color-border)] overflow-hidden">
+      <button title="Grid view" aria-pressed={mode === "grid"} onClick={() => set("grid")}
+        className={cn("w-7 h-7 flex items-center justify-center hover:bg-white/5",
+          mode === "grid" ? "text-[var(--color-foreground)] bg-white/5" : "text-[var(--color-muted-foreground)]")}>
+        <LayoutGrid className="w-4 h-4" />
+      </button>
+      <button title="List view" aria-pressed={mode === "list"} onClick={() => set("list")}
+        className={cn("w-7 h-7 flex items-center justify-center border-l border-[var(--color-border)] hover:bg-white/5",
+          mode === "list" ? "text-[var(--color-foreground)] bg-white/5" : "text-[var(--color-muted-foreground)]")}>
+        <List className="w-4 h-4" />
+      </button>
     </div>
   );
 }
