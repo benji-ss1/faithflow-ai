@@ -33,6 +33,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Too many feedback submissions. Try again later." }, { status: 429 });
   }
 
+  // Reject oversize payloads at the edge — before req.json() buffers the whole
+  // body into memory. Screenshot base64 can legitimately hit ~6 MB, so allow
+  // up to 7 MB with headroom for JSON overhead; block anything larger.
+  const contentLength = Number(req.headers.get("content-length") || 0);
+  if (Number.isFinite(contentLength) && contentLength > 7 * 1024 * 1024) {
+    return NextResponse.json({ error: "Feedback payload too large" }, { status: 413 });
+  }
+
   let body: unknown;
   try {
     body = await req.json();

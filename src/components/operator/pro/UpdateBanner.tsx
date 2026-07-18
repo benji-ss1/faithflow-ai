@@ -113,13 +113,27 @@ export function UpdateBanner({ liveSlide, listening }: { liveSlide?: SlidePayloa
   return (
     <div className="w-full px-4 py-2 text-sm font-medium bg-orange-500 text-white flex items-center justify-between gap-2">
       <span>⚠ Update check failed: {state.message}</span>
-      <button
-        onClick={() => setDismissedError(state.message)}
-        className="ml-2 px-2 py-0.5 rounded hover:bg-orange-600 text-xs"
-        aria-label="Dismiss"
-      >
-        ✕
-      </button>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={async () => {
+            const api = window.electronAPI;
+            const retry = api?.update && "retryDownload" in api.update ? (api.update as { retryDownload?: () => Promise<unknown> }).retryDownload : undefined;
+            if (!retry) return;
+            setState({ kind: "downloading", version: "…" });
+            try { await retry(); } catch (err) { console.error("[UpdateBanner] retry failed", err); }
+          }}
+          className="ml-1 px-2 py-0.5 rounded bg-orange-700 hover:bg-orange-800 text-xs"
+        >
+          Retry
+        </button>
+        <button
+          onClick={() => setDismissedError(state.message)}
+          className="ml-1 px-2 py-0.5 rounded hover:bg-orange-600 text-xs"
+          aria-label="Dismiss"
+        >
+          ✕
+        </button>
+      </div>
     </div>
   );
 }

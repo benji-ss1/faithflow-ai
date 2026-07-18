@@ -497,6 +497,18 @@ app.whenReady().then(async () => {
     }
   });
 
+  // Manual retry after a stalled download — the renderer's UpdateBanner
+  // stall watchdog surfaces a Retry button so the operator doesn't have to
+  // quit + relaunch the whole app to trigger another download attempt.
+  ipcMain.handle("update:retry-download", async () => {
+    try {
+      await autoUpdater.downloadUpdate();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
   });

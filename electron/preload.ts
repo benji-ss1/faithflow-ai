@@ -54,6 +54,7 @@ const api = {
       return () => ipcRenderer.removeListener("update:error", handler);
     },
     installNow: () => ipcRenderer.invoke("update:install-now"),
+    retryDownload: () => ipcRenderer.invoke("update:retry-download"),
   },
   on: (channel: string, handler: Handler) => {
     const wrapped = (_e: IpcRendererEvent, ...args: any[]) => handler(...args);

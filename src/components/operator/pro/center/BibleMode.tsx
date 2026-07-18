@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import type { OperatorShellCtx } from "../../shell/types";
@@ -26,6 +26,9 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
   const { ref, translation, cards, selectedIdx, loading } = state;
   const [opts] = useBibleOptions();
   const [tab, setTab] = useState<"reference" | "browse">("reference");
+  const searchAbortRef = useRef<AbortController | null>(null);
+  // Abort any in-flight search when the component unmounts (mode switch).
+  useEffect(() => () => { searchAbortRef.current?.abort(); }, []);
   // Shared card size from the CenterHeader slider (same key + event as SongsBrowser).
   const [cardSize, setCardSize] = useState(280);
   useEffect(() => {
@@ -126,23 +129,33 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
         return;
       }
       setLoading(true);
+      // Abort in-flight search if the operator triggers a new one or flips
+      // away from Bible mode — otherwise a slow stale response can land
+      // AFTER they've picked something and overwrite phraseHits.
+      searchAbortRef.current?.abort();
+      const controller = new AbortController();
+      searchAbortRef.current = controller;
       try {
         const res = await fetch("/api/bible/search", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ query: trimmed, translation, limit: resultsLimit }),
+          signal: controller.signal,
         }).then((r) => r.json());
+        if (controller.signal.aborted) return;
         if (res.error) { toast.error(res.error); return; }
         const hits = (res.hits || res.results || []) as Array<{ book: string; chapter: number; verse: number; text: string }>;
         setPhraseHits(hits.map((h) => ({ ...h, matched: trimmed })));
         setPhraseQuery(trimmed);
         setCards([]);
       } catch (e) {
+        if ((e as { name?: string })?.name === "AbortError") return; // superseded — silent
         toast.error(e instanceof Error ? e.message : "Search failed");
       } finally {
+        if (searchAbortRef.current === controller) searchAbortRef.current = null;
         setLoading(false);
       }
     }
-  }, [ref, runLookup, translation, setCards, setLoading, resultsLimit]);
+  }, [ref, runLookup, translation, setCards, setLoading, resultsLimit, setPhraseHits, setPhraseQuery]);
 
   const isRef = (() => {
     try {
@@ -318,6 +331,10 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
               onDoubleClick={() => ctx.onSendSlideToLive(slide)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
+                  // stopPropagation prevents useOperatorHotkeys from ALSO
+                  // firing its global Enter handler and pushing the previous
+                  // (slides-mode) preview slide live instead of this verse.
+                  e.stopPropagation();
                   if (e.shiftKey) ctx.onSendSlideToLive(slide);
                   else setSelectedIdx(idx);
                 }

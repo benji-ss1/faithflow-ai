@@ -736,7 +736,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         if (buffered.length > 0) {
           const bytes = ringBufferBytesRef.current;
           const ms = Math.round((bytes / 2 / 16_000) * 1000);
-          console.log(`[audio-buffer] retained ${ms} ms during reconnect`);
+          if (isDevOrTraceOn()) console.log(`[audio-buffer] retained ${ms} ms during reconnect`);
           for (const chunk of buffered) {
             try {
               const b64 = bytesToBase64(chunk);
@@ -995,14 +995,14 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           if (!silenceClosedRef.current && nowMs - (silenceStartRef.current ?? nowMs) >= SILENCE_HOLD_MS) {
             silenceClosedRef.current = true;
             setState((s) => ({ ...s, silenceGateClosed: true }));
-            console.log("[audio-silence] gate closed");
+            if (isDevOrTraceOn()) console.log("[audio-silence] gate closed");
           }
         } else if (dbfs > SILENCE_OPEN_DBFS) {
           silenceStartRef.current = null;
           if (silenceClosedRef.current) {
             silenceClosedRef.current = false;
             setState((s) => ({ ...s, silenceGateClosed: false }));
-            console.log("[audio-silence] gate opened");
+            if (isDevOrTraceOn()) console.log("[audio-silence] gate opened");
             // R8: flush lookback ring on reopen so DG hears the leading edge.
             if (ws.readyState === WebSocket.OPEN) {
               for (const chunk of lookbackRingRef.current) {
