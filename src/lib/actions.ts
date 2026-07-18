@@ -233,8 +233,9 @@ export async function reorderItemSlides(
 // Songs ----------------------------------------------------------------------
 export async function createSong(formData: FormData): Promise<Result<{ id: string }>> {
   const user = await requireUser();
-  const title = String(formData.get("title") || "").trim();
-  const artist = String(formData.get("artist") || "").trim() || null;
+  const title = String(formData.get("title") || "").trim().slice(0, 200);
+  const artistRaw = String(formData.get("artist") || "").trim().slice(0, 120);
+  const artist = artistRaw || null;
   if (!title) return { ok: false, error: "Title required" };
   const db = getDb();
   const [row] = await db.insert(songs).values({ churchId: user.churchId, title, artist }).returning();
