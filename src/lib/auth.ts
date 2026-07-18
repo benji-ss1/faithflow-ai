@@ -23,11 +23,42 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger }) {
       if (user) {
+        // Initial sign-in — populate from the authorize() return value.
         token.uid = (user as { id: string }).id;
         token.churchId = (user as { churchId: string }).churchId;
         token.role = (user as { role: string }).role;
+        token.refreshedAt = Date.now();
+        return token;
+      }
+      // Refresh path: on explicit `session.update()` OR every 5 minutes,
+      // re-select role/churchId from the DB so a removed teammate or
+      // demoted admin can't keep operating on a stale session.
+      // requireUser() already re-reads by email server-side, but any
+      // client-visible session.user.role/churchId still lied until now.
+      const REFRESH_MS = 5 * 60 * 1000;
+      const stale = !token.refreshedAt || Date.now() - Number(token.refreshedAt) > REFRESH_MS;
+      if (trigger === "update" || stale) {
+        try {
+          const uid = token.uid as string | undefined;
+          if (uid) {
+            const db = getDb();
+            const [row] = await db
+              .select({ churchId: users.churchId, role: users.role })
+              .from(users)
+              .where(eq(users.id, uid))
+              .limit(1);
+            if (row) {
+              token.churchId = row.churchId;
+              token.role = row.role;
+            }
+            token.refreshedAt = Date.now();
+          }
+        } catch {
+          // On DB blip, don't nuke the session — just skip refresh; next
+          // apiUser() call still refetches by email as the authoritative check.
+        }
       }
       return token;
     },
