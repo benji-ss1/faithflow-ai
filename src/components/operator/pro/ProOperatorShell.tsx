@@ -47,6 +47,7 @@ import { AudioDebugOverlay } from "../dev/AudioDebugOverlay";
 import { useDebouncedInterim } from "./useDebouncedInterim";
 import { CONFIDENCE_THRESHOLD } from "@/lib/audio-thresholds";
 import { OperatorTour, hasSeenTour } from "@/components/tutorial/OperatorTour";
+import { WhatsNewModal } from "../WhatsNewModal";
 import { dispatchInternal, isInternalEvent } from "@/lib/internal-events";
 
 // PF trace gate (R2). Mirrors useAudioStream.isDevOrTraceOn — cheap re-impl
@@ -1165,6 +1166,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       <ShortcutsHelpOverlay open={shortcutsHelpOpen} onOpenChange={setShortcutsHelpOpen} />
       <AudioDebugOverlay audio={ctx.audio} />
       <OperatorTour open={tourOpen} onClose={() => setTourOpen(false)} />
+      <WhatsNewModal />
     </div>
   );
 }
