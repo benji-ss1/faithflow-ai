@@ -118,9 +118,24 @@ export function UpdateBanner({ liveSlide, listening }: { liveSlide?: SlidePayloa
           onClick={async () => {
             const api = window.electronAPI;
             const retry = api?.update && "retryDownload" in api.update ? (api.update as { retryDownload?: () => Promise<unknown> }).retryDownload : undefined;
-            if (!retry) return;
+            if (!retry) {
+              // Older shells (pre-v0.1.6) don't have retryDownload IPC.
+              // Surface a clear message instead of a dead click.
+              setState({ kind: "error", message: "Retry not supported in this shell version — quit and relaunch Present Flow to trigger a fresh update check." });
+              return;
+            }
+            const prev = state;
             setState({ kind: "downloading", version: "…" });
-            try { await retry(); } catch (err) { console.error("[UpdateBanner] retry failed", err); }
+            try {
+              await retry();
+              // updater will fire update-downloaded on success → onDownloaded resets state
+            } catch (err) {
+              // Restore an error state rather than leaving 'downloading…' stuck forever.
+              setState({
+                kind: "error",
+                message: err instanceof Error ? err.message : (prev.kind === "error" ? prev.message : "Retry failed"),
+              });
+            }
           }}
           className="ml-1 px-2 py-0.5 rounded bg-orange-700 hover:bg-orange-800 text-xs"
         >

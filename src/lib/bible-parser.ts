@@ -377,8 +377,19 @@ const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => Pa
 ];
 
 /** Parse a transcript segment for Bible references. Returns all matches. */
+// Hard cap on parser input length. Every regex here is bounded ({0,5}
+// quantifiers, no nested alternation over shared prefixes), so no
+// exponential blowup — but polynomial O(n·m) on very long strings is still
+// avoidable. 4 KB is generous for any realistic transcript segment or
+// user-typed reference; beyond that we truncate.
+const MAX_PARSE_INPUT_BYTES = 4096;
+
 export function parseReferences(rawText: string): ParsedReference[] {
-  const text = normalize(rawText);
+  if (typeof rawText !== "string" || rawText.length === 0) return [];
+  const capped = rawText.length > MAX_PARSE_INPUT_BYTES
+    ? rawText.slice(0, MAX_PARSE_INPUT_BYTES)
+    : rawText;
+  const text = normalize(capped);
   const found: ParsedReference[] = [];
   const seenSpans = new Set<string>();
 

@@ -778,8 +778,18 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       const parser = await import("@/lib/bible-parser");
       const parsed = parser.parseReference(bibleSession.state.ref);
       if (!parsed) return;
+      // If ref is a whole chapter (verseEnd == null), advancing by "verse"
+      // would silently narrow the display from all-verses to a single verse.
+      // Refuse and hint the operator that whole-chapter mode uses passage nav.
+      if (parsed.verseEnd == null) {
+        toast.info("Whole-chapter passage — use Prev/Next Item for chapter navigation");
+        return;
+      }
       const nextVerse = parsed.verseStart + dir;
-      if (nextVerse < 1) return; // don't underflow; caller can lookup a new chapter manually
+      if (nextVerse < 1) {
+        toast.info("Start of chapter — use Prev Item for previous passage");
+        return;
+      }
       const newRef = `${parsed.book} ${parsed.chapter}:${nextVerse}`;
       bibleSession.setRef(newRef);
       // Trigger lookup via the same code path the Bible mode input uses.
@@ -827,6 +837,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         if ((err as { name?: string })?.name === "AbortError") {
           toast.error("Verse lookup slow — retrying");
         } else {
+          toast.error(err instanceof Error ? err.message : "Verse lookup failed");
           console.error("[verse-nav] lookup failed:", err);
         }
       } finally {

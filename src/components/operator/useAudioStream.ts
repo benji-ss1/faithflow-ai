@@ -465,7 +465,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stallWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const startRef = useRef<() => Promise<void>>(async () => {});
+  const startRef = useRef<(opts?: { warm?: boolean }) => Promise<void>>(async () => {});
   // Auto-pause: track when the last transcript arrived and check periodically.
   // If no transcript for AUTO_PAUSE_MS while listening, transition to paused
   // and close the WS to save Deepgram cost.
@@ -612,12 +612,17 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     }, delay);
   }, [teardown, isDevOrTraceOn]);
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (opts?: { warm?: boolean }) => {
     // R6: reentry guard — if we're mid-init, don't spawn a duplicate pipeline.
     // Check the LATEST committed state via a ref check on wsRef, which is set
     // synchronously below.
     // (Fine-grained state check happens against pipelineGenerationRef.)
     intentionalStopRef.current = false;
+    // Deterministic mic-mute state per invocation. Prior bug: warmStart set
+    // micMutedRef=true then never got cleared on subsequent operator clicks,
+    // so the WS opened but PCM chunks were suppressed at line ~1030 — Fly
+    // saw a handshake but no audio, looked dead.
+    micMutedRef.current = !!opts?.warm;
 
     // Two-tab defense was here (BroadcastChannel lease per planId) but was
     // false-positiving for testers who reload / have stale channels in the
@@ -662,7 +667,10 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       stallWatchdogRef.current = null;
       setState((s) => {
         if (s.stage === "deepgram_ready" || s.stage === "receiving_interim" || s.stage === "receiving_final") return s;
-        return { ...s, error: "AI failed to initialise" };
+        // Include the last-observed stage so a tester can self-diagnose:
+        // stuck at 'opening_ws' → network/firewall; 'requesting_ticket' →
+        // auth or CSRF; 'mic_granted' but no deepgram_ready → Fly bridge down.
+        return { ...s, error: `AI failed to initialise (stuck at ${s.stage})` };
       });
       // Kick a reconnect attempt if this wasn't an intentional stop, else stop.
       if (!intentionalStopRef.current) scheduleReconnect();
@@ -1164,9 +1172,10 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const warmStart = useCallback(() => {
     if (wsRef.current || state.warmStarted || state.listening) return;
     if (isDevOrTraceOn()) console.log("[presentflow-audio] warmStart() called");
-    micMutedRef.current = true;
     setState((s) => ({ ...s, warmStarted: true }));
-    startRef.current().catch(() => { /* ignore */ });
+    // Pass warm:true so start() sets micMutedRef itself — no shared-ref leak
+    // between warm-start and subsequent operator toggles.
+    startRef.current({ warm: true }).catch(() => { /* ignore */ });
   }, [state.warmStarted, state.listening, isDevOrTraceOn]);
 
   useEffect(() => () => stop(), [stop]);

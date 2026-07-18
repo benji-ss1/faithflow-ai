@@ -31,7 +31,23 @@ export async function POST(req: Request) {
     .update(`${planId}|${user.churchId}|${user.id}|${exp}`)
     .digest("hex");
 
+  // Hard-fail in prod when NEXT_PUBLIC_AUDIO_WS_URL is missing OR points at
+  // plain ws:// (mixed-content — browsers on https:// silently block it and
+  // Fly never sees a connection attempt). Localhost dev is still allowed via
+  // ws://. This is what was making the AI Live pill die silently for testers
+  // before — the URL got returned, WS constructor threw or failed silently,
+  // pill stayed "connecting…", zero Fly logs.
   const wsBase = process.env.NEXT_PUBLIC_AUDIO_WS_URL || "ws://localhost:3001";
+  const isLocalhost = /^wss?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(wsBase);
+  const isSecure = wsBase.startsWith("wss://");
+  const isProdOrigin = new URL(req.url).protocol === "https:";
+  if (isProdOrigin && !isSecure && !isLocalhost) {
+    console.error(`[audio/ticket] refusing ticket — NEXT_PUBLIC_AUDIO_WS_URL missing or insecure: ${wsBase}`);
+    return NextResponse.json(
+      { error: "Audio bridge not configured — set NEXT_PUBLIC_AUDIO_WS_URL to wss://<fly-app>.fly.dev" },
+      { status: 503 },
+    );
+  }
   const url = `${wsBase}?planId=${planId}&churchId=${user.churchId}&userId=${user.id}&exp=${exp}&sig=${sig}`;
   return NextResponse.json({ url });
 }
