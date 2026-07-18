@@ -17,6 +17,7 @@ import type { OperatorShellCtx } from "../shell/types";
 import type { CenterMode } from "./ProOperatorShell";
 import { cn } from "@/lib/utils";
 import { SearchPalette } from "./SearchPalette";
+import { AIDiagnosticModal } from "../AIDiagnosticModal";
 import type { DisplayInfo } from "@/types/electron";
 
 function IconBtn({
@@ -139,6 +140,7 @@ export function TopBar({
     : "AI idle — click to start";
 
   const [searchOpen, setSearchOpen] = useState(false);
+  const [diagOpen, setDiagOpen] = useState(false);
   const { tier } = useTier();
   const canProContent = tier !== null && canAccess(tier, "pro-content");
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
@@ -555,13 +557,22 @@ export function TopBar({
               <span className="truncate">{autoApproveOn ? "AUTO" : "Manual"}</span>
             </button>
             {aiError && (
-              <button
-                type="button"
-                onClick={() => { ctx.onResumeAudio?.() ?? ctx.onListenToggle(); }}
-                title="Retry AI listener"
-                aria-label="Retry AI listener"
-                className="h-[24px] px-2 rounded-md text-[10px] font-semibold bg-red-500/20 text-red-100 border border-red-500/50 hover:bg-red-500/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
-              >Retry</button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => { ctx.onResumeAudio?.() ?? ctx.onListenToggle(); }}
+                  title="Retry AI listener"
+                  aria-label="Retry AI listener"
+                  className="h-[24px] px-2 rounded-md text-[10px] font-semibold bg-red-500/20 text-red-100 border border-red-500/50 hover:bg-red-500/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
+                >Retry</button>
+                <button
+                  type="button"
+                  onClick={() => setDiagOpen(true)}
+                  title="Run AI listener diagnostic — traces each pipeline step"
+                  aria-label="Diagnose AI listener"
+                  className="h-[24px] px-2 rounded-md text-[10px] font-semibold bg-amber-500/20 text-amber-100 border border-amber-500/50 hover:bg-amber-500/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
+                >Diagnose</button>
+              </>
             )}
             {/* Task 6 — manual "Restart listening" icon. Full teardown +
                 fresh ticket + start. Available whenever the pipeline is
@@ -656,9 +667,16 @@ export function TopBar({
                 onClick={() => {
                   window.dispatchEvent(new CustomEvent("presentflow:open-tour"));
                 }}
-                className="mt-2 text-[11px] text-[var(--color-brand)] hover:underline"
+                className="mt-2 text-[11px] text-[var(--color-brand)] hover:underline block"
               >
                 About / Guided tour
+              </button>
+              <button
+                type="button"
+                onClick={() => setDiagOpen(true)}
+                className="mt-1 text-[11px] text-[var(--color-brand)] hover:underline block"
+              >
+                Diagnose AI listener
               </button>
             </Popover.Content>
           </Popover.Portal>
@@ -666,6 +684,7 @@ export function TopBar({
       </div>
 
       <SearchPalette open={searchOpen} onOpenChange={setSearchOpen} ctx={ctx} onCenterMode={onCenterMode} />
+      <AIDiagnosticModal planId={ctx.planId} open={diagOpen} onOpenChange={setDiagOpen} />
     </div>
   );
 }
