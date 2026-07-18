@@ -32,17 +32,29 @@ export async function POST(req: Request) {
 
   try {
     if (type === "checkout.session.completed") {
-      const churchId = (data.client_reference_id as string) || (data.metadata as Record<string, string>)?.churchId;
+      // client_reference_id is set server-side when we mint the checkout
+      // session — it is the ONLY trustworthy churchId source at this stage.
+      // metadata.churchId is deliberately IGNORED because it's caller-mutable
+      // (a compromised session token could forge it to another church).
+      const churchId = data.client_reference_id as string | undefined;
       if (!churchId) return NextResponse.json({ ok: true, skipped: "no churchId" });
       const stripeCustomerId = (data.customer as string) || null;
       const stripeSubscriptionId = (data.subscription as string) || null;
-      const tier = ((data.metadata as Record<string, string>)?.tier || "starter") as "starter" | "pro" | "enterprise";
+      // Same reason: metadata.tier is mutable; the safe read is the sub row
+      // from Stripe (fetched via subscription id above). For now default to
+      // starter unless the price_id → tier mapping is wired.
+      const tier = "starter" as const;
       await db.update(subscriptions)
         .set({ stripeCustomerId, stripeSubscriptionId, tier, status: "trialing", updatedAt: new Date() })
         .where(eq(subscriptions.churchId, churchId));
     } else if (type === "customer.subscription.updated" || type === "customer.subscription.created") {
-      const churchId = (data.metadata as Record<string, string>)?.churchId;
-      if (!churchId) return NextResponse.json({ ok: true, skipped: "no churchId" });
+      // Don't trust metadata.churchId — it can be rewritten after the initial
+      // checkout. Instead resolve churchId by the immutable stripeSubscriptionId
+      // (or stripeCustomerId fallback) that we recorded during checkout.
+      const subId = (data.id as string) || null;
+      const custId = (data.customer as string) || null;
+      const churchId = await resolveChurchId(db, subId, custId);
+      if (!churchId) return NextResponse.json({ ok: true, skipped: "no matching subscription row" });
       const status = (data.status as string) || "active";
       const currentPeriodEnd = data.current_period_end ? new Date((data.current_period_end as number) * 1000) : null;
       const trialEnd = data.trial_end ? new Date((data.trial_end as number) * 1000) : null;
@@ -50,7 +62,9 @@ export async function POST(req: Request) {
         .set({ status: mapStripeStatus(status), currentPeriodEnd, trialEnd, updatedAt: new Date() })
         .where(eq(subscriptions.churchId, churchId));
     } else if (type === "customer.subscription.deleted") {
-      const churchId = (data.metadata as Record<string, string>)?.churchId;
+      const subId = (data.id as string) || null;
+      const custId = (data.customer as string) || null;
+      const churchId = await resolveChurchId(db, subId, custId);
       if (!churchId) return NextResponse.json({ ok: true });
       await db.update(subscriptions)
         .set({ status: "canceled", updatedAt: new Date() })
@@ -61,6 +75,34 @@ export async function POST(req: Request) {
     console.error("[stripe-webhook] handler error:", e);
     return NextResponse.json({ error: "Handler failed" }, { status: 500 });
   }
+}
+
+/** Resolve the churchId a Stripe subscription belongs to via our own DB.
+ * Prefers stripeSubscriptionId (unique per checkout), falls back to
+ * stripeCustomerId. Returns null if we've never seen this sub — that's the
+ * signal to reject the event (privesc defense). */
+async function resolveChurchId(
+  db: ReturnType<typeof getDb>,
+  subId: string | null,
+  custId: string | null,
+): Promise<string | null> {
+  if (subId) {
+    const [row] = await db
+      .select({ churchId: subscriptions.churchId })
+      .from(subscriptions)
+      .where(eq(subscriptions.stripeSubscriptionId, subId))
+      .limit(1);
+    if (row) return row.churchId;
+  }
+  if (custId) {
+    const [row] = await db
+      .select({ churchId: subscriptions.churchId })
+      .from(subscriptions)
+      .where(eq(subscriptions.stripeCustomerId, custId))
+      .limit(1);
+    if (row) return row.churchId;
+  }
+  return null;
 }
 
 function mapStripeStatus(s: string): "pilot" | "trialing" | "active" | "past_due" | "canceled" {

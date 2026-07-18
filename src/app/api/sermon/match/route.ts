@@ -6,6 +6,7 @@
 import { NextResponse } from "next/server";
 import { and, eq, asc, sql } from "drizzle-orm";
 import { apiUser } from "@/lib/session";
+import { getEntitlement, canUseAI } from "@/lib/server/entitlement";
 import { getDb } from "@/lib/db/client";
 import { pptxImports, pptxSlides } from "@/lib/db/schema";
 import { embed, toVectorLiteral } from "@/lib/embeddings";
@@ -42,6 +43,10 @@ function substringScore(slideText: string, tail: string): { score: number; match
 export async function POST(req: Request) {
   const user = await apiUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ent = await getEntitlement(user.churchId);
+  if (!canUseAI(ent)) {
+    return NextResponse.json({ error: "Sermon slide matching requires an active subscription" }, { status: 402 });
+  }
 
   const body = await req.json().catch(() => ({}));
   const pptxImportId = String(body.pptxImportId || "");

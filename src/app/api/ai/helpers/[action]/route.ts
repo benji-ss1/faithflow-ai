@@ -8,6 +8,7 @@
 
 import { NextResponse } from "next/server";
 import { apiUser } from "@/lib/session";
+import { getEntitlement, canUseAI } from "@/lib/server/entitlement";
 import {
   improveReadability, formatLyrics, suggestEffect, draftAnnouncement, fixSlide,
   MissingApiKeyError,
@@ -48,6 +49,15 @@ const TONES = new Set(["warm", "formal", "urgent", "celebratory"]);
 export async function POST(req: Request, ctx: { params: Promise<{ action: string }> }) {
   const user = await apiUser();
   if (!user) return NextResponse.json({ ok: false, error: "Unauthorized", code: "BAD_INPUT" }, { status: 401 });
+  // Server-side entitlement: block free-tier from burning Groq budget.
+  // Client-side canAccess() is a hint only; a scripted POST would bypass it.
+  const ent = await getEntitlement(user.churchId);
+  if (!canUseAI(ent)) {
+    return NextResponse.json(
+      { ok: false, error: "AI helpers require an active subscription", code: "BAD_INPUT" },
+      { status: 402 },
+    );
+  }
   if (!checkRate(user.id)) return err("RATE_LIMITED", "Rate limit exceeded (10/min)", 429);
 
   const { action } = await ctx.params;

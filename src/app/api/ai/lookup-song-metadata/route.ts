@@ -6,6 +6,7 @@
 
 import { NextResponse } from "next/server";
 import { apiUser } from "@/lib/session";
+import { getEntitlement, canUseAI } from "@/lib/server/entitlement";
 import { lookupSongMetadata } from "@/lib/ai-detection/internet-metadata";
 
 export const runtime = "nodejs";
@@ -29,6 +30,11 @@ function checkRate(userId: string): boolean {
 export async function POST(req: Request) {
   const user = await apiUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const ent = await getEntitlement(user.churchId);
+  if (!canUseAI(ent)) {
+    return NextResponse.json({ error: "Song lookup requires an active subscription" }, { status: 402 });
+  }
 
   if (!checkRate(user.id)) {
     return NextResponse.json({ error: "Rate limit exceeded (20/min)" }, { status: 429 });
