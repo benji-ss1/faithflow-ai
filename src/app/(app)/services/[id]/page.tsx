@@ -6,9 +6,12 @@ import { servicePlans, serviceItems } from "@/lib/db/schema";
 import { listSongs, listMedia, listPptxImports } from "@/lib/server/services";
 import { PlaylistEditor } from "@/components/services/PlaylistEditor";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export default async function PlanEditPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
   const { id } = await params;
+  if (!UUID_RE.test(id)) notFound();
   const db = getDb();
   const [plan] = await db.select().from(servicePlans).where(and(eq(servicePlans.id, id), eq(servicePlans.churchId, user.churchId))).limit(1);
   if (!plan) notFound();
