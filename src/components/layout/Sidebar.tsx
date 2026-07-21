@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { IconTooltip } from "@/components/ui/tooltip";
 import { accountNav, desktopNav, getActiveNavMatch, getRouteMeta, workspaceNav } from "@/components/layout/navigation";
 import { useShell } from "@/hooks/useShell";
 import { Settings as SettingsIcon, LogOut, ExternalLink } from "lucide-react";
@@ -47,23 +48,25 @@ function ChildGroup({
   const Icon = item.icon;
 
   if (collapsed) {
-    // In collapsed mode: show a single icon tile with tooltip listing the children on hover via title
+    // In collapsed mode: show a single icon tile with a real styled tooltip
+    // (not the browser's native title=) listing the children on hover.
     const first = item.children?.[0];
     if (!first?.href) return null;
     return (
-      <Link
-        href={first.href}
-        title={`${item.label}: ${item.children?.map((c) => c.label).join(", ")}`}
-        onClick={onNavigate}
-        className={cn(
-          "group relative flex h-10 items-center justify-center overflow-hidden rounded-2xl border px-0 text-sm font-medium transition-all duration-200",
-          active
-            ? "border-[rgba(111,224,194,0.28)] bg-[linear-gradient(180deg,rgba(255,255,255,0.09),rgba(255,255,255,0.04))] text-foreground"
-            : "border-transparent text-sidebar-fg hover:border-white/10 hover:bg-white/[0.045]"
-        )}
-      >
-        <Icon className={cn("h-4 w-4 shrink-0", active ? "text-foreground" : "text-sidebar-fg")} strokeWidth={active ? 2 : 1.8} />
-      </Link>
+      <IconTooltip label={`${item.label}: ${item.children?.map((c) => c.label).join(", ")}`}>
+        <Link
+          href={first.href}
+          onClick={onNavigate}
+          className={cn(
+            "group relative flex h-10 items-center justify-center overflow-hidden rounded-2xl border px-0 text-sm font-medium transition-all duration-200",
+            active
+              ? "border-[rgba(111,224,194,0.28)] bg-[linear-gradient(180deg,rgba(255,255,255,0.09),rgba(255,255,255,0.04))] text-foreground"
+              : "border-transparent text-sidebar-fg hover:border-white/10 hover:bg-white/[0.045]"
+          )}
+        >
+          <Icon className={cn("h-4 w-4 shrink-0", active ? "text-foreground" : "text-sidebar-fg")} strokeWidth={active ? 2 : 1.8} />
+        </Link>
+      </IconTooltip>
     );
   }
 
@@ -176,13 +179,15 @@ function NavSection({
             );
 
             if (disabled) {
-              return (
-                <div key={item.label} title={item.badge ? `${item.label} — ${item.badge}` : `${item.label} — coming later`}
+              const disabledLabel = item.badge ? `${item.label} — ${item.badge}` : `${item.label} — coming later`;
+              const disabledEl = (
+                <div key={item.label} title={collapsed ? undefined : disabledLabel}
                   className={className} aria-disabled>
                   {active ? <span className={cn("absolute left-0 top-2 bottom-2 rounded-full bg-[var(--color-primary)]", collapsed ? "w-1 left-1.5" : "w-1")} /> : null}
                   {content}
                 </div>
               );
+              return collapsed ? <IconTooltip key={item.label} label={disabledLabel}>{disabledEl}</IconTooltip> : disabledEl;
             }
 
             if (hasChildren) {
@@ -198,11 +203,10 @@ function NavSection({
               );
             }
 
-            return (
+            const link = (
               <Link
                 key={item.href}
                 href={item.href!}
-                title={collapsed ? item.label : undefined}
                 className={className}
                 onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
@@ -211,6 +215,7 @@ function NavSection({
                 {content}
               </Link>
             );
+            return collapsed ? <IconTooltip key={item.href} label={item.label}>{link}</IconTooltip> : link;
           })}
         </div>
       ))}
@@ -277,10 +282,23 @@ export function Sidebar({ mobileOpen, onMobileOpenChange }: SidebarProps) {
   const shell = (
     <aside
       className={cn(
-        "flex h-full flex-col border-r border-white/8 bg-[linear-gradient(180deg,rgba(35,43,43,0.96),rgba(21,26,26,0.98))] shadow-[inset_-1px_0_0_rgba(255,255,255,0.03)] backdrop-blur-xl transition-[width,transform] duration-300 ease-out",
+        "relative flex h-full flex-col border-r border-white/8 bg-[linear-gradient(180deg,rgba(35,43,43,0.96),rgba(21,26,26,0.98))] shadow-[inset_-1px_0_0_rgba(255,255,255,0.03)] backdrop-blur-xl transition-[width,transform] duration-300 ease-out",
         collapsed ? "w-[92px]" : "w-[302px]"
       )}
     >
+      {/* Always-visible, clearly discoverable collapse/expand control — sits
+          on the sidebar's own edge rather than buried in the header/footer,
+          so it reads as an obvious control at a glance in either state. */}
+      <IconTooltip label={collapsed ? "Expand sidebar (Cmd/Ctrl + /)" : "Collapse sidebar (Cmd/Ctrl + /)"} side="right">
+        <button
+          type="button"
+          onClick={() => setCollapsed((v) => !v)}
+          className="absolute -right-3.5 top-8 z-10 hidden h-7 w-7 items-center justify-center rounded-full border border-white/12 bg-[var(--color-elevated)] text-muted-foreground shadow-[0_6px_18px_rgba(0,0,0,0.35)] transition hover:border-white/20 hover:text-foreground lg:inline-flex"
+        >
+          {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
+        </button>
+      </IconTooltip>
+
       <div className={cn("flex h-20 items-center border-b border-white/8", collapsed ? "justify-center px-3" : "px-5")}>
         <div className={cn("flex min-w-0 items-center gap-3", collapsed && "justify-center")}>
           <div className="flex size-11 items-center justify-center rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] shadow-[0_12px_36px_rgba(0,0,0,0.28)]">
@@ -293,16 +311,6 @@ export function Sidebar({ mobileOpen, onMobileOpenChange }: SidebarProps) {
             </div>
           ) : null}
         </div>
-        {!collapsed ? (
-          <button
-            type="button"
-            onClick={() => setCollapsed(true)}
-            className="ml-auto hidden h-9 w-9 items-center justify-center rounded-xl border border-white/8 text-muted-foreground transition hover:border-white/14 hover:bg-white/[0.05] hover:text-foreground lg:inline-flex"
-            title="Collapse"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-        ) : null}
       </div>
 
       <div className={cn("flex-1 space-y-7 overflow-y-auto py-5", collapsed ? "px-3" : "px-4")}>
@@ -369,22 +377,13 @@ export function Sidebar({ mobileOpen, onMobileOpenChange }: SidebarProps) {
         ) : (
           <div className="space-y-3 rounded-[1.35rem] border border-white/7 bg-white/[0.03] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
             {!collapsed ? (
-              <>
-                <div className="space-y-1">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Account</div>
-                  <div className="text-sm font-semibold text-foreground">Admin surfaces</div>
-                  <div className="text-xs leading-5 text-muted-foreground">
-                    Billing, subscriptions, profile, and application management stay separate from Sunday-live controls.
-                  </div>
-                </div>
-                <NavSection
-                  collapsed={false}
-                  pathname={pathname}
-                  groups={accountNav}
-                  unlocked={null}
-                  onNavigate={() => onMobileOpenChange(false)}
-                />
-              </>
+              <NavSection
+                collapsed={false}
+                pathname={pathname}
+                groups={accountNav}
+                unlocked={null}
+                onNavigate={() => onMobileOpenChange(false)}
+              />
             ) : (
               <div className="flex justify-center">
                 <div className="rounded-2xl border border-white/8 bg-white/[0.04] p-2.5">
@@ -399,17 +398,7 @@ export function Sidebar({ mobileOpen, onMobileOpenChange }: SidebarProps) {
       <div className={cn("border-t border-white/8 py-4", collapsed ? "px-3" : "px-4")}>
         <div className={cn("flex items-center gap-2", collapsed ? "justify-center" : "justify-between")}>
           {collapsed ? (
-            <>
-              <ThemeToggle compact />
-              <button
-                type="button"
-                onClick={() => setCollapsed(false)}
-                className="hidden h-8 w-8 items-center justify-center rounded-xl border border-white/8 text-muted-foreground transition hover:border-white/14 hover:bg-white/[0.05] hover:text-foreground lg:inline-flex"
-                title="Expand"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            </>
+            <ThemeToggle compact />
           ) : (
             <>
               <div>

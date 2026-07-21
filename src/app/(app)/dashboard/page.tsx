@@ -7,14 +7,11 @@ import {
   Bot,
   CalendarClock,
   CheckCircle2,
-  HardDrive,
   Mic,
   MonitorPlay,
   Receipt,
   ShieldCheck,
-  Sparkles,
   TriangleAlert,
-  Users2,
 } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { getDb } from "@/lib/db/client";
@@ -33,6 +30,7 @@ import {
 } from "@/lib/db/schema";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DashboardCard, StatusPill } from "@/components/dashboard/DashboardCard";
+import { RecentUpdatesPanel } from "@/components/dashboard/RecentUpdatesPanel";
 
 type ChecklistItem = {
   label: string;
@@ -160,67 +158,7 @@ export default async function DashboardPage() {
         }
       />
 
-      <section className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
-        <DashboardCard title="Welcome card" eyebrow="Church workspace" tone="premium" className="overflow-hidden">
-          <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
-            <div className="space-y-4">
-              <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-[11px] font-medium text-muted-foreground">
-                <Sparkles className="h-3.5 w-3.5 text-[var(--color-primary)]" />
-                {church?.name || "PresentFlow Church"}
-              </div>
-              <div className="max-w-xl text-3xl font-semibold tracking-[-0.04em] text-foreground">
-                Calm control before Sunday starts. Keep archive, AI, imports, and account readiness in one place.
-              </div>
-              <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-                The live operator surface stays separate. This workspace is for planning, profile health, billing posture, and keeping the wider church system ready.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <StatusPill label={church?.onboardingStatus || "pending"} tone={church?.onboardingStatus === "complete" ? "success" : "brand"} />
-                <StatusPill label={sub?.tier || "pilot"} tone="brand" />
-                <StatusPill label={sub?.status || "pilot"} tone={planTone} />
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-              <MetricTile label="Team" value={String(teamRows.length)} hint={`${verifiedMembers} verified members`} icon={Users2} />
-              <MetricTile label="Archive" value={String(archiveRows.length)} hint="Sermon summaries stored" icon={ShieldCheck} />
-              <MetricTile label="Storage" value={formatBytes(storageBytes)} hint={`${mediaRows.length} media assets`} icon={HardDrive} />
-            </div>
-          </div>
-        </DashboardCard>
-
-        <DashboardCard title="Today’s service card" eyebrow="Sunday readiness" className="flex flex-col justify-between">
-          {todaysService ? (
-            <div className="space-y-4">
-              <div>
-                <div className="text-2xl font-semibold tracking-[-0.03em] text-foreground">{todaysService.title}</div>
-                <div className="mt-1 text-sm text-muted-foreground">
-                  Scheduled for {formatServiceDate(todaysService.scheduledFor)}.
-                </div>
-              </div>
-              <div className="rounded-2xl border border-white/8 bg-white/[0.04] p-4 text-sm leading-6 text-muted-foreground">
-                Today is live-ready from a planning perspective. Jump into the service workspace or open the operator route when the live team is ready.
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Link href={`/services/${todaysService.id}`} className="inline-flex h-10 items-center rounded-xl border border-white/10 px-4 text-sm font-medium text-foreground hover:bg-white/[0.05]">
-                  Review plan
-                </Link>
-                <Link href={`/services/${todaysService.id}/operate`} className="inline-flex h-10 items-center rounded-xl bg-[var(--color-primary)] px-4 text-sm font-semibold text-[var(--color-primary-foreground)] hover:brightness-105">
-                  Open operator
-                </Link>
-              </div>
-            </div>
-          ) : (
-            <EmptyStateCard
-              icon={CalendarClock}
-              title="No service scheduled today"
-              description="Schedule the next service plan so your readiness and archive cards can lock onto a real Sunday timeline."
-              href="/services"
-              cta="Create or review services"
-            />
-          )}
-        </DashboardCard>
-      </section>
+      <RecentUpdatesPanel />
 
       <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr_0.85fr]">
         <DashboardCard title="Next service checklist" eyebrow="Operational prep">
@@ -431,29 +369,6 @@ export default async function DashboardPage() {
           </div>
         </DashboardCard>
       </section>
-    </div>
-  );
-}
-
-function MetricTile({
-  label,
-  value,
-  hint,
-  icon: Icon,
-}: {
-  label: string;
-  value: string;
-  hint: string;
-  icon: typeof Sparkles;
-}) {
-  return (
-    <div className="rounded-2xl border border-white/8 bg-black/18 px-4 py-3">
-      <div className="mb-3 flex items-center justify-between">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">{label}</div>
-        <Icon className="h-4 w-4 text-[var(--color-primary)]" />
-      </div>
-      <div className="text-xl font-semibold tracking-[-0.03em] text-foreground">{value}</div>
-      <div className="mt-1 text-xs text-muted-foreground">{hint}</div>
     </div>
   );
 }

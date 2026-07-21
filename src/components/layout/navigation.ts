@@ -14,11 +14,9 @@ import {
   Music4,
   Palette,
   PlayCircle,
-  Presentation,
   Settings,
   Sparkles,
   Users,
-  Workflow,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -43,13 +41,17 @@ export type ActiveNavMatch = {
   section: "workspace" | "account";
 };
 
+// Web nav — admin/billing/team only. The live-show surface (Services'
+// operator entry, projector/setup/diagnostics, tutorials) is desktop-only
+// as of the web/desktop split (see src/middleware.ts) and intentionally
+// has no nav entry here — /services itself stays reachable via the
+// dashboard's "Open services" button and "Next steps" panel, it just
+// doesn't need a permanent top-level row.
 export const workspaceNav: NavGroup[] = [
   {
     label: "Workspace",
     items: [
       { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
-      { href: "/services", label: "Services", icon: Presentation },
-      { label: "Operator", icon: MonitorSmartphone, badge: "Live", disabled: true },
     ],
   },
   {
@@ -75,20 +77,15 @@ export const workspaceNav: NavGroup[] = [
     label: "Admin",
     items: [
       { href: "/organization", label: "Church Profile", icon: Building2 },
-      { href: "/settings/team", label: "Team", icon: Users },
-      { href: "/settings/devices", label: "Devices & Outputs", icon: Workflow },
-      { href: "/subscriptions", label: "Billing", icon: CreditCard },
-      { href: "/settings", label: "Settings", icon: Settings },
-    ],
-  },
-  {
-    label: "Learn",
-    items: [
-      { href: "/tutorial", label: "Guided tutorial", icon: PlayCircle },
-      { href: "/help/first-sunday", label: "First Sunday playbook", icon: LifeBuoy },
-      { href: "/setup/projector", label: "Projector setup", icon: MonitorSmartphone },
-      { href: "/setup/audio", label: "Microphone / mixer setup", icon: Sparkles },
-      { href: "/setup/diagnostics", label: "Install diagnostics", icon: Wrench },
+      {
+        label: "Account",
+        icon: Settings,
+        children: [
+          { href: "/settings/team", label: "Team", icon: Users },
+          { href: "/subscriptions", label: "Billing", icon: CreditCard },
+          { href: "/settings", label: "Settings", icon: Settings },
+        ],
+      },
     ],
   },
 ];
