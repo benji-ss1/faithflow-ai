@@ -78,6 +78,21 @@ export function LeftColumn({ ctx }: { ctx: OperatorShellCtx }) {
 
   const isElectron = typeof window !== "undefined" && !!(window as { electronAPI?: unknown }).electronAPI;
 
+  // Pending guard: a rapid double-click (or impatient repeat-click) on a
+  // library row can fire onAddLibraryItem twice before the first call lands.
+  // Track the "key" of the item currently in flight and ignore repeat clicks
+  // on it until the add resolves.
+  const [addPendingKey, setAddPendingKey] = useState<string | null>(null);
+  async function guardedAdd(key: string, kind: "song" | "media" | "sermon", payload: { id: string; title: string }) {
+    if (addPendingKey === key || !ctx.onAddLibraryItem) return;
+    setAddPendingKey(key);
+    try {
+      await ctx.onAddLibraryItem(kind, payload);
+    } finally {
+      setAddPendingKey(null);
+    }
+  }
+
   function onLibraryDragStart(e: React.DragEvent, payload: LibraryDrag) {
     try {
       e.dataTransfer.setData(DRAG_MIME, JSON.stringify(payload));
@@ -98,20 +113,21 @@ export function LeftColumn({ ctx }: { ctx: OperatorShellCtx }) {
   }
 
   function onSongClick(s: SongRow) {
-    ctx.onAddLibraryItem?.("song", { id: s.id, title: s.title });
+    void guardedAdd(`song:${s.id}`, "song", { id: s.id, title: s.title });
   }
   function onMediaClick(m: MediaRow) {
-    ctx.onAddLibraryItem?.("media", { id: m.id, title: m.fileName });
+    void guardedAdd(`media:${m.id}`, "media", { id: m.id, title: m.fileName });
   }
   function onImportClick(i: ImportRow) {
     if (i.status !== "ready") { toast.info(`Import status: ${i.status}`); return; }
-    ctx.onAddLibraryItem?.("sermon", { id: i.id, title: i.fileName });
+    void guardedAdd(`sermon:${i.id}`, "sermon", { id: i.id, title: i.fileName });
   }
 
   return (
     <>
     <aside className="w-56 shrink-0 flex flex-col border-r min-h-0"
       style={{ borderColor: "#2a3232", background: "#1e2525" }}>
+      <div className="flex-1 min-h-0 overflow-y-auto">
       <Panel title="Library" open={libOpen} onToggle={() => setLibOpen((v) => !v)}>
         <ul className="flex flex-col">
           {LIB.map(({ key, label, icon: Icon }) => {
@@ -141,7 +157,7 @@ export function LeftColumn({ ctx }: { ctx: OperatorShellCtx }) {
                         className="w-full h-6 pl-6 pr-2 rounded-md text-[10px] text-zinc-100 placeholder:text-zinc-500 focus:outline-none border"
                         style={{ background: "#1a2020", borderColor: "#2a3232" }} />
                     </div>
-                    <div className="max-h-[35vh] overflow-y-auto pr-0.5">
+                    <div className="pr-0.5">
                       {key === "songs" && (
                         songs === null ? <Loading /> :
                         filteredSongs.length === 0 ? <Empty label="songs" /> :
@@ -213,7 +229,7 @@ export function LeftColumn({ ctx }: { ctx: OperatorShellCtx }) {
 
       <Panel title={`Playlist · ${ctx.plan.items.length}`} open={playOpen} onToggle={() => setPlayOpen((v) => !v)}>
         <div
-          className="max-h-[35vh] overflow-y-auto pr-0.5"
+          className="pr-0.5"
           onDragOver={(e) => {
             if (Array.from(e.dataTransfer.types).includes(DRAG_MIME)) {
               e.preventDefault();
@@ -260,7 +276,7 @@ export function LeftColumn({ ctx }: { ctx: OperatorShellCtx }) {
         {ctx.bank.length === 0 ? (
           <div className="text-[10px] text-zinc-500 px-2 py-1">Save verses from the Bible panel to appear here.</div>
         ) : (
-          <div className="max-h-[35vh] overflow-y-auto pr-0.5">
+          <div className="pr-0.5">
             <ul className="flex flex-col">
               {ctx.bank.map((b, idx) => {
                 const label = `${b.book} ${b.chapter}:${b.verseStart}${b.verseStart !== b.verseEnd ? `-${b.verseEnd}` : ""}`;
@@ -299,6 +315,7 @@ export function LeftColumn({ ctx }: { ctx: OperatorShellCtx }) {
             style={{ background: "#1a2020", borderColor: "#2a3232" }} />
         </div>
       </Panel>
+      </div>
 
       {/* Bottom Help icon — mirrors the Electron Help menu. Web shell hides it
           (web has its own navigation). */}

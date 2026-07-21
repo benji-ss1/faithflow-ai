@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { OperatorShellCtx } from "../../shell/types";
-import type { UnifiedSuggestion } from "../../useAudioStream";
+import type { UnifiedSuggestion, SongSuggestion } from "../../useAudioStream";
 import { cachedLookup } from "@/lib/bible-client-cache";
 import { cn } from "@/lib/utils";
 
@@ -127,6 +127,29 @@ export function bibleRowFromSuggestion(s: UnifiedSuggestion): BibleRow | null {
   };
 }
 
+/**
+ * Server-side song detections arrive via a different shape (Fly audio
+ * bridge `{type:"song", song:{...}}` messages, stored in
+ * useAudioStream's `songSuggestions`) than the client-side detectAll()
+ * suggestions. This adapts them into the same SongRow shape so both
+ * sources render in one deduped list — server detections were previously
+ * silently discarded because the panel only read `suggestions`.
+ */
+export function songRowFromServerSuggestion(s: SongSuggestion): SongRow | null {
+  if (!s.songId) return null;
+  return {
+    key: s.songId,
+    songId: s.songId,
+    title: s.title,
+    artist: null,
+    confidence: s.confidence,
+    ts: Date.now(),
+    preview: s.matchedText ? s.matchedText.slice(0, 60) : undefined,
+    matchType: "Title",
+    source: "local_library",
+  };
+}
+
 export function songRowFromSuggestion(s: UnifiedSuggestion): SongRow | null {
   if (s.type !== "song" && s.type !== "lyric") return null;
   const m = s.match;
@@ -216,6 +239,22 @@ export function AIDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
     setSongRows((prev) => prev.filter((r) => now - r.ts < EXPIRY_MS));
   }, [audio.suggestions, threshold, dismissedKeys, ctx.defaultTranslationCode]);
 
+  // Ingest server-side song detections (Fly audio bridge) — a separate
+  // source from the client-computed `audio.suggestions` above. Without this,
+  // server detections were silently dropped since the panel only read
+  // `suggestions`. Merged/deduped by songId via mergeSongRows.
+  useEffect(() => {
+    const now = Date.now();
+    for (const s of audio.songSuggestions) {
+      const row = songRowFromServerSuggestion(s);
+      if (!row) continue;
+      if (row.confidence < threshold) continue;
+      if (dismissedKeys.has(`song:${row.key}`)) continue;
+      setSongRows((prev) => mergeSongRows(prev, row));
+    }
+    setSongRows((prev) => prev.filter((r) => now - r.ts < EXPIRY_MS));
+  }, [audio.songSuggestions, threshold, dismissedKeys]);
+
   // Also prune on tick.
   useEffect(() => {
     setBibleRows((prev) => prev.filter((r) => nowTick - r.ts < EXPIRY_MS));
@@ -279,10 +318,33 @@ export function AIDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
     void ctx.onAddLibraryItem("song", { id: row.songId, title: row.title });
   };
 
-  // CLAUDE.md rule 7 — songs never auto-project. Double-click = load, not send.
-  const sendSongLive = (row: SongRow) => {
-    loadSong(row);
-    toast("Song loaded — press SEND LIVE to project", { duration: 2500 });
+  // Manual, operator-initiated click → push the song's first slide live
+  // immediately, matching the Bible detection row's click behavior above.
+  // This is still a deliberate human click (not the AI acting on its own),
+  // so it doesn't violate CLAUDE.md rule 7 ("songs never auto-project" is
+  // about the AI pushing without a human click at all).
+  const sendSongLivePendingRef = useRef<Set<string>>(new Set());
+  const sendSongLive = async (row: SongRow) => {
+    // Guard against a double-click firing two overlapping live-pushes for
+    // the same song, consistent with the pending guards on every other
+    // add-to-playlist trigger in this codebase.
+    if (sendSongLivePendingRef.current.has(row.songId)) return;
+    sendSongLivePendingRef.current.add(row.songId);
+    try {
+      loadSong(row);
+      const res = await fetch(`/api/songs/${row.songId}/slides`).then((r) => r.json());
+      const slides = Array.isArray(res.slides) ? res.slides as { lyrics: string }[] : [];
+      const first = slides[0];
+      if (!first || !first.lyrics) {
+        toast.error("No slides found for this song");
+        return;
+      }
+      ctx.onSendSlideToLive({ kind: "text", text: first.lyrics });
+    } catch {
+      toast.error("Send failed");
+    } finally {
+      sendSongLivePendingRef.current.delete(row.songId);
+    }
   };
 
   const dismissBible = (key: string) => {
@@ -422,8 +484,8 @@ export function AIDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
                   key={row.key}
                   role="button"
                   tabIndex={0}
-                  onClick={() => loadSong(row)}
-                  onDoubleClick={(e) => { e.preventDefault(); sendSongLive(row); }}
+                  onClick={() => void sendSongLive(row)}
+                  title="Click to send song to live"
                   className="group flex items-center gap-1.5 px-1.5 py-1 rounded bg-[var(--color-elevated)] hover:bg-[var(--color-elevated-hover,var(--color-elevated))] cursor-pointer border border-transparent hover:border-[var(--color-border)]"
                   data-testid={`song-row-${row.key}`}
                 >

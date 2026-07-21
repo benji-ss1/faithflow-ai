@@ -68,33 +68,55 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
   }, []);
   const router = useRouter();
 
+  // Pending guards against duplicate-add: a rapid double-click or impatient
+  // repeat-click on the `+` button (or the batch "add all" button) could
+  // fire the add action twice while the first call is still in flight. Track
+  // per-card ids currently in-flight, plus a single flag for the batch add.
+  const [pendingVerseIds, setPendingVerseIds] = useState<Set<string>>(new Set());
+  const [addAllPending, setAddAllPending] = useState(false);
+
   // Build a scripture add payload for a single verse card and dispatch the
   // existing addServiceItem server action. Reused by the per-card `+` button
   // and by the batch "add all" control below.
   const addVerseToPlaylist = useCallback(async (c: VerseCard) => {
     if (!ctx.planId) { toast.info("No plan open"); return; }
-    // Prefer a compact "Book Ch:Vs" reference (strip trailing "(TRANS)").
-    const ref = c.label.replace(/\s*\([^)]*\)\s*$/, "").trim();
-    const verses = c.verses.map((v) => ({ verse: v.verse, text: v.text }));
-    const res = await addServiceItem(ctx.planId, "scripture", ref, { reference: ref, verses });
-    if (!res.ok) { toast.error(res.error || "Add failed"); return; }
-    toast.success(`Added: ${ref}`);
-    router.refresh();
-  }, [ctx.planId, router]);
-
-  const addAllVerses = useCallback(async () => {
-    if (cards.length === 0) return;
-    let added = 0;
-    for (const c of cards) {
-      if (!ctx.planId) break;
+    if (pendingVerseIds.has(c.id)) return; // already in flight
+    setPendingVerseIds((prev) => new Set(prev).add(c.id));
+    try {
+      // Prefer a compact "Book Ch:Vs" reference (strip trailing "(TRANS)").
       const ref = c.label.replace(/\s*\([^)]*\)\s*$/, "").trim();
       const verses = c.verses.map((v) => ({ verse: v.verse, text: v.text }));
       const res = await addServiceItem(ctx.planId, "scripture", ref, { reference: ref, verses });
-      if (res.ok) added++;
+      if (!res.ok) { toast.error(res.error || "Add failed"); return; }
+      toast.success(`Added: ${ref}`);
+      router.refresh();
+    } finally {
+      setPendingVerseIds((prev) => {
+        const next = new Set(prev);
+        next.delete(c.id);
+        return next;
+      });
     }
-    if (added > 0) { toast.success(`Added ${added} verse${added === 1 ? "" : "s"}`); router.refresh(); }
-    else toast.error("No verses added");
-  }, [cards, ctx.planId, router]);
+  }, [ctx.planId, router, pendingVerseIds]);
+
+  const addAllVerses = useCallback(async () => {
+    if (cards.length === 0 || addAllPending) return;
+    setAddAllPending(true);
+    try {
+      let added = 0;
+      for (const c of cards) {
+        if (!ctx.planId) break;
+        const ref = c.label.replace(/\s*\([^)]*\)\s*$/, "").trim();
+        const verses = c.verses.map((v) => ({ verse: v.verse, text: v.text }));
+        const res = await addServiceItem(ctx.planId, "scripture", ref, { reference: ref, verses });
+        if (res.ok) added++;
+      }
+      if (added > 0) { toast.success(`Added ${added} verse${added === 1 ? "" : "s"}`); router.refresh(); }
+      else toast.error("No verses added");
+    } finally {
+      setAddAllPending(false);
+    }
+  }, [cards, ctx.planId, router, addAllPending]);
 
   const runLookup = useCallback(async (p: { book: string; chapter: number; verseStart: number; verseEnd: number; chapterEnd?: number }) => {
     setLoading(true);
@@ -394,8 +416,9 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
             const slide: SlidePayload = { kind: "text", text: `${h.text}\n\n${label}` };
             const parts = h.matched ? h.text.split(new RegExp(`(${h.matched.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "i")) : [h.text];
             return (
-              <div key={`${label}-${i}`} className="p-3 rounded border border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col gap-1"
-                onDoubleClick={() => ctx.onSendSlideToLive(slide)}
+              <div key={`${label}-${i}`} className="p-3 rounded border border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col gap-1 cursor-pointer"
+                onClick={() => ctx.onSendSlideToLive(slide)}
+                title="Click to send verse to live"
               >
                 <div className="text-[10px] font-mono text-[var(--color-muted-foreground)]">{label}</div>
                 <div className="text-sm">
@@ -418,7 +441,11 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
         <div className="flex justify-end -mb-2">
           <button
             onClick={() => void addAllVerses()}
-            className="h-7 px-2 rounded border border-[var(--color-border)] text-[11px] font-mono uppercase tracking-wider hover:bg-[var(--color-elevated)]"
+            disabled={addAllPending}
+            className={cn(
+              "h-7 px-2 rounded border border-[var(--color-border)] text-[11px] font-mono uppercase tracking-wider hover:bg-[var(--color-elevated)]",
+              addAllPending && "opacity-50 cursor-not-allowed pointer-events-none",
+            )}
             title="Add every verse as a separate scripture item"
           >
             + Add all verses
@@ -441,8 +468,8 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
                 return (
                   <li key={c.id}>
                     <button
-                      onClick={() => setSelectedIdx(idx)}
-                      onDoubleClick={() => ctx.onSendSlideToLive(cardToSlide(c, idx, cards.length))}
+                      onClick={() => { setSelectedIdx(idx); ctx.onSendSlideToLive(cardToSlide(c, idx, cards.length)); }}
+                      title="Click to send verse to live"
                       className={cn(
                         "w-full text-left px-3 py-2 border-b border-[var(--color-border)] hover:bg-[var(--color-elevated)]",
                         selected && "bg-[var(--color-elevated)] border-l-2 border-l-[var(--color-brand)]",
@@ -516,16 +543,15 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
               key={c.id}
               role="button"
               tabIndex={0}
-              onClick={() => setSelectedIdx(idx)}
-              onDoubleClick={() => ctx.onSendSlideToLive(slide)}
+              onClick={() => { setSelectedIdx(idx); ctx.onSendSlideToLive(slide); }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   // stopPropagation prevents useOperatorHotkeys from ALSO
                   // firing its global Enter handler and pushing the previous
                   // (slides-mode) preview slide live instead of this verse.
                   e.stopPropagation();
-                  if (e.shiftKey) ctx.onSendSlideToLive(slide);
-                  else setSelectedIdx(idx);
+                  setSelectedIdx(idx);
+                  ctx.onSendSlideToLive(slide);
                 }
               }}
               className={cn(
@@ -541,9 +567,13 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
                 type="button"
                 aria-label={`Add ${c.label} to playlist`}
                 title="Add to playlist"
+                disabled={pendingVerseIds.has(c.id)}
                 onClick={(e) => { e.stopPropagation(); void addVerseToPlaylist(c); }}
                 onDoubleClick={(e) => e.stopPropagation()}
-                className="absolute top-1 right-1 h-5 w-5 inline-flex items-center justify-center rounded bg-black/50 text-white/80 hover:bg-[var(--color-brand)] hover:text-black transition-colors"
+                className={cn(
+                  "absolute top-1 right-1 h-5 w-5 inline-flex items-center justify-center rounded bg-black/50 text-white/80 hover:bg-[var(--color-brand)] hover:text-black transition-colors",
+                  pendingVerseIds.has(c.id) && "opacity-50 cursor-not-allowed pointer-events-none",
+                )}
               >
                 <Plus className="h-3 w-3" />
               </button>

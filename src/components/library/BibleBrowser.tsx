@@ -36,7 +36,7 @@ export function BibleBrowser({
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [staged, setStaged] = useState<StagedVerse[]>([]);
   const [loading, setLoading] = useState(false);
-  const [, startTransition] = useTransition();
+  const [isPending, startTransition] = useTransition();
 
   const currentTranslation = translations.find((t) => t.id === translationId)!;
 
@@ -102,6 +102,7 @@ export function BibleBrowser({
 
   function addToPlan(planId: string) {
     if (staged.length === 0) { toast.error("Nothing staged"); return; }
+    if (isPending) return; // guard against repeat-click while a previous add is in flight
     const ref = stagedReference();
     const slides = staged.map((v) => ({ text: `${v.text}\n\n${v.book} ${v.chapter}:${v.verse} (${v.translationCode})` }));
     startTransition(async () => {
@@ -244,8 +245,11 @@ export function BibleBrowser({
               ) : (
                 <div className="space-y-1">
                   {plans.map((p) => (
-                    <button key={p.id} onClick={() => addToPlan(p.id)}
-                      className="w-full text-left px-2 py-1.5 border border-border rounded-sm text-xs hover:bg-accent flex items-center gap-1.5">
+                    <button key={p.id} onClick={() => addToPlan(p.id)} disabled={isPending}
+                      className={cn(
+                        "w-full text-left px-2 py-1.5 border border-border rounded-sm text-xs hover:bg-accent flex items-center gap-1.5",
+                        isPending && "opacity-50 cursor-not-allowed pointer-events-none",
+                      )}>
                       <Plus className="w-3 h-3" /> {p.title}
                     </button>
                   ))}

@@ -110,7 +110,23 @@ export async function addServiceItem(planId: string, type: "song" | "scripture" 
   // gives a monotonic order that survives deletes; concurrent inserts still
   // race but the failure mode becomes duplicate `order` (visual reorder needed)
   // rather than silent overwrite of an existing row's order.
-  const existing = await db.select({ order: serviceItems.order }).from(serviceItems).where(eq(serviceItems.servicePlanId, planId));
+  const existing = await db.select({ order: serviceItems.order, type: serviceItems.type, payload: serviceItems.payload }).from(serviceItems).where(eq(serviceItems.servicePlanId, planId));
+  // Idempotency guard: a rapid double-click (or any repeat call) on the same
+  // library item can fire addServiceItem twice before the first insert lands.
+  // If an item of the same type + identifying key already exists in this
+  // plan, no-op instead of inserting a duplicate row.
+  type DedupPayload = { songId?: string; reference?: string };
+  if (type === "song") {
+    const songId = (payload as DedupPayload)?.songId;
+    if (songId && existing.some((e) => e.type === "song" && (e.payload as DedupPayload)?.songId === songId)) {
+      return { ok: true };
+    }
+  } else if (type === "scripture") {
+    const reference = (payload as DedupPayload)?.reference;
+    if (reference && existing.some((e) => e.type === "scripture" && (e.payload as DedupPayload)?.reference === reference)) {
+      return { ok: true };
+    }
+  }
   const nextOrder = existing.length > 0 ? Math.max(...existing.map((e) => e.order)) + 1 : 0;
   await db.insert(serviceItems).values({ servicePlanId: planId, order: nextOrder, type, title, payload });
   revalidatePath(`/services/${planId}`);

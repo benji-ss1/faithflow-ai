@@ -313,7 +313,6 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     setHiddenBankIds((cur) => { const n = new Set(cur); n.add(v.id); return n; });
   }, [effectiveBank]);
   const processedSegments = useRef<Set<string>>(new Set()); // dedupe context-cmd firing
-  const processedAutoApproved = useRef<Set<string>>(new Set()); // detection IDs we've auto-approved
   // Autopilot activity indicator — when non-null, the last Preview/Live
   // change was made by autopilot (auto-approve OR contextual nav).
   // Displayed as a visible chip on both panes so the operator is never
@@ -478,70 +477,15 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
   }, [dismissDetection]);
 
   // --- Auto-approve reaction ------------------------------------------------
-  // When a fresh detection lands AND (a) auto-approve is on AND (b) the
-  // detection's confidence >= the church's floor, we auto-run the approval
-  // flow. If auto-send-to-Live is ALSO on, the approved verse skips
-  // Preview and goes straight to Live via send(). Otherwise it stages to
-  // Preview like a manual approve.
-  //
-  // ⚠️ This is an explicit opt-in feature (default off). It reverses the
-  // original safety principle for churches that trust their operator +
-  // context enough to hand it over.
-  useEffect(() => {
-    if (!autoApprove.enabled) return;
-    if (audio.detections.length === 0) return;
-    // Newest detection is at index 0 (per useAudioStream state append)
-    const d = audio.detections[0];
-    // Skip already-processed detections — this effect can re-fire when the
-    // detections array shifts (dismiss shrinks it), and we don't want to
-    // auto-approve stale entries retroactively.
-    if (processedAutoApproved.current.has(d.id)) return;
-    if (d.confidence < autoApprove.confidenceFloor) {
-      console.log(`[autopilot] skipped: ${d.book} ${d.chapter}:${d.verseStart} confidence=${d.confidence} < floor=${autoApprove.confidenceFloor}`);
-      return;
-    }
-    processedAutoApproved.current.add(d.id);
-    console.log(`[autopilot] auto-approving: ${d.book} ${d.chapter}:${d.verseStart} confidence=${d.confidence} floor=${autoApprove.confidenceFloor} autoSend=${autoApprove.autoSendToLive}`);
-    (async () => {
-      try {
-        const banked = await bankAdd({ book: d.book, chapter: d.chapter, verseStart: d.verseStart, verseEnd: d.verseEnd });
-        if (!banked) return;
-        const slide = bankedToSlide(banked);
-        dismissDetection(d.id);
-        await updateDetectionStatus(d.id, "approved").catch(() => { /* ignore */ });
-        const refLabel = `${d.book} ${d.chapter}:${d.verseStart}${d.verseStart !== d.verseEnd ? `-${d.verseEnd}` : ""}`;
-        setAutopilotActivity({ source: "auto-approve", ref: refLabel, ts: Date.now() });
-        if (autoApprove.autoSendToLive) {
-          // Snapshot the previous live slide so the toast can offer a one-tap
-          // undo. Autopilot mistakes on Sunday morning are otherwise permanent
-          // until the operator manually clicks a replacement.
-          const prevLive = live;
-          console.log("[auto-approve] firing:", refLabel, d.confidence);
-          setLive(slide);
-          chRef.current?.postMessage({ type: "set", slide } as LiveMessage);
-          toast.info(`Autopilot → LIVE · ${refLabel}`, {
-            duration: 4000,
-            action: {
-              label: "Undo",
-              onClick: () => {
-                setLive(prevLive);
-                chRef.current?.postMessage({ type: "set", slide: prevLive } as LiveMessage);
-                toast.success("Reverted");
-              },
-            },
-          });
-        } else {
-          setStagedAISlide(slide);
-          toast.info(`Autopilot → PREVIEW · ${refLabel}`, { duration: 2000 });
-        }
-      } catch (e) {
-        console.error("[autopilot] failed:", e instanceof Error ? e.message : String(e));
-      }
-    })();
-  // We deliberately depend only on the newest detection id to keep this
-  // firing once per detection.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [audio.detections[0]?.id]);
+  // REMOVED: legacy AI-autopilot effect that raced with the newer, correct
+  // instant-live autopilot effect in ProOperatorShell.tsx ("Auto-approve →
+  // INSTANT LIVE for scripture"). Two independent effects both watching
+  // scripture detections could race/duplicate/disagree — that's why
+  // auto-pushed verses sometimes landed on preview instead of live. There is
+  // now a single AI-autopush code path (ProOperatorShell), and it always
+  // goes live. `stagedAISlide`/`setStagedAISlide` remain in use elsewhere in
+  // this file for legitimate manual "stage for preview" flows (bank nav,
+  // song staging, etc.) — only this specific auto-triggering effect was removed.
 
   // --- Wake-word-free contextual commands ----------------------------------
   // Handles both verse verbs (next verse / continue / back) AND slide verbs

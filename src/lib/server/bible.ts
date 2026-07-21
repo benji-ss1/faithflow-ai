@@ -9,6 +9,16 @@ import { embed, toVectorLiteral } from "../embeddings";
 export type Translation = { id: string; code: string; name: string; isPublicDomain: boolean; licenseRequired: boolean };
 export type Verse = { id: string; book: string; bookOrder: number; chapter: number; verse: number; text: string };
 
+// Both tables below change essentially never within an operator's service
+// (translations are seeded once, licensing flags don't flip mid-service),
+// but were previously re-queried on every single verse lookup — "Next
+// verse" did 3 sequential DB round trips per click (translations list,
+// license check, verse select). A short in-process TTL cache turns the
+// first two into a single query every few minutes instead of every click.
+const CACHE_TTL_MS = 5 * 60 * 1000;
+let translationsCache: { at: number; value: Translation[] } | null = null;
+const licenseCache = new Map<string, { at: number; value: boolean }>();
+
 /**
  * Server-side invariant: any read that returns verse text must be gated on
  * this check. Licensed translations (NIV/ESV/NKJV) MUST NOT return content
@@ -16,16 +26,23 @@ export type Verse = { id: string; book: string; bookOrder: number; chapter: numb
  * anyway to prevent accidental future leakage.
  */
 async function isLicensedTranslation(translationId: string): Promise<boolean> {
+  const cached = licenseCache.get(translationId);
+  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.value;
   const db = getDb();
   const [row] = await db.select({ licenseRequired: bibleTranslations.licenseRequired })
     .from(bibleTranslations).where(eq(bibleTranslations.id, translationId)).limit(1);
-  return !!row?.licenseRequired;
+  const value = !!row?.licenseRequired;
+  licenseCache.set(translationId, { at: Date.now(), value });
+  return value;
 }
 
 export async function listTranslations(): Promise<Translation[]> {
+  if (translationsCache && Date.now() - translationsCache.at < CACHE_TTL_MS) return translationsCache.value;
   const db = getDb();
   const rows = await db.select().from(bibleTranslations).orderBy(asc(bibleTranslations.code));
-  return rows.map((r) => ({ id: r.id, code: r.code, name: r.name, isPublicDomain: r.isPublicDomain, licenseRequired: r.licenseRequired }));
+  const value = rows.map((r) => ({ id: r.id, code: r.code, name: r.name, isPublicDomain: r.isPublicDomain, licenseRequired: r.licenseRequired }));
+  translationsCache = { at: Date.now(), value };
+  return value;
 }
 
 export async function listBooks(translationId: string): Promise<{ book: string; bookOrder: number; chapters: number }[]> {

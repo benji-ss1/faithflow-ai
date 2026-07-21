@@ -135,12 +135,12 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
     }
   };
 
-  // CLAUDE.md rule 7 — songs never auto-project. Do not change without sign-off.
-  const handleSongChipDoubleClick = (songId: string, songTitle: string, inPlaylist: boolean) => {
-    // Safety: even with Safe Mode OFF, songs must NOT auto-send-to-live.
-    // Double-click = "load + preview first slide" only. Copyright safety.
-    handleSongChipClick(songId, songTitle, inPlaylist);
-  };
+  // Double-click is intentionally a no-op here: a native double-click
+  // already fires two `click` events before `dblclick` fires once, so a
+  // single-click add handler already runs twice per double-click. Re-invoking
+  // the add here on top was producing 2-3 duplicate playlist rows per
+  // double-click (see actions.ts addServiceItem idempotency guard for the
+  // server-side backstop). CLAUDE.md rule 7 — songs never auto-project.
 
   // The rolling transcript text has moved to the right-sidebar
   // LiveTranscriptPanel; the AI Live pill in the top-right is the connection
@@ -203,7 +203,6 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
                 title={tip}
                 aria-label={ariaLabel}
                 onClick={() => handleSongChipClick(songId, title, inPlaylist)}
-                onDoubleClick={() => handleSongChipDoubleClick(songId, title, inPlaylist)}
                 className={
                   "relative flex items-center gap-1 px-2 py-0.5 rounded text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)] " +
                   (inPlaylist
@@ -889,6 +888,21 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           toast.info(`No verse ${nextVerse} in ${parsed.book} ${parsed.chapter} — end of chapter?`);
           return;
         }
+        // Warm the server-side cache for the verse one further in the same
+        // direction, fire-and-forget, so the NEXT "Verse >" click hits
+        // bible-cache.ts's cache instead of a cold DB round trip — this is
+        // what actually makes repeated clicks feel fast, not just this one.
+        void fetch("/api/bible/lookup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            book: parsed.book,
+            chapter: parsed.chapter,
+            verseStart: nextVerse + dir,
+            verseEnd: nextVerse + dir,
+            translationCode: bibleSession.state.translation,
+          }),
+        }).catch(() => { /* best-effort prefetch, ignore failures */ });
         const card = {
           id: `${newRef}-${Date.now()}`,
           label: `${newRef} (${bibleSession.state.translation})`,
