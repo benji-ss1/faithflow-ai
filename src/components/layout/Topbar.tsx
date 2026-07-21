@@ -185,9 +185,13 @@ export function Topbar({ user, churchName, onOpenNavigation }: TopbarProps) {
           <div className="hidden truncate text-sm text-muted-foreground xl:block">{subtitle}</div>
         </div>
 
-        {/* Global search */}
+        {/* Global search — min-width steps up by breakpoint instead of a
+            fixed 280px floor, which used to force the page title down to a
+            truncated "O.." at 1024-1279px (sidebar visible + search box both
+            competing for the same row before the church badge even joins in
+            at xl). */}
         <div ref={searchWrapRef} className="relative hidden md:block">
-          <div className="group flex min-w-[280px] items-center gap-3 rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02))] px-3 py-2 shadow-[0_18px_40px_rgba(0,0,0,0.14)] transition focus-within:border-white/16 focus-within:bg-white/[0.06] xl:min-w-[360px]">
+          <div className="group flex min-w-[140px] items-center gap-3 rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02))] px-3 py-2 shadow-[0_18px_40px_rgba(0,0,0,0.14)] transition focus-within:border-white/16 focus-within:bg-white/[0.06] lg:min-w-[220px] xl:min-w-[360px]">
             <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
             <input
               ref={inputRef}
@@ -292,7 +296,7 @@ export function Topbar({ user, churchName, onOpenNavigation }: TopbarProps) {
             <div className="flex h-8.5 w-8.5 items-center justify-center rounded-full bg-[linear-gradient(180deg,var(--color-primary),color-mix(in_oklab,var(--color-primary)_70%,white))] text-[11px] font-bold text-[var(--color-background)]">
               {initials}
             </div>
-            <div className="hidden min-w-0 text-left lg:block">
+            <div className="hidden min-w-0 text-left xl:block">
               <div className="max-w-[140px] truncate text-sm font-medium text-foreground">{user.name}</div>
               <div className="max-w-[140px] truncate text-[11px] text-muted-foreground">{user.email}</div>
             </div>

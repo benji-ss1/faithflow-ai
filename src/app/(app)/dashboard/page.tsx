@@ -1,16 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { headers, cookies } from "next/headers";
-import { and, eq, gte, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import {
   ArrowRight,
   Bot,
-  CalendarClock,
   CheckCircle2,
   Mic,
   MonitorPlay,
-  Receipt,
-  ShieldCheck,
   TriangleAlert,
 } from "lucide-react";
 import { requireUser } from "@/lib/session";
@@ -19,13 +16,9 @@ import {
   aiSuggestions,
   churches,
   churchPreferences,
-  invitations,
   mediaAssets,
-  migrationJobs,
-  sermonSummaries,
   servicePlans,
   settings,
-  subscriptions,
   users,
 } from "@/lib/db/schema";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -52,21 +45,13 @@ export default async function DashboardPage() {
   const db = getDb();
   const todayKey = new Date().toISOString().slice(0, 10);
 
-  const [church, prefs, settingsRow, plans, mediaRows, archiveRows, teamRows, importRows, sub, pendingInvites, suggestionRows] = await Promise.all([
+  const [church, prefs, settingsRow, plans, mediaRows, teamRows, suggestionRows] = await Promise.all([
     db.select().from(churches).where(eq(churches.id, user.churchId)).limit(1).then((rows) => rows[0] || null),
     db.select().from(churchPreferences).where(eq(churchPreferences.churchId, user.churchId)).limit(1).then((rows) => rows[0] || null),
     db.select().from(settings).where(eq(settings.churchId, user.churchId)).limit(1).then((rows) => rows[0] || null),
     db.select().from(servicePlans).where(eq(servicePlans.churchId, user.churchId)),
     db.select().from(mediaAssets).where(eq(mediaAssets.churchId, user.churchId)),
-    db
-      .select()
-      .from(sermonSummaries)
-      .innerJoin(servicePlans, eq(sermonSummaries.servicePlanId, servicePlans.id))
-      .where(eq(servicePlans.churchId, user.churchId)),
     db.select().from(users).where(eq(users.churchId, user.churchId)),
-    db.select().from(migrationJobs).where(eq(migrationJobs.churchId, user.churchId)),
-    db.select().from(subscriptions).where(eq(subscriptions.churchId, user.churchId)).limit(1).then((rows) => rows[0] || null),
-    db.select().from(invitations).where(and(eq(invitations.churchId, user.churchId), isNull(invitations.acceptedAt), gte(invitations.expiresAt, new Date()))),
     db
       .select({
         id: aiSuggestions.id,
@@ -84,16 +69,8 @@ export default async function DashboardPage() {
     .sort((a, b) => String(a.scheduledFor).localeCompare(String(b.scheduledFor)));
   const todaysService = sortedUpcomingPlans.find((plan) => String(plan.scheduledFor) === todayKey) || null;
   const nextService = sortedUpcomingPlans.find((plan) => String(plan.scheduledFor) > todayKey) || todaysService || null;
-  const recentSermons = [...archiveRows]
-    .sort((a, b) => (b.sermon_summaries.generatedAt?.getTime?.() || 0) - (a.sermon_summaries.generatedAt?.getTime?.() || 0))
-    .slice(0, 3);
-  const pendingImports = importRows.filter((row) => row.status === "pending" || row.status === "processing");
-  const reviewImports = importRows.filter((row) => row.status === "ready" || row.status === "failed");
   const pendingSuggestions = churchSuggestions.filter((row) => row.status === "pending");
   const resolvedSuggestions = churchSuggestions.filter((row) => row.status !== "pending");
-  const storageBytes = mediaRows.reduce((sum, row) => sum + row.sizeBytes, 0);
-  const verifiedMembers = teamRows.filter((member) => !!member.emailVerifiedAt).length;
-  const newestMember = [...teamRows].sort((a, b) => (b.createdAt?.getTime?.() || 0) - (a.createdAt?.getTime?.() || 0))[0];
 
   const checklist: ChecklistItem[] = [
     {
@@ -132,7 +109,6 @@ export default async function DashboardPage() {
 
   const audioTone = prefs?.audioInputDeviceLabel ? "success" : "warning";
   const projectorTone = settingsRow?.logoS3Key || mediaRows.length > 0 ? "brand" : "warning";
-  const planTone = sub?.status === "past_due" ? "warning" : sub?.status === "active" ? "success" : "brand";
 
   return (
     <div className="space-y-6">
@@ -256,178 +232,7 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr_0.9fr]">
-        <DashboardCard title="Recent sermons" eyebrow="Archive">
-          {recentSermons.length === 0 ? (
-            <EmptyStateCard
-              icon={ShieldCheck}
-              title="No archived sermons yet"
-              description="Sermon summaries appear here after services complete and archive generation runs."
-              href="/archive"
-              cta="Open archive"
-            />
-          ) : (
-            <div className="space-y-3">
-              {recentSermons.map((row) => (
-                <Link
-                  key={row.sermon_summaries.id}
-                  href={`/archive/${row.sermon_summaries.id}`}
-                  className="block rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 transition hover:border-white/14 hover:bg-white/[0.05]"
-                >
-                  <div className="text-sm font-semibold text-foreground">{row.sermon_summaries.title}</div>
-                  <div className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{row.sermon_summaries.overview}</div>
-                  <div className="mt-2 text-[11px] text-muted-foreground">
-                    {formatDateTime(row.sermon_summaries.generatedAt)} · {row.sermon_summaries.wordCount.toLocaleString()} words
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </DashboardCard>
-
-        <DashboardCard title="Imports waiting review" eyebrow="Migration queue">
-          <div className="mb-4 flex flex-wrap gap-2">
-            <StatusPill label={`${pendingImports.length} in progress`} tone={pendingImports.length ? "warning" : "neutral"} />
-            <StatusPill label={`${reviewImports.length} ready for review`} tone={reviewImports.length ? "brand" : "neutral"} />
-          </div>
-          <div className="space-y-3">
-            {importRows.slice(0, 3).map((job) => (
-              <div key={job.id} className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-foreground">{job.sourceFileName || job.source}</div>
-                    <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{job.source}</div>
-                  </div>
-                  <StatusPill
-                    label={job.status}
-                    tone={job.status === "failed" ? "danger" : job.status === "ready" ? "success" : "warning"}
-                  />
-                </div>
-              </div>
-            ))}
-            {importRows.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-white/10 px-4 py-6 text-sm text-muted-foreground">
-                No migration jobs yet. Start with song or media imports when a church moves into PresentFlow.
-              </div>
-            ) : null}
-          </div>
-        </DashboardCard>
-
-        <DashboardCard title="Storage / billing status" eyebrow="Account health">
-          <div className="space-y-3">
-            <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-foreground">Plan posture</div>
-                  <div className="text-xs text-muted-foreground">
-                    {sub?.status === "past_due"
-                      ? "Warn admins early, but do not block Sunday live operation."
-                      : "Account is within the current subscription posture."}
-                  </div>
-                </div>
-                <StatusPill label={sub?.status || "pilot"} tone={planTone} />
-              </div>
-            </div>
-            <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
-              <div className="flex items-center gap-3">
-                <Receipt className="h-4.5 w-4.5 text-[var(--color-accent)]" />
-                <div>
-                  <div className="text-sm font-semibold text-foreground">{formatBytes(storageBytes)} used</div>
-                  <div className="text-xs text-muted-foreground">{mediaRows.length} stored assets across the media workspace.</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </DashboardCard>
-      </section>
-
-      <section className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
-        <DashboardCard title="Team activity" eyebrow="People and roles">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <MiniStat label="Members" value={String(teamRows.length)} />
-            <MiniStat label="Pending invites" value={String(pendingInvites.length)} />
-            <MiniStat label="Verified" value={String(verifiedMembers)} />
-          </div>
-          <div className="mt-4 rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-muted-foreground">
-            {newestMember
-              ? `${newestMember.name} is the most recent team member on record.`
-              : "No additional team activity recorded yet."}
-          </div>
-          <div className="mt-4">
-            <Link href="/settings/team" className="inline-flex items-center gap-2 text-sm font-medium text-foreground hover:text-[var(--color-primary)]">
-              Manage team <ArrowRight className="h-4 w-4" />
-            </Link>
-          </div>
-        </DashboardCard>
-
-        <DashboardCard title="Next steps" eyebrow="What to do next" tone="muted">
-          <div className="grid gap-3 md:grid-cols-2">
-            <ActionPanel href="/services" title="Refine service plans" description="Confirm the next run-of-service and align songs, scripture, and media." />
-            <ActionPanel href="/library/imports" title="Clear import reviews" description="Resolve queued migrations before they spill into service prep." />
-            <ActionPanel href="/subscriptions" title="Check billing grace state" description="Keep finance stakeholders informed without creating Sunday friction." />
-            <ActionPanel href="/organization" title="Finish church defaults" description="Timezone, branding, and ministry context improve everything else." />
-          </div>
-        </DashboardCard>
-      </section>
     </div>
-  );
-}
-
-function MiniStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">{label}</div>
-      <div className="mt-2 text-xl font-semibold tracking-[-0.03em] text-foreground">{value}</div>
-    </div>
-  );
-}
-
-function EmptyStateCard({
-  icon: Icon,
-  title,
-  description,
-  href,
-  cta,
-}: {
-  icon: typeof CalendarClock;
-  title: string;
-  description: string;
-  href: string;
-  cta: string;
-}) {
-  return (
-    <div className="flex h-full flex-col justify-between gap-4 rounded-2xl border border-dashed border-white/12 bg-white/[0.02] p-5">
-      <div className="space-y-3">
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/8 bg-white/[0.04]">
-          <Icon className="h-5 w-5 text-[var(--color-primary)]" />
-        </div>
-        <div className="text-lg font-semibold text-foreground">{title}</div>
-        <div className="text-sm leading-6 text-muted-foreground">{description}</div>
-      </div>
-      <Link href={href} className="inline-flex items-center gap-2 text-sm font-medium text-foreground hover:text-[var(--color-primary)]">
-        {cta} <ArrowRight className="h-4 w-4" />
-      </Link>
-    </div>
-  );
-}
-
-function ActionPanel({
-  href,
-  title,
-  description,
-}: {
-  href: string;
-  title: string;
-  description: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-4 transition hover:border-white/14 hover:bg-white/[0.05]"
-    >
-      <div className="text-sm font-semibold text-foreground">{title}</div>
-      <div className="mt-2 text-xs leading-5 text-muted-foreground">{description}</div>
-    </Link>
   );
 }
 
@@ -437,27 +242,4 @@ function formatServiceDate(value: unknown) {
   return Number.isNaN(date.getTime())
     ? String(value)
     : new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(date);
-}
-
-function formatDateTime(value: Date | null | undefined) {
-  if (!value) return "No timestamp";
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(value);
-}
-
-function formatBytes(bytes: number) {
-  if (!bytes) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
 }

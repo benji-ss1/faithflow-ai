@@ -120,7 +120,6 @@ export const accountNav: NavGroup[] = [
   {
     label: "Account",
     items: [
-      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
       { href: "/organization", label: "Organization", icon: Building2 },
       { href: "/applications", label: "Applications", icon: Library },
       { href: "/subscriptions", label: "Subscriptions", icon: CreditCard },
