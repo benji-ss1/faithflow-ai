@@ -902,6 +902,20 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         const name = (micErr as { name?: string })?.name || "";
         const msg = (micErr as { message?: string })?.message || "";
         if (name === "NotAllowedError" || /denied|permission/i.test(msg)) {
+          // Electron only: distinguish "macOS never even offered the
+          // permission dialog" (usually means this build isn't code-signed
+          // — see electron/main.ts's launch-time check) from a plain user
+          // denial, since the fix is completely different (reinstall a
+          // signed build vs. just flipping a toggle in System Settings).
+          const electronApi = (typeof window !== "undefined" ? (window as { electronAPI?: { audio?: { getMicPermissionStatus?: () => Promise<string> } } }).electronAPI : undefined);
+          if (electronApi?.audio?.getMicPermissionStatus) {
+            try {
+              const status = await electronApi.audio.getMicPermissionStatus();
+              if (status === "not-determined") {
+                throw new Error("macOS never showed a microphone permission prompt for Present Flow — this usually means the app isn't code-signed yet. Try quitting and reopening the app once; if it still doesn't prompt, this needs a signed build to fix.");
+              }
+            } catch { /* fall through to the generic message below */ }
+          }
           throw new Error("Microphone permission denied — enable it in System Settings → Privacy & Security → Microphone, then restart Present Flow.");
         }
         if (name === "NotFoundError" || /not found|no device/i.test(msg)) {

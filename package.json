@@ -2,12 +2,15 @@
   "name": "presentflow",
   "version": "0.1.9",
   "private": true,
+  "description": "PresentFlow — AI-native church presentation software.",
+  "author": "PresentFlow",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "next dev",
     "electron:dev": "concurrently -k \"next dev\" \"wait-on http://localhost:3000 && npm run electron:build:tsc && cross-env NODE_ENV=development electron .\"",
     "electron:build:tsc": "tsc -p electron/tsconfig.json",
-    "electron:build": "next build && npm run electron:build:tsc && electron-builder --mac dmg",
+    "electron:build": "next build && npm run electron:build:tsc && electron-builder --mac --x64 --arm64",
+    "electron:build:signed": "next build && npm run electron:build:tsc && node --env-file=.env.local ./node_modules/.bin/electron-builder --mac --x64 --arm64",
     "electron:build:tester": "bash scripts/build-tester.sh",
     "electron:build:win": "next build && npm run electron:build:tsc && electron-builder --win nsis",
     "electron:preview": "next build && npm run electron:build:tsc && cross-env NODE_ENV=production electron .",
@@ -63,6 +66,7 @@
     "fast-xml-parser": "^5.9.3",
     "isomorphic-dompurify": "^2.19.0",
     "libreoffice-convert": "^1.6.0",
+    "lightningcss": "^1.33.0",
     "lucide-react": "^0.468.0",
     "next": "^15.1.0",
     "next-auth": "^5.0.0-beta.25",
@@ -104,9 +108,16 @@
   "build": {
     "appId": "com.presentflow.app",
     "productName": "Present Flow",
+    "copyright": "Copyright © 2026 PresentFlow",
     "directories": {
       "output": "release"
     },
+    "protocols": [
+      {
+        "name": "PresentFlow Auth",
+        "schemes": ["presentflow"]
+      }
+    ],
     "files": [
       "dist-electron/**",
       "config/**",
@@ -135,19 +146,27 @@
         {
           "target": "dmg",
           "arch": [
-            "arm64"
+            "arm64",
+            "x64"
           ]
         },
         {
           "target": "zip",
           "arch": [
-            "arm64"
+            "arm64",
+            "x64"
           ]
         }
       ],
       "artifactName": "Present-Flow-${version}-${arch}-mac.${ext}",
       "category": "public.app-category.productivity",
       "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "electron/entitlements/entitlements.mac.plist",
+      "entitlementsInherit": "electron/entitlements/entitlements.mac.inherit.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "PresentFlow uses the microphone for live AI Listening — real-time transcription and scripture/song detection during your service."
+      },
       "identity": null
     },
     "win": {

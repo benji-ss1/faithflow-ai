@@ -1005,7 +1005,7 @@ The following FaithFlow references were **not** renamed because they are load-be
 
 - **Line 9:** `app = "faithflow-audio"`
 - **Why kept:** This is the Fly.io application identifier bound to the live audio bridge deployment (`wss://faithflow-audio.fly.dev`). Renaming here without also renaming the Fly.io app would break `fly deploy`, and renaming the Fly.io app is a separate operational change (would invalidate the WSS URL that the Vercel app currently talks to via `NEXT_PUBLIC_AUDIO_WS_URL`).
-- **Follow-up:** When we're ready to migrate the audio bridge, create a new Fly.io app (`presentflow-audio`), update `NEXT_PUBLIC_AUDIO_WS_URL` in Vercel env, then update this file and delete the old app.
+- **Follow-up: this migration is explicitly deferred, not planned.** (2026-07-21) `scripts/deploy.sh` was previously rewritten to target a `presentflow-audio` app that was never created, while `fly.toml`/env/CSP stayed on `faithflow-audio` — every `./scripts/deploy.sh audio` run was silently deploying nowhere while the live bridge ran stale code. Reverted `deploy.sh` back to `faithflow-audio` to match everything else. If this migration is picked up again in the future, it must be done atomically in one pass: create the new app, deploy, update `NEXT_PUBLIC_AUDIO_WS_URL` on Vercel + `.env.local`, update `fly.toml`'s `app =` line, update the CSP `connect-src` in `next.config.ts`, and update this note — all in the same change, not staged across sessions.
 - Comments and other prose inside `fly.toml` were rebranded.
 
 ### 2. `src/lib/db/schema.ts` — `command_prefix` default

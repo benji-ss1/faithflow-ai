@@ -648,6 +648,10 @@ wss.on("connection", async (ws: WebSocket, req) => {
   });
 });
 
-httpServer.listen(PORT, () => {
-  console.log(`✓ PresentFlow audio bridge listening on ws://localhost:${PORT}`);
+// Bind explicitly to 0.0.0.0 — Node's default (no host arg) binds the IPv6
+// unspecified address only in this container, which Fly's TCP proxy can't
+// reach, causing every WS connection to open then immediately drop (1006)
+// with no data ever exchanged.
+httpServer.listen(PORT, "0.0.0.0", () => {
+  console.log(`✓ PresentFlow audio bridge listening on ws://0.0.0.0:${PORT}`);
 });

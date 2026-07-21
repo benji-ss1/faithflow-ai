@@ -14,6 +14,7 @@ const api = {
   audio: {
     listInputs: () => ipcRenderer.invoke("audio:listInputs"),
     listSystemSources: () => ipcRenderer.invoke("audio:listSystemSources"),
+    getMicPermissionStatus: () => ipcRenderer.invoke("audio:getMicPermissionStatus"),
   },
   dialog: {
     openFile: (options: any) => ipcRenderer.invoke("dialog:openFile", options),

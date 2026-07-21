@@ -10,9 +10,11 @@ const PUBLIC_PATHS = [
   "/api/auth", "/api/health", "/api/stripe",
 ];
 
-// Output surfaces are auth-gated but allowed for any authenticated user
-// (desktop shell OR web); they must still bypass the desktop `desktopPathAllowed`
-// blocklist because /live etc. aren't in DESKTOP_ALLOWED_PAGE_PREFIXES.
+// Projector/stage/audience output. Desktop-exclusive as of the web/desktop
+// split: the web app must not be able to push anything live, and that
+// includes viewing/driving the output surfaces themselves, not just the
+// operator console. Folded into desktopPathAllowed() below rather than
+// exempted from it (previously these bypassed the check entirely).
 const OUTPUT_SURFACE_PATHS = ["/live", "/stage", "/livestream"];
 
 // Non-API surfaces the desktop shell is allowed to render. Admin surfaces
@@ -101,8 +103,13 @@ function isDesktopShell(req: NextRequest): boolean {
   return false;
 }
 
+// This allowlist now does double duty: it's both "the only things desktop
+// can reach" (enforced below) AND, as of the web/desktop split, "the only
+// things a plain browser CANNOT reach" (enforced further below). It is the
+// single definition of "the live-show surface."
 function desktopPathAllowed(pathname: string): boolean {
   if (pathname === "/operator") return true;
+  if (OUTPUT_SURFACE_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))) return true;
   if (pathname.startsWith("/api/")) {
     if (DESKTOP_ALLOWED_API_EXACT.has(pathname)) return true;
     if (DESKTOP_ALLOWED_API_PREFIXES.some((p) => pathname.startsWith(p))) return true;
@@ -213,17 +220,22 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL("/login", req.url));
   }
 
-  // Y10: authenticated output surfaces skip the desktop-blocklist so
-  // ElectronOutputWindows loading /live etc. aren't redirected to /operator.
-  const isOutputSurface = OUTPUT_SURFACE_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
-  if (isOutputSurface) {
-    const res = NextResponse.next();
-    if (setShellCookie) res.cookies.set("pf_shell", "desktop", {
-      path: "/", httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-    });
-    return res;
+  // Web/desktop split: a plain browser must not be able to reach any part of
+  // the live-show surface (operator console, output windows, or the
+  // operator-time APIs that actually push content live) — that's exclusive
+  // to the desktop app now. desktopPathAllowed() is the single definition of
+  // that surface (see its own comment). Electron's own secondary output
+  // windows (screens.ts openOutputForRole) share the main session, so they
+  // still carry the x-pf-shell header via the session-level webRequest hook
+  // in electron/main.ts and aren't affected by this.
+  if (!desktop && desktopPathAllowed(pathname)) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "This action is only available in the Present Flow desktop app." }, { status: 403 });
+    }
+    const url = req.nextUrl.clone();
+    url.pathname = "/settings/outputs";
+    url.search = "";
+    return NextResponse.redirect(url);
   }
 
   if (desktop && !desktopPathAllowed(pathname)) {

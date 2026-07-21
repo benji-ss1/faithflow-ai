@@ -33,35 +33,40 @@ case "${1:-help}" in
     fi
 
     step "2/4 — Ensure app exists"
-    if ! flyctl apps list 2>/dev/null | grep -q presentflow-audio; then
-      flyctl apps create presentflow-audio --org personal
+    if ! flyctl apps list 2>/dev/null | grep -q faithflow-audio; then
+      flyctl apps create faithflow-audio --org personal
     else
-      ok "app presentflow-audio exists"
+      ok "app faithflow-audio exists"
     fi
 
-    step "3/4 — Set secrets (DEEPGRAM_API_KEY + AUTH_SECRET from .env.local, DATABASE_URL = Supabase pooler)"
+    step "3/4 — Set secrets (DEEPGRAM_API_KEY + AUTH_SECRET + DATABASE_URL from .env.local)"
     DG=$(grep '^DEEPGRAM_API_KEY=' .env.local | cut -d= -f2-)
     AS=$(grep '^AUTH_SECRET='     .env.local | cut -d= -f2-)
-    # DATABASE_URL is hardcoded to the Supabase pooler URL (production DB the
-    # Vercel app also uses). Local .env.local points at localhost postgres,
-    # which is unreachable from Fly.
-    DB="postgresql://postgres.mdjdemrtykflfucggbqt:qekVmfSYjcVkC%2F3@aws-0-eu-west-1.pooler.supabase.com:5432/postgres"
-    if [ -z "$DG" ] || [ -z "$AS" ]; then
-      echo "Missing DEEPGRAM_API_KEY or AUTH_SECRET in .env.local"
+    # DATABASE_URL must be the hosted Supabase pooler URL (same DB Vercel
+    # uses) — never hardcode a real credential in this script. If .env.local
+    # is pointed at localhost postgres, fix that first (it must stay wired
+    # to the hosted pooler for this to work, same as the Next.js app env).
+    DB=$(grep '^DATABASE_URL='   .env.local | cut -d= -f2-)
+    if [ -z "$DG" ] || [ -z "$AS" ] || [ -z "$DB" ]; then
+      echo "Missing DEEPGRAM_API_KEY, AUTH_SECRET, or DATABASE_URL in .env.local"
+      exit 1
+    fi
+    if [[ "$DB" == *localhost* ]]; then
+      echo "DATABASE_URL in .env.local points at localhost — Fly can't reach it. Point it at the Supabase pooler URL first."
       exit 1
     fi
     flyctl secrets set \
       DEEPGRAM_API_KEY="$DG" \
       AUTH_SECRET="$AS" \
       DATABASE_URL="$DB" \
-      --stage --app presentflow-audio
+      --stage --app faithflow-audio
 
     step "4/4 — Deploy"
-    flyctl deploy --app presentflow-audio --now
+    flyctl deploy --app faithflow-audio --now
 
     echo
     ok "Audio bridge deployed"
-    URL="wss://presentflow-audio.fly.dev"
+    URL="wss://faithflow-audio.fly.dev"
     echo "   URL to set in Vercel:  NEXT_PUBLIC_AUDIO_WS_URL=$URL"
     ;;
 

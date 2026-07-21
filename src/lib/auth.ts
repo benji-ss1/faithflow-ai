@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { users } from "./db/schema";
+import { consumeAuthToken } from "./auth-tokens";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   session: { strategy: "jwt" },
@@ -18,6 +19,23 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!user) return null;
         const ok = await bcrypt.compare(String(creds.password), user.passwordHash);
         if (!ok) return null;
+        return { id: user.id, email: user.email, name: user.name, churchId: user.churchId, role: user.role };
+      },
+    }),
+    // Desktop-app auto-login: exchanges a one-time device-link token (minted
+    // from the website's download page, see device-link-actions.ts) for a
+    // real session — no email/password re-entry inside the Electron window.
+    Credentials({
+      id: "device-token",
+      name: "Device link",
+      credentials: { token: {} },
+      async authorize(creds) {
+        if (!creds?.token) return null;
+        const userId = await consumeAuthToken(String(creds.token), "device_link");
+        if (!userId) return null;
+        const db = getDb();
+        const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+        if (!user) return null;
         return { id: user.id, email: user.email, name: user.name, churchId: user.churchId, role: user.role };
       },
     }),

@@ -23,6 +23,7 @@ export interface ElectronAPI {
   audio: {
     listInputs: () => Promise<any>;
     listSystemSources: () => Promise<Array<{ id: string; name: string; display_id: string }> | { error: string; sources: any[] }>;
+    getMicPermissionStatus: () => Promise<"not-determined" | "granted" | "denied" | "restricted" | "unknown" | "not-applicable">;
   };
   dialog: {
     openFile: (options?: any) => Promise<{ canceled: boolean; filePaths: string[] }>;

@@ -58,6 +58,16 @@ function LoginForm() {
         </div>
       ) : null}
 
+      {reason === "device_link_invalid" ? (
+        <div
+          role="status"
+          className="mb-4 rounded-lg border px-3 py-2 text-[12.5px]"
+          style={{ borderColor: "rgba(255, 144, 72, 0.35)", background: "rgba(255, 144, 72, 0.08)", color: "#ff9048" }}
+        >
+          That desktop sign-in link already expired or was already used. Go back to the download page and click "Open PresentFlow" again for a fresh one.
+        </div>
+      ) : null}
+
       <form onSubmit={onSubmit}>
         <div className="mb-4">
           <label className={authLabelCls} style={authLabelStyle}>

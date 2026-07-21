@@ -120,15 +120,23 @@ export function OperatorTour({ open, onClose }: { open: boolean; onClose: () => 
   }
 
   // Card position: below the highlighted rect when there's room, else above.
+  // Always resolves to a `top` (never `bottom`) so the result can be clamped
+  // directly against the viewport — the old below/above split could compute
+  // a `bottom` value larger than the viewport height itself when the target
+  // rect sat near the top edge (e.g. the "top" toolbar step), pushing the
+  // card off-screen with no way to catch it.
+  const CARD_HEIGHT_ESTIMATE = 180;
+  const CARD_WIDTH_ESTIMATE = 380;
   const cardStyle: React.CSSProperties = (() => {
     if (!rect) return { top: "50%", left: "50%", transform: "translate(-50%, -50%)" };
     const vh = typeof window !== "undefined" ? window.innerHeight : 800;
+    const vw = typeof window !== "undefined" ? window.innerWidth : 1200;
     const below = rect.top + rect.height + 12;
-    const above = rect.top - 12;
-    const wantBelow = below + 180 < vh;
-    return wantBelow
-      ? { top: below, left: Math.max(16, Math.min((typeof window !== "undefined" ? window.innerWidth : 1200) - 380 - 16, rect.left)) }
-      : { bottom: (typeof window !== "undefined" ? window.innerHeight : 800) - above, left: Math.max(16, rect.left) };
+    const wantBelow = below + CARD_HEIGHT_ESTIMATE < vh;
+    const desiredTop = wantBelow ? below : rect.top - 12 - CARD_HEIGHT_ESTIMATE;
+    const top = Math.max(8, Math.min(vh - CARD_HEIGHT_ESTIMATE - 8, desiredTop));
+    const left = Math.max(16, Math.min(vw - CARD_WIDTH_ESTIMATE - 16, rect.left));
+    return { top, left };
   })();
 
   return (

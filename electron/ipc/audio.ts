@@ -1,6 +1,21 @@
-import { ipcMain, desktopCapturer } from "electron";
+import { ipcMain, desktopCapturer, systemPreferences } from "electron";
 
 export function registerAudioIpc() {
+  // Lets the renderer distinguish "macOS never granted this app mic access
+  // at all" from "getUserMedia failed for some other reason" — see
+  // useAudioStream.ts's NotAllowedError handling. Only meaningful on macOS;
+  // other platforms don't have this TCC-style permission model, so
+  // getMediaAccessStatus returns "not-determined" there and the renderer
+  // falls back to its existing generic message.
+  ipcMain.handle("audio:getMicPermissionStatus", () => {
+    if (process.platform !== "darwin") return "not-applicable";
+    try {
+      return systemPreferences.getMediaAccessStatus("microphone");
+    } catch {
+      return "unknown";
+    }
+  });
+
   // Renderer will do device enumeration itself via navigator.mediaDevices.
   // This handler returns a hint payload; the actual list is fetched renderer-side.
   ipcMain.handle("audio:listInputs", async () => {

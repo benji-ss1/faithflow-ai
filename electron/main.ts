@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, session, ipcMain, shell, safeStorage } from "electron";
+import { app, BrowserWindow, Tray, Menu, nativeImage, session, ipcMain, shell, safeStorage, systemPreferences } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import { registerScreenIpc, closeAllOutputWindows, openOutputForRole } from "./ipc/screens";
@@ -13,6 +13,11 @@ const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
 // no secrets ship inside the .app bundle.
 const DEFAULT_HOSTED_URL = "https://faithflow-ai.vercel.app";
 let mainWindow: BrowserWindow | null = null;
+// Set when a presentflow://auth?token=... deep link arrives before the main
+// window exists yet (cold launch via the link). Consumed once by
+// createMainWindow() so the very first page load goes straight to the
+// exchange route instead of the default hosted URL.
+let pendingDeepLinkToken: string | null = null;
 let tray: Tray | null = null;
 let appUrl = DEFAULT_HOSTED_URL;
 
@@ -250,6 +255,8 @@ async function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
+    minWidth: 1100,
+    minHeight: 700,
     show: false,
     webPreferences: {
       contextIsolation: true,
@@ -300,17 +307,89 @@ async function createMainWindow() {
     );
   }
 
-  const initialUrl = appUrl + (appUrl.includes("?") ? "&" : "?") + "ff_shell=desktop";
+  let initialUrl: string;
+  if (pendingDeepLinkToken) {
+    initialUrl = `${appUrl}/api/auth/device-exchange?token=${encodeURIComponent(pendingDeepLinkToken)}`;
+    pendingDeepLinkToken = null;
+  } else {
+    initialUrl = appUrl + (appUrl.includes("?") ? "&" : "?") + "ff_shell=desktop";
+  }
   await mainWindow.loadURL(initialUrl);
 }
 
-// Enforce single-instance: a second launch (double-click) just refocuses the
-// existing window instead of spawning a duplicate BrowserWindow that races the
-// same license.enc file and BroadcastChannel state.
+// Web-to-desktop auto-login: the website's download page mints a one-time
+// token and links to presentflow://auth?token=... . We only ever pull the
+// `token` query param out of this — we never load the deep-link URL itself
+// in the window, we build our own trusted same-origin URL to navigate to.
+// This can't be used to make the shell navigate anywhere other than our own
+// /api/auth/device-exchange route.
+function extractTokenFromDeepLink(raw: string): string | null {
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "presentflow:") return null;
+    return u.searchParams.get("token");
+  } catch {
+    return null;
+  }
+}
+
+function handleDeepLink(raw: string) {
+  const token = extractTokenFromDeepLink(raw);
+  if (!token) return;
+  if (mainWindow) {
+    // Intentionally clobbers whatever the window was showing, no confirm
+    // prompt — this only fires from a presentflow://auth link the user
+    // just clicked themselves, so navigating immediately is the expected
+    // behavior, not a surprise interruption. device-exchange also clears
+    // any existing session first (see route.ts) so a warm-launch deep link
+    // cleanly replaces the active identity rather than layering on top.
+    mainWindow.loadURL(`${appUrl}/api/auth/device-exchange?token=${encodeURIComponent(token)}`);
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  } else {
+    pendingDeepLinkToken = token;
+  }
+}
+
+// Register the custom protocol as early as possible, per Electron's own
+// guidance. `process.defaultApp` is true in dev (running via plain `electron
+// .`), where we have to pass through the script path for the OS to relaunch
+// correctly; packaged builds just register directly.
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient("presentflow", process.execPath, [path.resolve(process.argv[1])]);
+  }
+} else {
+  app.setAsDefaultProtocolClient("presentflow");
+}
+
+// macOS delivers the deep link via this event, including at cold launch
+// (before 'ready') — Electron queues it until we attach a listener.
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  handleDeepLink(url);
+});
+
+// Windows/Linux instead pass the URL as an argv entry. Cold-launch case:
+if (!process.defaultApp) {
+  const argvUrl = process.argv.find((a) => a.startsWith("presentflow://"));
+  if (argvUrl) pendingDeepLinkToken = extractTokenFromDeepLink(argvUrl);
+}
+
+// Enforce single-instance: a second launch (double-click, or a deep-link
+// open while already running) just refocuses the existing window instead of
+// spawning a duplicate BrowserWindow that races the same license.enc file
+// and BroadcastChannel state. On Windows/Linux, a deep-link relaunch shows
+// up here as argv on the *second* process, forwarded to the first.
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
+  app.on("second-instance", (_event, argv) => {
+    const argvUrl = argv.find((a) => a.startsWith("presentflow://"));
+    if (argvUrl) {
+      handleDeepLink(argvUrl);
+      return;
+    }
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
@@ -331,6 +410,29 @@ app.whenReady().then(async () => {
     ]);
     cb(allowed.has(permission as string));
   });
+
+  // Proactively surface the macOS mic-access state at launch rather than
+  // waiting for the renderer's lazy getUserMedia call to trigger it. This
+  // matters specifically because the app ships unsigned (hardenedRuntime
+  // true, identity null — see DECISIONS.md, blocked on Apple Developer
+  // enrollment) which is a known combination that can leave TCC never
+  // showing a permission dialog at all, so getUserMedia just rejects with
+  // no way to tell "never asked" from "user said no." This doesn't fix that
+  // — only real code signing does — but it makes the state diagnosable
+  // (logged here, and exposed to the renderer via audio:getMicPermissionStatus
+  // in electron/ipc/audio.ts) instead of a silent black box.
+  if (process.platform === "darwin") {
+    try {
+      const status = systemPreferences.getMediaAccessStatus("microphone");
+      console.log(`[main] macOS microphone access status at launch: ${status}`);
+      if (status !== "granted") {
+        const granted = await systemPreferences.askForMediaAccess("microphone");
+        console.log(`[main] askForMediaAccess("microphone") resolved: ${granted}`);
+      }
+    } catch (err) {
+      console.warn("[main] mic permission check failed", err);
+    }
+  }
 
   // Thin-client shell: point at the hosted Next.js app (or dev/staging
   // override via PF_APP_URL). No local Next server, no local audio bridge —

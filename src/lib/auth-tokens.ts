@@ -17,7 +17,7 @@ export function hashToken(plaintext: string): string {
   return crypto.createHash("sha256").update(plaintext).digest("hex");
 }
 
-export async function issueAuthToken(userId: string, kind: "verify_email" | "password_reset", ttlMs: number): Promise<string> {
+export async function issueAuthToken(userId: string, kind: "verify_email" | "password_reset" | "device_link", ttlMs: number): Promise<string> {
   const db = getDb();
   const { plaintext, hash } = mintToken();
   const expiresAt = new Date(Date.now() + ttlMs);
@@ -25,7 +25,7 @@ export async function issueAuthToken(userId: string, kind: "verify_email" | "pas
   return plaintext;
 }
 
-export async function consumeAuthToken(plaintext: string, kind: "verify_email" | "password_reset"): Promise<string | null> {
+export async function consumeAuthToken(plaintext: string, kind: "verify_email" | "password_reset" | "device_link"): Promise<string | null> {
   const db = getDb();
   const hash = hashToken(plaintext);
   const [row] = await db.select().from(authTokens).where(and(

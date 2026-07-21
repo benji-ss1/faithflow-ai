@@ -1,0 +1,9 @@
+/release/
+/dist-electron/
+/.next/
+/node_modules/
+*.dmg
+*.zip
+/electron/
+/scripts/audio-server.ts
+/Dockerfile.audio

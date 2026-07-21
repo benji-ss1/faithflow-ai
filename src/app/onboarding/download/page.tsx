@@ -1,10 +1,15 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/session";
+import { mintDeviceLinkToken } from "@/lib/device-link-actions";
 
 export const dynamic = "force-dynamic";
 
 export default async function OnboardingDownloadPage() {
   await requireUser();
+  // Minted fresh on every page load (5 min TTL) — if the user sits on this
+  // page a while before clicking, they can just refresh for a new one.
+  const link = await mintDeviceLinkToken();
+  const deepLinkHref = link.ok ? `presentflow://auth?token=${encodeURIComponent(link.token)}` : null;
   return (
     <div style={{ minHeight: "100vh", background: "#0a0a0a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div style={{ maxWidth: 640, width: "100%", textAlign: "center" }}>
@@ -31,9 +36,36 @@ export default async function OnboardingDownloadPage() {
           />
         </div>
 
-        <div style={{ opacity: 0.6, fontSize: 13, marginBottom: 32 }}>
-          On first launch, sign in with the account you just created. Your church data will sync automatically.
-        </div>
+        {deepLinkHref ? (
+          <>
+            <a
+              href={deepLinkHref}
+              style={{
+                display: "inline-block",
+                padding: "12px 28px",
+                borderRadius: 10,
+                background: "linear-gradient(90deg,#ffb861,#ff7a2c)",
+                color: "#0a0a0a",
+                fontWeight: 600,
+                fontSize: 15,
+                textDecoration: "none",
+                marginBottom: 12,
+              }}
+            >
+              Downloaded? Open PresentFlow — you'll be signed in automatically
+            </a>
+            <div style={{ opacity: 0.55, fontSize: 12, marginBottom: 32 }}>
+              This link expires in 5 minutes and only works once — refresh this page for a new one if it's stale.
+              <br />
+              First time installing? Open the downloaded app once manually first (you'll see a normal sign-in screen) — that
+              one launch is what lets your computer recognize this link afterward. From then on, this button signs you in automatically.
+            </div>
+          </>
+        ) : (
+          <div style={{ opacity: 0.6, fontSize: 13, marginBottom: 32 }}>
+            On first launch, sign in with the account you just created. Your church data will sync automatically.
+          </div>
+        )}
 
         <Link
           href="/dashboard"
