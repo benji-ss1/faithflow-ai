@@ -1258,7 +1258,11 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     }
     // Need a matching high-confidence detection
     const suggestions = ctx.audio.suggestions || [];
-    const scripture = suggestions.find((s) => s.type === "scripture" && s.confidence >= 85 && !lowConfBlockedSpans.has(s.id));
+    // forceLive (set client-side when the SAME reference is spoken a second
+    // time, even minutes apart) bypasses the normal 85% floor — restating a
+    // verse is itself the "make sure this is on screen" signal. AUTO mode
+    // being on (the `autoOn` check above) is still required either way.
+    const scripture = suggestions.find((s) => s.type === "scripture" && (s.confidence >= 85 || s.forceLive) && !lowConfBlockedSpans.has(s.id));
     if (!scripture || scripture.type !== "scripture") return;
     const first = cards[0];
     // R8: skip placeholder cards (loading / no-text / lookup-failed) AND

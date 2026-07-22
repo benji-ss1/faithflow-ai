@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { detectAll, SuggestionDedupe, type DetectAllResult } from "@/lib/ai-detection";
+import { parseBareVerse, isValidChapter } from "@/lib/bible-parser";
 import { buildIndex, type IndexedSong, type SongIndex } from "@/lib/ai-detection/lyric-fragment";
 import type { SongMatchResult } from "@/lib/ai-detection/song-match";
 import { matchCustomCommand, readCustomCommands, readAudioInputPref, audioConstraintsFor } from "@/lib/voice-commands";
@@ -16,6 +17,12 @@ export type Detection = {
   verseEnd: number;
   confidence: number;
   matchedText: string;
+  // Set by the audio bridge the moment the SAME reference is spoken a
+  // second time (even minutes apart) — a preacher restating a reference is
+  // itself a "put this on screen" signal. Only ever advisory: the client
+  // still requires AUTO mode (autoApproveEnabled && autoSendToLive) to be
+  // on before acting on it — this flag never bypasses that human toggle.
+  forceLive?: boolean;
 };
 
 export type SongSuggestion = {
@@ -62,7 +69,7 @@ export type TranscriptChunk = { id: string; text: string; final: boolean; ts: nu
  *  by (segmentId, [start,end]) instead of naive substring includes(). */
 export type MatchedSpan = { start: number; end: number };
 export type UnifiedSuggestion =
-  | { id: string; type: "scripture"; segmentId: string; ts: number; confidence: number; matchedText: string; matchedSpan?: MatchedSpan; ref: { book: string; chapter: number; verseStart: number; verseEnd: number } }
+  | { id: string; type: "scripture"; segmentId: string; ts: number; confidence: number; matchedText: string; matchedSpan?: MatchedSpan; ref: { book: string; chapter: number; verseStart: number; verseEnd: number }; forceLive?: boolean }
   | { id: string; type: "song"; segmentId: string; ts: number; confidence: number; matchedText: string; matchedSpan?: MatchedSpan; match: SongMatchResult }
   | { id: string; type: "lyric"; segmentId: string; ts: number; confidence: number; matchedText: string; matchedSpan?: MatchedSpan; match: SongMatchResult }
   | { id: string; type: "section"; segmentId: string; ts: number; confidence: number; matchedText: string; matchedSpan?: MatchedSpan; section: "chorus" | "verse" | "bridge" | "outro" | "tag"; index?: number };
@@ -155,6 +162,27 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const slidePrefetchRef = useRef<Map<string, unknown>>(new Map());
   const inFlightSlideFetchRef = useRef<Set<string>>(new Set());
   const getCtxRef = useRef<DetectContextProvider | undefined>(opts?.getDetectContext);
+  // Last book/chapter actually detected — resolves bare "verse 11" / "what
+  // does verse 7 say" mentions (no book/chapter spoken) against whatever
+  // passage is currently active in the service.
+  const lastActiveRefRef = useRef<{ book: string; chapter: number } | null>(null);
+  // A preacher restating the SAME reference (even minutes apart, well
+  // outside the 30s dedupe cooldown above) is itself a strong "put this on
+  // screen" signal — tracked separately so it can flag forceLive on the
+  // suggestion regardless of the normal confidence floor. The consuming
+  // auto-fire effect (ProOperatorShell) still requires AUTO mode's explicit
+  // human toggle to be on before acting on this flag.
+  const REPEAT_WINDOW_MS = 10 * 60 * 1000;
+  const refOccurrencesRef = useRef<Map<string, { count: number; firstAt: number }>>(new Map());
+  const noteRefOccurrence = useCallback((key: string): number => {
+    const now = Date.now();
+    const map = refOccurrencesRef.current;
+    for (const [k, v] of map) if (now - v.firstAt > REPEAT_WINDOW_MS) map.delete(k);
+    const cur = map.get(key);
+    if (cur) { cur.count++; return cur.count; }
+    map.set(key, { count: 1, firstAt: now });
+    return 1;
+  }, []);
   useEffect(() => {
     libraryRef.current = opts?.library || [];
     songIndexRef.current = libraryRef.current.length ? buildIndex(libraryRef.current) : null;
@@ -230,6 +258,21 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     } catch (e) {
       console.warn("[presentflow-detect] detectAll failed", e);
       return;
+    }
+
+    // Bare "verse 11" / "what does verse 7 say" — no book or chapter spoken
+    // at all. Only meaningful once a passage is already active (see
+    // lastActiveRefRef above), and only as a fallback when the parser found
+    // nothing, so it can never override an actual spoken reference.
+    if (result.scripture.length === 0 && lastActiveRefRef.current) {
+      const bare = parseBareVerse(text);
+      if (bare && isValidChapter(lastActiveRefRef.current.book, lastActiveRefRef.current.chapter)) {
+        result.scripture = [{
+          book: lastActiveRefRef.current.book, chapter: lastActiveRefRef.current.chapter,
+          verseStart: bare.verse, verseEnd: bare.verse,
+          confidence: 90, matchedText: bare.matchedText, needsSemanticFallback: false,
+        }];
+      }
     }
     const ts = Date.now();
     const newSuggestions: UnifiedSuggestion[] = [];
@@ -307,7 +350,24 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       const id = `sc-${segmentId}-${r.book}-${r.chapter}-${r.verseStart}-${r.verseEnd}`;
       const key = `${r.book} ${r.chapter}:${r.verseStart}-${r.verseEnd}`;
       const conf = blendScripture(r);
-      push({ id, type: "scripture", segmentId, ts, confidence: conf, matchedText: r.matchedText, matchedSpan: spanFor(r.matchedText), ref: { book: r.book, chapter: r.chapter, verseStart: r.verseStart, verseEnd: r.verseEnd } }, key);
+      lastActiveRefRef.current = { book: r.book, chapter: r.chapter };
+      // Restating the exact same reference (even minutes apart) is itself a
+      // "make sure this is on screen" signal — flags forceLive so the
+      // auto-fire effect can bypass its normal confidence floor. Still
+      // requires AUTO mode's explicit human toggle; this hook never sends
+      // anything live itself.
+      const occurrenceCount = noteRefOccurrence(`${r.book}|${r.chapter}|${r.verseStart}|${r.verseEnd}`);
+      const forceLive = occurrenceCount === 2;
+      const suggestion: UnifiedSuggestion = { id, type: "scripture", segmentId, ts, confidence: conf, matchedText: r.matchedText, matchedSpan: spanFor(r.matchedText), ref: { book: r.book, chapter: r.chapter, verseStart: r.verseStart, verseEnd: r.verseEnd }, ...(forceLive ? { forceLive: true } : {}) };
+      if (forceLive) {
+        // Bypass the normal 30s dedupe cooldown for this one signal — the
+        // repeat is very often said within that same window (that's the
+        // whole point), and this only fires once per key per REPEAT_WINDOW_MS
+        // (occurrenceCount === 2 exactly), so it can't spam.
+        newSuggestions.push(suggestion);
+      } else {
+        push(suggestion, key);
+      }
     }
     for (const m of result.song) {
       const id = `sg-${segmentId}-${m.songId}`;

@@ -65,7 +65,7 @@ const RAW_BOOKS: [string, string[]][] = [
   ["Mark", ["mark", "mk", "mr"]],
   ["Luke", ["luke", "lk", "lu"]],
   ["John", ["john", "jn", "jhn"]],
-  ["Acts", ["acts", "act"]],
+  ["Acts", ["acts", "act", "acts of the apostles", "acts of the apostle", "the acts of the apostles"]],
   ["Romans", ["romans", "roman", "rom", "rm"]],
   ["1 Corinthians", ["1 corinthians", "first corinthians", "1st corinthians", "one corinthians", "i corinthians", "1 cor", "1cor", "i cor"]],
   ["2 Corinthians", ["2 corinthians", "second corinthians", "2nd corinthians", "two corinthians", "ii corinthians", "2 cor", "2cor", "ii cor"]],
@@ -267,7 +267,7 @@ const SINGLE_CHAPTER_BOOKS = new Set(["Obadiah", "Philemon", "2 John", "3 John",
  * Y6: reject parses where chapter is <=0 or exceeds MAX_CHAPTERS_FOR_BOOK.
  * Returns false if the (book, chapter) pair is impossible.
  */
-function isValidChapter(book: string, chapter: number): boolean {
+export function isValidChapter(book: string, chapter: number): boolean {
   if (!Number.isFinite(chapter) || chapter <= 0) return false;
   const max = maxChapterFor(book);
   if (typeof max === "number" && chapter > max) return false;
@@ -356,6 +356,30 @@ const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => Pa
       const vEnd = chunkToNum(m[4]);
       if (!book || !isValidChapter(book, chapter) || !isFinite(vStart) || !isFinite(vEnd)) return null;
       return { book, chapter, verseStart: vStart, verseEnd: vEnd, confidence: 95, matchedText: m[0], needsSemanticFallback: false };
+    },
+  },
+  // "Book Chapter from [verse] Verse" — single verse start, no end range
+  // ("Luke 11 from 13", "Luke chapter 11 from verse 13"). Same single-verse
+  // semantics as book_ch_space_verse, just spoken with an explicit "from".
+  // Must exclude a trailing range tail so book_ch_v_to_v (which requires
+  // "from verse N to M") keeps priority when a range is actually spoken.
+  {
+    name: "book_ch_from_verse",
+    regex: new RegExp(
+      `\\b(${BOOK_PATTERN})\\s+(?:chapter\\s+)?${NUM_CHUNK}\\s+from\\s+(?:verses?\\s+)?${NUM_CHUNK}\\b(?!\\s*(?:to\\b|through\\b|thru\\b|-|–|—))`,
+      "gi"
+    ),
+    parse: (m) => {
+      const bookKey = m[1].toLowerCase().replace(/\s+/g, " ");
+      const book = VARIANT_TO_BOOK.get(bookKey);
+      const chapter = chunkToNum(m[2]);
+      const verse = chunkToNum(m[3]);
+      if (!book || !isFinite(chapter) || !isFinite(verse)) return null;
+      if (SINGLE_CHAPTER_BOOKS.has(book)) {
+        return { book, chapter: 1, verseStart: chapter, verseEnd: chapter, confidence: 90, matchedText: m[0], needsSemanticFallback: false };
+      }
+      if (!isValidChapter(book, chapter)) return null;
+      return { book, chapter, verseStart: verse, verseEnd: verse, confidence: 90, matchedText: m[0], needsSemanticFallback: false };
     },
   },
   // "Book Chapter:Verse" (colon/comma-separated, digit-friendly). Allow
@@ -608,4 +632,21 @@ export function isProbablyReference(s: string): boolean {
   }
   // Fallback to the parser for edge cases
   try { return parseReference(t) !== null; } catch { return false; }
+}
+
+// Bare "verse N" mention with no book/chapter attached — e.g. "what does
+// verse 11 say", "verse 7". Only meaningful when resolved against a chapter
+// that's already active in the current service (the caller tracks that
+// context; this module is stateless). Callers should only use this as a
+// fallback when parseReferences() found nothing in the same text, since a
+// full reference always takes priority over a bare verse number.
+const BARE_VERSE_RE = new RegExp(`\\bverses?\\s+${NUM_CHUNK}\\b`, "i");
+export function parseBareVerse(rawText: string): { verse: number; matchedText: string } | null {
+  if (typeof rawText !== "string" || !rawText) return null;
+  const text = normalize(rawText.slice(0, MAX_PARSE_INPUT_BYTES));
+  const m = BARE_VERSE_RE.exec(text);
+  if (!m) return null;
+  const verse = chunkToNum(m[1]);
+  if (!Number.isFinite(verse) || verse <= 0) return null;
+  return { verse, matchedText: m[0] };
 }

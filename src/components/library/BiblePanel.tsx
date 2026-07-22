@@ -327,7 +327,13 @@ export function BiblePanel({
     if (!autoApproveEnabled || !autoSendToLive) return;
     for (const d of detections) {
       if (autoSentRef.current.has(d.id)) continue;
-      if (d.confidence < autoApproveThreshold) continue;
+      // forceLive (set by the audio bridge when the SAME reference is
+      // repeated) bypasses the confidence floor — restating a verse is
+      // itself the "make sure this is on screen" signal — but AUTO mode
+      // being on (autoApproveEnabled && autoSendToLive, both explicit
+      // human toggles) is still required; this loop doesn't run at all
+      // otherwise (see the early return above).
+      if (d.confidence < autoApproveThreshold && !d.forceLive) continue;
       const card = detectedCards[d.id];
       if (!card) continue; // wait for lookup
       autoSentRef.current.add(d.id);

@@ -20,7 +20,7 @@ import http from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import { getDb } from "../src/lib/db/client";
 import { transcriptSegments, detectedReferences, servicePlans, bibleTranslations, churchPreferences } from "../src/lib/db/schema";
-import { parseReferences, knownBook } from "../src/lib/bible-parser";
+import { parseReferences, knownBook, parseBareVerse, isValidChapter } from "../src/lib/bible-parser";
 import { extractSongCandidates, fuzzyMatchSong } from "../src/lib/song-parser";
 import { parseCommands } from "../src/lib/command-parser";
 import { semanticSearch } from "../src/lib/server/bible";
@@ -245,7 +245,7 @@ type ServerMessage =
   | { type: "interim"; text: string }
   | { type: "final"; segmentId: string; text: string; confidence?: number; words?: { w: string; c: number; s?: number; e?: number }[]; wordsDropped?: boolean }
   | { type: "interim_final_candidate"; text: string; confidence?: number; words?: { w: string; c: number; s?: number; e?: number }[]; wordsDropped?: boolean }
-  | { type: "detection"; detection: { id: string; segmentId: string; book: string; chapter: number; verseStart: number; verseEnd: number; confidence: number; matchedText: string } }
+  | { type: "detection"; detection: { id: string; segmentId: string; book: string; chapter: number; verseStart: number; verseEnd: number; confidence: number; matchedText: string; forceLive?: boolean } }
   | { type: "phrase_matches"; segmentId: string; matchedText: string; candidates: { book: string; chapter: number; verse: number; text: string; similarity: number }[] }
   | { type: "song"; song: { suggestionId: string; segmentId: string; songId: string | null; title: string; confidence: number; matchedText: string } }
   | { type: "command"; command: { suggestionId: string; segmentId: string; verb: string; payload: Record<string, unknown>; confidence: number; matchedText: string } }
@@ -407,6 +407,30 @@ wss.on("connection", async (ws: WebSocket, req) => {
     return false;
   };
 
+  // Last book/chapter the preacher actually landed on this connection — used
+  // to resolve bare "verse 11" / "what does verse 7 say" mentions (no book
+  // or chapter spoken) against whatever passage is currently active. Reset
+  // is intentionally never explicit — it just ages out naturally as new refs
+  // overwrite it, matching how an operator would track "where we are" too.
+  let lastActiveRef: { book: string; chapter: number } | null = null;
+
+  // Repeat tracking — a preacher restating the SAME reference (even minutes
+  // apart, not just within the anti-spam window below) is itself a strong
+  // "put this on screen" signal, explicitly requested to bypass the normal
+  // confidence floor when AUTO mode is on. Window is intentionally much
+  // longer than the anti-spam DEDUPE_WINDOW_MS since restating for emphasis
+  // often happens well outside a 30s chatter window.
+  const REPEAT_WINDOW_MS = 10 * 60 * 1000;
+  const refOccurrences = new Map<string, { count: number; firstAt: number }>();
+  const noteRefOccurrence = (key: string): number => {
+    const now = Date.now();
+    for (const [k, v] of refOccurrences) if (now - v.firstAt > REPEAT_WINDOW_MS) refOccurrences.delete(k);
+    const cur = refOccurrences.get(key);
+    if (cur) { cur.count++; return cur.count; }
+    refOccurrences.set(key, { count: 1, firstAt: now });
+    return 1;
+  };
+
   // Already open — the SDK-style "open" event has already fired since
   // openDeepgram() awaited it. Signal readiness immediately.
   console.log(`[audio] Deepgram OPEN for plan ${planId}`);
@@ -516,6 +540,22 @@ wss.on("connection", async (ws: WebSocket, req) => {
     await db.insert(transcriptSegments).values({ id: segId, servicePlanId: planId, text });
 
     const refs = parseReferences(text);
+
+    // Bare "verse 11" / "what does verse 7 say" — no book or chapter spoken
+    // at all. Only meaningful once a passage is already active this
+    // connection (lastActiveRef), and only as a fallback when the full
+    // parser found nothing to avoid ever overriding an actual reference.
+    if (refs.length === 0 && lastActiveRef) {
+      const bare = parseBareVerse(text);
+      if (bare && isValidChapter(lastActiveRef.book, lastActiveRef.chapter)) {
+        refs.push({
+          book: lastActiveRef.book, chapter: lastActiveRef.chapter,
+          verseStart: bare.verse, verseEnd: bare.verse,
+          confidence: 90, matchedText: bare.matchedText, needsSemanticFallback: false,
+        });
+      }
+    }
+
     for (const ref of refs) {
       let book = ref.book, chapter = ref.chapter, vs = ref.verseStart, ve = ref.verseEnd;
       let confidence = ref.confidence;
@@ -553,8 +593,23 @@ wss.on("connection", async (ws: WebSocket, req) => {
         }
       }
 
-      // Dedupe: same book+chapter+range within the window collapses.
-      if (isDupe(recentRefs, dedupeKey([book, String(chapter), String(vs), String(ve)]))) continue;
+      lastActiveRef = { book, chapter };
+
+      // A preacher restating the exact same reference is itself a strong
+      // "make sure this is on screen" signal — flag it so the client can
+      // bypass the normal confidence floor, but ONLY when AUTO mode is
+      // already on (the client still gates forceLive on that explicit
+      // human toggle; this server never sends anything live itself).
+      const refKey = dedupeKey([book, String(chapter), String(vs), String(ve)]);
+      const occurrenceCount = noteRefOccurrence(refKey);
+      const forceLive = occurrenceCount === 2;
+
+      // Dedupe: same book+chapter+range within the window collapses — unless
+      // this is the exact moment it becomes a repeat, in which case we still
+      // want the client to see it (with forceLive set) even though the
+      // ordinary "detection" spam-collapse would otherwise swallow it.
+      const wasDupe = isDupe(recentRefs, refKey);
+      if (wasDupe && !forceLive) continue;
 
       const [det] = await db.insert(detectedReferences).values({
         transcriptSegmentId: segId,
@@ -564,6 +619,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         id: det.id, segmentId: segId, book, chapter,
         verseStart: vs, verseEnd: ve, confidence,
         matchedText: ref.matchedText,
+        ...(forceLive ? { forceLive: true } : {}),
       }});
     }
 
