@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { headers, cookies } from "next/headers";
 import { eq } from "drizzle-orm";
-import { Monitor, CreditCard, Users, Building2 } from "lucide-react";
+import { Monitor, CreditCard, Users, Building2, Download } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { getDb } from "@/lib/db/client";
 import { settings, churchPreferences } from "@/lib/db/schema";
@@ -66,6 +66,7 @@ export default async function SettingsPage() {
         </>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
+          <AdminLink href="/settings/download" icon={<Download className="h-4 w-4" />} title="Desktop app" hint="Download Present Flow — the live-show tool." />
           <AdminLink href="/settings/billing" icon={<CreditCard className="h-4 w-4" />} title="Billing" hint="Payment health, invoices, ownership." />
           <AdminLink href="/settings/team" icon={<Users className="h-4 w-4" />} title="Team" hint="Members, invitations, roles." />
           <AdminLink href="/organization" icon={<Building2 className="h-4 w-4" />} title="Church profile" hint="Identity, worship defaults, org details." />
