@@ -92,9 +92,24 @@ export function UpdateBanner({ liveSlide, listening }: { liveSlide?: SlidePayloa
             if (!ok) return;
           }
           try {
-            await api.update.installNow();
+            const res = await api.update.installNow();
+            // installNow resolves with {ok:false, error} on a caught failure
+            // (e.g. a code-signature mismatch Squirrel refuses to swap) rather
+            // than throwing — previously this was never checked, so a failed
+            // install silently did nothing: no quit, no error, no feedback at
+            // all. The app is still running at this point (install didn't
+            // happen), so surface it as an error state instead of leaving the
+            // operator staring at a button that appears to do nothing.
+            if (res && typeof res === "object" && "ok" in res && res.ok === false) {
+              const message = "error" in res && typeof res.error === "string" ? res.error : "Install failed";
+              console.error("[UpdateBanner] installNow returned failure:", message);
+              setState({ kind: "error", message: /code ?sign/i.test(message)
+                ? "Install blocked — this app's original install predates code signing. Download and reinstall manually once from Settings → Desktop app; future updates will then install automatically."
+                : `Install failed — ${message}` });
+            }
           } catch (err) {
             console.error("[UpdateBanner] installNow failed", err);
+            setState({ kind: "error", message: err instanceof Error ? err.message : "Install failed" });
           }
         }}
         className={`w-full px-4 py-2 text-sm font-medium text-white flex items-center justify-center gap-2 cursor-pointer ${inService ? "bg-amber-600 hover:bg-amber-500" : "bg-emerald-600 hover:bg-emerald-500"}`}
