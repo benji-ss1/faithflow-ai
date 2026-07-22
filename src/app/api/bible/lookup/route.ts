@@ -8,7 +8,14 @@ export const runtime = "nodejs";
 
 // Y13: per-user rate limit. In-memory (per Next server instance);
 // replace with Redis-backed limiter in prod.
-const lookupLimiter = createLimiter("bible-lookup", 60, 60 * 1000);
+// Split manual vs AI-triggered lookups into separate budgets: AI auto-detection
+// fires cachedLookup on every fresh high-confidence suggestion during a sermon
+// (frequent, small, automatic), which was burning through one shared 60/min
+// budget and starving deliberate manual lookups (rare, intentional) — a burst
+// of detections could 429 a manual "Lookup" click moments later. AI gets a
+// higher ceiling since each call is cheap and bounded by detection cadence.
+const lookupLimiterManual = createLimiter("bible-lookup-manual", 60, 60 * 1000);
+const lookupLimiterAI = createLimiter("bible-lookup-ai", 120, 60 * 1000);
 
 // Fire-and-forget cache warm on module load. Won't block cold requests.
 void warmCache();
@@ -17,10 +24,11 @@ export async function POST(req: Request) {
   const user = await apiUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const ok = await lookupLimiter(user.id);
-  if (!ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  const { book, chapter, verseStart, verseEnd, chapterEnd, translationCode, withWindow, source } = await req.json().catch(() => ({}));
 
-  const { book, chapter, verseStart, verseEnd, chapterEnd, translationCode, withWindow } = await req.json().catch(() => ({}));
+  const limiter = source === "ai" ? lookupLimiterAI : lookupLimiterManual;
+  const ok = await limiter(user.id);
+  if (!ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
 
   // Y14: cap + sanitize book input.
   if (typeof book !== "string" || book.length === 0 || book.length > 64 || /[\x00-\x1F]/.test(book)) {

@@ -6,8 +6,11 @@ import { servicePlans, serviceItems, songs, songSlides, mediaAssets, pptxImports
 import { requireUser } from "./session";
 import { deleteObject } from "./s3";
 import { validateReorderItemSlides } from "./reorder-validator";
+import { createLimiter } from "./rate-limit";
 
 type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
+
+const addServiceItemsLimiter = createLimiter("add-service-items", 30, 60 * 1000);
 
 // Service plans ---------------------------------------------------------------
 export async function createServicePlan(formData: FormData): Promise<Result<{ id: string }>> {
@@ -131,6 +134,69 @@ export async function addServiceItem(planId: string, type: "song" | "scripture" 
   await db.insert(serviceItems).values({ servicePlanId: planId, order: nextOrder, type, title, payload });
   revalidatePath(`/services/${planId}`);
   return { ok: true };
+}
+
+/**
+ * Bulk version of addServiceItem — used by "Add all verses" so adding an
+ * N-verse passage is one DB round trip (one read of existing items, one
+ * multi-row insert) instead of N sequential add calls. Mirrors
+ * addServiceItem's auth + church-scoping + dedup logic exactly; does not
+ * weaken it for the batch path.
+ */
+export async function addServiceItems(
+  planId: string,
+  items: Array<{ type: "song" | "scripture" | "media" | "sermon" | "blank" | "logo"; title: string; payload: Record<string, unknown> }>,
+): Promise<Result<{ inserted: number; skipped: number }>> {
+  const user = await requireUser();
+  if (!(await addServiceItemsLimiter(user.id))) {
+    return { ok: false, error: "Too many bulk-add requests. Please wait a moment before retrying." };
+  }
+  const db = getDb();
+  const [plan] = await db.select().from(servicePlans).where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, user.churchId))).limit(1);
+  if (!plan) return { ok: false, error: "Not found" };
+  if (!Array.isArray(items) || items.length === 0) return { ok: true, data: { inserted: 0, skipped: 0 } };
+
+  // Validate every item's payload shape / church-scoping BEFORE touching the
+  // DB — same guard addServiceItem runs per-item, run here per-item too.
+  for (const it of items) {
+    const guard = await validateAddServiceItemPayload(db, user.churchId, it.type, it.payload || {});
+    if (!guard.ok) return guard;
+  }
+
+  // Fetch existing items ONCE (not once per item).
+  const existing = await db.select({ order: serviceItems.order, type: serviceItems.type, payload: serviceItems.payload }).from(serviceItems).where(eq(serviceItems.servicePlanId, planId));
+
+  type DedupPayload = { songId?: string; reference?: string };
+  const existingSongIds = new Set(
+    existing.filter((e) => e.type === "song").map((e) => (e.payload as DedupPayload)?.songId).filter(Boolean),
+  );
+  const existingRefs = new Set(
+    existing.filter((e) => e.type === "scripture").map((e) => (e.payload as DedupPayload)?.reference).filter(Boolean),
+  );
+
+  let nextOrder = existing.length > 0 ? Math.max(...existing.map((e) => e.order)) + 1 : 0;
+  const toInsert: { servicePlanId: string; order: number; type: typeof items[number]["type"]; title: string; payload: Record<string, unknown> }[] = [];
+  let skipped = 0;
+
+  for (const it of items) {
+    const payload = it.payload || {};
+    if (it.type === "song") {
+      const songId = (payload as DedupPayload).songId;
+      if (songId && existingSongIds.has(songId)) { skipped++; continue; }
+      if (songId) existingSongIds.add(songId); // also dedup within this same batch
+    } else if (it.type === "scripture") {
+      const reference = (payload as DedupPayload).reference;
+      if (reference && existingRefs.has(reference)) { skipped++; continue; }
+      if (reference) existingRefs.add(reference); // also dedup within this same batch
+    }
+    toInsert.push({ servicePlanId: planId, order: nextOrder++, type: it.type, title: it.title, payload });
+  }
+
+  if (toInsert.length > 0) {
+    await db.insert(serviceItems).values(toInsert);
+  }
+  revalidatePath(`/services/${planId}`);
+  return { ok: true, data: { inserted: toInsert.length, skipped } };
 }
 
 export async function removeServiceItem(id: string): Promise<Result> {

@@ -240,6 +240,14 @@ export const bibleVerses = pgTable("bible_verses", {
   index("idx_bible_verses_lookup").on(t.translationId, t.bookOrder, t.chapter, t.verse),
   // Case-insensitive book lookup — powers lookupReference (LOWER(book) match).
   index("idx_bible_verses_book_lower").on(sql`LOWER(${t.book})`, t.chapter, t.verse),
+  // lookupReference's actual WHERE clause filters translation_id first, then
+  // LOWER(book)/chapter/verse — idx_bible_verses_book_lower above doesn't
+  // lead with translation_id, so with 3+ translations sharing this table
+  // every multi-verse/whole-chapter lookup (fetchChapterCached fetches verse
+  // 1..200 in one query) scans matching book/chapter rows across ALL
+  // translations before filtering down. This index serves that exact query
+  // shape directly.
+  index("idx_bible_verses_translation_book_chapter").on(t.translationId, sql`LOWER(${t.book})`, t.chapter, t.verse),
 ]);
 
 export const transcriptSegments = pgTable("transcript_segments", {

@@ -25,15 +25,33 @@ export default async function OnboardingDownloadPage() {
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
           <DownloadCard
-            platform="macOS"
-            href="/downloads/present-flow-mac.dmg"
-            hint="Apple silicon & Intel"
+            platform="macOS (Apple Silicon)"
+            href="https://github.com/benji-ss1/faithflow-ai/releases/download/v0.1.9/Present-Flow-0.1.9-arm64-mac.dmg"
+            hint="M1/M2/M3/M4 Macs"
           />
           <DownloadCard
-            platform="Windows"
-            href="/downloads/present-flow-win.exe"
-            hint="Windows 10 & 11"
+            platform="macOS (Intel)"
+            href="https://github.com/benji-ss1/faithflow-ai/releases/download/v0.1.9/Present-Flow-0.1.9-x64-mac.dmg"
+            hint="Older Intel Macs"
           />
+        </div>
+        <p style={{ opacity: 0.6, fontSize: 12, marginTop: -8, marginBottom: 20 }}>
+          Not sure which Mac you have? Click the Apple menu → About This Mac — it lists the chip.
+        </p>
+
+        <div style={{ textAlign: "left", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "16px 20px", marginBottom: 24, fontSize: 13, lineHeight: 1.6, opacity: 0.85 }}>
+          <strong style={{ display: "block", marginBottom: 6, opacity: 1 }}>macOS will warn you before opening it — that's expected.</strong>
+          The app isn&apos;t notarized by Apple yet, so the first time you open it macOS blocks it as being from an &quot;unidentified developer.&quot; To open it:
+          <ol style={{ margin: "8px 0 0", paddingLeft: 20 }}>
+            <li>Move the downloaded <code>.dmg</code> to Applications like normal (drag the app icon into the Applications folder).</li>
+            <li>Right-click (or Control-click) the Present Flow app in Applications and choose <strong>Open</strong> — do NOT just double-click it the first time.</li>
+            <li>You&apos;ll see a warning dialog. Click <strong>Open Anyway</strong>.</li>
+            <li>If macOS still refuses (some versions do), open <strong>Terminal</strong> and run:
+              <pre style={{ background: "#000", padding: "8px 10px", borderRadius: 6, marginTop: 6, overflowX: "auto" }}>xattr -cr /Applications/Present\ Flow.app</pre>
+              then try opening it again the same way (right-click → Open).
+            </li>
+          </ol>
+          This one-time warning only happens on first launch.
         </div>
 
         {deepLinkHref ? (

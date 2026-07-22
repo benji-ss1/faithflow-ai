@@ -9,15 +9,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Plus } from "lucide-react";
+import { Plus, Pencil } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload } from "@/lib/broadcast";
-import { createSong, createSongSlide } from "@/lib/actions";
+import { createSong, createSongSlide, updateSongSlides } from "@/lib/actions";
 
 type SongRow = { id: string; title: string; artist: string | null };
-type SlideRow = { lyrics: string };
+type SlideRow = { id?: string; lyrics: string };
 
 export function SongsBrowser({
   ctx,
@@ -32,6 +32,9 @@ export function SongsBrowser({
   const [selected, setSelected] = useState<SongRow | null>(null);
   const [slides, setSlides] = useState<SlideRow[] | null>(null);
   const [slidesLoading, setSlidesLoading] = useState(false);
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
   // Shared slide-size preference — same event/localStorage key the CenterHeader
   // and BottomBar use so a single slider works everywhere.
   const [slideSize, setSlideSize] = useState(280);
@@ -82,6 +85,30 @@ export function SongsBrowser({
     return songs.filter((s) =>
       s.title.toLowerCase().includes(q) || (s.artist || "").toLowerCase().includes(q));
   }, [songs, query]);
+
+  const refreshSlides = (songId: string) => {
+    fetch(`/api/songs/${songId}/slides`)
+      .then((r) => r.json())
+      .then((data) => setSlides(data.slides || []))
+      .catch(() => { /* silent — retry on next select */ });
+  };
+
+  const saveSlideEdit = async (idx: number) => {
+    if (!selected || !slides || savingEdit) return;
+    setSavingEdit(true);
+    try {
+      const next = slides.map((sl, i) => (i === idx ? { lyrics: editDraft } : { lyrics: sl.lyrics }));
+      const res = await updateSongSlides(selected.id, next);
+      if (!res.ok) { toast.error(res.error || "Save failed"); return; }
+      setSlides(next);
+      setEditingIdx(null);
+      toast.success("Slide updated");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
 
   const addToPlaylist = async (s: SongRow) => {
     if (!ctx.onAddLibraryItem) { toast.info("Playlist add not available in this view"); return; }
@@ -140,12 +167,27 @@ export function SongsBrowser({
             {selected ? selected.title : "Select a song to preview"}
           </div>
           {selected && (
-            <button
-              onClick={() => void addToPlaylist(selected)}
-              className="h-8 px-3 rounded-md bg-[var(--color-brand)] text-black text-[12px] font-semibold"
-            >
-              Add to playlist
-            </button>
+            <>
+              <button
+                onClick={() => {
+                  setEditingIdx(null);
+                  void createSongSlide(selected.id, undefined, { objects: [], lyrics: "" }).then((res) => {
+                    if (!res.ok) { toast.error(res.error || "Add slide failed"); return; }
+                    refreshSlides(selected.id);
+                  });
+                }}
+                className="h-8 px-3 rounded-md border border-[var(--color-border)] text-[12px] font-semibold hover:bg-[var(--color-elevated)]"
+                title="Add a new blank lyric slide to this song"
+              >
+                + Add slide
+              </button>
+              <button
+                onClick={() => void addToPlaylist(selected)}
+                className="h-8 px-3 rounded-md bg-[var(--color-brand)] text-black text-[12px] font-semibold"
+              >
+                Add to playlist
+              </button>
+            </>
           )}
         </div>
         <div className="flex-1 overflow-y-auto p-3">
@@ -156,13 +198,7 @@ export function SongsBrowser({
               {selected && (
                 <AddLyricSlide
                   songId={selected.id}
-                  onAdded={() => {
-                    // refresh preview slides
-                    fetch(`/api/songs/${selected.id}/slides`)
-                      .then((r) => r.json())
-                      .then((data) => setSlides(data.slides || []))
-                      .catch(() => { /* silent — retry on next select */ });
-                  }}
+                  onAdded={() => refreshSlides(selected.id)}
                 />
               )}
             </div>
@@ -173,22 +209,77 @@ export function SongsBrowser({
             <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${slideSize}px, 1fr))` }}>
               {slides.map((sl, idx) => {
                 const payload: SlidePayload = { kind: "text", text: sl.lyrics };
+                const isEditing = editingIdx === idx;
+                if (isEditing) {
+                  return (
+                    <div
+                      key={idx}
+                      className="relative aspect-video rounded overflow-hidden border-2 border-[var(--color-brand)] bg-[var(--color-elevated)] flex flex-col p-2 gap-1"
+                    >
+                      <textarea
+                        autoFocus
+                        value={editDraft}
+                        onChange={(e) => setEditDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") { setEditingIdx(null); return; }
+                          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); void saveSlideEdit(idx); }
+                        }}
+                        maxLength={5000}
+                        className="flex-1 w-full resize-none bg-transparent text-[12px] outline-none"
+                        placeholder="Type lyrics for this slide…"
+                      />
+                      <div className="flex justify-end gap-1">
+                        <button
+                          onClick={() => setEditingIdx(null)}
+                          className="h-6 px-2 rounded border border-[var(--color-border)] text-[10px]"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => void saveSlideEdit(idx)}
+                          disabled={savingEdit}
+                          className="h-6 px-2 rounded bg-[var(--color-brand)] text-black text-[10px] font-semibold disabled:opacity-50"
+                        >
+                          {savingEdit ? "Saving…" : "Save"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
                 return (
-                  <button
+                  <div
                     key={idx}
-                    // Operator-directive: single-click sends to live. This is
-                    // a MANUAL operator click — copyright rule 7 (songs never
-                    // AUTO-project) applies to AI/autopilot only. Direct
-                    // operator intent is trusted.
-                    onClick={() => ctx.onSendSlideToLive(payload)}
-                    className="relative aspect-video rounded overflow-hidden border-2 border-[var(--color-border)] hover:border-[var(--color-brand)] transition-colors"
-                    title="Click to send lyric slide to live"
+                    className="group relative aspect-video rounded overflow-hidden border-2 border-[var(--color-border)] hover:border-[var(--color-brand)] transition-colors"
                   >
-                    <SlideRenderer slide={payload} />
-                    <div className="absolute top-1 left-1 text-[10px] font-mono text-white/70 bg-black/40 px-1.5 py-0.5 rounded">
+                    <button
+                      // Operator-directive: single-click sends to live. This is
+                      // a MANUAL operator click — copyright rule 7 (songs never
+                      // AUTO-project) applies to AI/autopilot only. Direct
+                      // operator intent is trusted.
+                      onClick={() => ctx.onSendSlideToLive(payload)}
+                      className="absolute inset-0 w-full h-full"
+                      title="Click to send lyric slide to live"
+                    >
+                      <SlideRenderer slide={payload} />
+                      {!sl.lyrics.trim() && (
+                        <div className="absolute inset-0 flex items-center justify-center text-[11px] text-[var(--color-muted-foreground)]">
+                          Empty slide — click pencil to add lyrics
+                        </div>
+                      )}
+                    </button>
+                    <div className="absolute top-1 left-1 text-[10px] font-mono text-white/70 bg-black/40 px-1.5 py-0.5 rounded pointer-events-none">
                       {idx + 1}
                     </div>
-                  </button>
+                    <button
+                      type="button"
+                      aria-label="Edit slide lyrics"
+                      title="Edit lyrics"
+                      onClick={(e) => { e.stopPropagation(); setEditDraft(sl.lyrics); setEditingIdx(idx); }}
+                      className="absolute top-1 right-1 h-5 w-5 inline-flex items-center justify-center rounded bg-black/50 text-white/80 hover:bg-[var(--color-brand)] hover:text-black transition-colors opacity-0 group-hover:opacity-100"
+                    >
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                  </div>
                 );
               })}
             </div>

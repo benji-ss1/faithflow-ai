@@ -4,12 +4,14 @@ import { toast } from "sonner";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload } from "@/lib/broadcast";
-import { BibleOptionsPopover, useBibleOptions } from "./BibleOptionsPopover";
+import { BibleOptionsPopover, BibleOptionsProvider, useBibleOptions } from "./BibleOptionsPopover";
 import { BibleBookBrowser } from "./BibleBookBrowser";
 import type { BibleSessionApi, VerseCard } from "../hooks";
 import { cn } from "@/lib/utils";
 import { cachedLookup } from "@/lib/bible-client-cache";
-import { addServiceItem } from "@/lib/actions";
+import { bibleSearchCacheKey, getBibleSearchCached, setBibleSearchCached } from "@/lib/bible-search-cache";
+import { fetchChapterCached } from "@/lib/bible-chapter-cache";
+import { addServiceItem, addServiceItems } from "@/lib/actions";
 import { Plus, Pencil, Check } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -21,7 +23,19 @@ import { useRouter } from "next/navigation";
  * driven by BibleOptions (single source of truth). Verse mode = 1 verse per
  * card; Passage mode = up to 4 verses per card.
  */
-export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: BibleSessionApi }) {
+export function BibleMode(props: { ctx: OperatorShellCtx; session: BibleSessionApi }) {
+  // R4: single Provider mounted here, above both consumers of
+  // useBibleOptions (BibleModeInner below, and BibleOptionsPopover it
+  // renders as a child) — replaces two independent useState instances that
+  // never re-synced with each other.
+  return (
+    <BibleOptionsProvider>
+      <BibleModeInner {...props} />
+    </BibleOptionsProvider>
+  );
+}
+
+function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: BibleSessionApi }) {
   const { state, setRef, setTranslation, setCards, setSelectedIdx, setLoading } = session;
   const { ref, translation, cards, selectedIdx, loading } = state;
   const [opts] = useBibleOptions();
@@ -101,18 +115,28 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
 
   const addAllVerses = useCallback(async () => {
     if (cards.length === 0 || addAllPending) return;
+    if (!ctx.planId) { toast.info("No plan open"); return; }
     setAddAllPending(true);
     try {
-      let added = 0;
-      for (const c of cards) {
-        if (!ctx.planId) break;
+      // Build the full batch once, then a single round trip — previously
+      // this awaited `addServiceItem` once per card (N sequential inserts +
+      // N sequential "read existing items" queries for a Psalm-119-sized
+      // lookup). addServiceItems does the dedup check once and inserts the
+      // survivors in one `db.insert(...).values([...])` call.
+      const items = cards.map((c) => {
         const ref = c.label.replace(/\s*\([^)]*\)\s*$/, "").trim();
         const verses = c.verses.map((v) => ({ verse: v.verse, text: v.text }));
-        const res = await addServiceItem(ctx.planId, "scripture", ref, { reference: ref, verses });
-        if (res.ok) added++;
+        return { type: "scripture" as const, title: ref, payload: { reference: ref, verses } };
+      });
+      const res = await addServiceItems(ctx.planId, items);
+      if (!res.ok) { toast.error(res.error || "Add failed"); return; }
+      const { inserted, skipped } = res.data ?? { inserted: 0, skipped: 0 };
+      if (inserted > 0) {
+        toast.success(`Added ${inserted} verse${inserted === 1 ? "" : "s"}${skipped > 0 ? ` (${skipped} already in plan)` : ""}`);
+        router.refresh();
+      } else {
+        toast.error(skipped > 0 ? "All verses already in plan" : "No verses added");
       }
-      if (added > 0) { toast.success(`Added ${added} verse${added === 1 ? "" : "s"}`); router.refresh(); }
-      else toast.error("No verses added");
     } finally {
       setAddAllPending(false);
     }
@@ -121,12 +145,27 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
   const runLookup = useCallback(async (p: { book: string; chapter: number; verseStart: number; verseEnd: number; chapterEnd?: number }) => {
     setLoading(true);
     try {
-      const res = await cachedLookup({
-        book: p.book, chapter: p.chapter, verseStart: p.verseStart, verseEnd: p.verseEnd,
-        chapterEnd: p.chapterEnd, translationCode: translation,
-      });
+      const crossCh = !!(p.chapterEnd && p.chapterEnd !== p.chapter);
+      // Single-chapter lookups fetch the WHOLE chapter once (and cache it),
+      // so subsequent Next/Prev-verse navigation in ProOperatorShell can be
+      // a local, zero-network index move instead of a fetch per click. Only
+      // the requested verseStart..verseEnd slice is shown here; the rest of
+      // the chapter sits ready in bible-chapter-cache. Cross-chapter ranges
+      // keep the previous exact-range fetch — whole-chapter caching doesn't
+      // map cleanly onto a range spanning chapter boundaries.
+      const res = crossCh
+        ? await cachedLookup({
+            book: p.book, chapter: p.chapter, verseStart: p.verseStart, verseEnd: p.verseEnd,
+            chapterEnd: p.chapterEnd, translationCode: translation,
+          })
+        : await (async () => {
+            const chapterRes = await fetchChapterCached(p.book, p.chapter, translation);
+            return {
+              verses: chapterRes.verses.filter((v) => v.verse >= p.verseStart && v.verse <= p.verseEnd),
+              translation: chapterRes.translation,
+            };
+          })();
       const verses = res.verses;
-      const crossCh = p.chapterEnd && p.chapterEnd !== p.chapter;
       const rangeLabel = crossCh
         ? `${p.chapter}:${p.verseStart}-${p.chapterEnd}:${p.verseEnd}`
         : `${p.chapter}:${p.verseStart}${p.verseStart !== p.verseEnd ? `-${p.verseEnd}` : ""}`;
@@ -172,6 +211,19 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
         toast.info("Type at least 3 characters to search.");
         return;
       }
+      // Part 3: session-scoped cache for repeat/refined phrase searches —
+      // same pattern as bible-client-cache.ts's verse-lookup cache. Avoids
+      // paying the full embedding round trip (server model cold-start being
+      // the actual latency culprit, see src/lib/embeddings.ts) when the
+      // operator re-runs or slightly re-types the same search mid-session.
+      const cacheKey = bibleSearchCacheKey(translation, trimmed, resultsLimit);
+      const cached = getBibleSearchCached(cacheKey);
+      if (cached) {
+        setPhraseHits(cached.hits.map((h) => ({ ...h, matched: trimmed })));
+        setPhraseQuery(trimmed);
+        setCards([]);
+        return;
+      }
       setLoading(true);
       // Abort in-flight search if the operator triggers a new one or flips
       // away from Bible mode — otherwise a slow stale response can land
@@ -191,6 +243,7 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
         setPhraseHits(hits.map((h) => ({ ...h, matched: trimmed })));
         setPhraseQuery(trimmed);
         setCards([]);
+        if (hits.length > 0) setBibleSearchCached(cacheKey, hits, translation);
       } catch (e) {
         if ((e as { name?: string })?.name === "AbortError") return; // superseded — silent
         toast.error(e instanceof Error ? e.message : "Search failed");
@@ -493,16 +546,30 @@ export function BibleMode({ ctx, session }: { ctx: OperatorShellCtx; session: Bi
               <div className="flex-1 text-[12px] font-medium truncate">
                 {selectedIdx != null && cards[selectedIdx] ? cards[selectedIdx].label : "Select a verse to preview"}
               </div>
-              {selectedIdx != null && cards[selectedIdx] && (
-                <button
-                  onClick={() => ctx.onSendSlideToLive(cardToSlide(cards[selectedIdx], selectedIdx, cards.length))}
-                  className="h-7 px-3 rounded bg-[var(--color-brand)] text-black text-[11px] font-semibold"
-                >
-                  Send to live
-                </button>
-              )}
             </div>
-            <div className="flex-1 p-3">
+            {/* R5: whole preview is click-to-live now, matching the grid
+                cards and list rows (which already send live on a single
+                click) — the separate "Send to live" button was the last
+                inconsistent control in this file. */}
+            <div
+              className={cn(
+                "flex-1 p-3",
+                selectedIdx != null && cards[selectedIdx] && "cursor-pointer",
+              )}
+              role={selectedIdx != null && cards[selectedIdx] ? "button" : undefined}
+              tabIndex={selectedIdx != null && cards[selectedIdx] ? 0 : undefined}
+              title={selectedIdx != null && cards[selectedIdx] ? "Click to send verse to live" : undefined}
+              onClick={() => {
+                if (selectedIdx == null || !cards[selectedIdx]) return;
+                ctx.onSendSlideToLive(cardToSlide(cards[selectedIdx], selectedIdx, cards.length));
+              }}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                if (selectedIdx == null || !cards[selectedIdx]) return;
+                e.stopPropagation();
+                ctx.onSendSlideToLive(cardToSlide(cards[selectedIdx], selectedIdx, cards.length));
+              }}
+            >
               {selectedIdx != null && cards[selectedIdx] ? (
                 <div className="aspect-video rounded overflow-hidden border border-[var(--color-border)]">
                   <SlideRenderer slide={cardToSlide(cards[selectedIdx], selectedIdx, cards.length)} />

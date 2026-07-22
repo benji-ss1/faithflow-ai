@@ -471,9 +471,20 @@ wss.on("connection", async (ws: WebSocket, req) => {
     }
     lastDgResultAt = Date.now();
 
-    const [seg] = await db.insert(transcriptSegments).values({ servicePlanId: planId, text }).returning();
+    // Generate the id client-side (schema default is defaultRandom() anyway)
+    // so the client-facing "final" message can send immediately instead of
+    // blocking on the DB round trip — transcript persistence is for later
+    // reference/search, never on the critical path of the operator seeing
+    // text. Insert fires in the background; a failure is logged, not thrown,
+    // since the live path already succeeded.
+    const segId = crypto.randomUUID();
     noteEmittedFinal(text);
-    send(capWordsIfHuge({ type: "final", segmentId: seg.id, text, confidence: dgConf, words }) as ServerMessage);
+    send(capWordsIfHuge({ type: "final", segmentId: segId, text, confidence: dgConf, words }) as ServerMessage);
+    // The client already has the "final" message — this insert no longer
+    // blocks that. It's still awaited here (not fire-and-forget) because
+    // detectedReferences/aiSuggestions below have an FK to this row and must
+    // not race ahead of it.
+    await db.insert(transcriptSegments).values({ id: segId, servicePlanId: planId, text });
 
     const refs = parseReferences(text);
     for (const ref of refs) {
@@ -517,11 +528,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
       if (isDupe(recentRefs, dedupeKey([book, String(chapter), String(vs), String(ve)]))) continue;
 
       const [det] = await db.insert(detectedReferences).values({
-        transcriptSegmentId: seg.id,
+        transcriptSegmentId: segId,
         book, chapter, verseStart: vs, verseEnd: ve, confidence, status: "pending",
       }).returning();
       send({ type: "detection", detection: {
-        id: det.id, segmentId: seg.id, book, chapter,
+        id: det.id, segmentId: segId, book, chapter,
         verseStart: vs, verseEnd: ve, confidence,
         matchedText: ref.matchedText,
       }});
@@ -544,7 +555,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
           status: "pending",
         }).returning();
         send({ type: "song", song: {
-          suggestionId: row.id, segmentId: seg.id,
+          suggestionId: row.id, segmentId: segId,
           songId: match.songId, title: match.title,
           confidence: match.confidence, matchedText: match.matchedText,
         }});
@@ -567,7 +578,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         status: "pending",
       }).returning();
       send({ type: "command", command: {
-        suggestionId: row.id, segmentId: seg.id,
+        suggestionId: row.id, segmentId: segId,
         verb: cmd.verb, payload: cmd.payload,
         confidence: cmd.confidence, matchedText: cmd.matchedText,
       }});

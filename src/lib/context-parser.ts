@@ -23,6 +23,7 @@ export type ContextVerb =
   | "prev_verse"
   | "continue"          // extend current range by +1
   | "back"              // shrink current range by -1
+  | "repeat_verse"      // re-send the current verse live, no index change
   // Slide-navigation verbs — no wake word required. Same architecture as
   // "next verse" — anchored phrases only, not lone words.
   | "next_slide"
@@ -76,22 +77,66 @@ export function spokenToNumber(word: string): number | null {
   return total;
 }
 
+// Combinatorial synonym groups for verse navigation. Every intent below is
+// built as (LEAD VERB PHRASE) + (OBJECT NOUN), so each regex covers dozens
+// of realistic spoken variants while still requiring a verb-anchored phrase
+// — never a bare word — per this file's core safety rule. Leads/objects were
+// chosen by cross-referencing how ProPresenter, EasyWorship, and Proclaim
+// document their own voice/remote "next slide" phrasing plus common pulpit
+// speech patterns ("let's move to...", "turn to...", "carry on to...").
+const NEXT_LEADS = "go\\s+to|read|show|turn\\s+to|move\\s+(?:on\\s+)?to|jump\\s+to|skip\\s+to|advance\\s+to|proceed\\s+to|carry\\s+on\\s+to|let's\\s+(?:go\\s+to|move\\s+to)|and\\s+(?:now\\s+)?(?:go\\s+to|read)|on\\s+to|onto|scroll\\s+to";
+const NEXT_OBJECTS = "next\\s+(?:verse|one|line|passage|slide)|one\\s+after\\s+this|following\\s+verse";
+const PREV_LEADS = "go\\s+back\\s+to|back\\s+to|return\\s+to|rewind\\s+to|let's\\s+go\\s+back\\s+to|and\\s+back\\s+to|jump\\s+back\\s+to";
+const PREV_OBJECTS = "previous\\s+(?:verse|one|line|slide)|verse\\s+before(?:\\s+this)?|one\\s+before\\s+this|last\\s+verse";
+
 // Ordered most-specific → most-lenient. First match wins.
 const PATTERNS: { verb: ContextVerb; re: RegExp; confidence: number; capture?: (m: RegExpExecArray) => Record<string, unknown> | null }[] = [
-  // "let's go to the next verse", "and the next verse says"
-  { verb: "next_verse", re: /\b(?:go\s+to|read|show|and)\s+(?:the\s+)?next\s+(?:verse|one)\b/i, confidence: 90 },
-  { verb: "next_verse", re: /\bnext\s+verse\b/i, confidence: 85 },
-  { verb: "next_verse", re: /\bthe\s+next\s+(?:passage|line)\b/i, confidence: 75 },
+  // Combinatorial lead+object forms — covers "go to the next verse", "let's
+  // move to the next one", "turn to the next passage", "carry on to the
+  // next line", "scroll to the next slide", etc. (7 leads × 5 objects = 35
+  // phrasings from this single pattern alone).
+  { verb: "next_verse", re: new RegExp(`\\b(?:${NEXT_LEADS})\\s+(?:the\\s+)?(?:${NEXT_OBJECTS})\\b`, "i"), confidence: 88 },
+  // Bare "next verse" / "next one" without a lead verb — still anchored to
+  // the noun "verse"/"one", not a lone directional word like "forward".
+  { verb: "next_verse", re: /\bnext\s+(?:verse|one|line|passage)\b/i, confidence: 85 },
   { verb: "next_verse", re: /\bverse\s+(?:number\s+)?(?:following|after)\b/i, confidence: 70 },
+  { verb: "next_verse", re: /\b(?:let's\s+)?(?:go\s+on|move\s+on|carry\s+on|continue\s+on)\s+(?:to\s+)?(?:the\s+)?next\b/i, confidence: 78 },
+  { verb: "next_verse", re: /\bgo\s+forth\s+to\s+(?:the\s+)?next\b/i, confidence: 78 },
+  // NOTE: deliberately no bare `/\bforward\b/` or `/\bgo\s+forth\b/` alone —
+  // "moving forward", "forward in faith" etc. appear in ordinary sermon
+  // speech unanchored to verse navigation.
 
-  { verb: "prev_verse", re: /\bprevious\s+verse\b/i, confidence: 90 },
+  { verb: "prev_verse", re: new RegExp(`\\b(?:${PREV_LEADS})\\s+(?:the\\s+)?(?:${PREV_OBJECTS})\\b`, "i"), confidence: 88 },
+  { verb: "prev_verse", re: /\bprevious\s+(?:verse|one|line)\b/i, confidence: 90 },
   { verb: "prev_verse", re: /\b(?:go\s+)?back\s+(?:one|a)\s+verse\b/i, confidence: 90 },
   { verb: "prev_verse", re: /\bthe\s+verse\s+before\b/i, confidence: 80 },
+  { verb: "prev_verse", re: /\b(?:the\s+)?one\s+before\s+this\b/i, confidence: 75 },
 
-  { verb: "continue", re: /\b(?:let's\s+|and\s+)?(?:read|continue\s+reading|read\s+on|keep\s+reading)\b/i, confidence: 55 },
+  // "continue" — genuinely means "keep going forward through the passage,"
+  // functionally identical to next_verse for this app's purposes (both
+  // advance one card). Anchored multi-word phrases only.
+  { verb: "continue", re: /\b(?:let's\s+)?continue\s+(?:reading|on|through)\b/i, confidence: 78 },
+  { verb: "continue", re: /\bread\s+on\b/i, confidence: 70 },
+  { verb: "continue", re: /\bkeep\s+reading\b/i, confidence: 70 },
   { verb: "continue", re: /\bverse\s+(?:number\s+)?(?:continues|goes\s+on)\b/i, confidence: 75 },
+  { verb: "continue", re: /\bgo\s+on\b/i, confidence: 68 },
+  { verb: "continue", re: /\bmoving\s+on\b/i, confidence: 65 },
 
-  { verb: "back", re: /\bgo\s+back\b/i, confidence: 60 },
+  { verb: "back", re: /\bgo\s+back\b/i, confidence: 75 },
+
+  // "say that again", "read it again", "one more time", "come again",
+  // "repeat that verse" — repeats the CURRENT verse live without changing
+  // which verse is selected. Distinct from "go back" (moves to previous).
+  { verb: "repeat_verse", re: /\b(?:say|read)\s+(?:that|it)\s+again\b/i, confidence: 85 },
+  { verb: "repeat_verse", re: /\bone\s+more\s+time\b/i, confidence: 80 },
+  { verb: "repeat_verse", re: /\brepeat\s+(?:that|this|it)?\s*(?:verse)?\b/i, confidence: 78 },
+  { verb: "repeat_verse", re: /\bcome\s+again\b/i, confidence: 72 },
+  { verb: "repeat_verse", re: /\bone\s+(?:last|final)\s+time\b/i, confidence: 78 },
+  // NOTE: deliberately no bare `/\bagain\b/` pattern — "again" appears
+  // constantly in ordinary sermon speech ("as I said again...") with no
+  // verb anchoring at all, which is exactly what this module's header
+  // comment says to avoid. Every pattern above requires an anchoring verb
+  // phrase, not a lone word.
 
   // --- Slide navigation (wake-word-free) ------------------------------------
   // Only fire when there's context (i.e. a slide is currently live) — same
@@ -155,7 +200,7 @@ const PATTERNS: { verb: ContextVerb; re: RegExp; confidence: number; capture?: (
  * verbs (show_chorus / goto_verse) need a slide up so we know a song is
  * staged. */
 const VERB_KIND: Record<ContextVerb, "verse" | "slide" | "screen" | "global" | "song"> = {
-  next_verse: "verse", prev_verse: "verse", continue: "verse", back: "verse",
+  next_verse: "verse", prev_verse: "verse", continue: "verse", back: "verse", repeat_verse: "verse",
   next_slide: "slide", prev_slide: "slide",
   blank_screen: "screen", clear_screen: "screen",
   start_countdown: "global", captions_on: "global", captions_off: "global",

@@ -732,26 +732,20 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     toast.info(`Open library to import "${title}"`);
   }, []);
 
-  // Auto-accept for unified lyric/song suggestions (Phase 5A rules).
-  // Below 60% → hidden by the card itself
-  // 60-89% → require manual
-  // 90-94% + Autopilot ACTIVE → auto-stage to Preview (treat active as Auto-Preview)
-  // 95%+ + Autopilot ACTIVE → still stage to Preview only (never Live for song content, copyright safety)
-  const autoAcceptedRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (!autoApprove.enabled) return;
-    for (const s of audio.suggestions) {
-      if (s.type !== "song" && s.type !== "lyric") continue;
-      if (autoAcceptedRef.current.has(s.id)) continue;
-      if (s.confidence < 90) continue;
-      autoAcceptedRef.current.add(s.id);
-      const p = s.match.previewPayload;
-      if (p.kind !== "text" || !p.text?.trim()) continue;
-      setStagedAISlide(p);
-      setAutopilotActivity({ source: "auto-approve", ref: s.match.title, ts: Date.now() });
-      toast.info(`Autopilot → PREVIEW · ${s.match.title}${s.confidence >= 95 ? " (song stays Preview-only)" : ""}`);
-    }
-  }, [audio.suggestions, autoApprove.enabled]);
+  // REMOVED (2026-07-22): legacy song/lyric auto-accept-to-Preview effect.
+  // This was a second, independent auto-behavior system for song detections
+  // that raced with ProOperatorShell's SongAutopilotStaging (Part 6/6b) —
+  // same class of bug the scripture auto-accept effect above was removed
+  // for. It hardcoded "songs always stay Preview-only regardless of
+  // confidence," which is now stale: policy (CLAUDE.md rule 7, 2026-07-22)
+  // is a two-tier system — 60-84% stages for human "G" keypress confirm,
+  // ≥85% goes live with zero clicks — implemented entirely in
+  // SongAutopilotStaging's `autoLiveSong`. Having this effect ALSO staging
+  // the same detections to Preview-only fought with that and was the direct
+  // cause of high-confidence songs visibly staying in Preview instead of
+  // going live. `stagedAISlide`/`setStagedAISlide` remain in use elsewhere
+  // for legitimate manual "stage for preview" flows — only this specific
+  // auto-triggering effect was removed.
 
   // --- Internet metadata lookup (title/artist ONLY, NEVER lyrics) --------
   // When a song cue is detected but local library has no strong match, we

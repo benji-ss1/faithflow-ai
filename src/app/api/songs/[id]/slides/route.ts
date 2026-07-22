@@ -14,5 +14,5 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const [song] = await db.select().from(songs).where(and(eq(songs.id, id), eq(songs.churchId, user.churchId))).limit(1);
   if (!song) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const slides = await db.select().from(songSlides).where(eq(songSlides.songId, song.id)).orderBy(asc(songSlides.order));
-  return NextResponse.json({ title: song.title, slides: slides.map((s) => ({ lyrics: s.lyrics })) });
+  return NextResponse.json({ title: song.title, slides: slides.map((s) => ({ id: s.id, lyrics: s.lyrics })) });
 }

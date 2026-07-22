@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import * as Tabs from "@radix-ui/react-tabs";
 import { Settings } from "lucide-react";
@@ -14,7 +14,6 @@ type BibleOpts = {
   showVerseNumbers: boolean;
   breakOnNewVerse: boolean;
   displayTranslation: boolean;
-  preserveFontColor: boolean;
   refFormat: "each" | "last" | "none";
   library: string;
   bibles: Record<string, boolean>;
@@ -24,13 +23,21 @@ const DEFAULT: BibleOpts = {
   showVerseNumbers: true,
   breakOnNewVerse: false,
   displayTranslation: true,
-  preserveFontColor: false,
   refFormat: "each",
   library: "Default",
   bibles: { KJV: true, WEB: false, ASV: false },
 };
 
-export function useBibleOptions() {
+type BibleOptsTuple = readonly [BibleOpts, (n: BibleOpts) => void];
+
+// R4: was two independent useState instances (one in this file's popover,
+// one called separately inside BibleMode) — toggling a checkbox here never
+// reached BibleMode's renderer because each had its own copy of state that
+// only read localStorage once at mount. Now a single Provider (mounted once
+// in BibleMode, above both consumers) owns the one source of truth.
+const BibleOptionsContext = createContext<BibleOptsTuple | null>(null);
+
+export function BibleOptionsProvider({ children }: { children: ReactNode }) {
   const [opts, setOpts] = useState<BibleOpts>(DEFAULT);
   useEffect(() => {
     try {
@@ -42,7 +49,14 @@ export function useBibleOptions() {
     setOpts(n);
     try { window.localStorage.setItem(KEY, JSON.stringify(n)); } catch { /* noop */ }
   };
-  return [opts, save] as const;
+  const value: BibleOptsTuple = [opts, save] as const;
+  return <BibleOptionsContext.Provider value={value}>{children}</BibleOptionsContext.Provider>;
+}
+
+export function useBibleOptions(): BibleOptsTuple {
+  const ctx = useContext(BibleOptionsContext);
+  if (!ctx) throw new Error("useBibleOptions must be used within a BibleOptionsProvider");
+  return ctx;
 }
 
 export function BibleOptionsPopover() {
@@ -79,7 +93,6 @@ export function BibleOptionsPopover() {
                 ["showVerseNumbers", "Show Verse Numbers"],
                 ["breakOnNewVerse", "Break on New Verse"],
                 ["displayTranslation", "Display Translation"],
-                ["preserveFontColor", "Preserve Font Color"],
               ] as const).map(([k, label]) => (
                 <label key={k} className="flex items-center gap-2">
                   <input

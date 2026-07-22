@@ -38,6 +38,7 @@ import { MediaStrip } from "./MediaStrip";
 import { useTimerSession, useMessagesSession, useBibleSession } from "./hooks";
 import { openLiveChannel, safePost } from "@/lib/broadcast";
 import { cachedLookup } from "@/lib/bible-client-cache";
+import { fetchChapterCached, getCachedChapter, chapterKey, prefetchChapter } from "@/lib/bible-chapter-cache";
 import { cn } from "@/lib/utils";
 import { useOperatorHotkeys } from "@/hooks/useOperatorHotkeys";
 import { ShortcutsHelpOverlay } from "./ShortcutsHelpOverlay";
@@ -49,6 +50,8 @@ import { CONFIDENCE_THRESHOLD } from "@/lib/audio-thresholds";
 import { OperatorTour, hasSeenTour } from "@/components/tutorial/OperatorTour";
 import { WhatsNewModal } from "../WhatsNewModal";
 import { dispatchInternal, isInternalEvent } from "@/lib/internal-events";
+import { matchNextSlide, isLikelyEndOfSong } from "@/lib/ai-detection/lyric-position";
+import { parseContextCommand } from "@/lib/context-parser";
 
 // PF trace gate (R2). Mirrors useAudioStream.isDevOrTraceOn — cheap re-impl
 // here so the shell doesn't have to receive it via ctx.
@@ -294,6 +297,489 @@ function LiveTranscriptPanel({ ctx }: { ctx: OperatorShellCtx }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Parts 6-8 — Song auto-stage/auto-live and word-timing slide auto-advance.
+//
+// Policy (explicit, user-approved 2026-07-22 — see CLAUDE.md rule 7): below
+// SONG_AUTOLIVE_CONFIDENCE, a song detection only stages (human "G" keypress
+// via `confirmStagedSongLive` required to go live). At/above
+// SONG_AUTOLIVE_CONFIDENCE, `autoLiveSong` pushes it live with ZERO human
+// action, using the exact same anti-replay/min-gap guardrails proven out by
+// Bible's `doAutoFire` (see AUTO_APPROVE_KEY_INSTANT effect below): a
+// session-persisted fired-key map (5min replay suppression) and a min-gap
+// cooldown between auto-live events (falls back to staging, never silently
+// drops, if a second high-confidence song lands inside the cooldown). This
+// is a deliberate, documented exception to the historical "only one human
+// keypress may call ctx.onSendSlideToLive" invariant — the user explicitly
+// accepted the copyright-safety tradeoff for the ≥85% tier only. Do not lower
+// SONG_AUTOLIVE_CONFIDENCE or extend zero-click to other content without new
+// explicit sign-off.
+//
+// CLAUDE.md rule 7 is enforced upstream in autopilot.ts's isSong branch and
+// OperatorConsole's gate — neither is touched here.
+// ---------------------------------------------------------------------------
+
+const SONG_AUTOSTAGE_CONFIRM_KEY = "KeyG"; // "G" for "Go live" — Space is
+// already bound to next-slide navigation (useOperatorHotkeys), so we
+// deliberately picked a different key to avoid a silent collision.
+
+const SONG_STAGE_CONFIDENCE = 60; // stage for human "G" confirm
+const SONG_AUTOLIVE_CONFIDENCE = 85; // zero-click auto-live, see policy note above
+const SONG_AUTO_FIRED_SESSION_KEY = "presentflow.pro.songAutoFired.v1"; // 5min replay suppression, mirrors AUTO_FIRED_SESSION_KEY
+const SONG_AUTO_LIVE_MIN_GAP_MS = 4000; // mirrors Bible's DEFAULT_MIN_GAP_MS
+
+type StagedSongSlides = { songId: string; title: string; slides: string[]; currentIdx: number; confidence: number; source: "detection" | "progression" };
+type LiveSongTrack = { songId: string; title: string; slides: string[]; currentIdx: number; confirmedAt: number };
+
+function isAnyOverlayOpen(): boolean {
+  if (typeof document === "undefined") return false;
+  try {
+    return document.querySelectorAll(
+      '[role="dialog"][data-state="open"], [role="menu"][data-state="open"], [role="listbox"][data-state="open"], [role="alertdialog"][data-state="open"]',
+    ).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function fetchSongLyricSlides(songId: string): Promise<string[]> {
+  const res = await fetch(`/api/songs/${songId}/slides`).then((r) => r.json());
+  const slides = Array.isArray(res.slides) ? (res.slides as { lyrics: string }[]) : [];
+  return slides.map((s) => s.lyrics).filter((s) => !!s && s.trim().length > 0);
+}
+
+/**
+ * Part 6/7/8 controller + banner. Mounted once in ProOperatorShell. Reads
+ * ctx.audio for detections/transcript and ctx.plan for playlist order; the
+ * ONLY ctx write it performs toward live output is the single guarded call
+ * inside `confirmStagedSongLive`.
+ */
+function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
+  const [stagedSong, setStagedSong] = useState<StagedSongSlides | null>(null);
+  const [autoAdvanceFlash, setAutoAdvanceFlash] = useState(false);
+  const liveSongRef = useRef<LiveSongTrack | null>(null);
+  const [, forceRender] = useState(0); // liveSongRef mutations need a render nudge for the indicator
+
+  const stagingInFlightRef = useRef<Set<string>>(new Set());
+  const stagedOrHandledRef = useRef<Set<string>>(new Set()); // songIds already staged/dismissed/auto-lived this session
+  const confirmPendingRef = useRef(false);
+  const lastSongAutoLiveAtRef = useRef(0); // min-gap cooldown for Part 6b auto-live
+  const promotionInFlightRef = useRef<Set<string>>(new Set()); // dedupe for staged->auto-live promotion
+
+  // Word-tracking buffers for Part 7/8.
+  const recentWordsRef = useRef<string[]>([]);
+  const lastWordTsRef = useRef<number>(Date.now());
+  const matchStreakRef = useRef(0);
+  const interimMatchStreakRef = useRef(0); // predictive interim-based advance streak
+  const cooldownUntilRef = useRef(0);
+  const lastAdvanceTsRef = useRef(0);
+  const progressionHandledForRef = useRef<Set<string>>(new Set());
+
+  const autoApprove = !!ctx.autoApproveOn;
+
+  // ---- Part 6: auto-stage on ≥85% confidence, AUTO on ---------------------
+  const stageSong = useCallback(async (songId: string, title: string, confidence: number, source: "detection" | "progression") => {
+    if (stagingInFlightRef.current.has(songId)) return;
+    if (liveSongRef.current?.songId === songId) return; // already live, nothing to stage
+    stagingInFlightRef.current.add(songId);
+    try {
+      const slides = await fetchSongLyricSlides(songId);
+      if (slides.length === 0) return;
+      setStagedSong({ songId, title, slides, currentIdx: 0, confidence, source });
+      console.log(`[song-autoprogression] staged "${title}" (${songId}) at ${Math.round(confidence)}% via ${source} — awaiting human confirm (press ${SONG_AUTOSTAGE_CONFIRM_KEY.replace("Key", "")})`, { ts: Date.now() });
+    } catch {
+      /* non-fatal — leave unstaged, detection will resurface naturally */
+    } finally {
+      stagingInFlightRef.current.delete(songId);
+    }
+  }, []);
+
+  // ---- Part 6b: zero-click auto-live at SONG_AUTOLIVE_CONFIDENCE+ ---------
+  // Mirrors Bible's doAutoFire guardrails: session-persisted fired-key replay
+  // suppression + a min-gap cooldown. Unlike Bible's queue-and-fire-later
+  // approach, a song that lands inside the cooldown simply falls back to
+  // staging (never silently dropped, never double-fires) — simpler and
+  // appropriate since this fires per-song, not per-transcript-segment.
+  const autoLiveSong = useCallback(async (songId: string, title: string, confidence: number) => {
+    if (stagingInFlightRef.current.has(songId)) return;
+    if (liveSongRef.current?.songId === songId) return; // already live
+    // Replay suppression — same 5min-window pattern as AUTO_FIRED_SESSION_KEY.
+    try {
+      const raw = window.sessionStorage.getItem(SONG_AUTO_FIRED_SESSION_KEY);
+      const map: Record<string, number> = raw ? JSON.parse(raw) : {};
+      const firedAt = map[songId];
+      if (firedAt && Date.now() - firedAt < 5 * 60 * 1000) return;
+    } catch { /* noop */ }
+    const now = Date.now();
+    if (now - lastSongAutoLiveAtRef.current < SONG_AUTO_LIVE_MIN_GAP_MS) {
+      // Inside cooldown — fall back to the human-confirm staging path rather
+      // than queueing; a second high-confidence song this soon is rare
+      // enough that requiring one keypress is the safer default.
+      void stageSong(songId, title, confidence, "detection");
+      return;
+    }
+    stagingInFlightRef.current.add(songId);
+    try {
+      const slides = await fetchSongLyricSlides(songId);
+      if (slides.length === 0) return;
+      const text = slides[0];
+      lastSongAutoLiveAtRef.current = now;
+      ctx.onSendSlideToLive({ kind: "text", text });
+      liveSongRef.current = { songId, title, slides, currentIdx: 0, confirmedAt: now };
+      lastAdvanceTsRef.current = now;
+      matchStreakRef.current = 0;
+      try {
+        const raw = window.sessionStorage.getItem(SONG_AUTO_FIRED_SESSION_KEY);
+        const map: Record<string, number> = raw ? JSON.parse(raw) : {};
+        map[songId] = now;
+        const cutoff = now - 30 * 60 * 1000;
+        for (const k of Object.keys(map)) if (map[k] < cutoff) delete map[k];
+        window.sessionStorage.setItem(SONG_AUTO_FIRED_SESSION_KEY, JSON.stringify(map));
+      } catch { /* noop */ }
+      forceRender((n) => n + 1);
+      console.log(`[song-autoprogression] AUTO-LIVE (zero-click, ${Math.round(confidence)}% confidence): "${title}" (${songId})`, { ts: now });
+      toast.success(`"${title}" → LIVE (auto, ${Math.round(confidence)}%)`);
+    } catch {
+      /* non-fatal — leave unhandled, detection will resurface naturally */
+    } finally {
+      stagingInFlightRef.current.delete(songId);
+    }
+  }, [ctx, stageSong]);
+
+  useEffect(() => {
+    if (!autoApprove) return;
+    const candidates: { songId: string; title: string; confidence: number }[] = [];
+    for (const s of ctx.audio.suggestions) {
+      if (s.type !== "song" && s.type !== "lyric") continue;
+      if (s.confidence < SONG_STAGE_CONFIDENCE) continue;
+      const songId = s.match?.songId;
+      if (!songId) continue;
+      candidates.push({ songId, title: s.match.title, confidence: s.confidence });
+    }
+    for (const s of ctx.audio.songSuggestions) {
+      if (s.confidence < SONG_STAGE_CONFIDENCE || !s.songId) continue;
+      candidates.push({ songId: s.songId, title: s.title, confidence: s.confidence });
+    }
+    if (candidates.length === 0) return;
+    // Highest confidence first.
+    candidates.sort((a, b) => b.confidence - a.confidence);
+
+    // Promotion: a song already sitting staged (marked handled at, say, 62%)
+    // whose CONTINUED detection has since climbed to SONG_AUTOLIVE_CONFIDENCE+
+    // must not stay stuck waiting for a "G" press forever — being staged once
+    // shouldn't permanently exempt a song from the zero-click tier once the
+    // AI is actually confident about it. Check this before the normal
+    // stagedOrHandledRef skip below.
+    if (stagedSong) {
+      const risen = candidates.find((c) => c.songId === stagedSong.songId && c.confidence >= SONG_AUTOLIVE_CONFIDENCE);
+      // Synchronous dedupe BEFORE the async autoLiveSong call, using a
+      // DIFFERENT ref than autoLiveSong's own stagingInFlightRef (which it
+      // doesn't set until after its cooldown/replay checks) — `stagedSong`
+      // React state won't reflect setStagedSong(null) until the next render,
+      // so a second transcript update landing in the same tick could
+      // otherwise still see `stagedSong` non-null and re-enter this branch
+      // before autoLiveSong's own guards kick in.
+      if (risen && !promotionInFlightRef.current.has(risen.songId)) {
+        promotionInFlightRef.current.add(risen.songId);
+        setStagedSong(null);
+        void autoLiveSong(risen.songId, risen.title, risen.confidence).finally(() => {
+          promotionInFlightRef.current.delete(risen.songId);
+        });
+        return;
+      }
+    }
+
+    for (const c of candidates) {
+      if (stagedOrHandledRef.current.has(c.songId)) continue;
+      if (c.confidence >= SONG_AUTOLIVE_CONFIDENCE) {
+        stagedOrHandledRef.current.add(c.songId);
+        void autoLiveSong(c.songId, c.title, c.confidence);
+        break;
+      }
+      if (stagedSong) break; // one staged banner at a time
+      stagedOrHandledRef.current.add(c.songId);
+      void stageSong(c.songId, c.title, c.confidence, "detection");
+      break;
+    }
+  }, [ctx.audio.suggestions, ctx.audio.songSuggestions, autoApprove, stagedSong, stageSong, autoLiveSong]);
+
+  // ---- Part 6: THE ONE confirm path that may touch ctx.onSendSlideToLive --
+  const confirmStagedSongLive = useCallback(() => {
+    if (!stagedSong) return;
+    if (confirmPendingRef.current) return; // guard double-fire on key repeat
+    confirmPendingRef.current = true;
+    try {
+      const text = stagedSong.slides[stagedSong.currentIdx];
+      if (!text) return;
+      // The single explicit human action (keypress) required by CLAUDE.md
+      // rule 7 / the task invariant. Every other code path in this module
+      // is forbidden from calling this.
+      ctx.onSendSlideToLive({ kind: "text", text });
+      liveSongRef.current = {
+        songId: stagedSong.songId,
+        title: stagedSong.title,
+        slides: stagedSong.slides,
+        currentIdx: stagedSong.currentIdx,
+        confirmedAt: Date.now(),
+      };
+      lastAdvanceTsRef.current = Date.now();
+      matchStreakRef.current = 0;
+      console.log(`[song-autoprogression] human-confirmed LIVE: "${stagedSong.title}" (${stagedSong.songId}) slide ${stagedSong.currentIdx + 1}/${stagedSong.slides.length}`, { ts: Date.now() });
+      toast.success(`"${stagedSong.title}" → LIVE`);
+      setStagedSong(null);
+      forceRender((n) => n + 1);
+    } finally {
+      confirmPendingRef.current = false;
+    }
+  }, [stagedSong, ctx]);
+
+  // Confirm keypress listener — single dedicated key, ignores typing
+  // contexts and open overlays same as the global hotkey hook.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isAnyOverlayOpen()) return;
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = (target.tagName || "").toUpperCase();
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable) return;
+      }
+      if (e.code !== SONG_AUTOSTAGE_CONFIRM_KEY) return;
+      if (!stagedSong) return;
+      e.preventDefault();
+      confirmStagedSongLive();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [stagedSong, confirmStagedSongLive]);
+
+  // If the live output changes to content that doesn't match what
+  // liveSongRef thinks is live (operator manually navigated to a different
+  // song/verse/slide by some path other than confirmStagedSongLive or this
+  // component's own auto-advance), stop tracking it — otherwise a stale ref
+  // could resume auto-advancing a song that's no longer actually on screen
+  // if the operator returns to it within the cooldown window.
+  useEffect(() => {
+    const live = liveSongRef.current;
+    if (!live) return;
+    const expected = live.slides[live.currentIdx];
+    const liveText = ctx.liveSlide?.kind === "text" ? ctx.liveSlide.text : null;
+    if (liveText !== expected) {
+      liveSongRef.current = null;
+    }
+  }, [ctx.liveSlide]);
+
+  // Any OTHER manual operator action (click anywhere, or any keydown that
+  // isn't our confirm key) cancels Part 7 auto-advance tracking and starts a
+  // cooldown so the AI never fights the operator.
+  useEffect(() => {
+    const cancelTracking = () => {
+      cooldownUntilRef.current = Date.now() + 4000;
+      matchStreakRef.current = 0;
+      interimMatchStreakRef.current = 0;
+    };
+    const onClick = () => cancelTracking();
+    const onKeyAny = (e: KeyboardEvent) => {
+      if (e.code === SONG_AUTOSTAGE_CONFIRM_KEY && !e.metaKey && !e.ctrlKey && !e.altKey) return; // our own confirm — not a "fight"
+      cancelTracking();
+    };
+    window.addEventListener("click", onClick, true);
+    window.addEventListener("keydown", onKeyAny, true);
+    return () => {
+      window.removeEventListener("click", onClick, true);
+      window.removeEventListener("keydown", onKeyAny, true);
+    };
+  }, []);
+
+  // ---- Part 7: word-timing slide auto-advance within the already-live song
+  // NOTE on the invariant: this is the one place besides the confirm handler
+  // that touches ctx.onSendSlideToLive. It is deliberately narrow: it only
+  // fires when `liveSongRef.current` is set, and that ref is ONLY ever set
+  // inside `confirmStagedSongLive` above (a human keypress) — never by a
+  // detection alone. So every slide it pushes live belongs to a song a human
+  // already reviewed in full (Part 6 shows the whole song's lyrics before
+  // confirm) and already explicitly sent live. This function moves the
+  // ALREADY-LIVE output forward through content the operator has seen, using
+  // the same "next slide" semantics manual navigation uses — it never
+  // originates a new live push for content nobody has reviewed.
+  useEffect(() => {
+    const last = ctx.audio.transcript[ctx.audio.transcript.length - 1];
+    if (!last) return;
+    const words = (last.words?.map((w) => w.w) ?? last.text.split(/\s+/)).filter(Boolean);
+    if (words.length === 0) return;
+    recentWordsRef.current = [...recentWordsRef.current, ...words].slice(-16);
+    lastWordTsRef.current = Date.now();
+
+    const live = liveSongRef.current;
+    if (!live) return;
+    if (Date.now() < cooldownUntilRef.current) return;
+    if (Date.now() - lastAdvanceTsRef.current < 3000) return; // min time-on-slide floor
+    const nextIdx = live.currentIdx + 1;
+    if (nextIdx >= live.slides.length) return; // last slide — see Part 8 below
+
+    const result = matchNextSlide(recentWordsRef.current, live.slides[nextIdx]);
+    if (result.consecutiveMatches >= 3) {
+      matchStreakRef.current += 1;
+    } else {
+      matchStreakRef.current = 0;
+    }
+    // Require the match to hold for two consecutive transcript segments —
+    // not a single one-off — before advancing, per the "sustained match"
+    // guardrail.
+    if (matchStreakRef.current >= 2) {
+      const text = live.slides[nextIdx];
+      ctx.onSendSlideToLive({ kind: "text", text });
+      liveSongRef.current = { ...live, currentIdx: nextIdx };
+      lastAdvanceTsRef.current = Date.now();
+      matchStreakRef.current = 0;
+      forceRender((n) => n + 1);
+      setAutoAdvanceFlash(true);
+      console.log(`[song-autoprogression] auto-advanced "${live.title}" to slide ${nextIdx + 1}/${live.slides.length} (word-match confidence ${result.confidence}%)`, { ts: Date.now() });
+      window.setTimeout(() => setAutoAdvanceFlash(false), 2500);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx.audio.transcript]);
+
+  // ---- Predictive interim-based advance (latency fix) ----------------------
+  // The effect above only reacts to finalized/candidate transcript segments,
+  // which by design lag a beat behind speech. Deepgram's raw `interim`
+  // messages arrive continuously and far sooner — `ctx.audio.interim` is
+  // already wired through (useAudioStream.ts) but nothing consumed it for
+  // matching. This runs the SAME matchNextSlide scoring against interim text
+  // so a real match registers a beat earlier, using a stricter bar than the
+  // final-based path (4 consecutive words vs 3, its own independent 2-hit
+  // sustain streak) since interim hypotheses can still revise — never a
+  // looser guardrail, just a faster read on the same signal. Feeds the exact
+  // same liveSongRef-gated call site; never originates a live push on its own.
+  useEffect(() => {
+    const interimText = ctx.audio.interim;
+    if (!interimText) return;
+    const words = interimText.split(/\s+/).filter(Boolean);
+    if (words.length === 0) return;
+
+    const live = liveSongRef.current;
+    if (!live) return;
+    if (Date.now() < cooldownUntilRef.current) return;
+    if (Date.now() - lastAdvanceTsRef.current < 3000) return; // same min time-on-slide floor
+    const nextIdx = live.currentIdx + 1;
+    if (nextIdx >= live.slides.length) return;
+
+    // Combine committed recent words with the live interim tail so a match
+    // spanning a segment boundary (e.g. "...loved the" final + "world" interim)
+    // still registers, without permanently committing unconfirmed interim
+    // words into recentWordsRef (that stays final-only).
+    const combined = [...recentWordsRef.current, ...words].slice(-16);
+    const result = matchNextSlide(combined, live.slides[nextIdx], 4);
+    if (result.consecutiveMatches >= 4) {
+      interimMatchStreakRef.current += 1;
+    } else {
+      interimMatchStreakRef.current = 0;
+    }
+    if (interimMatchStreakRef.current >= 2) {
+      const text = live.slides[nextIdx];
+      ctx.onSendSlideToLive({ kind: "text", text });
+      liveSongRef.current = { ...live, currentIdx: nextIdx };
+      lastAdvanceTsRef.current = Date.now();
+      matchStreakRef.current = 0;
+      interimMatchStreakRef.current = 0;
+      forceRender((n) => n + 1);
+      setAutoAdvanceFlash(true);
+      console.log(`[song-autoprogression] predictive interim advance "${live.title}" to slide ${nextIdx + 1}/${live.slides.length} (confidence ${result.confidence}%)`, { ts: Date.now() });
+      window.setTimeout(() => setAutoAdvanceFlash(false), 2500);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx.audio.interim]);
+
+  // ---- Part 8: song-to-song auto-progression -------------------------------
+  // Detect "current live song ending" and, if the NEXT playlist item is
+  // another song, auto-stage it via the EXACT SAME Part 6 path (full lyrics,
+  // banner, single confirm) — never a silent switch.
+  useEffect(() => {
+    const live = liveSongRef.current;
+    if (!live) return;
+    if (stagedSong) return; // never stage more than one ahead
+    if (isAnyOverlayOpen()) return; // operator mid-modal — suppress the prompt
+    if (progressionHandledForRef.current.has(live.songId)) return;
+    const isLastSlide = live.currentIdx >= live.slides.length - 1;
+    if (!isLastSlide) return;
+    const silenceMs = Date.now() - lastWordTsRef.current;
+    const ending = isLikelyEndOfSong({
+      isLastSlide,
+      recentWords: recentWordsRef.current,
+      lastSlideText: live.slides[live.slides.length - 1],
+      silenceMs,
+    });
+    if (!ending) return;
+    const curIdx = ctx.plan.items.findIndex((it) => (it as unknown as { songId?: string }).songId === live.songId);
+    if (curIdx < 0) return;
+    const nextItem = ctx.plan.items[curIdx + 1] as unknown as { songId?: string; title?: string } | undefined;
+    if (!nextItem?.songId) return; // next item isn't a song (or there is none) — nothing to progress to
+    progressionHandledForRef.current.add(live.songId);
+    console.log(`[song-autoprogression] detected end of "${live.title}" (silence ${silenceMs}ms) — auto-staging next song "${nextItem.title}"`, { ts: Date.now() });
+    void stageSong(nextItem.songId, nextItem.title || "Untitled", 100, "progression");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx.audio.transcript, stagedSong]);
+
+  const dismissStaged = useCallback(() => setStagedSong(null), []);
+
+  if (!stagedSong && !autoAdvanceFlash) return null;
+
+  return (
+    <div className="shrink-0 px-3 py-2 flex flex-col gap-2" data-testid="song-autostage-banner">
+      {stagedSong && (
+        <div
+          className="border-2 border-orange-500 bg-orange-500/10 rounded-lg px-3 py-2 flex flex-col gap-1.5 shadow-lg"
+          role="alert"
+          aria-live="assertive"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-orange-300 px-1.5 py-0.5 rounded bg-orange-500/20">
+              AI staged — not live
+            </span>
+            <span className="text-[13px] font-semibold truncate">{stagedSong.title}</span>
+            <span className="text-[10px] font-mono text-orange-300">{Math.round(stagedSong.confidence)}%</span>
+            {stagedSong.source === "progression" && (
+              <span className="text-[9px] font-mono text-[var(--color-muted-foreground)]">next in plan</span>
+            )}
+            <button
+              type="button"
+              aria-label="Dismiss staged song"
+              onClick={dismissStaged}
+              className="ml-auto text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] px-1"
+            >
+              ×
+            </button>
+          </div>
+          <div className="max-h-[120px] overflow-y-auto rounded bg-[var(--color-elevated)] border border-[var(--color-border)] px-2 py-1 text-[12px] leading-snug whitespace-pre-wrap">
+            {stagedSong.slides.map((s, i) => (
+              <div
+                key={i}
+                role="button"
+                tabIndex={0}
+                onClick={() => setStagedSong({ ...stagedSong, currentIdx: i })}
+                className={cn(
+                  "px-1 py-0.5 rounded cursor-pointer",
+                  i === stagedSong.currentIdx ? "bg-orange-500/20 font-semibold" : "opacity-70 hover:opacity-100",
+                )}
+              >
+                {s}
+              </div>
+            ))}
+          </div>
+          <div className="text-[11px] font-bold text-orange-200">
+            Press <kbd className="px-1.5 py-0.5 rounded bg-orange-500 text-white font-mono">G</kbd> to go LIVE with slide {stagedSong.currentIdx + 1} of {stagedSong.slides.length} — human confirm required, AI will never send this on its own.
+          </div>
+        </div>
+      )}
+      {autoAdvanceFlash && (
+        <span className="self-start text-[9px] font-mono px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-300 border border-orange-400/30" data-testid="song-auto-advance-indicator">
+          ● AUTO-ADVANCED (word-match)
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const [centerMode, setCenterMode] = useState<CenterMode>("slides");
   const [mediaStripOpen, setMediaStripOpen] = useState(true);
@@ -303,6 +789,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // Y2: debounce Safe Mode "swallowed Enter" toast to once per 3s so a stuck
   // Enter key doesn't spam the operator.
   const lastSafeToastRef = useRef(0);
+  // Guards Bible "Next/Prev verse" against rapid repeat presses firing
+  // overlapping async advanceRef calls that could read bibleSession state
+  // before an earlier call's setCards/setSelectedIdx commits.
+  const advanceInFlightRef = useRef(false);
 
   useEffect(() => {
     try {
@@ -519,14 +1009,19 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // scripture suggestion.
     const scripture = suggestions.find((s) => s.type === "scripture" && s.confidence >= threshold);
     if (!scripture || scripture.type !== "scripture") return;
+    // Dedup key can keep the "-verseEnd" suffix unconditionally — it's never
+    // shown to the operator. The visible reference-box text must NOT: it was
+    // reusing this same string via setRef(key), which put a bogus "-1" on
+    // every single-verse detection ("Philippians 4:1-1" instead of "Philippians 4:1").
     const key = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}-${scripture.ref.verseEnd}`;
     if (lastRoutedScriptureRef.current === key) return;
     lastRoutedScriptureRef.current = key;
+    const refText = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}${scripture.ref.verseStart !== scripture.ref.verseEnd ? `-${scripture.ref.verseEnd}` : ""}`;
     // Optimistic render: show a placeholder card immediately so operator sees
     // detection landed before the DB roundtrip completes. Cache-hit path
     // resolves synchronously below and overwrites — no visible flicker.
-    const label = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}${scripture.ref.verseStart !== scripture.ref.verseEnd ? `-${scripture.ref.verseEnd}` : ""} (${bibleSession.state.translation})`;
-    bibleSession.setRef(key);
+    const label = `${refText} (${bibleSession.state.translation})`;
+    bibleSession.setRef(refText);
     bibleSession.setCards([{
       id: `ai-placeholder-${key}`,
       label,
@@ -542,6 +1037,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           verseStart: scripture.ref.verseStart,
           verseEnd: scripture.ref.verseEnd,
           translationCode: bibleSession.state.translation,
+          source: "ai",
         });
         const verses = res.verses;
         const finalLabel = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}${scripture.ref.verseStart !== scripture.ref.verseEnd ? `-${scripture.ref.verseEnd}` : ""} (${res.translation})`;
@@ -563,11 +1059,11 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         }
         bibleSession.setCards(cards);
         bibleSession.setSelectedIdx(0);
-      } catch {
+      } catch (e) {
         bibleSession.setCards([{
           id: `ai-error-${key}`,
           label,
-          verses: [{ verse: scripture.ref.verseStart, text: "(lookup failed)" }],
+          verses: [{ verse: scripture.ref.verseStart, text: e instanceof Error ? e.message : "(lookup failed)" }],
           placeholder: true,
         }]);
       }
@@ -604,6 +1100,16 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const autoAdvanceIntervalRef = useRef<number | null>(null); // R4/R9
   const lastAutoLiveKeyRef = useRef<string | null>(null);
   const lastLiveWasSongRef = useRef<boolean>(false); // Y8
+
+  // Part 2 (verse forward-continuation): word-timing tracking buffers, same
+  // shape as the song version in SongAutopilotStaging but scoped to Bible
+  // verse cards. Only advances a verse that is ALREADY live (manually
+  // clicked or auto-fired via doAutoFire above) — never originates a fresh
+  // push, mirroring the song invariant.
+  const bibleRecentWordsRef = useRef<string[]>([]);
+  const bibleMatchStreakRef = useRef(0);
+  const bibleCooldownUntilRef = useRef(0);
+  const bibleLastAdvanceTsRef = useRef(0);
 
   // Y8: track whether the last live slide came from a song so we can hold
   // Bible auto-fires during song playback if the operator has opted in.
@@ -796,6 +1302,131 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bibleSession.state.cards, ctx.audio.suggestions, ctx.liveSlide, doAutoFire, safeSendLive]);
 
+  // ── Part 2: transcript-aware verse forward-continuation ─────────────────
+  // Unlike the fixed-interval AUTO_ADVANCE_KEY timer above (dumb, time-based,
+  // no awareness of what's actually being said), this tracks real speech
+  // against the NEXT verse card's text — same matchNextSlide primitive the
+  // song word-timing effect uses. Activates only once the currently
+  // SELECTED card is confirmed as what's actually live (ctx.liveSlide text
+  // matches it) — never advances speculatively past content nobody has
+  // actually put on screen. No copyright concern (Bible text), so this can
+  // run whenever a verse is live, independent of the SONG_AUTOLIVE_CONFIDENCE
+  // policy gate that applies to songs only.
+  useEffect(() => {
+    const last = ctx.audio.transcript[ctx.audio.transcript.length - 1];
+    if (!last) return;
+    const words = (last.words?.map((w) => w.w) ?? last.text.split(/\s+/)).filter(Boolean);
+    if (words.length === 0) return;
+    bibleRecentWordsRef.current = [...bibleRecentWordsRef.current, ...words].slice(-16);
+
+    if (Date.now() < bibleCooldownUntilRef.current) return;
+    if (Date.now() - bibleLastAdvanceTsRef.current < 3000) return; // min time-on-slide floor
+
+    const cards = bibleSession.state.cards;
+    const idx = bibleSession.state.selectedIdx;
+    if (idx == null || !cards[idx] || cards[idx].placeholder) return;
+    const nextIdx = idx + 1;
+    const nextCard = cards[nextIdx];
+    if (!nextCard || nextCard.placeholder || !nextCard.verses?.length) return;
+
+    // Only continue a verse that's actually confirmed live right now.
+    const current = cards[idx];
+    const currentBody = current.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
+    const currentText = `${currentBody}\n\n${current.label}`;
+    if (!(ctx.liveSlide?.kind === "text" && ctx.liveSlide.text === currentText)) return;
+
+    const nextBody = nextCard.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
+    const result = matchNextSlide(bibleRecentWordsRef.current, nextBody);
+    if (result.consecutiveMatches >= 3) {
+      bibleMatchStreakRef.current += 1;
+    } else {
+      bibleMatchStreakRef.current = 0;
+    }
+    if (bibleMatchStreakRef.current >= 2) {
+      ctx.onSendSlideToLive({ kind: "text", text: `${nextBody}\n\n${nextCard.label}` });
+      bibleSession.setSelectedIdx(nextIdx);
+      bibleLastAdvanceTsRef.current = Date.now();
+      bibleMatchStreakRef.current = 0;
+      console.log(`[bible-autoprogression] word-match auto-advance to card ${nextIdx + 1}/${cards.length} (${nextCard.label}, confidence ${result.confidence}%)`, { ts: Date.now() });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx.audio.transcript]);
+
+  // Any manual operator action cancels Bible forward-continuation tracking
+  // too, same guardrail philosophy as the song version's cancelTracking.
+  useEffect(() => {
+    const cancel = () => {
+      bibleCooldownUntilRef.current = Date.now() + 4000;
+      bibleMatchStreakRef.current = 0;
+    };
+    window.addEventListener("click", cancel, true);
+    window.addEventListener("keydown", cancel, true);
+    return () => {
+      window.removeEventListener("click", cancel, true);
+      window.removeEventListener("keydown", cancel, true);
+    };
+  }, []);
+
+  // ── Voice verse-navigation commands ("next verse", "continue", "go back",
+  // "again", etc.) ──────────────────────────────────────────────────────────
+  // Distinct from the word-timing forward-continuation effect above (which
+  // silently follows lyrics/verses as they're spoken) — this reacts to the
+  // preacher/operator EXPLICITLY saying a navigation phrase. Reuses
+  // `parseContextCommand` (src/lib/context-parser.ts), which only fires when
+  // hasVerseContext is true (a verse is already showing) and requires
+  // anchored phrases, not lone words, for anything but the lowest-confidence
+  // patterns. Dispatches through the SAME `presentflow:bible-next/prev`
+  // internal events the manual Verse ▸/◂ buttons use (`send(dir)` above),
+  // so a voice command behaves identically to a button click — including
+  // always going live, which has been this app's existing behavior for
+  // manual Bible verse-nav all along (not a new zero-click exception).
+  const processedVoiceSegmentsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const last = ctx.audio.transcript[ctx.audio.transcript.length - 1];
+    if (!last) return;
+    if (processedVoiceSegmentsRef.current.has(last.id)) return;
+    processedVoiceSegmentsRef.current.add(last.id);
+    if (processedVoiceSegmentsRef.current.size > 200) {
+      // Trim — this Set only needs to dedupe recent segments, not grow forever.
+      const arr = Array.from(processedVoiceSegmentsRef.current);
+      processedVoiceSegmentsRef.current = new Set(arr.slice(-100));
+    }
+    const cards = bibleSession.state.cards;
+    const idx = bibleSession.state.selectedIdx;
+    const hasVerseContext = cards.length > 0 && idx != null && !!cards[idx] && !cards[idx].placeholder;
+    if (!hasVerseContext) return;
+    const cmd = parseContextCommand(last.text, { hasVerseContext, hasSlideContext: false, hasSongContext: false });
+    if (!cmd) return;
+    // parseContextCommand's own `confidence` field isn't gated anywhere
+    // upstream — it returns the first pattern match regardless of score.
+    // Enforce a floor here so a low-confidence pattern can't silently act
+    // as if it were a confirmed command.
+    if (cmd.confidence < 70) return;
+    // Share the word-timing effect's cooldown/floor so a voice command and
+    // a sustained lyric/verse word-match can't both advance the same verse
+    // in the same transcript update.
+    if (Date.now() < bibleCooldownUntilRef.current) return;
+    if (Date.now() - bibleLastAdvanceTsRef.current < 3000) return;
+    if (cmd.verb === "next_verse" || cmd.verb === "continue") {
+      dispatchInternal("presentflow:bible-next");
+      bibleLastAdvanceTsRef.current = Date.now();
+      bibleMatchStreakRef.current = 0;
+      toast.info(`Voice: "${cmd.matchedText}" → next verse`);
+    } else if (cmd.verb === "prev_verse" || cmd.verb === "back") {
+      dispatchInternal("presentflow:bible-prev");
+      bibleLastAdvanceTsRef.current = Date.now();
+      bibleMatchStreakRef.current = 0;
+      toast.info(`Voice: "${cmd.matchedText}" → previous verse`);
+    } else if (cmd.verb === "repeat_verse") {
+      const c = cards[idx!];
+      const body = c.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
+      ctx.onSendSlideToLive({ kind: "text", text: `${body}\n\n${c.label}` });
+      bibleLastAdvanceTsRef.current = Date.now();
+      toast.info(`Voice: "${cmd.matchedText}" → repeated`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx.audio.transcript]);
+
   // ── Mode-switch live follow ──────────────────────────────────────────────
   // When operator switches centerMode AND auto-approve is ON, auto-send the
   // first available slide of the target mode's content. Empty target → no-op.
@@ -829,6 +1460,82 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // itself and fetch: John 3:16 → John 3:17 → …
   useEffect(() => {
     if (centerMode !== "bible") return;
+    // Applies a resolved next verse (book/chapter/verse/text) to session
+    // state + live output. Shared by the cache-hit (sync) and cache-miss
+    // (network) paths below so the append/dedupe/send-live behavior is
+    // identical regardless of data source.
+    const applyAdvancedVerse = (
+      dir: 1 | -1,
+      book: string,
+      chapter: number,
+      verse: number,
+      text: string,
+      translationCode: string,
+    ) => {
+      const newRef = `${book} ${chapter}:${verse}`;
+      bibleSession.setRef(newRef);
+      const card = {
+        id: `${newRef}-${Date.now()}`,
+        label: `${newRef} (${translationCode})`,
+        verses: [{ verse, text }],
+      };
+      // ProPresenter-style: APPEND (or prepend on reverse) rather than
+      // replace, so operator can keep pressing Verse > to build up a
+      // series of cards for the whole passage they're preaching through.
+      const existing = bibleSession.state.cards;
+      const dupIdx = existing.findIndex((c) => c.label === card.label);
+      if (dupIdx >= 0) {
+        bibleSession.setSelectedIdx(dupIdx);
+      } else {
+        const next = dir > 0 ? [...existing, card] : [card, ...existing];
+        bibleSession.setCards(next);
+        bibleSession.setSelectedIdx(dir > 0 ? next.length - 1 : 0);
+      }
+      sendLiveRef.current({ kind: "text", text: `${text}\n\n${card.label}` });
+    };
+
+    // Background prefetch of the adjacent chapter once the operator is
+    // within a few verses of the edge of the currently cached chapter —
+    // makes the boundary-crossing click (verse 1 of the next chapter) a
+    // cache hit in practice instead of a network round trip.
+    const maybePrefetchAdjacentChapter = (
+      book: string, chapter: number, verse: number, verseNumbers: number[], translationCode: string,
+    ) => {
+      if (verseNumbers.length === 0) return;
+      const maxVerse = Math.max(...verseNumbers);
+      const minVerse = Math.min(...verseNumbers);
+      if (maxVerse - verse <= 3) prefetchChapter(book, chapter + 1, translationCode);
+      if (verse - minVerse <= 3) prefetchChapter(book, chapter - 1, translationCode);
+    };
+
+    // Shared by both the cached-hit-miss path and the cold-cache-miss path
+    // below — advancing past either edge of a chapter (nextVerse < 1 going
+    // backward, or nextVerse > max going forward) needs the identical
+    // "fetch the neighboring chapter, land on its first/last verse" logic
+    // regardless of which path discovered the boundary.
+    const crossChapterBoundary = async (dir: 1 | -1, book: string, chapter: number, translationCode: string) => {
+      const targetChapter = dir > 0 ? chapter + 1 : chapter - 1;
+      if (targetChapter < 1) {
+        toast.info("Start of book — use Prev Item for previous passage");
+        return;
+      }
+      try {
+        const chapterRes = await fetchChapterCached(book, targetChapter, translationCode);
+        if (chapterRes.verses.length === 0) {
+          toast.info(dir > 0 ? "End of book — no next chapter" : "Start of book — no previous chapter");
+          return;
+        }
+        const targetVerse = dir > 0 ? 1 : Math.max(...chapterRes.verses.map((v) => v.verse));
+        const found = chapterRes.verses.find((v) => v.verse === targetVerse);
+        if (!found) return;
+        applyAdvancedVerse(dir, book, targetChapter, targetVerse, found.text, chapterRes.translation);
+        maybePrefetchAdjacentChapter(book, targetChapter, targetVerse, chapterRes.verses.map((v) => v.verse), translationCode);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Verse lookup failed — press Next again.");
+        console.error("[verse-nav] chapter fetch failed:", err);
+      }
+    };
+
     const advanceRef = async (dir: 1 | -1) => {
       const parser = await import("@/lib/bible-parser");
       // Base the advance on the CURRENTLY SELECTED card's label so pressing
@@ -848,97 +1555,83 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         toast.info("Whole-chapter passage — use Prev/Next Item for chapter navigation");
         return;
       }
+      // Y2: nextVerse can legitimately be 0 here (Prev at verse 1) — that
+      // must fall through to the chapter-boundary-crossing logic below
+      // (dir<0 → chapter-1, last verse), not dead-end immediately. An
+      // earlier version returned right here for any nextVerse < 1, which
+      // meant "Prev verse" at v1 could never cross backward into the
+      // previous chapter even though forward crossing worked correctly.
       const nextVerse = parsed.verseStart + dir;
-      if (nextVerse < 1) {
-        toast.info("Start of chapter — use Prev Item for previous passage");
+      const translationCode = bibleSession.state.translation;
+      const book = parsed.book;
+      const chapter = parsed.chapter;
+
+      // ── Pure local path: the current chapter is already cached. ──────────
+      const key = chapterKey(translationCode, book, chapter);
+      const cached = getCachedChapter(key);
+      if (cached) {
+        const hit = cached.verses.find((v) => v.verse === nextVerse);
+        if (hit) {
+          applyAdvancedVerse(dir, book, chapter, nextVerse, hit.text, cached.translation);
+          maybePrefetchAdjacentChapter(book, chapter, nextVerse, cached.verses.map((v) => v.verse), translationCode);
+          return;
+        }
+        // nextVerse isn't in this chapter (either < 1 going backward, or
+        // > this chapter's max going forward) — advancing crosses a
+        // chapter boundary.
+        await crossChapterBoundary(dir, book, chapter, translationCode);
         return;
       }
-      const newRef = `${parsed.book} ${parsed.chapter}:${nextVerse}`;
-      bibleSession.setRef(newRef);
-      // Trigger lookup via the same code path the Bible mode input uses.
-      // 3s timeout so a slow Vercel response doesn't leave the operator's
-      // "next verse" hotkey feeling dead. On timeout we toast so they know
-      // to retry (the hotkey stays available — no state corruption).
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 3000);
+
+      // ── Cache miss: this chapter hasn't been fetched yet. Fetch the whole
+      // chapter (via cachedLookup under the hood) so this AND all subsequent
+      // Next/Prev clicks within it become local. One automatic retry on a
+      // transient abort/timeout before giving up. ─────────────────────────
+      const attempt = async () => fetchChapterCached(book, chapter, translationCode);
+      let chapterRes: Awaited<ReturnType<typeof attempt>> | null = null;
       try {
-        // /api/bible/lookup expects book+chapter+verseStart+verseEnd, NOT a
-        // pre-formatted ref string. Sending {ref, translation} previously
-        // returned 400 and the catch silently swallowed it — that's why
-        // Verse > appeared dead on chapter change but not verse change.
-        const res = await fetch("/api/bible/lookup", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            book: parsed.book,
-            chapter: parsed.chapter,
-            verseStart: nextVerse,
-            verseEnd: nextVerse,
-            translationCode: bibleSession.state.translation,
-          }),
-          signal: controller.signal,
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-          toast.error(err.error || "Verse lookup failed");
-          return;
-        }
-        const data = await res.json() as { verses?: Array<{ verse: number; text: string }> };
-        if (!data.verses || data.verses.length === 0) {
-          toast.info(`No verse ${nextVerse} in ${parsed.book} ${parsed.chapter} — end of chapter?`);
-          return;
-        }
-        // Warm the server-side cache for the verse one further in the same
-        // direction, fire-and-forget, so the NEXT "Verse >" click hits
-        // bible-cache.ts's cache instead of a cold DB round trip — this is
-        // what actually makes repeated clicks feel fast, not just this one.
-        void fetch("/api/bible/lookup", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            book: parsed.book,
-            chapter: parsed.chapter,
-            verseStart: nextVerse + dir,
-            verseEnd: nextVerse + dir,
-            translationCode: bibleSession.state.translation,
-          }),
-        }).catch(() => { /* best-effort prefetch, ignore failures */ });
-        const card = {
-          id: `${newRef}-${Date.now()}`,
-          label: `${newRef} (${bibleSession.state.translation})`,
-          verses: data.verses,
-        };
-        // ProPresenter-style: APPEND (or prepend on reverse) rather than
-        // replace, so operator can keep pressing Verse > to build up a
-        // series of cards for the whole passage they're preaching through.
-        const existing = bibleSession.state.cards;
-        // Deduplicate: if the same reference is already in cards, just select it.
-        const dupIdx = existing.findIndex((c) => c.label === card.label);
-        if (dupIdx >= 0) {
-          bibleSession.setSelectedIdx(dupIdx);
-        } else {
-          const next = dir > 0 ? [...existing, card] : [card, ...existing];
-          bibleSession.setCards(next);
-          bibleSession.setSelectedIdx(dir > 0 ? next.length - 1 : 0);
-        }
-        sendLiveRef.current({ kind: "text", text: `${card.verses.map((v) => `${v.verse} ${v.text}`).join(" ")}\n\n${card.label}` });
+        chapterRes = await attempt();
       } catch (err) {
         if ((err as { name?: string })?.name === "AbortError") {
-          toast.error("Verse lookup slow — retrying");
+          try {
+            chapterRes = await attempt(); // one real retry, not just a relabeled failure
+          } catch (retryErr) {
+            toast.error("Verse lookup failed — press Next again.");
+            console.error("[verse-nav] retry failed:", retryErr);
+            return;
+          }
         } else {
           toast.error(err instanceof Error ? err.message : "Verse lookup failed");
           console.error("[verse-nav] lookup failed:", err);
+          return;
         }
-      } finally {
-        clearTimeout(timer);
       }
+      if (!chapterRes || chapterRes.verses.length === 0) {
+        await crossChapterBoundary(dir, book, chapter, translationCode);
+        return;
+      }
+      const hit = chapterRes.verses.find((v) => v.verse === nextVerse);
+      if (!hit) {
+        // Same boundary case as the cached-hit-miss path above, just
+        // reached via the cold-cache-fetch branch instead.
+        await crossChapterBoundary(dir, book, chapter, translationCode);
+        return;
+      }
+      applyAdvancedVerse(dir, book, chapter, nextVerse, hit.text, chapterRes.translation);
+      maybePrefetchAdjacentChapter(book, chapter, nextVerse, chapterRes.verses.map((v) => v.verse), translationCode);
     };
     const send = (dir: 1 | -1) => {
       // Always advance the reference and append a new card — this is the
       // ProPresenter model. Every press of Verse > appends the next verse
       // as its own card in the grid. dedupe handles double-clicks by
       // selecting the existing card instead of duplicating.
-      void advanceRef(dir);
+      // Ignore repeat presses while a prior advance is still in flight —
+      // otherwise two overlapping calls can both read the pre-update
+      // bibleSession state and race on which one's setCards/setSelectedIdx
+      // wins, skipping or duplicating a verse.
+      if (advanceInFlightRef.current) return;
+      advanceInFlightRef.current = true;
+      void advanceRef(dir).finally(() => { advanceInFlightRef.current = false; });
     };
     // Y1: nonce-gated. Ignore any external dispatchEvent from page scripts.
     const nx = (ev: Event) => { if (!isInternalEvent(ev)) return; send(1); };
@@ -1175,6 +1868,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         </aside>
       </div>
 
+      <SongAutopilotStaging ctx={ctx} />
       <AITranscriptTicker ctx={ctx} />
 
       <div data-tour="bottom">
