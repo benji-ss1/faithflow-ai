@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/session";
 import { listSermonSummaries } from "@/lib/server/sermon-summary";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ArchiveSearchBar } from "@/components/archive/ArchiveSearchBar";
+import { AskSermonHistory } from "@/components/archive/AskSermonHistory";
 
 export default async function ArchivePage({ searchParams }: { searchParams: Promise<{ q?: string; mode?: string }> }) {
   const user = await requireUser();
@@ -19,6 +20,7 @@ export default async function ArchivePage({ searchParams }: { searchParams: Prom
   return (
     <div>
       <PageHeader eyebrow="Archive" title="Sermon archive" />
+      <AskSermonHistory />
       <ArchiveSearchBar defaultQuery={keyword} defaultMode={mode} />
       {sermons.length === 0 ? (
         <div className="text-sm text-muted-foreground py-6">

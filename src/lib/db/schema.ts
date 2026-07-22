@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, integer, jsonb, boolean, pgEnum, date, vector, index, numeric } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, integer, jsonb, boolean, pgEnum, date, vector, index, uniqueIndex, numeric } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
 export const serviceItemTypeEnum = pgEnum("service_item_type", ["song", "scripture", "media", "sermon", "blank", "logo"]);
@@ -277,6 +277,33 @@ export const transcriptSegments = pgTable("transcript_segments", {
   ts: timestamp("ts").defaultNow().notNull(),
   text: text("text").notNull(),
 });
+
+// Fine-grained, chunk-level RAG over a service's full transcript — distinct
+// from sermonSummaries (one embedded high-level summary per service). Each
+// row is one semantically-sized, overlapping chunk of the raw transcript,
+// embedded so an operator's free-text question can retrieve the exact
+// moments/quotes it actually needs, not just a summary. churchId is
+// denormalized here (also reachable via servicePlanId) so every query can
+// be scoped directly without a join, per the mandatory church_id rule.
+export const sermonChunks = pgTable("sermon_chunks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id, { onDelete: "cascade" }).notNull(),
+  servicePlanId: uuid("service_plan_id").references(() => servicePlans.id, { onDelete: "cascade" }).notNull(),
+  chunkIndex: integer("chunk_index").notNull(),
+  text: text("text").notNull(),
+  embedding: vector("embedding", { dimensions: 384 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("idx_sermon_chunks_church").on(t.churchId),
+  index("idx_sermon_chunks_service").on(t.servicePlanId),
+  index("idx_sermon_chunks_embedding").using("hnsw", t.embedding.op("vector_cosine_ops")),
+  // Closes a TOCTOU race: two near-simultaneous "session ended" events for
+  // the same service (e.g. a quick reconnect) could both pass the
+  // existence-check in ingestServiceTranscript before either finishes
+  // inserting, producing duplicate chunks. This constraint + the insert's
+  // onConflictDoNothing makes a duplicate attempt a safe no-op instead.
+  uniqueIndex("idx_sermon_chunks_plan_chunk_unique").on(t.servicePlanId, t.chunkIndex),
+]);
 
 export const detectedReferences = pgTable("detected_references", {
   id: uuid("id").primaryKey().defaultRandom(),

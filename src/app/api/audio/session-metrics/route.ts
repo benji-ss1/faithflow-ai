@@ -9,12 +9,13 @@
  * Body shape:
  *   { planId, durationSec, reconnects, avgConfidence, wordsHigh, wordsLow, startedAt, endedAt }
  */
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { apiUser } from "@/lib/session";
 import { getDb } from "@/lib/db/client";
 import { audioSessions, servicePlans } from "@/lib/db/schema";
 import { createLimiter } from "@/lib/rate-limit";
+import { ingestServiceTranscript } from "@/lib/server/sermon-rag";
 
 export const runtime = "nodejs";
 
@@ -87,6 +88,18 @@ export async function POST(req: Request) {
     startedAt,
     endedAt,
   }).onConflictDoNothing({ target: audioSessions.sessionId });
+
+  // Chunk + embed this service's transcript for RAG search once its
+  // AI-listening session ends. Scheduled via after() rather than fired
+  // fire-and-forget: a serverless instance is free to terminate the moment
+  // the response is sent, which would silently kill an un-awaited promise
+  // mid-embedding. after() keeps this instance alive until the work finishes
+  // without making the client wait for it. ingestServiceTranscript() is
+  // idempotent per servicePlanId, so repeat calls across reconnects within
+  // the same service are safe no-ops.
+  after(() => ingestServiceTranscript(user.churchId, planId).catch((e) => {
+    console.error("[sermon-rag] ingestion failed:", e instanceof Error ? e.message : e);
+  }));
 
   return NextResponse.json({ ok: true });
 }
