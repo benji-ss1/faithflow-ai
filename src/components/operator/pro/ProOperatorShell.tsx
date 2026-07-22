@@ -49,7 +49,7 @@ import { useDebouncedInterim } from "./useDebouncedInterim";
 import { CONFIDENCE_THRESHOLD } from "@/lib/audio-thresholds";
 import { OperatorTour, hasSeenTour } from "@/components/tutorial/OperatorTour";
 import { WhatsNewModal } from "../WhatsNewModal";
-import { dispatchInternal, isInternalEvent } from "@/lib/internal-events";
+import { dispatchInternal, isInternalEvent, internalPayload } from "@/lib/internal-events";
 import { matchNextSlide, isLikelyEndOfSong } from "@/lib/ai-detection/lyric-position";
 import { parseContextCommand } from "@/lib/context-parser";
 
@@ -167,8 +167,20 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
             return (
               <div
                 key={s.id}
-                title={`${ref} (${s.confidence}%)`}
-                className="relative flex items-center gap-1 px-2 py-0.5 rounded border border-[var(--color-brand)] bg-[var(--color-elevated)] text-[11px]"
+                role="button"
+                tabIndex={0}
+                title={`${ref} (${s.confidence}%) — click to load, Shift+click to send live`}
+                aria-label={`${ref}, ${s.confidence}% confidence — click to load, Shift+click to send live`}
+                onClick={(e) => dispatchInternal("presentflow:bible-goto", {
+                  book: s.ref.book, chapter: s.ref.chapter, verseStart: s.ref.verseStart, verseEnd: s.ref.verseEnd, live: e.shiftKey,
+                })}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  dispatchInternal("presentflow:bible-goto", {
+                    book: s.ref.book, chapter: s.ref.chapter, verseStart: s.ref.verseStart, verseEnd: s.ref.verseEnd, live: e.shiftKey,
+                  });
+                }}
+                className="relative flex items-center gap-1 px-2 py-0.5 rounded border border-[var(--color-brand)] bg-[var(--color-elevated)] text-[11px] cursor-pointer hover:bg-[var(--color-elevated-hover,var(--color-elevated))] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
               >
                 <span className="font-semibold">{ref}</span>
                 <span className="text-[9px] font-mono opacity-60">{s.confidence}%</span>
@@ -361,7 +373,13 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   const [, forceRender] = useState(0); // liveSongRef mutations need a render nudge for the indicator
 
   const stagingInFlightRef = useRef<Set<string>>(new Set());
-  const stagedOrHandledRef = useRef<Set<string>>(new Set()); // songIds already staged/dismissed/auto-lived this session
+  // songId -> when it was last staged/auto-lived. A TIME-LIMITED cooldown
+  // (was a permanent-for-session Set) — a worship team reprising the same
+  // song later in the service, or a preacher returning to it, must be able
+  // to trigger detection again. Was previously blocking a songId forever
+  // once handled once, matching the same cooldown as SONG_AUTO_FIRED_SESSION_KEY.
+  const stagedOrHandledRef = useRef<Map<string, number>>(new Map());
+  const SONG_REDETECT_COOLDOWN_MS = 5 * 60 * 1000;
   const confirmPendingRef = useRef(false);
   const lastSongAutoLiveAtRef = useRef(0); // min-gap cooldown for Part 6b auto-live
   const promotionInFlightRef = useRef<Set<string>>(new Set()); // dedupe for staged->auto-live promotion
@@ -489,15 +507,17 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       }
     }
 
+    const now = Date.now();
     for (const c of candidates) {
-      if (stagedOrHandledRef.current.has(c.songId)) continue;
+      const handledAt = stagedOrHandledRef.current.get(c.songId);
+      if (handledAt && now - handledAt < SONG_REDETECT_COOLDOWN_MS) continue;
       if (c.confidence >= SONG_AUTOLIVE_CONFIDENCE) {
-        stagedOrHandledRef.current.add(c.songId);
+        stagedOrHandledRef.current.set(c.songId, now);
         void autoLiveSong(c.songId, c.title, c.confidence);
         break;
       }
       if (stagedSong) break; // one staged banner at a time
-      stagedOrHandledRef.current.add(c.songId);
+      stagedOrHandledRef.current.set(c.songId, now);
       void stageSong(c.songId, c.title, c.confidence, "detection");
       break;
     }
@@ -1098,7 +1118,6 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const queuedAutoFireRef = useRef<{ slide: import("@/lib/broadcast").SlidePayload; key: string; ref: string; conf: number } | null>(null);
   const queuedTimerRef = useRef<number | null>(null);
   const autoAdvanceIntervalRef = useRef<number | null>(null); // R4/R9
-  const lastAutoLiveKeyRef = useRef<string | null>(null);
   const lastLiveWasSongRef = useRef<boolean>(false); // Y8
 
   // Part 2 (verse forward-continuation): word-timing tracking buffers, same
@@ -1249,19 +1268,23 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     if (!firstText || firstText === "Loading…" || firstText.length === 0) return;
 
     const key = first.id;
-    // R5: check sessionStorage for recent replays (5 min TTL).
+    // R5: check sessionStorage for recent replays (5 min TTL). This is the
+    // SOLE timing authority — a preacher returning to the same verse later
+    // in the service must be able to trigger it again. `lastAutoLiveKeyRef`
+    // used to ALSO permanently block a repeat of whatever key fired last:
+    // since `first.id` is a stable per-reference key (not unique per
+    // detection event), if the same verse stayed the most recent detection
+    // with nothing else firing in between, that extra check would keep
+    // blocking it forever even after the 5-minute window had long expired.
+    // Removed — the sessionStorage map already does the real timing.
     try {
       const raw = window.sessionStorage.getItem(AUTO_FIRED_SESSION_KEY);
       const map: Record<string, number> = raw ? JSON.parse(raw) : {};
       const firedAt = map[key];
       if (typeof firedAt === "number" && Date.now() - firedAt < 5 * 60 * 1000) {
-        // Already fired this key within 5 min — don't replay across remount.
-        lastAutoLiveKeyRef.current = key;
         return;
       }
     } catch { /* noop */ }
-    if (lastAutoLiveKeyRef.current === key) return;
-    lastAutoLiveKeyRef.current = key;
 
     const body = first.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
     const slide: import("@/lib/broadcast").SlidePayload = { kind: "text", text: `${body}\n\n${first.label}` };
@@ -1426,6 +1449,47 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx.audio.transcript]);
+
+  // ── Jump-to-verse from the Bible Detections panel / AI chips ─────────────
+  // Clicking a detection row or chip previously called ctx.onBankAddReference
+  // — a completely different, invisible piece of state (OperatorConsole's
+  // legacy "bank") than bibleSession, which is what actually drives the
+  // visible Bible panel/cards here. The click showed a "Loaded" toast while
+  // nothing on screen changed. This listens for the internal event those
+  // callers now dispatch instead, and does the real thing: fetch the verse,
+  // append/select it as a card (same shape applyAdvancedVerse uses), switch
+  // to the Bible center panel so the operator actually sees it land, and —
+  // for the double-click/"send live" variant — push it live too.
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const payload = internalPayload<{ book: string; chapter: number; verseStart: number; verseEnd: number; live: boolean }>(ev);
+      if (!payload) return;
+      const { book, chapter, verseStart, verseEnd, live } = payload;
+      void (async () => {
+        try {
+          const res = await cachedLookup({ book, chapter, verseStart, verseEnd, translationCode: bibleSession.state.translation });
+          if (!res.verses || res.verses.length === 0) return;
+          const label = `${book} ${chapter}:${verseStart}${verseStart !== verseEnd ? `-${verseEnd}` : ""} (${res.translation})`;
+          const card = { id: `${label}-${Date.now()}`, label, verses: res.verses.map((v) => ({ verse: v.verse, text: v.text })) };
+          const existing = bibleSession.state.cards;
+          const dupIdx = existing.findIndex((c) => c.label === card.label);
+          const idx = dupIdx >= 0 ? dupIdx : existing.length;
+          if (dupIdx < 0) bibleSession.setCards([...existing, card]);
+          bibleSession.setSelectedIdx(idx);
+          setCenterMode("bible");
+          if (live) {
+            const body = card.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
+            ctx.onSendSlideToLive({ kind: "text", text: `${body}\n\n${label}` });
+          }
+        } catch {
+          toast.error("Verse lookup failed");
+        }
+      })();
+    };
+    window.addEventListener("presentflow:bible-goto", handler);
+    return () => window.removeEventListener("presentflow:bible-goto", handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bibleSession, ctx]);
 
   // ── Mode-switch live follow ──────────────────────────────────────────────
   // When operator switches centerMode AND auto-approve is ON, auto-send the

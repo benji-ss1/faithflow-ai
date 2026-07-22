@@ -21,6 +21,7 @@ import type { OperatorShellCtx } from "../../shell/types";
 import type { UnifiedSuggestion, SongSuggestion } from "../../useAudioStream";
 import { cachedLookup } from "@/lib/bible-client-cache";
 import { cn } from "@/lib/utils";
+import { dispatchInternal } from "@/lib/internal-events";
 
 const MAX_ROWS = 8;
 const EXPIRY_MS = 10 * 60 * 1000; // 10 min
@@ -265,12 +266,13 @@ export function AIDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
   const autoApproveThreshold = 85;
 
   // ---------- Bible actions ----------
+  // Dispatches to a listener inside ProOperatorShell (where bibleSession —
+  // the state actually driving the visible Bible panel/cards — lives).
+  // Previously this called ctx.onBankAddReference, which only writes to
+  // OperatorConsole's legacy "bank" concept — a completely different, not
+  // visibly connected piece of state. Clicking a detection row would show a
+  // "Loaded" toast while the actual Bible panel never changed at all.
   const loadBible = async (row: BibleRow) => {
-    // Route to Bible mode by seeding the last-routed ref. We reuse the
-    // existing suggestion auto-route pathway by calling onPreviewUnified
-    // with a synthetic scripture suggestion. Shell already listens for
-    // audio.suggestions changes to load, but that's driven by fresh audio.
-    // Instead we ping the operator preview directly.
     try {
       const res = await cachedLookup({
         book: row.book, chapter: row.chapter,
@@ -283,12 +285,10 @@ export function AIDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
         toast.error("Reference not found in DB");
         return;
       }
-      // Bank the first verse — makes it immediately visible in the Bible bank.
-      const banked = await ctx.onBankAddReference({
-        book: row.book, chapter: row.chapter,
-        verseStart: row.verseStart, verseEnd: row.verseEnd,
+      dispatchInternal("presentflow:bible-goto", {
+        book: row.book, chapter: row.chapter, verseStart: row.verseStart, verseEnd: row.verseEnd, live: false,
       });
-      if (banked) toast.success(`Loaded ${row.key}`);
+      toast.success(`Loaded ${row.key}`);
     } catch {
       toast.error("Lookup failed");
     }
@@ -296,14 +296,9 @@ export function AIDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
 
   const sendBibleLive = async (row: BibleRow) => {
     try {
-      const banked = await ctx.onBankAddReference({
-        book: row.book, chapter: row.chapter,
-        verseStart: row.verseStart, verseEnd: row.verseEnd,
+      dispatchInternal("presentflow:bible-goto", {
+        book: row.book, chapter: row.chapter, verseStart: row.verseStart, verseEnd: row.verseEnd, live: true,
       });
-      if (banked) {
-        // Send first banked entry (index 0 since new entries push to top).
-        ctx.onSendBankedToLive(0);
-      }
     } catch {
       toast.error("Send failed");
     }

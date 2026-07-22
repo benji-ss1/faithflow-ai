@@ -471,8 +471,12 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const startRef = useRef<(opts?: { warm?: boolean }) => Promise<void>>(async () => {});
   // Auto-pause: track when the last transcript arrived and check periodically.
   // If no transcript for AUTO_PAUSE_MS while listening, transition to paused
-  // and close the WS to save Deepgram cost.
-  const AUTO_PAUSE_MS = 10 * 60 * 1000; // 10 minutes
+  // and close the WS to save Deepgram cost. Raised from 10 to 30 minutes —
+  // a real service has long silent stretches (worship sets, offering,
+  // videos, testimonies without a mic) well past 10 minutes where the
+  // operator still wants AI Live armed and ready the moment speech resumes,
+  // not auto-paused and needing a manual restart mid-service.
+  const AUTO_PAUSE_MS = 30 * 60 * 1000; // 30 minutes
   const lastTranscriptAtRef = useRef<number>(Date.now());
   const autoPauseTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isAutoPauseEnabled = useCallback((): boolean => {
