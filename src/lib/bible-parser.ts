@@ -209,6 +209,13 @@ function normalize(text: string): string {
     .toLowerCase()
     .replace(/[,.;!?]/g, " ");
 
+  // Auto-caption/ASR output sometimes fuses "verse"/"chapter" directly onto
+  // the following digits with zero space ("verse1", "verse20", "chapter3")
+  // instead of "verse 1" — every book_ch/verse pattern in this file requires
+  // \s+ between the word and the number, so a fused form silently failed to
+  // match at all. Split it back apart before anything else runs.
+  s = s.replace(/\b(verses?|chapters?)(\d+)\b/g, "$1 $2");
+
   // Fuse compound word numerals with an underscore so "twenty-eight" stays
   // atomic during pattern matching (won't be split by range separators or
   // chapter/verse separators). Only touches known tens-ones combos.
@@ -543,7 +550,13 @@ export function parseReference(text: string): SimpleReference | null {
   // verseStart=1, verseEnd=1 with confidence <=78 in the "book_ch" branch.
   // We disambiguate by checking whether the matched text contains a verse
   // marker (":" or "verse"/"verses" or a second number after the chapter).
-  const raw = text.toLowerCase();
+  // Same fix as normalize(): auto-caption output sometimes fuses "verse"
+  // directly onto the digits ("verse20") with no space, which \bverses?\b
+  // below can't see (no word boundary between "verse" and a following
+  // digit). Split it back apart here too — this disambiguation runs on its
+  // own raw copy of the text, separate from the normalize() call inside
+  // parseReferences() above, so it needs the same fix independently.
+  const raw = text.toLowerCase().replace(/\b(verses?)(\d+)\b/g, "$1 $2");
   const hasVerseMarker = /:|\bverses?\b|\bfrom\s+verse/.test(raw);
   // BUG FIX: this used to only count literal digit characters (\d+), so a
   // naturally-spoken "Genesis one one" (chapter 1, verse 1 — no "verse"
