@@ -740,6 +740,12 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       ringBufferRef.current = [];
       ringBufferBytesRef.current = 0;
       intentionalStopRef.current = true;
+      // Reset the attempt counter on give-up so a subsequent operator click on
+      // the AI pill is treated as a FRESH start (the optimistic listening:true
+      // + reconnectFailed:false path), not a reconnect. Without this the ref
+      // stayed at 9, so re-clicking the pill skipped the instant-ON path and
+      // reintroduced the "connecting gap" + lingering Retry/Diagnose buttons.
+      reconnectAttemptsRef.current = 0;
       setState((s) => ({ ...s, reconnectFailed: true, listening: false, ready: false, error: null }));
       return;
     }
@@ -824,7 +830,13 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     if (isReconnectAttempt) {
       setState((s) => ({ ...s, error: null, stage: "idle" }));
     } else {
-      setState((s) => ({ ...s, error: null, stage: "idle", stageHistory: [], chunksSent: 0, dgMessagesReceived: 0 }));
+      // Fresh start: flip `listening` (the operator's ON/OFF intent) true
+      // IMMEDIATELY so the pill reads "AI ON" the instant they click — the
+      // mic/WS/Deepgram handshake then happens silently in the background.
+      // The pill is now binary (ON = this flag), so there is no "connecting"
+      // limbo for the operator to see; a genuine unrecoverable failure flips
+      // it back to false (stop / give-up / fatal). Reconnects keep it true.
+      setState((s) => ({ ...s, listening: true, error: null, reconnectFailed: false, stage: "idle", stageHistory: [], chunksSent: 0, dgMessagesReceived: 0 }));
       // Fresh start only — mirror the diagnostic-counter reset in the refs so
       // the throttled commit path starts from zero. On a reconnect these are
       // deliberately preserved (the pill must not flicker back to "no messages").

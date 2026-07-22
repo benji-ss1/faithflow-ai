@@ -120,24 +120,18 @@ export function TopBar({
     : centerMode === "songs" ? "Songs Library"
     : centerMode === "media" ? "Media Library"
     : (ctx.plan.items[ctx.previewItemIdx]?.title ?? "");
+  // Binary AI state — revamped from the old 4-state
+  // OFF/CONNECTING/READY/LIVE pill that flickered as the connection churned.
+  // The pill now reflects only the operator's ON/OFF INTENT (`listening`),
+  // which stays true across silent background reconnects and only flips false
+  // on a manual stop or a genuine unrecoverable give-up. No "connecting"
+  // limbo, no amber, no sleep state.
   const listening = ctx.audio.listening;
-  const aiError = ctx.audio.error;
-  const aiReady = ctx.audio.ready;
-  // R1: green only when transcripts are actually flowing — mic-muted operators
-  // will otherwise see a green dot despite silence. Amber during handshake or
-  // when Deepgram is ready but no messages have arrived yet.
-  const aiFlowing = ctx.audio.dgMessagesReceived > 0
-    || ctx.audio.stage === "receiving_interim"
-    || ctx.audio.stage === "receiving_final";
-  const aiTitle = aiError
-    ? `AI error: ${aiError} — click to retry`
-    : listening && aiReady && aiFlowing
-    ? "AI listening — click to stop"
-    : listening && aiReady
-    ? "AI ready — waiting for audio"
-    : listening
-    ? "AI connecting…"
-    : "AI idle — click to start";
+  // Hard-failure affordance only: shown when the listener has exhausted all
+  // reconnects and truly given up (distinct from any transient blip, which
+  // never surfaces). At that point `listening` is already false → pill OFF.
+  const aiHardFailed = ctx.audio.reconnectFailed;
+  const aiTitle = listening ? "AI ON — click to turn off" : "AI OFF — click to turn on";
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [diagOpen, setDiagOpen] = useState(false);
@@ -477,12 +471,8 @@ export function TopBar({
                   aria-label={aiTitle}
                   className={cn(
                     "flex items-center gap-1.5 h-[28px] min-w-[90px] px-2 rounded-full border text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
-                    aiError
-                      ? "bg-red-600/25 text-red-100 border-red-500/70"
-                      : listening && aiReady && aiFlowing
+                    listening
                       ? "bg-green-500/20 text-green-200 border-green-500/50 hover:bg-green-500/25"
-                      : listening
-                      ? "bg-amber-500/15 text-amber-200 border-amber-500/50 hover:bg-amber-500/25"
                       : "bg-red-500/15 text-red-300 border-red-500/40 hover:bg-red-500/25",
                   )}
                 >
@@ -490,45 +480,23 @@ export function TopBar({
                     aria-hidden
                     className={cn(
                       "inline-block w-2 h-2 rounded-full shrink-0",
-                      aiError
-                        ? "bg-red-500"
-                        : listening && aiReady && aiFlowing
-                        ? "bg-green-400 pf-ai-live-dot"
-                        : listening
-                        ? "bg-amber-400 pf-ai-connecting-dot"
-                        : "bg-red-500",
+                      listening ? "bg-green-400" : "bg-red-500",
                     )}
                   />
-                  <span className="truncate">
-                    {aiError
-                      ? "AI OFF · offline"
-                      : listening && aiReady && aiFlowing
-                      ? "AI ON"
-                      : listening
-                      ? "AI ON · connecting…"
-                      : "AI OFF"}
-                  </span>
-                  {aiError && (
-                    <span
-                      aria-hidden
-                      title="Audio bridge unreachable — click Retry to reconnect"
-                      className="ml-1 inline-flex items-center justify-center w-3 h-3 rounded-full bg-red-500/60 text-white text-[8px] font-bold"
-                    >i</span>
-                  )}
+                  <span className="truncate">{listening ? "AI ON" : "AI OFF"}</span>
                 </button>
               </Tooltip.Trigger>
-              {/* SR-only live region so screen readers announce state
-                  transitions (off → connecting → live → error). The pill
-                  button's own aria-label changes but AT clients don't
-                  re-announce name changes on unmoved focus — a polite live
-                  region does. */}
+              {/* SR-only live region so screen readers announce the binary
+                  ON ↔ OFF transition. The pill button's own aria-label
+                  changes but AT clients don't re-announce name changes on
+                  unmoved focus — a polite live region does. */}
               <span role="status" aria-live="polite" className="sr-only">{aiTitle}</span>
               <Tooltip.Portal>
                 <Tooltip.Content
                   sideOffset={6}
                   className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] px-2 py-1 text-[11px] z-50 font-mono max-w-[260px]"
                 >
-                  {aiError ? aiError : `stage: ${ctx.audio.stage}`}
+                  {aiHardFailed ? "AI listener couldn't connect — Retry or Diagnose" : listening ? "AI is ON" : "AI is OFF — click to turn on"}
                 </Tooltip.Content>
               </Tooltip.Portal>
             </Tooltip.Root>
@@ -556,11 +524,11 @@ export function TopBar({
               />
               <span className="truncate">{autoApproveOn ? "AUTO" : "Manual"}</span>
             </button>
-            {aiError && (
+            {aiHardFailed && (
               <>
                 <button
                   type="button"
-                  onClick={() => { ctx.onResumeAudio?.() ?? ctx.onListenToggle(); }}
+                  onClick={() => { if (ctx.onResumeAudio) ctx.onResumeAudio(); else ctx.onListenToggle(); }}
                   title="Retry AI listener"
                   aria-label="Retry AI listener"
                   className="h-[24px] px-2 rounded-md text-[10px] font-semibold bg-red-500/20 text-red-100 border border-red-500/50 hover:bg-red-500/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
