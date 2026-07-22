@@ -501,12 +501,12 @@ export function TopBar({
                   />
                   <span className="truncate">
                     {aiError
-                      ? "AI Live · offline"
+                      ? "AI OFF · offline"
                       : listening && aiReady && aiFlowing
-                      ? "AI Live"
+                      ? "AI ON"
                       : listening
-                      ? "AI Live · connecting…"
-                      : "AI Live"}
+                      ? "AI ON · connecting…"
+                      : "AI OFF"}
                   </span>
                   {aiError && (
                     <span

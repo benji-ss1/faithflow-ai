@@ -108,7 +108,7 @@ const BOOK_PATTERN = BOOK_VARIANTS.map((v) => v.replace(/[.*+?^${}()|[\]\\]/g, "
 
 // --- Number handling --------------------------------------------------------
 const NUMBER_WORDS: Record<string, number> = {
-  zero: 0, one: 1, first: 1, two: 2, second: 2, three: 3, third: 3,
+  zero: 0, oh: 0, one: 1, first: 1, two: 2, second: 2, three: 3, third: 3,
   four: 4, fourth: 4, five: 5, fifth: 5, six: 6, sixth: 6, seven: 7, seventh: 7,
   eight: 8, eighth: 8, nine: 9, ninth: 9, ten: 10, tenth: 10,
   eleven: 11, eleventh: 11, twelve: 12, twelfth: 12,
@@ -127,6 +127,29 @@ const NUMBER_WORDS: Record<string, number> = {
 export function wordsToNumber(phrase: string): number {
   const words = phrase.toLowerCase().trim().split(/[\s-]+/);
   if (words.length === 0) return NaN;
+
+  // Digit-by-digit reading — "Psalm one oh seven", "one zero seven" — common
+  // for 3-digit chapter numbers (Psalms go up to 150) read out like a phone
+  // number rather than as a compound ("one hundred seven"). Detected when
+  // every word is a bare single digit (0-9, via "zero"/"oh"/"one".."nine" or
+  // a literal digit character) with 2+ words and no ten/hundred word present
+  // — otherwise this is ordinary compound-number speech and falls through
+  // to the summing logic below unchanged.
+  if (words.length >= 2) {
+    const digits: number[] = [];
+    let allSingleDigits = true;
+    for (const w of words) {
+      const n = NUMBER_WORDS[w];
+      if (n !== undefined && n <= 9) { digits.push(n); continue; }
+      const asNum = Number(w);
+      if (!Number.isNaN(asNum) && Number.isInteger(asNum) && asNum >= 0 && asNum <= 9) { digits.push(asNum); continue; }
+      allSingleDigits = false;
+      break;
+    }
+    if (allSingleDigits && digits.length === words.length) {
+      return Number(digits.join(""));
+    }
+  }
 
   let total = 0;
   let current = 0;
@@ -152,7 +175,7 @@ export function wordsToNumber(phrase: string): number {
 
 // --- Spoken numeral chunk recognizer ----------------------------------------
 const NUM_TOKEN_PATTERN =
-  "(?:\\d+|(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)_(?:one|two|three|four|five|six|seven|eight|nine)|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|thirtieth|fortieth|fiftieth|sixtieth|seventieth|eightieth|ninetieth|hundredth)";
+  "(?:\\d+|(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)_(?:one|two|three|four|five|six|seven|eight|nine)|zero|oh|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|thirtieth|fortieth|fiftieth|sixtieth|seventieth|eightieth|ninetieth|hundredth)";
 // A single number "chunk" — one token, or a sequence joined by whitespace
 // (e.g. "one hundred nineteen"). Range separators do NOT appear inside a chunk.
 const NUM_CHUNK = `(${NUM_TOKEN_PATTERN}(?:\\s+${NUM_TOKEN_PATTERN}){0,5})`;
@@ -162,7 +185,7 @@ const NUM_CHUNK = `(${NUM_TOKEN_PATTERN}(?:\\s+${NUM_TOKEN_PATTERN}){0,5})`;
 // Excludes "hundred"/"thousand" so compound numbers ("one hundred nineteen")
 // aren't split into a false chapter/verse pair.
 const NUM_ATOM_PATTERN =
-  "(?:\\d+|(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)_(?:one|two|three|four|five|six|seven|eight|nine)|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|thirtieth|fortieth|fiftieth|sixtieth|seventieth|eightieth|ninetieth|hundredth)";
+  "(?:\\d+|(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)_(?:one|two|three|four|five|six|seven|eight|nine)|zero|oh|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|thirtieth|fortieth|fiftieth|sixtieth|seventieth|eightieth|ninetieth|hundredth)";
 const NUM_SINGLE = `(${NUM_ATOM_PATTERN})`;
 
 function chunkToNum(raw: string): number {
@@ -505,7 +528,15 @@ export function parseReference(text: string): SimpleReference | null {
   // marker (":" or "verse"/"verses" or a second number after the chapter).
   const raw = text.toLowerCase();
   const hasVerseMarker = /:|\bverses?\b|\bfrom\s+verse/.test(raw);
-  const digitCount = (raw.match(/\d+/g) || []).length;
+  // BUG FIX: this used to only count literal digit characters (\d+), so a
+  // naturally-spoken "Genesis one one" (chapter 1, verse 1 — no "verse"
+  // word, no digits, no colon) had digitCount=0 and got misclassified as
+  // "whole chapter" instead of specifically verse 1 — the exact case
+  // reported as "verse 1 doesn't parse right." Now also counts recognized
+  // number-WORDS, so a second spoken number (however it's said) is counted
+  // the same as a literal digit.
+  const numberWordMatches = raw.match(/\b[a-z]+\b/g)?.filter((w) => w in NUMBER_WORDS) ?? [];
+  const digitCount = (raw.match(/\d+/g) || []).length + numberWordMatches.length;
   const wholeChapter =
     (!hasVerseMarker && digitCount <= 1 && r.verseStart === 1 && r.verseEnd === 1 && r.chapterEnd === undefined) ||
     // Psalms guard: "Psalm 23" / "Psalm twenty three" without any ":" or
