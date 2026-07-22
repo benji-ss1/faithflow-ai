@@ -509,16 +509,39 @@ wss.on("connection", async (ws: WebSocket, req) => {
     };
 
     if (!data.is_final) {
-      // Fast-path: forward high-confidence long interims to the client for
-      // optimistic detection (perf fix #2E). Client dedupes against final.
+      // Fast-path: forward high-confidence interims to the client for
+      // optimistic detection so the operator sees a verse the moment it's
+      // spoken instead of ~200-400ms later when Deepgram finalises the
+      // utterance. Client dedupes against the eventual final.
       send({ type: "interim", text });
       const wordCount = text.split(/\s+/).filter(Boolean).length;
-      if (wordCount >= 4 && typeof dgConf === "number" && dgConf >= 0.8) {
+      const conf = typeof dgConf === "number" ? dgConf : 1;
+      // Predictive early-fire, strongest signal first:
+      //  1. The interim ALREADY parses to a Bible reference ("John three
+      //     sixteen") — fire immediately regardless of length, even at 2-3
+      //     words and slightly lower confidence, because this is exactly the
+      //     high-value case that used to wait for the final. parseReferences
+      //     is a bounded regex pass (<4KB, no network) — cheap enough per
+      //     interim, and only run when there's plausibly a reference (a digit
+      //     or number-word present) to keep the hot path lean.
+      //  2. Otherwise fall back to the generic "long, confident interim" gate,
+      //     loosened from 4 words/0.8 to 3 words/0.75 so short references and
+      //     song cues surface a beat earlier too.
+      const looksNumeric = /\d/.test(text) || /\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|verse|chapter|psalm|psalms)\b/i.test(text);
+      // Wrapped in try/catch: this now runs on every interim (~5-15/sec).
+      // parseReferences has no realistic throw path (guards non-string input,
+      // bounded regexes), but this listener is unguarded and the process has
+      // no uncaughtException handler — a future parser regression must not be
+      // able to crash the audio bridge mid-service (review 🟡).
+      let hasRef = false;
+      if (looksNumeric && conf >= 0.6) {
+        try { hasRef = parseReferences(text).length > 0; } catch { hasRef = false; }
+      }
+      const genericGate = wordCount >= 3 && conf >= 0.75;
+      if ((hasRef || genericGate) && !isRecentFinal(text)) {
         // R11: skip candidate emission if we already fired a final for the
         // same/containing text within the 800ms window.
-        if (!isRecentFinal(text)) {
-          send(capWordsIfHuge({ type: "interim_final_candidate", text, confidence: dgConf, words }) as ServerMessage);
-        }
+        send(capWordsIfHuge({ type: "interim_final_candidate", text, confidence: conf, words }) as ServerMessage);
       }
       return;
     }

@@ -111,6 +111,40 @@ export type RetrievedChunk = {
   similarity: number; // 0-100
 };
 
+/**
+ * Backfill: find service plans that have transcript_segments but no
+ * sermon_chunks yet and ingest them. Runs SERVER-SIDE ONLY (the embedding
+ * model won't load in every dev environment) via the daily cron — that's the
+ * only place chunk+embed actually works, and it's where transcripts pasted /
+ * loaded for historical services get turned into searchable chunks. Bounded
+ * to `limit` plans per invocation so one cron run can't blow past its
+ * maxDuration; the backlog drains over successive runs. Idempotent
+ * (ingestServiceTranscript skips already-chunked plans), so overlapping runs
+ * are safe.
+ */
+export async function backfillPendingIngestion(limit = 2): Promise<{ processed: { planId: string; chunkCount: number }[] }> {
+  const db = getDb();
+  const rows = (await db.execute(sql`
+    SELECT sp.id AS "planId", sp.church_id AS "churchId"
+    FROM service_plans sp
+    WHERE EXISTS (SELECT 1 FROM transcript_segments ts WHERE ts.service_plan_id = sp.id)
+      AND NOT EXISTS (SELECT 1 FROM sermon_chunks sc WHERE sc.service_plan_id = sp.id)
+    ORDER BY sp.created_at DESC
+    LIMIT ${limit}
+  `)).rows as { planId: string; churchId: string }[];
+
+  const processed: { planId: string; chunkCount: number }[] = [];
+  for (const r of rows) {
+    try {
+      const res = await ingestServiceTranscript(r.churchId, r.planId);
+      if (res.ingested) processed.push({ planId: r.planId, chunkCount: res.chunkCount });
+    } catch (e) {
+      console.error(`[sermon-rag] backfill failed for plan ${r.planId}:`, e instanceof Error ? e.message : e);
+    }
+  }
+  return { processed };
+}
+
 export async function retrieveSermonChunks(churchId: string, query: string, limit = 8): Promise<RetrievedChunk[]> {
   const db = getDb();
   const vec = await embed(query);

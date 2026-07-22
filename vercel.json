@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/warm-embeddings",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/backfill-sermons",
+      "schedule": "30 3 * * *"
     }
   ]
 }

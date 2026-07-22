@@ -202,12 +202,37 @@ function chunkToNum(raw: string): number {
   return wordsToNumber(s);
 }
 
+// Accent / ASR homophone repair for spoken numbers. The dominant real-world
+// failure (reported from live African-preacher services) is TH-fronting:
+// Deepgram transcribes "three" as "tree", "third" as "tird", "thirty" as
+// "tirty", etc., because the /θ/ sound is realised as /t/. There are also a
+// few common English homophones ("for"→four, "ate"→eight) that are far too
+// risky to remap globally, so those are handled ONLY inside a reference shape
+// by the patterns, never here. This pass repairs only the TH-fronted number
+// words, each with a guard against the obvious non-number meaning.
+function repairNumberHomophones(s: string): string {
+  // Only the guarded "tree" rule matters in practice; apply the TH-fronted
+  // set. The list is intentionally conservative — every entry is a word that
+  // is virtually never a real English word in a Bible-reference context.
+  s = s.replace(/\btree\b(?!\s+of\b)/g, "three");
+  s = s.replace(/\btird\b/g, "third");
+  s = s.replace(/\btirteen(th)?\b/g, (m) => (m.endsWith("th") ? "thirteenth" : "thirteen"));
+  s = s.replace(/\btirty\b/g, "thirty");
+  s = s.replace(/\btirtieth\b/g, "thirtieth");
+  s = s.replace(/\btousand\b/g, "thousand");
+  return s;
+}
+
 function normalize(text: string): string {
   let s = text
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "") // strip diacritics
     .toLowerCase()
     .replace(/[,.;!?]/g, " ");
+
+  // Accent/ASR number-homophone repair (TH-fronting: tree→three, tirty→thirty…)
+  // BEFORE any number pattern runs, so "john tree sixteen" parses as John 3:16.
+  s = repairNumberHomophones(s);
 
   // Auto-caption/ASR output sometimes fuses "verse"/"chapter" directly onto
   // the following digits with zero space ("verse1", "verse20", "chapter3")
