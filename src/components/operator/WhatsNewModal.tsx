@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Sparkles, X } from "lucide-react";
-import { CHANGELOG, type ChangelogEntry } from "@/lib/changelog";
+import { CHANGELOG, type ChangelogEntry, type Highlight } from "@/lib/changelog";
 
 const LAST_SEEN_KEY = "presentflow.whatsNew.lastSeenVersion";
 
@@ -49,11 +50,18 @@ export function WhatsNewModal() {
         try { window.localStorage.setItem(LAST_SEEN_KEY, currentVersion); } catch { /* noop */ }
         return;
       }
-      if (cmpVersion(lastSeen, currentVersion) >= 0) return;
-
-      const newer = CHANGELOG.filter(
-        (e) => cmpVersion(e.version, lastSeen!) > 0 && cmpVersion(e.version, currentVersion) <= 0,
-      );
+      // R1: this used to also require cmpVersion(entry, currentVersion) <= 0
+      // — fine for entries about the shell binary itself (auto-updater,
+      // signing), but wrong for this app's thin-client architecture: the
+      // web bundle a tester's browser/Electron shell loads is ALWAYS the
+      // latest deploy regardless of the installed shell version, since the
+      // shell has no code of its own beyond a thin loader. That upper-bound
+      // cap meant any purely web/backend changelog entry silently never
+      // showed for testers already on the current shell build (i.e. most
+      // testers, most of the time) — under-notifying, which is worse than
+      // occasionally over-notifying. Dropped; only the lower bound (newer
+      // than last-seen) still applies.
+      const newer = CHANGELOG.filter((e) => cmpVersion(e.version, lastSeen!) > 0);
       if (newer.length === 0) {
         try { window.localStorage.setItem(LAST_SEEN_KEY, currentVersion); } catch { /* noop */ }
         return;
@@ -119,9 +127,31 @@ export function WhatsNewModal() {
                   <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)]">{entry.date}</div>
                 </div>
                 <ul className="text-[12px] leading-relaxed text-[var(--color-muted-foreground)] space-y-1 pl-4">
-                  {entry.highlights.map((h, i) => (
-                    <li key={i} className="list-disc">{h}</li>
-                  ))}
+                  {entry.highlights.map((h: Highlight, i) => {
+                    const text = typeof h === "string" ? h : h.text;
+                    const tryItHref = typeof h === "string" ? undefined : h.tryItHref;
+                    const tryItLabel = typeof h === "string" ? undefined : h.tryItLabel;
+                    const highlightParam = typeof h === "string" ? undefined : h.highlightParam;
+                    const href = tryItHref && highlightParam ? `${tryItHref}?highlight=${encodeURIComponent(highlightParam)}` : tryItHref;
+                    return (
+                      <li key={i} className="list-disc">
+                        {text}
+                        {href && (
+                          // next/link — a plain <a> here would force a full
+                          // page reload of the whole bundle just to jump to
+                          // another in-app route, a real cost in this
+                          // thin-client Electron shell (review finding).
+                          <Link
+                            href={href}
+                            onClick={dismiss}
+                            className="ml-2 inline-flex items-center text-[var(--color-brand)] hover:underline font-semibold not-italic"
+                          >
+                            {tryItLabel || "Try it"} →
+                          </Link>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             ))}

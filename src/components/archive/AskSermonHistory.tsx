@@ -6,8 +6,10 @@
  * retrieved transcript excerpts (shown below so the operator can verify,
  * not just trust the summary).
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, Sparkles } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type Source = { id: string; text: string; planTitle: string; scheduledFor: string | null; similarity: number };
 
@@ -17,6 +19,25 @@ export function AskSermonHistory() {
   const [answer, setAnswer] = useState<string | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  // Arrived here via the What's New modal's "Try it" link
+  // (?highlight=ask-sermon-history) — pulse this box briefly so a tester's
+  // eye actually lands on the new feature, then clean up the URL param.
+  const [highlighted, setHighlighted] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get("highlight") !== "ask-sermon-history") return;
+    setHighlighted(true);
+    boxRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("highlight");
+    router.replace(params.size > 0 ? `?${params.toString()}` : "?", { scroll: false });
+    const t = setTimeout(() => setHighlighted(false), 3000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const ask = async () => {
     const q = question.trim();
@@ -43,7 +64,13 @@ export function AskSermonHistory() {
   };
 
   return (
-    <div className="border border-border rounded-md p-4 bg-card mb-6">
+    <div
+      ref={boxRef}
+      className={cn(
+        "border border-border rounded-md p-4 bg-card mb-6 transition-shadow duration-500",
+        highlighted && "ring-2 ring-[var(--color-brand)] shadow-[0_0_0_6px_var(--color-brand)]/15",
+      )}
+    >
       <div className="flex items-center gap-1.5 mb-2">
         <Sparkles className="w-3.5 h-3.5 text-muted-foreground" />
         <span className="text-sm font-semibold">Ask about past services</span>

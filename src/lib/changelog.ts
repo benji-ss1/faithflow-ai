@@ -4,14 +4,32 @@
 // Add a new entry at the TOP whenever you tag a release. Keep highlights
 // operator-facing (what THEY see change), not internal refactors.
 
+export type Highlight = string | { text: string; tryItHref?: string; tryItLabel?: string; highlightParam?: string };
+
 export type ChangelogEntry = {
   version: string;
   date: string; // ISO YYYY-MM-DD
   headline: string;
-  highlights: string[];
+  highlights: Highlight[];
 };
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    // Content-only revision (no new shell binary — thin-client web/backend
+    // fixes, always live regardless of installed app version). See R1 in
+    // WhatsNewModal.tsx for why version numbering here no longer maps 1:1
+    // to a released Electron build.
+    version: "0.1.11",
+    date: "2026-07-22",
+    headline: "AI listening fixes + sermon search",
+    highlights: [
+      "AI Live connection no longer flickers on/off during brief network blips",
+      "Scripture detection now understands more accents and mispronounced book names automatically",
+      "If the preacher restates a verse, or says \"verse 7\" / \"from verse 13\" on its own, AUTO mode now catches it instantly",
+      { text: "New: search past services in plain English, get an AI-composed answer with sources", tryItHref: "/archive", tryItLabel: "Try Sermon Search", highlightParam: "ask-sermon-history" },
+      { text: "10 songs from recent services added to your library (titles only — add lyrics via Import Songs before using live)", tryItHref: "/library/songs", tryItLabel: "View Songs Library" },
+    ],
+  },
   {
     version: "0.1.10",
     date: "2026-07-18",
@@ -62,3 +80,28 @@ export const CHANGELOG: ChangelogEntry[] = [
     ],
   },
 ];
+
+// WhatsNewModal.dismiss() trusts CHANGELOG[...][0] of its filtered result to
+// be the NEWEST shown entry, which only holds if this array is kept
+// newest-first — enforced today only by the comment above, not by any
+// runtime check. A single out-of-order insert would silently record a stale
+// version as "last seen" and permanently hide later entries for testers who
+// already passed that point. Fail fast in dev if the ordering ever slips.
+function cmpVersionForOrderCheck(a: string, b: string): number {
+  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d !== 0) return d;
+  }
+  return 0;
+}
+if (process.env.NODE_ENV !== "production") {
+  for (let i = 1; i < CHANGELOG.length; i++) {
+    if (cmpVersionForOrderCheck(CHANGELOG[i - 1].version, CHANGELOG[i].version) < 0) {
+      throw new Error(
+        `CHANGELOG must be newest-first: "${CHANGELOG[i - 1].version}" (index ${i - 1}) is older than "${CHANGELOG[i].version}" (index ${i}).`,
+      );
+    }
+  }
+}

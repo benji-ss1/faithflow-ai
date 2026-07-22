@@ -80,7 +80,7 @@ export function RecentUpdatesPanel() {
                     <div className="mb-1.5 text-xs text-muted-foreground">v{entry.version} · {entry.date}</div>
                     <ul className="space-y-1 text-xs leading-5 text-muted-foreground">
                       {entry.highlights.map((h, i) => (
-                        <li key={i}>{h}</li>
+                        <li key={i}>{typeof h === "string" ? h : h.text}</li>
                       ))}
                     </ul>
                   </div>
