@@ -86,6 +86,22 @@ export const subscriptions = pgTable("subscriptions", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Append-only ledger of one-time song-bundle purchases. Total purchased
+// credits for a church is always SUM(songsGranted) WHERE churchId = X —
+// no running counter to keep in sync, and it doubles as purchase history
+// (receipts, support debugging) for free. `stripeCheckoutSessionId` is
+// UNIQUE — the idempotency key that stops a Stripe webhook redelivery from
+// double-crediting the same purchase.
+export const songBundlePurchases = pgTable("song_bundle_purchases", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id, { onDelete: "cascade" }).notNull(),
+  stripeCheckoutSessionId: text("stripe_checkout_session_id").notNull().unique(),
+  bundleId: text("bundle_id").notNull(),
+  songsGranted: integer("songs_granted").notNull(),
+  amountPaidCents: integer("amount_paid_cents").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // Migration job — tracks a bulk import of songs/media from another system.
 export const migrationJobs = pgTable("migration_jobs", {
   id: uuid("id").primaryKey().defaultRandom(),

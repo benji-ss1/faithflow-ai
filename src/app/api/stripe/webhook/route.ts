@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { stripe } from "@/lib/stripe";
 import { getDb } from "@/lib/db/client";
-import { subscriptions } from "@/lib/db/schema";
+import { subscriptions, songBundlePurchases } from "@/lib/db/schema";
+import { getSongBundle } from "@/lib/song-limits";
 
 export const runtime = "nodejs";
 
@@ -31,7 +32,41 @@ export async function POST(req: Request) {
   const data = event.data.object as unknown as Record<string, unknown>;
 
   try {
-    if (type === "checkout.session.completed") {
+    if (type === "checkout.session.completed" && data.mode === "payment") {
+      // One-time song-bundle purchase — separate branch from the
+      // subscription checkout below (that one is always mode:"subscription").
+      // `bundleId` comes from metadata, which IS trustworthy here: this is a
+      // Stripe-signed webhook payload (signature verified above), not a
+      // client posting metadata directly to an unauthenticated endpoint —
+      // different trust boundary than the "never trust metadata" subscription
+      // comment below, which is about a DIFFERENT attack (a forged session
+      // token claiming a different tier).
+      const churchId = data.client_reference_id as string | undefined;
+      const sessionId = data.id as string | undefined;
+      const metadata = (data.metadata as Record<string, string> | null) ?? null;
+      const bundleId = metadata?.bundleId;
+      if (!churchId || !sessionId || !bundleId) return NextResponse.json({ ok: true, skipped: "missing fields" });
+      const bundle = getSongBundle(bundleId);
+      if (!bundle) return NextResponse.json({ ok: true, skipped: "unknown bundle" });
+      // Never trust the amount from the session — resolve it server-side from
+      // the same SONG_BUNDLES table used to create the checkout session.
+      try {
+        await db.insert(songBundlePurchases).values({
+          churchId,
+          stripeCheckoutSessionId: sessionId,
+          bundleId: bundle.id,
+          songsGranted: bundle.songs,
+          amountPaidCents: bundle.priceCents,
+        });
+      } catch (e) {
+        // Unique constraint on stripeCheckoutSessionId — a webhook redelivery
+        // for a purchase we already recorded. Not an error, just a no-op.
+        // Postgres error CODE (23505 = unique_violation) rather than matching
+        // the message string — the code is stable across locales/PG versions,
+        // message text isn't.
+        if ((e as { code?: string })?.code !== "23505") throw e;
+      }
+    } else if (type === "checkout.session.completed") {
       // client_reference_id is set server-side when we mint the checkout
       // session — it is the ONLY trustworthy churchId source at this stage.
       // metadata.churchId is deliberately IGNORED because it's caller-mutable

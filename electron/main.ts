@@ -292,12 +292,6 @@ async function createMainWindow() {
     });
   } catch { /* invalid appUrl; loadURL below will fail loudly */ }
 
-  mainWindow.webContents.on(
-    "did-fail-load",
-    (_e, code, desc, url) => {
-      console.error(`[main] did-fail-load ${code} ${desc} → ${url}`);
-    }
-  );
   if (isDev) {
     mainWindow.webContents.on(
       "console-message",
@@ -314,7 +308,39 @@ async function createMainWindow() {
   } else {
     initialUrl = appUrl + (appUrl.includes("?") ? "&" : "?") + "ff_shell=desktop";
   }
-  await mainWindow.loadURL(initialUrl);
+
+  // Load a bundled local splash immediately (zero network dependency, so it
+  // paints instantly even on a bad connection) instead of leaving the window
+  // showing nothing while loadURL is in flight. `ready-to-show` above fires
+  // on the splash's own paint, so testers see something right away rather
+  // than a window that never appears until the remote app is fully loaded —
+  // this was very likely the "clunky/blank" first impression a tester on an
+  // imperfect connection would get without this.
+  await mainWindow.loadFile(path.join(__dirname, "..", "electron", "splash.html"));
+
+  const setSplashStatus = (text: string) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.executeJavaScript(`window.pfSetStatus && window.pfSetStatus(${JSON.stringify(text)})`).catch(() => { /* noop */ });
+  };
+
+  // Up to 3 attempts with backoff, each failure updating the splash so the
+  // tester sees real feedback instead of an indefinite blank/frozen window.
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      if (attempt > 1) setSplashStatus(`Retrying connection… (${attempt}/${MAX_ATTEMPTS})`);
+      await mainWindow.loadURL(initialUrl);
+      return; // success — real app is now loaded, splash is gone
+    } catch (err) {
+      console.error(`[main] loadURL attempt ${attempt} failed:`, err instanceof Error ? err.message : err);
+      if (attempt === MAX_ATTEMPTS) {
+        setSplashStatus("Can't reach Present Flow — check your internet connection, then quit and reopen the app.");
+        return;
+      }
+      setSplashStatus("Connection issue — retrying…");
+      await new Promise((r) => setTimeout(r, 1500 * attempt));
+    }
+  }
 }
 
 // Web-to-desktop auto-login: the website's download page mints a one-time

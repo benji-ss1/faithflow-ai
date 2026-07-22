@@ -123,6 +123,7 @@
     ],
     "files": [
       "dist-electron/**",
+      "electron/splash.html",
       "config/**",
       "package.json",
       "!node_modules/**/*",

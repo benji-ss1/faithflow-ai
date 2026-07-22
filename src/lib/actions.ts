@@ -7,6 +7,7 @@ import { requireUser } from "./session";
 import { deleteObject } from "./s3";
 import { validateReorderItemSlides } from "./reorder-validator";
 import { createLimiter } from "./rate-limit";
+import { getSongUsage, getSongLimit } from "./song-limits";
 
 type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
 
@@ -320,6 +321,10 @@ export async function createSong(formData: FormData): Promise<Result<{ id: strin
   const artistRaw = String(formData.get("artist") || "").trim().slice(0, 120);
   const artist = artistRaw || null;
   if (!title) return { ok: false, error: "Title required" };
+  const [usage, limit] = await Promise.all([getSongUsage(user.churchId), getSongLimit(user.churchId)]);
+  if (usage >= limit) {
+    return { ok: false, error: `Song library limit reached (${usage}/${limit}) — buy a bundle to add more.` };
+  }
   const db = getDb();
   const [row] = await db.insert(songs).values({ churchId: user.churchId, title, artist }).returning();
   revalidatePath("/library/songs");
@@ -507,6 +512,7 @@ export async function importPro6Files(files: { name: string; content: string }[]
 
   let added = 0, skipped = 0;
   const warnings: { file: string; warnings: string[] }[] = [];
+  let remainingHeadroom = Math.max(0, (await getSongLimit(user.churchId)) - (await getSongUsage(user.churchId)));
 
   for (const f of files) {
     try {
@@ -520,6 +526,8 @@ export async function importPro6Files(files: { name: string; content: string }[]
         .where(and(eq(songs.churchId, user.churchId), eq(songs.title, parsed.title)))
         .limit(1);
       if (dup) { skipped++; continue; }
+      if (remainingHeadroom <= 0) { skipped++; continue; }
+      remainingHeadroom--;
       const [row] = await db.insert(songs).values({
         churchId: user.churchId, title: parsed.title, artist: parsed.artist, source: "imported",
       }).returning();
@@ -586,9 +594,12 @@ export async function importSongsCsv(text: string): Promise<Result<{ added: numb
   }
 
   let added = 0, skipped = 0;
+  let remainingHeadroom = Math.max(0, (await getSongLimit(user.churchId)) - (await getSongUsage(user.churchId)));
   for (const d of drafts) {
     const [dup] = await db.select().from(songs).where(and(eq(songs.churchId, user.churchId), eq(songs.title, d.title))).limit(1);
     if (dup) { skipped++; continue; }
+    if (remainingHeadroom <= 0) { skipped++; continue; }
+    remainingHeadroom--;
     const [row] = await db.insert(songs).values({ churchId: user.churchId, title: d.title, artist: d.artist ?? null, source: "imported" }).returning();
     if (d.slides.length > 0) {
       await db.insert(songSlides).values(d.slides.map((s, i) => ({ songId: row.id, order: i, lyrics: s })));
@@ -1164,6 +1175,10 @@ export async function importPublicDomainSong(input: {
     .limit(1);
   if (existing) {
     return { ok: true, data: { id: existing.id, duplicate: true } };
+  }
+  const [usage, limit] = await Promise.all([getSongUsage(user.churchId), getSongLimit(user.churchId)]);
+  if (usage >= limit) {
+    return { ok: false, error: `Song library limit reached (${usage}/${limit}) — buy a bundle to add more.` };
   }
 
   const [row] = await db.insert(songs).values({

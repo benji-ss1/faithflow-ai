@@ -1,11 +1,16 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { eq, and, inArray } from "drizzle-orm";
 import { requireUser } from "@/lib/session";
+import { getDb } from "@/lib/db/client";
+import { migrationJobs } from "@/lib/db/schema";
 import { listSongs } from "@/lib/server/services";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { SongImporter } from "@/components/library/SongImporter";
 import { InternetSongDetectionPanel } from "@/components/library/InternetSongDetectionPanel";
 import { SongLicensingPanel } from "@/components/library/SongLicensingPanel";
+import { SongBundlesPanel } from "@/components/library/SongBundlesPanel";
+import { getSongLimit, getSongUsage } from "@/lib/song-limits";
 import { createSong } from "@/lib/actions";
 
 async function create(formData: FormData) {
@@ -16,8 +21,16 @@ async function create(formData: FormData) {
 
 export default async function SongsPage() {
   const user = await requireUser();
-  const songs = await listSongs(user.churchId);
+  const db = getDb();
+  const [songs, limit, usage, pendingImports] = await Promise.all([
+    listSongs(user.churchId),
+    getSongLimit(user.churchId),
+    getSongUsage(user.churchId),
+    db.select().from(migrationJobs).where(and(eq(migrationJobs.churchId, user.churchId), inArray(migrationJobs.status, ["pending", "processing"]))),
+  ]);
   const importedCount = songs.filter((song) => song.source === "imported").length;
+  const totalSources = new Set(songs.map((s) => s.source)).size;
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -26,6 +39,16 @@ export default async function SongsPage() {
         description="Manage your church-owned song library, imports, and licensing posture. PresentFlow does not bundle a global copyrighted worship-lyrics catalog."
         action={<SongImporter />}
       />
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="Songs in Library" value={String(songs.length)} hint="Ready to use" />
+        <StatCard label="Song Limit" value={`${usage}/${limit}`} hint={usage >= limit ? "Buy a bundle for more room" : "Free + purchased bundles"} />
+        <StatCard label="Pending Imports" value={String(pendingImports.length)} hint={pendingImports.length === 0 ? "No imports in progress" : "Awaiting processing"} />
+        <StatCard label="Total Sources" value={String(totalSources)} hint="Distinct song origins" />
+      </div>
+
+      <SongBundlesPanel usage={usage} limit={limit} />
+
       <SongLicensingPanel songCount={songs.length} importedCount={importedCount} />
       <InternetSongDetectionPanel totalSongs={songs.length} />
       <form action={create} className="mb-6 flex flex-wrap gap-2 rounded-2xl border border-border bg-card/80 p-4">
@@ -53,6 +76,16 @@ export default async function SongsPage() {
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+function StatCard({ label, value, hint }: { label: string; value: string; hint: string }) {
+  return (
+    <div className="rounded-2xl border border-border bg-card/90 p-4">
+      <div className="text-2xl font-bold">{value}</div>
+      <div className="mt-1 text-sm font-medium">{label}</div>
+      <div className="mt-0.5 text-xs text-muted-foreground">{hint}</div>
     </div>
   );
 }

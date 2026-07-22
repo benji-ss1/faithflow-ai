@@ -8,6 +8,7 @@ import { runImportPipeline, type PipelineOutput } from "./importers/pipeline";
 import { presignPut, isS3Configured, s3, BUCKET } from "./s3";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { randomUUID } from "node:crypto";
+import { getSongLimit, getSongUsage } from "./song-limits";
 
 type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
 
@@ -50,12 +51,16 @@ export async function importDrop(input: {
 
   const db = getDb();
   let added = 0, skipped = 0;
+  // Same library-cap headroom gate as finalizeImport below — partial import
+  // rather than all-or-nothing.
+  let remainingHeadroom = Math.max(0, (await getSongLimit(user.churchId)) - (await getSongUsage(user.churchId)));
 
   for (const song of output.songs) {
     const [dup] = await db.select().from(songs)
       .where(and(eq(songs.churchId, user.churchId), eq(songs.title, song.title)))
       .limit(1);
     if (dup) { skipped++; continue; }
+    if (remainingHeadroom <= 0) { skipped++; continue; }
     const [row] = await db.insert(songs).values({
       churchId: user.churchId, title: song.title, artist: song.artist, source: "imported",
     }).returning();
@@ -63,6 +68,7 @@ export async function importDrop(input: {
       await db.insert(songSlides).values(song.slides.map((lyrics, i) => ({ songId: row.id, order: i, lyrics })));
     }
     added++;
+    remainingHeadroom--;
   }
 
   // Media upload — only if S3 is configured. Anything else surfaces as a
@@ -160,6 +166,12 @@ export async function finalizeImport(migrationJobId: string): Promise<Result<{
   const parsedSongs = Array.isArray(summary.songs) ? summary.songs : [];
   const parsedMedia = Array.isArray(summary.media) ? summary.media : [];
 
+  // Library-cap headroom: allow up to whatever room remains, reject the rest
+  // as "skipped" rather than blocking the whole batch or silently inserting
+  // past the limit — a partial import (some added, rest reported skipped)
+  // is more useful than an all-or-nothing failure here.
+  let remainingHeadroom = Math.max(0, (await getSongLimit(user.churchId)) - (await getSongUsage(user.churchId)));
+
   let songsAdded = 0, songsSkipped = 0;
   for (const s of parsedSongs) {
     try {
@@ -169,11 +181,13 @@ export async function finalizeImport(migrationJobId: string): Promise<Result<{
         .where(and(eq(songs.churchId, user.churchId), eq(songs.title, title)))
         .limit(1);
       if (dup) { songsSkipped++; continue; }
+      if (remainingHeadroom <= 0) { songsSkipped++; continue; }
       const [row] = await db.insert(songs).values({
         churchId: user.churchId, title, artist: s.artist ?? null, source: "imported",
       }).returning();
       await db.insert(songSlides).values(s.slides.map((lyrics, i) => ({ songId: row.id, order: i, lyrics })));
       songsAdded++;
+      remainingHeadroom--;
     } catch {
       songsSkipped++;
     }
