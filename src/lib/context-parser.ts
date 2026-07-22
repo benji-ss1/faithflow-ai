@@ -24,6 +24,7 @@ export type ContextVerb =
   | "continue"          // extend current range by +1
   | "back"              // shrink current range by -1
   | "repeat_verse"      // re-send the current verse live, no index change
+  | "goto_bible_verse"  // jump to an absolute verse NUMBER within the current chapter, e.g. "from verse 11"
   // Slide-navigation verbs — no wake word required. Same architecture as
   // "next verse" — anchored phrases only, not lone words.
   | "next_slide"
@@ -111,6 +112,20 @@ const PATTERNS: { verb: ContextVerb; re: RegExp; confidence: number; capture?: (
   { verb: "prev_verse", re: /\b(?:go\s+)?back\s+(?:one|a)\s+verse\b/i, confidence: 90 },
   { verb: "prev_verse", re: /\bthe\s+verse\s+before\b/i, confidence: 80 },
   { verb: "prev_verse", re: /\b(?:the\s+)?one\s+before\s+this\b/i, confidence: 75 },
+
+  // "from verse 11", "from 13", "let's read from 15" — jump to an ABSOLUTE
+  // verse number within the current chapter, not a relative +/-1 step like
+  // next/prev. Common pulpit phrasing ("from verse eleven, ...continuing").
+  // Bare "from <number>" is anchored by the word "from" (not a lone digit),
+  // matching this file's anchoring rule.
+  { verb: "goto_bible_verse", re: /\bfrom\s+verse\s+([a-z0-9\-]+)\b/i, confidence: 88, capture: (m) => {
+    const n = spokenToNumber(m[1]);
+    return n === null || n < 1 ? null : { verseNumber: n };
+  } },
+  { verb: "goto_bible_verse", re: /\bfrom\s+(\d{1,3})\b/i, confidence: 78, capture: (m) => {
+    const n = spokenToNumber(m[1]);
+    return n === null || n < 1 ? null : { verseNumber: n };
+  } },
 
   // "continue" — genuinely means "keep going forward through the passage,"
   // functionally identical to next_verse for this app's purposes (both
@@ -200,7 +215,7 @@ const PATTERNS: { verb: ContextVerb; re: RegExp; confidence: number; capture?: (
  * verbs (show_chorus / goto_verse) need a slide up so we know a song is
  * staged. */
 const VERB_KIND: Record<ContextVerb, "verse" | "slide" | "screen" | "global" | "song"> = {
-  next_verse: "verse", prev_verse: "verse", continue: "verse", back: "verse", repeat_verse: "verse",
+  next_verse: "verse", prev_verse: "verse", continue: "verse", back: "verse", repeat_verse: "verse", goto_bible_verse: "verse",
   next_slide: "slide", prev_slide: "slide",
   blank_screen: "screen", clear_screen: "screen",
   start_countdown: "global", captions_on: "global", captions_off: "global",

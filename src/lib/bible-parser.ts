@@ -430,9 +430,51 @@ export function parseReferences(rawText: string): ParsedReference[] {
   return found;
 }
 
+// Small edit-distance fuzzy fallback for book names — targets accented/
+// mispronounced speech that Deepgram transcribes as a near-miss of a real
+// book variant (e.g. "filippians" for "philippians", "ecclesiastes" heard
+// as "ecclesiastis"). Only used when an EXACT variant match fails; capped
+// tightly (distance 1 for short words, 2 for longer ones) so it can't drift
+// into matching an unrelated book. This is deliberately a plain edit-distance
+// check, not a trained model — a real phonetic/ML correction pipeline would
+// need actual transcript samples from the specific speakers to train against
+// (see conversation: happy to build that next if given real sample audio/
+// transcripts to work from).
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const prev = new Array(n + 1);
+  const curr = new Array(n + 1);
+  for (let j = 0; j <= n; j++) prev[j] = j;
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= n; j++) {
+      curr[j] = a[i - 1] === b[j - 1]
+        ? prev[j - 1]
+        : 1 + Math.min(prev[j - 1], prev[j], curr[j - 1]);
+    }
+    for (let j = 0; j <= n; j++) prev[j] = curr[j];
+  }
+  return prev[n];
+}
+
+function fuzzyBookMatch(normalized: string): string | undefined {
+  if (normalized.length < 4) return undefined; // too short to fuzz safely
+  const maxDist = normalized.length <= 6 ? 1 : 2;
+  let best: { canonical: string; dist: number } | null = null;
+  for (const [variant, canonical] of VARIANT_TO_BOOK) {
+    if (Math.abs(variant.length - normalized.length) > maxDist) continue;
+    const dist = levenshtein(normalized, variant);
+    if (dist <= maxDist && (!best || dist < best.dist)) best = { canonical, dist };
+  }
+  return best?.canonical;
+}
+
 /** Exported for tests / semantic fallback callers. */
 export function knownBook(name: string): string | undefined {
-  return VARIANT_TO_BOOK.get(normalize(name));
+  const normalized = normalize(name);
+  return VARIANT_TO_BOOK.get(normalized) ?? fuzzyBookMatch(normalized);
 }
 
 /**

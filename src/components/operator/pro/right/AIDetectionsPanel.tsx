@@ -180,7 +180,22 @@ export function AIDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
   const [bibleRows, setBibleRows] = useState<BibleRow[]>([]);
   const [songRows, setSongRows] = useState<SongRow[]>([]);
   const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set());
-  const invalidRefsRef = useRef<Set<string>>(new Set());
+  // key -> when it was marked invalid. TIME-LIMITED (was a permanent Set) —
+  // a reference that failed lookup once (e.g. a mispronounced/misheard
+  // verse from an accented speaker producing a slightly-wrong book/chapter/
+  // verse) must not be silently blacklisted for the rest of the service.
+  // The ASR can and does recover on a later, cleaner utterance of the same
+  // verse; permanently dropping it made detections appear to "stop working
+  // after a while" the longer a service ran and the more misheard
+  // references accumulated.
+  const invalidRefsRef = useRef<Map<string, number>>(new Map());
+  const INVALID_REF_TTL_MS = 10 * 60 * 1000; // 10 minutes
+  const isInvalidRef = (key: string) => {
+    const at = invalidRefsRef.current.get(key);
+    if (at === undefined) return false;
+    if (Date.now() - at > INVALID_REF_TTL_MS) { invalidRefsRef.current.delete(key); return false; }
+    return true;
+  };
   const previewLookupRef = useRef<Set<string>>(new Set());
   const [nowTick, setNowTick] = useState(() => Date.now());
 
@@ -200,7 +215,7 @@ export function AIDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
       if (s.type === "scripture") {
         const row = bibleRowFromSuggestion(s);
         if (!row) continue;
-        if (invalidRefsRef.current.has(row.key)) continue;
+        if (isInvalidRef(row.key)) continue;
         if (dismissedKeys.has(`bible:${row.key}`)) continue;
 
         // Kick off a lookup to verify the ref exists + get preview text.
@@ -217,7 +232,7 @@ export function AIDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
               });
               if (!res.verses || res.verses.length === 0) {
                 // Invalid — drop and remember.
-                invalidRefsRef.current.add(row.key);
+                invalidRefsRef.current.set(row.key, Date.now());
                 setBibleRows((prev) => prev.filter((r) => r.key !== row.key));
                 return;
               }
@@ -236,7 +251,7 @@ export function AIDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
       }
     }
     // Drop expired rows.
-    setBibleRows((prev) => prev.filter((r) => now - r.ts < EXPIRY_MS && !invalidRefsRef.current.has(r.key)));
+    setBibleRows((prev) => prev.filter((r) => now - r.ts < EXPIRY_MS && !isInvalidRef(r.key)));
     setSongRows((prev) => prev.filter((r) => now - r.ts < EXPIRY_MS));
   }, [audio.suggestions, threshold, dismissedKeys, ctx.defaultTranslationCode]);
 
@@ -280,7 +295,7 @@ export function AIDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
         translationCode: ctx.defaultTranslationCode,
       });
       if (!res.verses || res.verses.length === 0) {
-        invalidRefsRef.current.add(row.key);
+        invalidRefsRef.current.set(row.key, Date.now());
         setBibleRows((prev) => prev.filter((r) => r.key !== row.key));
         toast.error("Reference not found in DB");
         return;

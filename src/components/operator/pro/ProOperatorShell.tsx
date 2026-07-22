@@ -1446,6 +1446,35 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       ctx.onSendSlideToLive({ kind: "text", text: `${body}\n\n${c.label}` });
       bibleLastAdvanceTsRef.current = Date.now();
       toast.info(`Voice: "${cmd.matchedText}" → repeated`);
+    } else if (cmd.verb === "goto_bible_verse") {
+      // Absolute jump to a verse NUMBER within the current chapter — "from
+      // verse 11", "from 13" — distinct from next/prev's relative +/-1 step.
+      const verseNumber = (cmd.payload as { verseNumber?: number } | undefined)?.verseNumber;
+      const current = cards[idx!];
+      const m = /^(.+?)\s+(\d+):\d+/.exec(current.label);
+      if (verseNumber && m) {
+        const book = m[1];
+        const chapter = parseInt(m[2], 10);
+        bibleLastAdvanceTsRef.current = Date.now();
+        void (async () => {
+          try {
+            const chapterRes = await fetchChapterCached(book, chapter, bibleSession.state.translation);
+            const hit = chapterRes.verses.find((v) => v.verse === verseNumber);
+            if (!hit) { toast.error(`Verse ${verseNumber} not found in ${book} ${chapter}`); return; }
+            const label = `${book} ${chapter}:${verseNumber} (${chapterRes.translation})`;
+            const card = { id: `${label}-${Date.now()}`, label, verses: [{ verse: hit.verse, text: hit.text }] };
+            const existing = bibleSession.state.cards;
+            const dupIdx = existing.findIndex((c) => c.label === card.label);
+            const newIdx = dupIdx >= 0 ? dupIdx : existing.length;
+            if (dupIdx < 0) bibleSession.setCards([...existing, card]);
+            bibleSession.setSelectedIdx(newIdx);
+            ctx.onSendSlideToLive({ kind: "text", text: `${hit.text}\n\n${label}` });
+            toast.info(`Voice: "${cmd.matchedText}" → verse ${verseNumber}`);
+          } catch {
+            toast.error("Verse lookup failed");
+          }
+        })();
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx.audio.transcript]);
