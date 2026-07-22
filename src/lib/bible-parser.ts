@@ -174,8 +174,11 @@ export function wordsToNumber(phrase: string): number {
 }
 
 // --- Spoken numeral chunk recognizer ----------------------------------------
+// Single bare digit words (0-9) — used to build the 3-digit "phone number
+// style" fusion below (e.g. "one oh seven" -> "one_oh_seven" -> 107).
+const BARE_DIGIT_WORD = "(?:zero|oh|one|two|three|four|five|six|seven|eight|nine)";
 const NUM_TOKEN_PATTERN =
-  "(?:\\d+|(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)_(?:one|two|three|four|five|six|seven|eight|nine)|zero|oh|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|thirtieth|fortieth|fiftieth|sixtieth|seventieth|eightieth|ninetieth|hundredth)";
+  `(?:\\d+|(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)_(?:one|two|three|four|five|six|seven|eight|nine)|${BARE_DIGIT_WORD}_${BARE_DIGIT_WORD}_${BARE_DIGIT_WORD}|zero|oh|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|thirtieth|fortieth|fiftieth|sixtieth|seventieth|eightieth|ninetieth|hundredth)`;
 // A single number "chunk" — one token, or a sequence joined by whitespace
 // (e.g. "one hundred nineteen"). Range separators do NOT appear inside a chunk.
 const NUM_CHUNK = `(${NUM_TOKEN_PATTERN}(?:\\s+${NUM_TOKEN_PATTERN}){0,5})`;
@@ -183,9 +186,13 @@ const NUM_CHUNK = `(${NUM_TOKEN_PATTERN}(?:\\s+${NUM_TOKEN_PATTERN}){0,5})`;
 // chapter positions where a bare space separator is used to reach the verse,
 // so we don't over-consume ("John three sixteen" mustn't collapse to "19").
 // Excludes "hundred"/"thousand" so compound numbers ("one hundred nineteen")
-// aren't split into a false chapter/verse pair.
+// aren't split into a false chapter/verse pair. Includes the 3-digit fused
+// form above so it counts as ONE atom, not chapter+verse — a run of exactly
+// 3 bare digit words is overwhelmingly a phone-number-style chapter reading
+// (e.g. Psalm 107), never a real "chapter X verse Y" (that's always 2 tokens
+// in natural speech, or said with an explicit "verse").
 const NUM_ATOM_PATTERN =
-  "(?:\\d+|(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)_(?:one|two|three|four|five|six|seven|eight|nine)|zero|oh|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|thirtieth|fortieth|fiftieth|sixtieth|seventieth|eightieth|ninetieth|hundredth)";
+  `(?:\\d+|(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)_(?:one|two|three|four|five|six|seven|eight|nine)|${BARE_DIGIT_WORD}_${BARE_DIGIT_WORD}_${BARE_DIGIT_WORD}|zero|oh|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|thirtieth|fortieth|fiftieth|sixtieth|seventieth|eightieth|ninetieth|hundredth)`;
 const NUM_SINGLE = `(${NUM_ATOM_PATTERN})`;
 
 function chunkToNum(raw: string): number {
@@ -210,6 +217,16 @@ function normalize(text: string): string {
   // "twenty_three") so "Psalm twenty three" parses as a single chapter atom
   // (23) via book_ch, not chapter 20 verse 3 via book_ch_space_verse.
   s = s.replace(/\b(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\s+(one|two|three|four|five|six|seven|eight|nine)\b/g, "$1_$2");
+  // Fuse a RUN OF EXACTLY 3 bare single-digit words ("one oh seven", "one
+  // zero seven") into one atom the same way — phone-number-style reading of
+  // a 3-digit chapter number (Psalms go up to 150), never a real "chapter X
+  // verse Y" (that's 2 tokens, or said with an explicit "verse"). Must run
+  // BEFORE book_ch_space_verse's 2-atom chapter+verse pattern gets a chance
+  // to grab the first two of the three digits and strand the third.
+  s = s.replace(
+    /\b(zero|oh|one|two|three|four|five|six|seven|eight|nine)\s+(zero|oh|one|two|three|four|five|six|seven|eight|nine)\s+(zero|oh|one|two|three|four|five|six|seven|eight|nine)\b/g,
+    "$1_$2_$3",
+  );
 
   // Explicitize digit ranges so "3:16-17" doesn't fight NUM_CHUNK's greedy hyphen.
   s = s.replace(/(\d+)\s*[-–—]\s*(\d+)/g, "$1 to $2");
@@ -535,7 +552,15 @@ export function parseReference(text: string): SimpleReference | null {
   // reported as "verse 1 doesn't parse right." Now also counts recognized
   // number-WORDS, so a second spoken number (however it's said) is counted
   // the same as a literal digit.
-  const numberWordMatches = raw.match(/\b[a-z]+\b/g)?.filter((w) => w in NUMBER_WORDS) ?? [];
+  // Exclude "first"/"second"/"third" — these are almost always the ordinal
+  // PREFIX of a book name ("First Corinthians", "Second Timothy", "Third
+  // John"), not a real second spoken number. Counting them here was a
+  // regression: "First Corinthians 13" got miscounted as digitCount=2
+  // (the book's own "First" + "13") and wrongly fell out of the whole-
+  // chapter branch, turning it into "verse 1" instead of the whole chapter.
+  // A genuine "the first verse" phrasing is already caught by hasVerseMarker
+  // above (\bverses?\b), so this exclusion doesn't reintroduce the original bug.
+  const numberWordMatches = raw.match(/\b[a-z]+\b/g)?.filter((w) => w in NUMBER_WORDS && w !== "first" && w !== "second" && w !== "third") ?? [];
   const digitCount = (raw.match(/\d+/g) || []).length + numberWordMatches.length;
   const wholeChapter =
     (!hasVerseMarker && digitCount <= 1 && r.verseStart === 1 && r.verseEnd === 1 && r.chapterEnd === undefined) ||
