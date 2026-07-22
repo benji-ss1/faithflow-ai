@@ -3,12 +3,13 @@ import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "./session";
 import { getDb } from "./db/client";
-import { songs, songSlides, mediaAssets, settings, migrationJobs } from "./db/schema";
+import { mediaAssets, settings, migrationJobs } from "./db/schema";
 import { runImportPipeline, type PipelineOutput } from "./importers/pipeline";
 import { presignPut, isS3Configured, s3, BUCKET } from "./s3";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { randomUUID } from "node:crypto";
 import { getSongLimit, getSongUsage } from "./song-limits";
+import { bulkInsertSongs } from "./song-bulk-insert";
 
 type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
 
@@ -48,28 +49,18 @@ export async function importDrop(input: {
 
   const buffers = input.drop.map((f) => ({ path: f.path, contents: Buffer.from(f.b64, "base64") }));
   const output: PipelineOutput = runImportPipeline(buffers);
-
   const db = getDb();
-  let added = 0, skipped = 0;
+
   // Same library-cap headroom gate as finalizeImport below — partial import
   // rather than all-or-nothing.
-  let remainingHeadroom = Math.max(0, (await getSongLimit(user.churchId)) - (await getSongUsage(user.churchId)));
+  const [__limit, __usage] = await Promise.all([getSongLimit(user.churchId), getSongUsage(user.churchId)]);
+  const remainingHeadroom = Math.max(0, __limit - __usage);
 
-  for (const song of output.songs) {
-    const [dup] = await db.select().from(songs)
-      .where(and(eq(songs.churchId, user.churchId), eq(songs.title, song.title)))
-      .limit(1);
-    if (dup) { skipped++; continue; }
-    if (remainingHeadroom <= 0) { skipped++; continue; }
-    const [row] = await db.insert(songs).values({
-      churchId: user.churchId, title: song.title, artist: song.artist, source: "imported",
-    }).returning();
-    if (song.slides.length > 0) {
-      await db.insert(songSlides).values(song.slides.map((lyrics, i) => ({ songId: row.id, order: i, lyrics })));
-    }
-    added++;
-    remainingHeadroom--;
-  }
+  const { added, skipped } = await bulkInsertSongs(
+    user.churchId,
+    output.songs.map((s) => ({ title: s.title, artist: s.artist, slides: s.slides, source: "imported" as const })),
+    remainingHeadroom,
+  );
 
   // Media upload — only if S3 is configured. Anything else surfaces as a
   // warning rather than silently dropping.
@@ -170,28 +161,17 @@ export async function finalizeImport(migrationJobId: string): Promise<Result<{
   // as "skipped" rather than blocking the whole batch or silently inserting
   // past the limit — a partial import (some added, rest reported skipped)
   // is more useful than an all-or-nothing failure here.
-  let remainingHeadroom = Math.max(0, (await getSongLimit(user.churchId)) - (await getSongUsage(user.churchId)));
+  const [__limit, __usage] = await Promise.all([getSongLimit(user.churchId), getSongUsage(user.churchId)]);
+  const remainingHeadroom = Math.max(0, __limit - __usage);
 
-  let songsAdded = 0, songsSkipped = 0;
-  for (const s of parsedSongs) {
-    try {
-      const title = (s.title || "").trim();
-      if (!title || !Array.isArray(s.slides) || s.slides.length === 0) { songsSkipped++; continue; }
-      const [dup] = await db.select().from(songs)
-        .where(and(eq(songs.churchId, user.churchId), eq(songs.title, title)))
-        .limit(1);
-      if (dup) { songsSkipped++; continue; }
-      if (remainingHeadroom <= 0) { songsSkipped++; continue; }
-      const [row] = await db.insert(songs).values({
-        churchId: user.churchId, title, artist: s.artist ?? null, source: "imported",
-      }).returning();
-      await db.insert(songSlides).values(s.slides.map((lyrics, i) => ({ songId: row.id, order: i, lyrics })));
-      songsAdded++;
-      remainingHeadroom--;
-    } catch {
-      songsSkipped++;
-    }
-  }
+  const validSongs = parsedSongs.filter((s) => (s.title || "").trim() && Array.isArray(s.slides) && s.slides.length > 0);
+  const invalidCount = parsedSongs.length - validSongs.length;
+  const { added: songsAdded, skipped: bulkSkipped } = await bulkInsertSongs(
+    user.churchId,
+    validSongs.map((s) => ({ title: (s.title || "").trim(), artist: s.artist ?? null, slides: s.slides, source: "imported" as const })),
+    remainingHeadroom,
+  );
+  const songsSkipped = invalidCount + bulkSkipped;
 
   let mediaAdded = 0;
   if (parsedMedia.length > 0 && isS3Configured()) {

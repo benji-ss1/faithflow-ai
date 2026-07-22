@@ -148,7 +148,12 @@ export const songs = pgTable("songs", {
   // Phase 5D-2: per-song settings (default transition, applied theme id, etc)
   settings: jsonb("settings").notNull().default({}),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (t) => [
+  // Serves every dup-check (WHERE church_id = ? AND title = ?, used by all
+  // 4 import paths) and every song-count query (getSongUsage) — previously
+  // a full table scan on both. Had no index at all beyond the primary key.
+  index("idx_songs_church_title").on(t.churchId, t.title),
+]);
 
 export const songSlides = pgTable("song_slides", {
   id: uuid("id").primaryKey().defaultRandom(),

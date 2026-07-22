@@ -8,6 +8,7 @@ import { deleteObject } from "./s3";
 import { validateReorderItemSlides } from "./reorder-validator";
 import { createLimiter } from "./rate-limit";
 import { getSongUsage, getSongLimit } from "./song-limits";
+import { bulkInsertSongs } from "./song-bulk-insert";
 
 type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
 
@@ -510,37 +511,32 @@ export async function importPro6Files(files: { name: string; content: string }[]
   const db = getDb();
   const { parsePro6 } = await import("./pro6-parser");
 
-  let added = 0, skipped = 0;
+  let parseSkipped = 0;
   const warnings: { file: string; warnings: string[] }[] = [];
-  let remainingHeadroom = Math.max(0, (await getSongLimit(user.churchId)) - (await getSongUsage(user.churchId)));
+  const [__limit, __usage] = await Promise.all([getSongLimit(user.churchId), getSongUsage(user.churchId)]);
+  const remainingHeadroom = Math.max(0, __limit - __usage);
 
+  // Parsing stays per-file (each file can fail/warn independently), but the
+  // DB write is now ONE batched call instead of a per-file round trip.
+  const candidates: { title: string; artist?: string | null; slides: string[]; source: "imported" }[] = [];
   for (const f of files) {
     try {
       const parsed = parsePro6(f.content);
       if (!parsed.title.trim() || parsed.slides.length === 0) {
-        skipped++;
+        parseSkipped++;
         if (parsed.warnings.length) warnings.push({ file: f.name, warnings: parsed.warnings });
         continue;
       }
-      const [dup] = await db.select().from(songs)
-        .where(and(eq(songs.churchId, user.churchId), eq(songs.title, parsed.title)))
-        .limit(1);
-      if (dup) { skipped++; continue; }
-      if (remainingHeadroom <= 0) { skipped++; continue; }
-      remainingHeadroom--;
-      const [row] = await db.insert(songs).values({
-        churchId: user.churchId, title: parsed.title, artist: parsed.artist, source: "imported",
-      }).returning();
-      await db.insert(songSlides).values(parsed.slides.map((lyrics, i) => ({ songId: row.id, order: i, lyrics })));
-      added++;
+      candidates.push({ title: parsed.title, artist: parsed.artist, slides: parsed.slides, source: "imported" });
       if (parsed.warnings.length) warnings.push({ file: f.name, warnings: parsed.warnings });
     } catch (e) {
-      skipped++;
+      parseSkipped++;
       warnings.push({ file: f.name, warnings: [e instanceof Error ? e.message : "Parse failed"] });
     }
   }
+  const { added, skipped: bulkSkipped } = await bulkInsertSongs(user.churchId, candidates, remainingHeadroom);
   revalidatePath("/library/songs");
-  return { ok: true, data: { added, skipped, warnings } };
+  return { ok: true, data: { added, skipped: parseSkipped + bulkSkipped, warnings } };
 }
 
 export async function importSongsCsv(text: string): Promise<Result<{ added: number; skipped: number }>> {
@@ -593,19 +589,13 @@ export async function importSongsCsv(text: string): Promise<Result<{ added: numb
     }
   }
 
-  let added = 0, skipped = 0;
-  let remainingHeadroom = Math.max(0, (await getSongLimit(user.churchId)) - (await getSongUsage(user.churchId)));
-  for (const d of drafts) {
-    const [dup] = await db.select().from(songs).where(and(eq(songs.churchId, user.churchId), eq(songs.title, d.title))).limit(1);
-    if (dup) { skipped++; continue; }
-    if (remainingHeadroom <= 0) { skipped++; continue; }
-    remainingHeadroom--;
-    const [row] = await db.insert(songs).values({ churchId: user.churchId, title: d.title, artist: d.artist ?? null, source: "imported" }).returning();
-    if (d.slides.length > 0) {
-      await db.insert(songSlides).values(d.slides.map((s, i) => ({ songId: row.id, order: i, lyrics: s })));
-    }
-    added++;
-  }
+  const [__limit, __usage] = await Promise.all([getSongLimit(user.churchId), getSongUsage(user.churchId)]);
+  const remainingHeadroom = Math.max(0, __limit - __usage);
+  const { added, skipped } = await bulkInsertSongs(
+    user.churchId,
+    drafts.map((d) => ({ title: d.title, artist: d.artist ?? null, slides: d.slides, source: "imported" as const })),
+    remainingHeadroom,
+  );
   revalidatePath("/library/songs");
   return { ok: true, data: { added, skipped } };
 }

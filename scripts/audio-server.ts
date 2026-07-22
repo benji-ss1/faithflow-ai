@@ -94,18 +94,44 @@ type ResolvedPrefs = { defaultTranslationId: string | null; commandPrefix: strin
 
 // Refetched on each finalized segment. Cheap query; keeps behaviour honest
 // if the operator flips a preference mid-service.
+// 5-min in-memory cache, same shape/rationale as loadKeyterms (see
+// src/lib/deepgram-keyterms.ts) — this was previously an unconditional DB
+// round trip on EVERY finalized transcript segment regardless of whether it
+// contained a voice command at all. Prefs essentially never change mid-
+// service, so a short TTL cache removes that per-segment query entirely.
+const PREFS_CACHE_TTL_MS = 5 * 60 * 1000;
+const prefsCache = new Map<string, { value: ResolvedPrefs; at: number }>();
+
 async function getPrefs(churchId: string): Promise<ResolvedPrefs> {
+  const cached = prefsCache.get(churchId);
+  if (cached && Date.now() - cached.at < PREFS_CACHE_TTL_MS) return cached.value;
   const [prefs] = await db.select().from(churchPreferences).where(eq(churchPreferences.churchId, churchId)).limit(1);
   let defaultTranslationId = prefs?.defaultTranslationId ?? null;
   if (!defaultTranslationId) {
     const [kjv] = await db.select().from(bibleTranslations).where(eq(bibleTranslations.code, "KJV")).limit(1);
     defaultTranslationId = kjv?.id ?? null;
   }
-  return { defaultTranslationId, commandPrefix: prefs?.commandPrefix ?? "presentflow" };
+  const value: ResolvedPrefs = { defaultTranslationId, commandPrefix: prefs?.commandPrefix ?? "presentflow" };
+  prefsCache.set(churchId, { value, at: Date.now() });
+  return value;
 }
 
 async function getDefaultTranslationId(churchId: string): Promise<string | null> {
   return (await getPrefs(churchId)).defaultTranslationId;
+}
+
+// Same cache pattern — was a full `songs` SELECT on every transcript segment
+// that contained any song-cue phrase (common during a worship set), with no
+// caching at all. A church's library doesn't change mid-service.
+const SONG_LIBRARY_CACHE_TTL_MS = 5 * 60 * 1000;
+const songLibraryCache = new Map<string, { value: { id: string; title: string }[]; at: number }>();
+
+async function getSongLibrary(churchId: string): Promise<{ id: string; title: string }[]> {
+  const cached = songLibraryCache.get(churchId);
+  if (cached && Date.now() - cached.at < SONG_LIBRARY_CACHE_TTL_MS) return cached.value;
+  const library = await db.select({ id: songs.id, title: songs.title }).from(songs).where(eq(songs.churchId, churchId));
+  songLibraryCache.set(churchId, { value: library, at: Date.now() });
+  return library;
 }
 
 // Y4: replay guard — a ticket sig is single-use within its exp window.
@@ -541,8 +567,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // ---- Song detection ---------------------------------------------------
     const songCands = extractSongCandidates(text);
     if (songCands.length > 0) {
-      const library = await db.select({ id: songs.id, title: songs.title })
-        .from(songs).where(eq(songs.churchId, churchId));
+      const library = await getSongLibrary(churchId);
       for (const cand of songCands) {
         const match = fuzzyMatchSong(cand, library);
         // Dedupe on matched song (or title text if unmatched)
