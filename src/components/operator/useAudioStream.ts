@@ -367,14 +367,25 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       const id = `sc-${segmentId}-${r.book}-${r.chapter}-${r.verseStart}-${r.verseEnd}`;
       const key = `${r.book} ${r.chapter}:${r.verseStart}-${r.verseEnd}`;
       const conf = blendScripture(r);
-      lastActiveRefRef.current = { book: r.book, chapter: r.chapter };
+      // Review found: the fuzzy/phonetic book-match pattern (confidence 55
+      // raw, ~65 max after blending) can coincidentally hit a real book name
+      // from ordinary speech ("room 1:2" -> Romans 1:2). That's an
+      // acceptable low-confidence passive suggestion, but it must never (a)
+      // become the "current chapter" context bare "verse N" resolves
+      // against, or (b) qualify for forceLive's confidence-floor bypass —
+      // both would let one coincidental fuzzy hit compound into a wrong
+      // live-fire. Gate both on a confidence floor comfortably above that
+      // pattern's ceiling; genuine low-confidence-but-real hits (the
+      // pre-existing semantic-fallback tier) sit at 72+ and are unaffected.
+      const trustworthyForContext = conf >= 70;
+      if (trustworthyForContext) lastActiveRefRef.current = { book: r.book, chapter: r.chapter };
       // Restating the exact same reference (even minutes apart) is itself a
       // "make sure this is on screen" signal — flags forceLive so the
       // auto-fire effect can bypass its normal confidence floor. Still
       // requires AUTO mode's explicit human toggle; this hook never sends
       // anything live itself.
       const occurrenceCount = noteRefOccurrence(`${r.book}|${r.chapter}|${r.verseStart}|${r.verseEnd}`);
-      const forceLive = occurrenceCount === 2;
+      const forceLive = occurrenceCount === 2 && trustworthyForContext;
       const suggestion: UnifiedSuggestion = { id, type: "scripture", segmentId, ts, confidence: conf, matchedText: r.matchedText, matchedSpan: spanFor(r.matchedText), ref: { book: r.book, chapter: r.chapter, verseStart: r.verseStart, verseEnd: r.verseEnd }, ...(forceLive ? { forceLive: true } : {}), ...(r.isNavigationCommand ? { voiceCommand: true } : {}) };
       if (forceLive || r.isNavigationCommand) {
         // Bypass the normal 30s dedupe cooldown for this one signal — the
@@ -744,7 +755,22 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     if (!micMutedRef.current) {
       setState((s) => ({ ...s, warmStarted: false }));
     }
-    setState((s) => ({ ...s, error: null, stage: "idle", stageHistory: [], chunksSent: 0, dgMessagesReceived: 0 }));
+    // R10: this same start() function runs both for a fresh operator-initiated
+    // start AND for every automatic reconnect (scheduleReconnect calls it
+    // directly). Previously it unconditionally zeroed dgMessagesReceived and
+    // reset stage to "idle" every time — so a brief, successful Fly/network
+    // blip reconnect made the AI Live pill visibly flicker off and back on
+    // (aiFlowing in TopBar derives from dgMessagesReceived > 0), even though
+    // nothing was actually wrong. Only reset those on a genuinely fresh
+    // start — a reconnect (reconnectAttemptsRef > 0, set by scheduleReconnect
+    // before calling this) keeps the running counters so the pill stays
+    // steady through the blip.
+    const isReconnectAttempt = reconnectAttemptsRef.current > 0;
+    if (isReconnectAttempt) {
+      setState((s) => ({ ...s, error: null, stage: "idle" }));
+    } else {
+      setState((s) => ({ ...s, error: null, stage: "idle", stageHistory: [], chunksSent: 0, dgMessagesReceived: 0 }));
+    }
     // PF_AI_TRACE gate: dev + localStorage("presentflow.aiTrace","1") enable numbered logs.
     // Off in prod unless explicitly opted in so the demo console stays quiet.
     const aiTraceOn = isDevOrTraceOn();
@@ -1281,6 +1307,12 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     lastTranscriptAtRef.current = Date.now();
     intentionalStopRef.current = false;
     micMutedRef.current = false;
+    // Defensive: unlike restart()/stop(), this wasn't zeroing
+    // reconnectAttemptsRef. Currently unreachable in practice (nothing calls
+    // resume() while a reconnect backoff is pending), but if that changes,
+    // a stale ref > 0 would make start() wrongly treat this fresh call as a
+    // reconnect and skip resetting dgMessagesReceived/stageHistory.
+    reconnectAttemptsRef.current = 0;
     setState((s) => ({ ...s, warmStarted: false }));
     startRef.current().catch(() => { /* ignore */ });
   }, []);

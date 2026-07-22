@@ -450,6 +450,46 @@ const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => Pa
       return { book, chapter, verseStart: 1, verseEnd: 1, confidence: 72, matchedText: m[0], needsSemanticFallback: false };
     },
   },
+  // Fuzzy/phonetic book fallback — last resort, lowest priority (only tried
+  // when nothing above already claimed the span). Real transcripts show ASR
+  // mishearing book names badly enough that they don't even fuzzy-match by
+  // edit distance (e.g. "Hosea" heard as "OA") — this pattern exists for the
+  // less extreme cases (near-miss pronunciations, accent-driven substitutions)
+  // by reusing the SAME fuzzyBookMatch() used elsewhere for canonicalization,
+  // now applied during live parsing too. Deliberately requires the STRONGER
+  // "chapter:verse" or "chapter verse N" shape (two numbers, explicit
+  // separator) — a bare "word chapter N" alone is too common in ordinary
+  // speech to risk fuzzy-matching against arbitrary words.
+  {
+    name: "fuzzy_book_ch_verse",
+    // The candidate group's optional second word must NOT be able to match
+    // "chapter"/"verse" themselves — those greedily got absorbed into the
+    // candidate before the literal `(?:chapter\s+)?` below ever got a
+    // chance, so "ruthe chapter one verse two" tried to fuzzy-match against
+    // "ruthe chapter" (never matches anything) instead of "ruthe" (which
+    // would correctly fuzzy-match Ruth). Found by review — this was the
+    // pattern's single most common target shape and it was missing it.
+    regex: new RegExp(
+      `\\b([a-z]+(?:\\s+(?!chapter\\b|verses?\\b)[a-z]+){0,1})\\s+(?:chapter\\s+)?${NUM_CHUNK}\\s*(?::|\\s+verses?\\s+|,\\s*)\\s*${NUM_CHUNK}\\b(?!\\s*(?:to\\b|through\\b|thru\\b|-|–|—))`,
+      "gi",
+    ),
+    parse: (m) => {
+      const candidate = m[1].toLowerCase().trim();
+      // Skip candidates the exact matcher would have already caught — this
+      // pattern is purely for near-misses, not a second path to the same hit.
+      if (VARIANT_TO_BOOK.has(candidate)) return null;
+      const book = fuzzyBookMatch(candidate);
+      if (!book) return null;
+      const chapter = chunkToNum(m[2]);
+      const verse = chunkToNum(m[3]);
+      if (!isFinite(chapter) || !isFinite(verse)) return null;
+      if (SINGLE_CHAPTER_BOOKS.has(book)) {
+        return { book, chapter: 1, verseStart: chapter, verseEnd: chapter, confidence: 55, matchedText: m[0], needsSemanticFallback: true };
+      }
+      if (!isValidChapter(book, chapter)) return null;
+      return { book, chapter, verseStart: verse, verseEnd: verse, confidence: 55, matchedText: m[0], needsSemanticFallback: true };
+    },
+  },
 ];
 
 /** Parse a transcript segment for Bible references. Returns all matches. */
