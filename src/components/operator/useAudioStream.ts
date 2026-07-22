@@ -440,11 +440,16 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   }, [isDevOrTraceOn, prefetchSongSlides]);
 
   const setStage = useCallback((stage: PipelineStage) => {
-    setState((s) => ({
-      ...s,
-      stage,
-      stageHistory: [...s.stageHistory, { stage, ts: Date.now() }].slice(-30),
-    }));
+    setState((s) => {
+      // Render-storm fix: during continuous speech this is called with
+      // "receiving_interim"/"receiving_final" on essentially every Deepgram
+      // message. If the stage hasn't actually changed, return the SAME state
+      // reference so React bails out — no re-render, no stageHistory growth
+      // churn. Over a multi-hour service this removes thousands of redundant
+      // commits of the whole operator-state object.
+      if (s.stage === stage) return s;
+      return { ...s, stage, stageHistory: [...s.stageHistory, { stage, ts: Date.now() }].slice(-30) };
+    });
   }, []);
   const wsRef = useRef<WebSocket | null>(null);
   // Throttle counter for chunksSent state updates — keeps the ~50Hz worklet
@@ -465,6 +470,30 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const SILENCE_CLOSE_DBFS = -60;
   const SILENCE_OPEN_DBFS = -55;
   const SILENCE_HOLD_MS = 4000; // R8: extend from 2s to 4s for preacher pauses
+
+  // ALWAYS-ON mode (default): the AI never goes dormant on its own — no
+  // silence gate closing, no idle auto-pause. Operators explicitly asked for
+  // "on full time; if we want it off we turn it off ourselves." The silence
+  // gate and auto-pause still EXIST (this is a per-machine opt-out, default
+  // on), but are disabled by default.
+  const isAiAlwaysOn = useCallback((): boolean => {
+    try {
+      if (typeof localStorage === "undefined") return true;
+      return localStorage.getItem("presentflow.pro.aiAlwaysOn") !== "0"; // default on
+    } catch { return true; }
+  }, []);
+  // Snapshotted into a ref at start() so the ~50Hz worklet hot path reads a
+  // plain boolean, never localStorage per audio frame.
+  const aiAlwaysOnRef = useRef<boolean>(true);
+  // NOTE: an earlier draft added a proactive hourly connection-refresh as a
+  // "guardrail" against long-session drift. The stress review showed it was
+  // net-negative: cycling the socket via the reconnect path tears down and
+  // RE-ACQUIRES the mic/AudioContext every hour, so a single transient
+  // getUserMedia failure (device busy, Bluetooth renegotiation) would kill
+  // the very session it was meant to protect, and a slow mic re-acquire could
+  // drop words past the 5s ring. Dropped. The real long-session degradation
+  // was an unthrottled per-message render storm (fixed below); the existing
+  // stall watchdog + reconnect still recover a genuinely wedged socket.
 
   // Perf helper — chunked Uint8Array → base64. A naive
   //   String.fromCharCode(...bytes) + btoa()
@@ -495,6 +524,15 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const confCountRef = useRef<number>(0);
   const msgTimestampsRef = useRef<number[]>([]);
   const firstChunkAtRef = useRef<number | null>(null);
+  // Render-storm fix: true message count + last-commit clock so the diagnostic
+  // counters (dgMessagesReceived/msgsPerSec/lastLatencyMs) commit to React
+  // state at ~1Hz instead of on every Deepgram message. During continuous
+  // speech Deepgram streams interims constantly; committing the whole
+  // operator-state object per message drove sustained 5-15 renders/sec for
+  // hours — the most likely cause of long-service quality degradation.
+  const dgMsgCountRef = useRef<number>(0);
+  const lastDgStateCommitAtRef = useRef<number>(0);
+  const lastLatencyMsRef = useRef<number | null>(null);
   // Task 9: warm-start — mic muted flag.
   const micMutedRef = useRef<boolean>(false);
   // R9: keep-alive silence pings (256 bytes of silence PCM16) every 5s while
@@ -564,6 +602,9 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stallWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Flicker fix: pending "downgrade the pill to connecting" timer, armed on an
+  // abnormal WS close and cancelled if the reconnect re-readies within grace.
+  const readyDowngradeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startRef = useRef<(opts?: { warm?: boolean }) => Promise<void>>(async () => {});
   // Auto-pause: track when the last transcript arrived and check periodically.
   // If no transcript for AUTO_PAUSE_MS while listening, transition to paused
@@ -671,6 +712,12 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     if (isDevOrTraceOn()) console.log("[presentflow-audio] stop() called — hard-stopping pipeline");
     intentionalStopRef.current = true;
     if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
+    // Cleared HERE (a real stop) rather than in teardown(): teardown runs on
+    // every reconnect cycle, and clearing there kept re-disarming the 3s
+    // downgrade so the pill stayed green ~7-30s into a genuine outage
+    // (review 🟡). Leaving it to ride across reconnect teardowns means it
+    // fires ~3s after the FIRST disconnect if we haven't re-readied by then.
+    if (readyDowngradeTimerRef.current) { clearTimeout(readyDowngradeTimerRef.current); readyDowngradeTimerRef.current = null; }
     reconnectAttemptsRef.current = 0;
     // Task 4: drop any buffered PCM — a hard stop discards backlog.
     ringBufferRef.current = [];
@@ -737,6 +784,14 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     // R6: bump generation. Every async callback captures this synchronously.
     const generation = ++pipelineGenerationRef.current;
     lastTranscriptAtRef.current = Date.now();
+    // Snapshot always-on mode for the worklet hot path. Also proactively
+    // clear any leftover gate-closed state so a mode flip (or a reconnect
+    // that inherited a closed gate) can't leave audio suppressed.
+    aiAlwaysOnRef.current = isAiAlwaysOn();
+    if (aiAlwaysOnRef.current) {
+      silenceClosedRef.current = false;
+      setState((s) => ({ ...s, silenceGateClosed: false }));
+    }
     // Y7: only open a metrics session when mic is actually going to send audio.
     // Warm-start opens WS with mic muted → don't accumulate a 0-metrics
     // session that pollutes the audio_sessions rollup. sessionStart is opened
@@ -770,6 +825,12 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       setState((s) => ({ ...s, error: null, stage: "idle" }));
     } else {
       setState((s) => ({ ...s, error: null, stage: "idle", stageHistory: [], chunksSent: 0, dgMessagesReceived: 0 }));
+      // Fresh start only — mirror the diagnostic-counter reset in the refs so
+      // the throttled commit path starts from zero. On a reconnect these are
+      // deliberately preserved (the pill must not flicker back to "no messages").
+      dgMsgCountRef.current = 0;
+      lastDgStateCommitAtRef.current = 0;
+      lastLatencyMsRef.current = null;
     }
     // PF_AI_TRACE gate: dev + localStorage("presentflow.aiTrace","1") enable numbered logs.
     // Off in prod unless explicitly opted in so the demo console stays quiet.
@@ -883,7 +944,18 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           lat = now - firstChunkAtRef.current;
           firstChunkAtRef.current = null;
         }
-        setState((s) => ({ ...s, dgMessagesReceived: s.dgMessagesReceived + 1, msgsPerSec: rate, lastLatencyMs: lat ?? s.lastLatencyMs }));
+        if (lat !== null) lastLatencyMsRef.current = lat;
+        // Render-storm fix: track the true count in a ref every message, but
+        // commit to React state only on the FIRST message (so aiFlowing → the
+        // green pill lights immediately) and then at most ~1Hz. These are
+        // diagnostic counters; the UI only needs "received > 0" promptly, not
+        // an exact per-message tick.
+        dgMsgCountRef.current += 1;
+        if (dgMsgCountRef.current === 1 || now - lastDgStateCommitAtRef.current >= 1000) {
+          lastDgStateCommitAtRef.current = now;
+          const committedCount = dgMsgCountRef.current;
+          setState((s) => ({ ...s, dgMessagesReceived: committedCount, msgsPerSec: rate, lastLatencyMs: lastLatencyMsRef.current ?? s.lastLatencyMs }));
+        }
         // Task 10/11: track word-level confidence buckets for autopilot gating.
         if ((msg.type === "final" || msg.type === "interim_final_candidate") && Array.isArray(msg.words)) {
           for (const w of msg.words as { w?: string; c?: number }[]) {
@@ -900,6 +972,9 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         }
         if (msg.type === "ready") {
           if (stallWatchdogRef.current) { clearTimeout(stallWatchdogRef.current); stallWatchdogRef.current = null; }
+          // Reconnected (or fresh) socket is live again — cancel any pending
+          // pill-downgrade so a fast blip never flashed "connecting".
+          if (readyDowngradeTimerRef.current) { clearTimeout(readyDowngradeTimerRef.current); readyDowngradeTimerRef.current = null; }
           setStage("deepgram_ready"); log("5 deepgram ready"); setState((s) => ({ ...s, ready: true })); return;
         }
         if (msg.type === "interim") { setStage("receiving_interim"); log("7 interim", msg.text); }
@@ -987,8 +1062,9 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         // config (e.g. DEEPGRAM_API_KEY). Both are non-recoverable by
         // reconnecting — surface the reason directly and stop the loop.
         const fatal = e.code === 1008 || e.code === 1011;
-        setState((s) => ({ ...s, ready: false, error: fatal && e.reason ? `Audio bridge: ${e.reason}` : s.error }));
         if (fatal) {
+          if (readyDowngradeTimerRef.current) { clearTimeout(readyDowngradeTimerRef.current); readyDowngradeTimerRef.current = null; }
+          setState((s) => ({ ...s, ready: false, error: e.reason ? `Audio bridge: ${e.reason}` : s.error }));
           intentionalStopRef.current = true;
           if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
           setState((s) => ({ ...s, listening: false }));
@@ -998,9 +1074,24 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           // Keep `listening` true so the top-bar pill still shows "on" while
           // we reconnect behind the scenes — the operator shouldn't have to
           // touch anything for a transient Fly/network blip.
+          //
+          // Flicker fix: DON'T flip `ready` false immediately. A brief blip
+          // (or the hourly proactive refresh) reopens in well under a second,
+          // and an instantaneous ready:false→true round-trip made the AI
+          // Live pill (and the LIVE TRANSCRIPT dot) visibly flash to
+          // "connecting" and back every time. Hold `ready` for a short grace
+          // window; only downgrade the pill if the reconnect is genuinely
+          // taking a while. Cleared when the reconnected socket re-readies.
+          if (!readyDowngradeTimerRef.current) {
+            readyDowngradeTimerRef.current = setTimeout(() => {
+              readyDowngradeTimerRef.current = null;
+              setState((s) => ({ ...s, ready: false }));
+            }, 3000);
+          }
           scheduleReconnect();
         } else {
-          setState((s) => ({ ...s, listening: false }));
+          if (readyDowngradeTimerRef.current) { clearTimeout(readyDowngradeTimerRef.current); readyDowngradeTimerRef.current = null; }
+          setState((s) => ({ ...s, ready: false, listening: false }));
         }
       };
 
@@ -1136,11 +1227,15 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         const rms = Math.sqrt(sumSq / Math.max(1, i16.length));
         const dbfs = rms > 0 ? 20 * Math.log10(rms) : -Infinity;
         const nowMs = Date.now();
+        const alwaysOn = aiAlwaysOnRef.current;
         // R8: hysteresis. Close only after HOLD_MS below -60 dBFS; reopen
         // when audio climbs back above -55 dBFS.
         if (dbfs < SILENCE_CLOSE_DBFS) {
           if (silenceStartRef.current === null) silenceStartRef.current = nowMs;
-          if (!silenceClosedRef.current && nowMs - (silenceStartRef.current ?? nowMs) >= SILENCE_HOLD_MS) {
+          // In always-on mode (default) we NEVER close the gate — audio keeps
+          // flowing full-time. The gate only engages when a machine has
+          // explicitly opted out of always-on.
+          if (!alwaysOn && !silenceClosedRef.current && nowMs - (silenceStartRef.current ?? nowMs) >= SILENCE_HOLD_MS) {
             silenceClosedRef.current = true;
             setState((s) => ({ ...s, silenceGateClosed: true }));
             if (isDevOrTraceOn()) console.log("[audio-silence] gate closed");
@@ -1230,6 +1325,11 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     if (autoPauseTimerRef.current) { clearInterval(autoPauseTimerRef.current); autoPauseTimerRef.current = null; }
     if (!state.listening) return;
     const check = () => {
+      // Always-on mode never auto-pauses — operators asked for the AI to
+      // stay live full-time and turn it off only by hand. The idle
+      // auto-pause remains available as an explicit per-machine opt-in
+      // (aiAlwaysOn = "0"), just off by default.
+      if (isAiAlwaysOn()) return;
       if (!isAutoPauseEnabled()) return;
       const elapsed = Date.now() - lastTranscriptAtRef.current;
       if (elapsed < AUTO_PAUSE_MS) return;
@@ -1249,7 +1349,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       if (autoPauseTimerRef.current === iv) autoPauseTimerRef.current = null;
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [state.listening, isAutoPauseEnabled, teardown]);
+  }, [state.listening, isAutoPauseEnabled, isAiAlwaysOn, teardown]);
 
   // Flush metrics + attempt clean teardown when the tab is unloaded or
   // backgrounded for good. Uses sendBeacon inside flushSessionMetrics when
