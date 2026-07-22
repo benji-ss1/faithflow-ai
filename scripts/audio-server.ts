@@ -246,6 +246,7 @@ type ServerMessage =
   | { type: "final"; segmentId: string; text: string; confidence?: number; words?: { w: string; c: number; s?: number; e?: number }[]; wordsDropped?: boolean }
   | { type: "interim_final_candidate"; text: string; confidence?: number; words?: { w: string; c: number; s?: number; e?: number }[]; wordsDropped?: boolean }
   | { type: "detection"; detection: { id: string; segmentId: string; book: string; chapter: number; verseStart: number; verseEnd: number; confidence: number; matchedText: string } }
+  | { type: "phrase_matches"; segmentId: string; matchedText: string; candidates: { book: string; chapter: number; verse: number; text: string; similarity: number }[] }
   | { type: "song"; song: { suggestionId: string; segmentId: string; songId: string | null; title: string; confidence: number; matchedText: string } }
   | { type: "command"; command: { suggestionId: string; segmentId: string; verb: string; payload: Record<string, unknown>; confidence: number; matchedText: string } }
   | { type: "error"; message: string };
@@ -394,6 +395,8 @@ wss.on("connection", async (ws: WebSocket, req) => {
   const recentRefs = new Map<string, number>(); // "book|ch|vs|ve" -> tsMs
   const recentSongs = new Map<string, number>(); // songId -> tsMs
   const recentCmds = new Map<string, number>(); // verb -> tsMs
+  const recentPhraseMatches = new Map<string, number>(); // top candidate key -> tsMs
+  let lastPhraseSearchAt = 0; // cooldown — bounds embed+vector-scan cost regardless of speech content
   const dedupeKey = (parts: string[]) => parts.join("|");
   const isDupe = (map: Map<string, number>, key: string) => {
     const now = Date.now();
@@ -562,6 +565,57 @@ wss.on("connection", async (ws: WebSocket, req) => {
         verseStart: vs, verseEnd: ve, confidence,
         matchedText: ref.matchedText,
       }});
+    }
+
+    // ---- Phrase cross-reference (content match, no reference spoken) ------
+    // Distinct from the semantic FALLBACK above, which only runs when the
+    // rule-based parser already found something reference-SHAPED ("book
+    // chapter:verse") but low-confidence. This runs when the preacher speaks
+    // a verse's actual CONTENT with no reference structure at all (e.g. a
+    // well-known phrase) — parseReferences finds nothing, so nothing above
+    // ever fires. Sends MULTIPLE candidates for the operator to pick from
+    // (never auto-picks one) since a phrase can genuinely match several
+    // verses (a repeated phrase across books, or paraphrase ambiguity).
+    //
+    // Review found the original gate (refs.length===0 && length>=20) would
+    // fire an embed+vector-scan on nearly every ordinary sermon segment that
+    // isn't a formal reference — a real recurring compute cost with no
+    // caching, reintroducing exactly the kind of per-segment cost the
+    // keyterms/song-library caching pass just removed elsewhere. Raised the
+    // length floor and added a hard per-connection cooldown so worst-case
+    // cost is bounded regardless of how much the preacher talks.
+    const PHRASE_SEARCH_COOLDOWN_MS = 4000;
+    if (refs.length === 0 && text.trim().length >= 30 && Date.now() - lastPhraseSearchAt >= PHRASE_SEARCH_COOLDOWN_MS) {
+      lastPhraseSearchAt = Date.now();
+      try {
+        const defaultT = await getDefaultTranslationId(churchId);
+        if (defaultT) {
+          const hits = await semanticSearch(defaultT, text, 5);
+          const candidates = hits
+            .map((h) => ({ ...h, similarity: Math.max(0, Math.round((1 - h.distance) * 100)) }))
+            // Only surface hits that are actually plausible matches — a
+            // weak/unrelated hit isn't worth cluttering the operator's panel.
+            .filter((h) => h.similarity >= 60);
+          if (candidates.length >= 1) {
+            // Dedupe on the TOP candidate only, not the full set — review
+            // found the full-set join was fragile: two calls for genuinely
+            // the same repeated phrase can return slightly different
+            // lower-ranked candidates (a fresh embedding call each time,
+            // similarity filtering at a hard 60% cliff), so joining the
+            // whole array almost never matched twice and spammed the panel
+            // with near-duplicate groups. The top hit is stable enough to
+            // dedupe on.
+            const key = `${candidates[0].book}${candidates[0].chapter}:${candidates[0].verse}`;
+            if (!isDupe(recentPhraseMatches, key)) {
+              send({ type: "phrase_matches", segmentId: segId, matchedText: text, candidates: candidates.map((c) => ({
+                book: knownBook(c.book) || c.book, chapter: c.chapter, verse: c.verse, text: c.text, similarity: c.similarity,
+              })) });
+            }
+          }
+        }
+      } catch (e) {
+        console.error("[audio] phrase cross-reference error:", e instanceof Error ? e.message : e);
+      }
     }
 
     // ---- Song detection ---------------------------------------------------

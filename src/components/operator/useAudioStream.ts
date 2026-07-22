@@ -27,6 +27,13 @@ export type SongSuggestion = {
   matchedText: string;
 };
 
+export type PhraseMatch = {
+  segmentId: string;
+  matchedText: string;
+  candidates: { book: string; chapter: number; verse: number; text: string; similarity: number }[];
+  ts: number;
+};
+
 export type ContextCommand = {
   verb: "next_verse" | "prev_verse" | "continue" | "back";
   segmentId: string;
@@ -84,6 +91,7 @@ export type AudioStreamState = {
   transcript: TranscriptChunk[];
   interim: string;
   detections: Detection[];
+  phraseMatches: PhraseMatch[];
   songSuggestions: SongSuggestion[];
   commandSuggestions: CommandSuggestion[];
   suggestions: UnifiedSuggestion[]; // Phase 5A unified layer
@@ -123,7 +131,7 @@ export type DetectContextProvider = () => {
 export function useAudioStream(planId: string, opts?: { library?: IndexedSong[]; getDetectContext?: DetectContextProvider }) {
   const [state, setState] = useState<AudioStreamState>({
     listening: false, ready: false, error: null, transcript: [], interim: "",
-    detections: [], songSuggestions: [], commandSuggestions: [], suggestions: [],
+    detections: [], phraseMatches: [], songSuggestions: [], commandSuggestions: [], suggestions: [],
     stage: "idle", stageHistory: [], chunksSent: 0, dgMessagesReceived: 0,
     reconnectFailed: false, reconnectAttempts: 0, warmStarted: false,
     silenceGateClosed: false, msgsPerSec: 0, lastLatencyMs: null, avgConfidence: 0,
@@ -845,6 +853,10 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           } catch { /* ignore */ }
         }
         else if (msg.type === "detection") setState((s) => ({ ...s, detections: [msg.detection, ...s.detections].slice(0, 50) }));
+        else if (msg.type === "phrase_matches") setState((s) => ({
+          ...s,
+          phraseMatches: [{ segmentId: msg.segmentId, matchedText: msg.matchedText, candidates: msg.candidates, ts: Date.now() }, ...s.phraseMatches].slice(0, 10),
+        }));
         else if (msg.type === "song") setState((s) => ({ ...s, songSuggestions: [msg.song, ...s.songSuggestions].slice(0, 30) }));
         else if (msg.type === "command") setState((s) => ({ ...s, commandSuggestions: [msg.command, ...s.commandSuggestions].slice(0, 30) }));
         else if (msg.type === "error") setState((s) => ({ ...s, error: msg.message }));

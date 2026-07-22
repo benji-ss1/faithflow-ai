@@ -44,6 +44,16 @@ function confClass(conf: number): string {
   return "text-[var(--color-muted-foreground)] border-[var(--color-border)] bg-[var(--color-elevated)]";
 }
 
+// Cross-Reference candidates are pre-filtered server-side to similarity>=60,
+// so the full 0-100 confClass scale above would render almost everything in
+// the same low-confidence color with no visible amber band. Tighter
+// thresholds tuned for this section's actual 60-100 range.
+function crossRefConfClass(similarity: number): string {
+  if (similarity >= 85) return "text-emerald-400 border-emerald-400/30 bg-emerald-500/10";
+  if (similarity >= 70) return "text-amber-400 border-amber-400/30 bg-amber-500/10";
+  return "text-[var(--color-muted-foreground)] border-[var(--color-border)] bg-[var(--color-elevated)]";
+}
+
 // ---------- Bible row shape ----------
 export type BibleRow = {
   key: string;
@@ -198,6 +208,16 @@ export function AIDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
   };
   const previewLookupRef = useRef<Set<string>>(new Set());
   const [nowTick, setNowTick] = useState(() => Date.now());
+
+  // Cross-reference groups — phrase-content matches with no reference
+  // structure spoken (see the audio-bridge's "phrase cross-reference"
+  // branch). Time-limited the same way detections are, so a stale group
+  // doesn't linger in the panel forever.
+  const PHRASE_MATCH_EXPIRY_MS = 5 * 60 * 1000;
+  const phraseMatchGroups = useMemo(
+    () => (audio.phraseMatches ?? []).filter((g) => nowTick - g.ts < PHRASE_MATCH_EXPIRY_MS).slice(0, 3),
+    [audio.phraseMatches, nowTick],
+  );
 
   // Tick every 15s to refresh relative timestamps + expire rows.
   useEffect(() => {
@@ -467,6 +487,64 @@ export function AIDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
 
       {/* Divider */}
       <div className="border-t border-[var(--color-border)]" />
+
+      {/* Section — Cross-References: the preacher spoke a verse's actual
+          content ("for God so loved the world...") with no reference
+          structure at all, so the rule-based parser above found nothing.
+          Multiple candidate verses are shown — NEVER auto-picked, since a
+          phrase can genuinely match more than one verse — the operator
+          clicks the right one. */}
+      {phraseMatchGroups.length > 0 && (
+        <>
+          <section className="px-2 py-2" data-testid="ai-cross-references">
+            <div className="flex items-center gap-1.5 mb-1">
+              <span className="text-[10px]">🔗</span>
+              <span className="text-[9px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)]">
+                Cross-References
+              </span>
+            </div>
+            {phraseMatchGroups.map((group) => (
+              <div key={group.segmentId} className="mb-2">
+                <div className="text-[10px] italic text-[var(--color-muted-foreground)] px-1 mb-1 truncate" title={group.matchedText}>
+                  &quot;{group.matchedText.length > 60 ? group.matchedText.slice(0, 57) + "…" : group.matchedText}&quot;
+                </div>
+                <div className="space-y-1">
+                  {group.candidates.map((c, i) => {
+                    const label = `${c.book} ${c.chapter}:${c.verse}`;
+                    return (
+                      <div
+                        key={`${group.segmentId}-${i}`}
+                        role="button"
+                        tabIndex={0}
+                        title={`${label} (${c.similarity}% match) — click to load, Shift+click to send live`}
+                        onClick={(e) => dispatchInternal("presentflow:bible-goto", {
+                          book: c.book, chapter: c.chapter, verseStart: c.verse, verseEnd: c.verse, live: e.shiftKey,
+                        })}
+                        onKeyDown={(e) => {
+                          if (e.key !== "Enter") return;
+                          dispatchInternal("presentflow:bible-goto", {
+                            book: c.book, chapter: c.chapter, verseStart: c.verse, verseEnd: c.verse, live: e.shiftKey,
+                          });
+                        }}
+                        className="group flex items-center gap-1.5 px-1.5 py-1 rounded bg-[var(--color-elevated)] hover:bg-[var(--color-elevated-hover,var(--color-elevated))] cursor-pointer border border-transparent hover:border-[var(--color-border)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <span className="text-[11px] font-semibold">{label}</span>
+                          <div className="text-[10px] text-[var(--color-muted-foreground)] truncate leading-tight">{c.text}</div>
+                        </div>
+                        <span className={cn("shrink-0 font-mono text-[9px] px-1 py-0.5 rounded border", crossRefConfClass(c.similarity))}>
+                          {c.similarity}%
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </section>
+          <div className="border-t border-[var(--color-border)]" />
+        </>
+      )}
 
       {/* Section B — Songs */}
       <section className="px-2 py-2" data-testid="ai-detections-songs">
