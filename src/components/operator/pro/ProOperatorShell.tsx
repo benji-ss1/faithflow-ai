@@ -1162,14 +1162,21 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     }
   }, []);
 
-  // R3: fire helper — enforces min-gap, queues newer detections.
-  const doAutoFire = useCallback((slide: import("@/lib/broadcast").SlidePayload, key: string, ref: string, conf: number) => {
+  // R3: fire helper — enforces min-gap, queues newer detections. `skipMinGap`
+  // is set for forceLive/voiceCommand detections — a deliberate repeat or an
+  // explicit "verse N" navigation phrase shouldn't wait behind the general
+  // anti-chatter rate limit meant for passive/incidental scripture mentions.
+  const doAutoFire = useCallback((slide: import("@/lib/broadcast").SlidePayload, key: string, ref: string, conf: number, skipMinGap = false) => {
     let minGap = DEFAULT_MIN_GAP_MS;
-    try {
-      const raw = window.localStorage.getItem(AUTO_FIRE_MIN_GAP_KEY);
-      const parsed = raw ? parseInt(raw, 10) : NaN;
-      if (Number.isFinite(parsed) && parsed >= 0) minGap = parsed;
-    } catch { /* noop */ }
+    if (!skipMinGap) {
+      try {
+        const raw = window.localStorage.getItem(AUTO_FIRE_MIN_GAP_KEY);
+        const parsed = raw ? parseInt(raw, 10) : NaN;
+        if (Number.isFinite(parsed) && parsed >= 0) minGap = parsed;
+      } catch { /* noop */ }
+    } else {
+      minGap = 0;
+    }
     const now = Date.now();
     const wait = lastAutoFireAtRef.current + minGap - now;
     if (wait <= 0) {
@@ -1281,19 +1288,27 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // with nothing else firing in between, that extra check would keep
     // blocking it forever even after the 5-minute window had long expired.
     // Removed — the sessionStorage map already does the real timing.
-    try {
-      const raw = window.sessionStorage.getItem(AUTO_FIRED_SESSION_KEY);
-      const map: Record<string, number> = raw ? JSON.parse(raw) : {};
-      const firedAt = map[key];
-      if (typeof firedAt === "number" && Date.now() - firedAt < 5 * 60 * 1000) {
-        return;
-      }
-    } catch { /* noop */ }
+    //
+    // forceLive/voiceCommand bypass this window entirely: a preacher
+    // explicitly restating the same reference, or an explicit "verse N"/
+    // "from verse N" navigation phrase, IS the authorization to replay —
+    // the 5-minute guard exists to stop a STALE lingering high-confidence
+    // detection from re-firing on its own, not to block a deliberate repeat.
+    if (!scripture.forceLive && !scripture.voiceCommand) {
+      try {
+        const raw = window.sessionStorage.getItem(AUTO_FIRED_SESSION_KEY);
+        const map: Record<string, number> = raw ? JSON.parse(raw) : {};
+        const firedAt = map[key];
+        if (typeof firedAt === "number" && Date.now() - firedAt < 5 * 60 * 1000) {
+          return;
+        }
+      } catch { /* noop */ }
+    }
 
     const body = first.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
     const slide: import("@/lib/broadcast").SlidePayload = { kind: "text", text: `${body}\n\n${first.label}` };
     const ref = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}${scripture.ref.verseEnd !== scripture.ref.verseStart ? `-${scripture.ref.verseEnd}` : ""}`;
-    doAutoFire(slide, key, ref, scripture.confidence);
+    doAutoFire(slide, key, ref, scripture.confidence, !!(scripture.forceLive || scripture.voiceCommand));
     bibleSession.setSelectedIdx(0);
     lastLiveWasSongRef.current = false;
 

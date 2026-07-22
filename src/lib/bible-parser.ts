@@ -65,7 +65,7 @@ const RAW_BOOKS: [string, string[]][] = [
   ["Mark", ["mark", "mk", "mr"]],
   ["Luke", ["luke", "lk", "lu"]],
   ["John", ["john", "jn", "jhn"]],
-  ["Acts", ["acts", "act", "acts of the apostles", "acts of the apostle", "the acts of the apostles"]],
+  ["Acts", ["acts", "act", "acts of the apostles", "acts of the apostle", "the acts of the apostles", "acts of apostle", "acts of apostles"]],
   ["Romans", ["romans", "roman", "rom", "rm"]],
   ["1 Corinthians", ["1 corinthians", "first corinthians", "1st corinthians", "one corinthians", "i corinthians", "1 cor", "1cor", "i cor"]],
   ["2 Corinthians", ["2 corinthians", "second corinthians", "2nd corinthians", "two corinthians", "ii corinthians", "2 cor", "2cor", "ii cor"]],
@@ -257,6 +257,11 @@ export type ParsedReference = {
   /** Character offset (start inclusive, end exclusive) in the normalized text. */
   start?: number;
   end?: number;
+  /** Set when the utterance is an explicit spoken navigation command ("from
+   * verse 13", "verse 7") rather than an incidental reference mention —
+   * callers use this to bypass anti-spam rate limits that exist to guard
+   * against passive/incidental mentions, not deliberate operator commands. */
+  isNavigationCommand?: boolean;
 };
 
 import { maxChapterFor } from "./bible-max-chapters";
@@ -376,10 +381,10 @@ const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => Pa
       const verse = chunkToNum(m[3]);
       if (!book || !isFinite(chapter) || !isFinite(verse)) return null;
       if (SINGLE_CHAPTER_BOOKS.has(book)) {
-        return { book, chapter: 1, verseStart: chapter, verseEnd: chapter, confidence: 90, matchedText: m[0], needsSemanticFallback: false };
+        return { book, chapter: 1, verseStart: chapter, verseEnd: chapter, confidence: 90, matchedText: m[0], needsSemanticFallback: false, isNavigationCommand: true };
       }
       if (!isValidChapter(book, chapter)) return null;
-      return { book, chapter, verseStart: verse, verseEnd: verse, confidence: 90, matchedText: m[0], needsSemanticFallback: false };
+      return { book, chapter, verseStart: verse, verseEnd: verse, confidence: 90, matchedText: m[0], needsSemanticFallback: false, isNavigationCommand: true };
     },
   },
   // "Book Chapter:Verse" (colon/comma-separated, digit-friendly). Allow
@@ -649,4 +654,27 @@ export function parseBareVerse(rawText: string): { verse: number; matchedText: s
   const verse = chunkToNum(m[1]);
   if (!Number.isFinite(verse) || verse <= 0) return null;
   return { verse, matchedText: m[0] };
+}
+
+// "Book verse N" — a book name IS spoken but with no chapter number at all
+// ("Acts of the Apostles verse 4"). Distinct from parseBareVerse (no book
+// mentioned) — here the book is named explicitly but the chapter has to be
+// inferred by the caller: same book as whatever's currently active → carry
+// the chapter over; a different book → the caller should default to
+// chapter 1 (mirrors the existing book-chapter-only default of verse 1).
+// Only meaningful as a fallback when parseReferences() found nothing.
+const BOOK_VERSE_ONLY_RE = new RegExp(
+  `\\b(${BOOK_PATTERN})\\s+verses?\\s+${NUM_CHUNK}\\b(?!\\s*(?:to\\b|through\\b|thru\\b|-|–|—))`,
+  "i",
+);
+export function parseBookVerseOnly(rawText: string): { book: string; verse: number; matchedText: string } | null {
+  if (typeof rawText !== "string" || !rawText) return null;
+  const text = normalize(rawText.slice(0, MAX_PARSE_INPUT_BYTES));
+  const m = BOOK_VERSE_ONLY_RE.exec(text);
+  if (!m) return null;
+  const bookKey = m[1].toLowerCase().replace(/\s+/g, " ");
+  const book = VARIANT_TO_BOOK.get(bookKey);
+  const verse = chunkToNum(m[2]);
+  if (!book || !Number.isFinite(verse) || verse <= 0) return null;
+  return { book, verse, matchedText: m[0] };
 }

@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { detectAll, SuggestionDedupe, type DetectAllResult } from "@/lib/ai-detection";
-import { parseBareVerse, isValidChapter } from "@/lib/bible-parser";
+import { parseBareVerse, parseBookVerseOnly, isValidChapter } from "@/lib/bible-parser";
 import { buildIndex, type IndexedSong, type SongIndex } from "@/lib/ai-detection/lyric-fragment";
 import type { SongMatchResult } from "@/lib/ai-detection/song-match";
 import { matchCustomCommand, readCustomCommands, readAudioInputPref, audioConstraintsFor } from "@/lib/voice-commands";
@@ -69,7 +69,7 @@ export type TranscriptChunk = { id: string; text: string; final: boolean; ts: nu
  *  by (segmentId, [start,end]) instead of naive substring includes(). */
 export type MatchedSpan = { start: number; end: number };
 export type UnifiedSuggestion =
-  | { id: string; type: "scripture"; segmentId: string; ts: number; confidence: number; matchedText: string; matchedSpan?: MatchedSpan; ref: { book: string; chapter: number; verseStart: number; verseEnd: number }; forceLive?: boolean }
+  | { id: string; type: "scripture"; segmentId: string; ts: number; confidence: number; matchedText: string; matchedSpan?: MatchedSpan; ref: { book: string; chapter: number; verseStart: number; verseEnd: number }; forceLive?: boolean; voiceCommand?: boolean }
   | { id: string; type: "song"; segmentId: string; ts: number; confidence: number; matchedText: string; matchedSpan?: MatchedSpan; match: SongMatchResult }
   | { id: string; type: "lyric"; segmentId: string; ts: number; confidence: number; matchedText: string; matchedSpan?: MatchedSpan; match: SongMatchResult }
   | { id: string; type: "section"; segmentId: string; ts: number; confidence: number; matchedText: string; matchedSpan?: MatchedSpan; section: "chorus" | "verse" | "bridge" | "outro" | "tag"; index?: number };
@@ -265,13 +265,30 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     // lastActiveRefRef above), and only as a fallback when the parser found
     // nothing, so it can never override an actual spoken reference.
     if (result.scripture.length === 0 && lastActiveRefRef.current) {
-      const bare = parseBareVerse(text);
-      if (bare && isValidChapter(lastActiveRefRef.current.book, lastActiveRefRef.current.chapter)) {
-        result.scripture = [{
-          book: lastActiveRefRef.current.book, chapter: lastActiveRefRef.current.chapter,
-          verseStart: bare.verse, verseEnd: bare.verse,
-          confidence: 90, matchedText: bare.matchedText, needsSemanticFallback: false,
-        }];
+      // "Book verse N" — a DIFFERENT book named but no chapter ("Acts of the
+      // Apostles verse 4"). Checked first since it names an explicit book;
+      // same book as active → carry the chapter over, different book →
+      // default to chapter 1 (mirrors the parser's existing book-chapter-only
+      // default of verse 1).
+      const bookVerse = parseBookVerseOnly(text);
+      if (bookVerse) {
+        const chapter = bookVerse.book === lastActiveRefRef.current.book ? lastActiveRefRef.current.chapter : 1;
+        if (isValidChapter(bookVerse.book, chapter)) {
+          result.scripture = [{
+            book: bookVerse.book, chapter,
+            verseStart: bookVerse.verse, verseEnd: bookVerse.verse,
+            confidence: 90, matchedText: bookVerse.matchedText, needsSemanticFallback: false, isNavigationCommand: true,
+          }];
+        }
+      } else {
+        const bare = parseBareVerse(text);
+        if (bare && isValidChapter(lastActiveRefRef.current.book, lastActiveRefRef.current.chapter)) {
+          result.scripture = [{
+            book: lastActiveRefRef.current.book, chapter: lastActiveRefRef.current.chapter,
+            verseStart: bare.verse, verseEnd: bare.verse,
+            confidence: 90, matchedText: bare.matchedText, needsSemanticFallback: false, isNavigationCommand: true,
+          }];
+        }
       }
     }
     const ts = Date.now();
@@ -358,8 +375,8 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       // anything live itself.
       const occurrenceCount = noteRefOccurrence(`${r.book}|${r.chapter}|${r.verseStart}|${r.verseEnd}`);
       const forceLive = occurrenceCount === 2;
-      const suggestion: UnifiedSuggestion = { id, type: "scripture", segmentId, ts, confidence: conf, matchedText: r.matchedText, matchedSpan: spanFor(r.matchedText), ref: { book: r.book, chapter: r.chapter, verseStart: r.verseStart, verseEnd: r.verseEnd }, ...(forceLive ? { forceLive: true } : {}) };
-      if (forceLive) {
+      const suggestion: UnifiedSuggestion = { id, type: "scripture", segmentId, ts, confidence: conf, matchedText: r.matchedText, matchedSpan: spanFor(r.matchedText), ref: { book: r.book, chapter: r.chapter, verseStart: r.verseStart, verseEnd: r.verseEnd }, ...(forceLive ? { forceLive: true } : {}), ...(r.isNavigationCommand ? { voiceCommand: true } : {}) };
+      if (forceLive || r.isNavigationCommand) {
         // Bypass the normal 30s dedupe cooldown for this one signal — the
         // repeat is very often said within that same window (that's the
         // whole point), and this only fires once per key per REPEAT_WINDOW_MS
