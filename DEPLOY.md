@@ -195,4 +195,3 @@ Vercel keeps every previous deployment. If a demo goes sideways:
 ```bash
 vercel rollback
 ```
-# auto-deploy connectivity test 1784688077
