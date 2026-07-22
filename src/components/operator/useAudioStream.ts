@@ -1315,6 +1315,22 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   // every render (would restart the backoff clock).
   useEffect(() => { startRef.current = start; }, [start]);
 
+  // Privacy scope: capture only while the service-operating screen is mounted.
+  // This hook lives in OperatorConsole (the screen you open to run a service),
+  // so when the operator navigates away or closes the console, capture stops
+  // and the OS mic is released. This is the single unmount-stop for the hook
+  // (it replaced an older `() => stop()` effect with `[stop]` deps that could
+  // also fire on a mid-mount stop-identity change). Combined with the
+  // explicit-click-to-start gate, the open mic is bounded to "operator is on
+  // the service console AND turned AI on" — always-on only changes behavior
+  // *within* that window (no silence-sleep, no idle auto-pause), never the
+  // window itself. A ref keeps this unmount-only (empty deps) while always
+  // calling the latest stop(); stop() on an idle hook is a safe no-op, so a
+  // dev StrictMode double-invoke is harmless.
+  const stopRef = useRef(stop);
+  useEffect(() => { stopRef.current = stop; }, [stop]);
+  useEffect(() => () => { try { stopRef.current(); } catch { /* ignore */ } }, []);
+
   // Auto-pause after prolonged silence. Cheap 30s interval poll (no per-render
   // side effect). Stops the pipeline and closes the WS to save Deepgram cost.
   //
@@ -1466,7 +1482,12 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     startRef.current({ warm: true }).catch(() => { /* ignore */ });
   }, [state.warmStarted, state.listening, isDevOrTraceOn]);
 
-  useEffect(() => () => stop(), [stop]);
+  // (Unmount capture-stop is handled by the empty-deps ref-based effect near
+  // startRef above — see the "Privacy scope" comment. A prior `useEffect(() =>
+  // () => stop(), [stop])` lived here but its `[stop]` deps meant its cleanup
+  // could also fire on a mid-mount `stop`-identity change, not only true
+  // unmount; the ref-based version is unmount-only and always calls the
+  // latest stop, so this duplicate was removed.)
 
   const dismissDetection = useCallback((id: string) => {
     setState((s) => ({ ...s, detections: s.detections.filter((d) => d.id !== id) }));
