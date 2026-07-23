@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.21",
+    date: "2026-07-23",
+    headline: "Fixed the Deepgram silence-timeout reconnect churn",
+    highlights: [
+      "AI listener now sends a KeepAlive frame every 6 seconds during silence so Deepgram doesn't close and re-open the connection during pastoral pauses or worship transitions — cleaner logs, no more visible reconnect churn",
+      "Behind the scenes: batched multi-row keyterm upsert (1 DB round trip instead of up to 40), stale-eviction pass to keep the learned-vocab table bounded over months, and adversarial tests locking the multi-tenant boundaries in place",
+    ],
+  },
+  {
     version: "0.1.20",
     date: "2026-07-23",
     headline: "Transcript panel perf + tightened learned-vocab hygiene",

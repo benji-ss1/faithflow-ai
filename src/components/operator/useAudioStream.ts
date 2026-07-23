@@ -1197,7 +1197,11 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           // isn't infallible either). Deduplicate: if we already have a
           // pending correction for this segment, replace it.
           const correction: CanonicalCorrection = {
-            id: `cc-${msg.segmentId}-${Date.now()}`,
+            // Stable ID per segment: the filter below already dedupes by
+            // segmentId, so a Date.now() suffix would only defeat React's
+            // reconciliation and cause an unnecessary DOM churn on
+            // duplicate-arrival corrections.
+            id: `cc-${msg.segmentId}`,
             segmentId: msg.segmentId,
             dgText: msg.dgText, whisperText: msg.whisperText,
             original: msg.original, corrected: msg.corrected,

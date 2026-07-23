@@ -558,6 +558,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // closing the wrong socket if a stall + reopen collide.
   let lastDgResultAt = Date.now();
   let lastAudioAt = 0;
+  let lastDgSendAt = Date.now();
   const stallTimer = setInterval(() => {
     const now = Date.now();
     if (lastAudioAt > 0 && now - lastAudioAt < 5000 && now - lastDgResultAt > 30_000) {
@@ -566,9 +567,30 @@ wss.on("connection", async (ws: WebSocket, req) => {
     }
   }, 5_000);
   stallTimer.unref?.();
-  // Ensure the interval doesn't keep running after the client WS closes —
+  // 2026-07-23: Deepgram closes idle sockets after ~12s of no audio OR no
+  // text frame. Church services routinely have long silences (pastoral
+  // pauses, worship transitions, altar calls). Without an explicit
+  // KeepAlive frame those silences trip DG's timeout with code 1011
+  // "did not receive audio data or a text message" — which is what the
+  // preexisting logs were showing all along. Send a KeepAlive JSON text
+  // frame every 6s whenever the socket's been quiet for ≥5s and DG is
+  // open. This is DG's documented pattern for long-running open sockets.
+  const keepAliveTimer = setInterval(() => {
+    const now = Date.now();
+    if (dg.readyState !== WebSocket.OPEN) return;
+    if (now - lastDgSendAt < 5000) return; // recent audio counts as keepalive
+    try {
+      dg.send(JSON.stringify({ type: "KeepAlive" }));
+      lastDgSendAt = now;
+    } catch { /* ignore */ }
+  }, 6_000);
+  keepAliveTimer.unref?.();
+  // Ensure the intervals don't keep running after the client WS closes —
   // orphaned intervals would try to close a long-gone `dg` reference.
-  ws.on("close", () => { try { clearInterval(stallTimer); } catch { /* ignore */ } });
+  ws.on("close", () => {
+    try { clearInterval(stallTimer); } catch { /* ignore */ }
+    try { clearInterval(keepAliveTimer); } catch { /* ignore */ }
+  });
 
   const dgOnMessage = async (raw: WebSocket.RawData) => {
     dgMessages++;
@@ -1008,7 +1030,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
       }
       // Only forward if Deepgram socket is still open.
       if (dg.readyState === WebSocket.OPEN) {
-        try { dg.send(buf); } catch (e) { console.error("[audio] send err", e); }
+        try { dg.send(buf); lastDgSendAt = Date.now(); } catch (e) { console.error("[audio] send err", e); }
       }
     } else if (msg.type === "stop") {
       try { dg.send(JSON.stringify({ type: "CloseStream" })); } catch { /* ignore */ }

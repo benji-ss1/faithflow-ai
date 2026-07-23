@@ -126,31 +126,49 @@ export async function POST(req: Request) {
     cleanTokens.push({ display, count, avgConf });
   }
   if (cleanTokens.length > 0 && isFreshInsert) {
-    for (const t of cleanTokens) {
-      const normalized = t.display.toLowerCase();
-      await db.insert(churchLearnedKeyterms).values({
-        churchId: user.churchId,
-        normalizedTerm: normalized,
-        displayTerm: t.display,
-        source: "learned",
-        occurrences: t.count,
-        avgConfidence: t.avgConf.toFixed(2),
-        active: t.count >= MIN_OCCURRENCES_TO_PROMOTE,
-        promotedAt: t.count >= MIN_OCCURRENCES_TO_PROMOTE ? new Date() : null,
-      }).onConflictDoUpdate({
-        target: [churchLearnedKeyterms.churchId, churchLearnedKeyterms.normalizedTerm],
-        set: {
-          occurrences: sql`${churchLearnedKeyterms.occurrences} + ${t.count}`,
-          // Rolling-ish avg: bias toward the more-observed side.
-          avgConfidence: sql`ROUND(((${churchLearnedKeyterms.avgConfidence}::numeric * ${churchLearnedKeyterms.occurrences}) + (${t.avgConf} * ${t.count})) / (${churchLearnedKeyterms.occurrences} + ${t.count}), 2)`,
-          lastSeenAt: new Date(),
-          // Promote when running total crosses the threshold. active is
-          // sticky true once flipped — operator can flip false manually.
-          active: sql`${churchLearnedKeyterms.active} OR (${churchLearnedKeyterms.occurrences} + ${t.count}) >= ${MIN_OCCURRENCES_TO_PROMOTE}`,
-          promotedAt: sql`CASE WHEN ${churchLearnedKeyterms.promotedAt} IS NULL AND (${churchLearnedKeyterms.occurrences} + ${t.count}) >= ${MIN_OCCURRENCES_TO_PROMOTE} THEN now() ELSE ${churchLearnedKeyterms.promotedAt} END`,
-        },
-      });
-    }
+    // 2026-07-23 hygiene fix: batch all N upserts into a single multi-row
+    // INSERT ... VALUES (...), (...), ... ON CONFLICT DO UPDATE so we
+    // hold a pool connection for one round trip instead of N (was 40 in
+    // the worst case). Same SQL-level per-row rolling avg + promotion
+    // rules — Drizzle's excluded pseudo-table gives us the incoming row.
+    const now = new Date();
+    const values = cleanTokens.map((t) => ({
+      churchId: user.churchId,
+      normalizedTerm: t.display.toLowerCase(),
+      displayTerm: t.display,
+      source: "learned" as const,
+      occurrences: t.count,
+      avgConfidence: t.avgConf.toFixed(2),
+      active: t.count >= MIN_OCCURRENCES_TO_PROMOTE,
+      promotedAt: t.count >= MIN_OCCURRENCES_TO_PROMOTE ? now : null,
+    }));
+    await db.insert(churchLearnedKeyterms).values(values).onConflictDoUpdate({
+      target: [churchLearnedKeyterms.churchId, churchLearnedKeyterms.normalizedTerm],
+      set: {
+        occurrences: sql`${churchLearnedKeyterms.occurrences} + excluded.occurrences`,
+        // Rolling-ish avg: bias toward the more-observed side. Uses excluded
+        // to reference the incoming row's values from the batched VALUES list.
+        avgConfidence: sql`ROUND(((${churchLearnedKeyterms.avgConfidence}::numeric * ${churchLearnedKeyterms.occurrences}) + (excluded.avg_confidence::numeric * excluded.occurrences)) / (${churchLearnedKeyterms.occurrences} + excluded.occurrences), 2)`,
+        lastSeenAt: sql`now()`,
+        // Promote when running total crosses the threshold. active is
+        // sticky true once flipped — operator can flip false manually.
+        active: sql`${churchLearnedKeyterms.active} OR (${churchLearnedKeyterms.occurrences} + excluded.occurrences) >= ${MIN_OCCURRENCES_TO_PROMOTE}`,
+        promotedAt: sql`CASE WHEN ${churchLearnedKeyterms.promotedAt} IS NULL AND (${churchLearnedKeyterms.occurrences} + excluded.occurrences) >= ${MIN_OCCURRENCES_TO_PROMOTE} THEN now() ELSE ${churchLearnedKeyterms.promotedAt} END`,
+      },
+    });
+
+    // 2026-07-23 hygiene fix: per-church row cap + stale eviction. Prevents
+    // church_learned_keyterms from growing unbounded over months of ingest.
+    // Deletes INACTIVE rows that are old and rarely seen; active promoted
+    // rows are never touched. Cheap — single WHERE with an index on
+    // (church_id, active) already present.
+    await db.execute(sql`
+      DELETE FROM church_learned_keyterms
+      WHERE church_id = ${user.churchId}
+        AND active = false
+        AND occurrences < ${MIN_OCCURRENCES_TO_PROMOTE}
+        AND first_seen_at < NOW() - INTERVAL '30 days'
+    `);
   }
 
   // Chunk + embed this service's transcript for RAG search once its
