@@ -21,18 +21,36 @@ import fs from "node:fs";
 import path from "node:path";
 
 export const DEEPGRAM_KEYTERMS: string[] = [
-  "Deuteronomy",
-  "Ecclesiastes",
-  "Obadiah",
-  "Matthew",
-  "Colossians",
-  "Songs of Solomon",
-  "Malachi",
-  "Micah",
-  "Ephesians",
-  "Proverbs",
-  "Nahum",
-  "Amos",
+  // Expanded 2026-07-23 from 12 → all 66 books + core Christian vocab +
+  // common preacher phrasing to bias Deepgram nova-3 against the accented/
+  // fast/homophone mishearings surfacing on Nigerian / RCCG-style delivery.
+  // The parser's `repairNumberHomophones()` and `fuzzyBookMatch()` remain
+  // the downstream safety net; keyterm biasing prevents the miss at source.
+  // Deepgram caps at 100 keyterms per connection — this list is under that
+  // ceiling with room for a few per-church overrides.
+  // — Old Testament (39) —
+  "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy",
+  "Joshua", "Judges", "Ruth",
+  "1 Samuel", "2 Samuel", "1 Kings", "2 Kings",
+  "1 Chronicles", "2 Chronicles",
+  "Ezra", "Nehemiah", "Esther", "Job", "Psalms", "Proverbs",
+  "Ecclesiastes", "Song of Solomon",
+  "Isaiah", "Jeremiah", "Lamentations", "Ezekiel", "Daniel",
+  "Hosea", "Joel", "Amos", "Obadiah", "Jonah", "Micah",
+  "Nahum", "Habakkuk", "Zephaniah", "Haggai", "Zechariah", "Malachi",
+  // — New Testament (27) —
+  "Matthew", "Mark", "Luke", "John", "Acts",
+  "Romans", "1 Corinthians", "2 Corinthians",
+  "Galatians", "Ephesians", "Philippians", "Colossians",
+  "1 Thessalonians", "2 Thessalonians",
+  "1 Timothy", "2 Timothy", "Titus", "Philemon",
+  "Hebrews", "James", "1 Peter", "2 Peter",
+  "1 John", "2 John", "3 John", "Jude", "Revelation",
+  // — Divine names / core theological vocab —
+  "Jesus Christ", "Holy Spirit", "Jehovah", "Yahweh", "Messiah",
+  "hallelujah", "amen", "righteousness", "salvation", "covenant",
+  // — Preacher/liturgical phrasing bias —
+  "the Bible says", "turn with me to", "verse", "chapter",
 ];
 
 const CACHE_TTL_MS = 5 * 60_000;

@@ -1,16 +1,24 @@
 {
+  "_comment": "Expanded 2026-07-23. Deepgram nova-3 keyterm biasing — all 66 Bible books + core Christian vocab + common preacher phrasing. Per-church overrides go in <churchId>.json. Deepgram caps at 100 terms per connection.",
   "terms": [
-    "Deuteronomy",
-    "Ecclesiastes",
-    "Obadiah",
-    "Matthew",
-    "Colossians",
-    "Songs of Solomon",
-    "Malachi",
-    "Micah",
-    "Ephesians",
-    "Proverbs",
-    "Nahum",
-    "Amos"
+    "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy",
+    "Joshua", "Judges", "Ruth",
+    "1 Samuel", "2 Samuel", "1 Kings", "2 Kings",
+    "1 Chronicles", "2 Chronicles",
+    "Ezra", "Nehemiah", "Esther", "Job", "Psalms", "Proverbs",
+    "Ecclesiastes", "Song of Solomon",
+    "Isaiah", "Jeremiah", "Lamentations", "Ezekiel", "Daniel",
+    "Hosea", "Joel", "Amos", "Obadiah", "Jonah", "Micah",
+    "Nahum", "Habakkuk", "Zephaniah", "Haggai", "Zechariah", "Malachi",
+    "Matthew", "Mark", "Luke", "John", "Acts",
+    "Romans", "1 Corinthians", "2 Corinthians",
+    "Galatians", "Ephesians", "Philippians", "Colossians",
+    "1 Thessalonians", "2 Thessalonians",
+    "1 Timothy", "2 Timothy", "Titus", "Philemon",
+    "Hebrews", "James", "1 Peter", "2 Peter",
+    "1 John", "2 John", "3 John", "Jude", "Revelation",
+    "Jesus Christ", "Holy Spirit", "Jehovah", "Yahweh", "Messiah",
+    "hallelujah", "amen", "righteousness", "salvation", "covenant",
+    "the Bible says", "turn with me to", "verse", "chapter"
   ]
 }

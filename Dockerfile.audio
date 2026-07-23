@@ -21,6 +21,11 @@ COPY scripts ./scripts
 COPY src ./src
 COPY tsconfig.json ./
 COPY drizzle.config.ts ./
+# 2026-07-23: config/ holds Deepgram keyterm JSON (default + per-church
+# overrides). Without this COPY, loadKeyterms() silently falls back to the
+# 12-term hard-coded list in src/lib/deepgram-keyterms.ts. See default.json
+# for the expanded 66-book + core-vocab list.
+COPY config ./config
 
 ENV NODE_ENV=production
 EXPOSE 3001
