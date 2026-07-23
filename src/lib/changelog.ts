@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.20",
+    date: "2026-07-23",
+    headline: "Transcript panel perf + tightened learned-vocab hygiene",
+    highlights: [
+      "Long-service transcript panel now renders 5–10× fewer DOM nodes by grouping same-confidence-tier words into single spans — smoother scrolling on older Macs during 90-minute sermons",
+      "Learned-vocab table now enforces its documented enum at the database level (source can only be 'manual' or 'learned') — hygiene, prevents a future raw SQL slip from poisoning it",
+    ],
+  },
+  {
     version: "0.1.19",
     date: "2026-07-23",
     headline: "Reliability pass on today's shipped features",

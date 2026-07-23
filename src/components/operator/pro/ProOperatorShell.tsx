@@ -352,25 +352,41 @@ function LiveTranscriptPanel({ ctx }: { ctx: OperatorShellCtx }) {
                     looks fine but a detection was wrong". Falls back to
                     plain text if the words array isn't there. */}
                 {t.words && t.words.length > 0 ? (
-                  t.words.map((w, i) => {
-                    const low = w.c < 0.75;
-                    const veryLow = w.c < 0.5;
-                    return (
+                  // 2026-07-23 review fix: bucket consecutive words in the
+                  // same confidence tier into a single <span> so a 90-min
+                  // sermon's transcript panel doesn't render thousands of
+                  // spans + re-run inline-conditional class computation on
+                  // every WS message. Typical bucketed count drops ~5-10×.
+                  // Tiers: veryLow (< 0.5), low (< 0.75), normal (>= 0.75).
+                  (() => {
+                    const tierOf = (c: number) => (c < 0.5 ? "vlow" : c < 0.75 ? "low" : "ok");
+                    const classFor = (tier: string) =>
+                      tier === "vlow" ? "text-amber-400 underline decoration-amber-400/60 decoration-dotted"
+                      : tier === "low" ? "text-amber-300/90"
+                      : "";
+                    const runs: { tier: string; text: string; minC: number; maxC: number }[] = [];
+                    for (const w of t.words) {
+                      const tier = tierOf(w.c);
+                      const last = runs[runs.length - 1];
+                      if (last && last.tier === tier) {
+                        last.text += " " + w.w;
+                        if (w.c < last.minC) last.minC = w.c;
+                        if (w.c > last.maxC) last.maxC = w.c;
+                      } else {
+                        if (last) last.text += " ";
+                        runs.push({ tier, text: w.w, minC: w.c, maxC: w.c });
+                      }
+                    }
+                    return runs.map((r, i) => (
                       <span
                         key={i}
-                        title={`${w.w} (${Math.round(w.c * 100)}%)`}
-                        className={
-                          veryLow
-                            ? "text-amber-400 underline decoration-amber-400/60 decoration-dotted"
-                            : low
-                              ? "text-amber-300/90"
-                              : ""
-                        }
+                        className={classFor(r.tier)}
+                        title={r.tier === "ok" ? undefined : `${Math.round(r.minC * 100)}–${Math.round(r.maxC * 100)}% confidence`}
                       >
-                        {w.w}{i < (t.words!.length - 1) ? " " : ""}
+                        {r.text}
                       </span>
-                    );
-                  })
+                    ));
+                  })()
                 ) : (
                   t.text
                 )}
