@@ -115,8 +115,47 @@ export function loadKeyterms(churchId: string | null | undefined): string[] {
 }
 
 /**
- * Test hook — clears the in-memory cache. Not exported for runtime use.
+ * Roadmap #4 — load the learned keyterms for a church from the database.
+ * Non-blocking, returns [] on any failure (never blocks a Deepgram
+ * connection). Cached per-churchId for 5 minutes to avoid a DB roundtrip
+ * on every WS reconnect during a service.
+ *
+ * Cap of 30 per church leaves comfortable headroom for the JSON default's
+ * ~80 static terms under Deepgram's 100/connection limit.
+ */
+const MAX_LEARNED_TERMS_PER_CHURCH = 30;
+const learnedCache = new Map<string, CacheEntry>();
+
+export async function loadLearnedKeyterms(churchId: string | null | undefined): Promise<string[]> {
+  if (!churchId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(churchId)) return [];
+  const now = Date.now();
+  const hit = learnedCache.get(churchId);
+  if (hit && now - hit.loadedAt < CACHE_TTL_MS) return hit.terms;
+  try {
+    const { db } = await import("./db/client").then((m) => ({ db: m.getDb() }));
+    const { churchLearnedKeyterms } = await import("./db/schema");
+    const { and, eq, desc } = await import("drizzle-orm");
+    const rows = await db
+      .select({ displayTerm: churchLearnedKeyterms.displayTerm })
+      .from(churchLearnedKeyterms)
+      .where(and(eq(churchLearnedKeyterms.churchId, churchId), eq(churchLearnedKeyterms.active, true)))
+      .orderBy(desc(churchLearnedKeyterms.occurrences))
+      .limit(MAX_LEARNED_TERMS_PER_CHURCH);
+    const terms = rows.map((r) => r.displayTerm).filter((s): s is string => typeof s === "string" && s.length > 0);
+    learnedCache.set(churchId, { terms, loadedAt: now });
+    return terms;
+  } catch (e) {
+    // Never let a DB blip block a Deepgram connection — fail open, log,
+    // return an empty list so the caller still gets the JSON default.
+    console.warn("[deepgram-keyterms] loadLearnedKeyterms failed:", e instanceof Error ? e.message : e);
+    return [];
+  }
+}
+
+/**
+ * Test hook — clears the in-memory caches. Not exported for runtime use.
  */
 export function _clearKeytermCache(): void {
   cache.clear();
+  learnedCache.clear();
 }

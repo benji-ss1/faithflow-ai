@@ -505,6 +505,45 @@ export const audioSessions = pgTable("audio_sessions", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Roadmap #4 — per-preacher/per-church learned Deepgram keyterms. Terms
+// consistently mistranscribed on a given church's services get added here
+// from end-of-session client submissions; loadKeyterms() merges rows with
+// active=true into the effective keyterm list that biases the model on the
+// next connection. Bounded per church (see MAX_LEARNED_TERMS_PER_CHURCH in
+// deepgram-keyterms.ts) so we stay under Deepgram's 100-per-connection cap.
+// Church_id is denormalized here per the mandatory scoping rule.
+export const churchLearnedKeyterms = pgTable("church_learned_keyterms", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id, { onDelete: "cascade" }).notNull(),
+  // Lowercased canonical form of the token — the trigger for adding it.
+  // NOT what Deepgram sees; the effective keyterm sent to Deepgram is
+  // derived from `displayTerm` (below) to preserve casing.
+  normalizedTerm: text("normalized_term").notNull(),
+  // Cased form actually sent to Deepgram as the keyterm bias (e.g.
+  // "Habakkuk" not "habakkuk"). First-seen version wins.
+  displayTerm: text("display_term").notNull(),
+  // "manual" = admin/operator hand-added; "learned" = auto-mined from
+  // low-confidence occurrences on this church's services.
+  source: text("source").notNull().default("learned"),
+  // How many times this token has appeared with low confidence across
+  // this church's finalized sessions.
+  occurrences: integer("occurrences").notNull().default(1),
+  // Rolling average confidence (0..1) of low-conf mentions of this term.
+  avgConfidence: numeric("avg_confidence", { precision: 3, scale: 2 }).notNull().default("0.5"),
+  // Only rows with active=true feed the effective keyterm list. New terms
+  // start inactive and are promoted by the /api/cron/mine-keyterms job
+  // once occurrences ≥ MIN_OCCURRENCES_TO_PROMOTE. Operator can force-
+  // deactivate a bad learned term from settings later.
+  active: boolean("active").notNull().default(false),
+  firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow().notNull(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
+  promotedAt: timestamp("promoted_at", { withTimezone: true }),
+}, (t) => [
+  index("idx_church_learned_keyterms_church").on(t.churchId),
+  index("idx_church_learned_keyterms_active").on(t.churchId, t.active),
+  uniqueIndex("idx_church_learned_keyterms_unique").on(t.churchId, t.normalizedTerm),
+]);
+
 export const servicePlanRelations = relations(servicePlans, ({ many }) => ({ items: many(serviceItems) }));
 export const serviceItemRelations = relations(serviceItems, ({ one }) => ({ plan: one(servicePlans, { fields: [serviceItems.servicePlanId], references: [servicePlans.id] }) }));
 export const songRelations = relations(songs, ({ many }) => ({ slides: many(songSlides) }));

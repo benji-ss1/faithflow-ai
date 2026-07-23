@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.18",
+    date: "2026-07-23",
+    headline: "AI learns your church's vocabulary + Whisper double-checks low-confidence scripture",
+    highlights: [
+      "Learned vocabulary: after every service, words the AI kept struggling with get automatically added to that church's Deepgram vocabulary — no manual config, gets smarter with every service",
+      "Whisper double-check: when the AI catches a scripture reference but isn't fully sure, it silently sends the audio to Groq Whisper for a canonical second opinion. If Whisper disagrees, a purple 'Whisper says' chip appears with the corrected reference — one click to swap. Never auto-swaps a live slide during a service",
+      "Both are best-effort: any failure (DB blip, Whisper API hiccup, no per-preacher data yet) silently falls back to the previous behavior — the pipeline is fail-open by design",
+    ],
+  },
+  {
     version: "0.1.17",
     date: "2026-07-23",
     headline: "Deeper audio: word-level confidence heatmap, background-reconnect indicator, speaker diarization",

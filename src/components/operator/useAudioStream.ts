@@ -126,6 +126,23 @@ export type AudioStreamState = {
   // silent misfires is a mic / room / signal problem, not an AI bug.
   audioQuality: "ok" | "low" | null;
   audioQualityAvg: number; // 0..1 rolling avg of last N final-segment confidences
+  // Roadmap #2 — canonical (Whisper) two-pass corrections. Server sends
+  // one of these when Groq Whisper disagrees with Deepgram's parse of a
+  // low-confidence scripture detection. Client renders a small chip so
+  // the operator can one-click swap the currently-loaded reference to
+  // the Whisper-preferred one (never auto-swap during a live service).
+  canonicalCorrections: CanonicalCorrection[];
+};
+
+export type CanonicalCorrection = {
+  id: string;
+  segmentId: string;
+  dgText: string;
+  whisperText: string;
+  original: { book: string; chapter: number; verseStart: number; verseEnd: number };
+  corrected: { book: string; chapter: number; verseStart: number; verseEnd: number };
+  ts: number;
+  dismissed?: boolean;
 };
 
 /**
@@ -150,6 +167,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     reconnectFailed: false, reconnectAttempts: 0, warmStarted: false,
     silenceGateClosed: false, msgsPerSec: 0, lastLatencyMs: null, avgConfidence: 0,
     audioQuality: null, audioQualityAvg: 0,
+    canonicalCorrections: [],
   });
 
   // Dedupe primitive: 30s cooldown per (type, key), refresh on +10 confidence.
@@ -543,6 +561,19 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   // the same edge repeatedly.
   const rollingConfRef = useRef<number[]>([]);
   const audioQualityStateRef = useRef<"ok" | "low" | null>(null);
+  // Roadmap #4 — per-preacher/per-church learned keyterms miner. During a
+  // service, accumulate tokens with consistently LOW Deepgram confidence
+  // (a proxy for "the model doesn't know this word for this preacher").
+  // On session end, POST the aggregated candidates to
+  // /api/audio/session-metrics — server upserts into
+  // church_learned_keyterms, promotes at MIN_OCCURRENCES_TO_PROMOTE, and
+  // loadKeyterms() picks them up on the next Deepgram connection. Key is
+  // lowercase normalized; value keeps a cased "display" form (first seen
+  // wins) so "Habakkuk" stays "Habakkuk" not "habakkuk" when biasing.
+  const lowConfTokensRef = useRef<Map<string, { display: string; count: number; sumConf: number }>>(new Map());
+  const LEARNED_MINER_CONF_CEILING = 0.65; // only words BELOW this feed the miner
+  const LEARNED_MINER_MIN_LEN = 4;         // skip stop-word noise ("the", "to")
+  const LEARNED_MINER_MAX_LEN = 24;        // skip run-on garble
   const msgTimestampsRef = useRef<number[]>([]);
   const firstChunkAtRef = useRef<number | null>(null);
   // Render-storm fix: true message count + last-commit clock so the diagnostic
@@ -678,7 +709,16 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     );
     const sessionId = sessionIdRef.current;
     try {
-      const payload = { sessionId, planId, durationSec, reconnects, avgConfidence, wordsHigh, wordsLow, startedAt, endedAt };
+      // Roadmap #4 — top-K low-confidence tokens for the learned-keyterm
+      // miner. Bounded (top 40 by count) so payloads stay tiny even after
+      // hour-long services. Server upserts + promotion logic lives in
+      // /api/audio/session-metrics.
+      const lowConfTokens = Array.from(lowConfTokensRef.current.entries())
+        .filter(([, v]) => v.count >= 2) // one-off hits are noise, not preacher vocabulary
+        .map(([, v]) => ({ display: v.display, count: v.count, avgConf: Math.round((v.sumConf / v.count) * 100) / 100 }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 40);
+      const payload = { sessionId, planId, durationSec, reconnects, avgConfidence, wordsHigh, wordsLow, startedAt, endedAt, lowConfTokens };
       const body = JSON.stringify(payload);
       // Prefer sendBeacon when the tab is unloading — fetch(keepalive) is
       // best-effort on unload and drops on some browsers if teardown is
@@ -990,11 +1030,30 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           setState((s) => ({ ...s, dgMessagesReceived: committedCount, msgsPerSec: rate, lastLatencyMs: lastLatencyMsRef.current ?? s.lastLatencyMs }));
         }
         // Task 10/11: track word-level confidence buckets for autopilot gating.
+        // Roadmap #4: same walk feeds the learned-keyterm miner.
         if ((msg.type === "final" || msg.type === "interim_final_candidate") && Array.isArray(msg.words)) {
           for (const w of msg.words as { w?: string; c?: number }[]) {
             if (typeof w?.c !== "number") continue;
             if (w.c >= CONFIDENCE_THRESHOLD) wordsHighRef.current += 1;
             else wordsLowRef.current += 1;
+            // Miner — only on `final` (skip interim-candidate which will
+            // resurface as final and would double-count). Cased display
+            // form comes straight from Deepgram which returns
+            // smart-formatted, capitalized proper nouns; the normalized
+            // key is lowercased.
+            if (msg.type === "final" && typeof w.w === "string" && w.c < LEARNED_MINER_CONF_CEILING) {
+              const rawDisplay = w.w.replace(/[^\p{L}\p{N}'\- ]/gu, "").trim();
+              if (rawDisplay.length >= LEARNED_MINER_MIN_LEN && rawDisplay.length <= LEARNED_MINER_MAX_LEN) {
+                const key = rawDisplay.toLowerCase();
+                const prev = lowConfTokensRef.current.get(key);
+                if (prev) {
+                  prev.count += 1;
+                  prev.sumConf += w.c;
+                } else {
+                  lowConfTokensRef.current.set(key, { display: rawDisplay, count: 1, sumConf: w.c });
+                }
+              }
+            }
           }
         }
         if (msg.type === "final" && typeof msg.confidence === "number") {
@@ -1108,6 +1167,25 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         else if (msg.type === "song") setState((s) => ({ ...s, songSuggestions: [msg.song, ...s.songSuggestions].slice(0, 30) }));
         else if (msg.type === "command") setState((s) => ({ ...s, commandSuggestions: [msg.command, ...s.commandSuggestions].slice(0, 30) }));
         else if (msg.type === "error") setState((s) => ({ ...s, error: msg.message }));
+        else if (msg.type === "canonical_correction") {
+          // Roadmap #2 — background canonical (Whisper) two-pass says
+          // Deepgram's parse of this segment was wrong. Push a
+          // correction chip so the operator can one-click swap; never
+          // auto-swap during a live service (too jarring, and Whisper
+          // isn't infallible either). Deduplicate: if we already have a
+          // pending correction for this segment, replace it.
+          const correction: CanonicalCorrection = {
+            id: `cc-${msg.segmentId}-${Date.now()}`,
+            segmentId: msg.segmentId,
+            dgText: msg.dgText, whisperText: msg.whisperText,
+            original: msg.original, corrected: msg.corrected,
+            ts: Date.now(),
+          };
+          setState((s) => ({
+            ...s,
+            canonicalCorrections: [correction, ...s.canonicalCorrections.filter((c) => c.segmentId !== msg.segmentId)].slice(0, 10),
+          }));
+        }
       };
 
       ws.onerror = (e) => {

@@ -25,7 +25,7 @@ import { extractSongCandidates, fuzzyMatchSong } from "../src/lib/song-parser";
 import { parseCommands } from "../src/lib/command-parser";
 import { semanticSearch } from "../src/lib/server/bible";
 import { songs, aiSuggestions } from "../src/lib/db/schema";
-import { loadKeyterms } from "../src/lib/deepgram-keyterms";
+import { loadKeyterms, loadLearnedKeyterms } from "../src/lib/deepgram-keyterms";
 import { and, eq } from "drizzle-orm";
 import crypto from "node:crypto";
 
@@ -41,6 +41,71 @@ const TICKET_SECRET = process.env.AUTH_SECRET;
 // accept traffic — gated by NODE_ENV.
 const KEY_MISSING = !DG_KEY;
 const SECRET_MISSING = !TICKET_SECRET;
+
+// Roadmap #2 — canonical (Whisper) two-pass helpers. Wraps 16kHz mono
+// PCM in a WAV RIFF header + POSTs to Groq's Whisper endpoint. Returns
+// null on any failure (bad key, network, non-2xx) so callers can no-op.
+function wrapPcmAsWav(pcm: Buffer, sampleRate = 16000): Buffer {
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = sampleRate * numChannels * bitsPerSample / 8;
+  const blockAlign = numChannels * bitsPerSample / 8;
+  const dataSize = pcm.length;
+  const buf = Buffer.alloc(44 + dataSize);
+  buf.write("RIFF", 0);
+  buf.writeUInt32LE(36 + dataSize, 4);
+  buf.write("WAVE", 8);
+  buf.write("fmt ", 12);
+  buf.writeUInt32LE(16, 16);              // PCM chunk size
+  buf.writeUInt16LE(1, 20);               // format = PCM
+  buf.writeUInt16LE(numChannels, 22);
+  buf.writeUInt32LE(sampleRate, 24);
+  buf.writeUInt32LE(byteRate, 28);
+  buf.writeUInt16LE(blockAlign, 32);
+  buf.writeUInt16LE(bitsPerSample, 34);
+  buf.write("data", 36);
+  buf.writeUInt32LE(dataSize, 40);
+  pcm.copy(buf, 44);
+  return buf;
+}
+
+async function whisperTranscribe(pcm: Buffer, groqKey: string, timeoutMs = 5000): Promise<string | null> {
+  if (!groqKey || pcm.length < 3200 /* ~0.1s @16k */) return null;
+  const wav = wrapPcmAsWav(pcm);
+  // Node's built-in fetch supports FormData + Blob via undici. Explicit
+  // filename "audio.wav" so Groq/OpenAI-style endpoint content-type
+  // detection lands correctly.
+  const form = new FormData();
+  // TS strict-mode dance: DOM's Blob typing requires ArrayBufferView<ArrayBuffer>
+  // but Node Buffer.buffer widens to ArrayBufferLike. Copy into a fresh
+  // ArrayBuffer so the type is definitively ArrayBuffer, not SharedArrayBuffer.
+  const arrayBuf = new ArrayBuffer(wav.length);
+  new Uint8Array(arrayBuf).set(wav);
+  form.set("file", new Blob([arrayBuf], { type: "audio/wav" }), "audio.wav");
+  form.set("model", "whisper-large-v3");
+  form.set("response_format", "text");
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${groqKey}` },
+      body: form,
+      signal: ctl.signal,
+    });
+    if (!res.ok) {
+      if (res.status !== 429) console.warn(`[canonical] whisper POST failed status=${res.status}`);
+      return null;
+    }
+    const text = (await res.text()).trim();
+    return text || null;
+  } catch (e) {
+    console.warn("[canonical] whisper POST error:", e instanceof Error ? e.message : e);
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
 if ((KEY_MISSING || SECRET_MISSING) && process.env.NODE_ENV === "production") {
   if (KEY_MISSING) console.error("Missing DEEPGRAM_API_KEY");
   if (SECRET_MISSING) console.error("Missing AUTH_SECRET");
@@ -57,7 +122,7 @@ const db = getDb();
  * though the same URL + params + audio worked when driven by hand-rolled
  * WS. Simpler, fewer moving parts.
  */
-function openDeepgram(churchId: string): Promise<WebSocket> {
+async function openDeepgram(churchId: string): Promise<WebSocket> {
   const params = new URLSearchParams({
     model: "nova-3",
     language: "en",
@@ -83,11 +148,28 @@ function openDeepgram(churchId: string): Promise<WebSocket> {
   });
   // Keyterm prompts biasing scripture / worship vocabulary. Each term is a
   // separate `keyterm=...` query param — do NOT collapse into a single
-  // comma-joined value. Per-church override loaded from
-  // `config/deepgram-keyterms/<churchId>.json`, falling back to default.json,
-  // falling back to the hard-coded list. Cached 5min in-process.
-  const keyterms = loadKeyterms(churchId);
-  for (const term of keyterms) params.append("keyterm", term);
+  // comma-joined value. Precedence:
+  //   1. `config/deepgram-keyterms/<churchId>.json` if present
+  //   2. `config/deepgram-keyterms/default.json`
+  //   3. Hard-coded `DEEPGRAM_KEYTERMS`
+  // Plus, roadmap #4: db-backed learned keyterms for this church merged
+  // on top (capped by MAX_LEARNED_TERMS_PER_CHURCH). Deepgram's stated
+  // ceiling is 100 keyterms/connection; hard-cap the merged output to 100
+  // to stay safely under.
+  const [staticTerms, learnedTerms] = await Promise.all([
+    Promise.resolve(loadKeyterms(churchId)),
+    loadLearnedKeyterms(churchId),
+  ]);
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const t of [...staticTerms, ...learnedTerms]) {
+    const key = t.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(t);
+    if (merged.length >= 100) break;
+  }
+  for (const term of merged) params.append("keyterm", term);
   const url = `wss://api.deepgram.com/v1/listen?${params}`;
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url, { headers: { Authorization: `Token ${DG_KEY}` } });
@@ -252,6 +334,7 @@ type ServerMessage =
   | { type: "final"; segmentId: string; text: string; confidence?: number; words?: { w: string; c: number; s?: number; e?: number }[]; wordsDropped?: boolean }
   | { type: "interim_final_candidate"; text: string; confidence?: number; words?: { w: string; c: number; s?: number; e?: number }[]; wordsDropped?: boolean }
   | { type: "detection"; detection: { id: string; segmentId: string; book: string; chapter: number; verseStart: number; verseEnd: number; confidence: number; matchedText: string; forceLive?: boolean } }
+  | { type: "canonical_correction"; segmentId: string; dgText: string; whisperText: string; original: { book: string; chapter: number; verseStart: number; verseEnd: number }; corrected: { book: string; chapter: number; verseStart: number; verseEnd: number } }
   | { type: "phrase_matches"; segmentId: string; matchedText: string; candidates: { book: string; chapter: number; verse: number; text: string; similarity: number }[] }
   | { type: "song"; song: { suggestionId: string; segmentId: string; songId: string | null; title: string; confidence: number; matchedText: string } }
   | { type: "command"; command: { suggestionId: string; segmentId: string; verb: string; payload: Record<string, unknown>; confidence: number; matchedText: string } }
@@ -393,6 +476,19 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
   let audioChunks = 0;
   let dgMessages = 0;
+  // Roadmap #2 — canonical (Groq Whisper) two-pass buffer. Ring of the
+  // last ~15s of PCM (16kHz mono 16-bit → 480KB max) so that when a
+  // low-confidence scripture detection lands, we can WAV-wrap the recent
+  // audio and canonically re-transcribe against Whisper. Cumulative byte
+  // count lets us map DG's segment timestamps to byte offsets in this
+  // ring. Fails open — Groq call errors just skip this segment silently.
+  const CANONICAL_BUFFER_SECONDS = 15;
+  const CANONICAL_BUFFER_MAX_BYTES = 16000 * 2 * CANONICAL_BUFFER_SECONDS;
+  const canonicalRing: Buffer[] = [];
+  let canonicalRingBytes = 0;
+  let canonicalCumulativeBytes = 0;
+  const canonicalKey = process.env.GROQ_API_KEY || "";
+  const canonicalEnabled = canonicalKey.length > 0;
   // Per-connection dedupe: a reference like "John 3:16" spoken twice within
   // this window collapses to one suggestion. Prevents the rolling transcript
   // overlap (or a pastor repeating the reference for emphasis) from
@@ -654,6 +750,43 @@ wss.on("connection", async (ws: WebSocket, req) => {
         matchedText: ref.matchedText,
         ...(forceLive ? { forceLive: true } : {}),
       }});
+
+      // Roadmap #2 — canonical two-pass. Only worth the Groq round trip
+      // when Deepgram was NOT rock-solid on this ref (confidence < 85) —
+      // above that, primary and canonical would almost always agree and
+      // it'd just burn budget/latency. Also skip when the ring buffer
+      // has less than 2s of audio (fresh connection). Fire-and-forget;
+      // the send() below happens on a different event-loop tick.
+      if (canonicalEnabled && confidence < 85 && canonicalRingBytes >= 16000 * 2 * 2) {
+        const dgText = text;
+        const origRef = { book, chapter, verseStart: vs, verseEnd: ve };
+        const pcmSnapshot = Buffer.concat(canonicalRing);
+        void (async () => {
+          try {
+            const whisperText = await whisperTranscribe(pcmSnapshot, canonicalKey);
+            if (!whisperText) return;
+            const whisperRefs = parseReferences(whisperText);
+            if (whisperRefs.length === 0) return;
+            const wr = whisperRefs[0];
+            // Divergence: any of book/chapter/verseStart/verseEnd differ.
+            const differs = wr.book !== origRef.book
+              || wr.chapter !== origRef.chapter
+              || wr.verseStart !== origRef.verseStart
+              || wr.verseEnd !== origRef.verseEnd;
+            if (!differs) return;
+            console.log(`[canonical] divergence seg=${segId} dg="${dgText.slice(0, 60)}" whisper="${whisperText.slice(0, 60)}" ${origRef.book}${origRef.chapter}:${origRef.verseStart} -> ${wr.book}${wr.chapter}:${wr.verseStart}`);
+            send({
+              type: "canonical_correction",
+              segmentId: segId,
+              dgText, whisperText,
+              original: origRef,
+              corrected: { book: wr.book, chapter: wr.chapter, verseStart: wr.verseStart, verseEnd: wr.verseEnd },
+            });
+          } catch (e) {
+            console.warn("[canonical] pass error:", e instanceof Error ? e.message : e);
+          }
+        })();
+      }
     }
 
     // ---- Phrase cross-reference (content match, no reference spoken) ------
@@ -780,6 +913,17 @@ wss.on("connection", async (ws: WebSocket, req) => {
       audioChunks++;
       lastAudioAt = Date.now();
       if (audioChunks === 1 || audioChunks % 500 === 0) console.log(`[audio] received chunk #${audioChunks} (${buf.length} bytes)`);
+      // Feed canonical ring buffer (roadmap #2). Cheap unconditional push;
+      // trim from the front when we exceed the byte cap.
+      if (canonicalEnabled) {
+        canonicalRing.push(buf);
+        canonicalRingBytes += buf.length;
+        canonicalCumulativeBytes += buf.length;
+        while (canonicalRingBytes > CANONICAL_BUFFER_MAX_BYTES && canonicalRing.length > 0) {
+          const shifted = canonicalRing.shift();
+          if (shifted) canonicalRingBytes -= shifted.length;
+        }
+      }
       // R9: lazy-reopen DG if it closed while we were idle.
       if (dgNeedsReopen && dg.readyState !== WebSocket.OPEN) {
         dgNeedsReopen = false;

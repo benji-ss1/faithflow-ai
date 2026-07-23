@@ -13,9 +13,10 @@ import { NextResponse, after } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { apiUser } from "@/lib/session";
 import { getDb } from "@/lib/db/client";
-import { audioSessions, servicePlans } from "@/lib/db/schema";
+import { audioSessions, churchLearnedKeyterms, servicePlans } from "@/lib/db/schema";
 import { createLimiter } from "@/lib/rate-limit";
 import { ingestServiceTranscript } from "@/lib/server/sermon-rag";
+import { sql } from "drizzle-orm";
 
 export const runtime = "nodejs";
 
@@ -88,6 +89,57 @@ export async function POST(req: Request) {
     startedAt,
     endedAt,
   }).onConflictDoNothing({ target: audioSessions.sessionId });
+
+  // Roadmap #4 — upsert low-confidence tokens into
+  // church_learned_keyterms and auto-promote once they cross the
+  // threshold. Church-scoped from the authenticated session (never body).
+  // Bounded per POST (40 max, already trimmed client-side); each row's
+  // occurrences/avgConfidence gets a rolling update via SQL. Promotion
+  // rule: occurrences >= MIN_OCCURRENCES_TO_PROMOTE flips active=true
+  // and stamps promoted_at. Learned terms feed loadKeyterms() on the
+  // NEXT Deepgram connection — no live rewiring mid-service (safer).
+  const MIN_OCCURRENCES_TO_PROMOTE = 3;
+  const rawTokens = Array.isArray(body.lowConfTokens) ? body.lowConfTokens : [];
+  const cleanTokens: { display: string; count: number; avgConf: number }[] = [];
+  for (const t of rawTokens.slice(0, 40)) {
+    if (!t || typeof t !== "object") continue;
+    const rec = t as Record<string, unknown>;
+    const display = typeof rec.display === "string" ? rec.display.trim() : "";
+    if (display.length < 4 || display.length > 24) continue;
+    // Extra server-side sanitize: keep alnum + spaces + apostrophe/hyphen only.
+    if (!/^[\p{L}\p{N}][\p{L}\p{N}'\- ]*$/u.test(display)) continue;
+    const count = toInt(rec.count);
+    if (count < 2) continue;
+    const avgConf = toNum(rec.avgConf, 0);
+    cleanTokens.push({ display, count, avgConf });
+  }
+  if (cleanTokens.length > 0) {
+    for (const t of cleanTokens) {
+      const normalized = t.display.toLowerCase();
+      await db.insert(churchLearnedKeyterms).values({
+        churchId: user.churchId,
+        normalizedTerm: normalized,
+        displayTerm: t.display,
+        source: "learned",
+        occurrences: t.count,
+        avgConfidence: t.avgConf.toFixed(2),
+        active: t.count >= MIN_OCCURRENCES_TO_PROMOTE,
+        promotedAt: t.count >= MIN_OCCURRENCES_TO_PROMOTE ? new Date() : null,
+      }).onConflictDoUpdate({
+        target: [churchLearnedKeyterms.churchId, churchLearnedKeyterms.normalizedTerm],
+        set: {
+          occurrences: sql`${churchLearnedKeyterms.occurrences} + ${t.count}`,
+          // Rolling-ish avg: bias toward the more-observed side.
+          avgConfidence: sql`ROUND(((${churchLearnedKeyterms.avgConfidence}::numeric * ${churchLearnedKeyterms.occurrences}) + (${t.avgConf} * ${t.count})) / (${churchLearnedKeyterms.occurrences} + ${t.count}), 2)`,
+          lastSeenAt: new Date(),
+          // Promote when running total crosses the threshold. active is
+          // sticky true once flipped — operator can flip false manually.
+          active: sql`${churchLearnedKeyterms.active} OR (${churchLearnedKeyterms.occurrences} + ${t.count}) >= ${MIN_OCCURRENCES_TO_PROMOTE}`,
+          promotedAt: sql`CASE WHEN ${churchLearnedKeyterms.promotedAt} IS NULL AND (${churchLearnedKeyterms.occurrences} + ${t.count}) >= ${MIN_OCCURRENCES_TO_PROMOTE} THEN now() ELSE ${churchLearnedKeyterms.promotedAt} END`,
+        },
+      });
+    }
+  }
 
   // Chunk + embed this service's transcript for RAG search once its
   // AI-listening session ends. Scheduled via after() rather than fired

@@ -103,6 +103,14 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
   const songCards = audio.suggestions
     .filter((s) => (s.type === "song" || s.type === "lyric") && s.confidence >= threshold)
     .slice(0, 3);
+  // Roadmap #2 — canonical (Whisper) corrections chip strip. Only surface
+  // corrections from the last 3 minutes so a stale correction chip doesn't
+  // hang around after the moment has passed. Dismissed ones stay hidden.
+  const CORRECTION_TTL_MS = 3 * 60 * 1000;
+  const nowMs = Date.now();
+  const activeCorrections = (audio.canonicalCorrections || [])
+    .filter((c) => !c.dismissed && nowMs - c.ts < CORRECTION_TTL_MS)
+    .slice(0, 3);
 
   // Playlist-aware highlight: songs already in plan are marked in-playlist.
   const playlistSongIds = new Set(
@@ -149,7 +157,7 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
   // LiveTranscriptPanel; the AI Live pill in the top-right is the connection
   // status indicator. This strip is now purely an actionable chip row, so
   // hide it entirely when there's nothing to act on.
-  if (scriptureCards.length === 0 && songCards.length === 0) return null;
+  if (scriptureCards.length === 0 && songCards.length === 0 && activeCorrections.length === 0) return null;
 
   return (
     <div
@@ -235,6 +243,44 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
                   AI
                 </span>
               </button>
+            );
+          })}
+        </div>
+      )}
+      {activeCorrections.length > 0 && (
+        <div className="flex items-center gap-1.5 shrink-0" data-testid="ai-canonical-corrections">
+          <span className="text-[9px] font-mono uppercase tracking-wider text-purple-300/80 shrink-0">
+            Whisper says
+          </span>
+          {activeCorrections.map((c) => {
+            const origRef = `${c.original.book} ${c.original.chapter}:${c.original.verseStart}${c.original.verseStart !== c.original.verseEnd ? `-${c.original.verseEnd}` : ""}`;
+            const corrRef = `${c.corrected.book} ${c.corrected.chapter}:${c.corrected.verseStart}${c.corrected.verseStart !== c.corrected.verseEnd ? `-${c.corrected.verseEnd}` : ""}`;
+            return (
+              <div
+                key={c.id}
+                role="button"
+                tabIndex={0}
+                title={`Whisper double-check: ${corrRef} (not ${origRef}). Click to load the corrected reference.`}
+                aria-label={`Whisper suggests ${corrRef} instead of ${origRef} — click to load`}
+                onClick={() => dispatchInternal("presentflow:bible-goto", {
+                  book: c.corrected.book, chapter: c.corrected.chapter,
+                  verseStart: c.corrected.verseStart, verseEnd: c.corrected.verseEnd,
+                  live: false,
+                })}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  dispatchInternal("presentflow:bible-goto", {
+                    book: c.corrected.book, chapter: c.corrected.chapter,
+                    verseStart: c.corrected.verseStart, verseEnd: c.corrected.verseEnd,
+                    live: false,
+                  });
+                }}
+                className="relative flex items-center gap-1 px-2 py-0.5 rounded border border-purple-500/60 bg-purple-500/10 text-purple-100 text-[11px] cursor-pointer hover:bg-purple-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-400"
+              >
+                <span className="text-[9px] font-mono opacity-70">🔁</span>
+                <span className="font-semibold">{corrRef}</span>
+                <span className="text-[9px] font-mono opacity-60 line-through">{origRef}</span>
+              </div>
             );
           })}
         </div>
