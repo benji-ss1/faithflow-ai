@@ -8,6 +8,13 @@ import { getToken } from "next-auth/jwt";
 const PUBLIC_PATHS = [
   "/login", "/signup", "/verify-email", "/forgot-password", "/reset-password", "/accept-invite",
   "/api/auth", "/api/health", "/api/stripe",
+  // Vercel Cron invocations pass through this middleware; without an allowlist
+  // entry they were being redirected to /login (307) before the route handler
+  // ran — silently breaking BOTH cron jobs (warm-embeddings never warmed,
+  // backfill-sermons never drained). The routes self-guard: backfill-sermons
+  // requires CRON_SECRET (fails closed) and warm-embeddings checks it when set,
+  // so exposing the prefix here only lets the request reach that guard.
+  "/api/cron",
 ];
 
 // Projector/stage/audience output. Desktop-exclusive as of the web/desktop
