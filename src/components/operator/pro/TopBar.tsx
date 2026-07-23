@@ -131,6 +131,17 @@ export function TopBar({
   // reconnects and truly given up (distinct from any transient blip, which
   // never surfaces). At that point `listening` is already false → pill OFF.
   const aiHardFailed = ctx.audio.reconnectFailed;
+  // Roadmap #7 — visible reconnecting affordance WITHOUT breaking the
+  // binary AI ON/OFF pill rule. Shown only when a background reconnect is
+  // actively in progress (attempts > 0, socket not yet ready, listener not
+  // given up, operator intent still ON). The pill itself stays green
+  // (listening=true never flips during transient reconnects); a subtle
+  // spinning ↻ next to it tells the operator the socket is being repaired
+  // and the retry count if they hover.
+  const isReconnecting = listening
+    && !aiHardFailed
+    && !ctx.audio.ready
+    && ctx.audio.reconnectAttempts > 0;
   const aiTitle = listening ? "AI ON — click to turn off" : "AI OFF — click to turn on";
 
   const [searchOpen, setSearchOpen] = useState(false);
@@ -500,6 +511,31 @@ export function TopBar({
                 </Tooltip.Content>
               </Tooltip.Portal>
             </Tooltip.Root>
+            {/* Roadmap #7 — reconnecting spinner. Sub-visual, does NOT replace
+                the binary AI ON pill (per 2026-07-22 product decision). */}
+            {isReconnecting && (
+              <Tooltip.Root>
+                <Tooltip.Trigger asChild>
+                  <span
+                    role="status"
+                    aria-live="polite"
+                    aria-label={`AI listener reconnecting (attempt ${ctx.audio.reconnectAttempts})`}
+                    className="inline-flex items-center justify-center h-[24px] w-[24px] text-[14px] text-amber-300 animate-spin"
+                    data-testid="audio-reconnecting"
+                  >
+                    ↻
+                  </span>
+                </Tooltip.Trigger>
+                <Tooltip.Portal>
+                  <Tooltip.Content
+                    sideOffset={6}
+                    className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] px-2 py-1 text-[11px] z-50 font-mono max-w-[240px]"
+                  >
+                    Reconnecting in the background (attempt {ctx.audio.reconnectAttempts}). AI stays ON.
+                  </Tooltip.Content>
+                </Tooltip.Portal>
+              </Tooltip.Root>
+            )}
             {/* Roadmap #1 — audio-quality chip. Only renders when the rolling
                 confidence window has dropped below the "low" threshold in
                 useAudioStream, so it's invisible during normal use. When it

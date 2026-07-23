@@ -294,7 +294,36 @@ function LiveTranscriptPanel({ ctx }: { ctx: OperatorShellCtx }) {
           <>
             {windowed.map((t) => (
               <div key={t.id} className="text-[var(--color-foreground)] break-words">
-                {t.text}
+                {/* Roadmap #5 — word-level confidence heatmap. Deepgram
+                    already returns per-word confidence; render low-conf
+                    words (< 0.75) in amber and very-low (< 0.5) with a
+                    subtle underline so the operator can see WHERE the
+                    mic/audio is struggling instead of "the whole thing
+                    looks fine but a detection was wrong". Falls back to
+                    plain text if the words array isn't there. */}
+                {t.words && t.words.length > 0 ? (
+                  t.words.map((w, i) => {
+                    const low = w.c < 0.75;
+                    const veryLow = w.c < 0.5;
+                    return (
+                      <span
+                        key={i}
+                        title={`${w.w} (${Math.round(w.c * 100)}%)`}
+                        className={
+                          veryLow
+                            ? "text-amber-400 underline decoration-amber-400/60 decoration-dotted"
+                            : low
+                              ? "text-amber-300/90"
+                              : ""
+                        }
+                      >
+                        {w.w}{i < (t.words!.length - 1) ? " " : ""}
+                      </span>
+                    );
+                  })
+                ) : (
+                  t.text
+                )}
               </div>
             ))}
             {interim && (

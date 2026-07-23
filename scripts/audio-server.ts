@@ -74,6 +74,12 @@ function openDeepgram(churchId: string): Promise<WebSocket> {
     encoding: "linear16",
     sample_rate: "16000",
     channels: "1",
+    // Roadmap #8 — diarization. Deepgram nova-3 tags each word with a
+    // speaker index. Congregation shouts and side conversations that
+    // aren't the primary preacher get a different speaker label; the
+    // client can weight or ignore them. Enabled server-side but consumed
+    // gracefully client-side (if the field's missing, nothing changes).
+    diarize: "true",
   });
   // Keyterm prompts biasing scripture / worship vocabulary. Each term is a
   // separate `keyterm=...` query param — do NOT collapse into a single
@@ -458,7 +464,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
   const dgOnMessage = async (raw: WebSocket.RawData) => {
     dgMessages++;
-    let data: { type?: string; is_final?: boolean; speech_final?: boolean; channel?: { alternatives?: { transcript?: string; confidence?: number; words?: { word?: string; start?: number; end?: number; confidence?: number }[] }[] } };
+    let data: { type?: string; is_final?: boolean; speech_final?: boolean; channel?: { alternatives?: { transcript?: string; confidence?: number; words?: { word?: string; start?: number; end?: number; confidence?: number; speaker?: number }[] }[] } };
     try { data = JSON.parse(raw.toString()); } catch { return; }
     if (dgMessages === 1 || dgMessages % 20 === 0) {
       // Y7: gate transcript slice behind EXPLICIT DEBUG=1 only. Any other
@@ -482,16 +488,20 @@ wss.on("connection", async (ws: WebSocket, req) => {
     //   - max 500 words per message
     //   - per-word: drop entries with w string > 128 chars
     //   - forward w/c and optional s/e (start/end seconds) for span mapping
-    let words: { w: string; c: number; s?: number; e?: number }[] | undefined;
+    // Roadmap #8 — pass through Deepgram's per-word `speaker` index (int)
+    // as `sp` when diarization is on. Optional field, absent when the
+    // model wasn't confident enough to assign a speaker or diarize=false.
+    let words: { w: string; c: number; s?: number; e?: number; sp?: number }[] | undefined;
     let wordsDropped = false;
     if (Array.isArray(rawWords)) {
       const filtered = rawWords
         .filter((w) => typeof w?.word === "string" && typeof w?.confidence === "number" && String(w.word).length <= 128)
         .slice(0, 500)
         .map((w) => {
-          const out: { w: string; c: number; s?: number; e?: number } = { w: String(w.word), c: Number(w.confidence) };
+          const out: { w: string; c: number; s?: number; e?: number; sp?: number } = { w: String(w.word), c: Number(w.confidence) };
           if (typeof w.start === "number") out.s = w.start;
           if (typeof w.end === "number") out.e = w.end;
+          if (typeof w.speaker === "number") out.sp = w.speaker;
           return out;
         });
       words = filtered.length ? filtered : undefined;

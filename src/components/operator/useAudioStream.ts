@@ -57,7 +57,7 @@ export type CommandSuggestion = {
   matchedText: string;
 };
 
-export type TranscriptChunk = { id: string; text: string; final: boolean; ts: number; words?: { w: string; c: number; s?: number; e?: number }[]; wordsDropped?: boolean };
+export type TranscriptChunk = { id: string; text: string; final: boolean; ts: number; words?: { w: string; c: number; s?: number; e?: number; sp?: number }[]; wordsDropped?: boolean };
 
 /**
  * Unified suggestion — Phase 5A. Runs client-side on every transcript

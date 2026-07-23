@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.17",
+    date: "2026-07-23",
+    headline: "Deeper audio: word-level confidence heatmap, background-reconnect indicator, speaker diarization",
+    highlights: [
+      "Live transcript panel now colors low-confidence words amber (< 75%) and very-low words with a dotted underline (< 50%) — you can see exactly which words the AI is struggling with instead of only whether the whole segment was right or wrong",
+      "When the AI listener is silently reconnecting in the background, a subtle spinning ↻ now appears next to the AI ON pill — the pill itself stays green so nothing changes about the binary ON/OFF you asked for",
+      "Deepgram now labels each word with a speaker index (preacher vs congregation vs guest) — first pass is passthrough only; a future pass will filter congregation shouts out of detection",
+    ],
+  },
+  {
     version: "0.1.16",
     date: "2026-07-23",
     headline: "New: LOW AUDIO chip so bad-mic misfires don't look like AI bugs",
