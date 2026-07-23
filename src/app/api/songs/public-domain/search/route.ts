@@ -4,9 +4,14 @@
 // fragment or title, the operator client can call this endpoint to find
 // candidates in publicly-known public-domain hymns.
 //
-// Backends (first non-empty wins):
-//   1. Hymnary.org search API (public-domain hymnal metadata)
-//   2. Groq LLM fallback via the same server-only pattern used elsewhere
+// Backends:
+//   1. Hymnary.org CSV search endpoint — authoritative public-domain hymn
+//      IDENTIFICATION (title/author/first line). Hymnary blocks its JSON
+//      export + /api/* with 403, but the human-facing `export=csv` search
+//      works with a browser User-Agent and the `in:texts` qualifier.
+//   2. Groq LLM — expands a Hymnary-confirmed title into verified verses
+//      (CSV carries no verse body), or, when Hymnary finds nothing, does a
+//      standalone fragment lookup. Server-only, mirrors ai-helpers.
 //
 // Every response is sanitised (HTML-escaped, control-char-stripped, per-slide
 // text capped at 400 chars) and cached in a 200-entry LRU with 1h TTL.
@@ -53,35 +58,121 @@ function cacheSet(k: string, v: PublicDomainCandidate[]): void {
 // -----------------------------------------------------------------------
 // Hymnary.org backend
 // -----------------------------------------------------------------------
-async function searchHymnary(q: string): Promise<PublicDomainCandidate[]> {
+
+// A browser-like UA is required — Hymnary 403s default fetch/curl agents.
+const HYMNARY_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/120.0 Safari/537.36";
+
+type HymnMatch = { title: string; author: string | null; firstLine: string };
+
+// Minimal RFC-4180-ish single-line CSV field splitter (handles quoted fields
+// with embedded commas + doubled-quote escapes). Hymnary rows are one logical
+// line each.
+function parseCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQ) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; }
+        else inQ = false;
+      } else cur += ch;
+    } else if (ch === '"') inQ = true;
+    else if (ch === ",") { out.push(cur); cur = ""; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
+// Identify real public-domain hymns via Hymnary's CSV text search. Returns
+// metadata only (CSV carries no verse body); [] on any failure.
+async function searchHymnary(q: string): Promise<HymnMatch[]> {
   try {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 4000);
-    // Hymnary's public "in" endpoint returns JSON hymn text records.
-    const url = `https://hymnary.org/search?in=hymns&qu=${encodeURIComponent(q)}&export=json&limit=3`;
-    const res = await fetch(url, { signal: ctl.signal, headers: { "Accept": "application/json" } });
+    // `in:texts` scopes to hymn TEXTS (not tunes/hymnals); export=csv is the
+    // only export tier Hymnary serves to programmatic clients.
+    const url = `https://hymnary.org/search?qu=${encodeURIComponent(`in:texts ${q}`)}&export=csv`;
+    const res = await fetch(url, {
+      signal: ctl.signal,
+      headers: { "User-Agent": HYMNARY_UA, "Accept": "text/csv" },
+    });
     clearTimeout(timer);
     if (!res.ok) return [];
-    const data = await res.json().catch(() => null) as unknown;
-    if (!Array.isArray(data)) return [];
-    const out: PublicDomainCandidate[] = [];
-    for (const raw of data.slice(0, 3)) {
-      if (!raw || typeof raw !== "object") continue;
-      const r = raw as Record<string, unknown>;
-      const title = typeof r.title === "string" ? r.title : (typeof r.hymnal_title === "string" ? r.hymnal_title : "");
-      const author = typeof r.author === "string" ? r.author : null;
-      // Hymnary's export includes a "text" or "first_line" — split to slides by verse.
-      const body = typeof r.text === "string" ? r.text : (typeof r.first_line === "string" ? r.first_line : "");
-      const lyricSlides = body
-        .split(/\n\s*\n+/)
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const cand = sanitiseCandidate({ source: "hymnary", title, author, lyrics: lyricSlides });
-      if (cand) out.push(cand);
+    const text = await res.text();
+    const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    if (lines.length < 2) return [];
+    const header = parseCsvLine(lines[0]).map((h) => h.trim());
+    const iTitle = header.indexOf("displayTitle");
+    const iFirst = header.indexOf("firstLine");
+    const iAuthors = header.indexOf("authors");
+    if (iTitle < 0) return [];
+    const out: HymnMatch[] = [];
+    for (const line of lines.slice(1, 4)) {
+      const cols = parseCsvLine(line);
+      const title = (cols[iTitle] || "").trim();
+      if (!title) continue;
+      const firstLine = iFirst >= 0 ? (cols[iFirst] || "").trim() : "";
+      const author = iAuthors >= 0 && cols[iAuthors]?.trim() ? cols[iAuthors].trim() : null;
+      out.push({ title, author, firstLine });
     }
     return out;
   } catch {
     return [];
+  }
+}
+
+// Expand a Hymnary-confirmed hymn title into verified public-domain verses via
+// Groq. Seeding with a KNOWN title (not a raw ASR fragment) makes the model far
+// less likely to hallucinate. Falls back to the first line when Groq is
+// unavailable or declines, so the operator still gets a real identification.
+async function expandHymn(match: HymnMatch): Promise<PublicDomainCandidate | null> {
+  const key = process.env.GROQ_API_KEY;
+  // Emit NO lyric content unless it clears the model's no-invent PD gate below.
+  // The CSV first line is only ever a seed hint for Groq, never returned as
+  // standalone lyric text — a Hymnary hit alone is not a public-domain proof
+  // (modern/copyrighted hymns are indexed too). When Groq can't confirm verses
+  // we return null and let the caller fall through to the fragment path.
+  const fallback = () => null;
+
+  if (!key) return fallback();
+  const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
+  const model = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 6000);
+  try {
+    const res = await fetch(GROQ_URL, {
+      method: "POST",
+      signal: ctl.signal,
+      headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        temperature: 0.1,
+        max_tokens: 900,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: 'Return JSON {"lyrics":["verse 1 text","verse 2 text","chorus text"]} for the well-known PUBLIC-DOMAIN hymn named by the user. Only include verses you are confident are public domain (pre-1929 / traditional). Never invent or paraphrase — if you are not certain of the actual verses, return {"lyrics":[]}.' },
+          { role: "user", content: `Hymn title: "${match.title.slice(0, 200)}"${match.firstLine ? ` (first line: "${match.firstLine.slice(0, 200)}")` : ""}` },
+        ],
+      }),
+    });
+    clearTimeout(timer);
+    if (!res.ok) return fallback();
+    const data = await res.json().catch(() => null) as { choices?: { message?: { content?: string } }[] } | null;
+    const raw = data?.choices?.[0]?.message?.content;
+    if (!raw) return fallback();
+    let parsed: { lyrics?: unknown };
+    try { parsed = JSON.parse(raw); } catch { return fallback(); }
+    const lyrics = Array.isArray(parsed.lyrics) ? (parsed.lyrics as unknown[]).filter((l) => typeof l === "string") as string[] : [];
+    if (lyrics.length === 0) return fallback();
+    return sanitiseCandidate({ source: "hymnary", title: match.title, author: match.author, lyrics });
+  } catch {
+    clearTimeout(timer);
+    return fallback();
   }
 }
 
@@ -159,8 +250,15 @@ export async function GET(req: Request) {
   const hit = cacheGet(key);
   if (hit) return NextResponse.json({ candidates: hit, cached: true });
 
-  // Try Hymnary first, fall back to Groq.
-  let candidates = await searchHymnary(q);
+  // 1. Identify PD hymns via Hymnary, then expand each confirmed title into
+  //    verified verses (Groq). 2. If Hymnary finds nothing, do a standalone
+  //    Groq fragment lookup.
+  const matches = await searchHymnary(q);
+  let candidates: PublicDomainCandidate[] = [];
+  if (matches.length > 0) {
+    const expanded = await Promise.all(matches.map((m) => expandHymn(m)));
+    candidates = expanded.filter((c): c is PublicDomainCandidate => c !== null);
+  }
   if (candidates.length === 0) candidates = await searchGroq(q);
 
   cacheSet(key, candidates);
