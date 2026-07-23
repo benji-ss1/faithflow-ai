@@ -1294,7 +1294,17 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // "from verse N" navigation phrase, IS the authorization to replay —
     // the 5-minute guard exists to stop a STALE lingering high-confidence
     // detection from re-firing on its own, not to block a deliberate repeat.
-    if (!scripture.forceLive && !scripture.voiceCommand) {
+    // Different-reference-live bypass: the 5-min replay guard exists to stop
+    // an echoing stale detection from re-firing the SAME slide that's already
+    // on screen. It should NOT block a legitimate switch back to a previous
+    // reference — that's the whole point of preacher-driven back-and-forth
+    // (Matt 5:5 → Gen 4:4 → back to Matt 5:5 within 5 min). If ctx.liveSlide's
+    // trailing label doesn't match the target card's label, a DIFFERENT
+    // reference (or a non-scripture slide, or nothing) is live and the fire
+    // is a switch, not a replay — let it through.
+    const currentLiveText = ctx.liveSlide?.kind === "text" ? ctx.liveSlide.text : "";
+    const sameRefAlreadyLive = currentLiveText.endsWith(first.label);
+    if (!scripture.forceLive && !scripture.voiceCommand && sameRefAlreadyLive) {
       try {
         const raw = window.sessionStorage.getItem(AUTO_FIRED_SESSION_KEY);
         const map: Record<string, number> = raw ? JSON.parse(raw) : {};

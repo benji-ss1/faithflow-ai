@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.13",
+    date: "2026-07-23",
+    headline: "AUTO now follows the preacher back and forth between verses",
+    highlights: [
+      "Preacher jumping Matt 5:5 → Gen 4:4 → back to Matt 5:5 → Gen 4:4 (and so on) now auto-projects each swap — previously the 3rd, 4th, Nth mention was silently blocked by the anti-replay guard",
+      "Guardrail unchanged: if the reference the preacher just said is ALREADY the slide on screen, it still won't re-fire on echo (avoids flicker)",
+      "Works within a 10-minute rolling window per reference; AUTO must be ON, same as before",
+    ],
+  },
+  {
     version: "0.1.12",
     date: "2026-07-23",
     headline: "Bible: each reference gets its own clean slide grid",

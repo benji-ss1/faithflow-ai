@@ -385,7 +385,13 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       // requires AUTO mode's explicit human toggle; this hook never sends
       // anything live itself.
       const occurrenceCount = noteRefOccurrence(`${r.book}|${r.chapter}|${r.verseStart}|${r.verseEnd}`);
-      const forceLive = occurrenceCount === 2 && trustworthyForContext;
+      // Every re-mention within REPEAT_WINDOW_MS gets forceLive, not just the
+      // 2nd. A preacher going Matt 5:5 → Gen 4:4 → Matt 5:5 → Gen 4:4 → …
+      // needs the 3rd and later mentions to carry the flag too, otherwise
+      // the back-and-forth stops auto-projecting after the first swap.
+      // Auto-fire's other guards (AUTO toggle, min-gap, different-live-ref
+      // check) keep this from spamming.
+      const forceLive = occurrenceCount >= 2 && trustworthyForContext;
       const suggestion: UnifiedSuggestion = { id, type: "scripture", segmentId, ts, confidence: conf, matchedText: r.matchedText, matchedSpan: spanFor(r.matchedText), ref: { book: r.book, chapter: r.chapter, verseStart: r.verseStart, verseEnd: r.verseEnd }, ...(forceLive ? { forceLive: true } : {}), ...(r.isNavigationCommand ? { voiceCommand: true } : {}) };
       if (forceLive || r.isNavigationCommand) {
         // Bypass the normal 30s dedupe cooldown for this one signal — the
