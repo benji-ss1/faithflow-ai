@@ -606,6 +606,13 @@ wss.on("connection", async (ws: WebSocket, req) => {
       console.log(`[audio] dg msg #${dgMessages} type=${data.type ?? "?"} final=${data.is_final ?? "?"}${slice}`);
     }
     if (data.type !== "Results") return;
+    // 2026-07-23 real-bug fix (root cause of the DG stall/reconnect churn
+    // seen in Fly logs): lastDgResultAt was previously bumped only on
+    // FINAL results — line ~688. If DG returned interims-only for 30s
+    // (which happens on room noise, distant mic, non-speech audio), the
+    // stall watchdog fired even though DG was actively working. Bump on
+    // ANY Results message here so interim traffic keeps the watchdog fed.
+    lastDgResultAt = Date.now();
     const text = data.channel?.alternatives?.[0]?.transcript?.trim();
     if (!text) return;
 
