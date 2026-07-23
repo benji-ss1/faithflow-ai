@@ -42,6 +42,9 @@ export function ImportSongModal({
         const r2 = await updateSongSlides(res.data.id, slides);
         if (!r2.ok) throw new Error(r2.error || "Slides save failed");
       }
+      // Make the newly-imported song's lyrics detectable in-session (the live
+      // detector refetches its library on this signal), not only after reload.
+      try { window.dispatchEvent(new Event("presentflow:songs-changed")); } catch { /* ignore */ }
       toast.success(`Imported "${title.trim()}"`);
       onClose();
     } catch (e) {

@@ -91,6 +91,9 @@ export function SongsBrowser({
       .then((r) => r.json())
       .then((data) => setSlides(data.slides || []))
       .catch(() => { /* silent — retry on next select */ });
+    // Signal the live detector to refetch its song library — a slide (lyric)
+    // change here must become detectable in-session, not after a reload.
+    try { window.dispatchEvent(new Event("presentflow:songs-changed")); } catch { /* ignore */ }
   };
 
   const saveSlideEdit = async (idx: number) => {
@@ -102,6 +105,10 @@ export function SongsBrowser({
       if (!res.ok) { toast.error(res.error || "Save failed"); return; }
       setSlides(next);
       setEditingIdx(null);
+      // In-place lyric edits must reach the live detector in-session too —
+      // slide count is unchanged here, so the library refetch + content-digest
+      // signature is what catches the text change (review 🟡).
+      try { window.dispatchEvent(new Event("presentflow:songs-changed")); } catch { /* ignore */ }
       toast.success("Slide updated");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Save failed");

@@ -254,15 +254,58 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
   }, []);
 
   // Phase 5A: local song library for client-side lyric/title matching.
-  // Fetched once on mount; refreshed via manual reload (song imports).
+  // The live song detector matches spoken lyrics against THIS library, so it
+  // must stay current with imports. Previously this fetched once on mount and
+  // never again — so lyrics imported mid-session (CCLI or the public-domain
+  // hymn flow) were invisible to detection until a full app reload, which
+  // reads as "song detection doesn't pick up." Now it refetches on the events
+  // that actually follow an import, and only commits (triggering the index
+  // rebuild in useAudioStream) when the set materially changed — a cheap
+  // signature over id + slide-count avoids needless index churn on every poll.
   const [songLibrary, setSongLibrary] = useState<IndexedSong[]>([]);
+  const songLibSigRef = useRef<string>("");
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/songs/library").then((r) => r.json()).then((res) => {
-      if (cancelled) return;
-      if (Array.isArray(res.songs)) setSongLibrary(res.songs as IndexedSong[]);
-    }).catch(() => { /* non-fatal */ });
-    return () => { cancelled = true; };
+    // Signature must change on ANY lyric change, not just slide-count changes —
+    // an in-place edit (typo fix / rewrite) keeps the slide count but must
+    // still re-index, so fold a cheap content digest of the lyrics into it.
+    const digest = (s: IndexedSong) => {
+      let h = 5381;
+      for (const sl of s.slides ?? []) {
+        const t = sl.lyrics ?? "";
+        for (let i = 0; i < t.length; i++) h = ((h * 33) ^ t.charCodeAt(i)) >>> 0;
+      }
+      return h;
+    };
+    const sig = (songs: IndexedSong[]) =>
+      songs.map((s) => `${s.songId}:${s.slides?.length ?? 0}:${digest(s)}`).sort().join("|");
+    const load = () => {
+      fetch("/api/songs/library").then((r) => r.json()).then((res) => {
+        if (cancelled || !Array.isArray(res.songs)) return;
+        const next = res.songs as IndexedSong[];
+        const nextSig = sig(next);
+        if (nextSig === songLibSigRef.current) return; // unchanged — skip rebuild
+        songLibSigRef.current = nextSig;
+        setSongLibrary(next);
+      }).catch(() => { /* non-fatal */ });
+    };
+    load();
+    // Refetch when the operator returns focus (imported in another window) and
+    // when the app fires an explicit "songs changed" signal after an import.
+    const onVisible = () => { if (document.visibilityState === "visible") load(); };
+    const onSongsChanged = () => load();
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("presentflow:songs-changed", onSongsChanged);
+    // Safety-net poll (gentle): catches an in-app import that didn't fire the
+    // event. The signature guard above means an unchanged library never churns
+    // the detection index.
+    const iv = window.setInterval(load, 90_000);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("presentflow:songs-changed", onSongsChanged);
+      window.clearInterval(iv);
+    };
   }, []);
 
   // Playlist song IDs — for the "in-playlist" confidence boost.
