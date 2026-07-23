@@ -500,6 +500,36 @@ export function TopBar({
                 </Tooltip.Content>
               </Tooltip.Portal>
             </Tooltip.Root>
+            {/* Roadmap #1 — audio-quality chip. Only renders when the rolling
+                confidence window has dropped below the "low" threshold in
+                useAudioStream, so it's invisible during normal use. When it
+                appears, it tells the operator the AI's misfires are audio
+                quality (mic muffled, room echo, distance) rather than an AI
+                bug. Sits BETWEEN AI ON pill and AUTO toggle. */}
+            {listening && ctx.audio.audioQuality === "low" && (
+              <Tooltip.Root>
+                <Tooltip.Trigger asChild>
+                  <span
+                    role="status"
+                    aria-live="polite"
+                    className="flex items-center gap-1 h-[24px] px-2 rounded-full border text-[10px] font-semibold uppercase tracking-wider bg-amber-500/15 text-amber-200 border-amber-500/50"
+                    data-testid="audio-quality-low"
+                  >
+                    <span aria-hidden className="inline-block w-2 h-2 rounded-full bg-amber-400" />
+                    <span>LOW AUDIO</span>
+                    <span className="text-[9px] font-mono opacity-60">{Math.round((ctx.audio.audioQualityAvg ?? 0) * 100)}%</span>
+                  </span>
+                </Tooltip.Trigger>
+                <Tooltip.Portal>
+                  <Tooltip.Content
+                    sideOffset={6}
+                    className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] px-2 py-1 text-[11px] z-50 font-mono max-w-[280px]"
+                  >
+                    Recent transcription confidence is low ({Math.round((ctx.audio.audioQualityAvg ?? 0) * 100)}%). Check mic position, room echo, or preacher distance. AI misfires right now are likely a signal problem, not a model error.
+                  </Tooltip.Content>
+                </Tooltip.Portal>
+              </Tooltip.Root>
+            )}
             {/* #4 — Big Auto-approve toggle. Sits next to the AI Live pill so
                 operators can spot the mode at a glance. */}
             <button

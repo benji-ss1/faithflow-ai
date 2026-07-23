@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.16",
+    date: "2026-07-23",
+    headline: "New: LOW AUDIO chip so bad-mic misfires don't look like AI bugs",
+    highlights: [
+      "When transcription confidence drops over the last several segments, an amber 'LOW AUDIO' chip now appears next to the AI ON pill with the current rolling average",
+      "The tooltip explains: 'AI misfires right now are likely a signal problem, not a model error' — check mic position, room echo, preacher distance",
+      "Chip auto-clears once quality recovers; hysteresis stops it flapping at the boundary",
+    ],
+  },
+  {
     version: "0.1.15",
     date: "2026-07-23",
     headline: "Transcription accuracy: full 66-book vocab + core Christian terms",

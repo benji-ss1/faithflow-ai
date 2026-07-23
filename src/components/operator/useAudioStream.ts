@@ -119,6 +119,13 @@ export type AudioStreamState = {
   msgsPerSec: number;
   lastLatencyMs: number | null;
   avgConfidence: number;
+  // Rolling-window audio quality signal (roadmap item #1). `null` until
+  // enough final segments arrive to make a call. `"low"` when the last N
+  // finalized segments' Deepgram confidence averages below the floor —
+  // surfaces as an amber "LOW AUDIO" chip so operators know a stretch of
+  // silent misfires is a mic / room / signal problem, not an AI bug.
+  audioQuality: "ok" | "low" | null;
+  audioQualityAvg: number; // 0..1 rolling avg of last N final-segment confidences
 };
 
 /**
@@ -142,6 +149,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     stage: "idle", stageHistory: [], chunksSent: 0, dgMessagesReceived: 0,
     reconnectFailed: false, reconnectAttempts: 0, warmStarted: false,
     silenceGateClosed: false, msgsPerSec: 0, lastLatencyMs: null, avgConfidence: 0,
+    audioQuality: null, audioQualityAvg: 0,
   });
 
   // Dedupe primitive: 30s cooldown per (type, key), refresh on +10 confidence.
@@ -528,6 +536,13 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const wordsLowRef = useRef<number>(0);
   const confSumRef = useRef<number>(0);
   const confCountRef = useRef<number>(0);
+  // Roadmap #1 — rolling audio-quality window. Kept as a ring buffer (last
+  // N final-segment confidences) so a drop in current audio quality is
+  // detectable even mid-session. `audioQualityStateRef` is the sticky
+  // ok/low value, mutated only on hysteresis crossings so we don't dispatch
+  // the same edge repeatedly.
+  const rollingConfRef = useRef<number[]>([]);
+  const audioQualityStateRef = useRef<"ok" | "low" | null>(null);
   const msgTimestampsRef = useRef<number[]>([]);
   const firstChunkAtRef = useRef<number | null>(null);
   // Render-storm fix: true message count + last-commit clock so the diagnostic
@@ -986,7 +1001,44 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           confSumRef.current += msg.confidence;
           confCountRef.current += 1;
           const avg = confSumRef.current / confCountRef.current;
-          setState((s) => ({ ...s, avgConfidence: Math.round(avg * 100) / 100 }));
+          // Rolling-window quality signal (roadmap item #1). Session-lifetime
+          // avgConfidence above is a long-term summary and can't detect a
+          // stretch of BAD audio in a currently-good session — a rolling
+          // window of the last N segments can. Hysteresis (drop-in at 0.65,
+          // recover-out at 0.75) stops the chip flapping right at the
+          // boundary.
+          const AUDIO_QUALITY_WINDOW = 10;
+          const AUDIO_QUALITY_LOW_ENTER = 0.65;
+          const AUDIO_QUALITY_LOW_EXIT = 0.75;
+          const AUDIO_QUALITY_MIN_SAMPLES = 5;
+          rollingConfRef.current.push(msg.confidence);
+          if (rollingConfRef.current.length > AUDIO_QUALITY_WINDOW) rollingConfRef.current.shift();
+          const w = rollingConfRef.current;
+          let nextQuality: "ok" | "low" | null = null;
+          let rollAvg = 0;
+          if (w.length >= AUDIO_QUALITY_MIN_SAMPLES) {
+            rollAvg = w.reduce((a, b) => a + b, 0) / w.length;
+            const prev = audioQualityStateRef.current;
+            if (prev === "low") nextQuality = rollAvg >= AUDIO_QUALITY_LOW_EXIT ? "ok" : "low";
+            else nextQuality = rollAvg < AUDIO_QUALITY_LOW_ENTER ? "low" : "ok";
+            if (nextQuality !== prev) {
+              audioQualityStateRef.current = nextQuality;
+              try {
+                if (typeof window !== "undefined") {
+                  window.dispatchEvent(new CustomEvent(
+                    nextQuality === "low" ? "presentflow:audio-quality-low" : "presentflow:audio-quality-ok",
+                    { detail: { avg: rollAvg, samples: w.length } },
+                  ));
+                }
+              } catch { /* noop */ }
+            }
+          }
+          setState((s) => ({
+            ...s,
+            avgConfidence: Math.round(avg * 100) / 100,
+            audioQuality: nextQuality,
+            audioQualityAvg: Math.round(rollAvg * 100) / 100,
+          }));
         }
         if (msg.type === "ready") {
           if (stallWatchdogRef.current) { clearTimeout(stallWatchdogRef.current); stallWatchdogRef.current = null; }
