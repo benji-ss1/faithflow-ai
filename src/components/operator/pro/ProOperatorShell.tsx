@@ -1517,17 +1517,26 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         try {
           const res = await cachedLookup({ book, chapter, verseStart, verseEnd, translationCode: bibleSession.state.translation });
           if (!res.verses || res.verses.length === 0) return;
-          const label = `${book} ${chapter}:${verseStart}${verseStart !== verseEnd ? `-${verseEnd}` : ""} (${res.translation})`;
-          const card = { id: `${label}-${Date.now()}`, label, verses: res.verses.map((v) => ({ verse: v.verse, text: v.text })) };
-          const existing = bibleSession.state.cards;
-          const dupIdx = existing.findIndex((c) => c.label === card.label);
-          const idx = dupIdx >= 0 ? dupIdx : existing.length;
-          if (dupIdx < 0) bibleSession.setCards([...existing, card]);
-          bibleSession.setSelectedIdx(idx);
+          // Each reference owns its own Bible slides section: jumping to a new
+          // reference REPLACES the grid rather than stacking on top of a
+          // previous reference's cards. Chip history persists in the AI chip
+          // strip / Bible Detections panel (separate state), so operators can
+          // still swap between references by clicking. Ranges fan out to N
+          // one-verse cards, matching runLookup() in BibleMode.tsx.
+          const refText = `${book} ${chapter}:${verseStart}${verseStart !== verseEnd ? `-${verseEnd}` : ""}`;
+          const cards = res.verses.map((v, i) => ({
+            id: `goto-${refText}-${v.verse}-${Date.now()}-${i}`,
+            label: `${book} ${chapter}:${v.verse} (${res.translation})`,
+            verses: [{ verse: v.verse, text: v.text }],
+          }));
+          bibleSession.setRef(refText);
+          bibleSession.setCards(cards);
+          bibleSession.setSelectedIdx(0);
           setCenterMode("bible");
           if (live) {
-            const body = card.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
-            ctx.onSendSlideToLive({ kind: "text", text: `${body}\n\n${label}` });
+            const first = cards[0];
+            const body = first.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
+            ctx.onSendSlideToLive({ kind: "text", text: `${body}\n\n${first.label}` });
           }
         } catch {
           toast.error("Verse lookup failed");

@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.12",
+    date: "2026-07-23",
+    headline: "Bible: each reference gets its own clean slide grid",
+    highlights: [
+      "Jumping to a new Bible reference (from an AI chip, the Bible Detections panel, or a spoken detection) now REPLACES the slide grid with just that reference — no more stale verses from an earlier passage mixed in",
+      "Full history of detected references still lives in the AI chips strip and the Bible Detections panel — click any chip to swap grids cleanly",
+      "Verse ▸ / ◂ nav is unchanged: walking Matthew 5:5 → 5:6 → 5:7 still builds up cards in the same section",
+    ],
+  },
+  {
     // Content-only revision (no new shell binary — thin-client web/backend
     // fixes, always live regardless of installed app version). See R1 in
     // WhatsNewModal.tsx for why version numbering here no longer maps 1:1
