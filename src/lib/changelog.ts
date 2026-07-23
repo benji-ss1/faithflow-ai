@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.14",
+    date: "2026-07-23",
+    headline: "AUTO now follows worship leader back and forth between songs",
+    highlights: [
+      "Worship team swapping Song A → Song B → back to Song A now auto-projects each swap live — previously the 3rd, 4th, Nth mention was silently blocked",
+      "Same-song echo suppression is retained: if the song the AI just detected is already the slide on screen, it won't re-fire",
+      "Requires AUTO ON and ≥85% detection confidence, same as before",
+    ],
+  },
+  {
     version: "0.1.13",
     date: "2026-07-23",
     headline: "AUTO now follows the preacher back and forth between verses",

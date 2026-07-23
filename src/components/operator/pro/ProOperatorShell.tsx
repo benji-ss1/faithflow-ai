@@ -422,12 +422,21 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     if (stagingInFlightRef.current.has(songId)) return;
     if (liveSongRef.current?.songId === songId) return; // already live
     // Replay suppression — same 5min-window pattern as AUTO_FIRED_SESSION_KEY.
-    try {
-      const raw = window.sessionStorage.getItem(SONG_AUTO_FIRED_SESSION_KEY);
-      const map: Record<string, number> = raw ? JSON.parse(raw) : {};
-      const firedAt = map[songId];
-      if (firedAt && Date.now() - firedAt < 5 * 60 * 1000) return;
-    } catch { /* noop */ }
+    // Different-song-live bypass mirrors the scripture path: the guard exists
+    // to stop chatter from re-firing the SAME song. If a DIFFERENT song (or
+    // nothing) is currently live, this is a legitimate swap back — the
+    // worship team returning to song A after song B is exactly the case the
+    // guard shouldn't block. Same-song echo is already handled by the
+    // `liveSongRef.current?.songId === songId` short-circuit above.
+    const differentSongLive = liveSongRef.current !== null && liveSongRef.current.songId !== songId;
+    if (!differentSongLive) {
+      try {
+        const raw = window.sessionStorage.getItem(SONG_AUTO_FIRED_SESSION_KEY);
+        const map: Record<string, number> = raw ? JSON.parse(raw) : {};
+        const firedAt = map[songId];
+        if (firedAt && Date.now() - firedAt < 5 * 60 * 1000) return;
+      } catch { /* noop */ }
+    }
     const now = Date.now();
     if (now - lastSongAutoLiveAtRef.current < SONG_AUTO_LIVE_MIN_GAP_MS) {
       // Inside cooldown — fall back to the human-confirm staging path rather
@@ -510,7 +519,12 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     const now = Date.now();
     for (const c of candidates) {
       const handledAt = stagedOrHandledRef.current.get(c.songId);
-      if (handledAt && now - handledAt < SONG_REDETECT_COOLDOWN_MS) continue;
+      // Different-song-live bypass: the 5-min redetect cooldown is anti-
+      // chatter for the currently-live song. If a DIFFERENT song is live
+      // (worship team swapping back to an earlier one) or nothing is live,
+      // let the candidate through — that's a legitimate back-and-forth swap.
+      const differentSongLive = liveSongRef.current !== null && liveSongRef.current.songId !== c.songId;
+      if (handledAt && now - handledAt < SONG_REDETECT_COOLDOWN_MS && !differentSongLive) continue;
       if (c.confidence >= SONG_AUTOLIVE_CONFIDENCE) {
         stagedOrHandledRef.current.set(c.songId, now);
         void autoLiveSong(c.songId, c.title, c.confidence);
