@@ -138,10 +138,20 @@ export function TopBar({
   // (listening=true never flips during transient reconnects); a subtle
   // spinning ↻ next to it tells the operator the socket is being repaired
   // and the retry count if they hover.
-  const isReconnecting = listening
+  const isReconnectingRaw = listening
     && !aiHardFailed
     && !ctx.audio.ready
     && ctx.audio.reconnectAttempts > 0;
+  // 2026-07-23 review fix: a fast reconnect (drop → recover in <750ms)
+  // used to flash the spinner in and out in a single frame, which looks
+  // like a flicker bug during a live service. Debounce so the spinner
+  // only appears if reconnect actually takes noticeable time.
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  useEffect(() => {
+    if (!isReconnectingRaw) { setIsReconnecting(false); return; }
+    const t = window.setTimeout(() => setIsReconnecting(true), 750);
+    return () => window.clearTimeout(t);
+  }, [isReconnectingRaw]);
   const aiTitle = listening ? "AI ON — click to turn off" : "AI OFF — click to turn on";
 
   const [searchOpen, setSearchOpen] = useState(false);

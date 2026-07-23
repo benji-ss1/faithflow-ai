@@ -69,7 +69,9 @@ function wrapPcmAsWav(pcm: Buffer, sampleRate = 16000): Buffer {
   return buf;
 }
 
-async function whisperTranscribe(pcm: Buffer, groqKey: string, timeoutMs = 5000): Promise<string | null> {
+// Special-cased return: caller sets a circuit-breaker cooldown on this
+// sentinel so a rate-limit storm doesn't keep hammering Groq.
+async function whisperTranscribe(pcm: Buffer, groqKey: string, timeoutMs = 5000): Promise<string | "__RATE_LIMITED__" | null> {
   if (!groqKey || pcm.length < 3200 /* ~0.1s @16k */) return null;
   const wav = wrapPcmAsWav(pcm);
   // Node's built-in fetch supports FormData + Blob via undici. Explicit
@@ -94,7 +96,8 @@ async function whisperTranscribe(pcm: Buffer, groqKey: string, timeoutMs = 5000)
       signal: ctl.signal,
     });
     if (!res.ok) {
-      if (res.status !== 429) console.warn(`[canonical] whisper POST failed status=${res.status}`);
+      if (res.status === 429) return "__RATE_LIMITED__";
+      console.warn(`[canonical] whisper POST failed status=${res.status}`);
       return null;
     }
     const text = (await res.text()).trim();
@@ -486,9 +489,18 @@ wss.on("connection", async (ws: WebSocket, req) => {
   const CANONICAL_BUFFER_MAX_BYTES = 16000 * 2 * CANONICAL_BUFFER_SECONDS;
   const canonicalRing: Buffer[] = [];
   let canonicalRingBytes = 0;
-  let canonicalCumulativeBytes = 0;
   const canonicalKey = process.env.GROQ_API_KEY || "";
   const canonicalEnabled = canonicalKey.length > 0;
+  // 2026-07-23 review fixes: per-connection concurrency cap + min-gap +
+  // per-segment dedupe + 429 circuit breaker so a degraded Groq can't pile
+  // up in-flight 480KB PCM snapshots or hammer rate limits.
+  const CANONICAL_MAX_INFLIGHT = 2;
+  const CANONICAL_MIN_GAP_MS = 3000;
+  const CANONICAL_COOLDOWN_ON_429_MS = 30000;
+  let canonicalInflight = 0;
+  let canonicalLastFiredAt = 0;
+  let canonicalCooldownUntil = 0;
+  const canonicalFiredSegments = new Set<string>();
   // Per-connection dedupe: a reference like "John 3:16" spoken twice within
   // this window collapses to one suggestion. Prevents the rolling transcript
   // overlap (or a pastor repeating the reference for emphasis) from
@@ -754,36 +766,86 @@ wss.on("connection", async (ws: WebSocket, req) => {
       // Roadmap #2 — canonical two-pass. Only worth the Groq round trip
       // when Deepgram was NOT rock-solid on this ref (confidence < 85) —
       // above that, primary and canonical would almost always agree and
-      // it'd just burn budget/latency. Also skip when the ring buffer
-      // has less than 2s of audio (fresh connection). Fire-and-forget;
-      // the send() below happens on a different event-loop tick.
-      if (canonicalEnabled && confidence < 85 && canonicalRingBytes >= 16000 * 2 * 2) {
+      // it'd just burn budget/latency. Also skip when the ring buffer has
+      // less than 2s of audio (fresh connection). Fire-and-forget; the
+      // send() below happens on a different event-loop tick.
+      //
+      // 2026-07-23 review fixes:
+      //   - Semaphore (max 2 in-flight) prevents pileup during a rapid
+      //     stretch of low-conf detections when Groq is slow.
+      //   - Min-gap 3s between canonical passes prevents chatter.
+      //   - Per-segment dedupe: multiple refs in one segment ("John 3:16
+      //     and Romans 8:28") fire canonical only once — same audio.
+      //   - 429 circuit breaker: on rate limit, skip for 30s.
+      //   - PCM snapshot moved INSIDE the async IIFE after a microtask
+      //     yield so the sync WS handler isn't blocked on Buffer.concat.
+      const nowMs = Date.now();
+      if (canonicalEnabled
+          && confidence < 85
+          && canonicalRingBytes >= 16000 * 2 * 2
+          && canonicalInflight < CANONICAL_MAX_INFLIGHT
+          && nowMs - canonicalLastFiredAt >= CANONICAL_MIN_GAP_MS
+          && nowMs >= canonicalCooldownUntil
+          && !canonicalFiredSegments.has(segId)) {
+        canonicalFiredSegments.add(segId);
+        // Cap dedupe set so a long service doesn't grow it unbounded.
+        if (canonicalFiredSegments.size > 500) {
+          const first = canonicalFiredSegments.values().next().value;
+          if (first) canonicalFiredSegments.delete(first);
+        }
+        canonicalLastFiredAt = nowMs;
+        canonicalInflight++;
         const dgText = text;
         const origRef = { book, chapter, verseStart: vs, verseEnd: ve };
-        const pcmSnapshot = Buffer.concat(canonicalRing);
+        const capturedSegId = segId;
         void (async () => {
+          // Yield to the event loop so the sync WS handler returns
+          // before the 480KB Buffer.concat runs.
+          await new Promise((r) => setImmediate(r));
+          const pcmSnapshot = Buffer.concat(canonicalRing);
           try {
-            const whisperText = await whisperTranscribe(pcmSnapshot, canonicalKey);
-            if (!whisperText) return;
+            const result = await whisperTranscribe(pcmSnapshot, canonicalKey);
+            if (result === "__RATE_LIMITED__") {
+              canonicalCooldownUntil = Date.now() + CANONICAL_COOLDOWN_ON_429_MS;
+              console.warn(`[canonical] rate-limited; cooldown until ${new Date(canonicalCooldownUntil).toISOString()}`);
+              return;
+            }
+            if (!result) return;
+            const whisperText = result;
             const whisperRefs = parseReferences(whisperText);
-            if (whisperRefs.length === 0) return;
+            if (whisperRefs.length === 0) {
+              // Diagnostic: Whisper transcribed something but we couldn't
+              // parse a scripture — worth logging for later keyterm mining.
+              console.log(`[canonical] no-parse seg=${capturedSegId} dg="${dgText.slice(0, 60)}" whisper="${whisperText.slice(0, 80)}"`);
+              return;
+            }
             const wr = whisperRefs[0];
+            // Only emit corrections when the Whisper-parsed book is an
+            // EXACT knownBook match — the fuzzy-phonetic path can trip on
+            // clean text and produce garbage "corrections" that undermine
+            // operator trust in the purple chip.
+            if (!knownBook(wr.book)) {
+              console.log(`[canonical] fuzzy-only whisper book "${wr.book}" — dropped`);
+              return;
+            }
             // Divergence: any of book/chapter/verseStart/verseEnd differ.
             const differs = wr.book !== origRef.book
               || wr.chapter !== origRef.chapter
               || wr.verseStart !== origRef.verseStart
               || wr.verseEnd !== origRef.verseEnd;
             if (!differs) return;
-            console.log(`[canonical] divergence seg=${segId} dg="${dgText.slice(0, 60)}" whisper="${whisperText.slice(0, 60)}" ${origRef.book}${origRef.chapter}:${origRef.verseStart} -> ${wr.book}${wr.chapter}:${wr.verseStart}`);
+            console.log(`[canonical] divergence seg=${capturedSegId} dg="${dgText.slice(0, 60)}" whisper="${whisperText.slice(0, 60)}" ${origRef.book}${origRef.chapter}:${origRef.verseStart} -> ${wr.book}${wr.chapter}:${wr.verseStart}`);
             send({
               type: "canonical_correction",
-              segmentId: segId,
+              segmentId: capturedSegId,
               dgText, whisperText,
               original: origRef,
               corrected: { book: wr.book, chapter: wr.chapter, verseStart: wr.verseStart, verseEnd: wr.verseEnd },
             });
           } catch (e) {
             console.warn("[canonical] pass error:", e instanceof Error ? e.message : e);
+          } finally {
+            canonicalInflight = Math.max(0, canonicalInflight - 1);
           }
         })();
       }
@@ -918,7 +980,6 @@ wss.on("connection", async (ws: WebSocket, req) => {
       if (canonicalEnabled) {
         canonicalRing.push(buf);
         canonicalRingBytes += buf.length;
-        canonicalCumulativeBytes += buf.length;
         while (canonicalRingBytes > CANONICAL_BUFFER_MAX_BYTES && canonicalRing.length > 0) {
           const shifted = canonicalRing.shift();
           if (shifted) canonicalRingBytes -= shifted.length;

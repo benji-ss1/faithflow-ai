@@ -15,6 +15,19 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.19",
+    date: "2026-07-23",
+    headline: "Reliability pass on today's shipped features",
+    highlights: [
+      "Auto-live: fixed a subtle case where a stale detection at the very start of a service could fire the wrong slide (the anti-replay guard now catches it correctly)",
+      "Whisper double-check: added rate-limit protection, per-connection concurrency caps, and drops stale corrections older than 8 seconds so a purple chip never appears jarringly mid-sermon",
+      "Learned vocabulary now filters out congregation voices (uses speaker diarization), rejects multi-word garble, and can't be double-promoted by a network retry",
+      "Reconnecting spinner: only appears when a reconnect actually takes >750ms — no more single-frame flicker on quick recoveries",
+      "Song auto-live: 15-second floor even when swapping between songs stops rapid worship transitions from machine-gunning slide changes",
+      "All fixes are transparent — nothing to configure or change in your workflow",
+    ],
+  },
+  {
     version: "0.1.18",
     date: "2026-07-23",
     headline: "AI learns your church's vocabulary + Whisper double-checks low-confidence scripture",

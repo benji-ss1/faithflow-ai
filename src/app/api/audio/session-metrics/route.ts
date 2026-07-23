@@ -76,7 +76,13 @@ export async function POST(req: Request) {
   const sessionId = typeof body.sessionId === "string" && body.sessionId.length > 0 && body.sessionId.length <= 64
     ? body.sessionId
     : null;
-  await db.insert(audioSessions).values({
+  // 2026-07-23 review fix: capture whether the audioSessions insert was
+  // actually a fresh insert (returning() is [] on conflict-do-nothing).
+  // The learned-keyterm upsert below is idempotency-fragile — SQL-side
+  // rolling occurrences increment would double-count on a StrictMode
+  // remount / retry, prematurely promoting garbage terms to active=true.
+  // Only run it when THIS ingest is the canonical one.
+  const insertedRows = await db.insert(audioSessions).values({
     sessionId,
     churchId: user.churchId,
     userId: user.id,
@@ -88,7 +94,8 @@ export async function POST(req: Request) {
     wordsLow: toInt(body.wordsLow),
     startedAt,
     endedAt,
-  }).onConflictDoNothing({ target: audioSessions.sessionId });
+  }).onConflictDoNothing({ target: audioSessions.sessionId }).returning({ id: audioSessions.id });
+  const isFreshInsert = insertedRows.length > 0;
 
   // Roadmap #4 — upsert low-confidence tokens into
   // church_learned_keyterms and auto-promote once they cross the
@@ -106,14 +113,19 @@ export async function POST(req: Request) {
     const rec = t as Record<string, unknown>;
     const display = typeof rec.display === "string" ? rec.display.trim() : "";
     if (display.length < 4 || display.length > 24) continue;
-    // Extra server-side sanitize: keep alnum + spaces + apostrophe/hyphen only.
-    if (!/^[\p{L}\p{N}][\p{L}\p{N}'\- ]*$/u.test(display)) continue;
+    // Single-word tokens only. Deepgram keyterm biasing works best on
+    // atomic tokens; multi-word garble like "habakkuk yeah" from a mis-
+    // aligned segment would otherwise sneak in and bias future
+    // transcriptions toward the garble.
+    if (display.includes(" ")) continue;
+    // Server-side sanitize: keep alnum + apostrophe/hyphen only.
+    if (!/^[\p{L}\p{N}][\p{L}\p{N}'\-]*$/u.test(display)) continue;
     const count = toInt(rec.count);
     if (count < 2) continue;
     const avgConf = toNum(rec.avgConf, 0);
     cleanTokens.push({ display, count, avgConf });
   }
-  if (cleanTokens.length > 0) {
+  if (cleanTokens.length > 0 && isFreshInsert) {
     for (const t of cleanTokens) {
       const normalized = t.display.toLowerCase();
       await db.insert(churchLearnedKeyterms).values({

@@ -574,6 +574,10 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const LEARNED_MINER_CONF_CEILING = 0.65; // only words BELOW this feed the miner
   const LEARNED_MINER_MIN_LEN = 4;         // skip stop-word noise ("the", "to")
   const LEARNED_MINER_MAX_LEN = 24;        // skip run-on garble
+  // First Deepgram speaker index seen this session — assumed to be the
+  // preacher. Non-matching words (congregation, guests, side chatter) get
+  // dropped from the miner. Reset on start().
+  const primarySpeakerRef = useRef<number | null>(null);
   const msgTimestampsRef = useRef<number[]>([]);
   const firstChunkAtRef = useRef<number | null>(null);
   // Render-storm fix: true message count + last-commit clock so the diagnostic
@@ -767,6 +771,11 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     confCountRef.current = 0;
     firstChunkAtRef.current = null;
     sessionIdRef.current = null;
+    // Roadmap #4 miner state reset.
+    lowConfTokensRef.current.clear();
+    primarySpeakerRef.current = null;
+    rollingConfRef.current = [];
+    audioQualityStateRef.current = null;
   }, [planId]);
 
   const stop = useCallback(() => {
@@ -1032,7 +1041,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         // Task 10/11: track word-level confidence buckets for autopilot gating.
         // Roadmap #4: same walk feeds the learned-keyterm miner.
         if ((msg.type === "final" || msg.type === "interim_final_candidate") && Array.isArray(msg.words)) {
-          for (const w of msg.words as { w?: string; c?: number }[]) {
+          for (const w of msg.words as { w?: string; c?: number; sp?: number }[]) {
             if (typeof w?.c !== "number") continue;
             if (w.c >= CONFIDENCE_THRESHOLD) wordsHighRef.current += 1;
             else wordsLowRef.current += 1;
@@ -1041,8 +1050,21 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
             // form comes straight from Deepgram which returns
             // smart-formatted, capitalized proper nouns; the normalized
             // key is lowercased.
+            // 2026-07-23 review fix: use diarization speaker info to
+            // exclude words from non-primary speakers (congregation
+            // "amen!"/"hallelujah!", side conversations, guests). We
+            // assume the FIRST speaker Deepgram sees on this session is
+            // the preacher; anything else is filtered. If `sp` is
+            // undefined (diarization off), fall through to prior behavior.
             if (msg.type === "final" && typeof w.w === "string" && w.c < LEARNED_MINER_CONF_CEILING) {
-              const rawDisplay = w.w.replace(/[^\p{L}\p{N}'\- ]/gu, "").trim();
+              if (typeof w.sp === "number") {
+                if (primarySpeakerRef.current === null) primarySpeakerRef.current = w.sp;
+                if (w.sp !== primarySpeakerRef.current) continue;
+              }
+              // Single-word only for miner too — matches server route
+              // validation, avoids submitting rejected tokens.
+              if (w.w.includes(" ")) continue;
+              const rawDisplay = w.w.replace(/[^\p{L}\p{N}'\-]/gu, "").trim();
               if (rawDisplay.length >= LEARNED_MINER_MIN_LEN && rawDisplay.length <= LEARNED_MINER_MAX_LEN) {
                 const key = rawDisplay.toLowerCase();
                 const prev = lowConfTokensRef.current.get(key);

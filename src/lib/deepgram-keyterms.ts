@@ -124,13 +124,18 @@ export function loadKeyterms(churchId: string | null | undefined): string[] {
  * ~80 static terms under Deepgram's 100/connection limit.
  */
 const MAX_LEARNED_TERMS_PER_CHURCH = 30;
+// Shorter TTL for LEARNED terms (60s) vs static file terms (5min). Static
+// terms only change on redeploy; learned terms can flip active mid-day
+// after any operator's service ends, so a fresh Deepgram connection
+// after that promotion should see the new term without a 5-min lag.
+const LEARNED_CACHE_TTL_MS = 60_000;
 const learnedCache = new Map<string, CacheEntry>();
 
 export async function loadLearnedKeyterms(churchId: string | null | undefined): Promise<string[]> {
   if (!churchId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(churchId)) return [];
   const now = Date.now();
   const hit = learnedCache.get(churchId);
-  if (hit && now - hit.loadedAt < CACHE_TTL_MS) return hit.terms;
+  if (hit && now - hit.loadedAt < LEARNED_CACHE_TTL_MS) return hit.terms;
   try {
     const { db } = await import("./db/client").then((m) => ({ db: m.getDb() }));
     const { churchLearnedKeyterms } = await import("./db/schema");

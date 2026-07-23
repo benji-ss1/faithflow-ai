@@ -103,13 +103,17 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
   const songCards = audio.suggestions
     .filter((s) => (s.type === "song" || s.type === "lyric") && s.confidence >= threshold)
     .slice(0, 3);
-  // Roadmap #2 — canonical (Whisper) corrections chip strip. Only surface
-  // corrections from the last 3 minutes so a stale correction chip doesn't
-  // hang around after the moment has passed. Dismissed ones stay hidden.
-  const CORRECTION_TTL_MS = 3 * 60 * 1000;
+  // Roadmap #2 — canonical (Whisper) corrections chip strip. 8-second
+  // staleness ceiling: a Whisper round trip is ~1–3s but under load can
+  // stretch to 5s+, and if the operator has already clicked or the AUTO
+  // fire has already projected the wrong slide, a purple "Whisper says X
+  // instead of Y" chip appearing 6s later is jarring and looks like the
+  // AI second-guessing itself mid-sermon. Drop anything older than 8s
+  // from the initial detection. Manual-dismissed ones stay hidden.
+  const CORRECTION_STALE_MS = 8 * 1000;
   const nowMs = Date.now();
   const activeCorrections = (audio.canonicalCorrections || [])
-    .filter((c) => !c.dismissed && nowMs - c.ts < CORRECTION_TTL_MS)
+    .filter((c) => !c.dismissed && nowMs - c.ts < CORRECTION_STALE_MS)
     .slice(0, 3);
 
   // Playlist-aware highlight: songs already in plan are marked in-playlist.
@@ -598,8 +602,16 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       // chatter for the currently-live song. If a DIFFERENT song is live
       // (worship team swapping back to an earlier one) or nothing is live,
       // let the candidate through — that's a legitimate back-and-forth swap.
+      // 2026-07-23 review fix: keep a shorter (15s) cooldown even in the
+      // bypass path so a worship transition where two songs both score
+      // ≥85% can't machine-gun autoLiveSong every second.
+      const SONG_REDETECT_BYPASS_FLOOR_MS = 15 * 1000;
       const differentSongLive = liveSongRef.current !== null && liveSongRef.current.songId !== c.songId;
-      if (handledAt && now - handledAt < SONG_REDETECT_COOLDOWN_MS && !differentSongLive) continue;
+      if (handledAt) {
+        const gap = now - handledAt;
+        if (!differentSongLive && gap < SONG_REDETECT_COOLDOWN_MS) continue;
+        if (differentSongLive && gap < SONG_REDETECT_BYPASS_FLOOR_MS) continue;
+      }
       if (c.confidence >= SONG_AUTOLIVE_CONFIDENCE) {
         stagedOrHandledRef.current.set(c.songId, now);
         void autoLiveSong(c.songId, c.title, c.confidence);
@@ -1387,13 +1399,34 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // an echoing stale detection from re-firing the SAME slide that's already
     // on screen. It should NOT block a legitimate switch back to a previous
     // reference — that's the whole point of preacher-driven back-and-forth
-    // (Matt 5:5 → Gen 4:4 → back to Matt 5:5 within 5 min). If ctx.liveSlide's
-    // trailing label doesn't match the target card's label, a DIFFERENT
-    // reference (or a non-scripture slide, or nothing) is live and the fire
-    // is a switch, not a replay — let it through.
+    // (Matt 5:5 → Gen 4:4 → back to Matt 5:5 within 5 min).
+    //
+    // 2026-07-23 review fix: previously used `currentLiveText.endsWith(first.label)`
+    // which was doubly wrong. (a) The trailing label varies by code path — manual
+    // Lookup emits "Book C:Vs-Ve (TR)" ranges; goto emits per-verse "Book C:V (TR)".
+    // Same reference could look different. (b) An empty currentLiveText (fresh
+    // session, nothing live yet) also gave `endsWith === false`, which SKIPPED the
+    // guard entirely — reopening the very stale-echo case R5 was added to fix.
+    //
+    // Correct semantics: parse a canonical (book|ch|vs|ve) tuple from live text;
+    // skip the guard ONLY when a DIFFERENT parsed scripture is currently live
+    // (that's a legit swap-back). Same-ref-live OR nothing-scripture-live both
+    // keep the guard active.
     const currentLiveText = ctx.liveSlide?.kind === "text" ? ctx.liveSlide.text : "";
-    const sameRefAlreadyLive = currentLiveText.endsWith(first.label);
-    if (!scripture.forceLive && !scripture.voiceCommand && sameRefAlreadyLive) {
+    let differentRefLive = false;
+    const liveScriptureMatch = currentLiveText.match(/(\d?\s*[A-Za-z]+)\s+(\d+):(\d+)(?:-(\d+))?\s*\([A-Z]+\)\s*$/);
+    if (liveScriptureMatch) {
+      const liveBook = liveScriptureMatch[1].trim().toLowerCase().replace(/\s+/g, " ");
+      const liveCh = parseInt(liveScriptureMatch[2], 10);
+      const liveVs = parseInt(liveScriptureMatch[3], 10);
+      const liveVe = liveScriptureMatch[4] ? parseInt(liveScriptureMatch[4], 10) : liveVs;
+      const targetBook = scripture.ref.book.toLowerCase().replace(/\s+/g, " ");
+      differentRefLive = liveBook !== targetBook
+        || liveCh !== scripture.ref.chapter
+        || liveVs !== scripture.ref.verseStart
+        || liveVe !== scripture.ref.verseEnd;
+    }
+    if (!scripture.forceLive && !scripture.voiceCommand && !differentRefLive) {
       try {
         const raw = window.sessionStorage.getItem(AUTO_FIRED_SESSION_KEY);
         const map: Record<string, number> = raw ? JSON.parse(raw) : {};
