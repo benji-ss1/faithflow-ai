@@ -21,9 +21,55 @@ import { WebSocketServer, WebSocket } from "ws";
 import { getDb } from "../src/lib/db/client";
 import { transcriptSegments, detectedReferences, servicePlans, bibleTranslations, churchPreferences } from "../src/lib/db/schema";
 import { parseReferences, knownBook, parseBareVerse, isValidChapter, extractCorrections } from "../src/lib/bible-parser";
+
+// 2026-07-24 refactor B — semantic search moves off the Fly bridge to
+// a Vercel-side internal endpoint. Bridge no longer imports @xenova/
+// transformers → no sharp dep → clean startup, no error spam.
+// Vercel side has sharp working (regular deploys).
+const INTERNAL_API_BASE = process.env.INTERNAL_API_BASE || "https://faithflow-ai.vercel.app";
+const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
+
+type SearchHit = { book: string; chapter: number; verse: number; text: string; distance: number };
+
+async function semanticSearchHttp(translationId: string, query: string, limit: number): Promise<SearchHit[]> {
+  if (!INTERNAL_API_SECRET) return [];
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), 4000);
+  try {
+    const res = await fetch(`${INTERNAL_API_BASE}/api/internal/semantic-search`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${INTERNAL_API_SECRET}`,
+      },
+      body: JSON.stringify({ translationId, query, limit }),
+      signal: ctl.signal,
+    });
+    if (!res.ok) {
+      if (!semanticFallbackErrorSeen) {
+        semanticFallbackErrorSeen = true;
+        console.warn(`[audio] semantic-search HTTP failed status=${res.status}`);
+      }
+      return [];
+    }
+    const body = await res.json() as { hits?: SearchHit[] };
+    return Array.isArray(body.hits) ? body.hits : [];
+  } catch (e) {
+    if (!semanticFallbackErrorSeen) {
+      semanticFallbackErrorSeen = true;
+      console.warn(`[audio] semantic-search HTTP error:`, e instanceof Error ? e.message : e);
+    }
+    return [];
+  } finally {
+    clearTimeout(t);
+  }
+}
 import { extractSongCandidates, fuzzyMatchSong } from "../src/lib/song-parser";
 import { parseCommands } from "../src/lib/command-parser";
-import { semanticSearch } from "../src/lib/server/bible";
+// 2026-07-24 refactor B: `semanticSearch` moved off the bridge. It's now
+// a Vercel-side call via semanticSearchHttp() above. Removing this import
+// also removes the transitive @xenova/transformers + sharp dependency
+// from the bridge runtime.
 import { songs, aiSuggestions } from "../src/lib/db/schema";
 import { loadKeyterms, loadLearnedKeyterms } from "../src/lib/deepgram-keyterms";
 import { and, eq } from "drizzle-orm";
@@ -761,7 +807,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         try {
           const defaultT = await getDefaultTranslationId(churchId);
           if (defaultT) {
-            const hits = await semanticSearch(defaultT, text, 3);
+            const hits = await semanticSearchHttp(defaultT, text, 3);
             const top = hits[0];
             // cosine distance: 0 = identical, 2 = opposite. Normalize to
             // a similarity score in [0..100]. Then blend with parser
@@ -940,7 +986,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
       try {
         const defaultT = await getDefaultTranslationId(churchId);
         if (defaultT) {
-          const hits = await semanticSearch(defaultT, text, 5);
+          const hits = await semanticSearchHttp(defaultT, text, 5);
           const candidates = hits
             .map((h) => ({ ...h, similarity: Math.max(0, Math.round((1 - h.distance) * 100)) }))
             // Only surface hits that are actually plausible matches — a
