@@ -7,7 +7,7 @@ list disagree, code wins and this note is stale — please update.
 |---|---|---|---|
 | Audio capture quantum | ~8 ms (128 samples @ 16 kHz) | `useAudioStream.ts:1349` | Set by browser AudioWorklet; not tunable in code |
 | Client interim debounce (transcript display) | 150 ms | `ProOperatorShell.tsx:310` | 300 → 80 → 40 → 150 (pulled back — 40ms produced dancing-text jitter) |
-| Deepgram `endpointing` | 50 ms | `audio-server.ts:141` | 200 → 100 → 75 → 50 on 2026-07-24 |
+| Deepgram `endpointing` | 150 ms | `audio-server.ts:141` | 200 → 100 → 75 → 50 → 150 (pulled back — 50ms produced fragment finals that Deepgram numerals-converted into "97" etc.) |
 | Auto-fire min-gap (scripture + song) | 700 ms | `ProOperatorShell.tsx:1325`, `:460` | 4000 → 400 → 200 → 100 → 700 (pulled back — 100ms flickered on rapid stretches) |
 | Whisper canonical pass min-gap | 750 ms | `audio-server.ts:498` | 3000 → 1500 → 750 on 2026-07-24 |
 | Whisper 429 backoff | 30000 ms | `audio-server.ts:499` | Fine — off critical path |

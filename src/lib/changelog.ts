@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.30",
+    date: "2026-07-24",
+    headline: "Fixed transcript glitches ('97 What?' style) from over-aggressive endpointing",
+    highlights: [
+      "Deepgram finalization cadence pulled back from 50ms → 150ms. The 50ms setting was cutting utterances mid-word and Deepgram's numerals-to-digits converter was mis-reading the fragment tails as spoken numbers — that's why you'd see things like '97 What?' when someone said 'so what?'",
+      "Detection latency is unchanged either way (detection uses interim results upstream, not final-emission timing)",
+      "Endpointing is now 25% tighter than the pre-latency-push baseline of 200ms, without the fragment artefacts",
+    ],
+  },
+  {
     version: "0.1.29",
     date: "2026-07-24",
     headline: "Latency pull-back — 100ms auto-fire was too twitchy, 40ms transcript was too jittery",
