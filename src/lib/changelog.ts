@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.22",
+    date: "2026-07-24",
+    headline: "Silences the 'Update check failed — code signature' warning on unsigned tester builds",
+    highlights: [
+      "The auto-updater now only runs when the current app is signed with an Apple Developer certificate; unsigned tester builds explicitly skip it (no more failed-signature-validation banner)",
+      "Once code signing is set up, auto-updates start working automatically — no code change needed",
+    ],
+  },
+  {
     version: "0.1.21",
     date: "2026-07-23",
     headline: "Fixed the Deepgram silence-timeout reconnect churn",

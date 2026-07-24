@@ -577,11 +577,35 @@ app.whenReady().then(async () => {
   createTray();
   await createMainWindow();
 
-  // electron-updater: only active in packaged builds. Pulls .zip + latest-mac.yml
-  // from the GitHub Release feed (configured in package.json build.publish) and
-  // atomically swaps the app on next restart. Signed builds get automatic
-  // signature verification; unsigned tester builds fall back to zip replace.
-  if (app.isPackaged) {
+  // electron-updater: only active in packaged AND signed builds. Squirrel.Mac
+  // (the macOS auto-update flow electron-updater delegates to) hard-requires a
+  // valid code signature match between the current app and the downloaded
+  // update — unsigned tester builds hit the exact "code failed to satisfy
+  // specified code requirement(s)" error from the 2026-07-24 field report the
+  // moment a new GitHub release is discovered. There's no runtime workaround;
+  // Squirrel enforces this at the macOS level. Gate the whole updater path
+  // behind a runtime code-signature check so unsigned builds never even
+  // discover a new release. When Apple Developer enrollment lands and builds
+  // start shipping signed, this predicate flips true and auto-updates start
+  // working automatically — no code change needed.
+  const isCurrentAppSigned = (): boolean => {
+    if (process.platform !== "darwin") return true; // gate is mac-specific
+    if (!app.isPackaged) return false;
+    try {
+      // codesign returns 0 with a signing identity when the bundle is signed
+      // by a Developer ID cert, non-zero (or "not signed at all") otherwise.
+      // Using execFileSync (100ms typical) once at startup — not in a hot path.
+      const { execFileSync } = require("node:child_process");
+      const bundlePath = app.getAppPath().replace(/\/Contents\/Resources\/app(?:\.asar)?$/, "");
+      const out = execFileSync("codesign", ["-dv", bundlePath], { stdio: ["ignore", "pipe", "pipe"] }).toString()
+        + execFileSync("codesign", ["-dv", bundlePath], { stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" });
+      return /Authority=Developer ID/i.test(out);
+    } catch {
+      return false;
+    }
+  };
+
+  if (app.isPackaged && isCurrentAppSigned()) {
     try {
       autoUpdater.autoDownload = true;
       autoUpdater.autoInstallOnAppQuit = true;
@@ -614,6 +638,8 @@ app.whenReady().then(async () => {
     } catch (err) {
       console.error("[updater] setup failed", err);
     }
+  } else if (app.isPackaged) {
+    console.log("[updater] skipped: unsigned build (Squirrel.Mac requires matching Developer ID signatures). Manual re-install required for updates.");
   }
 
   ipcMain.handle("update:install-now", () => {
