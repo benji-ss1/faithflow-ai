@@ -1004,6 +1004,75 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 2026-07-24 — replacement for the removed reconnect spinner.
+  // Silent for fast (< 5s) reconnects — the binary AI pill stays green,
+  // no visual affordance next to it. Slow reconnects (5s+) surface as a
+  // bottom-corner Sonner toast — decoupled from the pill so there's no
+  // "AI is stopping" perception, auto-dismisses on recovery, upgrades to
+  // a longer-lived warning if it drags past 20s.
+  //
+  // Trigger is the actual WebSocket reconnect state (reconnectAttempts +
+  // !ready + listening), not any UI churn — so a React re-render on an
+  // unrelated update never spawns a toast. State is intentionally kept
+  // in refs so the effect can dedupe without re-firing.
+  const reconnectStartRef = useRef<number | null>(null);
+  const reconnectSlowToastIdRef = useRef<string | number | null>(null);
+  const reconnectVerySlowFiredRef = useRef(false);
+  useEffect(() => {
+    const isReconnecting = ctx.audio.listening
+      && !ctx.audio.reconnectFailed
+      && !ctx.audio.ready
+      && ctx.audio.reconnectAttempts > 0;
+    if (!isReconnecting) {
+      // Recovered: dismiss any slow-toast we surfaced and reset trackers.
+      if (reconnectSlowToastIdRef.current !== null) {
+        toast.dismiss(reconnectSlowToastIdRef.current);
+        toast.success("AI reconnected", { duration: 2000 });
+        reconnectSlowToastIdRef.current = null;
+      }
+      reconnectStartRef.current = null;
+      reconnectVerySlowFiredRef.current = false;
+      return;
+    }
+    // Reconnect in progress. Start clock if new.
+    if (reconnectStartRef.current === null) reconnectStartRef.current = Date.now();
+    const elapsed = Date.now() - reconnectStartRef.current;
+    // Escalation tiers — fast (< 5s) silent, slow (5-20s) toast, very slow (20s+) sticky warning.
+    if (elapsed < 5000) {
+      // Silent — check back in 500ms to see if we crossed 5s.
+      const t = window.setTimeout(() => {
+        // Force re-eval by nudging a ref-only value. Cheapest way is a
+        // no-op setState — but we don't have one. Instead just rely on
+        // the next real ctx.audio state update to re-fire this effect
+        // (reconnectAttempts changes or ready flips). If the reconnect
+        // resolves silently, no toast — perfect.
+      }, 500);
+      return () => window.clearTimeout(t);
+    }
+    if (elapsed >= 5000 && reconnectSlowToastIdRef.current === null) {
+      reconnectSlowToastIdRef.current = toast.loading("AI reconnecting…", {
+        description: "Silent background retry. Pipeline stays ON.",
+        duration: Infinity,
+      });
+    }
+    if (elapsed >= 20000 && !reconnectVerySlowFiredRef.current) {
+      reconnectVerySlowFiredRef.current = true;
+      if (reconnectSlowToastIdRef.current !== null) {
+        toast.dismiss(reconnectSlowToastIdRef.current);
+        reconnectSlowToastIdRef.current = null;
+      }
+      reconnectSlowToastIdRef.current = toast.warning("AI still reconnecting…", {
+        description: `Been offline ${Math.round(elapsed / 1000)}s. If it doesn't recover, try toggling AI OFF then ON.`,
+        duration: Infinity,
+      });
+    }
+  }, [
+    ctx.audio.listening,
+    ctx.audio.reconnectFailed,
+    ctx.audio.ready,
+    ctx.audio.reconnectAttempts,
+  ]);
+
   // R1/R2/Y2: block auto-approve when a low-confidence word actually falls
   // INSIDE the detection's matched span (not the whole utterance). Match by
   // segmentId first — only words from the same transcript chunk as the

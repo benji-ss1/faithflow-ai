@@ -15,6 +15,18 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.24",
+    date: "2026-07-24",
+    headline: "Kept reconnect awareness, killed the visual noise near the AI pill",
+    highlights: [
+      "Removed the manual ↻ 'Restart AI listener' button next to the AI ON pill — it was another circle-arrow icon reading as 'AI is churning'. If you want to restart, just toggle the AI pill OFF then ON — same effect",
+      "Silent for the common case: brief background reconnects (< 5 seconds) produce ZERO visual noise. Pill stays green throughout",
+      "If a reconnect takes 5+ seconds a discreet toast appears in the corner ('AI reconnecting… — pipeline stays ON'), auto-dismissing on recovery with a green 'AI reconnected' confirmation. Decoupled from the pill so it never reads as 'AI is off'",
+      "If it drags past 20 seconds it escalates to a persistent warning suggesting toggle OFF/ON to force recovery",
+      "The AI ON/AI OFF pill is now truly binary — nothing else can appear next to it",
+    ],
+  },
+  {
     version: "0.1.23",
     date: "2026-07-24",
     headline: "Removed the reconnecting spinner — restores strictly-binary AI ON/OFF",

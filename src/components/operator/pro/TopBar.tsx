@@ -582,19 +582,17 @@ export function TopBar({
                 >Diagnose</button>
               </>
             )}
-            {/* Task 6 — manual "Restart listening" icon. Full teardown +
-                fresh ticket + start. Available whenever the pipeline is
-                initialised (listening OR warm-started). */}
-            {(listening || ctx.audio.warmStarted) && ctx.onRestartAudio && (
-              <button
-                type="button"
-                onClick={() => ctx.onRestartAudio?.()}
-                title="Restart AI listener"
-                aria-label="Restart AI listener"
-                data-testid="restart-audio-btn"
-                className="h-[24px] w-[24px] rounded-md text-[13px] font-bold text-[var(--color-muted-foreground)] border border-[var(--color-border)] hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)] flex items-center justify-center"
-              >↻</button>
-            )}
+            {/* Manual "Restart AI listener" ↻ button removed 2026-07-24.
+                It was a persistent icon next to the AI pill that read as
+                "AI is churning / interfering" the same way the removed
+                reconnecting spinner did. Operators wanting to manually
+                restart the listener can toggle the AI ON pill OFF then ON —
+                same effect (full teardown + fresh ticket + start), one less
+                visual pattern near the binary pill.
+                The IPC handler (presentflow:restart-audio window event) is
+                intentionally kept live so a future settings-panel button or
+                keyboard shortcut can still trigger it without cluttering
+                the top bar. */}
           </div>
         </Tooltip.Provider>
         {/* Task F — PP-parity output pills */}
