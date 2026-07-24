@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.23",
+    date: "2026-07-24",
+    headline: "Removed the reconnecting spinner — restores strictly-binary AI ON/OFF",
+    highlights: [
+      "The subtle amber ↻ next to the AI ON pill (added yesterday) read as 'the AI is stopping' rather than 'the socket is silently reconnecting in the background'. Removed — the pill stays green throughout any transient reconnect, exactly as the July 2026 product rule intended",
+      "Underlying reconnect churn was already fixed yesterday (DG stall watchdog + KeepAlive); this just hides the last visual noise around it",
+    ],
+  },
+  {
     version: "0.1.22",
     date: "2026-07-24",
     headline: "Silences the 'Update check failed — code signature' warning on unsigned tester builds",
