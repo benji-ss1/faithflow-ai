@@ -541,14 +541,15 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     if (stagingInFlightRef.current.has(songId)) return;
     if (liveSongRef.current?.songId === songId) return; // already live
     // Replay suppression — same 5min-window pattern as AUTO_FIRED_SESSION_KEY.
-    // Different-song-live bypass mirrors the scripture path: the guard exists
-    // to stop chatter from re-firing the SAME song. If a DIFFERENT song (or
-    // nothing) is currently live, this is a legitimate swap back — the
-    // worship team returning to song A after song B is exactly the case the
-    // guard shouldn't block. Same-song echo is already handled by the
-    // `liveSongRef.current?.songId === songId` short-circuit above.
-    const differentSongLive = liveSongRef.current !== null && liveSongRef.current.songId !== songId;
-    if (!differentSongLive) {
+    // 2026-07-24 fix: apply the guard ONLY when THE SAME song is already
+    // live (echo suppression). Any other case — Bible live, media live,
+    // different song live, or nothing live — is a legitimate content
+    // switch and should be allowed through. Previously we bypassed the
+    // guard only when a "different song" was live, which meant a Bible-
+    // live scenario blocked a legit song swap. Same-song-already-live is
+    // still short-circuited earlier at the top of this function.
+    const sameSongAlreadyLive = liveSongRef.current !== null && liveSongRef.current.songId === songId;
+    if (sameSongAlreadyLive) {
       try {
         const raw = window.sessionStorage.getItem(SONG_AUTO_FIRED_SESSION_KEY);
         const map: Record<string, number> = raw ? JSON.parse(raw) : {};
@@ -638,19 +639,24 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     const now = Date.now();
     for (const c of candidates) {
       const handledAt = stagedOrHandledRef.current.get(c.songId);
-      // Different-song-live bypass: the 5-min redetect cooldown is anti-
-      // chatter for the currently-live song. If a DIFFERENT song is live
-      // (worship team swapping back to an earlier one) or nothing is live,
-      // let the candidate through — that's a legitimate back-and-forth swap.
-      // 2026-07-23 review fix: keep a shorter (15s) cooldown even in the
-      // bypass path so a worship transition where two songs both score
-      // ≥85% can't machine-gun autoLiveSong every second.
+      // Cooldown bypass logic:
+      //   - Same song IS live → skip (echo suppression). No point re-firing
+      //     the same slide.
+      //   - Different content (song or Bible or nothing) is live → let it
+      //     through with a floor to prevent chatter. This is the case that
+      //     was breaking Amazing Grace auto-live when Bible was on screen:
+      //     the previous version only bypassed when a DIFFERENT SONG was
+      //     live, so Bible-live + Amazing-Grace-previously-handled = the
+      //     high-confidence song detection got silently swallowed.
+      // 2026-07-24 fix: check for "this exact song currently live" rather
+      // than "some other song is live" — matches operator intent that any
+      // legitimate content switch should be allowed to fire.
       const SONG_REDETECT_BYPASS_FLOOR_MS = 15 * 1000;
-      const differentSongLive = liveSongRef.current !== null && liveSongRef.current.songId !== c.songId;
+      const sameSongAlreadyLive = liveSongRef.current !== null && liveSongRef.current.songId === c.songId;
       if (handledAt) {
         const gap = now - handledAt;
-        if (!differentSongLive && gap < SONG_REDETECT_COOLDOWN_MS) continue;
-        if (differentSongLive && gap < SONG_REDETECT_BYPASS_FLOOR_MS) continue;
+        if (sameSongAlreadyLive && gap < SONG_REDETECT_COOLDOWN_MS) continue;
+        if (!sameSongAlreadyLive && gap < SONG_REDETECT_BYPASS_FLOOR_MS) continue;
       }
       if (c.confidence >= SONG_AUTOLIVE_CONFIDENCE) {
         stagedOrHandledRef.current.set(c.songId, now);

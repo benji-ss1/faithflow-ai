@@ -50,6 +50,13 @@ async function main() {
   const r2 = await detectAll("Let's turn to John chapter three verse sixteen", ctx);
   ok('scripture: spoken form', r2.scripture.some((s) => s.book === "John" && s.chapter === 3 && s.verseStart === 16), r2.scripture);
 
+  // 3a. NO WAKE PHRASE: pure lyric content should still resolve to the song
+  // — matches the field expectation that operators shouldn't have to say
+  // "let us sing" for the AI to detect a song is being sung. Locks this
+  // in against regression.
+  const rNoWake = await detectAll("Amazing grace how sweet the sound that saved a wretch like me", ctx);
+  ok('no-wake-phrase: pure-lyric content resolves the song', rNoWake.song.some((s) => s.songId === "song-ag") || rNoWake.lyric.some((l) => l.songId === "song-ag"), { song: rNoWake.song, lyric: rNoWake.lyric });
+
   // 3. "Let's sing Amazing Grace" → cue + candidateTitle
   const r3 = await detectAll("Let's sing Amazing Grace together", ctx);
   ok('cue: "let\'s sing" fires', r3.cue.length > 0);

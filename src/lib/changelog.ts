@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.26",
+    date: "2026-07-24",
+    headline: "Songs auto-project even when Bible is currently live",
+    highlights: [
+      "Root-cause fix: at ≥85% detection confidence, a song will now auto-project even if Bible (or media, or anything else) is currently on screen. Previously the redetect-cooldown was only bypassed when a DIFFERENT song was live — Bible-live blocked the auto swap to song, so 'let us sing Amazing Grace' at 98% confidence just added it to the playlist instead of putting it on screen",
+      "Same-song echo suppression is retained — if the song is already live, the same detection won't re-fire and cause a flicker",
+      "No wake phrase needed: locked in by a new test — speaking the lyrics ('Amazing grace how sweet the sound') resolves the song without any 'let us sing' cue phrase. Content match works standalone",
+      "Slide-by-slide auto-advance during a live song was already wired (matchNextSlide watches interim words against the next slide's lyrics) — should work end-to-end now that songs actually reach the LIVE state",
+    ],
+  },
+  {
     version: "0.1.25",
     date: "2026-07-24",
     headline: "Yellow highlight now means 'AI just self-corrected' + transcript feels ~200ms snappier",
