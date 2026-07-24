@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.29",
+    date: "2026-07-24",
+    headline: "Latency pull-back — 100ms auto-fire was too twitchy, 40ms transcript was too jittery",
+    highlights: [
+      "Auto-fire min-gap raised 100ms → 700ms — real-service feedback showed 100ms produced visible flicker on rapid quote-then-quote stretches. Still 5-6× tighter than the original 4000ms wall; matches typical preacher cadence without the twitch",
+      "Transcript panel debounce raised 40ms → 150ms — 40ms produced 'dancing text' as every partial-word interim caused a re-render. 150ms smooths that while still being 2× tighter than the original 300ms",
+      "Detection latency is unchanged either way (both knobs are display/output tuning, not detection gates)",
+    ],
+  },
+  {
     version: "0.1.28",
     date: "2026-07-24",
     headline: "Latency halved twice + fuzzy book fix + smoother slide transitions",

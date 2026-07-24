@@ -307,12 +307,13 @@ function LiveTranscriptPanel({ ctx }: { ctx: OperatorShellCtx }) {
   // Keep only the last 30s of finals for the visible window.
   const windowed = recent.filter((t) => now - t.ts < 30_000);
   // Task 8: debounce interim renders to ≥3 char OR ≥300ms delta.
-  // 2026-07-24 latency push (third cut, 80 → 40 ms). Progression:
-  // 300 → 80 (yesterday) → 40 (now). Detection was never gated by this
-  // debounce — it only affects transcript-panel render cadence. 40 ms
-  // is one visible frame at 25 fps; below that human eye can't
-  // distinguish. Any lower would burn CPU with no perceived gain.
-  const interim = useDebouncedInterim(audio.interim, 1, 40);
+  // 2026-07-24 pull-back to 150 ms after real-service feedback that 40 ms
+  // produced too much micro-jitter in the transcript panel — every partial-
+  // word interim caused a re-render, making the panel feel unstable
+  // ("dancing text"). 150 ms is smoother, still 2× tighter than the
+  // original 300 ms, and detection latency is unaffected either way
+  // (detection uses interim_final_candidate upstream, not this debounce).
+  const interim = useDebouncedInterim(audio.interim, 1, 150);
   const hasContent = windowed.length > 0 || !!interim;
 
   useEffect(() => {
@@ -456,13 +457,13 @@ const SONG_AUTOSTAGE_CONFIRM_KEY = "KeyG"; // "G" for "Go live" — Space is
 const SONG_STAGE_CONFIDENCE = 60; // stage for human "G" confirm
 const SONG_AUTOLIVE_CONFIDENCE = 85; // zero-click auto-live, see policy note above
 const SONG_AUTO_FIRED_SESSION_KEY = "presentflow.pro.songAutoFired.v1"; // 5min replay suppression, mirrors AUTO_FIRED_SESSION_KEY
-// 2026-07-24 latency push (third cut, 200 → 100 ms). At 100 ms the floor
-// still guarantees no more than 10 auto-fires per second — well past any
-// legitimate preacher cadence — but a rapid quote-then-quote-then-song
-// stretch now lands in what feels like real time. If real services show
-// visible flicker between successive fires, bump back to 200.
+// 2026-07-24 pull-back to 700 ms after real-service feedback that 100 ms
+// produced visible flicker on rapid quote-then-quote-then-song stretches
+// — the operator's eye couldn't keep up and the projected screen felt
+// twitchy. 700 ms lets ~1.4 auto-fires per second, which matches typical
+// preacher cadence, still 5-6× better than the original 4000 ms wall.
 // Bible mirrors via DEFAULT_MIN_GAP_MS below.
-const SONG_AUTO_LIVE_MIN_GAP_MS = 100;
+const SONG_AUTO_LIVE_MIN_GAP_MS = 700;
 
 type StagedSongSlides = { songId: string; title: string; slides: string[]; currentIdx: number; confidence: number; source: "detection" | "progression" };
 type LiveSongTrack = { songId: string; title: string; slides: string[]; currentIdx: number; confirmedAt: number };
@@ -1357,10 +1358,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const AUTO_FIRE_MIN_GAP_KEY = "presentflow.pro.autoFireMinGap.v1"; // R3
   const AUTO_FIRED_SESSION_KEY = "presentflow.pro.autoFired.v1"; // R5
   const HOLD_DURING_SONG_KEY = "presentflow.pro.holdAutoApproveDuringSong.v1"; // Y8
-  // 2026-07-24 latency push (third cut, 200 → 100 ms). See
-  // SONG_AUTO_LIVE_MIN_GAP_MS for rationale. Operator override via
+  // 2026-07-24 pull-back to 700 ms (same as SONG_AUTO_LIVE_MIN_GAP_MS)
+  // after real-service feedback. Operator override via
   // presentflow.pro.autoFireMinGap.v1 still respected.
-  const DEFAULT_MIN_GAP_MS = 100;
+  const DEFAULT_MIN_GAP_MS = 700;
 
   // Y4: latest send/kill callbacks captured in refs so stale closures in the
   // interval / queued timer don't fire against a dead callback.
