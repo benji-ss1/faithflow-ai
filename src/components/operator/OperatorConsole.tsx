@@ -1148,6 +1148,18 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
         // router.refresh() re-fetches server component data without
         // remounting the whole app.
         const optimisticId = `optimistic-${Date.now()}`;
+        // 2026-07-24 field bug fix: optimistic `slides: []` produced a
+        // permanent "0" in the playlist row's slide-count badge for songs
+        // added via chip-click, until router.refresh() completed (which
+        // could hang or race). If we're adding a song we already have
+        // in the indexed library, seed the optimistic slides with the
+        // song's known lyric slides so the playlist row shows the right
+        // count immediately AND the operator can preview/send before the
+        // server round-trip finishes.
+        const libSong = kind === "song" ? songLibrary.find((s) => s.songId === ref.id) : null;
+        const optimisticSlides = libSong && Array.isArray(libSong.slides)
+          ? libSong.slides.map((s) => ({ kind: "text" as const, text: s.lyrics || "" }))
+          : [];
         setPlan((prev) => {
           const newItem = {
             id: optimisticId,
@@ -1156,7 +1168,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
             songId: kind === "song" ? ref.id : undefined,
             mediaAssetId: kind === "media" ? ref.id : undefined,
             pptxImportId: kind === "sermon" ? ref.id : undefined,
-            slides: [],
+            slides: optimisticSlides,
           } as unknown as ExpandedItem;
           return { ...prev, items: [...prev.items, newItem] };
         });

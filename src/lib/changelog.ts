@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.32",
+    date: "2026-07-24",
+    headline: "Live transcription never stops + song 0-slides in playlist fixed + song auto-project diagnostics",
+    highlights: [
+      "Live transcript panel's red 'recording' dot no longer disappears during background reconnects — it now shows whenever AI is ON, matching the binary AI ON/OFF rule. Only manually turning AI OFF removes it. Transcript content was already preserved across reconnects; only the visual dot was misleading",
+      "Songs added via chip-click no longer show '0' slides in the playlist row while router.refresh() catches up — the optimistic add now seeds slides from the local library data so the count is correct immediately",
+      "Added [latency] diagnostic logs for song auto-project (song-candidate arrival, autoLiveSong slide-fetch count, blocked-when-0-slides warning) so we can trace root cause when a song is detected but doesn't reach the projector",
+    ],
+  },
+  {
     version: "0.1.31",
     date: "2026-07-24",
     headline: "Auto-fire +100ms (false-trigger floor tuning) + yellow highlight now fires on real-world book misspellings",

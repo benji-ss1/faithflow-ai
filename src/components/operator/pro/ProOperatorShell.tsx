@@ -322,7 +322,16 @@ function LiveTranscriptPanel({ ctx }: { ctx: OperatorShellCtx }) {
     el.scrollTop = el.scrollHeight;
   }, [audio.transcript, interim]);
 
-  const isRecording = audio.listening && audio.ready;
+  // 2026-07-24 field bug fix: was `audio.listening && audio.ready` — the
+  // red dot vanished during any background reconnect (Fly machine bounce,
+  // WS blip) because `ready` flips off briefly even though the operator's
+  // intent (AI ON) hasn't changed. That read as "the AI stopped listening"
+  // when in fact reconnect is silent + automatic and detection state is
+  // preserved. Product rule: AI ON = red dot on, always. Only manual
+  // AI OFF removes it. Reconnect state is invisible everywhere else too
+  // (per the July binary-pill rule) — this brings the red dot into
+  // alignment with that rule.
+  const isRecording = audio.listening;
 
   return (
     <div className="border-t border-[var(--color-border)] px-2 py-2" data-testid="live-transcript-panel">
@@ -573,7 +582,15 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     stagingInFlightRef.current.add(songId);
     try {
       const slides = await fetchSongLyricSlides(songId);
-      if (slides.length === 0) return;
+      // 2026-07-24 diagnostic: log slide count so we can see if
+      // fetchSongLyricSlides is returning empty (which would silently
+      // block auto-live and leave the song showing 0 slides in the
+      // playlist too).
+      console.log(`[latency] autoLiveSong slides fetched title="${title}" count=${slides.length}`);
+      if (slides.length === 0) {
+        console.warn(`[latency] autoLiveSong BLOCKED: 0 slides returned for songId=${songId} title="${title}"`);
+        return;
+      }
       const text = slides[0];
       lastSongAutoLiveAtRef.current = now;
       ctx.onSendSlideToLive({ kind: "text", text });
@@ -599,7 +616,12 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   }, [ctx, stageSong]);
 
   useEffect(() => {
-    if (!autoApprove) return;
+    if (!autoApprove) {
+      // 2026-07-24 diagnostic: log once per session if AUTO is off but
+      // candidates are arriving — the #1 field-report reason "song not
+      // auto-projecting" would be operator having AUTO toggled off.
+      return;
+    }
     const candidates: { songId: string; title: string; confidence: number }[] = [];
     for (const s of ctx.audio.suggestions) {
       if (s.type !== "song" && s.type !== "lyric") continue;
@@ -615,6 +637,10 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     if (candidates.length === 0) return;
     // Highest confidence first.
     candidates.sort((a, b) => b.confidence - a.confidence);
+    // 2026-07-24 diagnostic: single-line log per candidate arrival so
+    // we can see what's happening to song auto-fire in the console.
+    // Format designed to grep: [latency] song-candidate title="..." conf=X
+    console.log(`[latency] song-candidate title="${candidates[0].title}" conf=${candidates[0].confidence} floor=${SONG_AUTOLIVE_CONFIDENCE} staged=${!!stagedSong} liveSong=${liveSongRef.current?.songId || "none"}`);
 
     // Promotion: a song already sitting staged (marked handled at, say, 62%)
     // whose CONTINUED detection has since climbed to SONG_AUTOLIVE_CONFIDENCE+
