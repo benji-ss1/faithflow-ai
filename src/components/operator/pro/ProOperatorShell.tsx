@@ -456,13 +456,13 @@ const SONG_AUTOSTAGE_CONFIRM_KEY = "KeyG"; // "G" for "Go live" — Space is
 const SONG_STAGE_CONFIDENCE = 60; // stage for human "G" confirm
 const SONG_AUTOLIVE_CONFIDENCE = 85; // zero-click auto-live, see policy note above
 const SONG_AUTO_FIRED_SESSION_KEY = "presentflow.pro.songAutoFired.v1"; // 5min replay suppression, mirrors AUTO_FIRED_SESSION_KEY
-// 2026-07-24 latency push (second cut, 400 → 200 ms). Original 4000 ms was
-// dampening detection chatter that no longer exists at nova-3 + keybias +
-// learned-vocab accuracy levels. 200 ms floor still prevents two fires
-// inside a fifth of a second — the anti-chatter guarantee — while
-// consecutive scripture at ~0.5s/verse now lands each on screen.
+// 2026-07-24 latency push (third cut, 200 → 100 ms). At 100 ms the floor
+// still guarantees no more than 10 auto-fires per second — well past any
+// legitimate preacher cadence — but a rapid quote-then-quote-then-song
+// stretch now lands in what feels like real time. If real services show
+// visible flicker between successive fires, bump back to 200.
 // Bible mirrors via DEFAULT_MIN_GAP_MS below.
-const SONG_AUTO_LIVE_MIN_GAP_MS = 200;
+const SONG_AUTO_LIVE_MIN_GAP_MS = 100;
 
 type StagedSongSlides = { songId: string; title: string; slides: string[]; currentIdx: number; confidence: number; source: "detection" | "progression" };
 type LiveSongTrack = { songId: string; title: string; slides: string[]; currentIdx: number; confirmedAt: number };
@@ -1039,6 +1039,36 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 2026-07-24 T4 fix — batch preload every image URL in the current plan
+  // when the operator opens/updates it. Without this, an image slide
+  // firing to live had to fetch + decode AFTER the projector's <img>
+  // mounted, producing a black frame followed by pop-in (50-300 ms
+  // depending on network + file size). Preloading via `new Image()`
+  // seeds the browser cache in the background so by the time any of
+  // these fires to live, decode is done. Idempotent — the browser
+  // dedupes same-URL requests. Cheap — a few MB of PNGs downloaded
+  // over a warm connection once per plan open.
+  const preloadedUrlsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const urls = new Set<string>();
+    for (const item of ctx.plan.items) {
+      for (const slide of item.slides ?? []) {
+        if (slide && slide.kind === "image" && typeof slide.url === "string" && slide.url.length > 0) {
+          urls.add(slide.url);
+        }
+      }
+    }
+    for (const url of urls) {
+      if (preloadedUrlsRef.current.has(url)) continue;
+      preloadedUrlsRef.current.add(url);
+      // `new Image()` in the DOM API triggers the browser's HTTP cache
+      // + decode pipeline without ever attaching to the tree. No CSP
+      // implications (same-origin/S3-presigned URLs already whitelisted).
+      const img = new Image();
+      img.src = url;
+    }
+  }, [ctx.plan.items]);
+
   // 2026-07-24 — replacement for the removed reconnect spinner.
   // Silent for fast (< 5s) reconnects — the binary AI pill stays green,
   // no visual affordance next to it. Slow reconnects (5s+) surface as a
@@ -1327,10 +1357,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const AUTO_FIRE_MIN_GAP_KEY = "presentflow.pro.autoFireMinGap.v1"; // R3
   const AUTO_FIRED_SESSION_KEY = "presentflow.pro.autoFired.v1"; // R5
   const HOLD_DURING_SONG_KEY = "presentflow.pro.holdAutoApproveDuringSong.v1"; // Y8
-  // 2026-07-24 latency push (second cut, 400 → 200 ms). See
+  // 2026-07-24 latency push (third cut, 200 → 100 ms). See
   // SONG_AUTO_LIVE_MIN_GAP_MS for rationale. Operator override via
   // presentflow.pro.autoFireMinGap.v1 still respected.
-  const DEFAULT_MIN_GAP_MS = 200;
+  const DEFAULT_MIN_GAP_MS = 100;
 
   // Y4: latest send/kill callbacks captured in refs so stale closures in the
   // interval / queued timer don't fire against a dead callback.

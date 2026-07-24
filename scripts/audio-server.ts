@@ -133,16 +133,14 @@ async function openDeepgram(churchId: string): Promise<WebSocket> {
     interim_results: "true",
     punctuate: "true",
     numerals: "true",
-    // 2026-07-24 latency push (second cut, 100 → 75 ms). Progression:
-    // 10 too aggressive, 400/300 too slow, 200 was our sweet spot, 100
-    // proved fine, 75 pushes the boundary further. Interim-final-
-    // candidate detection path is unaffected either way — this only
-    // affects final emission cadence for downstream side-effects
-    // (transcript panel display, sermon RAG ingest, learned-vocab
-    // miner). 75 ms is well above the pathological 10 ms tried
-    // originally; revert to 100 or 150 if real services show mid-
-    // clause cuts on final segments.
-    endpointing: "75",
+    // 2026-07-24 latency push (third cut, 75 → 50 ms). Interim-final-
+    // candidate detection is unaffected either way — this only tunes
+    // final emission cadence for downstream side effects. 50 ms is
+    // aggressive (original 10 ms broke on mid-word cuts; 50 ms should
+    // be well past that pathological floor for normal preaching
+    // cadence). Real services will confirm — bump back to 75 or 100
+    // if we see mid-clause cuts landing in transcripts / RAG chunks.
+    endpointing: "50",
     encoding: "linear16",
     sample_rate: "16000",
     channels: "1",
@@ -499,13 +497,14 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // per-segment dedupe + 429 circuit breaker so a degraded Groq can't pile
   // up in-flight 480KB PCM snapshots or hammer rate limits.
   const CANONICAL_MAX_INFLIGHT = 2;
-  // 2026-07-24 latency push (3000 → 1500 ms). Off critical path (Whisper
-  // canonical is a background second opinion), so this only affects how
-  // often we can double-check consecutive low-confidence detections.
-  // Halved so a rapid-fire scripture stretch can get a fresh canonical
-  // opinion every ~1.5 s instead of every 3 s. Groq call itself is
-  // typically <2 s so back-to-back passes don't overlap.
-  const CANONICAL_MIN_GAP_MS = 1500;
+  // 2026-07-24 latency push (third cut, 1500 → 750 ms). Groq Whisper
+  // typical response is <2 s but the semaphore(2) means up to 2 can
+  // be in flight simultaneously — so a 750 ms gap doesn't cause
+  // overlap under normal load; only under sustained rapid-fire does
+  // the semaphore start dropping candidates, which is the intended
+  // backpressure. Still off critical path so this is a "how quickly
+  // can Whisper double-check" tuning knob, not an auto-live gate.
+  const CANONICAL_MIN_GAP_MS = 750;
   const CANONICAL_COOLDOWN_ON_429_MS = 30000;
   let canonicalInflight = 0;
   let canonicalLastFiredAt = 0;

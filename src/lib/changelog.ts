@@ -17,12 +17,14 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     version: "0.1.28",
     date: "2026-07-24",
-    headline: "Latency halved again + fuzzy book-name miss fixed",
+    headline: "Latency halved twice + fuzzy book fix + smoother slide transitions",
     highlights: [
-      "Auto-fire min-gap 400ms → 200ms (5-verse sermon citations now project at ~0.5s cadence)",
-      "Deepgram finalization 100ms → 75ms; transcript-panel debounce 80ms → 40ms (one visible frame at 25fps — below eye-perceivable)",
-      "Whisper canonical two-pass min-gap 3000ms → 1500ms — off critical path but tighter double-check cadence",
-      "Fuzzy book-name matching now correctly handles 'filippians four verse thirteen' style misspellings mixed with spoken numbers (previously silent-failed) — the parser's 2-word candidate branch was greedy-eating context words. Accuracy audit now scores 12/12 = 100% match rate, 0% silent failures, 0% false triggers on the 17-scenario adversarial test",
+      "Auto-fire min-gap 400ms → 100ms (10 fires/sec ceiling — sermon-rapid scripture citations project in real time)",
+      "Deepgram finalization pushed to 50ms (aggressive; interim-driven detection is unaffected either way)",
+      "Whisper canonical two-pass min-gap 3000ms → 750ms — Groq double-checks land twice as often on low-confidence stretches",
+      "Slide transitions: text slides no longer flash at min-size before resizing (initial paint now uses last fitted size + a per-text LRU cache skips the binary search entirely on repeat slides)",
+      "Image slides: every image URL in the current plan is now background-preloaded when the operator opens it — no more 'black frame then image pops in' on image-slide transitions",
+      "Fuzzy book-name F1 fix: 'filippians four verse thirteen' style misspellings now correctly resolve to Philippians (previously silent-failed). Accuracy audit: 12/12 match rate, 0 silent-failures, 0 false-triggers on 17-scenario adversarial suite",
     ],
   },
   {

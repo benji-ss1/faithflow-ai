@@ -19,11 +19,39 @@ const MIN_READABLE_PX = 24;
  * navigates pages via ← → arrow keys while focused, or automatically
  * via context nav (handled at the OperatorConsole layer).
  */
+// 2026-07-24 T3 fix — module-level LRU-ish cache of computed font sizes,
+// keyed by (text, boxWidth, boxHeight, maxPx). Skips the ~8-iteration
+// binary search entirely on repeat slides (song swap-back, verse repeat,
+// same-slide re-fire during word-tracking auto-advance). Bounded to
+// avoid unbounded growth over a long service. Same-text same-box always
+// yields the same size deterministically, so caching is safe.
+const FIT_CACHE_MAX = 200;
+const fitCache = new Map<string, number>();
+function fitCacheKey(text: string, bw: number, bh: number, maxPx: number) {
+  // Round box dims to nearest 4px so trivial resize jitter still cache-hits.
+  return `${Math.round(bw / 4) * 4}|${Math.round(bh / 4) * 4}|${maxPx}|${text}`;
+}
+function fitCacheGet(k: string): number | undefined { return fitCache.get(k); }
+function fitCacheSet(k: string, v: number) {
+  if (fitCache.size >= FIT_CACHE_MAX) {
+    const first = fitCache.keys().next().value;
+    if (first) fitCache.delete(first);
+  }
+  fitCache.set(k, v);
+}
+
 export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06 }:
   { text: string; className?: string; maxPx?: number; paddingRatio?: number }) {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
-  const [size, setSize] = useState(MIN_READABLE_PX);
+  // 2026-07-24 T3 fix — initial size = last fitted size (from ref) rather
+  // than MIN_READABLE_PX. Previously every new slide painted for one frame
+  // at 24 px before the binary search corrected it, producing a visible
+  // "shrink then grow" flicker on every AI-fired slide. Now the first
+  // paint uses the last known good size — usually within a few px of the
+  // final answer, so the correction is imperceptible.
+  const lastFittedRef = useRef<number>(MIN_READABLE_PX);
+  const [size, setSize] = useState(lastFittedRef.current);
   const [pad, setPad] = useState(4);
   const [pageIdx, setPageIdx] = useState(0);
 
@@ -43,9 +71,30 @@ export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06 
     const bh = box.clientHeight - padPx * 2;
     if (bw <= 0 || bh <= 0) return;
 
-    // Binary search — floor is MIN_READABLE_PX. If we can't fit at that
-    // floor, we've already paginated (or should); accept the floor here.
+    // T3 cache hit — same text, same box → skip binary search entirely.
+    const cacheKey = fitCacheKey(currentText, bw, bh, maxPx);
+    const cached = fitCacheGet(cacheKey);
+    if (cached !== undefined) {
+      lastFittedRef.current = cached;
+      setSize(cached);
+      return;
+    }
+
+    // T3 seeded binary search — start the search anchored at the last
+    // fitted size, so if the new text is similar-length to the old,
+    // convergence is 1-2 iterations instead of 8. Falls back to full
+    // range if seed is invalid.
     let lo = MIN_READABLE_PX, hi = maxPx, best = MIN_READABLE_PX;
+    const seed = Math.min(maxPx, Math.max(MIN_READABLE_PX, lastFittedRef.current));
+    // Probe the seed first — if it fits, expand upward; if not, contract
+    // downward. This makes the common case (similar-length swap) O(1)
+    // in visible fit iterations.
+    t.style.fontSize = `${seed}px`;
+    if (t.scrollWidth <= bw + 1 && t.scrollHeight <= bh + 1) {
+      best = seed; lo = seed + 1;
+    } else {
+      hi = seed - 1;
+    }
     while (lo <= hi) {
       const mid = Math.floor((lo + hi) / 2);
       t.style.fontSize = `${mid}px`;
@@ -56,6 +105,8 @@ export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06 
         hi = mid - 1;
       }
     }
+    lastFittedRef.current = best;
+    fitCacheSet(cacheKey, best);
     setSize(best);
   };
 

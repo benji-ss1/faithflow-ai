@@ -7,9 +7,9 @@ list disagree, code wins and this note is stale — please update.
 |---|---|---|---|
 | Audio capture quantum | ~8 ms (128 samples @ 16 kHz) | `useAudioStream.ts:1349` | Set by browser AudioWorklet; not tunable in code |
 | Client interim debounce (transcript display) | 40 ms | `ProOperatorShell.tsx:310` | 300 → 80 → 40 on 2026-07-24 |
-| Deepgram `endpointing` | 75 ms | `audio-server.ts:141` | 200 → 100 → 75 on 2026-07-24 |
-| Auto-fire min-gap (scripture + song) | 200 ms | `ProOperatorShell.tsx:1325`, `:460` | 4000 → 400 → 200 on 2026-07-24 |
-| Whisper canonical pass min-gap | 1500 ms | `audio-server.ts:498` | 3000 → 1500 on 2026-07-24 |
+| Deepgram `endpointing` | 50 ms | `audio-server.ts:141` | 200 → 100 → 75 → 50 on 2026-07-24 |
+| Auto-fire min-gap (scripture + song) | 100 ms | `ProOperatorShell.tsx:1325`, `:460` | 4000 → 400 → 200 → 100 on 2026-07-24 |
+| Whisper canonical pass min-gap | 750 ms | `audio-server.ts:498` | 3000 → 1500 → 750 on 2026-07-24 |
 | Whisper 429 backoff | 30000 ms | `audio-server.ts:499` | Fine — off critical path |
 | RMS silence gate close/open | −60/−55 dBFS, 4 s hold | `useAudioStream.ts:484-486` | Opt-out; default OFF per always-on preference |
 | Slide transition (AI-fired) | 0 ms | `TransitionWrapper.tsx:32` | AI fires with `transition=undefined` → no animation |
