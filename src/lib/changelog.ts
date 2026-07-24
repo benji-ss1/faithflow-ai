@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.27",
+    date: "2026-07-24",
+    headline: "Latency push — auto-fire min-gap 4000ms → 400ms, Deepgram finalization 200ms → 100ms",
+    highlights: [
+      "The single biggest cause of 'AI feels laggy on consecutive scripture citations' was a 4-second hard wall between auto-fires. Cut to 400ms — a preacher rattling off two verses back-to-back at ~1s/verse now lands each on screen instead of blocking the second one for 4 seconds",
+      "Deepgram finalization threshold pushed from 200ms → 100ms. Doesn't affect auto-live speed (interim-based detection already bypassed the finalization wait), but sermon RAG ingest / learned-vocab miner / transcript panel all now update ~100ms sooner",
+      "Added [latency] auto-fire logging (visible in devtools console) that shows the delta between detection landing and slide firing — real per-fire ms number instead of just perceived feel",
+      "DECISIONS.md now has a top-of-file 'current latency budget' table so future audits use live numbers not stale planning notes",
+    ],
+  },
+  {
     version: "0.1.26",
     date: "2026-07-24",
     headline: "Songs auto-project even when Bible is currently live",

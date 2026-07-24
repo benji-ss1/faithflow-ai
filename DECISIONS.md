@@ -1,3 +1,20 @@
+## Latency budget — current values (2026-07-24)
+
+Truth-source for anyone auditing pipeline latency. If code and this
+list disagree, code wins and this note is stale — please update.
+
+| Stage | Current | Location | Notes |
+|---|---|---|---|
+| Audio capture quantum | ~8 ms (128 samples @ 16 kHz) | `useAudioStream.ts:1349` | Set by browser AudioWorklet; not tunable in code |
+| Client interim debounce (transcript display) | 80 ms | `ProOperatorShell.tsx:310` | Was 300 ms, cut 2026-07-24 |
+| Deepgram `endpointing` | 100 ms | `audio-server.ts:141` | Was 200 ms, cut 2026-07-24 |
+| Auto-fire min-gap (scripture + song) | 400 ms | `ProOperatorShell.tsx:1325`, `:460` | Was 4000 ms, cut 2026-07-24 |
+| Whisper canonical pass min-gap | 3000 ms | `audio-server.ts:498` | Fine — off critical path |
+| Whisper 429 backoff | 30000 ms | `audio-server.ts:499` | Fine — off critical path |
+| RMS silence gate close/open | −60/−55 dBFS, 4 s hold | `useAudioStream.ts:484-486` | Opt-out; default OFF per always-on preference |
+| Slide transition (AI-fired) | 0 ms | `TransitionWrapper.tsx:32` | AI fires with `transition=undefined` → no animation |
+| Slide transition (manual pick) | 400-500 ms | `AIHelpersPanel.tsx`, `RightInspector.tsx` | Operator-selected only, not on AI hot path |
+
 ## electron-updater wiring (2026-07-12)
 
 - **GitHub owner/repo = `benji-ss1/faithflow-ai`** per scope. If the

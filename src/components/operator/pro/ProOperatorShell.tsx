@@ -457,7 +457,15 @@ const SONG_AUTOSTAGE_CONFIRM_KEY = "KeyG"; // "G" for "Go live" — Space is
 const SONG_STAGE_CONFIDENCE = 60; // stage for human "G" confirm
 const SONG_AUTOLIVE_CONFIDENCE = 85; // zero-click auto-live, see policy note above
 const SONG_AUTO_FIRED_SESSION_KEY = "presentflow.pro.songAutoFired.v1"; // 5min replay suppression, mirrors AUTO_FIRED_SESSION_KEY
-const SONG_AUTO_LIVE_MIN_GAP_MS = 4000; // mirrors Bible's DEFAULT_MIN_GAP_MS
+// 2026-07-24 latency push: cut 4000 → 400 ms. Was originally set high to
+// dampen chatter from over-eager detection, but the underlying detection
+// engine has since gotten far more accurate (nova-3 + 96-term keybias +
+// per-church learned vocab + whisper canonical two-pass). At 400 ms we
+// still can't fire two songs inside a single quarter-second — which was
+// the anti-chatter concern — while a preacher rattling off consecutive
+// scripture citations at ~1s/verse now lands each on screen instead of
+// hard-blocking for 4 s. Bible mirrors via DEFAULT_MIN_GAP_MS below.
+const SONG_AUTO_LIVE_MIN_GAP_MS = 400;
 
 type StagedSongSlides = { songId: string; title: string; slides: string[]; currentIdx: number; confidence: number; source: "detection" | "progression" };
 type LiveSongTrack = { songId: string; title: string; slides: string[]; currentIdx: number; confirmedAt: number };
@@ -1322,7 +1330,11 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const AUTO_FIRE_MIN_GAP_KEY = "presentflow.pro.autoFireMinGap.v1"; // R3
   const AUTO_FIRED_SESSION_KEY = "presentflow.pro.autoFired.v1"; // R5
   const HOLD_DURING_SONG_KEY = "presentflow.pro.holdAutoApproveDuringSong.v1"; // Y8
-  const DEFAULT_MIN_GAP_MS = 4000;
+  // 2026-07-24 latency push: 4000 → 400 ms. See SONG_AUTO_LIVE_MIN_GAP_MS
+  // above for rationale. Operator can override via
+  // presentflow.pro.autoFireMinGap.v1 localStorage if their room needs a
+  // gentler rhythm; this is just the default floor.
+  const DEFAULT_MIN_GAP_MS = 400;
 
   // Y4: latest send/kill callbacks captured in refs so stale closures in the
   // interval / queued timer don't fire against a dead callback.
@@ -1397,6 +1409,12 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     const wait = lastAutoFireAtRef.current + minGap - now;
     if (wait <= 0) {
       lastAutoFireAtRef.current = now;
+      // 2026-07-24 span instrumentation: unconditional single-line log so
+      // ops can see end-to-end latency without enabling PF_TRACE. Format
+      // designed to grep: "[latency] auto-fire ref=<...> conf=<...> det-to-fire=<N>ms"
+      const detToFireMs = (slide as unknown as { __detToFireMs?: number }).__detToFireMs;
+      const timing = typeof detToFireMs === "number" ? ` det-to-fire=${detToFireMs}ms` : "";
+      console.log(`[latency] auto-fire ref="${ref}" conf=${conf}${timing}`);
       if (pfTraceOn()) console.log("[auto-approve] firing:", ref, conf);
       safeSendLive(slide);
       // R5: persist fired key to sessionStorage (5min replay window).
@@ -1555,6 +1573,18 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     const body = first.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
     const slide: import("@/lib/broadcast").SlidePayload = { kind: "text", text: `${body}\n\n${first.label}` };
     const ref = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}${scripture.ref.verseEnd !== scripture.ref.verseStart ? `-${scripture.ref.verseEnd}` : ""}`;
+    // 2026-07-24 latency instrumentation: measure detection-received-at →
+    // auto-fire-decided-at. Detection.ts is set upstream in useAudioStream.
+    // Logs the delta to console (visible in devtools). Complements the
+    // existing lastLatencyMs which measures first-chunk → first-transcript.
+    // Together with the min-gap cut (4000→400ms) this is the primary
+    // client-side lever for cutting perceived latency.
+    if (typeof scripture.ts === "number") {
+      const detToFireMs = Date.now() - scripture.ts;
+      // Only log the informative case (auto-fire actually happening now,
+      // not queued/blocked) — logged AFTER min-gap check inside doAutoFire.
+      (slide as unknown as { __detToFireMs: number }).__detToFireMs = detToFireMs;
+    }
     doAutoFire(slide, key, ref, scripture.confidence, !!(scripture.forceLive || scripture.voiceCommand));
     bibleSession.setSelectedIdx(0);
     lastLiveWasSongRef.current = false;

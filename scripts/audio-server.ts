@@ -133,12 +133,15 @@ async function openDeepgram(churchId: string): Promise<WebSocket> {
     interim_results: "true",
     punctuate: "true",
     numerals: "true",
-    // endpointing=200ms. Progression: initial 10ms was far too aggressive
-    // (utterances ended mid-word); 400ms and 300ms both felt slightly slow
-    // for reactive Bible-ref surfacing during preaching cadence. 200ms is
-    // the current sweet spot — snappy without cutting mid-clause. Sent as
-    // the integer 200 (string-encoded per URL params spec).
-    endpointing: "200",
+    // 2026-07-24 latency push: 200 → 100 ms. Progression: 10ms was far
+    // too aggressive (utterances ended mid-word); 400/300 too slow; 200
+    // was our previous sweet spot; the interim-final-candidate early-fire
+    // path already means detection doesn't wait for finals anyway, so
+    // pushing finals faster is pure win for downstream side-effects
+    // (transcript panel, sermon RAG, learned-keyterm ingest) with no
+    // hurt to interim-driven auto-live. Reverting to 200 or higher is
+    // fine if this proves too aggressive in real services.
+    endpointing: "100",
     encoding: "linear16",
     sample_rate: "16000",
     channels: "1",
