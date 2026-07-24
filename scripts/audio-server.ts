@@ -42,6 +42,14 @@ const TICKET_SECRET = process.env.AUTH_SECRET;
 const KEY_MISSING = !DG_KEY;
 const SECRET_MISSING = !TICKET_SECRET;
 
+// 2026-07-24 — sharp / @xenova/transformers doesn't install correctly on
+// the Fly container (native binary missing). These flags rate-limit the
+// resulting per-detection error spam to exactly one log line per bridge
+// lifetime for each consumer of the embedding pipeline. Set true on
+// first error, checked before logging further.
+let semanticFallbackErrorSeen = false;
+let phraseCrossRefErrorSeen = false;
+
 // Roadmap #2 — canonical (Whisper) two-pass helpers. Wraps 16kHz mono
 // PCM in a WAV RIFF header + POSTs to Groq's Whisper endpoint. Returns
 // null on any failure (bad key, network, non-2xx) so callers can no-op.
@@ -774,7 +782,20 @@ wss.on("connection", async (ws: WebSocket, req) => {
             }
           }
         } catch (e) {
-          console.error("[audio] semantic fallback error:", e instanceof Error ? e.message : e);
+          // 2026-07-24: sharp/xenova stack fails to install on the Fly
+          // container (native binary mismatch), so semantic fallback errors
+          // on every low-conf detection. That's dozens of noisy log lines
+          // per service. Log the message once (rate-limited via module-
+          // level flag) instead of on every error. Detection proceeds with
+          // the original parser guess — this is a graceful degrade, not
+          // a functional failure. Fix path: rebuild sharp for linux-x64
+          // in Dockerfile.audio postinstall, or drop semantic search to
+          // a Vercel-side helper endpoint that the bridge calls out to.
+          const msg = e instanceof Error ? e.message : String(e);
+          if (!semanticFallbackErrorSeen) {
+            semanticFallbackErrorSeen = true;
+            console.error("[audio] semantic fallback disabled (sharp binary missing on container). First error:", msg.slice(0, 120));
+          }
           // Preserve original parser guess; don't drop the suggestion.
         }
       }
@@ -943,7 +964,13 @@ wss.on("connection", async (ws: WebSocket, req) => {
           }
         }
       } catch (e) {
-        console.error("[audio] phrase cross-reference error:", e instanceof Error ? e.message : e);
+        // Same log-rate-limit as semantic fallback above — this is the
+        // second consumer of the broken embedding pipeline on Fly.
+        const msg = e instanceof Error ? e.message : String(e);
+        if (!phraseCrossRefErrorSeen) {
+          phraseCrossRefErrorSeen = true;
+          console.error("[audio] phrase cross-reference disabled (sharp binary missing on container). First error:", msg.slice(0, 120));
+        }
       }
     }
 
