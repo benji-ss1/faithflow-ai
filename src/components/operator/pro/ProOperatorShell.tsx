@@ -307,13 +307,12 @@ function LiveTranscriptPanel({ ctx }: { ctx: OperatorShellCtx }) {
   // Keep only the last 30s of finals for the visible window.
   const windowed = recent.filter((t) => now - t.ts < 30_000);
   // Task 8: debounce interim renders to ≥3 char OR ≥300ms delta.
-  // 2026-07-24 — dropped from (3 chars OR 300ms) to (1 char OR 80ms) after
-  // field feedback that the transcript panel felt laggy. Detection itself
-  // was never gated by this (it uses interim_final_candidate upstream), so
-  // this only affects the *visible* transcript feel. 80ms keeps a light
-  // render-throttle to prevent an overactive interim stream from re-rendering
-  // 30 times/sec on lower-end operator machines.
-  const interim = useDebouncedInterim(audio.interim, 1, 80);
+  // 2026-07-24 latency push (third cut, 80 → 40 ms). Progression:
+  // 300 → 80 (yesterday) → 40 (now). Detection was never gated by this
+  // debounce — it only affects transcript-panel render cadence. 40 ms
+  // is one visible frame at 25 fps; below that human eye can't
+  // distinguish. Any lower would burn CPU with no perceived gain.
+  const interim = useDebouncedInterim(audio.interim, 1, 40);
   const hasContent = windowed.length > 0 || !!interim;
 
   useEffect(() => {
@@ -457,15 +456,13 @@ const SONG_AUTOSTAGE_CONFIRM_KEY = "KeyG"; // "G" for "Go live" — Space is
 const SONG_STAGE_CONFIDENCE = 60; // stage for human "G" confirm
 const SONG_AUTOLIVE_CONFIDENCE = 85; // zero-click auto-live, see policy note above
 const SONG_AUTO_FIRED_SESSION_KEY = "presentflow.pro.songAutoFired.v1"; // 5min replay suppression, mirrors AUTO_FIRED_SESSION_KEY
-// 2026-07-24 latency push: cut 4000 → 400 ms. Was originally set high to
-// dampen chatter from over-eager detection, but the underlying detection
-// engine has since gotten far more accurate (nova-3 + 96-term keybias +
-// per-church learned vocab + whisper canonical two-pass). At 400 ms we
-// still can't fire two songs inside a single quarter-second — which was
-// the anti-chatter concern — while a preacher rattling off consecutive
-// scripture citations at ~1s/verse now lands each on screen instead of
-// hard-blocking for 4 s. Bible mirrors via DEFAULT_MIN_GAP_MS below.
-const SONG_AUTO_LIVE_MIN_GAP_MS = 400;
+// 2026-07-24 latency push (second cut, 400 → 200 ms). Original 4000 ms was
+// dampening detection chatter that no longer exists at nova-3 + keybias +
+// learned-vocab accuracy levels. 200 ms floor still prevents two fires
+// inside a fifth of a second — the anti-chatter guarantee — while
+// consecutive scripture at ~0.5s/verse now lands each on screen.
+// Bible mirrors via DEFAULT_MIN_GAP_MS below.
+const SONG_AUTO_LIVE_MIN_GAP_MS = 200;
 
 type StagedSongSlides = { songId: string; title: string; slides: string[]; currentIdx: number; confidence: number; source: "detection" | "progression" };
 type LiveSongTrack = { songId: string; title: string; slides: string[]; currentIdx: number; confirmedAt: number };
@@ -1330,11 +1327,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const AUTO_FIRE_MIN_GAP_KEY = "presentflow.pro.autoFireMinGap.v1"; // R3
   const AUTO_FIRED_SESSION_KEY = "presentflow.pro.autoFired.v1"; // R5
   const HOLD_DURING_SONG_KEY = "presentflow.pro.holdAutoApproveDuringSong.v1"; // Y8
-  // 2026-07-24 latency push: 4000 → 400 ms. See SONG_AUTO_LIVE_MIN_GAP_MS
-  // above for rationale. Operator can override via
-  // presentflow.pro.autoFireMinGap.v1 localStorage if their room needs a
-  // gentler rhythm; this is just the default floor.
-  const DEFAULT_MIN_GAP_MS = 400;
+  // 2026-07-24 latency push (second cut, 400 → 200 ms). See
+  // SONG_AUTO_LIVE_MIN_GAP_MS for rationale. Operator override via
+  // presentflow.pro.autoFireMinGap.v1 still respected.
+  const DEFAULT_MIN_GAP_MS = 200;
 
   // Y4: latest send/kill callbacks captured in refs so stale closures in the
   // interval / queued timer don't fire against a dead callback.

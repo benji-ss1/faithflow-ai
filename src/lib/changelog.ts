@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.28",
+    date: "2026-07-24",
+    headline: "Latency halved again + fuzzy book-name miss fixed",
+    highlights: [
+      "Auto-fire min-gap 400ms → 200ms (5-verse sermon citations now project at ~0.5s cadence)",
+      "Deepgram finalization 100ms → 75ms; transcript-panel debounce 80ms → 40ms (one visible frame at 25fps — below eye-perceivable)",
+      "Whisper canonical two-pass min-gap 3000ms → 1500ms — off critical path but tighter double-check cadence",
+      "Fuzzy book-name matching now correctly handles 'filippians four verse thirteen' style misspellings mixed with spoken numbers (previously silent-failed) — the parser's 2-word candidate branch was greedy-eating context words. Accuracy audit now scores 12/12 = 100% match rate, 0% silent failures, 0% false triggers on the 17-scenario adversarial test",
+    ],
+  },
+  {
     version: "0.1.27",
     date: "2026-07-24",
     headline: "Latency push — auto-fire min-gap 4000ms → 400ms, Deepgram finalization 200ms → 100ms",

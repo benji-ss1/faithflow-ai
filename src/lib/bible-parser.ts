@@ -536,8 +536,17 @@ const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => Pa
     // "ruthe chapter" (never matches anything) instead of "ruthe" (which
     // would correctly fuzzy-match Ruth). Found by review — this was the
     // pattern's single most common target shape and it was missing it.
+    // 2026-07-24 fix — F1 from Pass 2 accuracy audit. Original 2-word
+    // candidate greedy-ate context words ("to filippians") which fuzzy-
+    // match then rejected as a book name — and the regex engine doesn't
+    // backtrack to try the shorter "filippians" alone. Restricted to
+    // 1-word candidates: covers the overwhelmingly-common misspelled-
+    // single-book case (Habakkuk, Philippians, Ecclesiastes, etc.).
+    // Two-word real book names ("song of solomon", "1 kings", "second
+    // corinthians") are already handled by exact-match regexes above,
+    // so this pattern doesn't need to cover them.
     regex: new RegExp(
-      `\\b([a-z]+(?:\\s+(?!chapter\\b|verses?\\b)[a-z]+){0,1})\\s+(?:chapter\\s+)?${NUM_CHUNK}\\s*(?::|\\s+verses?\\s+|,\\s*)\\s*${NUM_CHUNK}\\b(?!\\s*(?:to\\b|through\\b|thru\\b|-|–|—))`,
+      `\\b([a-z]+)\\s+(?:chapter\\s+)?${NUM_CHUNK}\\s*(?::|\\s+verses?\\s+|,\\s*)\\s*${NUM_CHUNK}\\b(?!\\s*(?:to\\b|through\\b|thru\\b|-|–|—))`,
       "gi",
     ),
     parse: (m) => {
