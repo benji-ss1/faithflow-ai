@@ -20,7 +20,7 @@ import http from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import { getDb } from "../src/lib/db/client";
 import { transcriptSegments, detectedReferences, servicePlans, bibleTranslations, churchPreferences } from "../src/lib/db/schema";
-import { parseReferences, knownBook, parseBareVerse, isValidChapter } from "../src/lib/bible-parser";
+import { parseReferences, knownBook, parseBareVerse, isValidChapter, extractCorrections } from "../src/lib/bible-parser";
 import { extractSongCandidates, fuzzyMatchSong } from "../src/lib/song-parser";
 import { parseCommands } from "../src/lib/command-parser";
 import { semanticSearch } from "../src/lib/server/bible";
@@ -334,7 +334,7 @@ type ClientMessage =
 type ServerMessage =
   | { type: "ready" }
   | { type: "interim"; text: string }
-  | { type: "final"; segmentId: string; text: string; confidence?: number; words?: { w: string; c: number; s?: number; e?: number }[]; wordsDropped?: boolean }
+  | { type: "final"; segmentId: string; text: string; confidence?: number; words?: { w: string; c: number; s?: number; e?: number; sp?: number }[]; wordsDropped?: boolean; corrections?: { original: string; corrected: string }[] }
   | { type: "interim_final_candidate"; text: string; confidence?: number; words?: { w: string; c: number; s?: number; e?: number }[]; wordsDropped?: boolean }
   | { type: "detection"; detection: { id: string; segmentId: string; book: string; chapter: number; verseStart: number; verseEnd: number; confidence: number; matchedText: string; forceLive?: boolean } }
   | { type: "canonical_correction"; segmentId: string; dgText: string; whisperText: string; original: { book: string; chapter: number; verseStart: number; verseEnd: number }; corrected: { book: string; chapter: number; verseStart: number; verseEnd: number } }
@@ -702,7 +702,12 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // since the live path already succeeded.
     const segId = crypto.randomUUID();
     noteEmittedFinal(text);
-    send(capWordsIfHuge({ type: "final", segmentId: segId, text, confidence: dgConf, words }) as ServerMessage);
+    // 2026-07-24 — surface parser-level word corrections (TH-fronting number
+    // repairs etc.) to the client so the transcript panel can show the AI
+    // visibly self-correcting in real time. Cheap: pure string diff, no LLM,
+    // no round trip. Empty array when nothing to correct.
+    const corrections = extractCorrections(text);
+    send(capWordsIfHuge({ type: "final", segmentId: segId, text, confidence: dgConf, words, ...(corrections.length > 0 ? { corrections } : {}) }) as ServerMessage);
     // The client already has the "final" message — this insert no longer
     // blocks that. It's still awaited here (not fire-and-forget) because
     // detectedReferences/aiSuggestions below have an FK to this row and must

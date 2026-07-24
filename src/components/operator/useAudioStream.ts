@@ -57,7 +57,7 @@ export type CommandSuggestion = {
   matchedText: string;
 };
 
-export type TranscriptChunk = { id: string; text: string; final: boolean; ts: number; words?: { w: string; c: number; s?: number; e?: number; sp?: number }[]; wordsDropped?: boolean };
+export type TranscriptChunk = { id: string; text: string; final: boolean; ts: number; words?: { w: string; c: number; s?: number; e?: number; sp?: number }[]; wordsDropped?: boolean; corrections?: { original: string; corrected: string }[] };
 
 /**
  * Unified suggestion — Phase 5A. Runs client-side on every transcript
@@ -1157,10 +1157,13 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           // utterance. Persist that so the auto-approve gate can conservatively
           // block auto-live (no words to check → can't rule out low-conf).
           const wordsDropped = (msg as { wordsDropped?: boolean }).wordsDropped === true;
+          const corrections = Array.isArray((msg as { corrections?: unknown }).corrections)
+            ? (msg as { corrections: { original: string; corrected: string }[] }).corrections
+            : undefined;
           setState((s) => ({
             ...s,
             interim: "",
-            transcript: [...s.transcript, { id: msg.segmentId, text: msg.text, final: true, ts: Date.now(), words, wordsDropped }].slice(-100),
+            transcript: [...s.transcript, { id: msg.segmentId, text: msg.text, final: true, ts: Date.now(), words, wordsDropped, corrections }].slice(-100),
           }));
           // Phase 5A: run unified detection client-side. Fire-and-forget.
           // R11: skip if we already ran detection on this text within 800ms

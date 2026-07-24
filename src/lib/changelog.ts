@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.25",
+    date: "2026-07-24",
+    headline: "Yellow highlight now means 'AI just self-corrected' + transcript feels ~200ms snappier",
+    highlights: [
+      "The yellow highlight in the transcript panel is no longer a confidence indicator — it now marks words the AI initially transcribed one way but corrected using context. Example: preacher says 'James Forrest four' → transcript shows 'James three four' with 'three' briefly highlighted yellow (hover to see original 'tree' that got corrected). Fades to plain over 3 seconds",
+      "Same real-time self-correcting behavior you'd expect from Claude/ChatGPT voice — approximate first pass, corrected second pass, all in-line",
+      "Transcript panel debounce dropped from 300ms → 80ms so the visible transcript tracks live speech much more closely. Detection latency is unchanged — this only affects how quickly you *see* what was heard",
+    ],
+  },
+  {
     version: "0.1.24",
     date: "2026-07-24",
     headline: "Kept reconnect awareness, killed the visual noise near the AI pill",

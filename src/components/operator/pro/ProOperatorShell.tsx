@@ -307,7 +307,13 @@ function LiveTranscriptPanel({ ctx }: { ctx: OperatorShellCtx }) {
   // Keep only the last 30s of finals for the visible window.
   const windowed = recent.filter((t) => now - t.ts < 30_000);
   // Task 8: debounce interim renders to ≥3 char OR ≥300ms delta.
-  const interim = useDebouncedInterim(audio.interim, 3, 300);
+  // 2026-07-24 — dropped from (3 chars OR 300ms) to (1 char OR 80ms) after
+  // field feedback that the transcript panel felt laggy. Detection itself
+  // was never gated by this (it uses interim_final_candidate upstream), so
+  // this only affects the *visible* transcript feel. 80ms keeps a light
+  // render-throttle to prevent an overactive interim stream from re-rendering
+  // 30 times/sec on lower-end operator machines.
+  const interim = useDebouncedInterim(audio.interim, 1, 80);
   const hasContent = windowed.length > 0 || !!interim;
 
   useEffect(() => {
@@ -351,41 +357,59 @@ function LiveTranscriptPanel({ ctx }: { ctx: OperatorShellCtx }) {
                     mic/audio is struggling instead of "the whole thing
                     looks fine but a detection was wrong". Falls back to
                     plain text if the words array isn't there. */}
-                {t.words && t.words.length > 0 ? (
-                  // 2026-07-23 review fix: bucket consecutive words in the
-                  // same confidence tier into a single <span> so a 90-min
-                  // sermon's transcript panel doesn't render thousands of
-                  // spans + re-run inline-conditional class computation on
-                  // every WS message. Typical bucketed count drops ~5-10×.
-                  // Tiers: veryLow (< 0.5), low (< 0.75), normal (>= 0.75).
+                {/* 2026-07-24 UX rewrite: yellow is now an AUTO-CORRECTION
+                    indicator, not a low-confidence one. When the parser
+                    fixed a mistranscription in context (e.g. "James
+                    Forrest four" → "James four four"), the corrected
+                    word renders yellow with a fade animation; hover
+                    shows the original. Same idea as ChatGPT/Claude voice
+                    self-correcting mid-sentence.
+                    No corrections on this segment → plain text, zero
+                    visual noise. (Corrections is empty/undefined for
+                    99% of segments — the highlight is genuinely rare
+                    and always means "the AI just fixed itself here".) */}
+                {t.corrections && t.corrections.length > 0 ? (
                   (() => {
-                    const tierOf = (c: number) => (c < 0.5 ? "vlow" : c < 0.75 ? "low" : "ok");
-                    const classFor = (tier: string) =>
-                      tier === "vlow" ? "text-amber-400 underline decoration-amber-400/60 decoration-dotted"
-                      : tier === "low" ? "text-amber-300/90"
-                      : "";
-                    const runs: { tier: string; text: string; minC: number; maxC: number }[] = [];
-                    for (const w of t.words) {
-                      const tier = tierOf(w.c);
-                      const last = runs[runs.length - 1];
-                      if (last && last.tier === tier) {
-                        last.text += " " + w.w;
-                        if (w.c < last.minC) last.minC = w.c;
-                        if (w.c > last.maxC) last.maxC = w.c;
-                      } else {
-                        if (last) last.text += " ";
-                        runs.push({ tier, text: w.w, minC: w.c, maxC: w.c });
+                    let display = t.text;
+                    const parts: { key: number; text: string; original: string | null }[] = [];
+                    let keySeq = 0;
+                    // Naive word-boundary substitution of each original→corrected
+                    // pair. Works because the corrections list is deduped by
+                    // (original,corrected) and each pair is a single ASCII token.
+                    // Iterate through the string, matching any correction's
+                    // original with a case-insensitive \b regex, emitting
+                    // literal chunks + a highlighted "corrected" span at each hit.
+                    const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                    const alternation = t.corrections
+                      .map((c) => escapeRe(c.original))
+                      .join("|");
+                    if (alternation.length === 0) {
+                      parts.push({ key: keySeq++, text: display, original: null });
+                    } else {
+                      const re = new RegExp(`\\b(${alternation})\\b`, "gi");
+                      let last = 0;
+                      let m: RegExpExecArray | null;
+                      while ((m = re.exec(display)) !== null) {
+                        if (m.index > last) {
+                          parts.push({ key: keySeq++, text: display.slice(last, m.index), original: null });
+                        }
+                        const hit = m[0];
+                        const rule = t.corrections!.find((c) => c.original.toLowerCase() === hit.toLowerCase());
+                        parts.push({ key: keySeq++, text: rule?.corrected ?? hit, original: hit });
+                        last = m.index + hit.length;
+                      }
+                      if (last < display.length) {
+                        parts.push({ key: keySeq++, text: display.slice(last), original: null });
                       }
                     }
-                    return runs.map((r, i) => (
-                      <span
-                        key={i}
-                        className={classFor(r.tier)}
-                        title={r.tier === "ok" ? undefined : `${Math.round(r.minC * 100)}–${Math.round(r.maxC * 100)}% confidence`}
-                      >
-                        {r.text}
-                      </span>
-                    ));
+                    return parts.map((p) => p.original === null
+                      ? <span key={p.key}>{p.text}</span>
+                      : <span
+                          key={p.key}
+                          className="rounded-sm bg-yellow-400/30 text-yellow-100 px-0.5 pf-corrected-flash"
+                          title={`Heard "${p.original}" — corrected to "${p.text}"`}
+                        >{p.text}</span>
+                    );
                   })()
                 ) : (
                   t.text

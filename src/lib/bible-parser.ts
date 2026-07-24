@@ -223,6 +223,48 @@ function repairNumberHomophones(s: string): string {
   return s;
 }
 
+/**
+ * Public helper — extract the list of word-level auto-corrections the parser
+ * would apply to a raw transcript segment. Used by the audio bridge to
+ * forward "the AI initially heard X, then contextually corrected to Y"
+ * signals to the client so the transcript panel can visibly show the fix
+ * in real time (yellow highlight, fade). Case-insensitive match, but the
+ * original casing from the transcript is preserved in `original`.
+ *
+ * Currently surfaces:
+ *   - TH-fronting number repairs (tree→three, tird→third, tirty→thirty,
+ *     tirteen→thirteen, tousand→thousand, etc.)
+ *
+ * Future extensions (fuzzy book match, whisper-canonical diff) plug in the
+ * same shape so the client render path stays identical.
+ */
+export type TranscriptCorrection = { original: string; corrected: string };
+export function extractCorrections(rawText: string): TranscriptCorrection[] {
+  if (!rawText) return [];
+  const out: TranscriptCorrection[] = [];
+  const seen = new Set<string>(); // dedupe on `${lower(original)}→${lower(corrected)}`
+  const pairs: [RegExp, string | ((m: string) => string)][] = [
+    [/\btree\b(?!\s+of\b)/gi, "three"],
+    [/\btird\b/gi, "third"],
+    [/\btirteen(th)?\b/gi, (m: string) => (m.toLowerCase().endsWith("th") ? "thirteenth" : "thirteen")],
+    [/\btirty\b/gi, "thirty"],
+    [/\btirtieth\b/gi, "thirtieth"],
+    [/\btousand\b/gi, "thousand"],
+  ];
+  for (const [re, repl] of pairs) {
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(rawText)) !== null) {
+      const original = m[0];
+      const corrected = typeof repl === "function" ? repl(original) : repl;
+      const key = `${original.toLowerCase()}→${corrected.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ original, corrected });
+    }
+  }
+  return out;
+}
+
 function normalize(text: string): string {
   let s = text
     .normalize("NFKD")
