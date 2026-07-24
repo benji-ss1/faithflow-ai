@@ -8,7 +8,21 @@ WORKDIR /app
 
 # Copy manifest first for cache efficiency
 COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev --ignore-scripts && npm i tsx
+# --ignore-scripts skips lifecycle hooks (fast + safe for most deps),
+# but that also skips sharp's install script which downloads the
+# platform-specific prebuild binary. Without it, @xenova/transformers
+# (used by semantic scripture fallback + phrase-cross-reference)
+# crashes on every low-conf detection with "Cannot find native binding".
+# Fix: after the ignore-scripts install, explicitly force-install the
+# linux-x64 sharp binary. Uses npm's optional-dep machinery via
+# --os/--cpu flags so we get the right prebuild regardless of the
+# build host arch. `|| true` so a temporary sharp CDN blip doesn't
+# fail the whole deploy — the bridge still works with sharp missing
+# (rate-limited fallback logs kick in, primary regex detection is
+# unaffected).
+RUN npm ci --omit=dev --ignore-scripts \
+  && npm i tsx \
+  && npm install --os=linux --cpu=x64 --no-save sharp || true
 
 # Copy source. We need:
 #   - scripts/audio-server.ts
