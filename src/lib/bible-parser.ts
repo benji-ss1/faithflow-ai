@@ -262,6 +262,31 @@ export function extractCorrections(rawText: string): TranscriptCorrection[] {
       out.push({ original, corrected });
     }
   }
+  // 2026-07-24 extension: also surface FUZZY BOOK MATCHES as corrections.
+  // The parser's fuzzyBookMatch() catches near-miss book names like
+  // "filippians" → "Philippians", "corintians" → "Corinthians",
+  // "ecclesiastis" → "Ecclesiastes". Feeding these into the correction
+  // stream makes the yellow-highlight visibly fire on the most common
+  // real-world mis-transcription (accented / rushed book names) instead
+  // of only the rare TH-fronting number cases above. Same shape as
+  // number repairs so the client render path is unchanged.
+  // Scan word tokens; skip anything already canonically known.
+  const wordRe = /\b([A-Za-z][A-Za-z']{3,20})\b/g;
+  let wm: RegExpExecArray | null;
+  while ((wm = wordRe.exec(rawText)) !== null) {
+    const token = wm[1];
+    const lower = token.toLowerCase();
+    // Skip exact-known book names (VARIANT_TO_BOOK already handles them).
+    if (VARIANT_TO_BOOK.has(lower)) continue;
+    const book = fuzzyBookMatch(lower);
+    if (!book) continue;
+    // Only surface if it's actually a different string (not just casing).
+    if (book.toLowerCase() === lower) continue;
+    const key = `${lower}→${book.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ original: token, corrected: book });
+  }
   return out;
 }
 

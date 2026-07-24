@@ -457,13 +457,12 @@ const SONG_AUTOSTAGE_CONFIRM_KEY = "KeyG"; // "G" for "Go live" — Space is
 const SONG_STAGE_CONFIDENCE = 60; // stage for human "G" confirm
 const SONG_AUTOLIVE_CONFIDENCE = 85; // zero-click auto-live, see policy note above
 const SONG_AUTO_FIRED_SESSION_KEY = "presentflow.pro.songAutoFired.v1"; // 5min replay suppression, mirrors AUTO_FIRED_SESSION_KEY
-// 2026-07-24 pull-back to 700 ms after real-service feedback that 100 ms
-// produced visible flicker on rapid quote-then-quote-then-song stretches
-// — the operator's eye couldn't keep up and the projected screen felt
-// twitchy. 700 ms lets ~1.4 auto-fires per second, which matches typical
-// preacher cadence, still 5-6× better than the original 4000 ms wall.
+// 2026-07-24 nudge to 800 ms after false-trigger report at 700 ms. Per
+// tuning heuristic: if false triggers climb at any step, +100 ms until
+// they stop — that's the real floor for THIS congregation / mic / room.
+// Still ~5× tighter than the original 4000 ms wall.
 // Bible mirrors via DEFAULT_MIN_GAP_MS below.
-const SONG_AUTO_LIVE_MIN_GAP_MS = 700;
+const SONG_AUTO_LIVE_MIN_GAP_MS = 800;
 
 type StagedSongSlides = { songId: string; title: string; slides: string[]; currentIdx: number; confidence: number; source: "detection" | "progression" };
 type LiveSongTrack = { songId: string; title: string; slides: string[]; currentIdx: number; confirmedAt: number };
@@ -1358,10 +1357,9 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const AUTO_FIRE_MIN_GAP_KEY = "presentflow.pro.autoFireMinGap.v1"; // R3
   const AUTO_FIRED_SESSION_KEY = "presentflow.pro.autoFired.v1"; // R5
   const HOLD_DURING_SONG_KEY = "presentflow.pro.holdAutoApproveDuringSong.v1"; // Y8
-  // 2026-07-24 pull-back to 700 ms (same as SONG_AUTO_LIVE_MIN_GAP_MS)
-  // after real-service feedback. Operator override via
-  // presentflow.pro.autoFireMinGap.v1 still respected.
-  const DEFAULT_MIN_GAP_MS = 700;
+  // 2026-07-24 nudge to 800 ms (same as SONG_AUTO_LIVE_MIN_GAP_MS)
+  // after false-trigger report at 700. Operator override respected.
+  const DEFAULT_MIN_GAP_MS = 800;
 
   // Y4: latest send/kill callbacks captured in refs so stale closures in the
   // interval / queued timer don't fire against a dead callback.

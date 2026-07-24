@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.31",
+    date: "2026-07-24",
+    headline: "Auto-fire +100ms (false-trigger floor tuning) + yellow highlight now fires on real-world book misspellings",
+    highlights: [
+      "Auto-fire min-gap raised 700ms → 800ms per the tuning heuristic (nudge +100ms until false triggers stop, that's the real floor for THIS mic/room). Still ~5× tighter than the original 4000ms wall",
+      "Yellow correction highlight now fires on fuzzy book-name matches too — before it only triggered on rare TH-fronting number words ('tree'→'three'). Now if someone says 'filippians' or 'corintians' or 'ecclesiastis', the corrected word (Philippians / Corinthians / Ecclesiastes) shows briefly yellow in the transcript panel with the original in the hover tooltip",
+    ],
+  },
+  {
     version: "0.1.30",
     date: "2026-07-24",
     headline: "Fixed transcript glitches ('97 What?' style) from over-aggressive endpointing",
