@@ -15,6 +15,13 @@ const PUBLIC_PATHS = [
   // requires CRON_SECRET (fails closed) and warm-embeddings checks it when set,
   // so exposing the prefix here only lets the request reach that guard.
   "/api/cron",
+  // 2026-07-24: Fly audio bridge calls /api/internal/* endpoints
+  // (semantic-search etc.) with an INTERNAL_API_SECRET bearer token.
+  // No user session, so the auth middleware here would 307 → /login
+  // and silently break the semantic-fallback path. The internal routes
+  // self-guard on the Bearer secret — exposing the prefix here only
+  // lets the request reach that guard.
+  "/api/internal",
 ];
 
 // Projector/stage/audience output. Desktop-exclusive as of the web/desktop
