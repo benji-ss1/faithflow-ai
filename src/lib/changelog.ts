@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.33",
+    date: "2026-07-24",
+    headline: "Transcript feels snappier — finalized text lands ~50ms sooner",
+    highlights: [
+      "Deepgram finalization pushed 150ms → 100ms — white (final) transcript text lands ~33% sooner. The '97 What?' fragment issue was specifically at 50ms; 100ms is well past that pathological floor",
+      "Interim transcript debounce 150ms → 90ms — grey partial-word text updates ~40% more frequently without the 'dancing text' jitter we saw at 40ms (that was aggravated by the fragmentation bug, now fixed)",
+      "Detection latency is unchanged — both knobs only affect display cadence, not auto-fire responsiveness",
+    ],
+  },
+  {
     version: "0.1.32",
     date: "2026-07-24",
     headline: "Live transcription never stops + song 0-slides in playlist fixed + song auto-project diagnostics",

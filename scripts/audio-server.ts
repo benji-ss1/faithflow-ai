@@ -187,16 +187,13 @@ async function openDeepgram(churchId: string): Promise<WebSocket> {
     interim_results: "true",
     punctuate: "true",
     numerals: "true",
-    // 2026-07-24 pull-back to 150 ms after real-service report of
-    // Deepgram producing bogus fragments in the transcript (e.g. spoken
-    // "so what?" arriving as "97 What?"). The 50 ms endpointing was
-    // cutting finals mid-word; combined with numerals:true, Deepgram's
-    // number-recognizer interpreted the tail fragment as a spoken number.
-    // 150 ms is well above the pathological 10 ms floor, still 25%
-    // tighter than the original 200 ms, and doesn't produce fragment
-    // artefacts in casual speech. Detection latency is unchanged
-    // (interim-final-candidate path bypasses this).
-    endpointing: "150",
+    // 2026-07-24 tighten to 100 ms after real-service report that 150 ms
+    // felt too slow for finalized (white) text to appear. Progression:
+    // 10ms (broke), 50ms (broke, "97 What?" fragments), 75ms (edge),
+    // 150ms (safe but slow), 100ms (33% tighter than 150, no fragment
+    // issues in casual testing). Detection latency unaffected —
+    // interim-final-candidate path bypasses this gate.
+    endpointing: "100",
     encoding: "linear16",
     sample_rate: "16000",
     channels: "1",

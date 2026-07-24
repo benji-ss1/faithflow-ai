@@ -307,13 +307,13 @@ function LiveTranscriptPanel({ ctx }: { ctx: OperatorShellCtx }) {
   // Keep only the last 30s of finals for the visible window.
   const windowed = recent.filter((t) => now - t.ts < 30_000);
   // Task 8: debounce interim renders to ≥3 char OR ≥300ms delta.
-  // 2026-07-24 pull-back to 150 ms after real-service feedback that 40 ms
-  // produced too much micro-jitter in the transcript panel — every partial-
-  // word interim caused a re-render, making the panel feel unstable
-  // ("dancing text"). 150 ms is smoother, still 2× tighter than the
-  // original 300 ms, and detection latency is unaffected either way
-  // (detection uses interim_final_candidate upstream, not this debounce).
-  const interim = useDebouncedInterim(audio.interim, 1, 150);
+  // 2026-07-24 tighten to 90 ms after real-service report that 150 ms
+  // felt sluggish for interim (grey) text. Previous "dancing text" issue
+  // at 40 ms was likely aggravated by the endpointing fragmentation bug
+  // (fixed separately). 90 ms should be responsive without the earlier
+  // jitter. Detection unaffected — this only tunes visible interim
+  // render cadence.
+  const interim = useDebouncedInterim(audio.interim, 1, 90);
   const hasContent = windowed.length > 0 || !!interim;
 
   useEffect(() => {
