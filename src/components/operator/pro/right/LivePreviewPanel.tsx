@@ -44,11 +44,18 @@ export function LivePreviewPanel({ ctx }: { ctx: OperatorShellCtx }) {
           sanctuary-readability floor rather than growing the box.
           Explicit height (h-[220px]) locks it — aspect-video would
           try to derive from sidebar width and could still oscillate. */}
+      {/* 2026-07-25 field bug fix — was h-[220px] which clipped long verses
+          mid-word (John 3:18 screenshot cut off "of God"). Bumped to
+          h-[280px] AND the sidebar widened to 360px in ProOperatorShell.
+          Combined that's ~35% more visible area, so the sanctuary-readability
+          floor (24px min) fits most single verses without any clipping.
+          Kept aspect-agnostic (no aspect-video) so the box is a stable
+          size regardless of content length. */}
       <div
         className={
           isLive
-            ? "relative h-[220px] w-full rounded-md overflow-hidden border-2 border-[color:var(--color-destructive,#e11d48)] bg-black"
-            : "relative h-[220px] w-full rounded-md overflow-hidden border border-[var(--color-border)] bg-black"
+            ? "relative h-[280px] w-full rounded-md overflow-hidden border-2 border-[color:var(--color-destructive,#e11d48)] bg-black"
+            : "relative h-[280px] w-full rounded-md overflow-hidden border border-[var(--color-border)] bg-black"
         }
         style={isLive ? { boxShadow: "0 0 12px 2px rgba(225, 29, 72, 0.35)" } : undefined}
       >

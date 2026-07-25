@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.45",
+    date: "2026-07-25",
+    headline: "Live preview panel — wider + taller so long verses don't clip mid-word",
+    highlights: [
+      "Right sidebar bumped from 300px → 360px (60px more width) and the Live preview box from 220px → 280px tall (60px more height). Combined that's ~35% more visible area — long verses like John 3:18 no longer cut off at 'the name of the only [begotten Son of God]' mid-word. Center panel gives up 60px of width but operator's primary focus is the live preview",
+    ],
+  },
+  {
     version: "0.1.44",
     date: "2026-07-25",
     headline: "▶ Play button now context-aware (Bible / Songs / Slides) + < Verse / Verse > give visible feedback",

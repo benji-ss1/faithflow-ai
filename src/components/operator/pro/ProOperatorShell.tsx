@@ -2521,7 +2521,13 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         </main>
 
         {/* RIGHT */}
-        <aside data-tour="right" className="w-[300px] shrink-0 border-l border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col overflow-hidden">
+        {/* 2026-07-25 field bug fix — sidebar was 300px which forced the
+            LivePreviewPanel below to a cramped 300×220 box that clipped
+            long verses mid-word. Bumped to 360px so the preview reads
+            comfortably at the sanctuary-readability floor without shrinking
+            text or paginating away words. Center panel gives up 60px of
+            width but the operator's primary attention is the live preview. */}
+        <aside data-tour="right" className="w-[360px] shrink-0 border-l border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col overflow-hidden">
           {/* Task F polish pass: TopBar right cluster is now the single source of truth
               for output routing indicators. OutputRoutingRow retired from the sidebar to
               reduce duplication. Kept in-tree behind a localStorage flag for A/B: set
