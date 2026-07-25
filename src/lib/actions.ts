@@ -2,8 +2,8 @@
 import { revalidatePath } from "next/cache";
 import { eq, and, asc, sql } from "drizzle-orm";
 import { getDb } from "./db/client";
-import { servicePlans, serviceItems, songs, songSlides, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes } from "./db/schema";
-import { requireUser } from "./session";
+import { servicePlans, serviceItems, songs, songSlides, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes } from "./db/schema";
+import { requireUser, requireRole } from "./session";
 import { deleteObject } from "./s3";
 import { validateReorderItemSlides } from "./reorder-validator";
 import { createLimiter } from "./rate-limit";
@@ -1214,4 +1214,49 @@ export async function updateChurchKeyterms(terms: string[]): Promise<Result<{ co
   const mod = await import("./deepgram-keyterms");
   mod._clearKeytermCache();
   return { ok: true, data: { count: cleaned.length } };
+}
+
+// Church profile edit — powers /organization. Admin-only. All fields
+// optional; nulls clear the value. congregationSize is coerced from
+// FormData string to positive integer or null. Timezone accepts any
+// IANA string; we don't validate against the tz database on the
+// server (browser Intl provides the picker).
+const CONGREGATION_MAX = 200_000;
+export async function updateChurch(patch: {
+  name?: string;
+  city?: string | null;
+  country?: string | null;
+  timezone?: string;
+  congregationSize?: number | null;
+  denomination?: string | null;
+}): Promise<Result> {
+  const admin = await requireRole("admin");
+  const updates: Record<string, unknown> = {};
+  if (patch.name !== undefined) {
+    const name = patch.name.trim().slice(0, 200);
+    if (!name) return { ok: false, error: "Church name is required" };
+    updates.name = name;
+  }
+  if (patch.timezone !== undefined) {
+    const tz = patch.timezone.trim().slice(0, 64);
+    if (!tz) return { ok: false, error: "Timezone is required" };
+    updates.timezone = tz;
+  }
+  if (patch.city !== undefined) updates.city = patch.city ? patch.city.trim().slice(0, 120) : null;
+  if (patch.country !== undefined) updates.country = patch.country ? patch.country.trim().slice(0, 120) : null;
+  if (patch.denomination !== undefined) updates.denomination = patch.denomination ? patch.denomination.trim().slice(0, 120) : null;
+  if (patch.congregationSize !== undefined) {
+    if (patch.congregationSize === null) updates.congregationSize = null;
+    else {
+      const n = Math.floor(Number(patch.congregationSize));
+      if (!Number.isFinite(n) || n < 0 || n > CONGREGATION_MAX) return { ok: false, error: "Congregation size looks off" };
+      updates.congregationSize = n;
+    }
+  }
+  if (Object.keys(updates).length === 0) return { ok: true };
+  const db = getDb();
+  await db.update(churches).set(updates).where(eq(churches.id, admin.churchId));
+  revalidatePath("/organization");
+  revalidatePath("/dashboard");
+  return { ok: true };
 }

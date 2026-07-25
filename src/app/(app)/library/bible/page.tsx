@@ -17,10 +17,14 @@ export default async function BiblePage() {
   const connectedLicensed = await db.select().from(licensedTranslations).where(eq(licensedTranslations.churchId, user.churchId));
   if (translations.length === 0) {
     return (
-      <div>
+      <div className="space-y-6">
         <PageHeader eyebrow="Library" title="Bible Library" description="Manage public-domain translations now and prepare for licensed providers later." />
-        <div className="text-sm text-muted-foreground">
-          No translations imported yet. Run <code className="font-mono px-1.5 py-0.5 bg-muted rounded-sm text-xs">npm run db:seed:bible</code> to import KJV and WEB.
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border bg-white/[0.02] p-12 text-center">
+          <div className="text-base font-semibold text-foreground">Bible library is warming up</div>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Public-domain translations (KJV, WEB) are being prepared for your church. This usually completes within a few minutes of first sign-in.
+            If you still see this after 10 minutes, contact support and mention &ldquo;bible seed missing&rdquo;.
+          </p>
         </div>
       </div>
     );

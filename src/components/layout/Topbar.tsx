@@ -7,7 +7,6 @@ import { signOut } from "next-auth/react";
 import { _resetTierCache } from "@/hooks/useTier";
 import { signOutFully } from "@/lib/sign-out";
 import {
-  Bell,
   ChevronDown,
   Command,
   LogOut,
@@ -274,14 +273,6 @@ export function Topbar({ user, churchName, onOpenNavigation }: TopbarProps) {
             <div className="max-w-[190px] truncate text-sm font-medium text-foreground">{churchName}</div>
           </div>
         </div>
-
-        <button
-          type="button"
-          className="hidden h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-muted-foreground transition hover:border-white/16 hover:bg-white/[0.06] hover:text-foreground md:inline-flex"
-          aria-label="Notifications"
-        >
-          <Bell className="h-4.5 w-4.5" />
-        </button>
 
         <div className="hidden md:block">
           <ThemeToggle compact />

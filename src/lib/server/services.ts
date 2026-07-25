@@ -2,7 +2,7 @@
 import { eq, asc, and } from "drizzle-orm";
 import { getDb } from "../db/client";
 import { desc } from "drizzle-orm";
-import { servicePlans, serviceItems, songs, songSlides, mediaAssets, pptxImports, pptxSlides, settings, aiSuggestions } from "../db/schema";
+import { servicePlans, serviceItems, songs, songSlides, mediaAssets, pptxImports, pptxSlides, settings, aiSuggestions, themes } from "../db/schema";
 import { presignGet } from "../s3";
 import type { SlidePayload } from "../broadcast";
 
@@ -179,4 +179,9 @@ export async function listSuggestionHistory(planId: string, churchId: string, li
 export async function listPptxImports(churchId: string) {
   const db = getDb();
   return db.select().from(pptxImports).where(eq(pptxImports.churchId, churchId)).orderBy(asc(pptxImports.createdAt));
+}
+
+export async function listThemes(churchId: string) {
+  const db = getDb();
+  return db.select().from(themes).where(eq(themes.churchId, churchId)).orderBy(asc(themes.name));
 }
