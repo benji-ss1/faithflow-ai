@@ -42,6 +42,7 @@ export function AppShell({ children, user, churchName, churchLogoUrl, initialShe
         <Topbar
           user={user}
           churchName={churchName}
+          churchLogoUrl={churchLogoUrl}
           onOpenNavigation={() => setMobileNavOpen(true)}
         />
         <main className="flex-1 overflow-x-hidden px-4 pb-8 pt-5 sm:px-6 lg:px-8 lg:pt-6">

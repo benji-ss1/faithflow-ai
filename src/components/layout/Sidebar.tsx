@@ -16,6 +16,7 @@ import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { IconTooltip } from "@/components/ui/tooltip";
 import { desktopNav, workspaceNav } from "@/components/layout/navigation";
 import { useShell } from "@/hooks/useShell";
+import { ChurchLogoAvatar } from "@/components/brand/ChurchLogoAvatar";
 
 type SidebarProps = {
   mobileOpen: boolean;
@@ -325,21 +326,7 @@ export function Sidebar({ mobileOpen, onMobileOpenChange, churchLogoUrl, churchN
         </div>
         {!collapsed && (churchLogoUrl || churchName) ? (
           <div className="relative mb-4 mt-3 flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-2 py-1.5 backdrop-blur">
-            {churchLogoUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={churchLogoUrl}
-                alt=""
-                width={22}
-                height={22}
-                referrerPolicy="no-referrer"
-                className="h-[22px] w-[22px] shrink-0 rounded object-contain"
-              />
-            ) : (
-              <div className="grid h-[22px] w-[22px] shrink-0 place-items-center rounded bg-white/15 text-[10px] font-semibold text-white/90">
-                {(churchName || "?").charAt(0).toUpperCase()}
-              </div>
-            )}
+            <ChurchLogoAvatar logoUrl={churchLogoUrl} churchName={churchName} size={22} variant="dark" />
             <span className="truncate text-[11px] font-medium text-white/85">{churchName || "Church workspace"}</span>
           </div>
         ) : collapsed && (churchLogoUrl || churchName) ? (
@@ -347,21 +334,7 @@ export function Sidebar({ mobileOpen, onMobileOpenChange, churchLogoUrl, churchN
           // identity doesn't disappear entirely when the sidebar shrinks.
           <IconTooltip label={churchName || "Church workspace"} side="right">
             <div className="relative mx-auto mb-4 mt-3 grid h-8 w-8 place-items-center rounded-lg border border-white/10 bg-white/[0.06] backdrop-blur">
-              {churchLogoUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={churchLogoUrl}
-                  alt=""
-                  width={22}
-                  height={22}
-                  referrerPolicy="no-referrer"
-                  className="h-[22px] w-[22px] rounded object-contain"
-                />
-              ) : (
-                <span className="text-[11px] font-semibold text-white/90">
-                  {(churchName || "?").charAt(0).toUpperCase()}
-                </span>
-              )}
+              <ChurchLogoAvatar logoUrl={churchLogoUrl} churchName={churchName} size={22} variant="dark" />
             </div>
           </IconTooltip>
         ) : (

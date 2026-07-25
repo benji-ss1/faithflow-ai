@@ -15,10 +15,12 @@ import {
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { getRouteMeta } from "@/components/layout/navigation";
+import { ChurchLogoAvatar } from "@/components/brand/ChurchLogoAvatar";
 
 type TopbarProps = {
   user: { name: string; email: string };
   churchName: string;
+  churchLogoUrl?: string | null;
   onOpenNavigation: () => void;
 };
 
@@ -33,7 +35,7 @@ const GROUP_LABELS: Array<{ key: keyof SearchResults; label: string }> = [
   { key: "archive", label: "Archive" },
 ];
 
-export function Topbar({ user, churchName, onOpenNavigation }: TopbarProps) {
+export function Topbar({ user, churchName, churchLogoUrl, onOpenNavigation }: TopbarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { title } = getRouteMeta(pathname);
@@ -264,9 +266,18 @@ export function Topbar({ user, churchName, onOpenNavigation }: TopbarProps) {
         </div>
 
         <div className="hidden items-center gap-2 xl:flex">
-          <div className="rounded-md border border-[var(--pf-admin-border)] bg-[var(--pf-admin-bg-subtle)] px-3 py-1.5">
-            <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--pf-admin-text-muted)]">Church</div>
-            <div className="max-w-[180px] truncate text-xs font-medium text-[var(--pf-admin-text)]">{churchName}</div>
+          <div className="flex items-center gap-2.5 rounded-md border border-[var(--pf-admin-border)] bg-[var(--pf-admin-bg-subtle)] pl-1.5 pr-3 py-1">
+            <ChurchLogoAvatar
+              logoUrl={churchLogoUrl}
+              churchName={churchName}
+              size={28}
+              variant="light"
+              className="rounded"
+            />
+            <div className="min-w-0">
+              <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--pf-admin-text-muted)]">Church</div>
+              <div className="max-w-[160px] truncate text-xs font-medium text-[var(--pf-admin-text)]">{churchName}</div>
+            </div>
           </div>
         </div>
 

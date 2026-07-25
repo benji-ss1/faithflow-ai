@@ -5,7 +5,9 @@ import { toast } from "sonner";
 import { Trash2, ImageIcon } from "lucide-react";
 import { updateSettings } from "@/lib/actions";
 
-const ALLOWED = ["image/png", "image/jpeg", "image/webp"];
+// Keep in sync with /api/media/presign's ALLOWED_IMAGE + MAX_BYTES.logo.
+// SVG intentionally excluded (XSS via inline <script>) — see presign route.
+const ALLOWED = ["image/png", "image/jpeg", "image/webp", "image/avif"];
 const MAX_BYTES = 2 * 1024 * 1024;
 
 export function ChurchBrandingUploader({ initialLogoUrl }: { initialLogoUrl: string | null }) {
@@ -28,7 +30,7 @@ export function ChurchBrandingUploader({ initialLogoUrl }: { initialLogoUrl: str
     // Re-entry guard: while a save is in flight, ignore additional drops.
     if (pending) return;
     if (!ALLOWED.includes(file.type)) {
-      toast.error("Use a PNG, JPG, or WebP image");
+      toast.error("Use a PNG, JPG, WebP, or AVIF image");
       return;
     }
     if (file.size > MAX_BYTES) {
@@ -40,7 +42,10 @@ export function ChurchBrandingUploader({ initialLogoUrl }: { initialLogoUrl: str
         const presign = await fetch("/api/media/presign", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fileName: file.name, contentType: file.type, size: file.size, purpose: "media" }),
+          // New `logo` purpose caps at 2MB server-side + only accepts image
+          // MIME. Matches the client-side gate above, prevents an accidental
+          // 500MB video upload burning storage under the `logo` label.
+          body: JSON.stringify({ fileName: file.name, contentType: file.type, size: file.size, purpose: "logo" }),
         }).then((r) => r.json());
         if (presign.error) throw new Error(presign.error);
 
@@ -145,7 +150,7 @@ export function ChurchBrandingUploader({ initialLogoUrl }: { initialLogoUrl: str
             <div className="text-sm font-medium text-foreground">
               {pending ? "Uploading…" : dragOver ? "Drop to upload" : "Drop a logo here or click to upload"}
             </div>
-            <div className="text-[11px] text-muted-foreground">PNG, JPG, or WebP · up to 2 MB</div>
+            <div className="text-[11px] text-muted-foreground">PNG, JPG, WebP, or AVIF · up to 2 MB</div>
           </div>
         )}
       </div>

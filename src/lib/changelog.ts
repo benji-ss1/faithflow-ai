@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.55",
+    date: "2026-07-25",
+    headline: "Church logo now shows in the topbar badge + tighter image upload rules",
+    highlights: [
+      "The top-right 'Church' badge in the web admin now shows your uploaded church logo next to the church name (28px circular thumbnail). If you haven't uploaded a logo yet, you get a clean monogram of the first letter of the church name on the muted admin background. Loading a logo fades in from a subtle skeleton shimmer; a broken/expired URL silently falls back to the monogram rather than showing a broken-image icon. The sidebar workspace pill now uses the same shared avatar component for visual consistency",
+      "Logo upload now accepts AVIF in addition to PNG, JPG, and WebP (native browser support, better compression than WebP on the same 2 MB budget). SVG stays intentionally excluded — an SVG can carry inline scripts and would be an XSS surface without a server-side sanitize step (queued for a separate commit). HEIC (iPhone default) also queued — needs libheif conversion server-side",
+      "Under the hood: the /api/media/presign route now enforces purpose-aware size caps (2 MB for logos, 500 MB for media/pptx) instead of a shared 500 MB cap for everything. Logo uploads also can't slip a video MIME through anymore — the new 'logo' purpose only accepts image content types. Client and server caps now match exactly",
+    ],
+  },
+  {
     version: "0.1.54",
     date: "2026-07-25",
     headline: "Bible verses in playlist now render + < Verse / Verse > push to live + re-detected verse re-fires when a song is on screen",
