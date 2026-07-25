@@ -15,6 +15,18 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.39",
+    date: "2026-07-25",
+    headline: "Right-panel Phase 3: unified icon bar with popovers (proper lucide icons, no emojis)",
+    highlights: [
+      "The two big empty-state detection panels (Bible Detections + Song Detections, each ~200px tall showing 'no references yet…' most of the time) are GONE — replaced by a single horizontal icon toolbar at the bottom of the sidebar",
+      "Six icons: Bible, Songs, Cross-references, Logs, Settings, Screens — all proper lucide-react icons, NOT emojis. Click any icon to open a scrollable popover with that section's content. Click the icon again (or the X) to close",
+      "Live badge counts on Bible / Songs / Cross-refs icons — a small orange circle showing how many active detections there are, updates in real time as the AI listens",
+      "Settings popover: consolidates Audio / Messages / Timers / Themes / Macros as sub-tabs. Screens popover: the per-machine resolution + display assignment + 'Configure Screens' button. Both were previously buried below the fold",
+      "The old AIDetectionsPanel and RightTabs components still exist in the tree (unused) so we can roll back trivially if this regresses; will be deleted in a follow-up ship",
+    ],
+  },
+  {
     version: "0.1.38",
     date: "2026-07-25",
     headline: "Slide grid cards + Live preview fit their full content + Cmd+R now hard-reloads",

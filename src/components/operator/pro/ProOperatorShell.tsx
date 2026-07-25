@@ -31,8 +31,10 @@ import { SongsBrowser } from "./center/SongsBrowser";
 import { MediaBrowser } from "./center/MediaBrowser";
 import { LivePreviewPanel } from "./right/LivePreviewPanel";
 import { OutputRoutingRow } from "./right/OutputRoutingRow";
-import { RightTabs } from "./right/RightTabs";
-import { AIDetectionsPanel } from "./right/AIDetectionsPanel";
+// 2026-07-25 Phase 3: RightTabs + AIDetectionsPanel replaced by
+// RightIconBar. AIDetectionsPanel still imported transitively (via
+// RightIconBar's popovers). Old RightTabs.tsx kept in tree, unused.
+import { RightIconBar } from "./right/RightIconBar";
 import { BottomBar } from "./BottomBar";
 import { MediaStrip } from "./MediaStrip";
 import { useTimerSession, useMessagesSession, useBibleSession } from "./hooks";
@@ -2460,14 +2462,22 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           <OperatorErrorBoundary fallbackLabel="Live transcript panel error">
             <LiveTranscriptPanel ctx={ctx} />
           </OperatorErrorBoundary>
-          <OperatorErrorBoundary fallbackLabel="AI detections panel error">
-            <AIDetectionsPanel ctx={ctx} />
+          {/* 2026-07-25 Phase 3: RightIconBar replaces both
+              AIDetectionsPanel (Bible/Songs/XRefs sections stacked
+              vertically, took up ~half the sidebar even when empty) AND
+              RightTabs (Audio/Stage/Timers/Messages/Themes/Macros
+              6-tab bar buried below the fold). Single horizontal
+              toolbar with lucide-react icons + popovers on click.
+              Old components still exist in the tree (unused after
+              this change) for easy rollback if this regresses; will
+              be deleted in a follow-up ship. */}
+          <OperatorErrorBoundary fallbackLabel="Right icon bar error">
+            <RightIconBar ctx={ctx} timer={timer} messages={messages} />
           </OperatorErrorBoundary>
-          <div className="flex-1 min-h-0 border-t border-[var(--color-border)]">
-            <OperatorErrorBoundary fallbackLabel="Right sidebar tab error">
-              <RightTabs ctx={ctx} timer={timer} messages={messages} />
-            </OperatorErrorBoundary>
-          </div>
+          {/* Placeholder keeps the sidebar flex column filling the
+              available height so the icon bar sits at the bottom of the
+              sidebar rather than floating mid-column. */}
+          <div className="flex-1 min-h-0" />
         </aside>
       </div>
 

@@ -183,7 +183,16 @@ export function songRowFromSuggestion(s: UnifiedSuggestion): SongRow | null {
 }
 
 // ---------- Main panel ----------
-export function AIDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
+export type DetectionSection = "bible" | "songs" | "xrefs";
+
+export function AIDetectionsPanel({ ctx, sections }: { ctx: OperatorShellCtx; sections?: DetectionSection[] }) {
+  // 2026-07-25 Phase 3 hook: RightIconBar embeds this component inside
+  // per-icon popovers and passes a `sections` filter so each popover
+  // only renders its slice. If unset, all three sections render (legacy
+  // full-panel behavior, kept for backward compat during migration).
+  const showBible = !sections || sections.includes("bible");
+  const showSongs = !sections || sections.includes("songs");
+  const showXrefs = !sections || sections.includes("xrefs");
   const audio = ctx.audio;
   const threshold = ctx.confidenceThreshold ?? 50;
 
@@ -406,6 +415,7 @@ export function AIDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
         </div>
       )}
       {/* Section A — Bible */}
+      {showBible && (
       <section className="px-2 py-2" data-testid="ai-detections-bible">
         <div className="flex items-center gap-1.5 mb-1">
           <span className="text-[10px]">📖</span>
@@ -484,9 +494,12 @@ export function AIDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
           )}
         </div>
       </section>
+      )}
 
       {/* Divider */}
-      <div className="border-t border-[var(--color-border)]" />
+      {showBible && showXrefs && phraseMatchGroups.length > 0 && (
+        <div className="border-t border-[var(--color-border)]" />
+      )}
 
       {/* Section — Cross-References: the preacher spoke a verse's actual
           content ("for God so loved the world...") with no reference
@@ -494,7 +507,7 @@ export function AIDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
           Multiple candidate verses are shown — NEVER auto-picked, since a
           phrase can genuinely match more than one verse — the operator
           clicks the right one. */}
-      {phraseMatchGroups.length > 0 && (
+      {showXrefs && phraseMatchGroups.length > 0 && (
         <>
           <section className="px-2 py-2" data-testid="ai-cross-references">
             <div className="flex items-center gap-1.5 mb-1">
@@ -542,11 +555,12 @@ export function AIDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
               </div>
             ))}
           </section>
-          <div className="border-t border-[var(--color-border)]" />
+          {showSongs && (<div className="border-t border-[var(--color-border)]" />)}
         </>
       )}
 
       {/* Section B — Songs */}
+      {showSongs && (
       <section className="px-2 py-2" data-testid="ai-detections-songs">
         <div className="flex items-center gap-1.5 mb-1">
           <span className="text-[10px]">🎵</span>
@@ -628,6 +642,7 @@ export function AIDetectionsPanel({ ctx }: { ctx: OperatorShellCtx }) {
           )}
         </div>
       </section>
+      )}
     </div>
   );
 }
