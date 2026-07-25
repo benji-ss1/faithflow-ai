@@ -3,7 +3,7 @@ import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Check, ExternalLink, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { createCheckoutSession, openBillingPortal } from "@/lib/billing-actions";
+import { openBillingPortal } from "@/lib/billing-actions";
 
 // Section 6 (visual-overhaul brief): the billing page is one of the
 // "marketing surfaces" that intentionally goes dark + amber, distinct from
@@ -103,17 +103,16 @@ export function BillingPanel({ tier, status, currentPeriodEnd, trialEnd, hasStri
   const [cycle, setCycle] = useState<Cycle>("monthly");
   const [pending, startTransition] = useTransition();
 
-  function upgrade(t: "starter" | "pro" | "enterprise") {
-    startTransition(async () => {
-      // NOTE: createCheckoutSession currently ignores `cycle` — pilot has no
-      // monthly-vs-yearly Stripe price IDs yet. The toggle is a UX preview.
-      // When real prices ship, plumb cycle → separate STRIPE_PRICE_*_YEARLY
-      // env vars and pass through from here.
-      const res = await createCheckoutSession({ tier: t });
-      if (!res.ok) { toast.error(res.error); return; }
-      window.location.href = res.data!.url;
-    });
-  }
+  // Section 7 (brief): tier CTAs from the billing card now route to the
+  // /upgrade/[tier] rich detail page, not directly to Stripe checkout. The
+  // detail page has its own Stripe CTA. Church tier's page uses a mailto
+  // instead of Stripe. This preserves createCheckoutSession as the shared
+  // action all upgrade pages use for the actual buy.
+  const TIER_TO_HREF: Record<PlanTier["key"], string> = {
+    starter: "/upgrade/starter",
+    pro: "/upgrade/pro",
+    enterprise: "/upgrade/church",
+  };
 
   function portal() {
     startTransition(async () => {
@@ -188,8 +187,7 @@ export function BillingPanel({ tier, status, currentPeriodEnd, trialEnd, hasStri
                   key={t.key}
                   plan={t}
                   cycle={cycle}
-                  pending={pending}
-                  onUpgrade={() => upgrade(t.key)}
+                  href={TIER_TO_HREF[t.key]}
                 />
               ))}
             </div>
@@ -327,12 +325,11 @@ function CycleToggle({ cycle, onChange }: { cycle: Cycle; onChange: (next: Cycle
 }
 
 function PlanCard({
-  plan, cycle, pending, onUpgrade,
+  plan, cycle, href,
 }: {
   plan: PlanTier;
   cycle: Cycle;
-  pending: boolean;
-  onUpgrade: () => void;
+  href: string;
 }) {
   const price = cycle === "monthly" ? plan.monthly : plan.yearly;
   const featured = !!plan.featured;
@@ -383,12 +380,10 @@ function PlanCard({
         ))}
       </ul>
 
-      <button
-        type="button"
-        onClick={onUpgrade}
-        disabled={pending}
+      <a
+        href={href}
         className={cn(
-          "h-10 rounded-md text-sm font-semibold transition-colors disabled:opacity-50",
+          "flex h-10 items-center justify-center rounded-md text-sm font-semibold transition-colors",
           featured ? "" : "hover:brightness-110",
         )}
         style={featured ? {
@@ -400,8 +395,8 @@ function PlanCard({
           color: "#F1EFE8",
         }}
       >
-        {pending ? "Opening Stripe…" : plan.cta}
-      </button>
+        {plan.cta}
+      </a>
     </div>
   );
 }

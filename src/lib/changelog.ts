@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.59",
+    date: "2026-07-26",
+    headline: "New upgrade landing pages — Pro cinematic hero + Starter/Church detail pages",
+    highlights: [
+      "Clicking a tier's CTA on the billing page now opens a dedicated /upgrade/[tier] landing page instead of jumping straight to Stripe. The upgrade pages live outside the admin shell (no sidebar/topbar) so they read as full-page marketing surfaces — dark background with the amber accent palette shared with the billing page",
+      "Pro (/upgrade/pro) gets the cinematic treatment: a hero with a mocked MacBook + stage-display side-by-side, five scroll-triggered feature sections (AI that follows the room · One-click service build · Stage display · Your library · Themes that look designed) with alternating layouts, and a final CTA card with $29/mo + all 6 Pro features + Start free trial. Scroll-in fades use a small IntersectionObserver-based Reveal wrapper — no framer-motion dep",
+      "Starter (/upgrade/starter) and Church (/upgrade/church) get simpler detail pages: hero + feature list + pricing card + CTA. Starter → Stripe test-mode trial. Church → mailto for a 30-min discovery call (no self-serve Stripe for multi-campus deals). Both pages cross-link to Pro so admins can compare",
+      "Shared /upgrade/layout.tsx wraps everything with a sticky top nav (back-to-billing + PresentFlow mark). Every upgrade page's 'Start free trial' button hits the same createCheckoutSession server action as the billing page's cards — one shared checkout path",
+    ],
+  },
+  {
     version: "0.1.58",
     date: "2026-07-26",
     headline: "Billing page rebuilt — dark amber-glow pricing island with 3 tiers + animated monthly/yearly toggle",
