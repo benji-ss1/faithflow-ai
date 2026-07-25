@@ -2,14 +2,15 @@ import {
   Archive,
   BarChart3,
   BookOpen,
-  Bot,
   Building2,
+  CalendarClock,
   CreditCard,
   FolderInput,
   GalleryVerticalEnd,
   LayoutDashboard,
   LifeBuoy,
   Library,
+  MonitorPlay,
   MonitorSmartphone,
   Music4,
   Palette,
@@ -44,48 +45,43 @@ export type ActiveNavMatch = {
 // Web nav — admin/billing/team only. The live-show surface (Services'
 // operator entry, projector/setup/diagnostics, tutorials) is desktop-only
 // as of the web/desktop split (see src/middleware.ts) and intentionally
-// has no nav entry here — /services itself stays reachable via the
-// dashboard's "Open services" button and "Next steps" panel, it just
-// doesn't need a permanent top-level row.
+// has no permanent top-level row here — reachable via the dashboard.
+//
+// Groups follow the 2026-07-25 visual-overhaul brief:
+// WORKSPACE (day-to-day) / CONTENT (library) / PEOPLE (team) / ADMIN (settings).
 export const workspaceNav: NavGroup[] = [
   {
     label: "Workspace",
     items: [
       { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
+      { href: "/services", label: "Services", icon: CalendarClock },
     ],
   },
   {
     label: "Content",
     items: [
-      {
-        label: "Library",
-        icon: Library,
-        children: [
-          { href: "/library/songs", label: "Songs", icon: Music4 },
-          { href: "/library/bible", label: "Bible", icon: BookOpen },
-          { href: "/library/media", label: "Media", icon: GalleryVerticalEnd },
-          { href: "/library/imports", label: "Imports", icon: FolderInput },
-          { href: "/library/themes", label: "Themes", icon: Palette },
-        ],
-      },
+      { href: "/library/songs", label: "Songs", icon: Music4 },
+      { href: "/library/bible", label: "Bible", icon: BookOpen },
+      { href: "/library/media", label: "Media", icon: GalleryVerticalEnd },
+      { href: "/library/imports", label: "Imports", icon: FolderInput },
+      { href: "/library/themes", label: "Themes", icon: Palette },
       { href: "/archive", label: "Sermon Archive", icon: Archive },
       { href: "/analytics", label: "Analytics", icon: BarChart3 },
-      { label: "AI Assistant", icon: Bot, badge: "Soon", disabled: true },
+    ],
+  },
+  {
+    label: "People",
+    items: [
+      { href: "/settings/team", label: "Team", icon: Users },
+      { href: "/settings/devices", label: "Devices", icon: MonitorPlay },
     ],
   },
   {
     label: "Admin",
     items: [
       { href: "/organization", label: "Church Profile", icon: Building2 },
-      {
-        label: "Account",
-        icon: Settings,
-        children: [
-          { href: "/settings/team", label: "Team", icon: Users },
-          { href: "/subscriptions", label: "Billing", icon: CreditCard },
-          { href: "/settings", label: "Settings", icon: Settings },
-        ],
-      },
+      { href: "/subscriptions", label: "Billing", icon: CreditCard },
+      { href: "/settings", label: "Settings", icon: Settings },
     ],
   },
 ];

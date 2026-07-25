@@ -15,7 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { IconTooltip } from "@/components/ui/tooltip";
-import { accountNav, desktopNav, workspaceNav } from "@/components/layout/navigation";
+import { desktopNav, workspaceNav } from "@/components/layout/navigation";
 import { useShell } from "@/hooks/useShell";
 import { Settings as SettingsIcon, LogOut, ExternalLink } from "lucide-react";
 import { signOut } from "next-auth/react";
@@ -50,8 +50,6 @@ function ChildGroup({
   const Icon = item.icon;
 
   if (collapsed) {
-    // In collapsed mode: show a single icon tile with a real styled tooltip
-    // (not the browser's native title=) listing the children on hover.
     const first = item.children?.[0];
     if (!first?.href) return null;
     return (
@@ -60,38 +58,38 @@ function ChildGroup({
           href={first.href}
           onClick={onNavigate}
           className={cn(
-            "group relative flex h-10 items-center justify-center overflow-hidden rounded-2xl border px-0 text-sm font-medium transition-all duration-200",
+            "group relative flex h-9 items-center justify-center rounded-md text-sm font-medium transition-colors duration-150",
             active
-              ? "border-[rgba(111,224,194,0.28)] bg-[linear-gradient(180deg,rgba(255,255,255,0.09),rgba(255,255,255,0.04))] text-foreground"
-              : "border-transparent text-sidebar-fg hover:border-white/10 hover:bg-white/[0.045]"
+              ? "bg-[var(--pf-admin-accent-soft)] text-[var(--pf-admin-text)]"
+              : "text-[var(--pf-admin-text-secondary)] hover:bg-[var(--pf-admin-bg-hover)] hover:text-[var(--pf-admin-text)]"
           )}
         >
-          <Icon className={cn("h-4 w-4 shrink-0", active ? "text-foreground" : "text-sidebar-fg")} strokeWidth={active ? 2 : 1.8} />
+          <Icon className={cn("h-[18px] w-[18px] shrink-0", active ? "text-[var(--pf-admin-accent)]" : "text-[var(--pf-admin-text-muted)]")} strokeWidth={active ? 2 : 1.7} />
         </Link>
       </IconTooltip>
     );
   }
 
   return (
-    <div className="space-y-1">
+    <div className="space-y-0.5">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         className={cn(
-          "group relative flex h-10 w-full items-center gap-3 overflow-hidden rounded-2xl border px-3 text-left text-sm font-medium transition-all duration-200",
+          "group relative flex h-9 w-full items-center gap-2.5 rounded-md px-3 text-left text-[13px] font-medium transition-colors duration-150",
           active
-            ? "border-[rgba(111,224,194,0.28)] bg-[linear-gradient(180deg,rgba(255,255,255,0.09),rgba(255,255,255,0.04))] text-foreground shadow-[0_18px_45px_rgba(0,0,0,0.22)]"
-            : "border-transparent text-sidebar-fg hover:border-white/10 hover:bg-white/[0.045]"
+            ? "bg-[var(--pf-admin-accent-soft)] text-[var(--pf-admin-text)]"
+            : "text-[var(--pf-admin-text-secondary)] hover:bg-[var(--pf-admin-bg-hover)] hover:text-[var(--pf-admin-text)]"
         )}
       >
-        {active ? <span className="absolute left-0 top-2 bottom-2 w-1 rounded-full bg-[var(--color-primary)]" /> : null}
-        <Icon className={cn("h-4 w-4 shrink-0", active ? "text-foreground" : "text-sidebar-fg")} strokeWidth={active ? 2 : 1.8} />
+        {active ? <span className="absolute left-0 top-1.5 bottom-1.5 -ml-3 w-[3px] rounded-r-full bg-[var(--pf-admin-accent)]" /> : null}
+        <Icon className={cn("h-[18px] w-[18px] shrink-0", active ? "text-[var(--pf-admin-accent)]" : "text-[var(--pf-admin-text-muted)]")} strokeWidth={active ? 2 : 1.7} />
         <span className="min-w-0 flex-1 truncate">{item.label}</span>
-        <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200", open ? "rotate-0" : "-rotate-90")} />
+        <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-[var(--pf-admin-text-muted)] transition-transform duration-200", open ? "rotate-0" : "-rotate-90")} />
       </button>
       {open ? (
-        <div className="ml-4 space-y-1 border-l border-white/8 pl-3">
+        <div className="ml-4 space-y-0.5 border-l border-[var(--pf-admin-border-subtle)] pl-3">
           {item.children?.map((child) => {
             if (!child.href) return null;
             const isActive = pathname === child.href || pathname.startsWith(child.href + "/");
@@ -103,13 +101,13 @@ function ChildGroup({
                 onClick={onNavigate}
                 aria-current={isActive ? "page" : undefined}
                 className={cn(
-                  "flex h-9 items-center gap-3 rounded-xl border px-3 text-[13px] font-medium transition-colors",
+                  "flex h-8 items-center gap-2.5 rounded-md px-2.5 text-[12.5px] font-medium transition-colors",
                   isActive
-                    ? "border-[rgba(111,224,194,0.24)] bg-white/[0.05] text-foreground"
-                    : "border-transparent text-sidebar-fg hover:border-white/8 hover:bg-white/[0.03]"
+                    ? "bg-[var(--pf-admin-accent-soft)] text-[var(--pf-admin-text)]"
+                    : "text-[var(--pf-admin-text-secondary)] hover:bg-[var(--pf-admin-bg-hover)] hover:text-[var(--pf-admin-text)]"
                 )}
               >
-                <CIcon className="h-3.5 w-3.5 shrink-0" strokeWidth={isActive ? 2 : 1.7} />
+                <CIcon className={cn("h-3.5 w-3.5 shrink-0", isActive ? "text-[var(--pf-admin-accent)]" : "text-[var(--pf-admin-text-muted)]")} strokeWidth={isActive ? 2 : 1.7} />
                 <span className="min-w-0 flex-1 truncate">{child.label}</span>
               </Link>
             );
@@ -136,9 +134,9 @@ function NavSection({
   return (
     <>
       {groups.map((group) => (
-        <div key={group.label} className="space-y-1.5">
+        <div key={group.label} className="space-y-0.5">
           {!collapsed ? (
-            <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground/80">
+            <div className="px-3 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--pf-admin-text-muted)]">
               {group.label}
             </div>
           ) : null}
@@ -151,33 +149,31 @@ function NavSection({
 
             const content = (
               <>
-                <item.icon className={cn("h-4 w-4 shrink-0", active ? "text-foreground" : "text-sidebar-fg")} strokeWidth={active ? 2 : 1.8} />
+                <item.icon
+                  className={cn("h-[18px] w-[18px] shrink-0", active ? "text-[var(--pf-admin-accent)]" : "text-[var(--pf-admin-text-muted)]")}
+                  strokeWidth={active ? 2 : 1.7}
+                />
                 {!collapsed ? (
                   <>
                     <span className="min-w-0 flex-1 truncate">{item.label}</span>
                     {item.badge ? (
-                      <span className={cn(
-                        "rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-[0.12em] uppercase",
-                        item.badge === "Live"
-                          ? "border-[rgba(123,199,255,0.28)] bg-[rgba(123,199,255,0.08)] text-[var(--color-accent)]"
-                          : "border-white/10 bg-white/[0.04] text-muted-foreground"
-                      )}>
+                      <span className="rounded-full border border-[var(--pf-admin-border)] bg-[var(--pf-admin-bg-muted)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--pf-admin-text-muted)]">
                         {item.badge}
                       </span>
                     ) : null}
-                    {disabled && !item.badge ? <LockKeyhole className="h-3.5 w-3.5 text-muted-foreground/70" /> : null}
+                    {disabled && !item.badge ? <LockKeyhole className="h-3.5 w-3.5 text-[var(--pf-admin-text-muted)]" /> : null}
                   </>
                 ) : null}
               </>
             );
 
             const className = cn(
-              "group relative flex items-center gap-3 overflow-hidden rounded-2xl border px-3 text-sm font-medium transition-all duration-200",
-              collapsed ? "h-10 justify-center px-0" : "h-10",
+              "group relative flex items-center gap-2.5 rounded-md px-3 text-[13px] font-medium transition-colors duration-150",
+              collapsed ? "h-9 justify-center px-0" : "h-9",
               active
-                ? "border-[rgba(111,224,194,0.28)] bg-[linear-gradient(180deg,rgba(255,255,255,0.09),rgba(255,255,255,0.04))] text-foreground shadow-[0_18px_45px_rgba(0,0,0,0.22)]"
-                : "border-transparent text-sidebar-fg hover:border-white/10 hover:bg-white/[0.045]",
-              disabled && "cursor-not-allowed opacity-70 hover:border-transparent hover:bg-transparent"
+                ? "bg-[var(--pf-admin-accent-soft)] text-[var(--pf-admin-text)]"
+                : "text-[var(--pf-admin-text-secondary)] hover:bg-[var(--pf-admin-bg-hover)] hover:text-[var(--pf-admin-text)]",
+              disabled && "cursor-not-allowed opacity-60 hover:bg-transparent hover:text-[var(--pf-admin-text-secondary)]"
             );
 
             if (disabled) {
@@ -213,7 +209,7 @@ function NavSection({
                 onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
               >
-                {active ? <span className={cn("absolute left-0 top-2 bottom-2 rounded-full bg-[var(--color-primary)]", collapsed ? "w-1 left-1.5" : "w-1")} /> : null}
+                {active ? <span className={cn("absolute left-0 top-1.5 bottom-1.5 rounded-r-full bg-[var(--pf-admin-accent)]", collapsed ? "w-[3px] left-0" : "w-[3px] -ml-3")} /> : null}
                 {content}
               </Link>
             );
@@ -281,58 +277,87 @@ export function Sidebar({ mobileOpen, onMobileOpenChange, churchLogoUrl, churchN
   const shell = (
     <aside
       className={cn(
-        "relative flex h-full flex-col border-r border-white/8 bg-[linear-gradient(180deg,rgba(35,43,43,0.96),rgba(21,26,26,0.98))] shadow-[inset_-1px_0_0_rgba(255,255,255,0.03)] backdrop-blur-xl transition-[width,transform] duration-300 ease-out",
-        collapsed ? "w-[92px]" : "w-[302px]"
+        "pf-admin-scope relative flex h-full flex-col border-r transition-[width,transform] duration-300 ease-out",
+        // Backing surface + border use the admin tokens so light-mode renders
+        // clean white while dark-mode keeps the deep charcoal look. Operator
+        // surfaces (which never wrap in pf-admin-scope) are untouched.
+        "border-[var(--pf-admin-border)] bg-[var(--pf-admin-bg-subtle)]",
+        collapsed ? "w-[80px]" : "w-[240px]"
       )}
     >
-      {/* Always-visible, clearly discoverable collapse/expand control — sits
-          on the sidebar's own edge rather than buried in the header/footer,
-          so it reads as an obvious control at a glance in either state. */}
+      {/* Always-visible, clearly discoverable collapse/expand control. */}
       <IconTooltip label={collapsed ? "Expand sidebar (Cmd/Ctrl + /)" : "Collapse sidebar (Cmd/Ctrl + /)"} side="right">
         <button
           type="button"
           onClick={() => setCollapsed((v) => !v)}
-          className="absolute -right-3.5 top-8 z-10 hidden h-7 w-7 items-center justify-center rounded-full border border-white/12 bg-[var(--color-elevated)] text-muted-foreground shadow-[0_6px_18px_rgba(0,0,0,0.35)] transition hover:border-white/20 hover:text-foreground lg:inline-flex"
+          className="absolute -right-3.5 top-8 z-10 hidden h-7 w-7 items-center justify-center rounded-full border border-[var(--pf-admin-border-strong)] bg-[var(--pf-admin-bg-card)] text-[var(--pf-admin-text-muted)] shadow-sm transition hover:border-[var(--pf-admin-accent)]/40 hover:text-[var(--pf-admin-text)] lg:inline-flex"
         >
           {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
         </button>
       </IconTooltip>
 
-      <div className={cn("flex flex-col border-b border-white/8", collapsed ? "px-3" : "px-5")}>
-        <div className={cn("flex h-20 min-w-0 items-center gap-3", collapsed && "justify-center")}>
-          <div className="flex size-11 items-center justify-center rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] shadow-[0_12px_36px_rgba(0,0,0,0.28)]">
-            <Sparkles className="h-4.5 w-4.5 text-[var(--color-primary)]" strokeWidth={1.9} />
+      {/* Branded header — dark gradient block. This is the ONE spot where the
+          sidebar deliberately breaks the clean neutral aesthetic, so the
+          PresentFlow brand mark reads instantly. Gradient stripe at the
+          bottom separates it from the neutral nav below. */}
+      <div
+        className={cn("relative flex flex-col overflow-hidden", collapsed ? "px-3" : "px-4")}
+        style={{ background: "var(--pf-gradient-dark-bg)" }}
+      >
+        {/* Subtle brand glow — echoes the landing page */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-60"
+          style={{
+            background:
+              "radial-gradient(circle at 15% 20%, rgba(155,143,232,0.18), transparent 55%), radial-gradient(circle at 85% 90%, rgba(232,116,42,0.22), transparent 55%)",
+          }}
+        />
+        <div className={cn("relative flex min-h-[80px] min-w-0 items-center gap-3 pt-4", collapsed && "justify-center")}>
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur">
+            <Sparkles className="h-4 w-4 text-[#E8742A]" strokeWidth={2} />
           </div>
           {!collapsed ? (
             <div className="min-w-0">
-              <div className="truncate text-sm font-semibold text-foreground">PresentFlow</div>
-              <div className="truncate text-[10px] uppercase tracking-[0.24em] text-muted-foreground">Dashboard Console</div>
+              <div className="truncate text-[15px] font-semibold leading-tight">
+                <span className="text-[#F1EFE8]">Present</span>
+                <span className="text-[#E8742A]">Flow</span>
+              </div>
+              <div className="truncate text-[10px] uppercase tracking-[0.22em] text-[#A8A6A0]">Dashboard</div>
             </div>
           ) : null}
         </div>
         {!collapsed && (churchLogoUrl || churchName) ? (
-          <div className="mb-3 flex items-center gap-2 rounded-xl border border-white/8 bg-white/[0.03] px-2 py-1.5">
+          <div className="relative mb-4 mt-3 flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-2 py-1.5 backdrop-blur">
             {churchLogoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={churchLogoUrl}
                 alt=""
-                width={24}
-                height={24}
+                width={22}
+                height={22}
                 referrerPolicy="no-referrer"
-                className="h-6 w-6 shrink-0 rounded object-contain"
+                className="h-[22px] w-[22px] shrink-0 rounded object-contain"
               />
             ) : (
-              <div className="grid h-6 w-6 shrink-0 place-items-center rounded bg-white/8 text-[10px] font-semibold text-muted-foreground">
+              <div className="grid h-[22px] w-[22px] shrink-0 place-items-center rounded bg-white/15 text-[10px] font-semibold text-white/90">
                 {(churchName || "?").charAt(0).toUpperCase()}
               </div>
             )}
-            <span className="truncate text-[11px] font-medium text-muted-foreground">{churchName || "Church workspace"}</span>
+            <span className="truncate text-[11px] font-medium text-white/85">{churchName || "Church workspace"}</span>
           </div>
-        ) : null}
+        ) : (
+          <div className="pb-4" />
+        )}
+        {/* Signature 2px brand gradient stripe */}
+        <div
+          aria-hidden
+          className="absolute bottom-0 left-0 right-0 h-[2px]"
+          style={{ background: "var(--pf-gradient-brand)" }}
+        />
       </div>
 
-      <div className={cn("flex-1 space-y-7 overflow-y-auto py-5", collapsed ? "px-3" : "px-4")}>
+      <div className={cn("flex-1 space-y-6 overflow-y-auto py-4", collapsed ? "px-2" : "px-3")}>
         <NavSection
           collapsed={collapsed}
           pathname={pathname}
@@ -343,36 +368,18 @@ export function Sidebar({ mobileOpen, onMobileOpenChange, churchLogoUrl, churchN
 
         {isDesktop ? (
           <DesktopFooterPanel collapsed={collapsed} pathname={pathname} onNavigate={() => onMobileOpenChange(false)} />
-        ) : (
-          <div className="space-y-3 rounded-[1.35rem] border border-white/7 bg-white/[0.03] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-            {!collapsed ? (
-              <NavSection
-                collapsed={false}
-                pathname={pathname}
-                groups={accountNav}
-                unlocked={null}
-                onNavigate={() => onMobileOpenChange(false)}
-              />
-            ) : (
-              <div className="flex justify-center">
-                <div className="rounded-2xl border border-white/8 bg-white/[0.04] p-2.5">
-                  <CreditCardProxy />
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        ) : null}
       </div>
 
-      <div className={cn("border-t border-white/8 py-4", collapsed ? "px-3" : "px-4")}>
+      <div className={cn("border-t border-[var(--pf-admin-border)] py-3", collapsed ? "px-2" : "px-3")}>
         <div className={cn("flex items-center gap-2", collapsed ? "justify-center" : "justify-between")}>
           {collapsed ? (
             <ThemeToggle compact />
           ) : (
             <>
               <div>
-                <div className="text-xs text-muted-foreground">Theme</div>
-                <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">Cmd/Ctrl + / toggles sidebar</div>
+                <div className="text-xs text-[var(--pf-admin-text-secondary)]">Theme</div>
+                <div className="text-[10px] uppercase tracking-[0.18em] text-[var(--pf-admin-text-muted)]">⌘/ toggles sidebar</div>
               </div>
               <ThemeToggle compact />
             </>
@@ -511,12 +518,3 @@ function DesktopFooterPanel({
   );
 }
 
-function CreditCardProxy() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4 text-muted-foreground" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <rect x="3" y="6.5" width="18" height="11" rx="2.5" />
-      <path d="M3 10.5h18" />
-      <path d="M7 15h4" />
-    </svg>
-  );
-}

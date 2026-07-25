@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.50",
+    date: "2026-07-25",
+    headline: "Admin sidebar rebuild — branded gradient header, tighter 240px width, regrouped nav, light-mode clean",
+    highlights: [
+      "The web admin sidebar has been rebuilt from the ground up: 240px wide (was 302px), a signature dark gradient header at the top with the PresentFlow logo (Present in ivory, Flow in orange) and church workspace pill inside it, a 2px purple→orange→pink brand gradient stripe separating that header from the neutral nav below. In light mode the nav body is now a clean off-white with subtle borders instead of the previous forced-dark gradient; in dark mode it stays deep charcoal",
+      "Nav restructured into four focused groups per the new brief: Workspace (Overview, Services) / Content (Songs, Bible, Media, Imports, Themes, Sermon Archive, Analytics) / People (Team, Devices) / Admin (Church Profile, Billing, Settings). The old 'Library' sub-menu is flattened. The 'AI Assistant' dead-row is retired. The disabled duplicate 'Account' card at the bottom is gone",
+      "Active-state indicator changed from a wide dark-tile look to a 3px orange left rail + soft orange tint on the row — reads cleaner in light mode and matches the new SaaS-quality visual language. Icons pick up the orange when active. Cmd/Ctrl+/ still toggles collapse; sidebar and content chrome are now scoped under a `.pf-admin-scope` class so operator surfaces (which never opt into that scope) render unchanged",
+      "Desktop-shell users (Electron) are unaffected — desktop sidebar/nav still use their own layout and this rebuild only touches the web admin chrome",
+    ],
+  },
+  {
     version: "0.1.49",
     date: "2026-07-25",
     headline: "Church logo upload + it shows in the sidebar workspace pill",

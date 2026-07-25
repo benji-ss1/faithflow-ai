@@ -30,13 +30,12 @@ export function AppShell({ children, user, churchName, churchLogoUrl, initialShe
     );
   }
 
+  // Web admin shell. Wraps in .pf-admin-scope so the sidebar + content area
+  // pick up the admin token palette (clean white in light mode, deep charcoal
+  // in dark). Operator page on web is a niche path; it uses its own
+  // component-level `bg-background` classes so it renders unaffected.
   return (
-    <div className="relative flex min-h-screen bg-background text-foreground">
-      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(111,224,194,0.07),transparent_24%),radial-gradient(circle_at_top_right,rgba(123,199,255,0.07),transparent_22%),linear-gradient(180deg,#141818_0%,#151919_32%,#171c1c_100%)]" />
-        <div className="absolute inset-y-0 left-0 w-[28rem] bg-[radial-gradient(circle_at_left,rgba(255,255,255,0.03),transparent_65%)]" />
-      </div>
-
+    <div className="pf-admin-scope relative flex min-h-screen bg-[var(--pf-admin-bg-page)] text-[var(--pf-admin-text)]">
       <Sidebar mobileOpen={mobileNavOpen} onMobileOpenChange={setMobileNavOpen} churchLogoUrl={churchLogoUrl} churchName={churchName} />
 
       <div className="flex min-w-0 flex-1 flex-col">
