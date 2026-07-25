@@ -57,13 +57,17 @@ const STEP_SUBS = [
   "The desktop app is where you actually present on Sundays.",
 ];
 
+const MAX_WIZARD_INVITES = 20;
+
 export function OnboardingWizard({
   hasChurch,
+  initialLogoUrl,
 }: {
   userName: string;
   userEmail: string;
   hasChurch: boolean;
   emailVerified: boolean;
+  initialLogoUrl: string | null;
 }) {
   const router = useRouter();
   // Returning users mid-flow (church already attached) skip past the welcome
@@ -98,6 +102,14 @@ export function OnboardingWizard({
       toast.error("Already added");
       return;
     }
+    // F2 (Phase 3B security): cap wizard-side invites so a single onboarding
+    // session can't blast Resend with hundreds of sends on our shared
+    // allowance. Real churches invite 3-8 people in one sitting; 20 gives
+    // plenty of headroom without making the surface abusable.
+    if (invites.length >= MAX_WIZARD_INVITES) {
+      toast.error(`You can invite up to ${MAX_WIZARD_INVITES} teammates during onboarding. Add the rest later from Team.`);
+      return;
+    }
     setInvites((xs) => [...xs, { email, role: "operator" }]);
     setInviteInput("");
   }
@@ -121,24 +133,43 @@ export function OnboardingWizard({
   }
 
   function submitHymnLibrary() {
+    // Reviewer 🟡 (Phase 3B): mark the choice so the "Add to my library"
+    // button's post-click state (✓ Added N) renders correctly. The button's
+    // stopPropagation prevents the card's onClick from firing, so without
+    // this the card would look unselected even though we're mid-seed.
+    setImportChoice("hymns");
     startTransition(async () => {
       const res = await addBuiltInHymnsToMyChurch();
       if (!res.ok) { toast.error(res.error || "Could not seed hymns"); return; }
       setHymnResult(res.data ?? { added: 0, skipped: 0 });
       toast.success(`Added ${res.data?.added ?? 0} hymns to your library`);
-      setStep(4);
+      // No auto-advance here — the user should see the ✓ confirmation on
+      // the card and click Continue themselves, so they know what happened
+      // and can go Back if they want to also open the migration wizard.
     });
   }
 
   function submitInvites() {
     startTransition(async () => {
       if (invites.length === 0) { setStep(5); return; }
-      let failed = 0;
+      // Reviewer 🟡 (Phase 3B): consolidate partial failures into a single
+      // summary toast instead of one toast per failed email. If the user
+      // pasted 15 emails and 3 belong to another church, the previous
+      // behaviour dumped 3 red toasts on top of each other with no
+      // context of how many succeeded.
+      const failed: { email: string; error: string }[] = [];
+      let sent = 0;
       for (const inv of invites) {
         const res = await inviteTeammate({ email: inv.email, role: inv.role });
-        if (!res.ok) { failed++; toast.error(`${inv.email}: ${res.error}`); }
+        if (res.ok) { sent++; } else { failed.push({ email: inv.email, error: res.error }); }
       }
-      if (failed === 0) toast.success(`Invited ${invites.length} teammate${invites.length === 1 ? "" : "s"}`);
+      if (failed.length === 0) {
+        toast.success(`Invited ${sent} teammate${sent === 1 ? "" : "s"}`);
+      } else if (sent === 0) {
+        toast.error(`None of the ${failed.length} invites went through — check emails and try again from Team.`);
+      } else {
+        toast.success(`Invited ${sent}. ${failed.length} skipped: ${failed.map((f) => f.email).join(", ")}`);
+      }
       setStep(5);
     });
   }
@@ -151,7 +182,13 @@ export function OnboardingWizard({
     });
   }
 
-  const canBack = step > 0 && step < 5 && !(step === 1 && !hasChurch);
+  // Reviewer 🔴 (Phase 3B): returning users (hasChurch=true) start at step 2.
+  // Backing to step 1 (Profile) → hitting Continue → createChurchAndAttachUser
+  // → "You already have a church" → dead loop. So the floor for canBack is
+  // the entry step itself. Fresh users start at 0 and can back through
+  // Welcome; returning users start at 2 and can't back below Branding.
+  const backFloor = hasChurch ? 2 : 0;
+  const canBack = step > backFloor && step < 5;
   const stepNum = step + 1;
 
   return (
@@ -286,7 +323,7 @@ export function OnboardingWizard({
         {step === 2 && (
           <div className="mb-5">
             <div className="pf-admin-scope">
-              <ChurchBrandingUploader initialLogoUrl={null} />
+              <ChurchBrandingUploader initialLogoUrl={initialLogoUrl} />
             </div>
           </div>
         )}

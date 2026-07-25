@@ -27,14 +27,23 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const [display] = await db.select({ logoS3Key: settings.logoS3Key }).from(settings).where(eq(settings.churchId, user.churchId)).limit(1);
   const churchLogoUrl = display?.logoS3Key ? await presignGet(display.logoS3Key) : null;
   // CP5 guarded redirect: if the church is mid-onboarding AND the user hasn't
-  // dismissed the tutorial yet, funnel them into /onboarding/tutorial. Once
-  // the tutorial is completed OR skipped, tutorialCompletedAt is stamped and
+  // dismissed the tutorial yet, funnel them into /onboarding. Once the
+  // tutorial is completed OR skipped, tutorialCompletedAt is stamped and
   // onboardingStatus becomes "complete"/"skipped" — full app access. This
   // never loops because /onboarding/* is outside the (app) route group.
+  //
+  // Role guard (Phase 3B reviewer 🔴): the onboarding wizard requires admin
+  // role (createChurchAndAttachUser sets it; inviteTeammate/updateSettings
+  // require it). An invited operator/pastor joining a still-in-progress
+  // church WITHOUT this guard gets funneled into /onboarding, hits step 4
+  // (Team) → requireRole("admin") → silent redirect to /dashboard → the
+  // gate re-fires → Groundhog Day. Skip the redirect for non-admins:
+  // they land on /dashboard normally and see whatever's ready.
   if (
     church &&
     (church.onboardingStatus === "pending" || church.onboardingStatus === "in_progress") &&
-    !me?.tutorialCompletedAt
+    !me?.tutorialCompletedAt &&
+    user.role === "admin"
   ) {
     redirect("/onboarding");
   }

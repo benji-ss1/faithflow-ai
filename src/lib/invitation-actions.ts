@@ -10,10 +10,20 @@ import { sendInvitationEmail } from "./email";
 
 type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
 
+const VALID_ROLES = ["admin", "operator", "pastor"] as const;
+type ValidRole = typeof VALID_ROLES[number];
+
 export async function inviteTeammate(input: { email: string; role: "admin" | "operator" | "pastor" }): Promise<Result> {
   const admin = await requireRole("admin");
   const email = input.email.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: "Invalid email" };
+  // F5 defense-in-depth: TypeScript types are compile-time-only; a caller
+  // hitting the server action bypass with a crafted role string would rely
+  // on the Postgres enum to reject it. Run the runtime check ourselves so
+  // the error surface is a clean 4xx-style Result, not a DB constraint error.
+  if (!VALID_ROLES.includes(input.role as ValidRole)) {
+    return { ok: false, error: "Invalid role" };
+  }
   const db = getDb();
 
   // Already in this church?

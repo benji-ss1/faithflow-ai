@@ -1298,10 +1298,18 @@ export async function updateChurch(patch: {
 // PD-safety placeholders like the non-PD English "How Great Thou Art"
 // translation) are always skipped.
 //
-// Used by the onboarding wizard's "Start with built-in hymns" step and by
-// any future "Add hymn library" affordance on the songs page's empty state.
+// Rate limit (F1 from Phase 3B security sweep): 3 calls / hour / user. Each
+// call is up to ~150 DB round trips (50 hymns × existence check + insert +
+// slide bulk insert), so an unrated call is a real DoS surface for the
+// Postgres pool. Legitimate use is one-shot from the onboarding wizard,
+// occasionally re-run on the songs empty state — 3/hour is comfortable.
+const hymnSeedLimiter = createLimiter("hymn-seed", 3, 60 * 60 * 1000);
+
 export async function addBuiltInHymnsToMyChurch(): Promise<Result<{ added: number; skipped: number }>> {
   const user = await requireUser();
+  if (!(await hymnSeedLimiter(user.id))) {
+    return { ok: false, error: "You've hit the hourly limit for bulk hymn imports. Try again later." };
+  }
   const { HYMNS } = await import("./hymn-library");
   const db = getDb();
   let added = 0;
