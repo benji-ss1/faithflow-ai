@@ -5,6 +5,7 @@ import { ChevronDown, X, Plus } from "lucide-react";
 import { SectionHeader, Row, Toggle } from "./DisplayTab";
 
 const AUDIO_INPUT_KEY = "presentflow.pro.audioInput.v1";
+const AUDIO_SOURCE_TYPE_KEY = "presentflow.pro.audioSourceType.v1";
 const INPUT_GAIN_KEY = "presentflow.pro.inputGain.v1";
 const TRANSCRIPTION_MODE_KEY = "presentflow.pro.transcriptionMode.v1";
 const VOICE_COMMANDS_KEY = "presentflow.pro.voiceCommandsEnabled.v1";
@@ -71,6 +72,7 @@ export function AudioTab() {
   const [autoAdvanceSec, setAutoAdvanceSec] = useState(0);
   const [holdDuringSong, setHoldDuringSong] = useState(false);
   const [selected, setSelected] = useState<AudioInputSel>({ kind: "ndi", id: "ndi:default", label: "NDI Audio (Routed)" });
+  const [sourceType, setSourceType] = useState<"mixer" | "microphone">("mixer");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [ndiSources, setNdiSources] = useState<{ id: string; label: string }[]>(NDI_PLACEHOLDERS);
   const [customs, setCustoms] = useState<CustomCommand[]>([]);
@@ -93,6 +95,8 @@ export function AudioTab() {
       setHoldDuringSong(hs === "1");
       const parsedSel = parseAudioInput(localStorage.getItem(AUDIO_INPUT_KEY));
       if (parsedSel) setSelected(parsedSel);
+      const st = localStorage.getItem(AUDIO_SOURCE_TYPE_KEY);
+      setSourceType(st === "microphone" ? "microphone" : "mixer");
       setCustoms(parseCustomCommands(localStorage.getItem(CUSTOM_COMMANDS_KEY)));
     } catch {}
     // enumerate devices
@@ -117,6 +121,13 @@ export function AudioTab() {
     try { localStorage.setItem(AUDIO_INPUT_KEY, JSON.stringify(sel)); } catch {}
     // Notify useAudioStream so it restarts the pipeline with the new device.
     try { window.dispatchEvent(new CustomEvent("presentflow:audio-input-changed", { detail: sel })); } catch {}
+  }
+  function persistSourceType(next: "mixer" | "microphone") {
+    setSourceType(next);
+    try { localStorage.setItem(AUDIO_SOURCE_TYPE_KEY, next); } catch {}
+    // Piggyback on the same audio-input-changed event so useAudioStream
+    // fully restarts capture with the new DSP constraints applied.
+    try { window.dispatchEvent(new CustomEvent("presentflow:audio-input-changed", { detail: { sourceType: next } })); } catch {}
   }
   function persistCustoms(next: CustomCommand[]) {
     setCustoms(next);
@@ -214,6 +225,33 @@ export function AudioTab() {
           </Popover.Portal>
         </Popover.Root>
       </Row>
+
+      {/* Source type — decides whether Chromium's echo cancellation, noise
+          suppression, and auto-gain-control are ON or OFF for capture.
+          Church mixer feed → OFF (default, don't degrade a clean signal).
+          Bare microphone in the room → ON (want the DSP fighting HVAC + echo). */}
+      <Row label="Source Type">
+        <div className="inline-flex rounded-md p-0.5" style={{ background: "#1a2020", border: "1px solid #2a3232" }}>
+          {(["mixer", "microphone"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => persistSourceType(t)}
+              className={"h-6 px-3 rounded text-[11px] font-medium capitalize " + (sourceType === t ? "text-white" : "text-zinc-400 hover:text-zinc-200")}
+              style={sourceType === t ? { background: "#f97316" } : {}}
+              title={t === "mixer"
+                ? "Mixer / audio interface — DSP OFF, keep the clean signal untouched"
+                : "Bare microphone — DSP ON to fight room noise + echo"}
+            >
+              {t === "mixer" ? "Mixer / Interface" : "Microphone"}
+            </button>
+          ))}
+        </div>
+      </Row>
+      <div className="text-[11px] text-zinc-500 -mt-2 pl-2">
+        {sourceType === "mixer"
+          ? "Echo cancellation, noise suppression, and auto-gain are OFF — sending the mixer's raw feed straight to the AI."
+          : "Echo cancellation, noise suppression, and auto-gain are ON — good for a bare mic in a noisy room."}
+      </div>
 
       <Row label={`Input Gain — ${gain}%`}>
         <input

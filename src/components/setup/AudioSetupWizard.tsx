@@ -35,10 +35,11 @@ export function AudioSetupWizard() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const [recordUrl, setRecordUrl] = useState<string | null>(null);
 
+  const [noDevices, setNoDevices] = useState(false);
+
   const requestPermission = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // We only need permission — release the stream, we'll pick device next
       stream.getTracks().forEach((t) => t.stop());
       setPermission("granted");
       const devs = await navigator.mediaDevices.enumerateDevices();
@@ -47,10 +48,23 @@ export function AudioSetupWizard() {
         .map((d) => ({ deviceId: d.deviceId, label: d.label || "Unnamed input", isMixer: isLikelyMixer(d.label || "") }))
         .sort((a, b) => (b.isMixer ? 1 : 0) - (a.isMixer ? 1 : 0));
       setDevices(inputs);
+      setNoDevices(inputs.length === 0);
       if (inputs[0]) setSelectedId(inputs[0].deviceId);
       setStep("pickDevice");
-    } catch {
-      setPermission("denied");
+    } catch (e) {
+      // Distinguish "user denied permission" from "no device exists at all"
+      // (Mac Studio with nothing plugged in throws NotFoundError, not the
+      // NotAllowedError we'd get from a permission decline). The message
+      // the operator needs is completely different: for the former, flip
+      // a toggle in System Settings; for the latter, plug in a USB device.
+      const name = (e as { name?: string })?.name || "";
+      if (name === "NotFoundError" || /not.?found|no device|no.?audio/i.test((e as Error)?.message || "")) {
+        setNoDevices(true);
+        setPermission("granted"); // permission is fine — we just have no hardware
+        setStep("pickDevice");
+      } else {
+        setPermission("denied");
+      }
     }
   }, []);
 
@@ -163,7 +177,37 @@ export function AudioSetupWizard() {
         what="Choose the audio source"
         why="If your church runs a mixer feeding a USB interface (Focusrite, PreSonus, etc.), that's what you want — not your Mac's built-in mic. We pinned likely mixers to the top of the list."
       >
-        {step === "pickDevice" && (
+        {step === "pickDevice" && noDevices && (
+          <div className="space-y-3">
+            <div className="flex items-start gap-2 p-3 rounded-md border border-warning bg-warning/10">
+              <AlertCircle className="w-4 h-4 mt-0.5 text-warning shrink-0" />
+              <div className="text-sm">
+                <div className="font-semibold text-warning mb-1">No audio input devices detected</div>
+                <div className="text-muted-foreground text-xs">
+                  Mac Studio has no built-in microphone. Plug in a USB audio interface
+                  (Focusrite Scarlett, Behringer, PreSonus, etc.) or a USB microphone,
+                  then press Refresh. You can still use PresentFlow for manual
+                  presenting — AI listening simply won't fire without an input.
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setNoDevices(false); requestPermission(); }}
+                className="h-9 px-3 text-xs bg-foreground text-background rounded-md font-semibold"
+              >
+                Refresh devices
+              </button>
+              <button
+                onClick={() => setStep("save")}
+                className="h-9 px-3 text-xs border border-border rounded-md"
+              >
+                Skip for now
+              </button>
+            </div>
+          </div>
+        )}
+        {step === "pickDevice" && !noDevices && (
           <>
             <div className="space-y-1 max-h-64 overflow-y-auto">
               {devices.map((d) => (

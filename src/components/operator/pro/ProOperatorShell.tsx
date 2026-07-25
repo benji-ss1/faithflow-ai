@@ -1231,6 +1231,41 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 2026-07-25 — surface audio start failures + long-silence as visible toasts.
+  // `audio.error` is set by useAudioStream when getUserMedia throws (Mac Studio
+  // with no mic, permission denied, device busy, etc.) with a specific
+  // actionable message per error name. Previously this state existed but was
+  // NEVER rendered in the Pro shell, so a volunteer whose USB interface
+  // wasn't plugged in got total silence with zero explanation. Duration
+  // Infinity so it stays until they act; a single toast per distinct message
+  // so a stuck error doesn't spam.
+  const lastAudioErrorRef = useRef<string | null>(null);
+  const audioError = ctx.audio.error;
+  useEffect(() => {
+    if (!audioError) { lastAudioErrorRef.current = null; return; }
+    if (audioError === lastAudioErrorRef.current) return;
+    lastAudioErrorRef.current = audioError;
+    toast.error(audioError, { duration: Infinity, id: "presentflow-audio-error" });
+  }, [audioError]);
+
+  // Long-silence warning — noAudioSignal flips true after 15s of pure silence.
+  // Typical cause: wrong device picked, mixer channel muted, cable unplugged.
+  // Dismissable single toast per session; re-arms after signal returns.
+  const lastNoSignalRef = useRef(false);
+  const noAudioSignal = ctx.audio.noAudioSignal;
+  useEffect(() => {
+    if (noAudioSignal && !lastNoSignalRef.current) {
+      lastNoSignalRef.current = true;
+      toast.warning(
+        "No audio detected for 15s — check the mixer channel isn't muted, the cable is plugged in, and you've picked the right input in Settings › Audio.",
+        { duration: 12_000, id: "presentflow-no-signal" },
+      );
+    } else if (!noAudioSignal && lastNoSignalRef.current) {
+      lastNoSignalRef.current = false;
+      toast.dismiss("presentflow-no-signal");
+    }
+  }, [noAudioSignal]);
+
   // 2026-07-24 T4 fix — batch preload every image URL in the current plan
   // when the operator opens/updates it. Without this, an image slide
   // firing to live had to fetch + decode AFTER the projector's <img>

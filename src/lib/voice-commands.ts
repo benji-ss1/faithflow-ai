@@ -107,12 +107,58 @@ export function readAudioInputPref(storage?: {
 }
 
 /**
- * Given an audio input preference, produce the getUserMedia constraints
- * to use. Returns default constraints when no preference / NDI (NDI
- * capture not yet implemented — fall back to default device).
+ * Audio source type — determines whether Chromium's built-in DSP
+ * (echo cancellation, noise suppression, auto gain control) is
+ * ENABLED or DISABLED for the capture.
+ *
+ * - `mixer`  → all three OFF. This is the correct setting for a feed
+ *   from a mixer or USB audio interface (Focusrite / Behringer /
+ *   PreSonus / mixer built-in USB / any line-in). The signal is
+ *   already clean and the DSP will actively degrade it (gate speech,
+ *   pump the level, smear consonants). This is the default because
+ *   churches almost always feed PresentFlow from a mixer.
+ * - `microphone` → all three ON. Correct for a laptop built-in mic
+ *   or a bare USB mic sitting in the room, where you WANT echo
+ *   cancellation of monitor speakers + noise suppression of HVAC +
+ *   auto gain because the speaker's distance to the mic varies.
  */
-export function audioConstraintsFor(pref: AudioInputPref | null): MediaStreamConstraints {
-  const base = { echoCancellation: true, noiseSuppression: true, sampleRate: 16000 } as MediaTrackConstraints;
+export type AudioSourceType = "mixer" | "microphone";
+export const AUDIO_SOURCE_TYPE_KEY = "presentflow.pro.audioSourceType.v1";
+
+export function readAudioSourceType(storage?: {
+  getItem: (k: string) => string | null;
+}): AudioSourceType {
+  const s = storage ?? (typeof window !== "undefined" ? window.localStorage : undefined);
+  if (!s) return "mixer";
+  try {
+    const raw = s.getItem(AUDIO_SOURCE_TYPE_KEY);
+    return raw === "microphone" ? "microphone" : "mixer";
+  } catch {
+    return "mixer";
+  }
+}
+
+/**
+ * Given an audio input preference AND source type, produce the
+ * getUserMedia constraints to use. Returns default constraints when
+ * no preference / NDI (NDI capture not yet implemented — fall back to
+ * default device).
+ *
+ * `sourceType` defaults to reading from localStorage so existing
+ * callers that don't pass it still get the operator's choice applied.
+ */
+export function audioConstraintsFor(
+  pref: AudioInputPref | null,
+  sourceType?: AudioSourceType,
+): MediaStreamConstraints {
+  const type = sourceType ?? readAudioSourceType();
+  const dspOn = type === "microphone";
+  const base = {
+    echoCancellation: dspOn,
+    noiseSuppression: dspOn,
+    autoGainControl: dspOn,
+    sampleRate: 16000,
+  } as MediaTrackConstraints;
   if (pref?.kind === "device" && pref.id && pref.id !== "default") {
     return { audio: { ...base, deviceId: { exact: pref.id } as ConstrainDOMString } };
   }

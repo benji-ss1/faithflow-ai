@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.42",
+    date: "2026-07-25",
+    headline: "Church-mixer audio fix (DSP OFF), Mac Studio no-mic path, and visible audio-failure toasts",
+    highlights: [
+      "Mixer / Interface vs Microphone toggle in Settings › Audio. This is a real fix, not a preference: PresentFlow was hard-coding echo cancellation + noise suppression + auto-gain-control ON for every input, which actively DEGRADES a clean mixer feed (gates speech, pumps the level, smears consonants). The default is now Mixer / Interface (DSP OFF) — the setting churches actually need. Bare-mic-in-the-room use flips it to Microphone",
+      "'No audio detected for 15s' toast now surfaces when the input is truly silent — most likely cause is the wrong device is picked or the mixer channel is muted. Previously the RMS silence was measured but never shown, so a stuck-muted volunteer stood there wondering why AI wasn't firing",
+      "Audio start failures are now VISIBLE. When AI listening can't start (Mac Studio with no USB device, permission denied, device busy in another app), an actionable error toast appears with the specific fix. Previously the error state existed in the pipeline but was never rendered anywhere in the Pro shell — a silent failure",
+      "Mac Studio no-mic setup flow is friendly: the audio setup wizard now specifically detects the 'zero audio inputs' case (Mac Studio + nothing plugged in) and shows a plain-English message with a Refresh button, instead of the confusing 'permission denied — click the mic icon in your address bar' message that fired before",
+    ],
+  },
+  {
     version: "0.1.41",
     date: "2026-07-25",
     headline: "Parser accent-fixes, typed shortcuts (EX 2 1 / John1010), Settings tabs no longer overlap, no interrupt while typing",

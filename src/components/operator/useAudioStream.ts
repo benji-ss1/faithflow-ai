@@ -115,6 +115,14 @@ export type AudioStreamState = {
   warmStarted: boolean;
   // RMS silence gate (Task 13).
   silenceGateClosed: boolean;
+  // "No signal for a long time" warning — pure UX flag, independent of the
+  // silence gate. Flips true when RMS stays below -70 dBFS for 15+ seconds
+  // while the operator is trying to listen (typical causes: mixer channel
+  // muted, cable unplugged, mic gain at zero, wrong device selected).
+  // Consumed by the operator shell as a visible chip/toast so a Mac Studio
+  // church volunteer with the wrong USB channel armed doesn't stand there
+  // wondering why AI never fires.
+  noAudioSignal: boolean;
   // Observability (Task 15).
   msgsPerSec: number;
   lastLatencyMs: number | null;
@@ -165,7 +173,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     detections: [], phraseMatches: [], songSuggestions: [], commandSuggestions: [], suggestions: [],
     stage: "idle", stageHistory: [], chunksSent: 0, dgMessagesReceived: 0,
     reconnectFailed: false, reconnectAttempts: 0, warmStarted: false,
-    silenceGateClosed: false, msgsPerSec: 0, lastLatencyMs: null, avgConfidence: 0,
+    silenceGateClosed: false, noAudioSignal: false, msgsPerSec: 0, lastLatencyMs: null, avgConfidence: 0,
     audioQuality: null, audioQualityAvg: 0,
     canonicalCorrections: [],
   });
@@ -498,6 +506,13 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   // Task 13 / R8: RMS silence gate state with hysteresis + lookback ring.
   const silenceStartRef = useRef<number | null>(null);
   const silenceClosedRef = useRef<boolean>(false);
+  // Long-silence UX warning — see noAudioSignal in AudioStreamState. Uses
+  // its own timestamp so its threshold (much longer + much quieter than
+  // the gate) is independent of the gate's HOLD/HYSTERESIS.
+  const noSignalStartRef = useRef<number | null>(null);
+  const noAudioSignalRef = useRef<boolean>(false);
+  const NO_SIGNAL_DBFS = -70; // effectively pure silence, quieter than gate
+  const NO_SIGNAL_HOLD_MS = 15_000;
   // R8: hysteresis — close at -60 dBFS, reopen at -55.
   const SILENCE_CLOSE_DBFS = -60;
   const SILENCE_OPEN_DBFS = -55;
@@ -794,7 +809,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     ringBufferBytesRef.current = 0;
     flushSessionMetrics();
     teardown();
-    setState((s) => ({ ...s, listening: false, ready: false, interim: "", stage: "idle", reconnectFailed: false, reconnectAttempts: 0, warmStarted: false, silenceGateClosed: false }));
+    setState((s) => ({ ...s, listening: false, ready: false, interim: "", stage: "idle", reconnectFailed: false, reconnectAttempts: 0, warmStarted: false, silenceGateClosed: false, noAudioSignal: false }));
   }, [teardown, flushSessionMetrics]);
 
   const scheduleReconnect = useCallback(() => {
@@ -868,6 +883,9 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       silenceClosedRef.current = false;
       setState((s) => ({ ...s, silenceGateClosed: false }));
     }
+    // Fresh session — clear any prior "no signal" warning so it can re-arm.
+    noAudioSignalRef.current = false;
+    setState((s) => ({ ...s, noAudioSignal: false }));
     // Y7: only open a metrics session when mic is actually going to send audio.
     // Warm-start opens WS with mic muted → don't accumulate a 0-metrics
     // session that pollutes the audio_sessions rollup. sessionStart is opened
@@ -1407,6 +1425,22 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         const alwaysOn = aiAlwaysOnRef.current;
         // R8: hysteresis. Close only after HOLD_MS below -60 dBFS; reopen
         // when audio climbs back above -55 dBFS.
+        // Long-silence UX warning — separate from the gate, only fires when
+        // audio is pure-silence quiet for 15+ seconds. Typical cause: the
+        // operator picked the wrong device or the mixer channel is muted.
+        if (dbfs < NO_SIGNAL_DBFS) {
+          if (noSignalStartRef.current === null) noSignalStartRef.current = nowMs;
+          if (!noAudioSignalRef.current && nowMs - noSignalStartRef.current >= NO_SIGNAL_HOLD_MS) {
+            noAudioSignalRef.current = true;
+            setState((s) => ({ ...s, noAudioSignal: true }));
+          }
+        } else {
+          noSignalStartRef.current = null;
+          if (noAudioSignalRef.current) {
+            noAudioSignalRef.current = false;
+            setState((s) => ({ ...s, noAudioSignal: false }));
+          }
+        }
         if (dbfs < SILENCE_CLOSE_DBFS) {
           if (silenceStartRef.current === null) silenceStartRef.current = nowMs;
           // In always-on mode (default) we NEVER close the gate — audio keeps
@@ -1642,7 +1676,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     // R6: bump generation so any inflight callback from the prior pipeline aborts.
     pipelineGenerationRef.current += 1;
     teardown();
-    setState((s) => ({ ...s, reconnectFailed: false, reconnectAttempts: 0, error: null, listening: false, ready: false, interim: "", stage: "idle", silenceGateClosed: false }));
+    setState((s) => ({ ...s, reconnectFailed: false, reconnectAttempts: 0, error: null, listening: false, ready: false, interim: "", stage: "idle", silenceGateClosed: false, noAudioSignal: false }));
     // Small tick so React commits stop-state before starting fresh.
     setTimeout(() => { startRef.current().catch(() => { /* ignore */ }); }, 50);
   }, [teardown, isDevOrTraceOn, flushSessionMetrics]);
