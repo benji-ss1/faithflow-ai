@@ -3,8 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
-import { signOut } from "next-auth/react";
-import { _resetTierCache } from "@/hooks/useTier";
 import { signOutFully } from "@/lib/sign-out";
 import {
   ChevronDown,
@@ -38,7 +36,7 @@ const GROUP_LABELS: Array<{ key: keyof SearchResults; label: string }> = [
 export function Topbar({ user, churchName, onOpenNavigation }: TopbarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { title, subtitle } = getRouteMeta(pathname);
+  const { title } = getRouteMeta(pathname);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -167,31 +165,27 @@ export function Topbar({ user, churchName, onOpenNavigation }: TopbarProps) {
   const showDropdown = searchOpen && query.trim().length >= 2;
 
   return (
-    <header className="sticky top-0 z-40 border-b border-white/8 bg-[linear-gradient(180deg,rgba(21,25,25,0.92),rgba(21,25,25,0.8))] backdrop-blur-xl">
-      <div className="flex h-[88px] items-center gap-3 px-4 sm:px-6 lg:px-8">
+    <header className="sticky top-0 z-40 border-b border-[var(--pf-admin-border)] bg-[var(--pf-admin-bg-page)]">
+      <div className="flex h-16 items-center gap-3 px-4 sm:px-6 lg:px-8">
         <button
           type="button"
           onClick={onOpenNavigation}
-          className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-foreground shadow-[0_14px_28px_rgba(0,0,0,0.18)] lg:hidden"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-[var(--pf-admin-border)] bg-[var(--pf-admin-bg-subtle)] text-[var(--pf-admin-text-secondary)] transition hover:bg-[var(--pf-admin-bg-hover)] hover:text-[var(--pf-admin-text)] lg:hidden"
           aria-label="Open navigation"
         >
-          <Menu className="h-4.5 w-4.5" />
+          <Menu className="h-4 w-4" />
         </button>
 
         <div className="min-w-0 flex-1">
-          <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">PresentFlow Workspace</div>
-          <div className="truncate text-xl font-semibold tracking-[-0.03em] text-foreground">{title}</div>
-          <div className="hidden truncate text-sm text-muted-foreground xl:block">{subtitle}</div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--pf-admin-text-muted)]">PresentFlow Workspace</div>
+          <div className="truncate text-base font-semibold tracking-[-0.01em] text-[var(--pf-admin-text)]">{title}</div>
         </div>
 
-        {/* Global search — min-width steps up by breakpoint instead of a
-            fixed 280px floor, which used to force the page title down to a
-            truncated "O.." at 1024-1279px (sidebar visible + search box both
-            competing for the same row before the church badge even joins in
-            at xl). */}
+        {/* Global search — min-width steps up by breakpoint so the page
+            title stays legible at narrower widths. */}
         <div ref={searchWrapRef} className="relative hidden md:block">
-          <div className="group flex min-w-[140px] items-center gap-3 rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02))] px-3 py-2 shadow-[0_18px_40px_rgba(0,0,0,0.14)] transition focus-within:border-white/16 focus-within:bg-white/[0.06] lg:min-w-[220px] xl:min-w-[360px]">
-            <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <div className="group flex min-w-[180px] items-center gap-2.5 rounded-md border border-[var(--pf-admin-border)] bg-[var(--pf-admin-bg-muted)] px-3 py-2 transition focus-within:border-[var(--pf-admin-accent)] focus-within:bg-[var(--pf-admin-bg-card)] focus-within:shadow-[0_0_0_3px_var(--pf-admin-accent-ring)] lg:min-w-[240px] xl:min-w-[320px]">
+            <Search className="h-4 w-4 shrink-0 text-[var(--pf-admin-text-muted)]" />
             <input
               ref={inputRef}
               type="search"
@@ -202,22 +196,22 @@ export function Topbar({ user, churchName, onOpenNavigation }: TopbarProps) {
               }}
               onFocus={() => setSearchOpen(true)}
               onKeyDown={onSearchKey}
-              placeholder="Search songs, Bible, services, archive"
+              placeholder="Search songs, Bible, services…"
               aria-label="Global search"
-              className="min-w-0 flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+              className="min-w-0 flex-1 bg-transparent text-sm text-[var(--pf-admin-text)] placeholder:text-[var(--pf-admin-text-muted)] focus:outline-none"
             />
-            <div className="flex shrink-0 items-center gap-1 rounded-lg border border-white/8 bg-black/20 px-2 py-1 text-[11px] font-semibold text-muted-foreground">
+            <div className="flex shrink-0 items-center gap-1 rounded border border-[var(--pf-admin-border)] bg-[var(--pf-admin-bg-card)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--pf-admin-text-muted)]">
               <Command className="h-3 w-3" />K
             </div>
           </div>
 
           {showDropdown ? (
-            <div className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-[420px] overflow-hidden rounded-[1.25rem] border border-white/10 bg-[linear-gradient(180deg,rgba(35,43,43,0.98),rgba(23,29,29,0.98))] shadow-[0_30px_80px_rgba(0,0,0,0.3)] backdrop-blur-xl">
+            <div className="absolute right-0 top-[calc(100%+0.4rem)] z-50 w-[420px] overflow-hidden rounded-lg border border-[var(--pf-admin-border)] bg-[var(--pf-admin-bg-card)] shadow-[0_12px_32px_rgba(15,15,15,0.12)]">
               <div className="max-h-[480px] overflow-y-auto p-2">
                 {loading && !hasAny ? (
-                  <div className="px-3 py-6 text-center text-xs text-muted-foreground">Searching…</div>
+                  <div className="px-3 py-6 text-center text-xs text-[var(--pf-admin-text-secondary)]">Searching…</div>
                 ) : !hasAny ? (
-                  <div className="px-3 py-6 text-center text-xs text-muted-foreground">No results for “{query}”.</div>
+                  <div className="px-3 py-6 text-center text-xs text-[var(--pf-admin-text-secondary)]">No results for &ldquo;{query}&rdquo;.</div>
                 ) : (
                   (() => {
                     let running = 0;
@@ -226,7 +220,7 @@ export function Topbar({ user, churchName, onOpenNavigation }: TopbarProps) {
                       if (items.length === 0) return null;
                       return (
                         <div key={g.key} className="mb-2 last:mb-0">
-                          <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground/80">
+                          <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--pf-admin-text-muted)]">
                             {g.label}
                           </div>
                           <div className="space-y-0.5">
@@ -239,14 +233,16 @@ export function Topbar({ user, churchName, onOpenNavigation }: TopbarProps) {
                                   type="button"
                                   onMouseEnter={() => setActiveIndex(idx)}
                                   onClick={() => followHit(hit)}
-                                  className={`flex w-full items-start gap-3 rounded-xl px-3 py-2 text-left transition-colors ${
-                                    active ? "bg-white/[0.08]" : "hover:bg-white/[0.05]"
+                                  className={`flex w-full items-start gap-3 rounded-md px-3 py-2 text-left transition-colors ${
+                                    active
+                                      ? "bg-[var(--pf-admin-accent-soft)] text-[var(--pf-admin-text)]"
+                                      : "text-[var(--pf-admin-text-secondary)] hover:bg-[var(--pf-admin-bg-hover)] hover:text-[var(--pf-admin-text)]"
                                   }`}
                                 >
                                   <div className="min-w-0 flex-1">
-                                    <div className="truncate text-sm font-medium text-foreground">{hit.title}</div>
+                                    <div className="truncate text-sm font-medium text-[var(--pf-admin-text)]">{hit.title}</div>
                                     {hit.subtitle ? (
-                                      <div className="truncate text-[11px] text-muted-foreground">{hit.subtitle}</div>
+                                      <div className="truncate text-[11px] text-[var(--pf-admin-text-muted)]">{hit.subtitle}</div>
                                     ) : null}
                                   </div>
                                 </button>
@@ -259,18 +255,18 @@ export function Topbar({ user, churchName, onOpenNavigation }: TopbarProps) {
                   })()
                 )}
               </div>
-              <div className="flex items-center justify-between border-t border-white/8 bg-black/20 px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+              <div className="flex items-center justify-between border-t border-[var(--pf-admin-border-subtle)] bg-[var(--pf-admin-bg-subtle)] px-3 py-2 text-[10px] uppercase tracking-[0.12em] text-[var(--pf-admin-text-muted)]">
                 <span>↑↓ navigate · ↵ open · esc close</span>
-                <span>Cmd/Ctrl + K</span>
+                <span>⌘/Ctrl + K</span>
               </div>
             </div>
           ) : null}
         </div>
 
         <div className="hidden items-center gap-2 xl:flex">
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 text-right shadow-[0_12px_28px_rgba(0,0,0,0.14)]">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Church</div>
-            <div className="max-w-[190px] truncate text-sm font-medium text-foreground">{churchName}</div>
+          <div className="rounded-md border border-[var(--pf-admin-border)] bg-[var(--pf-admin-bg-subtle)] px-3 py-1.5">
+            <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--pf-admin-text-muted)]">Church</div>
+            <div className="max-w-[180px] truncate text-xs font-medium text-[var(--pf-admin-text)]">{churchName}</div>
           </div>
         </div>
 
@@ -282,53 +278,53 @@ export function Topbar({ user, churchName, onOpenNavigation }: TopbarProps) {
           <button
             type="button"
             onClick={() => setMenuOpen((value) => !value)}
-            className="flex h-12 items-center gap-3 rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))] px-2.5 pr-3 shadow-[0_16px_36px_rgba(0,0,0,0.16)] transition hover:border-white/16 hover:bg-white/[0.06]"
+            className="flex h-10 items-center gap-2.5 rounded-md border border-[var(--pf-admin-border)] bg-[var(--pf-admin-bg-subtle)] px-2 pr-3 transition hover:bg-[var(--pf-admin-bg-hover)]"
           >
-            <div className="flex h-8.5 w-8.5 items-center justify-center rounded-full bg-[linear-gradient(180deg,var(--color-primary),color-mix(in_oklab,var(--color-primary)_70%,white))] text-[11px] font-bold text-[var(--color-background)]">
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--pf-admin-accent)] text-[10px] font-bold text-[var(--pf-admin-text-inverse)]">
               {initials}
             </div>
             <div className="hidden min-w-0 text-left xl:block">
-              <div className="max-w-[140px] truncate text-sm font-medium text-foreground">{user.name}</div>
-              <div className="max-w-[140px] truncate text-[11px] text-muted-foreground">{user.email}</div>
+              <div className="max-w-[140px] truncate text-xs font-medium text-[var(--pf-admin-text)]">{user.name}</div>
+              <div className="max-w-[140px] truncate text-[10px] text-[var(--pf-admin-text-muted)]">{user.email}</div>
             </div>
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            <ChevronDown className="h-3.5 w-3.5 text-[var(--pf-admin-text-muted)]" />
           </button>
 
           {menuOpen ? (
-            <div className="absolute right-0 top-[calc(100%+0.6rem)] z-50 w-72 overflow-hidden rounded-[1.4rem] border border-white/10 bg-[linear-gradient(180deg,rgba(35,43,43,0.98),rgba(23,29,29,0.98))] p-2 shadow-[0_30px_80px_rgba(0,0,0,0.3)] backdrop-blur-xl">
-              <div className="rounded-[1.1rem] border border-white/8 bg-white/[0.04] p-3">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Signed in as</div>
-                <div className="mt-1 text-sm font-semibold text-foreground">{user.name}</div>
-                <div className="truncate text-xs text-muted-foreground">{user.email}</div>
-                <div className="mt-3 rounded-xl border border-white/8 bg-black/15 px-3 py-2 text-xs text-muted-foreground">
-                  <span className="font-medium text-foreground">{churchName}</span>
-                  <span className="ml-1">workspace active</span>
+            <div className="absolute right-0 top-[calc(100%+0.4rem)] z-50 w-72 overflow-hidden rounded-lg border border-[var(--pf-admin-border)] bg-[var(--pf-admin-bg-card)] shadow-[0_12px_32px_rgba(15,15,15,0.12)]">
+              <div className="border-b border-[var(--pf-admin-border-subtle)] bg-[var(--pf-admin-bg-subtle)] p-3">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--pf-admin-text-muted)]">Signed in as</div>
+                <div className="mt-0.5 text-sm font-semibold text-[var(--pf-admin-text)]">{user.name}</div>
+                <div className="truncate text-xs text-[var(--pf-admin-text-secondary)]">{user.email}</div>
+                <div className="mt-2.5 rounded border border-[var(--pf-admin-border)] bg-[var(--pf-admin-bg-card)] px-2.5 py-1.5 text-[11px] text-[var(--pf-admin-text-secondary)]">
+                  <span className="font-medium text-[var(--pf-admin-text)]">{churchName}</span>
+                  <span className="ml-1 text-[var(--pf-admin-text-muted)]">workspace active</span>
                 </div>
               </div>
 
-              <div className="mt-2 space-y-1">
+              <div className="p-1.5">
                 <Link
                   href="/profile"
                   onClick={() => setMenuOpen(false)}
-                  className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-foreground transition hover:bg-white/[0.05]"
+                  className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-[var(--pf-admin-text-secondary)] transition hover:bg-[var(--pf-admin-bg-hover)] hover:text-[var(--pf-admin-text)]"
                 >
-                  <User className="h-4 w-4 text-muted-foreground" />
+                  <User className="h-4 w-4 text-[var(--pf-admin-text-muted)]" />
                   Profile
                 </Link>
                 <Link
                   href="/settings"
                   onClick={() => setMenuOpen(false)}
-                  className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-foreground transition hover:bg-white/[0.05]"
+                  className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-[var(--pf-admin-text-secondary)] transition hover:bg-[var(--pf-admin-bg-hover)] hover:text-[var(--pf-admin-text)]"
                 >
-                  <Settings className="h-4 w-4 text-muted-foreground" />
+                  <Settings className="h-4 w-4 text-[var(--pf-admin-text-muted)]" />
                   Settings
                 </Link>
                 <button
                   type="button"
                   onClick={() => { void signOutFully("/login"); }}
-                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-foreground transition hover:bg-white/[0.05]"
+                  className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-[var(--pf-admin-text-secondary)] transition hover:bg-[var(--pf-admin-bg-hover)] hover:text-[var(--pf-admin-text)]"
                 >
-                  <LogOut className="h-4 w-4 text-muted-foreground" />
+                  <LogOut className="h-4 w-4 text-[var(--pf-admin-text-muted)]" />
                   Sign out
                 </button>
               </div>

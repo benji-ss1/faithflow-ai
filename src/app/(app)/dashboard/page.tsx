@@ -120,13 +120,13 @@ export default async function DashboardPage() {
           <div className="flex flex-wrap gap-2">
             <Link
               href="/services"
-              className="inline-flex h-11 items-center rounded-2xl border border-white/10 bg-white/[0.03] px-4 text-sm font-medium text-foreground transition hover:border-white/16 hover:bg-white/[0.06]"
+              className="inline-flex h-10 items-center rounded-md border border-[var(--pf-admin-border)] bg-[var(--pf-admin-bg-card)] px-4 text-sm font-medium text-[var(--pf-admin-text)] transition hover:bg-[var(--pf-admin-bg-hover)]"
             >
               Open services
             </Link>
             <Link
               href="/organization"
-              className="inline-flex h-11 items-center rounded-2xl bg-[var(--color-primary)] px-4 text-sm font-semibold text-[var(--color-primary-foreground)] transition hover:brightness-105"
+              className="inline-flex h-10 items-center rounded-md bg-[var(--pf-admin-accent)] px-4 text-sm font-semibold text-[var(--pf-admin-text-inverse)] transition hover:bg-[var(--pf-admin-accent-hover)] focus:outline-none focus:ring-[3px] focus:ring-[var(--pf-admin-accent-ring)]"
             >
               Manage organization
             </Link>
@@ -138,94 +138,94 @@ export default async function DashboardPage() {
 
       <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr_0.85fr]">
         <DashboardCard title="Next service checklist" eyebrow="Operational prep">
-          <div className="space-y-3">
+          <div className="space-y-2">
             {nextService ? (
-              <div className="rounded-2xl border border-[rgba(111,224,194,0.16)] bg-[rgba(111,224,194,0.08)] px-4 py-3 text-sm text-foreground">
+              <div className="rounded-md border border-[var(--pf-admin-accent)]/25 bg-[var(--pf-admin-accent-soft)] px-3 py-2.5 text-sm text-[var(--pf-admin-text)]">
                 <div className="font-semibold">{nextService.title}</div>
-                <div className="text-xs text-muted-foreground">Next scheduled service · {formatServiceDate(nextService.scheduledFor)}</div>
+                <div className="text-xs text-[var(--pf-admin-text-secondary)]">Next scheduled service · {formatServiceDate(nextService.scheduledFor)}</div>
               </div>
             ) : null}
             {checklist.map((item) => (
               <Link
                 key={item.label}
                 href={item.href}
-                className="flex items-start gap-3 rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 transition hover:border-white/14 hover:bg-white/[0.05]"
+                className="group flex items-start gap-3 rounded-md border border-transparent px-3 py-2.5 transition hover:border-[var(--pf-admin-border-subtle)] hover:bg-[var(--pf-admin-bg-hover)]"
               >
                 {item.done ? (
-                  <CheckCircle2 className="mt-0.5 h-4.5 w-4.5 text-[var(--color-success)]" />
+                  <CheckCircle2 className="mt-0.5 h-[18px] w-[18px] text-[var(--pf-admin-green)]" />
                 ) : (
-                  <TriangleAlert className="mt-0.5 h-4.5 w-4.5 text-[var(--color-warning)]" />
+                  <TriangleAlert className="mt-0.5 h-[18px] w-[18px] text-[var(--pf-admin-gold)]" />
                 )}
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium text-foreground">{item.label}</div>
-                  <div className="text-xs leading-5 text-muted-foreground">{item.hint}</div>
+                  <div className="text-sm font-medium text-[var(--pf-admin-text)]">{item.label}</div>
+                  <div className="text-xs leading-5 text-[var(--pf-admin-text-secondary)]">{item.hint}</div>
                 </div>
-                <ArrowRight className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                <ArrowRight className="mt-0.5 h-4 w-4 text-[var(--pf-admin-text-muted)] opacity-0 transition group-hover:opacity-100" />
               </Link>
             ))}
           </div>
         </DashboardCard>
 
-        <DashboardCard title="AI health card" eyebrow="Suggestions" className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/8 bg-white/[0.04]">
-                <Bot className="h-5 w-5 text-[var(--color-primary)]" />
+        <DashboardCard title="AI health" eyebrow="Suggestions" className="space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[var(--pf-admin-accent-soft)]">
+                <Bot className="h-5 w-5 text-[var(--pf-admin-accent)]" />
               </div>
               <div>
-                <div className="text-lg font-semibold text-foreground">
+                <div className="text-sm font-semibold text-[var(--pf-admin-text)]">
                   {prefs?.aiListeningDefault ? "AI listening enabled" : "AI listening paused"}
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  {pendingSuggestions.length} pending suggestions · {resolvedSuggestions.length} reviewed
+                <div className="text-xs text-[var(--pf-admin-text-secondary)]">
+                  {pendingSuggestions.length} pending · {resolvedSuggestions.length} reviewed
                 </div>
               </div>
             </div>
             <StatusPill label={prefs?.aiListeningDefault ? "Ready" : "Needs setup"} tone={aiTone} />
           </div>
-          <p className="text-sm leading-6 text-muted-foreground">
-            Dashboard health uses suggestion queue and church defaults only. The live listening pipeline remains isolated in the operator stack.
+          <p className="text-sm leading-6 text-[var(--pf-admin-text-secondary)]">
+            Dashboard health reads the suggestion queue and church defaults only — the live listening pipeline is isolated in the operator stack.
           </p>
-          <Link href="/settings" className="inline-flex items-center gap-2 text-sm font-medium text-foreground hover:text-[var(--color-primary)]">
-            Review AI defaults <ArrowRight className="h-4 w-4" />
+          <Link href="/settings" className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--pf-admin-accent)] hover:text-[var(--pf-admin-accent-hover)]">
+            Review AI defaults <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         </DashboardCard>
 
         <div className="grid gap-4">
-          <DashboardCard title="Audio setup status" eyebrow="Readiness" tone="muted">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/8 bg-white/[0.04]">
-                <Mic className="h-4.5 w-4.5 text-[var(--color-primary)]" />
+          <DashboardCard title="Audio setup" eyebrow="Readiness">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[var(--pf-admin-bg-muted)]">
+                <Mic className="h-[18px] w-[18px] text-[var(--pf-admin-text-secondary)]" />
               </div>
-              <div>
-                <div className="text-sm font-semibold text-foreground">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold text-[var(--pf-admin-text)]">
                   {prefs?.audioInputDeviceLabel ? "Input source saved" : "Input source missing"}
                 </div>
-                <div className="text-xs text-muted-foreground">
+                <div className="mt-0.5 text-xs text-[var(--pf-admin-text-secondary)]">
                   {prefs?.audioInputDeviceLabel || "Choose an audio input in settings before service day."}
                 </div>
               </div>
             </div>
-            <div className="mt-4">
+            <div className="mt-3">
               <StatusPill label={prefs?.audioInputDeviceLabel ? "Configured" : "Needs setup"} tone={audioTone} />
             </div>
           </DashboardCard>
 
-          <DashboardCard title="Projector setup status" eyebrow="Outputs" tone="muted">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/8 bg-white/[0.04]">
-                <MonitorPlay className="h-4.5 w-4.5 text-[var(--color-accent)]" />
+          <DashboardCard title="Projector setup" eyebrow="Outputs">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[var(--pf-admin-bg-muted)]">
+                <MonitorPlay className="h-[18px] w-[18px] text-[var(--pf-admin-text-secondary)]" />
               </div>
-              <div>
-                <div className="text-sm font-semibold text-foreground">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold text-[var(--pf-admin-text)]">
                   {settingsRow?.logoS3Key || mediaRows.length > 0 ? "Visual defaults present" : "Output review still needed"}
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  This phase surfaces readiness only. Dedicated device registration can land later without touching live output internals.
+                <div className="mt-0.5 text-xs text-[var(--pf-admin-text-secondary)]">
+                  Dashboard surfaces readiness only. Dedicated device registration can land without touching live output internals.
                 </div>
               </div>
             </div>
-            <div className="mt-4">
+            <div className="mt-3">
               <StatusPill label={projectorTone === "warning" ? "Review" : "Prepared"} tone={projectorTone} />
             </div>
           </DashboardCard>

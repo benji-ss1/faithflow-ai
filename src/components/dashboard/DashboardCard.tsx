@@ -1,5 +1,8 @@
 import { cn } from "@/lib/utils";
 
+// Clean, ACMR-style card: white in light mode, deep charcoal in dark mode,
+// 1px border, no shadows. Consumers use `tone` to signal muted / premium
+// backgrounds, but the base treatment stays flat by default.
 export function DashboardCard({
   title,
   eyebrow,
@@ -16,17 +19,23 @@ export function DashboardCard({
   return (
     <section
       className={cn(
-        "rounded-[1.4rem] p-5 transition-all duration-200",
+        "rounded-[10px] border p-6 transition-colors duration-150",
         tone === "premium"
-          ? "ff-card-premium"
+          ? "border-[var(--pf-admin-accent)]/40 bg-[var(--pf-admin-accent-soft)]"
           : tone === "muted"
-            ? "border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] shadow-[0_16px_38px_rgba(0,0,0,0.14)]"
-            : "border border-white/8 bg-[linear-gradient(180deg,rgba(35,43,43,0.92),rgba(27,33,33,0.95))] shadow-[0_18px_45px_rgba(0,0,0,0.16)]",
-        className
+            ? "border-[var(--pf-admin-border-subtle)] bg-[var(--pf-admin-bg-subtle)]"
+            : "border-[var(--pf-admin-border)] bg-[var(--pf-admin-bg-card)]",
+        className,
       )}
     >
-      {eyebrow ? <div className="eyebrow mb-2">{eyebrow}</div> : null}
-      <div className="mb-3 text-base font-semibold tracking-[-0.02em] text-foreground">{title}</div>
+      {eyebrow ? (
+        <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--pf-admin-text-muted)]">
+          {eyebrow}
+        </div>
+      ) : null}
+      <div className="mb-3 text-base font-semibold tracking-[-0.01em] text-[var(--pf-admin-text)]">
+        {title}
+      </div>
       {children}
     </section>
   );
@@ -41,17 +50,17 @@ export function StatusPill({
 }) {
   const toneClass =
     tone === "success"
-      ? "border-[rgba(79,209,139,0.25)] bg-[rgba(79,209,139,0.12)] text-[var(--color-success)]"
+      ? "bg-[rgba(61,154,80,0.10)] text-[var(--pf-admin-green)]"
       : tone === "warning"
-        ? "border-[rgba(240,179,90,0.25)] bg-[rgba(240,179,90,0.12)] text-[var(--color-warning)]"
+        ? "bg-[rgba(239,159,39,0.12)] text-[var(--pf-admin-gold)]"
         : tone === "danger"
-          ? "border-[rgba(242,109,109,0.25)] bg-[rgba(242,109,109,0.12)] text-[var(--color-destructive)]"
+          ? "bg-[rgba(220,53,69,0.10)] text-[var(--pf-admin-red)]"
           : tone === "brand"
-            ? "border-[rgba(111,224,194,0.24)] bg-[rgba(111,224,194,0.12)] text-[var(--color-primary)]"
-            : "border-white/10 bg-white/[0.04] text-muted-foreground";
+            ? "bg-[var(--pf-admin-accent-soft)] text-[var(--pf-admin-accent)]"
+            : "bg-[var(--pf-admin-bg-muted)] text-[var(--pf-admin-text-secondary)]";
 
   return (
-    <span className={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium", toneClass)}>
+    <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium", toneClass)}>
       {label}
     </span>
   );

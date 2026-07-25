@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.51",
+    date: "2026-07-25",
+    headline: "Admin topbar + dashboard rebuild — clean light-mode SaaS surface, no more dark ribbon over white",
+    highlights: [
+      "The web admin topbar has been rebuilt to match the new sidebar language: 64px tall (was 88px), clean white bar with a single bottom border in light mode instead of the previous heavy dark gradient. The ⌘K global search dropdown now renders as a clean white popover with orange-tinted hover rows, the church badge is a small pill in the neutral palette, and the user avatar dropdown pulls the same clean card treatment — profile, settings, and sign out all sit inside a light popover in light mode",
+      "Dashboard cards rebuilt (DashboardCard component): white 1px-bordered surfaces with no shadows, 10px radius, tokenised so light mode reads as a proper SaaS panel and dark mode stays deep charcoal. Removed the leftover FaithFlow-teal glow on the 'Next scheduled service' banner — now a subtle orange-accented card. Status pills retinted (green success, amber warning, red danger, orange brand) using the admin palette instead of the old teal-based tokens",
+      "Dashboard checklist rows are now flat + minimal: no boxy borders, just a subtle hover state, with the arrow chevron appearing only on hover. Icons use the new green/amber/orange palette. Action buttons ('Open services' and 'Manage organization') use the new admin button treatment — 40px tall, 6px radius, orange primary with focus ring instead of the previous 44px rounded-2xl brutalist buttons",
+      "PageHeader retooled to use the admin tokens across every page that uses it (Dashboard, Songs, Library/*, Organization, Settings, Analytics) — cleaner type scale (28px headline, 14px description), tighter spacing, no more display-font italic tilt on titles",
+    ],
+  },
+  {
     version: "0.1.50",
     date: "2026-07-25",
     headline: "Admin sidebar rebuild — branded gradient header, tighter 240px width, regrouped nav, light-mode clean",

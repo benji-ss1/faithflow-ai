@@ -10,11 +10,21 @@ export function PageHeader({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="mb-8 flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
-      <div className="space-y-2">
-        {eyebrow && <div className="eyebrow text-muted-foreground">{eyebrow}</div>}
-        <h1 className="text-3xl font-semibold font-display tracking-[-0.04em] text-foreground md:text-4xl">{title}</h1>
-        {description && <p className="max-w-3xl text-sm leading-6 text-muted-foreground md:text-[15px]">{description}</p>}
+    <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+      <div className="space-y-1.5">
+        {eyebrow && (
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--pf-admin-text-muted)]">
+            {eyebrow}
+          </div>
+        )}
+        <h1 className="text-2xl font-semibold tracking-[-0.01em] text-[var(--pf-admin-text)] md:text-[28px]">
+          {title}
+        </h1>
+        {description && (
+          <p className="max-w-2xl text-sm leading-6 text-[var(--pf-admin-text-secondary)]">
+            {description}
+          </p>
+        )}
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}
     </div>
