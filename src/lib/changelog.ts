@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.49",
+    date: "2026-07-25",
+    headline: "Church logo upload + it shows in the sidebar workspace pill",
+    highlights: [
+      "Admins can now upload a church logo from Organization → Church branding (drag-drop or click, PNG/JPG/WebP up to 2 MB). The logo appears immediately in the sidebar workspace pill below the PresentFlow branding — no hard reload needed. Fallback when no logo is uploaded: a monogram of the church name's first letter",
+      "Under the hood: logo upload is admin-role gated (operators/pastors can't change branding on their own), the stored S3 key is validated to belong to your own church (belt-and-brace so no crafted request from a friendly UI can plant another church's key), and the previous blob URL is revoked on replace so repeat uploads don't leak memory. Sidebar image now sets width/height (no layout shift) and referrerPolicy=no-referrer",
+      "Browser tab now shows the PresentFlow play-button logo as the favicon (was Next.js default) — applies to both regular tabs and the Apple touch icon",
+    ],
+  },
+  {
     version: "0.1.48",
     date: "2026-07-25",
     headline: "Admin portal hardening — 50 hymns, editable church profile, real Themes page, Songs table with search + delete, security sweep landed",

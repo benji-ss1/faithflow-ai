@@ -40,7 +40,9 @@ export default async function OrganizationPage() {
           />
         </AccountCard>
         <AccountCard title="Church branding" description="Upload your logo — it appears in the sidebar, in the desktop app splash, and as a Logo slide in service plans.">
-          <ChurchBrandingUploader initialLogoUrl={logoUrl} />
+          <div className="pf-admin-scope">
+            <ChurchBrandingUploader initialLogoUrl={logoUrl} />
+          </div>
         </AccountCard>
         <AccountCard title="Worship defaults" description="Defaults for screen behavior, Bible selection, and profile readiness.">
           <dl className="grid gap-4 sm:grid-cols-2">

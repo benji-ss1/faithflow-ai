@@ -314,7 +314,14 @@ export function Sidebar({ mobileOpen, onMobileOpenChange, churchLogoUrl, churchN
           <div className="mb-3 flex items-center gap-2 rounded-xl border border-white/8 bg-white/[0.03] px-2 py-1.5">
             {churchLogoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={churchLogoUrl} alt="" className="h-6 w-6 shrink-0 rounded object-contain" />
+              <img
+                src={churchLogoUrl}
+                alt=""
+                width={24}
+                height={24}
+                referrerPolicy="no-referrer"
+                className="h-6 w-6 shrink-0 rounded object-contain"
+              />
             ) : (
               <div className="grid h-6 w-6 shrink-0 place-items-center rounded bg-white/8 text-[10px] font-semibold text-muted-foreground">
                 {(churchName || "?").charAt(0).toUpperCase()}

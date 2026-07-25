@@ -1,5 +1,6 @@
 "use client";
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Trash2, ImageIcon } from "lucide-react";
 import { updateSettings } from "@/lib/actions";
@@ -12,8 +13,20 @@ export function ChurchBrandingUploader({ initialLogoUrl }: { initialLogoUrl: str
   const [dragOver, setDragOver] = useState(false);
   const [pending, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
+  // Track any object URL we mint so we can revoke it on replace/unmount and
+  // avoid leaking the last upload's blob until page nav.
+  const blobUrlRef = useRef<string | null>(null);
+  const router = useRouter();
+
+  useEffect(() => {
+    return () => {
+      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+    };
+  }, []);
 
   async function handleFile(file: File) {
+    // Re-entry guard: while a save is in flight, ignore additional drops.
+    if (pending) return;
     if (!ALLOWED.includes(file.type)) {
       toast.error("Use a PNG, JPG, or WebP image");
       return;
@@ -37,9 +50,16 @@ export function ChurchBrandingUploader({ initialLogoUrl }: { initialLogoUrl: str
         const res = await updateSettings({ logoS3Key: presign.key });
         if (!res.ok) throw new Error(res.error || "Save failed");
 
-        // Optimistic preview from the local file — real presigned URL loads on next revalidate.
-        setLogoUrl(URL.createObjectURL(file));
+        // Optimistic preview from the local file. Revoke the previous blob
+        // first so we don't leak. router.refresh() then re-fetches server
+        // components — the sidebar workspace pill picks up the real
+        // presigned URL from the (app) layout on next render.
+        if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+        const nextUrl = URL.createObjectURL(file);
+        blobUrlRef.current = nextUrl;
+        setLogoUrl(nextUrl);
         toast.success("Church logo saved");
+        router.refresh();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Upload failed");
       }
@@ -47,33 +67,41 @@ export function ChurchBrandingUploader({ initialLogoUrl }: { initialLogoUrl: str
   }
 
   function removeLogo() {
+    if (pending) return;
     if (!confirm("Remove your church logo? You can upload another later.")) return;
     startTransition(async () => {
-      const res = await updateSettings({ logoS3Key: "" });
+      const res = await updateSettings({ logoS3Key: null });
       if (!res.ok) {
         toast.error(res.error || "Could not remove");
         return;
       }
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
+      }
       setLogoUrl(null);
       toast.success("Logo removed");
+      router.refresh();
     });
   }
 
   return (
     <div className="space-y-4">
       <div
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragOver={(e) => { e.preventDefault(); if (!pending) setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={(e) => {
           e.preventDefault();
           setDragOver(false);
+          if (pending) return;
           const file = e.dataTransfer.files?.[0];
           if (file) void handleFile(file);
         }}
-        onClick={() => inputRef.current?.click()}
-        className={`relative grid min-h-[176px] cursor-pointer place-items-center rounded-xl border border-dashed transition ${
+        onClick={() => { if (!pending) inputRef.current?.click(); }}
+        aria-busy={pending}
+        className={`relative grid min-h-[176px] place-items-center rounded-xl border border-dashed transition ${
           dragOver ? "border-[var(--color-primary)] bg-[var(--color-primary)]/5" : "border-border bg-white/[0.02] hover:border-border/80"
-        } ${pending ? "opacity-60" : ""}`}
+        } ${pending ? "pointer-events-none cursor-wait opacity-60" : "cursor-pointer"}`}
       >
         <input
           ref={inputRef}
@@ -90,14 +118,20 @@ export function ChurchBrandingUploader({ initialLogoUrl }: { initialLogoUrl: str
           <div className="flex flex-col items-center gap-3 p-4">
             {/* Use plain <img> here so a presigned S3 URL isn't blocked by next/image domain rules. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={logoUrl} alt="Church logo" className="max-h-24 max-w-full rounded-lg object-contain" />
+            <img
+              src={logoUrl}
+              alt="Church logo"
+              referrerPolicy="no-referrer"
+              className="max-h-24 max-w-full rounded-lg object-contain"
+            />
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span>Click to replace</span>
               <span>·</span>
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); removeLogo(); }}
-                className="inline-flex items-center gap-1 text-red-400 hover:text-red-300"
+                disabled={pending}
+                className="inline-flex items-center gap-1 text-red-400 hover:text-red-300 disabled:opacity-50"
               >
                 <Trash2 className="h-3 w-3" /> Remove
               </button>
@@ -121,4 +155,3 @@ export function ChurchBrandingUploader({ initialLogoUrl }: { initialLogoUrl: str
     </div>
   );
 }
-

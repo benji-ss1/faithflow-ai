@@ -737,16 +737,46 @@ export async function generateSermonSummaryAction(planId: string): Promise<Resul
 }
 
 // Settings -------------------------------------------------------------------
-export async function updateSettings(data: { blankBgColor?: string; logoS3Key?: string }): Promise<Result> {
-  const user = await requireUser();
+// Branding + display defaults. When `logoS3Key` is touched:
+//   - Require admin role (operators/pastors shouldn't be able to change the
+//     church's public-facing logo without admin sign-off).
+//   - Validate the key starts with `${churchId}/` so a caller with a known
+//     foreign S3 key can't plant it and receive a 6h presigned GET via the
+//     layout's read. `""` is coerced to `null` to keep the column tidy.
+export async function updateSettings(data: { blankBgColor?: string; logoS3Key?: string | null }): Promise<Result> {
+  const modifiesLogo = Object.prototype.hasOwnProperty.call(data, "logoS3Key");
+  const user = modifiesLogo ? await requireRole("admin") : await requireUser();
+
+  const patch: { blankBgColor?: string; logoS3Key?: string | null; updatedAt: Date } = { updatedAt: new Date() };
+  if (data.blankBgColor !== undefined) patch.blankBgColor = data.blankBgColor;
+  if (modifiesLogo) {
+    const raw = data.logoS3Key;
+    if (raw === null || raw === undefined || raw === "") {
+      patch.logoS3Key = null;
+    } else {
+      if (typeof raw !== "string") return { ok: false, error: "Invalid logo key" };
+      // Prefix check: must belong to this church. Presign route mints keys
+      // as `${churchId}/media/${uuid}.${ext}` so anything else is either a
+      // foreign key or a poisoned client value.
+      if (!raw.startsWith(`${user.churchId}/`)) {
+        return { ok: false, error: "Logo key must belong to your church" };
+      }
+      patch.logoS3Key = raw;
+    }
+  }
+
   const db = getDb();
   const [existing] = await db.select().from(settings).where(eq(settings.churchId, user.churchId)).limit(1);
   if (existing) {
-    await db.update(settings).set({ ...data, updatedAt: new Date() }).where(eq(settings.id, existing.id));
+    await db.update(settings).set(patch).where(eq(settings.id, existing.id));
   } else {
-    await db.insert(settings).values({ churchId: user.churchId, ...data });
+    await db.insert(settings).values({ churchId: user.churchId, ...patch });
   }
   revalidatePath("/settings");
+  // Sidebar reads settings.logoS3Key from the (app) layout — revalidate the
+  // whole layout so the pill picks up the new logo without a hard reload.
+  revalidatePath("/organization");
+  revalidatePath("/", "layout");
   return { ok: true };
 }
 
