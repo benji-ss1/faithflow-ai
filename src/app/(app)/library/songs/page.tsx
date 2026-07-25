@@ -50,7 +50,28 @@ export default async function SongsPage() {
       <SongBundlesPanel usage={usage} limit={limit} />
 
       <SongLicensingPanel songCount={songs.length} importedCount={importedCount} />
-      <InternetSongDetectionPanel totalSongs={songs.length} />
+
+      {/* Section 8 (visual-overhaul brief): the detection testing panel is
+          a power-user tool for tuning AI song-matching against the local
+          library. Volunteers running Sunday services don't need to see it
+          on the Songs page every time. Hidden behind a `<details>` toggle
+          labelled "Admin / Debug" so it's still one click away for the
+          admin who tunes it, but doesn't crowd the everyday view. */}
+      <details className="group rounded-2xl border border-border bg-card/40 open:bg-card/80 open:shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between rounded-2xl px-5 py-3 text-sm font-medium text-muted-foreground transition hover:bg-card/60 hover:text-foreground">
+          <span className="flex items-center gap-2">
+            <span className="inline-flex items-center rounded bg-[var(--pf-admin-bg-muted)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--pf-admin-text-muted)]">
+              Admin · Debug
+            </span>
+            Detection testing panel
+          </span>
+          <span className="text-[11px] text-muted-foreground group-open:hidden">Show</span>
+          <span className="hidden text-[11px] text-muted-foreground group-open:inline">Hide</span>
+        </summary>
+        <div className="border-t border-border p-5">
+          <InternetSongDetectionPanel totalSongs={songs.length} />
+        </div>
+      </details>
       <form action={create} className="mb-6 flex flex-wrap gap-2 rounded-2xl border border-border bg-card/80 p-4">
         <input name="title" placeholder="Song title" required
           className="h-10 max-w-xs flex-1 rounded-xl border border-border bg-background px-3 text-sm" />

@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.56",
+    date: "2026-07-25",
+    headline: "Cleaner Organization + Songs pages — fewer cards, less noise",
+    highlights: [
+      "Organization page now shows Church details + Worship defaults in a single card separated by a subtle divider (was two side-by-side cards competing for attention). The internal-only 'Onboarding status' row is gone — it wasn't user-facing signal. Church branding stays as its own card on the right",
+      "Songs page: the 'Song licensing and copyright' and 'Import warning' cards are merged into one card, with the amber import warning surfaced as an inline callout at the bottom. Same information, less visual weight",
+      "Detection testing panel (the AI-song-match tuning tool volunteers never needed to see on their way to the songs list) is now collapsed behind an 'Admin · Debug' toggle at the bottom of the Songs page. One click away for the admin who tunes it, out of the way for everyone else",
+    ],
+  },
+  {
     version: "0.1.55",
     date: "2026-07-25",
     headline: "Church logo now shows in the topbar badge + tighter image upload rules",

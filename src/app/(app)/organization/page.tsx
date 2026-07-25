@@ -27,7 +27,11 @@ export default async function OrganizationPage() {
         description="Operational identity, worship defaults, and account-facing church details. Edit deeper controls from Settings."
       />
       <div className="grid gap-4 xl:grid-cols-2">
-        <AccountCard title="Church details" description="Core profile and ministry context used across billing, invites, and onboarding.">
+        {/* Merged card per Section 8 of the visual-overhaul brief: profile
+            editing + worship-side defaults live in one card separated by
+            a subtle divider. Dropped the "Onboarding status" detail row —
+            it was an internal enum, not user-facing signal. */}
+        <AccountCard title="Church details" description="Core profile, worship defaults, and how PresentFlow presents your church across billing, invites, and services.">
           <ChurchProfileForm
             initial={{
               name: church?.name || "",
@@ -38,18 +42,20 @@ export default async function OrganizationPage() {
               denomination: church?.denomination || "",
             }}
           />
+          <div className="mt-6 border-t border-border pt-5">
+            <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              Worship defaults
+            </div>
+            <dl className="grid gap-4 sm:grid-cols-2">
+              <Detail label="Default Bible translation" value={translation ? `${translation.code} · ${translation.name}` : "Not set"} />
+              <Detail label="Blank screen color" value={display?.blankBgColor || "#000000"} />
+            </dl>
+          </div>
         </AccountCard>
         <AccountCard title="Church branding" description="Upload your logo — it appears in the sidebar, in the desktop app splash, and as a Logo slide in service plans.">
           <div className="pf-admin-scope">
             <ChurchBrandingUploader initialLogoUrl={logoUrl} />
           </div>
-        </AccountCard>
-        <AccountCard title="Worship defaults" description="Defaults for screen behavior, Bible selection, and profile readiness.">
-          <dl className="grid gap-4 sm:grid-cols-2">
-            <Detail label="Default Bible translation" value={translation ? `${translation.code} · ${translation.name}` : "Not set"} />
-            <Detail label="Blank screen color" value={display?.blankBgColor || "#000000"} />
-            <Detail label="Onboarding status" value={church?.onboardingStatus || "pending"} />
-          </dl>
         </AccountCard>
       </div>
     </div>
