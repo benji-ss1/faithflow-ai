@@ -9,7 +9,6 @@ import {
   GalleryVerticalEnd,
   LayoutDashboard,
   LifeBuoy,
-  Library,
   MonitorPlay,
   MonitorSmartphone,
   Music4,
@@ -112,16 +111,20 @@ export const desktopNav: NavGroup[] = [
   },
 ];
 
+// accountNav is no longer rendered as a sidebar section (the items moved
+// into the new WORKSPACE/PEOPLE/ADMIN groups above). It's kept here solely
+// so `getActiveNavMatch` can still resolve breadcrumb/route-title lookups
+// for URL-reachable account pages. /applications and /products intentionally
+// stay off this list: they were orphaned by the rebuild and route-title
+// resolution shouldn't describe pages the user can't reach from any nav.
 export const accountNav: NavGroup[] = [
   {
     label: "Account",
     items: [
       { href: "/organization", label: "Organization", icon: Building2 },
-      { href: "/applications", label: "Applications", icon: Library },
       { href: "/subscriptions", label: "Subscriptions", icon: CreditCard },
       { href: "/settings/billing", label: "Billing", icon: CreditCard },
       { href: "/profile", label: "My Profile", icon: Sparkles },
-      { href: "/products", label: "Get More Products", icon: Sparkles },
     ],
   },
 ];

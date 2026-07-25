@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  ArrowUpRight,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -17,10 +16,6 @@ import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { IconTooltip } from "@/components/ui/tooltip";
 import { desktopNav, workspaceNav } from "@/components/layout/navigation";
 import { useShell } from "@/hooks/useShell";
-import { Settings as SettingsIcon, LogOut, ExternalLink } from "lucide-react";
-import { signOut } from "next-auth/react";
-import { signOutFully } from "@/lib/sign-out";
-import { _resetTierCache } from "@/hooks/useTier";
 
 type SidebarProps = {
   mobileOpen: boolean;
@@ -181,7 +176,7 @@ function NavSection({
               const disabledEl = (
                 <div key={item.label} title={collapsed ? undefined : disabledLabel}
                   className={className} aria-disabled>
-                  {active ? <span className={cn("absolute left-0 top-2 bottom-2 rounded-full bg-[var(--color-primary)]", collapsed ? "w-1 left-1.5" : "w-1")} /> : null}
+                  {active ? <span className={cn("absolute left-0 top-1.5 bottom-1.5 rounded-r-full bg-[var(--pf-admin-accent)]", collapsed ? "w-[3px] left-0" : "w-[3px] -ml-3")} /> : null}
                   {content}
                 </div>
               );
@@ -277,10 +272,11 @@ export function Sidebar({ mobileOpen, onMobileOpenChange, churchLogoUrl, churchN
   const shell = (
     <aside
       className={cn(
-        "pf-admin-scope relative flex h-full flex-col border-r transition-[width,transform] duration-300 ease-out",
-        // Backing surface + border use the admin tokens so light-mode renders
-        // clean white while dark-mode keeps the deep charcoal look. Operator
-        // surfaces (which never wrap in pf-admin-scope) are untouched.
+        "relative flex h-full flex-col border-r transition-[width,transform] duration-300 ease-out",
+        // Backing surface + border use the admin tokens (defined by ancestor
+        // AppShell's .pf-admin-scope) so light mode renders clean off-white
+        // while dark mode stays deep charcoal. Operator surfaces (which never
+        // wrap in pf-admin-scope) are untouched.
         "border-[var(--pf-admin-border)] bg-[var(--pf-admin-bg-subtle)]",
         collapsed ? "w-[80px]" : "w-[240px]"
       )}
@@ -346,6 +342,28 @@ export function Sidebar({ mobileOpen, onMobileOpenChange, churchLogoUrl, churchN
             )}
             <span className="truncate text-[11px] font-medium text-white/85">{churchName || "Church workspace"}</span>
           </div>
+        ) : collapsed && (churchLogoUrl || churchName) ? (
+          // Collapsed mode: show just the logo (or monogram) so church
+          // identity doesn't disappear entirely when the sidebar shrinks.
+          <IconTooltip label={churchName || "Church workspace"} side="right">
+            <div className="relative mx-auto mb-4 mt-3 grid h-8 w-8 place-items-center rounded-lg border border-white/10 bg-white/[0.06] backdrop-blur">
+              {churchLogoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={churchLogoUrl}
+                  alt=""
+                  width={22}
+                  height={22}
+                  referrerPolicy="no-referrer"
+                  className="h-[22px] w-[22px] rounded object-contain"
+                />
+              ) : (
+                <span className="text-[11px] font-semibold text-white/90">
+                  {(churchName || "?").charAt(0).toUpperCase()}
+                </span>
+              )}
+            </div>
+          </IconTooltip>
         ) : (
           <div className="pb-4" />
         )}
@@ -365,10 +383,6 @@ export function Sidebar({ mobileOpen, onMobileOpenChange, churchLogoUrl, churchN
           unlocked={isDesktop ? null : unlocked}
           onNavigate={() => onMobileOpenChange(false)}
         />
-
-        {isDesktop ? (
-          <DesktopFooterPanel collapsed={collapsed} pathname={pathname} onNavigate={() => onMobileOpenChange(false)} />
-        ) : null}
       </div>
 
       <div className={cn("border-t border-[var(--pf-admin-border)] py-3", collapsed ? "px-2" : "px-3")}>
@@ -423,98 +437,9 @@ export function Sidebar({ mobileOpen, onMobileOpenChange, churchLogoUrl, churchN
   );
 }
 
-function DesktopFooterPanel({
-  collapsed,
-  pathname,
-  onNavigate,
-}: {
-  collapsed: boolean;
-  pathname: string;
-  onNavigate: () => void;
-}) {
-  const settingsActive = pathname === "/settings" || pathname.startsWith("/settings/");
-  const manageUrl = process.env.NEXT_PUBLIC_APP_URL || "https://presentflow.app";
-
-  function openManage() {
-    const api = typeof window !== "undefined" ? window.electronAPI : undefined;
-    if (api?.shell?.openExternal) {
-      api.shell.openExternal(manageUrl);
-    } else {
-      window.open(manageUrl, "_blank", "noopener");
-    }
-  }
-
-  if (collapsed) {
-    return (
-      <div className="space-y-1.5">
-        <Link
-          href="/settings"
-          title="Settings"
-          onClick={onNavigate}
-          className={cn(
-            "flex h-10 items-center justify-center rounded-2xl border text-sidebar-fg transition",
-            settingsActive
-              ? "border-[rgba(111,224,194,0.28)] bg-[linear-gradient(180deg,rgba(255,255,255,0.09),rgba(255,255,255,0.04))] text-foreground"
-              : "border-transparent hover:border-white/10 hover:bg-white/[0.045]"
-          )}
-        >
-          <SettingsIcon className="h-4 w-4" strokeWidth={1.8} />
-        </Link>
-        <button
-          type="button"
-          onClick={openManage}
-          title="Manage your church online"
-          className="flex h-10 w-full items-center justify-center rounded-2xl border border-transparent text-sidebar-fg transition hover:border-white/10 hover:bg-white/[0.045]"
-        >
-          <ExternalLink className="h-4 w-4" strokeWidth={1.8} />
-        </button>
-        <button
-          type="button"
-          onClick={() => { void signOutFully("/login"); }}
-          title="Sign out"
-          className="flex h-10 w-full items-center justify-center rounded-2xl border border-transparent text-sidebar-fg transition hover:border-white/10 hover:bg-white/[0.045]"
-        >
-          <LogOut className="h-4 w-4" strokeWidth={1.8} />
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-3 rounded-[1.35rem] border border-white/7 bg-white/[0.03] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-      <Link
-        href="/settings"
-        onClick={onNavigate}
-        className={cn(
-          "flex h-10 items-center gap-3 rounded-2xl border px-3 text-sm font-medium transition",
-          settingsActive
-            ? "border-[rgba(111,224,194,0.28)] bg-[linear-gradient(180deg,rgba(255,255,255,0.09),rgba(255,255,255,0.04))] text-foreground"
-            : "border-transparent text-sidebar-fg hover:border-white/10 hover:bg-white/[0.045]"
-        )}
-      >
-        <SettingsIcon className="h-4 w-4 shrink-0" strokeWidth={settingsActive ? 2 : 1.8} />
-        <span className="min-w-0 flex-1 truncate">Settings</span>
-      </Link>
-
-      <button
-        type="button"
-        onClick={openManage}
-        className="flex h-10 w-full items-center gap-3 rounded-2xl border border-transparent px-3 text-left text-sm font-medium text-sidebar-fg transition hover:border-white/10 hover:bg-white/[0.045]"
-      >
-        <ExternalLink className="h-4 w-4 shrink-0" strokeWidth={1.8} />
-        <span className="min-w-0 flex-1 truncate">Manage your church online</span>
-        <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-      </button>
-
-      <button
-        type="button"
-        onClick={() => { void signOutFully("/login"); }}
-        className="flex h-10 w-full items-center gap-3 rounded-2xl border border-transparent px-3 text-left text-sm font-medium text-sidebar-fg transition hover:border-white/10 hover:bg-white/[0.045]"
-      >
-        <LogOut className="h-4 w-4 shrink-0" strokeWidth={1.8} />
-        <span className="min-w-0 flex-1 truncate">Sign out</span>
-      </button>
-    </div>
-  );
-}
+// DesktopFooterPanel removed 2026-07-25: Sidebar never mounts in the desktop
+// (Electron) shell — see AppShell.tsx, which short-circuits with a bare
+// wrapper when isDesktop. Reviewer flagged as dead code. The Manage/Settings/
+// Sign-out affordances the panel provided are already reachable via the web
+// admin's topbar user dropdown + the sidebar's ADMIN group (Settings row).
 
