@@ -304,11 +304,16 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
 function LiveTranscriptPanel({ ctx }: { ctx: OperatorShellCtx }) {
   const audio = ctx.audio;
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // 2026-07-25 — Clear button hides everything transcribed before `clearedAt`
+  // WITHOUT stopping the Deepgram pipeline. New utterances continue to land.
+  // Local-only state — the underlying `audio.transcript` array stays intact
+  // so a page reload restores the full history if we ever need it.
+  const [clearedAt, setClearedAt] = useState(0);
   // 2026-07-25 Phase 2: bump visible-window from last 8 chunks to last 30
   // — the panel is now much taller and users want to be able to scroll
   // back and read earlier context without waiting for something to
   // "cycle out". Still bounded by the 30s time filter below.
-  const recent = audio.transcript.slice(-30);
+  const recent = audio.transcript.slice(-30).filter((t) => t.ts > clearedAt);
   const now = Date.now();
   // Keep only the last 30s of finals for the visible window.
   const windowed = recent.filter((t) => now - t.ts < 30_000);
@@ -390,6 +395,17 @@ function LiveTranscriptPanel({ ctx }: { ctx: OperatorShellCtx }) {
             className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 pf-ai-live-dot"
           />
         )}
+        {/* 2026-07-25 — Clear button. Hides everything transcribed so far
+            from the visible panel without stopping the AI pipeline. */}
+        <button
+          type="button"
+          title="Clear visible transcript (does not stop AI listener)"
+          aria-label="Clear transcript"
+          onClick={() => setClearedAt(Date.now())}
+          className="ml-auto text-[9px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] px-1.5 py-0.5 rounded hover:bg-white/5"
+        >
+          Clear
+        </button>
       </div>
       <div
         ref={scrollRef}

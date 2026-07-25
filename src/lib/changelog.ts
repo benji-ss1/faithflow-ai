@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.47",
+    date: "2026-07-25",
+    headline: "Audio Diagnostics scanner + Live Transcript Clear + Media PRO lock + Logs tab hidden",
+    highlights: [
+      "New Audio Diagnostics scanner in Settings › Audio → 'Run diagnostics'. Enumerates every audio input on the machine, opens each one (4-step constraint fallback so weird interfaces don't get rejected), listens for 3 seconds, and reports live signal + level + sample rate. One-click 'Use' button selects a device as the AI input. Purpose: at JPD with a Mac Studio + mixer + Logic + maybe Dante + spare USB mic, the volunteer sees at a glance which of 6 devices is actually carrying the preacher's mic",
+      "Live transcript now has a 'Clear' button in the panel header that hides everything transcribed so far without stopping the AI listener — new speech continues to land. Useful for resetting the visible panel between service segments without a full pipeline restart",
+      "Media section now shows a PRO badge and locks Cinematic / Creators / Intro Videos categories behind a Pro plan gate. 'Free' remains accessible. Clicking a locked category opens an inline banner with an Upgrade button ('coming soon' toast on beta) and a Dismiss link",
+      "Logs icon in the right sidebar bar has been hidden (the popover was a placeholder pointing at DevTools console). Kept the underlying logging code intact for the follow-up dismissed-detections history view",
+    ],
+  },
+  {
     version: "0.1.46",
     date: "2026-07-25",
     headline: "Bible verse cards fit longer text + separate Load-Chapter/Add-to-Playlist buttons + transitions actually animate",

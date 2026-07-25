@@ -30,7 +30,7 @@
  */
 import { useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
-import { BookOpen, Music, Link2, ScrollText, Settings as SettingsIcon, Monitor } from "lucide-react";
+import { BookOpen, Music, Link2, Settings as SettingsIcon, Monitor } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { TimerApi, MessagesApi } from "../hooks";
@@ -75,10 +75,14 @@ export function RightIconBar({
           k="xrefs" openKey={openKey} setOpen={setOpenKey}
           Icon={Link2} label="Cross-references" badge={xrefCount}
         />
-        <IconTrigger
+        {/* 2026-07-25 — Logs icon hidden per operator directive.
+            Underlying logging pipeline remains; only the UI entry point
+            is removed. Uncomment when we have a real dismissed-detections
+            history view (currently just a "check DevTools" placeholder). */}
+        {/* <IconTrigger
           k="logs" openKey={openKey} setOpen={setOpenKey}
           Icon={ScrollText} label="Logs"
-        />
+        /> */}
         <IconTrigger
           k="settings" openKey={openKey} setOpen={setOpenKey}
           Icon={SettingsIcon} label="Settings"
@@ -105,20 +109,9 @@ export function RightIconBar({
           <AIDetectionsPanel ctx={ctx} sections={["xrefs"]} />
         </PopoverShell>
       )}
-      {openKey === "logs" && (
-        <PopoverShell title="Logs" onClose={() => setOpenKey(null)}>
-          <div className="p-3 text-[11px] text-[var(--color-muted-foreground)] space-y-2">
-            <p>
-              Dismissed detections history is coming in a follow-up ship. In
-              the meantime, open DevTools (Cmd+Opt+I → Console) to see the
-              full pipeline log stream — every auto-fire, canonical
-              correction, and detection event is prefixed with{" "}
-              <code className="font-mono text-[10px]">[latency]</code> or{" "}
-              <code className="font-mono text-[10px]">[song-autoprogression]</code>.
-            </p>
-          </div>
-        </PopoverShell>
-      )}
+      {/* Logs popover render also disabled — see IconTrigger comment above.
+          If openKey somehow ends up "logs" (stale localStorage), no popover
+          renders and the icon-bar row is clean. */}
       {openKey === "settings" && (
         <PopoverShell title="Settings" onClose={() => setOpenKey(null)}>
           <SettingsPopoverBody timer={timer} messages={messages} />

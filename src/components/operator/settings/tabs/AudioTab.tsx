@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
-import { ChevronDown, X, Plus } from "lucide-react";
+import { ChevronDown, X, Plus, Stethoscope } from "lucide-react";
 import { SectionHeader, Row, Toggle } from "./DisplayTab";
+import { AudioDiagnosticsScan } from "@/components/operator/AudioDiagnosticsScan";
 
 const AUDIO_INPUT_KEY = "presentflow.pro.audioInput.v1";
 const AUDIO_SOURCE_TYPE_KEY = "presentflow.pro.audioSourceType.v1";
@@ -139,6 +140,8 @@ export function AudioTab() {
     setNewPhrase("");
   }
 
+  const [diagOpen, setDiagOpen] = useState(false);
+
   return (
     <div className="space-y-6">
       <SectionHeader title="Audio" description="Transcription mode, input device, gain, and voice commands." />
@@ -147,15 +150,35 @@ export function AudioTab() {
           a window event that ProOperatorShell handles by calling
           ctx.onRestartAudio (full teardown + fresh ticket + start). */}
       <Row label="AI Listener">
-        <button
-          data-testid="settings-restart-ai-btn"
-          onClick={() => { try { window.dispatchEvent(new CustomEvent("presentflow:restart-audio")); } catch {} }}
-          className="h-8 px-3 rounded-md border text-[11px] font-medium text-zinc-100 hover:bg-white/5"
-          style={{ borderColor: "#2a3232", background: "#1a2020" }}
-        >
-          ↻ Restart AI listener
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            data-testid="settings-restart-ai-btn"
+            onClick={() => { try { window.dispatchEvent(new CustomEvent("presentflow:restart-audio")); } catch {} }}
+            className="h-8 px-3 rounded-md border text-[11px] font-medium text-zinc-100 hover:bg-white/5"
+            style={{ borderColor: "#2a3232", background: "#1a2020" }}
+          >
+            ↻ Restart AI listener
+          </button>
+          {/* 2026-07-25 — Diagnostics scanner: tests every audio input in
+              turn, shows which have live signal. Use when you're not sure
+              which USB device is carrying the mixer's feed. */}
+          <button
+            onClick={() => setDiagOpen(true)}
+            className="h-8 px-3 rounded-md border text-[11px] font-medium text-zinc-100 hover:bg-white/5 inline-flex items-center gap-1.5"
+            style={{ borderColor: "#2a3232", background: "#1a2020" }}
+            title="Scan every audio input and report which have live signal"
+          >
+            <Stethoscope className="w-3.5 h-3.5" />
+            Run diagnostics
+          </button>
+        </div>
       </Row>
+      {diagOpen && (
+        <AudioDiagnosticsScan
+          onClose={() => setDiagOpen(false)}
+          onSelectDevice={(id, label) => persistSelection({ kind: "device", id, label })}
+        />
+      )}
 
       <Row label="Transcription Mode">
         <div className="inline-flex rounded-md p-0.5" style={{ background: "#1a2020", border: "1px solid #2a3232" }}>
