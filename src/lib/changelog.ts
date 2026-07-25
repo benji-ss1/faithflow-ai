@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.53",
+    date: "2026-07-25",
+    headline: "Branded loading splash between admin pages",
+    highlights: [
+      "Route transitions between admin pages (dashboard → songs → services etc.) now show a branded PresentFlow splash — deep-charcoal background with a subtle purple/orange glow and the pulsing play-button mark — instead of a blank page during data fetch. Matches the landing-page splash aesthetic. Server-rendered so there's zero JS cost during the critical first-paint window",
+    ],
+  },
+  {
     version: "0.1.52",
     date: "2026-07-25",
     headline: "Onboarding wizard rebuilt — 6 focused steps with branding + hymn library one-click",
