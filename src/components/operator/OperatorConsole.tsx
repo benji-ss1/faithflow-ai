@@ -1161,6 +1161,21 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
           ? libSong.slides.map((s) => ({ kind: "text" as const, text: s.lyrics || "" }))
           : [];
         setPlan((prev) => {
+          // 2026-07-25 field bug fix: client-side dedup mirrors the
+          // server-side dedup in addServiceItem (actions.ts:124-134).
+          // Without this, the optimistic add stacked on top of an
+          // existing playlist row for the same songId, producing the
+          // "2× Amazing Grace" the user reported. If the server
+          // dedupes silently (returns ok:true, no new row), the
+          // optimistic push added a phantom duplicate that persisted
+          // until router.refresh() completed.
+          const alreadyIn = prev.items.some((it) => {
+            if (kind === "song" && (it as { songId?: string }).songId === ref.id) return true;
+            if (kind === "media" && (it as { mediaAssetId?: string }).mediaAssetId === ref.id) return true;
+            if (kind === "sermon" && (it as { pptxImportId?: string }).pptxImportId === ref.id) return true;
+            return false;
+          });
+          if (alreadyIn) return prev;
           const newItem = {
             id: optimisticId,
             title: ref.title,

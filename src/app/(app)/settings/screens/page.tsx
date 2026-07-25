@@ -22,17 +22,30 @@ export default function ScreenConfigPage() {
   const [inElectron, setInElectron] = useState<boolean | null>(null);
 
   useEffect(() => {
-    const hasApi = typeof window !== "undefined" && !!window.electronAPI;
-    setInElectron(hasApi);
-    if (!hasApi) return;
-
-    void window.electronAPI!.screens.list().then(setDisplays);
-
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) setAssignments(JSON.parse(stored));
-      setAutoRestore(localStorage.getItem(AUTO_RESTORE_KEY) === "1");
-    } catch {}
+    // 2026-07-25 same race fix as ScreensPanel — poll up to 3s for the
+    // preload's window.electronAPI to appear before declaring web-mode.
+    let cancelled = false;
+    let tries = 0;
+    const MAX_TRIES = 30;
+    const check = () => {
+      if (cancelled) return;
+      const hasApi = typeof window !== "undefined" && !!window.electronAPI;
+      if (hasApi) {
+        setInElectron(true);
+        void window.electronAPI!.screens.list().then(setDisplays);
+        try {
+          const stored = localStorage.getItem(STORAGE_KEY);
+          if (stored) setAssignments(JSON.parse(stored));
+          setAutoRestore(localStorage.getItem(AUTO_RESTORE_KEY) === "1");
+        } catch {}
+        return;
+      }
+      tries++;
+      if (tries >= MAX_TRIES) { setInElectron(false); return; }
+      setTimeout(check, 100);
+    };
+    check();
+    return () => { cancelled = true; };
   }, []);
 
   const persist = useCallback((next: Record<number, Assignment>) => {

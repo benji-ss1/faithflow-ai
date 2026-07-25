@@ -69,17 +69,36 @@ export function ScreensPanel() {
   const [inElectron, setInElectron] = useState<boolean | null>(null);
 
   useEffect(() => {
-    const hasApi = typeof window !== "undefined" && !!window.electronAPI;
-    setInElectron(hasApi);
-    if (!hasApi) return;
-
-    void window.electronAPI!.screens.list().then(setDisplays);
-
-    try {
-      // Y7: validate shape before trusting persisted state.
-      setAssignments(parseStoredAssignments(localStorage.getItem(STORAGE_KEY)));
-      setAutoRestore(localStorage.getItem(AUTO_RESTORE_KEY) === "1");
-    } catch {}
+    // 2026-07-25 field bug fix: on the desktop Electron shell the preload
+    // script exposes window.electronAPI synchronously, but SOMETIMES the
+    // panel mounts before the preload's contextBridge.exposeInMainWorld
+    // has resolved (rare race, but real — user reported the "desktop app
+    // only" message showing INSIDE the desktop app). Poll up to 3 seconds
+    // for the API to appear before giving up. Also re-check on
+    // visibilitychange in case the panel was opened before hydration.
+    let cancelled = false;
+    let tries = 0;
+    const MAX_TRIES = 30; // 30 × 100 ms = 3 s
+    const check = () => {
+      if (cancelled) return;
+      const hasApi = typeof window !== "undefined" && !!window.electronAPI;
+      if (hasApi) {
+        setInElectron(true);
+        void window.electronAPI!.screens.list().then(setDisplays);
+        try {
+          setAssignments(parseStoredAssignments(localStorage.getItem(STORAGE_KEY)));
+          setAutoRestore(localStorage.getItem(AUTO_RESTORE_KEY) === "1");
+        } catch {}
+        return;
+      }
+      tries++;
+      if (tries >= MAX_TRIES) { setInElectron(false); return; }
+      setTimeout(check, 100);
+    };
+    check();
+    const onVis = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { cancelled = true; document.removeEventListener("visibilitychange", onVis); };
   }, []);
 
   const persist = useCallback((next: Record<number, Assignment>) => {

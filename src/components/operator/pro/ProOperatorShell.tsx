@@ -513,6 +513,14 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   // once handled once, matching the same cooldown as SONG_AUTO_FIRED_SESSION_KEY.
   const stagedOrHandledRef = useRef<Map<string, number>>(new Map());
   const SONG_REDETECT_COOLDOWN_MS = 5 * 60 * 1000;
+  // 2026-07-25 field bug fix — dismissedSongsRef: when the operator clicks
+  // the X on a staged banner, that song must NOT immediately re-stage the
+  // next time the same lyric fragment lands (which happens every 5-10 sec
+  // during a song). User report was "banner appears 5 times, X doesn't
+  // dismiss it." Persistent 10-min dismissal per song so a real re-attempt
+  // only happens if the song truly comes back later in the service.
+  const dismissedSongsRef = useRef<Map<string, number>>(new Map());
+  const SONG_DISMISS_TTL_MS = 10 * 60 * 1000;
   const confirmPendingRef = useRef(false);
   const lastSongAutoLiveAtRef = useRef(0); // min-gap cooldown for Part 6b auto-live
   const promotionInFlightRef = useRef<Set<string>>(new Set()); // dedupe for staged->auto-live promotion
@@ -701,7 +709,17 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       // 2026-07-24 fix: check for "this exact song currently live" rather
       // than "some other song is live" — matches operator intent that any
       // legitimate content switch should be allowed to fire.
-      const SONG_REDETECT_BYPASS_FLOOR_MS = 15 * 1000;
+      // 2026-07-25 field bug: user dismissed staged banner → banner
+      // re-appeared within seconds because handledAt was ~15s. Now check
+      // dismissedSongsRef first — if operator explicitly X'd this song,
+      // skip re-staging for the full dismissal TTL (10 min).
+      const dismissedAt = dismissedSongsRef.current.get(c.songId);
+      if (dismissedAt && now - dismissedAt < SONG_DISMISS_TTL_MS) continue;
+      // 2026-07-25 bump staging-cooldown bypass floor from 15s → 60s.
+      // 15s was too aggressive — the same lyric fragment lands every
+      // 5-10s during a real song, so the banner would blink back the
+      // moment the operator was still figuring out what to press.
+      const SONG_REDETECT_BYPASS_FLOOR_MS = 60 * 1000;
       const sameSongAlreadyLive = liveSongRef.current !== null && liveSongRef.current.songId === c.songId;
       if (handledAt) {
         const gap = now - handledAt;
@@ -937,7 +955,16 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx.audio.transcript, stagedSong]);
 
-  const dismissStaged = useCallback(() => setStagedSong(null), []);
+  const dismissStaged = useCallback(() => {
+    // 2026-07-25 field bug fix: also record the dismissal so the effect
+    // above skips re-staging this song for SONG_DISMISS_TTL_MS. Without
+    // this, the banner reappeared within ~15s because the same lyric
+    // fragment kept firing detections.
+    if (stagedSong) {
+      dismissedSongsRef.current.set(stagedSong.songId, Date.now());
+    }
+    setStagedSong(null);
+  }, [stagedSong]);
 
   if (!stagedSong && !autoAdvanceFlash) return null;
 
@@ -983,8 +1010,22 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
               </div>
             ))}
           </div>
-          <div className="text-[11px] font-bold text-orange-200">
-            Press <kbd className="px-1.5 py-0.5 rounded bg-orange-500 text-white font-mono">G</kbd> to go LIVE with slide {stagedSong.currentIdx + 1} of {stagedSong.slides.length} — human confirm required, AI will never send this on its own.
+          <div className="flex items-center gap-3 text-[11px] font-bold text-orange-200">
+            {/* 2026-07-25 field bug fix — explicit clickable "Go LIVE" button.
+                Some operators didn't realize G was a keyboard hotkey, or the
+                key was blocked by focus/overlay. This button is the same
+                action, always accessible via mouse. */}
+            <button
+              type="button"
+              onClick={confirmStagedSongLive}
+              className="px-3 py-1.5 rounded bg-orange-500 hover:bg-orange-600 text-white text-[12px] font-bold shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"
+              data-testid="staged-song-go-live-btn"
+            >
+              GO LIVE →
+            </button>
+            <span>
+              Slide {stagedSong.currentIdx + 1} of {stagedSong.slides.length} · or press <kbd className="px-1.5 py-0.5 rounded bg-orange-500 text-white font-mono">G</kbd>
+            </span>
           </div>
         </div>
       )}

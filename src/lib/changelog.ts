@@ -15,6 +15,18 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.35",
+    date: "2026-07-25",
+    headline: "Staged song 'GO LIVE' button + X really dismisses + screens config timing fix + playlist duplicate guard",
+    highlights: [
+      "AI-staged song banner now has an explicit orange 'GO LIVE →' button — click or press G, either works. Previously only the G keyboard shortcut worked and if focus was elsewhere the operator was stuck",
+      "The X close button on the staged banner now REALLY dismisses — the same song won't re-stage for 10 minutes. Was previously bouncing back within seconds because the same lyric fragment kept firing detections",
+      "'Screen configuration is available only in the PresentFlow desktop app' popup no longer appears inside the desktop app — the check now polls for the preload bridge up to 3 seconds instead of giving up on the first render (fixed a real timing race)",
+      "Playlist no longer shows duplicate rows when the same song is added twice — client-side dedup mirrors the existing server-side dedup so optimistic-add doesn't stack on top of a real row",
+      "Song re-stage floor bumped 15s → 60s so the banner doesn't blink back the moment you're still figuring out what to press",
+    ],
+  },
+  {
     version: "0.1.34",
     date: "2026-07-25",
     headline: "Playlist rows are clickable + AI detections auto-highlight the sidebar item",
