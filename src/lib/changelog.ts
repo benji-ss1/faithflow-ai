@@ -15,6 +15,19 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.41",
+    date: "2026-07-25",
+    headline: "Parser accent-fixes (Ruth/Deuteronomy/Colossians), typed 'EX 2 1'-style shortcuts, Settings tabs no longer overlap",
+    highlights: [
+      "'Route 4 is 1' now parses as Ruth 4:1 — Deepgram often mishears 'Ruth' as 'route' in African-accented speech, and it also renders the ':' between chapter and verse as the word 'is' ('4 is 1'). Both mishearings are now auto-repaired before pattern matching",
+      "'DEUTEROMY' / 'DEUTERONOMAY' now detect as Deuteronomy — the transcript kept dropping the second N or drifting to '-nomay'. Both variants added to the alias table",
+      "Typed 'COLO 3 1' now looks up Colossians 3:1 (added 'colo' and 'colos' as short forms). 'EXODOUS' also detects as Exodus (very common typo when in a rush)",
+      "Typed 'EX 2 1', 'AM 1', 'AC 2', 'RE 21' etc. in the reference field now looks up the book — two-letter abbreviations (ex, ru, is, am, ac, re, ph, jd) are recognized in the TYPED input path only (still ignored in live speech to avoid false-firing on ordinary English)",
+      "AI no longer projects a verse while you're typing in the search bar or reference field. If focus is inside any input, textarea, or contenteditable, the auto-approve path is held until focus leaves. Prevents the annoying interruption when you're mid-lookup and the mic hears a passing phrase",
+      "Settings popover tabs (Audio / Messages / Timers / Themes / Macros) were visually crashing into each other in the narrow sidebar — the uppercase + wide letter spacing meant 5 labels didn't fit. Simplified label style and switched to natural-width tabs so they either fit comfortably or scroll cleanly",
+    ],
+  },
+  {
     version: "0.1.40",
     date: "2026-07-25",
     headline: "Live preview locked to 220px 16:9 + grid cards readable again + ResizeObserver false-positive silenced",

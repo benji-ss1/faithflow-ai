@@ -196,9 +196,18 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
 
   const lookup = useCallback(async () => {
     const parser = await import("@/lib/bible-parser");
-    const treatAsRef = parser.isProbablyReference(ref);
+    // Try the typed-input parser FIRST — it expands short abbreviations
+    // (`ex 2 1`, `am 1`) that isProbablyReference doesn't recognize via
+    // its parser-backed confirm path. Fall back to the shape heuristic
+    // for anything else that "looks like" a reference.
+    const typedFirst = parser.parseTypedReference(ref);
+    const treatAsRef = typedFirst.length > 0 || parser.isProbablyReference(ref);
     if (treatAsRef) {
-      const parsed = parser.parseReferences(ref);
+      // parseTypedReference is a strict superset of parseReferences that
+      // also expands typed-only book abbreviations (`ex`, `ru`, `is`, `am`,
+      // `ac`, `re`, `ph`, `jd`) that are deliberately excluded from live
+      // ASR parsing to avoid collisions with ordinary English.
+      const parsed = parser.parseTypedReference(ref);
       if (parsed.length === 0) { toast.info("Couldn't parse reference"); return; }
       const p = parsed[0];
       setPhraseHits([]);

@@ -229,14 +229,20 @@ function SettingsPopoverBody({
   ];
   return (
     <div className="flex flex-col">
-      <div className="flex border-b border-[var(--color-border)] overflow-x-auto shrink-0">
+      {/* 2026-07-25 fix — was `flex-1 min-w-0 px-2 uppercase tracking-wider`
+          which visually collided in the narrow sidebar (5 labels squeezed
+          under ~260px). Switched to natural-width tabs with whitespace-nowrap
+          in an overflow-x-auto rail, and dropped the uppercase/wide-tracking
+          so labels take ~half the width. Fits comfortably without scroll at
+          most sidebar widths, scrolls cleanly when narrower. */}
+      <div className="flex border-b border-[var(--color-border)] overflow-x-auto shrink-0 pf-transcript-scroll">
         {tabs.map((t) => (
           <button
             key={t.k}
             type="button"
             onClick={() => setSubTab(t.k)}
             className={cn(
-              "flex-1 min-w-0 h-8 px-2 text-[11px] font-semibold uppercase tracking-wider transition-colors",
+              "h-8 px-3 text-[11px] font-medium whitespace-nowrap transition-colors",
               subTab === t.k
                 ? "text-[var(--color-foreground)] border-b-2 border-[var(--color-brand)]"
                 : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",

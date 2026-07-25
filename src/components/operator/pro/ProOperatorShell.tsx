@@ -1707,6 +1707,21 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         || window.localStorage.getItem(AUTO_APPROVE_KEY_INSTANT) === "1";
     } catch { /* noop */ }
     if (!autoOn) return;
+    // 2026-07-25 field bug fix: if the operator is actively typing in a
+    // text input (reference lookup field, song search, message body,
+    // etc.), don't yank the projector out from under them. Auto-fire
+    // resumes the moment they blur the input. Doesn't affect chip clicks
+    // or explicit send-to-live actions — only the AUTO scripture path.
+    try {
+      const el = typeof document !== "undefined" ? document.activeElement as HTMLElement | null : null;
+      if (el) {
+        const tag = (el.tagName || "").toUpperCase();
+        if (tag === "INPUT" || tag === "TEXTAREA" || el.isContentEditable) {
+          if (pfTraceOn()) console.log("[auto-approve] held (operator typing in input)");
+          return;
+        }
+      }
+    } catch { /* noop */ }
     // Y8: hold auto-fire during active song if operator opted in.
     let holdDuringSong = false;
     try { holdDuringSong = window.localStorage.getItem(HOLD_DURING_SONG_KEY) === "1"; } catch { /* noop */ }

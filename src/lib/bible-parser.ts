@@ -23,13 +23,16 @@ const RAW_BOOKS: [string, string[]][] = [
   //   "ex" (Exodus), "ru" (Ruth), "is" (Isaiah), "am" (Amos), "ac" (Acts),
   //   "re" (Revelation). See R2 in the Priority-1 review.
   ["Genesis", ["genesis", "gen", "gn", "ge"]],
-  ["Exodus", ["exodus", "exod", "exo"]],
+  ["Exodus", ["exodus", "exod", "exo", "exodous"]],
   ["Leviticus", ["leviticus", "lev", "lv"]],
   ["Numbers", ["numbers", "num", "nm", "nb"]],
-  ["Deuteronomy", ["deuteronomy", "deut", "deu", "dt"]],
+  // "deuteromy" — very common Deepgram mishearing (drops the second N).
+  ["Deuteronomy", ["deuteronomy", "deuteromy", "deuteronomay", "deut", "deu", "dt"]],
   ["Joshua", ["joshua", "josh", "jos"]],
   ["Judges", ["judges", "judg", "jdg", "jgs"]],
-  ["Ruth", ["ruth", "rut"]],
+  // "route" — very common Deepgram mishearing of "Ruth" in speech
+  // (they're near-homophones for many accents).
+  ["Ruth", ["ruth", "rut", "route"]],
   ["1 Samuel", ["1 samuel", "first samuel", "1st samuel", "one samuel", "i samuel", "1 sam", "1sam", "1 sm", "1s"]],
   ["2 Samuel", ["2 samuel", "second samuel", "2nd samuel", "two samuel", "ii samuel", "2 sam", "2sam", "2 sm", "2s"]],
   ["1 Kings", ["1 kings", "first kings", "1st kings", "one kings", "i kings", "1 kgs", "1kgs"]],
@@ -72,7 +75,7 @@ const RAW_BOOKS: [string, string[]][] = [
   ["Galatians", ["galatians", "gal"]],
   ["Ephesians", ["ephesians", "eph"]],
   ["Philippians", ["philippians", "phil", "php"]],
-  ["Colossians", ["colossians", "col"]],
+  ["Colossians", ["colossians", "col", "colo", "colos"]],
   ["1 Thessalonians", ["1 thessalonians", "first thessalonians", "1st thessalonians", "one thessalonians", "i thessalonians", "1 thess", "1 thes"]],
   ["2 Thessalonians", ["2 thessalonians", "second thessalonians", "2nd thessalonians", "two thessalonians", "ii thessalonians", "2 thess", "2 thes"]],
   ["1 Timothy", ["1 timothy", "first timothy", "1st timothy", "one timothy", "i timothy", "1 tim", "1tim"]],
@@ -220,6 +223,12 @@ function repairNumberHomophones(s: string): string {
   s = s.replace(/\btirty\b/g, "thirty");
   s = s.replace(/\btirtieth\b/g, "thirtieth");
   s = s.replace(/\btousand\b/g, "thousand");
+  // 2026-07-25 field bug fix: "N is M" between two numbers is almost always
+  // a Deepgram mishearing of "N:M" (chapter:verse). "Route 4 is 1" →
+  // "Ruth 4:1", "Numbers 24 is 3" → "Numbers 24:3", etc. Guarded to
+  // fire ONLY when digits appear on both sides so ordinary English
+  // ("truth is love", "verse is important") isn't touched.
+  s = s.replace(/\b(\d{1,3})\s+is\s+(\d{1,3})\b/g, "$1:$2");
   return s;
 }
 
@@ -765,6 +774,44 @@ export function parseReference(text: string): SimpleReference | null {
  * Used by the BibleMode input to pick between /api/bible/lookup and
  * /api/bible/search. Refined by parseReference() when uncertain.
  */
+// Typed-input-only alias map. These two-letter tokens deliberately DO NOT
+// live in RAW_BOOKS because they collide with common English words during
+// live speech ("ex", "is", "am", "ac", "ru", "re"). But when an operator
+// TYPES them into the reference field they unambiguously mean the book —
+// nobody types "am 2" hoping for a sermon search on "am". Applied only via
+// parseTypedReference() below (and NEVER via the live ASR path).
+const TYPED_ONLY_ALIASES: Record<string, string> = {
+  ex: "Exodus",
+  ru: "Ruth",
+  is: "Isaiah",
+  am: "Amos",
+  ac: "Acts",
+  re: "Revelation",
+  ph: "Philippians",
+  jd: "Jude",
+};
+
+/**
+ * Reference parser tuned for TYPED input (reference field / search palette).
+ * Same rules as parseReferences() but with two additional accommodations
+ * that would false-fire on live speech but are safe when a human is typing:
+ *  1. Applies TYPED_ONLY_ALIASES (`ex 2 1` → `exodus 2 1`).
+ *  2. Interprets bare space-separated numbers after a book as chapter+verse
+ *     ("EX 2 1" → Exodus 2:1) — this ALREADY works via book_ch_space_verse
+ *     in parseReferences(), the alias expansion is the missing piece.
+ */
+export function parseTypedReference(rawText: string): ParsedReference[] {
+  if (!rawText || typeof rawText !== "string") return [];
+  // Expand typed-only book abbreviations at the head of the input. Match
+  // case-insensitively and require a following digit (or word-number) so a
+  // bare "ex" alone doesn't get expanded into a doomed lookup.
+  const expanded = rawText.replace(
+    /^\s*(ex|ru|is|am|ac|re|ph|jd)\b/i,
+    (_m, abbr: string) => TYPED_ONLY_ALIASES[abbr.toLowerCase()] || abbr,
+  );
+  return parseReferences(expanded);
+}
+
 export function isProbablyReference(s: string): boolean {
   if (!s || typeof s !== "string") return false;
   const t = s.trim();
