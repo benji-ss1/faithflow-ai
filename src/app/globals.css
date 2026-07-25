@@ -226,6 +226,19 @@ html.light {
 @keyframes pf-pulse-connecting { 0%, 100% { opacity: 1 } 50% { opacity: 0.35 } }
 .pf-ai-connecting-dot { animation: pf-pulse-connecting 0.9s ease-in-out infinite; }
 
+/* Live-transcript scrollbar — dark-themed, thin, subtle. Chromium-only
+   selectors which is fine for Electron. Native macOS transient scrollbars
+   also style up fine via ::-webkit-scrollbar. */
+.pf-transcript-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.pf-transcript-scroll::-webkit-scrollbar-track { background: transparent; }
+.pf-transcript-scroll::-webkit-scrollbar-thumb {
+  background: rgba(139, 149, 165, 0.25);
+  border-radius: 4px;
+}
+.pf-transcript-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(139, 149, 165, 0.45);
+}
+
 /* Auto-correction flash — yellow highlight fades to plain over ~3s so the
    operator's eye catches "the AI just corrected this word" without the
    highlight sticking around as visual clutter after the sermon rolls on.

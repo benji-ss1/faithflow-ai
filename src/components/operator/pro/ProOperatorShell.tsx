@@ -302,7 +302,11 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
 function LiveTranscriptPanel({ ctx }: { ctx: OperatorShellCtx }) {
   const audio = ctx.audio;
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const recent = audio.transcript.slice(-8);
+  // 2026-07-25 Phase 2: bump visible-window from last 8 chunks to last 30
+  // — the panel is now much taller and users want to be able to scroll
+  // back and read earlier context without waiting for something to
+  // "cycle out". Still bounded by the 30s time filter below.
+  const recent = audio.transcript.slice(-30);
   const now = Date.now();
   // Keep only the last 30s of finals for the visible window.
   const windowed = recent.filter((t) => now - t.ts < 30_000);
@@ -316,11 +320,50 @@ function LiveTranscriptPanel({ ctx }: { ctx: OperatorShellCtx }) {
   const interim = useDebouncedInterim(audio.interim, 1, 90);
   const hasContent = windowed.length > 0 || !!interim;
 
+  // 2026-07-25 Phase 2: scroll pause/resume. Auto-scroll is default ON,
+  // but if the operator scrolls up to re-read something, we pause auto-
+  // scroll so the panel doesn't rip them back to the bottom the moment
+  // new transcript lands. Resume auto-scroll the moment they scroll
+  // back to the bottom (within a 12px threshold to handle sub-pixel
+  // rounding). Ref (not state) so the scroll handler doesn't rebind on
+  // every re-render.
+  const autoScrollRef = useRef(true);
+  const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 12;
+    autoScrollRef.current = atBottom;
+  };
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    if (autoScrollRef.current) el.scrollTop = el.scrollHeight;
   }, [audio.transcript, interim]);
+
+  // 2026-07-25 Phase 2: index detected trigger phrases by segmentId so
+  // we can highlight them inline in the transcript with the brand orange.
+  // Suggestions carry `segmentId` + `matchedText` — if a suggestion's
+  // segmentId matches a transcript chunk's id, we search for its
+  // matchedText inside the chunk and wrap it in an orange highlight so
+  // the operator can see WHICH words in the transcript triggered a
+  // detection. Falls back to plain text on any segment with no
+  // suggestions attached.
+  const triggersBySegment = new Map<string, string[]>();
+  for (const s of audio.suggestions) {
+    if (!s.segmentId || !s.matchedText) continue;
+    const existing = triggersBySegment.get(s.segmentId) ?? [];
+    existing.push(s.matchedText);
+    triggersBySegment.set(s.segmentId, existing);
+  }
+
+  // 2026-07-25 Phase 2: helper — mm:ss clock-time timestamp per chunk.
+  // Not elapsed-since-session-start (unclear during a break); clock time
+  // maps to "when did the preacher say that" in the operator's actual
+  // sense of time. Padded to always be 5 chars so the right-edge column
+  // aligns.
+  const mmss = (ts: number): string => {
+    const d = new Date(ts);
+    return `${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+  };
 
   // 2026-07-24 field bug fix: was `audio.listening && audio.ready` — the
   // red dot vanished during any background reconnect (Fly machine bounce,
@@ -348,7 +391,8 @@ function LiveTranscriptPanel({ ctx }: { ctx: OperatorShellCtx }) {
       </div>
       <div
         ref={scrollRef}
-        className="h-[96px] overflow-y-auto rounded bg-[var(--color-elevated)] border border-[var(--color-border)] px-2 py-1 text-[12px] leading-snug"
+        onScroll={onScroll}
+        className="min-h-[150px] max-h-[280px] overflow-y-auto rounded bg-[var(--color-elevated)] border border-[var(--color-border)] px-2 py-1 text-[12px] leading-snug pf-transcript-scroll"
         style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
       >
         {!hasContent ? (
@@ -357,8 +401,10 @@ function LiveTranscriptPanel({ ctx }: { ctx: OperatorShellCtx }) {
           </div>
         ) : (
           <>
-            {windowed.map((t) => (
-              <div key={t.id} className="text-[var(--color-foreground)] break-words">
+            {windowed.map((t) => {
+              const triggers = triggersBySegment.get(t.id) ?? [];
+              return (
+              <div key={t.id} className="text-[var(--color-foreground)] break-words flex items-start gap-2">
                 {/* Roadmap #5 — word-level confidence heatmap. Deepgram
                     already returns per-word confidence; render low-conf
                     words (< 0.75) in amber and very-low (< 0.5) with a
@@ -377,6 +423,7 @@ function LiveTranscriptPanel({ ctx }: { ctx: OperatorShellCtx }) {
                     visual noise. (Corrections is empty/undefined for
                     99% of segments — the highlight is genuinely rare
                     and always means "the AI just fixed itself here".) */}
+                <span className="flex-1 min-w-0">
                 {t.corrections && t.corrections.length > 0 ? (
                   (() => {
                     let display = t.text;
@@ -420,14 +467,61 @@ function LiveTranscriptPanel({ ctx }: { ctx: OperatorShellCtx }) {
                         >{p.text}</span>
                     );
                   })()
+                ) : triggers.length > 0 ? (
+                  // 2026-07-25 Phase 2: orange highlight for detected
+                  // trigger phrases (matchedText from suggestions with
+                  // this segmentId). Case-insensitive substring match
+                  // wraps each hit in a brand-orange background span.
+                  // Only applies when the corrections branch above
+                  // hasn't already claimed rendering — corrections
+                  // convey more information (the actual fix) so they
+                  // win overlap arbitration.
+                  (() => {
+                    const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                    const alternation = triggers.map(escapeRe).join("|");
+                    const parts: { key: number; text: string; matched: boolean }[] = [];
+                    let keySeq = 0;
+                    if (!alternation) return t.text;
+                    const re = new RegExp(`(${alternation})`, "gi");
+                    let last = 0;
+                    let m: RegExpExecArray | null;
+                    while ((m = re.exec(t.text)) !== null) {
+                      if (m.index > last) {
+                        parts.push({ key: keySeq++, text: t.text.slice(last, m.index), matched: false });
+                      }
+                      parts.push({ key: keySeq++, text: m[0], matched: true });
+                      last = m.index + m[0].length;
+                    }
+                    if (last < t.text.length) {
+                      parts.push({ key: keySeq++, text: t.text.slice(last), matched: false });
+                    }
+                    return parts.map((p) => p.matched
+                      ? <span
+                          key={p.key}
+                          className="rounded-sm px-0.5 font-semibold"
+                          style={{ backgroundColor: "rgba(240, 132, 46, 0.25)", color: "#F0842E" }}
+                          title="Detected trigger phrase"
+                        >{p.text}</span>
+                      : <span key={p.key}>{p.text}</span>
+                    );
+                  })()
                 ) : (
                   t.text
                 )}
+                </span>
+                <span
+                  className="shrink-0 text-[10px] font-mono text-[var(--color-muted-foreground)] opacity-60 tabular-nums pt-0.5"
+                  title={new Date(t.ts).toLocaleTimeString()}
+                >
+                  {mmss(t.ts)}
+                </span>
               </div>
-            ))}
+              );
+            })}
             {interim && (
-              <div className="text-[var(--color-muted-foreground)] break-words opacity-70">
-                {interim}
+              <div className="text-[var(--color-muted-foreground)] break-words opacity-70 flex items-start gap-2">
+                <span className="flex-1 min-w-0">{interim}</span>
+                <span className="shrink-0 text-[10px] font-mono opacity-40 tabular-nums pt-0.5">·</span>
               </div>
             )}
           </>

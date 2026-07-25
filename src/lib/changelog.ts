@@ -15,6 +15,19 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.37",
+    date: "2026-07-25",
+    headline: "Right-panel Phase 2: taller transcript + scroll pause + orange trigger highlights + timestamps",
+    highlights: [
+      "Live transcript grew from 96px fixed → 150px min (flexes up to 280px) so multiple recent lines are visible without cycling out",
+      "Scroll up to read older lines and the panel STOPS auto-scrolling — new lines land at the bottom but the view stays put. Scroll back to bottom and auto-scroll resumes automatically",
+      "Detected trigger phrases (the exact words that caused a Bible / song / lyric detection) now highlight inline in orange within the transcript so you can see WHY the AI fired",
+      "Each transcript line gets an mm:ss clock timestamp on the right edge — hover for the full time",
+      "Dark-themed scrollbar in the transcript panel (matches the rest of the shell instead of the default OS look)",
+      "Phase 3 (unified icon bar + popovers replacing the detection panels) coming next after you review this",
+    ],
+  },
+  {
     version: "0.1.36",
     date: "2026-07-25",
     headline: "Right-panel preview: LIVE ● / IDLE ○ label, taller box, red glow when hot",
