@@ -123,6 +123,13 @@ export type AudioStreamState = {
   // church volunteer with the wrong USB channel armed doesn't stand there
   // wondering why AI never fires.
   noAudioSignal: boolean;
+  // Real-time normalized audio level (0.0 .. 1.0) sampled from the RMS
+  // of each PCM chunk arriving from the worklet. Consumers use this to
+  // render a mini level meter in the top bar so the operator can confirm
+  // audio is flowing without opening Settings. Updated at ~10 Hz (throttled)
+  // to keep rerender pressure low — the raw worklet chunks land every ~10ms
+  // which would blow up React reconciliation if pushed straight through.
+  audioLevel: number;
   // Observability (Task 15).
   msgsPerSec: number;
   lastLatencyMs: number | null;
@@ -173,7 +180,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     detections: [], phraseMatches: [], songSuggestions: [], commandSuggestions: [], suggestions: [],
     stage: "idle", stageHistory: [], chunksSent: 0, dgMessagesReceived: 0,
     reconnectFailed: false, reconnectAttempts: 0, warmStarted: false,
-    silenceGateClosed: false, noAudioSignal: false, msgsPerSec: 0, lastLatencyMs: null, avgConfidence: 0,
+    silenceGateClosed: false, noAudioSignal: false, audioLevel: 0, msgsPerSec: 0, lastLatencyMs: null, avgConfidence: 0,
     audioQuality: null, audioQualityAvg: 0,
     canonicalCorrections: [],
   });
@@ -513,6 +520,11 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const noAudioSignalRef = useRef<boolean>(false);
   const NO_SIGNAL_DBFS = -70; // effectively pure silence, quieter than gate
   const NO_SIGNAL_HOLD_MS = 15_000;
+  // Level exposure throttle — flush the peak RMS every LEVEL_TICK_MS
+  // instead of setting state on every ~10ms worklet chunk.
+  const levelPeakRef = useRef<number>(0);
+  const levelLastPushRef = useRef<number>(0);
+  const LEVEL_TICK_MS = 100;
   // R8: hysteresis — close at -60 dBFS, reopen at -55.
   const SILENCE_CLOSE_DBFS = -60;
   const SILENCE_OPEN_DBFS = -55;
@@ -809,7 +821,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     ringBufferBytesRef.current = 0;
     flushSessionMetrics();
     teardown();
-    setState((s) => ({ ...s, listening: false, ready: false, interim: "", stage: "idle", reconnectFailed: false, reconnectAttempts: 0, warmStarted: false, silenceGateClosed: false, noAudioSignal: false }));
+    setState((s) => ({ ...s, listening: false, ready: false, interim: "", stage: "idle", reconnectFailed: false, reconnectAttempts: 0, warmStarted: false, silenceGateClosed: false, noAudioSignal: false, audioLevel: 0 }));
   }, [teardown, flushSessionMetrics]);
 
   const scheduleReconnect = useCallback(() => {
@@ -885,7 +897,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     }
     // Fresh session — clear any prior "no signal" warning so it can re-arm.
     noAudioSignalRef.current = false;
-    setState((s) => ({ ...s, noAudioSignal: false }));
+    setState((s) => ({ ...s, noAudioSignal: false, audioLevel: 0 }));
     // Y7: only open a metrics session when mic is actually going to send audio.
     // Warm-start opens WS with mic muted → don't accumulate a 0-metrics
     // session that pollutes the audio_sessions rollup. sessionStart is opened
@@ -1327,7 +1339,32 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           throw new Error("No microphone found — connect a mic (or select one in Audio Setup) and try again.");
         }
         if (name === "NotReadableError" || /in use|busy/i.test(msg)) {
-          throw new Error("Microphone is in use by another app (Zoom, OBS, Chrome tab). Close it and retry.");
+          // NotReadableError semantics differ meaningfully by platform:
+          // - macOS/CoreAudio: shared-mode is the default; this basically
+          //   only fires if the OS-level driver truly locked the device
+          //   (rare — usually an old FireWire/Thunderbolt driver crash).
+          // - Windows/WASAPI: firmly points at ASIO exclusive-mode. Pro
+          //   audio apps (Ableton, Cubase, Reaper) frequently hold the
+          //   device via ASIO which locks it away from every other app.
+          //   Show the fix, not the generic "close another app" copy.
+          const plat = typeof navigator !== "undefined" ? navigator.platform : "";
+          const isWin = /win/i.test(plat);
+          if (isWin) {
+            throw new Error(
+              "This audio device is locked by another app (ASIO exclusive mode). " +
+              "In the other app (Ableton, Reaper, Cubase, or your ASIO driver control panel), " +
+              "turn off Exclusive Mode or switch to WASAPI Shared. Or pick a different input in Settings › Audio.",
+            );
+          }
+          throw new Error(
+            "Microphone is in use by another app (Zoom, OBS, another browser tab). Close it and retry, or pick a different input in Settings › Audio.",
+          );
+        }
+        if (name === "OverconstrainedError" || /overconstrained|constraint/i.test(msg)) {
+          throw new Error(
+            "This audio device doesn't support the requested format. " +
+            "PresentFlow will retry at the device's native rate — if this repeats, pick a different input in Settings › Audio.",
+          );
         }
         throw new Error(`Microphone unavailable: ${msg || name || "unknown"}. Check Audio Setup and retry.`);
       }
@@ -1425,6 +1462,21 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         const alwaysOn = aiAlwaysOnRef.current;
         // R8: hysteresis. Close only after HOLD_MS below -60 dBFS; reopen
         // when audio climbs back above -55 dBFS.
+        // Level meter — throttle to LEVEL_TICK_MS to keep React out of a
+        // per-chunk (~100 Hz) rerender storm. Push the PEAK level seen
+        // during the window so a brief spike still lights the meter.
+        // Normalized to 0..1 via a rough -60→0 dBFS mapping (audible speech
+        // sits around -20 dBFS which lands mid-meter — visually intuitive).
+        {
+          const normalized = dbfs === -Infinity ? 0 : Math.max(0, Math.min(1, (dbfs + 60) / 60));
+          if (normalized > levelPeakRef.current) levelPeakRef.current = normalized;
+          if (nowMs - levelLastPushRef.current >= LEVEL_TICK_MS) {
+            const flushed = levelPeakRef.current;
+            levelPeakRef.current = 0;
+            levelLastPushRef.current = nowMs;
+            setState((s) => (s.audioLevel === flushed ? s : { ...s, audioLevel: flushed }));
+          }
+        }
         // Long-silence UX warning — separate from the gate, only fires when
         // audio is pure-silence quiet for 15+ seconds. Typical cause: the
         // operator picked the wrong device or the mixer channel is muted.
@@ -1438,7 +1490,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           noSignalStartRef.current = null;
           if (noAudioSignalRef.current) {
             noAudioSignalRef.current = false;
-            setState((s) => ({ ...s, noAudioSignal: false }));
+            setState((s) => ({ ...s, noAudioSignal: false, audioLevel: 0 }));
           }
         }
         if (dbfs < SILENCE_CLOSE_DBFS) {
@@ -1676,7 +1728,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     // R6: bump generation so any inflight callback from the prior pipeline aborts.
     pipelineGenerationRef.current += 1;
     teardown();
-    setState((s) => ({ ...s, reconnectFailed: false, reconnectAttempts: 0, error: null, listening: false, ready: false, interim: "", stage: "idle", silenceGateClosed: false, noAudioSignal: false }));
+    setState((s) => ({ ...s, reconnectFailed: false, reconnectAttempts: 0, error: null, listening: false, ready: false, interim: "", stage: "idle", silenceGateClosed: false, noAudioSignal: false, audioLevel: 0 }));
     // Small tick so React commits stop-state before starting fresh.
     setTimeout(() => { startRef.current().catch(() => { /* ignore */ }); }, 50);
   }, [teardown, isDevOrTraceOn, flushSessionMetrics]);

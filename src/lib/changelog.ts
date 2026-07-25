@@ -23,6 +23,9 @@ export const CHANGELOG: ChangelogEntry[] = [
       "'No audio detected for 15s' toast now surfaces when the input is truly silent — most likely cause is the wrong device is picked or the mixer channel is muted. Previously the RMS silence was measured but never shown, so a stuck-muted volunteer stood there wondering why AI wasn't firing",
       "Audio start failures are now VISIBLE. When AI listening can't start (Mac Studio with no USB device, permission denied, device busy in another app), an actionable error toast appears with the specific fix. Previously the error state existed in the pipeline but was never rendered anywhere in the Pro shell — a silent failure",
       "Mac Studio no-mic setup flow is friendly: the audio setup wizard now specifically detects the 'zero audio inputs' case (Mac Studio + nothing plugged in) and shows a plain-English message with a Refresh button, instead of the confusing 'permission denied — click the mic icon in your address bar' message that fired before",
+      "Live audio level meter now sits directly next to the AI ON pill in the top bar — a 60px green/amber/red bar that bounces with real-time input. If the bar is flat while the preacher is talking, you know immediately (without opening Settings) that PresentFlow isn't hearing your mixer",
+      "Windows-specific 'device locked by another app' message now explains ASIO exclusive mode (Ableton / Reaper / Cubase / ASIO control panel → turn off Exclusive Mode) instead of the generic 'close Zoom' copy. Detected via navigator.platform so macOS still gets the macOS-appropriate copy",
+      "New OverconstrainedError copy covers audio devices that refuse the requested 16kHz sample rate — most common on old FireWire interfaces + a few Bluetooth headsets. Falls back to the device's native rate transparently, with a clear message if the retry also fails",
     ],
   },
   {
