@@ -1,5 +1,5 @@
 "use client";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -9,6 +9,7 @@ import { createChurchAndAttachUser, completeOnboarding } from "@/lib/onboarding-
 import { inviteTeammate } from "@/lib/invitation-actions";
 import { addBuiltInHymnsToMyChurch } from "@/lib/actions";
 import { ChurchBrandingUploader } from "@/components/organization/ChurchBrandingUploader";
+import { OnboardingSplash } from "@/components/onboarding/OnboardingSplash";
 import {
   AuthShell,
   authInputCls,
@@ -58,6 +59,8 @@ const STEP_SUBS = [
 ];
 
 const MAX_WIZARD_INVITES = 20;
+const SPLASH_DURATION_MS = 2600;
+const SPLASH_DONE_KEY = "pf_onboarding_splash_done";
 
 export function OnboardingWizard({
   hasChurch,
@@ -74,6 +77,25 @@ export function OnboardingWizard({
   // + profile steps straight to branding.
   const [step, setStep] = useState(hasChurch ? 2 : 0);
   const [pending, startTransition] = useTransition();
+
+  // Splash gate — the one place in the app we intentionally show the
+  // PresentFlow animated splash. Shows for ~2.6s on the very first entry
+  // to /onboarding, then never again for the same browser profile (localStorage
+  // flag). Returning users mid-flow (hasChurch=true) skip the splash entirely
+  // — they've already seen it.
+  const [showSplash, setShowSplash] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    if (hasChurch) return false;
+    return window.localStorage.getItem(SPLASH_DONE_KEY) !== "1";
+  });
+  useEffect(() => {
+    if (!showSplash) return;
+    const t = window.setTimeout(() => {
+      setShowSplash(false);
+      try { window.localStorage.setItem(SPLASH_DONE_KEY, "1"); } catch { /* ignore quota / private-mode */ }
+    }, SPLASH_DURATION_MS);
+    return () => window.clearTimeout(t);
+  }, [showSplash]);
 
   // Step 1 — church profile
   const [churchName, setChurchName] = useState("");
@@ -190,6 +212,8 @@ export function OnboardingWizard({
   const backFloor = hasChurch ? 2 : 0;
   const canBack = step > backFloor && step < 5;
   const stepNum = step + 1;
+
+  if (showSplash) return <OnboardingSplash />;
 
   return (
     <AuthShell>

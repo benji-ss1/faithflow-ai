@@ -27,9 +27,9 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     version: "0.1.53",
     date: "2026-07-25",
-    headline: "Branded loading splash between admin pages",
+    headline: "Branded welcome splash on first sign-in",
     highlights: [
-      "Route transitions between admin pages (dashboard → songs → services etc.) now show a branded PresentFlow splash — deep-charcoal background with a subtle purple/orange glow and the pulsing play-button mark — instead of a blank page during data fetch. Matches the landing-page splash aesthetic. Server-rendered so there's zero JS cost during the critical first-paint window",
+      "First-time admins now see a ~2.6s PresentFlow welcome splash (deep-charcoal background with soft brand glows and the pulsing play-button mark) when they first land on /onboarding — a small brand moment before the setup wizard opens. Skipped for returning users mid-flow so it doesn't add friction. Sidebar clicks between admin pages stay instant with inline skeletons",
     ],
   },
   {
