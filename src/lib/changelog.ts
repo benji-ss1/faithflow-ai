@@ -15,6 +15,20 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.48",
+    date: "2026-07-25",
+    headline: "Admin portal hardening — 50 hymns, editable church profile, real Themes page, Songs table with search + delete, security sweep landed",
+    highlights: [
+      "Built-in public-domain hymn library grew from 10 to 50 titles — Christmas set (Silent Night, O Come All Ye Faithful, Hark! the Herald, Joy to the World, O Little Town of Bethlehem, Away in a Manger, What Child Is This, The First Noel, Angels We Have Heard on High, We Three Kings, It Came Upon the Midnight Clear, God Rest Ye Merry), Easter set (Christ the Lord Is Risen Today, Low in the Grave He Lay, The Old Rugged Cross), and 26 more worship classics (Blessed Assurance, Rock of Ages, Just As I Am, Sweet Hour of Prayer, What a Friend, Nearer My God to Thee, Abide With Me, Turn Your Eyes Upon Jesus, Jesus Loves Me, Onward Christian Soldiers, and more). Every hymn has full slide-formatted verses, individually PD-verified with author + publication citations",
+      "Songs page now has a real data table — client-side search by title/artist, sortable columns, one-click delete per row with confirm dialog, and a proper empty state with '+ Add a song' and 'Import library' CTAs. Previously a bare list with no search and no way to delete from the UI (backend action existed since day one, just wasn't wired)",
+      "Library → Themes was a 'coming soon' placeholder — now a full CRUD: create/duplicate/delete themes, edit modal with live preview, controls for background color, text color, font family (Inter/Sora/Plus Jakarta/Georgia/Helvetica/Arial), font size, weight, and alignment. Apply from any song's editor. Empty state with 'Create your first theme' CTA",
+      "Organization page was read-only — now a proper editable form: church name, timezone, city, country, congregation size, denomination all save via a new admin-only updateChurch server action. Dirty-state hint + toast confirmation. The dashboard's 'Church profile' checklist item finally leads somewhere that lets you finish it",
+      "Notifications bell in the top bar was decoration (no click handler, no data source) — removed. No more dead clicks",
+      "Bible library empty state no longer shows a raw `npm run db:seed:bible` shell instruction to church admins. Replaced with a 'Library is warming up' message pointing to support if it persists",
+      "Cross-tenant hardening (invisible but load-bearing): two cross-church leaks closed — service-item payloads referencing another church's song/media/pptx IDs are now rejected at write AND filtered out at read (defense-in-depth two-hop by church_id in getExpandedServicePlan), and the dashboard's aiSuggestions query no longer returns every church's suggestions on every load. Login now rate-limits failed attempts (5/15min per IP + per email, constant-time bcrypt so unknown emails don't reveal existence). Password-reset flooding limited (3/hour per IP + per email, silent success to preserve anti-enumeration). 2FA is fail-closed: if totpEnabled is ever set, password-only login is refused until the TOTP challenge ships. New 'Attempt 12' adversarial test writes poisoned service items and asserts they render as blank slides — 12/12 pass",
+    ],
+  },
+  {
     version: "0.1.47",
     date: "2026-07-25",
     headline: "Audio Diagnostics scanner + Live Transcript Clear + Media PRO lock + Logs tab hidden",
