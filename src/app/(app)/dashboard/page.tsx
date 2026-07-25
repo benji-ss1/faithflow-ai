@@ -120,7 +120,7 @@ export default async function DashboardPage() {
           <div className="flex flex-wrap gap-2">
             <Link
               href="/services"
-              className="inline-flex h-10 items-center rounded-md border border-[var(--pf-admin-border)] bg-[var(--pf-admin-bg-card)] px-4 text-sm font-medium text-[var(--pf-admin-text)] transition hover:bg-[var(--pf-admin-bg-hover)]"
+              className="inline-flex h-10 items-center rounded-md border border-[var(--pf-admin-border)] bg-[var(--pf-admin-bg-card)] px-4 text-sm font-medium text-[var(--pf-admin-text)] transition hover:bg-[var(--pf-admin-bg-hover)] focus:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--pf-admin-accent-ring)]"
             >
               Open services
             </Link>
@@ -149,7 +149,7 @@ export default async function DashboardPage() {
               <Link
                 key={item.label}
                 href={item.href}
-                className="group flex items-start gap-3 rounded-md border border-transparent px-3 py-2.5 transition hover:border-[var(--pf-admin-border-subtle)] hover:bg-[var(--pf-admin-bg-hover)]"
+                className="group flex items-start gap-3 rounded-md border border-transparent px-3 py-2.5 transition hover:border-[var(--pf-admin-border-subtle)] hover:bg-[var(--pf-admin-bg-hover)] focus:outline-none focus-visible:border-[var(--pf-admin-accent)] focus-visible:ring-[3px] focus-visible:ring-[var(--pf-admin-accent-ring)]"
               >
                 {item.done ? (
                   <CheckCircle2 className="mt-0.5 h-[18px] w-[18px] text-[var(--pf-admin-green)]" />

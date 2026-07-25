@@ -23,9 +23,13 @@ export function ThemeToggle({ compact = false }: { compact?: boolean }) {
 
   if (compact) {
     return (
-      <button onClick={toggle} title={isLight ? "Switch to dark" : "Switch to light"}
-        className="h-8 w-8 rounded-md hover:bg-[color:var(--color-sidebar-item-hover)] flex items-center justify-center text-[color:var(--color-sidebar-fg)]">
-        {isLight ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+      <button
+        onClick={toggle}
+        title={isLight ? "Switch to dark" : "Switch to light"}
+        aria-label={isLight ? "Switch to dark theme" : "Switch to light theme"}
+        className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--pf-admin-text-secondary)] transition hover:bg-[var(--pf-admin-bg-hover)] hover:text-[var(--pf-admin-text)] focus:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--pf-admin-accent-ring)]"
+      >
+        {isLight ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
       </button>
     );
   }

@@ -170,7 +170,7 @@ export function Topbar({ user, churchName, onOpenNavigation }: TopbarProps) {
         <button
           type="button"
           onClick={onOpenNavigation}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-[var(--pf-admin-border)] bg-[var(--pf-admin-bg-subtle)] text-[var(--pf-admin-text-secondary)] transition hover:bg-[var(--pf-admin-bg-hover)] hover:text-[var(--pf-admin-text)] lg:hidden"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-[var(--pf-admin-border)] bg-[var(--pf-admin-bg-subtle)] text-[var(--pf-admin-text-secondary)] transition hover:bg-[var(--pf-admin-bg-hover)] hover:text-[var(--pf-admin-text)] focus:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--pf-admin-accent-ring)] lg:hidden"
           aria-label="Open navigation"
         >
           <Menu className="h-4 w-4" />
@@ -278,7 +278,9 @@ export function Topbar({ user, churchName, onOpenNavigation }: TopbarProps) {
           <button
             type="button"
             onClick={() => setMenuOpen((value) => !value)}
-            className="flex h-10 items-center gap-2.5 rounded-md border border-[var(--pf-admin-border)] bg-[var(--pf-admin-bg-subtle)] px-2 pr-3 transition hover:bg-[var(--pf-admin-bg-hover)]"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            className="flex h-10 items-center gap-2.5 rounded-md border border-[var(--pf-admin-border)] bg-[var(--pf-admin-bg-subtle)] px-2 pr-3 transition hover:bg-[var(--pf-admin-bg-hover)] focus:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--pf-admin-accent-ring)]"
           >
             <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--pf-admin-accent)] text-[10px] font-bold text-[var(--pf-admin-text-inverse)]">
               {initials}
@@ -306,7 +308,7 @@ export function Topbar({ user, churchName, onOpenNavigation }: TopbarProps) {
                 <Link
                   href="/profile"
                   onClick={() => setMenuOpen(false)}
-                  className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-[var(--pf-admin-text-secondary)] transition hover:bg-[var(--pf-admin-bg-hover)] hover:text-[var(--pf-admin-text)]"
+                  className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-[var(--pf-admin-text-secondary)] transition hover:bg-[var(--pf-admin-bg-hover)] hover:text-[var(--pf-admin-text)] focus:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--pf-admin-accent-ring)]"
                 >
                   <User className="h-4 w-4 text-[var(--pf-admin-text-muted)]" />
                   Profile
@@ -314,7 +316,7 @@ export function Topbar({ user, churchName, onOpenNavigation }: TopbarProps) {
                 <Link
                   href="/settings"
                   onClick={() => setMenuOpen(false)}
-                  className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-[var(--pf-admin-text-secondary)] transition hover:bg-[var(--pf-admin-bg-hover)] hover:text-[var(--pf-admin-text)]"
+                  className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-[var(--pf-admin-text-secondary)] transition hover:bg-[var(--pf-admin-bg-hover)] hover:text-[var(--pf-admin-text)] focus:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--pf-admin-accent-ring)]"
                 >
                   <Settings className="h-4 w-4 text-[var(--pf-admin-text-muted)]" />
                   Settings
@@ -322,7 +324,7 @@ export function Topbar({ user, churchName, onOpenNavigation }: TopbarProps) {
                 <button
                   type="button"
                   onClick={() => { void signOutFully("/login"); }}
-                  className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-[var(--pf-admin-text-secondary)] transition hover:bg-[var(--pf-admin-bg-hover)] hover:text-[var(--pf-admin-text)]"
+                  className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm text-[var(--pf-admin-text-secondary)] transition hover:bg-[var(--pf-admin-bg-hover)] hover:text-[var(--pf-admin-text)] focus:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--pf-admin-accent-ring)]"
                 >
                   <LogOut className="h-4 w-4 text-[var(--pf-admin-text-muted)]" />
                   Sign out
