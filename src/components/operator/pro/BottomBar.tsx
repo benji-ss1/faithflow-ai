@@ -86,8 +86,31 @@ export function BottomBar({
   const hasPrev = ctx.previewSlideIdx > 0;
   const hasNext = item ? ctx.previewSlideIdx < item.slides.length - 1 : false;
 
-  const prev = () => hasPrev && ctx.onJumpSlide(ctx.previewItemIdx, ctx.previewSlideIdx - 1);
-  const next = () => hasNext && ctx.onJumpSlide(ctx.previewItemIdx, ctx.previewSlideIdx + 1);
+  // 2026-07-25 field bug fix — previously called ctx.onJumpSlide only,
+  // which just moves the preview cursor. Users pressing < Verse / Verse >
+  // in the transport bar expect the NEW slide to also appear on live.
+  // Now: jump preview AND explicitly fire the target slide via
+  // onSendSlideToLive, matching the click-a-card behavior in SlideGrid.
+  const prev = () => {
+    if (!hasPrev) return;
+    const targetIdx = ctx.previewSlideIdx - 1;
+    ctx.onJumpSlide(ctx.previewItemIdx, targetIdx);
+    const targetSlide = item?.slides?.[targetIdx];
+    if (targetSlide) {
+      try { ctx.onSendSlideToLive(targetSlide); }
+      catch (e) { console.warn("[bottom-bar] prev sendSlideToLive failed", e); }
+    }
+  };
+  const next = () => {
+    if (!hasNext) return;
+    const targetIdx = ctx.previewSlideIdx + 1;
+    ctx.onJumpSlide(ctx.previewItemIdx, targetIdx);
+    const targetSlide = item?.slides?.[targetIdx];
+    if (targetSlide) {
+      try { ctx.onSendSlideToLive(targetSlide); }
+      catch (e) { console.warn("[bottom-bar] next sendSlideToLive failed", e); }
+    }
+  };
 
   // Bible-mode verse buttons navigate the bible session (via events), not
   // playlist slides. Falls back to slide prev/next in every other mode.

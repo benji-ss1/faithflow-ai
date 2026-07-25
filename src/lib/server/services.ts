@@ -81,9 +81,28 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
         slides = orderedRows.map((r) => ({ kind: "text" as const, text: r.lyrics }));
       }
     } else if (it.type === "scripture") {
-      const scriptureSlides = Array.isArray(payload.slides) ? (payload.slides as { text: string }[]) : [];
-      slides = scriptureSlides.map((s) => ({ kind: "text" as const, text: s.text }));
-      if (slides.length === 0 && typeof payload.text === "string") slides = [{ kind: "text", text: payload.text as string }];
+      // 2026-07-25 field bug fix — the client (BibleMode.addVerseToPlaylist)
+      // stores `{reference, verses: [{verse, text}]}` in the payload but this
+      // reader previously only looked at `payload.slides` or `payload.text`.
+      // Result: every Bible verse added to the playlist landed as a blank
+      // fallback slide (line ~115) and clicking it in the sidebar showed an
+      // empty grid. Now: prefer `verses` (build verse-numbered slides with the
+      // reference label appended, mirroring BibleMode.cardToSlide's output),
+      // fall back to `slides` and `text` for older/imported payload shapes.
+      const versesRaw = Array.isArray(payload.verses) ? (payload.verses as { verse?: number; text?: string }[]) : [];
+      const reference = typeof payload.reference === "string" ? payload.reference : it.title;
+      if (versesRaw.length > 0) {
+        slides = versesRaw
+          .filter((v) => typeof v.text === "string" && v.text.length > 0)
+          .map((v) => ({
+            kind: "text" as const,
+            text: `${typeof v.verse === "number" ? `${v.verse} ` : ""}${v.text ?? ""}\n\n${reference}`,
+          }));
+      } else {
+        const scriptureSlides = Array.isArray(payload.slides) ? (payload.slides as { text: string }[]) : [];
+        slides = scriptureSlides.map((s) => ({ kind: "text" as const, text: s.text }));
+        if (slides.length === 0 && typeof payload.text === "string") slides = [{ kind: "text", text: payload.text as string }];
+      }
     } else if (it.type === "media" && payload.mediaAssetId) {
       // C1 defense-in-depth: scope mediaAssets lookup by churchId.
       const [asset] = await db.select().from(mediaAssets)

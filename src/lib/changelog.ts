@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.54",
+    date: "2026-07-25",
+    headline: "Bible verses in playlist now render + < Verse / Verse > push to live + re-detected verse re-fires when a song is on screen",
+    highlights: [
+      "Bible verses added to the playlist (via the + on a verse card, or Add to Playlist) NOW render as real slide cards in the center grid when clicked. Root cause: BibleMode stored `{reference, verses: [{verse, text}]}` in the item payload but the server-side plan expander only read `payload.slides` / `payload.text` — every scripture playlist item was landing as a blank fallback. Fixed in services.ts: also builds slides from `payload.verses` with the reference label appended, mirroring the Bible panel's own verse-card format",
+      "The < Verse and Verse > transport-bar buttons now PUSH the target slide to live instead of only moving the preview cursor. Previously they called `onJumpSlide` (which just changes preview + only fires live under AutoSend). Now: jumps preview AND explicitly fires the target slide via `onSendSlideToLive`, matching what clicking a card in the grid does. Also applies to SkipBack / SkipForward icons",
+      "Re-detected Bible verse now re-fires to live even when the currently-live content is a song lyric / message / image / blank. Root cause: the 5-minute replay guard had a bypass 'skip if a DIFFERENT reference is currently live' but the bypass only fired when currentLive was itself Bible-verse-shaped text. Song lyrics don't match the Bible regex, so re-detecting a previously-shown verse got blocked even though the projector was clearly on a different piece of content. Now: permissive default — the guard only blocks when the SAME Bible verse is already on screen (true stale-echo case). Every other live state (song / empty / different verse / image) is treated as a legitimate content swap and allows the re-fire",
+    ],
+  },
+  {
     version: "0.1.53",
     date: "2026-07-25",
     headline: "Branded loading splash between admin pages",

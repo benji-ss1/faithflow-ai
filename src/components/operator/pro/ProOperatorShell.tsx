@@ -1834,20 +1834,37 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // skip the guard ONLY when a DIFFERENT parsed scripture is currently live
     // (that's a legit swap-back). Same-ref-live OR nothing-scripture-live both
     // keep the guard active.
-    const currentLiveText = ctx.liveSlide?.kind === "text" ? ctx.liveSlide.text : "";
-    let differentRefLive = false;
-    const liveScriptureMatch = currentLiveText.match(/(\d?\s*[A-Za-z]+)\s+(\d+):(\d+)(?:-(\d+))?\s*\([A-Z]+\)\s*$/);
-    if (liveScriptureMatch) {
-      const liveBook = liveScriptureMatch[1].trim().toLowerCase().replace(/\s+/g, " ");
-      const liveCh = parseInt(liveScriptureMatch[2], 10);
-      const liveVs = parseInt(liveScriptureMatch[3], 10);
-      const liveVe = liveScriptureMatch[4] ? parseInt(liveScriptureMatch[4], 10) : liveVs;
-      const targetBook = scripture.ref.book.toLowerCase().replace(/\s+/g, " ");
-      differentRefLive = liveBook !== targetBook
-        || liveCh !== scripture.ref.chapter
-        || liveVs !== scripture.ref.verseStart
-        || liveVe !== scripture.ref.verseEnd;
+    // 2026-07-25 field bug fix — the differentRefLive bypass only kicked
+    // in when currentLive was a Bible-verse-shaped text. If currentLive
+    // was a song lyric, a message overlay, an image, or empty, the regex
+    // failed to match and differentRefLive stayed false → the 5-min replay
+    // guard blocked a re-detection of a previously-shown verse even though
+    // that verse is CLEARLY not what's currently on screen. Correct semantics:
+    // guard only blocks when the SAME Bible verse is already on screen
+    // (true stale-echo case). Every other currentLive state (song, empty,
+    // different verse, non-text kind) is a legitimate content switch.
+    const liveKind = ctx.liveSlide?.kind;
+    const currentLiveText = liveKind === "text" ? ctx.liveSlide.text : "";
+    let differentRefLive = true; // permissive default: bypass unless proven same-ref
+    if (liveKind === "text" && currentLiveText) {
+      const liveScriptureMatch = currentLiveText.match(/(\d?\s*[A-Za-z]+)\s+(\d+):(\d+)(?:-(\d+))?\s*\([A-Z]+\)\s*$/);
+      if (liveScriptureMatch) {
+        // Live IS a Bible verse — compare canonically. Same ref = keep the
+        // guard so a stale detection echo doesn't re-fire an identical slide.
+        const liveBook = liveScriptureMatch[1].trim().toLowerCase().replace(/\s+/g, " ");
+        const liveCh = parseInt(liveScriptureMatch[2], 10);
+        const liveVs = parseInt(liveScriptureMatch[3], 10);
+        const liveVe = liveScriptureMatch[4] ? parseInt(liveScriptureMatch[4], 10) : liveVs;
+        const targetBook = scripture.ref.book.toLowerCase().replace(/\s+/g, " ");
+        differentRefLive = liveBook !== targetBook
+          || liveCh !== scripture.ref.chapter
+          || liveVs !== scripture.ref.verseStart
+          || liveVe !== scripture.ref.verseEnd;
+      }
+      // else: text kind but not a Bible verse (song lyric / message) →
+      // differentRefLive stays true (legit content swap).
     }
+    // Non-text live (image / video / blank / empty) also stays true.
     if (!scripture.forceLive && !scripture.voiceCommand && !differentRefLive) {
       try {
         const raw = window.sessionStorage.getItem(AUTO_FIRED_SESSION_KEY);
