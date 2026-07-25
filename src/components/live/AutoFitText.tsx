@@ -40,8 +40,23 @@ function fitCacheSet(k: string, v: number) {
   fitCache.set(k, v);
 }
 
-export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06 }:
-  { text: string; className?: string; maxPx?: number; paddingRatio?: number }) {
+export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06, minPx, disablePagination }:
+  {
+    text: string;
+    className?: string;
+    maxPx?: number;
+    paddingRatio?: number;
+    // 2026-07-25: `minPx` — override the readable floor. Live-projector
+    // context passes the default (24 px, sanctuary readability). Grid
+    // thumbnails pass a much smaller value (e.g. 8 px) so a whole verse
+    // fits in a single card at a glance without pagination.
+    minPx?: number;
+    // 2026-07-25: `disablePagination` — for grid thumbnails, we prefer to
+    // shrink until it fits rather than split across pages, because a page
+    // indicator inside a thumbnail is unreadable at glance size. Live
+    // preview keeps pagination (readability floor is more important there).
+    disablePagination?: boolean;
+  }) {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
   // 2026-07-24 T3 fix — initial size = last fitted size (from ref) rather
@@ -50,12 +65,20 @@ export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06 
   // "shrink then grow" flicker on every AI-fired slide. Now the first
   // paint uses the last known good size — usually within a few px of the
   // final answer, so the correction is imperceptible.
-  const lastFittedRef = useRef<number>(MIN_READABLE_PX);
+  // 2026-07-25: effective floor honors caller override (grid thumbnails
+  // pass a much smaller value so a full verse fits at a glance without
+  // pagination). Live-projector callers omit the prop and get the
+  // sanctuary-readability default (24 px).
+  const effectiveMinPx = Math.max(1, Math.min(maxPx, minPx ?? MIN_READABLE_PX));
+  const lastFittedRef = useRef<number>(effectiveMinPx);
   const [size, setSize] = useState(lastFittedRef.current);
   const [pad, setPad] = useState(4);
   const [pageIdx, setPageIdx] = useState(0);
 
-  const pages = useMemo(() => paginateForFit(text), [text]);
+  // 2026-07-25: skip pagination entirely when the caller opts out (grid
+  // thumbnails prefer shrink-to-fit over page-split since a page indicator
+  // is illegible at glance size).
+  const pages = useMemo(() => disablePagination ? [text] : paginateForFit(text), [text, disablePagination]);
   const currentText = pages[Math.min(pageIdx, pages.length - 1)] || text;
 
   // Reset page when text prop changes
@@ -72,7 +95,10 @@ export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06 
     if (bw <= 0 || bh <= 0) return;
 
     // T3 cache hit — same text, same box → skip binary search entirely.
-    const cacheKey = fitCacheKey(currentText, bw, bh, maxPx);
+    // Cache key includes effectiveMinPx so grid thumbnails don't share
+    // cache entries with live-projector renders of the same text (different
+    // valid font sizes for different min floors).
+    const cacheKey = fitCacheKey(currentText, bw, bh, maxPx) + `|${effectiveMinPx}`;
     const cached = fitCacheGet(cacheKey);
     if (cached !== undefined) {
       lastFittedRef.current = cached;
@@ -84,8 +110,8 @@ export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06 
     // fitted size, so if the new text is similar-length to the old,
     // convergence is 1-2 iterations instead of 8. Falls back to full
     // range if seed is invalid.
-    let lo = MIN_READABLE_PX, hi = maxPx, best = MIN_READABLE_PX;
-    const seed = Math.min(maxPx, Math.max(MIN_READABLE_PX, lastFittedRef.current));
+    let lo = effectiveMinPx, hi = maxPx, best = effectiveMinPx;
+    const seed = Math.min(maxPx, Math.max(effectiveMinPx, lastFittedRef.current));
     // Probe the seed first — if it fits, expand upward; if not, contract
     // downward. This makes the common case (similar-length swap) O(1)
     // in visible fit iterations.

@@ -226,7 +226,12 @@ function SlideCard({
               : "border border-[var(--color-border)] hover:border-[var(--color-muted-foreground)]",
           )}
         >
-          <SlideRenderer slide={slide} />
+          {/* 2026-07-25: grid thumbnails show full verse content at a
+              glance — allow text to shrink below the sanctuary-readability
+              floor (24px → 8px) and skip pagination so operators don't
+              have to page through inside a thumbnail. Live projector
+              rendering is unaffected (uses the defaults). */}
+          <SlideRenderer slide={slide} textMinPx={8} disablePagination />
           <div
             className="absolute top-1 left-1 w-[18px] h-[18px] flex items-center justify-center rounded-full text-[10px] font-semibold text-white"
             style={{ background: "var(--color-brand)" }}

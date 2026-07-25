@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.38",
+    date: "2026-07-25",
+    headline: "Slide grid cards + Live preview fit their full content + Cmd+R now hard-reloads",
+    highlights: [
+      "Slide grid cards (the thumbnails in the center panel showing each verse / stanza / section of a song) now shrink text as far as needed to fit the WHOLE content in one card — no more truncated 'I once was lost, but…' cutoff, no pagination inside a thumbnail",
+      "Live preview panel dropped its 16:9 aspect constraint (was clipping longer stanzas like 'And grace will lead me hom…'). Now grows dynamically 320px→60vh so multi-line verses fit without pagination. Aspect on the actual audience projector output is unchanged — this is just the operator preview",
+      "Cmd+R now force-reloads the app and clears its cache, so a fresh Vercel push always lands on the very next reload. Was previously a soft reload that reused Chromium's cached JS bytecode, which is why 'reload' sometimes didn't show new features (fix requires new .dmg — v0.1.38 or later)",
+      "Phase 3 of the right-panel refactor (unified icon bar with proper lucide icons — NOT emojis — replacing the two detection panels + tabs row) coming next",
+    ],
+  },
+  {
     version: "0.1.37",
     date: "2026-07-25",
     headline: "Right-panel Phase 2: taller transcript + scroll pause + orange trigger highlights + timestamps",

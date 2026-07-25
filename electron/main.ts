@@ -155,7 +155,26 @@ function installApplicationMenu() {
         { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" },
     ] },
     { label: "View", submenu: [
-        { role: "reload" }, { role: "forceReload" }, { role: "toggleDevTools" },
+        // 2026-07-25: rebind Cmd+R to force-reload (ignoreCache) instead
+        // of the default soft-reload. Chromium's Code Cache and Service
+        // Worker keep bytecode/HTML across soft reloads, so after a
+        // Vercel push the app appears to ignore the update until the
+        // caches age out or the user manually nukes them. Since the
+        // desktop app is a thin client (all logic on Vercel), stale
+        // cache is the #1 cause of "I don't see the new feature."
+        // Force-reload adds ~200 ms but guarantees the latest bundle.
+        {
+          label: "Reload",
+          accelerator: isMac ? "Cmd+R" : "Ctrl+R",
+          click: () => {
+            const wc = mainWindow?.webContents;
+            if (wc) {
+              try { wc.session.clearCache(); } catch { /* non-fatal */ }
+              wc.reloadIgnoringCache();
+            }
+          },
+        },
+        { role: "forceReload" }, { role: "toggleDevTools" },
         { type: "separator" }, { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" },
         { type: "separator" }, { role: "togglefullscreen" },
     ] },

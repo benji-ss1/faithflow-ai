@@ -2,7 +2,15 @@
 import type { SlidePayload } from "@/lib/broadcast";
 import { AutoFitText } from "./AutoFitText";
 
-export function SlideRenderer({ slide, className }: { slide: SlidePayload; className?: string }) {
+export function SlideRenderer({ slide, className, textMinPx, disablePagination }: {
+  slide: SlidePayload;
+  className?: string;
+  // 2026-07-25: pass-through to AutoFitText for text slides. Grid cards
+  // use small values to fit whole verses at a glance; live projector uses
+  // the sanctuary-readability default.
+  textMinPx?: number;
+  disablePagination?: boolean;
+}) {
   const base = "w-full h-full flex items-center justify-center overflow-hidden";
 
   if (slide.kind === "empty") return <div className={`${base} bg-black ${className || ""}`} />;
@@ -29,6 +37,8 @@ export function SlideRenderer({ slide, className }: { slide: SlidePayload; class
         <AutoFitText
           text={slide.text}
           maxPx={120}
+          minPx={textMinPx}
+          disablePagination={disablePagination}
           className="text-white font-display font-semibold"
         />
       </div>
