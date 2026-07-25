@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.40",
+    date: "2026-07-25",
+    headline: "Live preview locked to 220px 16:9 + grid cards readable again + ResizeObserver false-positive silenced",
+    highlights: [
+      "Live preview panel is now a fixed 220px-tall 16:9 box (was auto-growing to 60vh which took over the whole right sidebar on long verses). Wider than tall, matches audience projector aspect, never oscillates. Long verses paginate at the sanctuary-readability floor instead of stretching the box",
+      "Slide grid cards raised the readable floor 8px → 14px and re-enabled pagination — thumbnails were unreadable at 8px. Now short verses fit whole, long ones page cleanly with a visible indicator",
+      "'Runtime error: ResizeObserver loop completed with undelivered notifications' toast — this was a benign Chromium warning that fires whenever a layout callback triggers another layout callback in the same frame (AutoFitText's binary-search setState is the classic trigger). Silenced in the global error handler; the browser handles it correctly by deferring to the next frame",
+    ],
+  },
+  {
     version: "0.1.39",
     date: "2026-07-25",
     headline: "Right-panel Phase 3: unified icon bar with popovers (proper lucide icons, no emojis)",

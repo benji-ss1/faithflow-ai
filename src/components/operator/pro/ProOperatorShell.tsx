@@ -1202,6 +1202,16 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       // React error boundaries catch render errors; this catches
       // event-handler throws and native-callback errors.
       const msg = e.message || String(e.error ?? "unknown error");
+      // 2026-07-25 suppress two well-known Chromium false-positive warnings
+      // that fire during normal use and were surfacing as toast errors:
+      //   1. "ResizeObserver loop completed with undelivered notifications"
+      //      — fires when a ResizeObserver callback triggers a layout that
+      //      itself would trigger another observer callback in the same
+      //      frame. Harmless; the browser handles it by deferring to the
+      //      next frame. AutoFitText's binary-search setState is the
+      //      classic trigger. See https://issues.chromium.org/issues/40808324
+      //   2. "ResizeObserver loop limit exceeded" — same class, older wording.
+      if (msg.startsWith("ResizeObserver loop")) return;
       console.error("[operator-global-error] window.onerror:", msg, e.error);
       if (bump()) toast.error(`Runtime error: ${msg.slice(0, 120)}`);
     };

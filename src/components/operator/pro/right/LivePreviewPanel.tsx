@@ -35,20 +35,20 @@ export function LivePreviewPanel({ ctx }: { ctx: OperatorShellCtx }) {
           - When live, subtle outer red glow via box-shadow layered on top of
             the existing 2px red border so the preview reads as "hot" from
             across the room, not just from the pixel-precise border color. */}
-      {/* 2026-07-25 field bug fix: preview was still clipping longer
-          stanzas ("And grace will lead me home" showed "hom…"). Root
-          cause: aspect-video constrained width from the sidebar and
-          derived height, which for typical sidebar widths landed at
-          ~215 px — not enough vertical room for 6-line verses even at
-          MIN_READABLE_PX=24. Dropped the aspect-video constraint so
-          the box can grow to fit content (min 320px, max 60vh so it
-          doesn't push the transcript out of view). Text still uses
-          the projector-quality readability floor via AutoFitText. */}
+      {/* 2026-07-25 pull-back — going aspect-less made the preview grow
+          to fill the whole right column when text was long (screenshot
+          14:28:52 showed John 3:16 taking up ~600 px vertical). Back to
+          aspect-video (16:9, matches audience projector), with a
+          bounded height so the box is ALWAYS the same reasonable size
+          regardless of content. Longer stanzas paginate at the
+          sanctuary-readability floor rather than growing the box.
+          Explicit height (h-[220px]) locks it — aspect-video would
+          try to derive from sidebar width and could still oscillate. */}
       <div
         className={
           isLive
-            ? "relative min-h-[320px] max-h-[60vh] rounded-md overflow-hidden border-2 border-[color:var(--color-destructive,#e11d48)] bg-black"
-            : "relative min-h-[320px] max-h-[60vh] rounded-md overflow-hidden border border-[var(--color-border)] bg-black"
+            ? "relative h-[220px] w-full rounded-md overflow-hidden border-2 border-[color:var(--color-destructive,#e11d48)] bg-black"
+            : "relative h-[220px] w-full rounded-md overflow-hidden border border-[var(--color-border)] bg-black"
         }
         style={isLive ? { boxShadow: "0 0 12px 2px rgba(225, 29, 72, 0.35)" } : undefined}
       >

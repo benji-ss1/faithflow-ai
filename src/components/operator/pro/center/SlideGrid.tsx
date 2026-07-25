@@ -226,12 +226,14 @@ function SlideCard({
               : "border border-[var(--color-border)] hover:border-[var(--color-muted-foreground)]",
           )}
         >
-          {/* 2026-07-25: grid thumbnails show full verse content at a
-              glance — allow text to shrink below the sanctuary-readability
-              floor (24px → 8px) and skip pagination so operators don't
-              have to page through inside a thumbnail. Live projector
-              rendering is unaffected (uses the defaults). */}
-          <SlideRenderer slide={slide} textMinPx={8} disablePagination />
+          {/* 2026-07-25 pull-back — textMinPx=8 + no-pagination made
+              lyrics unreadable ("way too small" per field report). Raised
+              to 14px (readable at glance size), pagination re-enabled so
+              long stanzas split cleanly instead of shrinking to invisible.
+              Text still fits WHOLE short verses without truncating, and
+              long ones page (visible page indicator inside the card).
+              Live projector rendering unaffected (uses the 24px default). */}
+          <SlideRenderer slide={slide} textMinPx={14} />
           <div
             className="absolute top-1 left-1 w-[18px] h-[18px] flex items-center justify-center rounded-full text-[10px] font-semibold text-white"
             style={{ background: "var(--color-brand)" }}
