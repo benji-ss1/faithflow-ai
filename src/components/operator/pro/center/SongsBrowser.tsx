@@ -263,7 +263,29 @@ export function SongsBrowser({
                       // a MANUAL operator click — copyright rule 7 (songs never
                       // AUTO-project) applies to AI/autopilot only. Direct
                       // operator intent is trusted.
-                      onClick={() => ctx.onSendSlideToLive(payload)}
+                      // 2026-07-25 field-report defensive additions:
+                      //  - reject empty payloads with a visible toast (rather
+                      //    than silently no-op which reads as "the button is
+                      //    broken")
+                      //  - console.log the click so if `ctx.onSendSlideToLive`
+                      //    is stale/undefined, DevTools shows exactly why
+                      //  - success toast confirms the click reached the live
+                      //    pipeline — if this fires but nothing appears on the
+                      //    projector, the bug is in the projector window, not
+                      //    the send handler
+                      onClick={() => {
+                        try { console.log("[songs-browser] slide clicked", { idx, textLen: sl.lyrics?.length ?? 0, hasHandler: typeof ctx.onSendSlideToLive === "function" }); } catch { /* ignore */ }
+                        if (!sl.lyrics || !sl.lyrics.trim()) {
+                          toast.info("This slide is empty — add lyrics with the pencil icon first.");
+                          return;
+                        }
+                        if (typeof ctx.onSendSlideToLive !== "function") {
+                          toast.error("Live-send handler not wired — reload the app.");
+                          return;
+                        }
+                        ctx.onSendSlideToLive(payload);
+                        toast.success(`Sent to LIVE: "${sl.lyrics.slice(0, 40).replace(/\n/g, " ")}${sl.lyrics.length > 40 ? "…" : ""}"`, { duration: 2000 });
+                      }}
                       className="absolute inset-0 w-full h-full"
                       title="Click to send lyric slide to live"
                     >

@@ -123,23 +123,30 @@ export function PlaylistSection({
                         //   1. switch to "slides" so the SlideGrid mounts and
                         //      shows this item's slides
                         //   2. set preview item so it's the selected one
-                        //   3. if AUTO is on AND the item has a first slide,
-                        //      send it live immediately (one click → on
-                        //      screen, matching operator expectation)
+                        //   3. for SONG items, always fire the first slide
+                        //      live (was AUTO-gated; operators clearly expect
+                        //      clicking a song in the playlist to actually
+                        //      SHOW the song — the alternative was staring at
+                        //      a preview change with nothing on the projector)
+                        //   4. Bible/media items still don't auto-fire because
+                        //      those are typically pre-loaded but the operator
+                        //      wants to pick WHICH verse — auto-firing the
+                        //      first would be wrong
+                        try { console.log("[playlist] item clicked", { idx, type: it.type, title: it.title, slideCount: it.slides?.length ?? 0 }); } catch { /* ignore */ }
                         onCenterMode?.("slides");
                         ctx.onSetPreviewItem(idx);
-                        const autoOn = (() => {
-                          try {
-                            return typeof window !== "undefined"
-                              && (window.sessionStorage.getItem("presentflow.pro.autoApprove.v1") === "1"
-                                || window.localStorage.getItem("presentflow.pro.autoApprove.v1") === "1");
-                          } catch { return false; }
-                        })();
-                        if (autoOn) {
+                        if (it.type === "song") {
                           const first = it.slides?.[0];
                           if (first) {
-                            try { ctx.onSendSlideToLive(first); }
-                            catch { /* non-fatal; slide preview still worked */ }
+                            try {
+                              ctx.onSendSlideToLive(first);
+                              toast.success(`Playing "${it.title}" — slide 1`);
+                            } catch (e) {
+                              console.warn("[playlist] song click send-live failed", e);
+                              toast.error("Couldn't send slide live — check DevTools console.");
+                            }
+                          } else {
+                            toast.info(`"${it.title}" has no slides yet — open the song to add lyrics.`);
                           }
                         }
                       }}

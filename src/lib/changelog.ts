@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.43",
+    date: "2026-07-25",
+    headline: "Song click-to-live: playlist song items now fire on click + visible toast confirmation + click tracing",
+    highlights: [
+      "Clicking a SONG item in the left playlist now actually sends slide 1 to the projector immediately, and shows a 'Playing \"[title]\" — slide 1' toast so you know the click was received. Previously this only fired when AUTO was on, leaving operators clicking a playlist song and seeing no visible change. Bible items still don't auto-fire on playlist click (operators pick a specific verse first)",
+      "Clicking a slide in the Songs Library view (center panel) now shows a 'Sent to LIVE: \"[first words]\"' toast confirming the click reached the live pipeline. If the toast fires but nothing appears on the projector, the bug is on the projector side (check that a Live Screen is assigned in Settings › Screens)",
+      "Empty song slides (no lyrics yet) now show an 'add lyrics with the pencil first' toast on click instead of silently no-op'ing — the previous behavior read as 'the button is broken'",
+      "DevTools tracing added at every send-to-live entry point ([live] and [songs-browser] and [playlist] prefixes) so if a click still fails to project, opening Cmd+Opt+I → Console reveals exactly which step dropped the payload",
+    ],
+  },
+  {
     version: "0.1.42",
     date: "2026-07-25",
     headline: "Church-mixer audio fix (DSP OFF), Mac Studio no-mic path, and visible audio-failure toasts",

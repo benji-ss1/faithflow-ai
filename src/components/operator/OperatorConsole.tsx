@@ -338,9 +338,20 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
   const [hiddenBankIds, setHiddenBankIds] = useState<Set<string>>(new Set());
   const effectiveBank = useMemo(() => bank.filter((b) => !hiddenBankIds.has(b.id)), [bank, hiddenBankIds]);
   const sendSlideToLive = useCallback((slide: SlidePayload, spec?: import("@/lib/broadcast").TransitionSpec | null) => {
+    // 2026-07-25 — added tracing + defensive guards after a field report
+    // that "clicking a song slide does nothing" (v0.1.42 hunt). The pipeline
+    // is unified for songs and Bible verses so a shape-specific bug is the
+    // most likely cause; log the incoming payload so any silent invalidation
+    // surfaces in DevTools instead of being swallowed.
+    try { console.log("[live] sendSlideToLive fired", { kind: slide?.kind, textLen: slide && "text" in slide ? slide.text?.length : undefined, hasChannel: !!chRef.current }); } catch { /* ignore */ }
+    if (!slide || typeof slide !== "object" || !("kind" in slide)) {
+      console.warn("[live] sendSlideToLive got invalid slide payload — no-op", slide);
+      return;
+    }
     if (spec !== undefined) setTransitionSpec(spec);
     setLive(slide);
-    chRef.current?.postMessage({ type: "set", slide } as LiveMessage);
+    const posted = chRef.current?.postMessage({ type: "set", slide } as LiveMessage);
+    try { console.log("[live] setLive committed + broadcast posted", { posted: posted !== undefined ? "ok" : "no-channel" }); } catch { /* ignore */ }
   }, []);
   const stageSlide = useCallback((slide: SlidePayload) => setStagedAISlide(slide), []);
   const sendBankedToLive = useCallback((idx: number) => {
