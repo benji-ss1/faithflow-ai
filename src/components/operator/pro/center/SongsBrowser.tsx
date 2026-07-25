@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload } from "@/lib/broadcast";
 import { createSong, createSongSlide, updateSongSlides } from "@/lib/actions";
+import { isInternalEvent } from "@/lib/internal-events";
 
 type SongRow = { id: string; title: string; artist: string | null };
 type SlideRow = { id?: string; lyrics: string };
@@ -78,6 +79,28 @@ export function SongsBrowser({
       .finally(() => { if (!cancelled) setSlidesLoading(false); });
     return () => { cancelled = true; };
   }, [selected]);
+
+  // 2026-07-25 — CenterHeader ▶ Play button dispatches `songs-play-current`
+  // when in Songs mode. Fire the selected song's first slide.
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      if (!isInternalEvent(ev)) return;
+      if (!selected) {
+        toast.info("Pick a song on the left first, then press Play.");
+        return;
+      }
+      const first = slides?.[0];
+      if (!first || !first.lyrics?.trim()) {
+        toast.info(`"${selected.title}" has no slides yet — add lyrics first.`);
+        return;
+      }
+      try { console.log("[songs-play-current] firing", { songId: selected.id, title: selected.title, slideLen: first.lyrics.length }); } catch { /* ignore */ }
+      ctx.onSendSlideToLive({ kind: "text", text: first.lyrics });
+      toast.success(`"${selected.title}" — slide 1 → LIVE`, { duration: 1500 });
+    };
+    window.addEventListener("presentflow:songs-play-current", handler);
+    return () => window.removeEventListener("presentflow:songs-play-current", handler);
+  }, [selected, slides, ctx]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

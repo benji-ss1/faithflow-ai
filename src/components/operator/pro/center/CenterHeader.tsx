@@ -1,7 +1,9 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { LayoutGrid, List, Eye, Play, Music, BookOpen, Image as ImageIcon, Type } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { dispatchInternal } from "@/lib/internal-events";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { CenterMode } from "../ProOperatorShell";
 
@@ -66,17 +68,38 @@ export function CenterHeader({
       </button>
         <button
           onClick={() => {
+            // 2026-07-25 field bug fix — the Play button silently no-op'd
+            // in Bible/Songs modes because it only read `plan.items`. Now
+            // context-aware:
+            //   - Bible mode → dispatch bible-play-current so BibleMode
+            //     fires the selected verse card
+            //   - Songs mode → dispatch songs-play-current so SongsBrowser
+            //     fires the selected song's first slide
+            //   - Slides mode → existing behavior (first slide of preview
+            //     playlist item)
+            try { console.log("[center-play] clicked", { centerMode, hasItem: !!ctx.plan.items[ctx.previewItemIdx], slideCount: ctx.plan.items[ctx.previewItemIdx]?.slides?.length ?? 0 }); } catch { /* ignore */ }
+            if (centerMode === "bible") {
+              dispatchInternal("presentflow:bible-play-current");
+              return;
+            }
+            if (centerMode === "songs") {
+              dispatchInternal("presentflow:songs-play-current");
+              return;
+            }
             const s = ctx.plan.items[ctx.previewItemIdx]?.slides?.[0];
-            if (!s) return;
-            // Y5: match SlideGrid — Safe Mode ON = select-only, not live.
+            if (!s) {
+              toast.info("Nothing to play — pick a playlist item first, or load a Bible reference.");
+              return;
+            }
             if (safeMode()) {
               ctx.onJumpSlide(ctx.previewItemIdx, 0);
             } else {
               ctx.onSendSlideToLive(s);
+              toast.success(`Playing ${ctx.plan.items[ctx.previewItemIdx]?.title ?? "slide 1"}`, { duration: 1500 });
             }
           }}
           className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-brand)]"
-          title="Play first slide (respects Safe Mode)"
+          title={centerMode === "bible" ? "Play the currently selected Bible verse" : centerMode === "songs" ? "Play the currently selected song's first slide" : "Play first slide of this playlist item"}
         >
           <Play className="w-4 h-4" />
         </button>

@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.44",
+    date: "2026-07-25",
+    headline: "▶ Play button now context-aware (Bible / Songs / Slides) + < Verse / Verse > give visible feedback",
+    highlights: [
+      "The ▶ Play button in the center header + the ▶ Show button in the top bar were silently doing nothing when you were in Bible or Songs mode. Root cause: both buttons read from `plan.items` (the playlist), so if you loaded a Bible reference or selected a song from the library WITHOUT adding it to the playlist first, they had nothing to send. Now both buttons are context-aware: in Bible mode they fire the currently selected verse card, in Songs mode they fire the selected song's slide 1, in Slides mode they fire the playlist item's slide 1 (existing behavior)",
+      "< Verse / Verse > transport-bar buttons now show 'Type a Bible reference and press Lookup first' when pressed with nothing loaded, and 'Already on the first/last slide' when at the edge of a playlist item. Previously silent no-op",
+      "Every play / verse-nav click is now logged in DevTools ([center-play], [topbar-play], [bottom-bar], [verse-nav], [bible-play-current], [songs-play-current] prefixes) so you can grep DevTools console to trace exactly why a button 'didn't work'",
+      "Successful actions now toast — 'Luke 15:11 → LIVE', 'Playing Amazing Grace' — so you can tell at a glance the click was received even if the projector window is off-screen",
+    ],
+  },
+  {
     version: "0.1.43",
     date: "2026-07-25",
     headline: "Song click-to-live: playlist song items now fire on click + visible toast confirmation + click tracing",

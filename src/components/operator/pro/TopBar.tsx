@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { SearchPalette } from "./SearchPalette";
 import { AIDiagnosticModal } from "../AIDiagnosticModal";
 import type { DisplayInfo } from "@/types/electron";
+import { dispatchInternal } from "@/lib/internal-events";
 
 function IconBtn({
   icon: Icon, label, active, onClick,
@@ -251,7 +252,27 @@ export function TopBar({
       <div className="mx-1 h-5 w-px bg-[var(--color-border)]" aria-hidden />
       <div className="flex items-center" style={{ gap: 4 }}>
         {/* Content cluster */}
-        <IconBtn icon={Play} label="Show" onClick={ctx.onSendToLive} />
+        {/* 2026-07-25 field bug fix — was `ctx.onSendToLive` unconditionally
+            which sends the PLAYLIST preview slide; in Bible/Songs modes
+            that either fires the wrong slide or silently no-ops. Now
+            routes to the same context-aware handlers as the CenterHeader
+            Play button so both act on what the operator is looking at. */}
+        <IconBtn
+          icon={Play}
+          label="Show current"
+          onClick={() => {
+            try { console.log("[topbar-play] clicked", { centerMode }); } catch { /* ignore */ }
+            if (centerMode === "bible") {
+              dispatchInternal("presentflow:bible-play-current");
+              return;
+            }
+            if (centerMode === "songs") {
+              dispatchInternal("presentflow:songs-play-current");
+              return;
+            }
+            ctx.onSendToLive();
+          }}
+        />
         <IconBtn
           icon={BookOpen}
           label="Bible"

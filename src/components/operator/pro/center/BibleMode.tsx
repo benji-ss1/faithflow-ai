@@ -14,6 +14,7 @@ import { fetchChapterCached } from "@/lib/bible-chapter-cache";
 import { addServiceItem, addServiceItems } from "@/lib/actions";
 import { Plus, Pencil, Check } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { isInternalEvent } from "@/lib/internal-events";
 
 /**
  * R5: All session state (ref, translation, mode, cards, selectedIdx) is
@@ -285,6 +286,32 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
   // verse on its own line (a soft "slide within a slide" effect since we
   // don't currently split into multiple cards per verse). `displayTranslation`
   // strips the "(KJV)" trailing tag from the ref label when off.
+  // 2026-07-25 field bug fix — the CenterHeader ▶ Play button dispatches
+  // `presentflow:bible-play-current` when in Bible mode. Handle it here
+  // (where we have access to the loaded cards + selection) by firing the
+  // currently selected verse to live. Falls back to card 0 if no
+  // selection yet, and shows a toast if nothing is loaded.
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      if (!isInternalEvent(ev)) return;
+      const idx = selectedIdx ?? 0;
+      const card = cards[idx];
+      if (!card) {
+        toast.info("No Bible verse loaded — type a reference and press Lookup first.");
+        return;
+      }
+      try { console.log("[bible-play-current] firing", { idx, label: card.label }); } catch { /* ignore */ }
+      ctx.onSendSlideToLive(cardToSlideRef.current(card, idx, cards.length));
+      toast.success(`${card.label} → LIVE`, { duration: 1500 });
+    };
+    window.addEventListener("presentflow:bible-play-current", handler);
+    return () => window.removeEventListener("presentflow:bible-play-current", handler);
+  }, [cards, selectedIdx, ctx]);
+  // Keep cardToSlide stable across renders for the play-current handler
+  // (which reads it via a ref to avoid re-binding the listener when opts
+  // change — the useCallback below already handles that upstream).
+  const cardToSlideRef = useRef<(c: VerseCard, idx: number, total: number) => SlidePayload>(() => ({ kind: "text", text: "" }));
+
   const cardToSlide = useCallback((c: VerseCard, idx: number, total: number): SlidePayload => {
     // Session edit override wins over the fetched text so the operator can
     // fix a typo / adjust line breaks without touching the DB.
@@ -308,6 +335,8 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
     }
     return { kind: "text", text };
   }, [opts.showVerseNumbers, opts.refFormat, opts.breakOnNewVerse, opts.displayTranslation, editOverrides]);
+  // Sync ref for the bible-play-current handler above.
+  useEffect(() => { cardToSlideRef.current = cardToSlide; }, [cardToSlide]);
 
   return (
     <div className="p-4 flex flex-col gap-4">

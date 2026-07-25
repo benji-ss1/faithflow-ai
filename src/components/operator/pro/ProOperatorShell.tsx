@@ -2217,8 +2217,15 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       const anchorRef = cards[curIdx]?.label
         ? cards[curIdx].label.replace(/\s*\([^)]+\)\s*$/, "") // strip "(KJV)"
         : bibleSession.state.ref;
+      try { console.log("[verse-nav] advanceRef", { dir, anchorRef, cardCount: cards.length, curIdx }); } catch { /* ignore */ }
       const parsed = parser.parseReference(anchorRef);
-      if (!parsed) return;
+      if (!parsed) {
+        // 2026-07-25 field fix — previous silent return read as "button
+        // does nothing". Surface why so the operator knows to type a
+        // reference first (or reload the app if the anchor got corrupted).
+        toast.info("Type a Bible reference (e.g. John 3:16) and press Lookup first — nothing loaded to advance.");
+        return;
+      }
       // If ref is a whole chapter (verseEnd == null), advancing by "verse"
       // would silently narrow the display from all-verses to a single verse.
       // Refuse and hint the operator that whole-chapter mode uses passage nav.

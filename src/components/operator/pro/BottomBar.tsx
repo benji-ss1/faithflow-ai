@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { Pause, Play, SkipForward, SkipBack, LayoutGrid, List, Type, HelpCircle } from "lucide-react";
+import { toast } from "sonner";
 import type { OperatorShellCtx } from "../shell/types";
 import { TransitionChooser } from "./BottomBar/TransitionChooser";
 import { cn } from "@/lib/utils";
@@ -57,16 +58,30 @@ export function BottomBar({
 
   // Bible-mode verse buttons navigate the bible session (via events), not
   // playlist slides. Falls back to slide prev/next in every other mode.
+  // 2026-07-25 field fix — added visible feedback so pressing Verse >
+  // when no reference is loaded shows a helpful toast instead of silently
+  // no-op'ing (which reads as "the button is broken"). Also console.log
+  // so a click that DOESN'T show a toast is greppable in DevTools.
   const versePrev = () => {
+    try { console.log("[bottom-bar] Verse< clicked", { centerMode }); } catch { /* ignore */ }
     if (centerMode === "bible") {
       dispatchInternal("presentflow:bible-prev");
+      return;
+    }
+    if (!hasPrev) {
+      toast.info("Already on the first slide.");
       return;
     }
     prev();
   };
   const verseNext = () => {
+    try { console.log("[bottom-bar] Verse> clicked", { centerMode }); } catch { /* ignore */ }
     if (centerMode === "bible") {
       dispatchInternal("presentflow:bible-next");
+      return;
+    }
+    if (!hasNext) {
+      toast.info("Already on the last slide of this item.");
       return;
     }
     next();
