@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.36",
+    date: "2026-07-25",
+    headline: "Right-panel preview: LIVE ● / IDLE ○ label, taller box, red glow when hot",
+    highlights: [
+      "'SCREEN 1' relabeled to LIVE ● (red pulse when something is on the projector) / IDLE ○ (grey when nothing is)",
+      "Preview box grew from min 200px → 220px so verses and lyrics have visibly more breathing room without hitting the AutoFitText pagination boundary as often",
+      "When live, the preview now has a subtle outer red glow (box-shadow) so you can tell at a glance from across the room that content is projecting",
+      "Phase 1 of a right-panel refactor — Phase 2 (fatter scrollable transcript with pause/resume + inline highlights + timestamps) coming next after you review this",
+    ],
+  },
+  {
     version: "0.1.35",
     date: "2026-07-25",
     headline: "Staged song 'GO LIVE' button + X really dismisses + screens config timing fix + playlist duplicate guard",

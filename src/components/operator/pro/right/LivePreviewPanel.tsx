@@ -26,15 +26,26 @@ export function LivePreviewPanel({ ctx }: { ctx: OperatorShellCtx }) {
   const { reference } = ctx.liveSlide.kind === "text" ? splitBodyAndReference(ctx.liveSlide.text) : { reference: null };
   return (
     <div className="p-2 flex flex-col gap-2">
+      {/* 2026-07-25 Phase 1 refactor:
+          - `SCREEN 1` label → `LIVE ●` (red pulse when active) / `IDLE ○`
+            (grey when nothing on projector). Matches operator mental model.
+          - min-h bumped 200 → 220 px so verses/lyrics have visibly more room
+            (AutoFitText inside SlideRenderer keeps its binary-search scaling
+            so long content still fits within the 16:9 aspect-video frame).
+          - When live, subtle outer red glow via box-shadow layered on top of
+            the existing 2px red border so the preview reads as "hot" from
+            across the room, not just from the pixel-precise border color. */}
       <div
         className={
           isLive
-            ? "relative aspect-video min-h-[200px] rounded-md overflow-hidden border-2 border-[color:var(--color-destructive,#e11d48)] bg-black"
-            : "relative aspect-video min-h-[200px] rounded-md overflow-hidden border border-[var(--color-border)] bg-black"
+            ? "relative aspect-video min-h-[220px] rounded-md overflow-hidden border-2 border-[color:var(--color-destructive,#e11d48)] bg-black"
+            : "relative aspect-video min-h-[220px] rounded-md overflow-hidden border border-[var(--color-border)] bg-black"
         }
+        style={isLive ? { boxShadow: "0 0 12px 2px rgba(225, 29, 72, 0.35)" } : undefined}
       >
         {isLive && (
-          <div className="absolute top-1 left-1 z-10 text-[9px] font-mono uppercase tracking-wider text-white bg-[color:var(--color-destructive,#e11d48)] px-1.5 py-0.5 rounded">
+          <div className="absolute top-1 left-1 z-10 text-[9px] font-mono uppercase tracking-wider text-white bg-[color:var(--color-destructive,#e11d48)] px-1.5 py-0.5 rounded flex items-center gap-1">
+            <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full bg-white pf-ai-live-dot" />
             LIVE
           </div>
         )}
@@ -57,8 +68,18 @@ export function LivePreviewPanel({ ctx }: { ctx: OperatorShellCtx }) {
           {reference}
         </div>
       )}
-      <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)] text-center">
-        Screen 1
+      <div className="flex items-center justify-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)]">
+        <span
+          aria-hidden
+          className={
+            isLive
+              ? "inline-block w-1.5 h-1.5 rounded-full bg-[color:var(--color-destructive,#e11d48)] pf-ai-live-dot"
+              : "inline-block w-1.5 h-1.5 rounded-full bg-[var(--color-muted-foreground)] opacity-60"
+          }
+        />
+        <span className={isLive ? "text-[color:var(--color-destructive,#e11d48)] font-semibold" : ""}>
+          {isLive ? "Live" : "Idle"}
+        </span>
       </div>
     </div>
   );
