@@ -14,15 +14,32 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const signUpLimiter = createLimiter("signup", 5, 60 * 60 * 1000);
 
-async function checkSignUpRateLimit(): Promise<boolean> {
-  let ip = "unknown";
+// H3: password-reset flood protection. Two axes so an attacker can neither
+// spam one inbox nor blast Resend from one IP to enumerate accounts. The
+// caller still returns silent success on lockout — we never leak whether
+// the email exists or whether we were rate-limited.
+const resetIpLimiter = createLimiter("password-reset-ip", 3, 60 * 60 * 1000);
+const resetEmailLimiter = createLimiter("password-reset-email", 3, 60 * 60 * 1000);
+
+async function readIp(): Promise<string> {
   try {
     const h = await headers();
-    ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "unknown";
+    return h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "unknown";
   } catch {
-    return true;
+    return "unknown";
   }
+}
+
+async function checkSignUpRateLimit(): Promise<boolean> {
+  const ip = await readIp();
   return signUpLimiter(ip);
+}
+
+async function checkPasswordResetRateLimit(email: string): Promise<boolean> {
+  const ip = await readIp();
+  const ipOk = await resetIpLimiter(ip);
+  const emailOk = await resetEmailLimiter(email);
+  return ipOk && emailOk;
 }
 
 export async function signUp(input: { email: string; password: string; name: string }): Promise<Result> {
@@ -77,6 +94,9 @@ export async function verifyEmail(token: string): Promise<Result<{ userId: strin
 export async function requestPasswordReset(email: string): Promise<Result> {
   const normalized = email.trim().toLowerCase();
   if (!EMAIL_RE.test(normalized)) return { ok: false, error: "Enter a valid email address" };
+  // Silent success on rate-limit lockout too — reveals nothing to the
+  // attacker while still costing them the round trip.
+  if (!(await checkPasswordResetRateLimit(normalized))) return { ok: true };
   const db = getDb();
   const [row] = await db.select().from(users).where(eq(users.email, normalized)).limit(1);
   // Silent success on unknown email — don't reveal whether an account exists.

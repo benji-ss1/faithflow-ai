@@ -46,45 +46,66 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
     let songId: string | undefined;
     let songSlideRows: { id: string; lyrics: string; objectsJson: unknown }[] | undefined;
     if (it.type === "song" && payload.songId) {
-      songId = String(payload.songId);
-      const rows = await db.select().from(songSlides).where(eq(songSlides.songId, songId)).orderBy(asc(songSlides.order));
-      // Task C: apply per-plan slideOrder override if present. The override
-      // is an array of songSlide IDs in the desired order — church-scoped
-      // via the containing plan. Rows not present in the override fall to
-      // the end in their original order (defensive against stale override
-      // arrays that predate a slide add).
-      const overrideRaw = payload.slideOrder;
-      const override = Array.isArray(overrideRaw)
-        ? (overrideRaw as unknown[]).filter((x): x is string => typeof x === "string")
-        : null;
-      let orderedRows = rows;
-      if (override && override.length > 0) {
-        const byId = new Map(rows.map((r) => [r.id, r]));
-        const seen = new Set<string>();
-        const front: typeof rows = [];
-        for (const id of override) {
-          const r = byId.get(id);
-          if (r && !seen.has(id)) { front.push(r); seen.add(id); }
+      // C1 defense-in-depth: two-hop verify the song belongs to this
+      // church before we dereference its slides. validateAddServiceItemPayload
+      // in actions.ts is the first line at write; this ensures a legacy row
+      // or a future direct-DB write path can't leak another church's slides.
+      const candidateSongId = String(payload.songId);
+      const [ownedSong] = await db.select({ id: songs.id }).from(songs)
+        .where(and(eq(songs.id, candidateSongId), eq(songs.churchId, churchId))).limit(1);
+      if (ownedSong) {
+        songId = ownedSong.id;
+        const rows = await db.select().from(songSlides).where(eq(songSlides.songId, songId)).orderBy(asc(songSlides.order));
+        // Task C: apply per-plan slideOrder override if present. The override
+        // is an array of songSlide IDs in the desired order — church-scoped
+        // via the containing plan. Rows not present in the override fall to
+        // the end in their original order (defensive against stale override
+        // arrays that predate a slide add).
+        const overrideRaw = payload.slideOrder;
+        const override = Array.isArray(overrideRaw)
+          ? (overrideRaw as unknown[]).filter((x): x is string => typeof x === "string")
+          : null;
+        let orderedRows = rows;
+        if (override && override.length > 0) {
+          const byId = new Map(rows.map((r) => [r.id, r]));
+          const seen = new Set<string>();
+          const front: typeof rows = [];
+          for (const id of override) {
+            const r = byId.get(id);
+            if (r && !seen.has(id)) { front.push(r); seen.add(id); }
+          }
+          const tail = rows.filter((r) => !seen.has(r.id));
+          orderedRows = [...front, ...tail];
         }
-        const tail = rows.filter((r) => !seen.has(r.id));
-        orderedRows = [...front, ...tail];
+        songSlideRows = orderedRows.map((r) => ({ id: r.id, lyrics: r.lyrics, objectsJson: r.objectsJson }));
+        slides = orderedRows.map((r) => ({ kind: "text" as const, text: r.lyrics }));
       }
-      songSlideRows = orderedRows.map((r) => ({ id: r.id, lyrics: r.lyrics, objectsJson: r.objectsJson }));
-      slides = orderedRows.map((r) => ({ kind: "text" as const, text: r.lyrics }));
     } else if (it.type === "scripture") {
       const scriptureSlides = Array.isArray(payload.slides) ? (payload.slides as { text: string }[]) : [];
       slides = scriptureSlides.map((s) => ({ kind: "text" as const, text: s.text }));
       if (slides.length === 0 && typeof payload.text === "string") slides = [{ kind: "text", text: payload.text as string }];
     } else if (it.type === "media" && payload.mediaAssetId) {
-      const [asset] = await db.select().from(mediaAssets).where(eq(mediaAssets.id, String(payload.mediaAssetId))).limit(1);
+      // C1 defense-in-depth: scope mediaAssets lookup by churchId.
+      const [asset] = await db.select().from(mediaAssets)
+        .where(and(eq(mediaAssets.id, String(payload.mediaAssetId)), eq(mediaAssets.churchId, churchId)))
+        .limit(1);
       if (asset) {
         const url = await presignGet(asset.s3Key);
         const fit = (payload.fitMode === "cover" ? "cover" : "contain") as "cover" | "contain";
         slides = [asset.kind === "video" ? { kind: "video", url, fit } : { kind: "image", url, fit }];
       }
     } else if (it.type === "sermon" && payload.pptxImportId) {
-      const rows = await db.select().from(pptxSlides).where(eq(pptxSlides.pptxImportId, String(payload.pptxImportId))).orderBy(asc(pptxSlides.order));
-      slides = await Promise.all(rows.map(async (r) => ({ kind: "image" as const, url: await presignGet(r.imageS3Key), fit: "contain" as const })));
+      // C1 defense-in-depth: two-hop verify the pptx_import belongs to
+      // this church, then pull its slides. Without the join, a foreign
+      // payload.pptxImportId would fetch another church's slide PNGs and
+      // return signed URLs.
+      const [ownedImport] = await db.select({ id: pptxImports.id }).from(pptxImports)
+        .where(and(eq(pptxImports.id, String(payload.pptxImportId)), eq(pptxImports.churchId, churchId)))
+        .limit(1);
+      if (ownedImport) {
+        const rows = await db.select().from(pptxSlides).where(eq(pptxSlides.pptxImportId, ownedImport.id)).orderBy(asc(pptxSlides.order));
+        slides = await Promise.all(rows.map(async (r) => ({ kind: "image" as const, url: await presignGet(r.imageS3Key), fit: "contain" as const })));
+      }
     } else if (it.type === "blank") {
       slides = [{ kind: "blank", bgColor: blankBgColor }];
     } else if (it.type === "logo") {

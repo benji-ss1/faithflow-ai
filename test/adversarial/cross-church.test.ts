@@ -323,6 +323,36 @@ async function main() {
         record("HTTP GET /api/autopilot/history (unauth, B's planId)", true, `dev server unreachable — skipped (${e instanceof Error ? e.message : String(e)})`);
       }
     }
+
+    // Attempt 12 — C1 regression guard: poison Church A's own plan with
+    // service_item payloads that reference Church B's song, media, and pptx
+    // import IDs. Then call getExpandedServicePlan(A.plan.id, A.church.id).
+    // Pre-fix, the ID-only lookups in the expander returned foreign rows
+    // and presigned URLs to B's S3 keys. Post-fix, the two-hop churchId
+    // filters must drop the foreign IDs before dereference — no MARKER_B
+    // in the expanded plan, and every poison item renders as a blank slide.
+    {
+      const db = getDb();
+      const [bMedia] = await db.select({ id: mediaAssets.id }).from(mediaAssets).where(eq(mediaAssets.churchId, B!.church.id)).limit(1);
+      // Bypass addServiceItem's input-validation layer by writing directly
+      // to the DB — this tests the belt-and-brace defense in the reader.
+      await db.insert(serviceItems).values([
+        { servicePlanId: A!.plan.id, order: 10, type: "song",   title: "poison song",   payload: { songId: B!.song.id } },
+        { servicePlanId: A!.plan.id, order: 11, type: "media",  title: "poison media",  payload: { mediaAssetId: bMedia?.id } },
+        { servicePlanId: A!.plan.id, order: 12, type: "sermon", title: "poison sermon", payload: { pptxImportId: B!.pptxImport.id } },
+      ]);
+      const expanded = await getExpandedServicePlan(A!.plan.id, A!.church.id);
+      const leaked = containsMarkerB(expanded);
+      const poisonSong   = expanded?.items.find((i) => i.title === "poison song");
+      const poisonMedia  = expanded?.items.find((i) => i.title === "poison media");
+      const poisonSermon = expanded?.items.find((i) => i.title === "poison sermon");
+      const allBlanked = [poisonSong, poisonMedia, poisonSermon].every((it) => it?.slides.every((s) => s.kind === "blank"));
+      record(
+        "getExpandedServicePlan drops foreign payload IDs (C1 regression)",
+        !leaked && allBlanked,
+        `leaked=${leaked} poisonSong=${poisonSong?.slides[0]?.kind} poisonMedia=${poisonMedia?.slides[0]?.kind} poisonSermon=${poisonSermon?.slides[0]?.kind}`,
+      );
+    }
   } finally {
     console.log("--- Cleanup ---");
     if (A) await cleanupChurch(A.church.id).catch((e) => console.error("cleanup A failed:", e));
