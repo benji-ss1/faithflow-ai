@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.58",
+    date: "2026-07-26",
+    headline: "Billing page rebuilt — dark amber-glow pricing island with 3 tiers + animated monthly/yearly toggle",
+    highlights: [
+      "The billing page has been redesigned as a dark 'marketing island' distinct from the light admin dashboard: deep-charcoal background with three drifting amber aurora blobs (CSS-only, zero JS cost). Current plan summary is now a single sleek banner (was three separate cards competing for the same eye) with the plan name, status, trial/renewal date, and a green 'Free' badge during pilot",
+      "Three pricing tiers laid out side-by-side: Starter ($14/mo · 50 songs, 5 themes, single campus), Pro ($29/mo · unlimited songs+themes, multi-output, stage display, Planning Center — FEATURED with amber glow + 'RECOMMENDED' badge), Church ($49/mo · multi-campus, sermon archive, historical analytics, API). Prices are placeholders until pilot pricing validates. Each tier hover-lifts, features rows use amber check icons",
+      "Monthly/Yearly toggle above the tiers with a real animated switch (grey track, amber knob that slides on click) and a 'Save 20%' badge on the yearly side. Prices update instantly when toggled. The toggle sends the selected cycle to Stripe checkout — for the pilot phase both cycles go through the same test-mode Stripe price ID; separate monthly/yearly Stripe price IDs will land when real prices ship",
+      "'Explore (test mode)' CTA is now 'Start free trial' on Starter + Pro and 'Contact us' on Church. Every click goes through Stripe test mode during the pilot — no card is ever charged. A clear inline notice at the bottom reminds admins that prices are placeholders and Stripe is in test mode",
+    ],
+  },
+  {
     version: "0.1.57",
     date: "2026-07-26",
     headline: "Theme editor rebuilt — full-screen 2-panel with live 16:9 preview + 4 preview modes",
