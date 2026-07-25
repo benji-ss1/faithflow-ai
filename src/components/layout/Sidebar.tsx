@@ -25,6 +25,8 @@ import { _resetTierCache } from "@/hooks/useTier";
 type SidebarProps = {
   mobileOpen: boolean;
   onMobileOpenChange: (open: boolean) => void;
+  churchLogoUrl?: string | null;
+  churchName?: string;
 };
 
 function ChildGroup({
@@ -223,7 +225,7 @@ function NavSection({
   );
 }
 
-export function Sidebar({ mobileOpen, onMobileOpenChange }: SidebarProps) {
+export function Sidebar({ mobileOpen, onMobileOpenChange, churchLogoUrl, churchName }: SidebarProps) {
   const pathname = usePathname();
   const currentShell = useShell();
   const isDesktop = currentShell === "desktop";
@@ -296,8 +298,8 @@ export function Sidebar({ mobileOpen, onMobileOpenChange }: SidebarProps) {
         </button>
       </IconTooltip>
 
-      <div className={cn("flex h-20 items-center border-b border-white/8", collapsed ? "justify-center px-3" : "px-5")}>
-        <div className={cn("flex min-w-0 items-center gap-3", collapsed && "justify-center")}>
+      <div className={cn("flex flex-col border-b border-white/8", collapsed ? "px-3" : "px-5")}>
+        <div className={cn("flex h-20 min-w-0 items-center gap-3", collapsed && "justify-center")}>
           <div className="flex size-11 items-center justify-center rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))] shadow-[0_12px_36px_rgba(0,0,0,0.28)]">
             <Sparkles className="h-4.5 w-4.5 text-[var(--color-primary)]" strokeWidth={1.9} />
           </div>
@@ -308,6 +310,19 @@ export function Sidebar({ mobileOpen, onMobileOpenChange }: SidebarProps) {
             </div>
           ) : null}
         </div>
+        {!collapsed && (churchLogoUrl || churchName) ? (
+          <div className="mb-3 flex items-center gap-2 rounded-xl border border-white/8 bg-white/[0.03] px-2 py-1.5">
+            {churchLogoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={churchLogoUrl} alt="" className="h-6 w-6 shrink-0 rounded object-contain" />
+            ) : (
+              <div className="grid h-6 w-6 shrink-0 place-items-center rounded bg-white/8 text-[10px] font-semibold text-muted-foreground">
+                {(churchName || "?").charAt(0).toUpperCase()}
+              </div>
+            )}
+            <span className="truncate text-[11px] font-medium text-muted-foreground">{churchName || "Church workspace"}</span>
+          </div>
+        ) : null}
       </div>
 
       <div className={cn("flex-1 space-y-7 overflow-y-auto py-5", collapsed ? "px-3" : "px-4")}>

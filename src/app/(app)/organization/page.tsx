@@ -2,9 +2,11 @@ import { eq } from "drizzle-orm";
 import { requireRole } from "@/lib/session";
 import { getDb } from "@/lib/db/client";
 import { bibleTranslations, churches, churchPreferences, settings } from "@/lib/db/schema";
+import { presignGet } from "@/lib/s3";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { AccountCard } from "@/components/account/AccountCard";
 import { ChurchProfileForm } from "@/components/organization/ChurchProfileForm";
+import { ChurchBrandingUploader } from "@/components/organization/ChurchBrandingUploader";
 
 export default async function OrganizationPage() {
   const admin = await requireRole("admin");
@@ -15,6 +17,7 @@ export default async function OrganizationPage() {
   const [translation] = prefs?.defaultTranslationId
     ? await db.select().from(bibleTranslations).where(eq(bibleTranslations.id, prefs.defaultTranslationId)).limit(1)
     : [];
+  const logoUrl = display?.logoS3Key ? await presignGet(display.logoS3Key) : null;
 
   return (
     <div className="space-y-8">
@@ -36,11 +39,13 @@ export default async function OrganizationPage() {
             }}
           />
         </AccountCard>
+        <AccountCard title="Church branding" description="Upload your logo — it appears in the sidebar, in the desktop app splash, and as a Logo slide in service plans.">
+          <ChurchBrandingUploader initialLogoUrl={logoUrl} />
+        </AccountCard>
         <AccountCard title="Worship defaults" description="Defaults for screen behavior, Bible selection, and profile readiness.">
           <dl className="grid gap-4 sm:grid-cols-2">
             <Detail label="Default Bible translation" value={translation ? `${translation.code} · ${translation.name}` : "Not set"} />
             <Detail label="Blank screen color" value={display?.blankBgColor || "#000000"} />
-            <Detail label="Branding logo" value={display?.logoS3Key ? "Uploaded" : "Not uploaded"} />
             <Detail label="Onboarding status" value={church?.onboardingStatus || "pending"} />
           </dl>
         </AccountCard>

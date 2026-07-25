@@ -6,6 +6,10 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "PresentFlow",
   description: "AI-native production console for live services",
+  icons: {
+    icon: [{ url: "/brand/pf-logo-mark.png", type: "image/png" }],
+    apple: [{ url: "/brand/pf-logo-mark.png" }],
+  },
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {

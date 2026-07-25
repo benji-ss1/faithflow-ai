@@ -9,11 +9,12 @@ type AppShellProps = {
   children: React.ReactNode;
   user: { name: string; email: string };
   churchName: string;
+  churchLogoUrl?: string | null;
   // Y6: optional SSR-provided initial shell to prevent flash of web chrome.
   initialShell?: Shell;
 };
 
-export function AppShell({ children, user, churchName, initialShell }: AppShellProps) {
+export function AppShell({ children, user, churchName, churchLogoUrl, initialShell }: AppShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const shell = useShell(initialShell);
   const isDesktop = shell === "desktop";
@@ -36,7 +37,7 @@ export function AppShell({ children, user, churchName, initialShell }: AppShellP
         <div className="absolute inset-y-0 left-0 w-[28rem] bg-[radial-gradient(circle_at_left,rgba(255,255,255,0.03),transparent_65%)]" />
       </div>
 
-      <Sidebar mobileOpen={mobileNavOpen} onMobileOpenChange={setMobileNavOpen} />
+      <Sidebar mobileOpen={mobileNavOpen} onMobileOpenChange={setMobileNavOpen} churchLogoUrl={churchLogoUrl} churchName={churchName} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar

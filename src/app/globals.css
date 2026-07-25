@@ -250,3 +250,83 @@ html.light {
   100% { background-color: transparent; color: inherit; box-shadow: none; }
 }
 .pf-corrected-flash { animation: pf-corrected-flash 3s ease-out forwards; }
+
+/*
+ * Admin-only design tokens — foundation for the incremental visual overhaul.
+ *
+ * These are SCOPED under `.pf-admin-scope` so operator surfaces (which never
+ * add that class) get zero visual change from this block. Admin components
+ * can opt-in per-container by wrapping in `.pf-admin-scope`.
+ *
+ * Full sidebar/dashboard/onboarding restructure is deferred to a coordinated
+ * session — see project notes. Adding tokens here lets the small polish
+ * components (branding form, songs table empty state, themes cards) reach
+ * for the intended admin palette without conflicting with operator theming.
+ */
+.pf-admin-scope {
+  /* Neutrals — clean SaaS panel */
+  --pf-admin-bg-page:     #FFFFFF;
+  --pf-admin-bg-card:     #FFFFFF;
+  --pf-admin-bg-subtle:   #FAFAF9;
+  --pf-admin-bg-muted:    #F5F4F2;
+  --pf-admin-bg-hover:    #F0EEEB;
+  --pf-admin-bg-accent:   rgba(232, 116, 42, 0.05);
+
+  --pf-admin-text:        #1A1A1A;
+  --pf-admin-text-secondary: #6B6A66;
+  --pf-admin-text-muted:  #9C9A95;
+  --pf-admin-text-inverse:#FFFFFF;
+
+  --pf-admin-border:      #E8E6E3;
+  --pf-admin-border-subtle: #F0EEEB;
+  --pf-admin-border-strong: #D4D2CE;
+
+  /* Brand accents */
+  --pf-admin-accent:       #E8742A;
+  --pf-admin-accent-hover: #D4681F;
+  --pf-admin-accent-soft:  rgba(232, 116, 42, 0.08);
+  --pf-admin-accent-ring:  rgba(232, 116, 42, 0.25);
+
+  --pf-admin-purple: #9B8FE8;
+  --pf-admin-pink:   #D4537E;
+  --pf-admin-gold:   #EF9F27;
+  --pf-admin-green:  #3D9A50;
+  --pf-admin-red:    #DC3545;
+
+  /* Signature PresentFlow gradient — reserved for accent strips + hero glows */
+  --pf-gradient-brand:
+    linear-gradient(135deg, #9B8FE8 0%, #E8742A 50%, #D4537E 100%);
+  --pf-gradient-brand-subtle:
+    linear-gradient(135deg, rgba(155,143,232,0.15) 0%, rgba(232,116,42,0.15) 50%, rgba(212,83,126,0.15) 100%);
+  --pf-gradient-dark-bg:
+    linear-gradient(135deg, #0B0B0B 0%, #1A0A14 40%, #0B0B0B 100%);
+}
+
+/* Dark variant of admin scope — kicks in when the app is in dark mode */
+html:not(.light) .pf-admin-scope {
+  --pf-admin-bg-page:     #0B0B0B;
+  --pf-admin-bg-card:     #141414;
+  --pf-admin-bg-subtle:   #141414;
+  --pf-admin-bg-muted:    #1E1E1E;
+  --pf-admin-bg-hover:    #252525;
+  --pf-admin-bg-accent:   rgba(232, 116, 42, 0.10);
+
+  --pf-admin-text:        #F1EFE8;
+  --pf-admin-text-secondary: #A8A6A0;
+  --pf-admin-text-muted:  #6B6A66;
+  --pf-admin-text-inverse:#0B0B0B;
+
+  --pf-admin-border:      rgba(255,255,255,0.08);
+  --pf-admin-border-subtle: rgba(255,255,255,0.04);
+  --pf-admin-border-strong: rgba(255,255,255,0.15);
+
+  --pf-admin-accent-soft:  rgba(232, 116, 42, 0.12);
+  --pf-admin-accent-ring:  rgba(232, 116, 42, 0.3);
+}
+
+/* Reusable admin-scoped utility: signature 2px brand gradient stripe */
+.pf-admin-scope .pf-brand-stripe {
+  height: 2px;
+  background: var(--pf-gradient-brand);
+  border-radius: 999px;
+}

@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { cookies, headers } from "next/headers";
 import { requireUser } from "@/lib/session";
 import { getDb } from "@/lib/db/client";
-import { churches, users } from "@/lib/db/schema";
+import { churches, settings, users } from "@/lib/db/schema";
+import { presignGet } from "@/lib/s3";
 import { AppShell } from "@/components/layout/AppShell";
 import { TourGate } from "@/components/tutorial/TourGate";
 
@@ -23,6 +24,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const [church] = await db.select({ name: churches.name, onboardingStatus: churches.onboardingStatus })
     .from(churches).where(eq(churches.id, user.churchId)).limit(1);
   const [me] = await db.select({ tutorialCompletedAt: users.tutorialCompletedAt }).from(users).where(eq(users.id, user.id)).limit(1);
+  const [display] = await db.select({ logoS3Key: settings.logoS3Key }).from(settings).where(eq(settings.churchId, user.churchId)).limit(1);
+  const churchLogoUrl = display?.logoS3Key ? await presignGet(display.logoS3Key) : null;
   // CP5 guarded redirect: if the church is mid-onboarding AND the user hasn't
   // dismissed the tutorial yet, funnel them into /onboarding/tutorial. Once
   // the tutorial is completed OR skipped, tutorialCompletedAt is stamped and
@@ -38,7 +41,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const showTour = !me?.tutorialCompletedAt;
   return (
     <div className="min-h-screen bg-background">
-      <AppShell user={{ name: user.name, email: user.email }} churchName={church?.name || "PresentFlow Church"} initialShell={initialShell}>
+      <AppShell
+        user={{ name: user.name, email: user.email }}
+        churchName={church?.name || "PresentFlow Church"}
+        churchLogoUrl={churchLogoUrl}
+        initialShell={initialShell}
+      >
         {children}
       </AppShell>
       <TourGate show={showTour} />
