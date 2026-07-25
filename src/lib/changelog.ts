@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.61",
+    date: "2026-07-26",
+    headline: "Team page polish — avatar initials, unified list with Pending pills, real empty state",
+    highlights: [
+      "Team members now show a proper amber-initials avatar next to their name (was: bare text). Pending invites got a muted grey initials avatar and a small 'Pending' pill, and got merged into the same team list instead of living in a separate section below — one scannable roster instead of two",
+      "New empty state when the church has no team members yet: 'No team members yet. Invite the person who runs your screen on Sunday.' with a Users icon on the amber-tint background. Was: bare list that just rendered nothing",
+      "Buttons + inputs retokenised to the admin palette — Send invite is now amber primary (was old bg-foreground/text-background dark tokens), inputs focus with the amber ring, remove buttons hover-tint red without shifting the row height. Confirm-remove dialog got a clearer message about what preserving the audit trail means",
+      "You still can't change your own role or remove yourself (belt-and-brace: server action requireRole guards + client disabled buttons with 'You can't remove yourself' tooltip)",
+    ],
+  },
+  {
     version: "0.1.60",
     date: "2026-07-26",
     headline: "Import wizard polish — prominent drop zone, per-file remove, tokenised chrome",
