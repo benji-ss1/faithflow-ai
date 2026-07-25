@@ -114,6 +114,35 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
     }
   }, [ctx.planId, router, pendingVerseIds]);
 
+  // 2026-07-25 Fix 6 — "Load Chapter" loads every verse of the currently
+  // displayed reference's chapter into the grid (was previously only
+  // possible by manually typing "Book Chapter:1-99" and pressing Lookup).
+  // Distinct from "Add to Playlist" which adds displayed cards to the plan.
+  const loadWholeChapter = useCallback(async () => {
+    if (cards.length === 0) { toast.info("Load a reference first"); return; }
+    // Derive book + chapter from the currently selected card (or card 0).
+    const anchorIdx = selectedIdx ?? 0;
+    const label = cards[anchorIdx]?.label || cards[0]?.label || "";
+    const stripped = label.replace(/\s*\([^)]*\)\s*$/, "").trim();
+    const parser = await import("@/lib/bible-parser");
+    const parsed = parser.parseReference(stripped);
+    if (!parsed) { toast.error("Couldn't derive chapter — try re-entering the reference"); return; }
+    try {
+      const chapterRes = await fetchChapterCached(parsed.book, parsed.chapter, translation);
+      if (chapterRes.verses.length === 0) { toast.error("Chapter has no verses"); return; }
+      const pages: VerseCard[] = chapterRes.verses.map((v, i) => ({
+        id: `${parsed.book}-${parsed.chapter}-${v.verse}-${i}-${Date.now()}`,
+        label: `${parsed.book} ${parsed.chapter}:${v.verse} (${chapterRes.translation})`,
+        verses: [{ verse: v.verse, text: v.text }],
+      }));
+      setCards(pages);
+      setSelectedIdx(0);
+      toast.success(`Loaded ${pages.length} verses of ${parsed.book} ${parsed.chapter}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Chapter load failed");
+    }
+  }, [cards, selectedIdx, translation, setCards, setSelectedIdx]);
+
   const addAllVerses = useCallback(async () => {
     if (cards.length === 0 || addAllPending) return;
     if (!ctx.planId) { toast.info("No plan open"); return; }
@@ -527,20 +556,33 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
         <BibleBookBrowser translation={translation} onPickVerse={pickBrowsedVerse} />
       )}
 
-      {/* Verse cards */}
-      {tab === "reference" && cards.length > 1 && (
-        <div className="flex justify-end -mb-2">
+      {/* Verse cards — 2026-07-25 Fix 6: split into TWO distinct actions.
+          "Load Chapter" (ghost) loads every verse of the current chapter
+          into the grid. "Add to Playlist" (primary orange) adds all
+          currently-displayed cards to the playlist. Both were previously
+          conflated in a single ambiguous "+ Add all verses" button. */}
+      {tab === "reference" && cards.length > 0 && (
+        <div className="flex justify-end gap-2 -mb-2">
           <button
-            onClick={() => void addAllVerses()}
-            disabled={addAllPending}
-            className={cn(
-              "h-7 px-2 rounded border border-[var(--color-border)] text-[11px] font-mono uppercase tracking-wider hover:bg-[var(--color-elevated)]",
-              addAllPending && "opacity-50 cursor-not-allowed pointer-events-none",
-            )}
-            title="Add every verse as a separate scripture item"
+            onClick={() => void loadWholeChapter()}
+            className="h-7 px-2 rounded border border-[var(--color-border)] text-[11px] font-mono uppercase tracking-wider hover:bg-[var(--color-elevated)]"
+            title="Load every verse of the current chapter into the grid (does not add to playlist)"
           >
-            + Add all verses
+            Load Chapter
           </button>
+          {cards.length > 1 && (
+            <button
+              onClick={() => void addAllVerses()}
+              disabled={addAllPending}
+              className={cn(
+                "h-7 px-3 rounded text-[11px] font-mono uppercase tracking-wider text-white bg-[var(--color-brand)] hover:brightness-110",
+                addAllPending && "opacity-50 cursor-not-allowed pointer-events-none",
+              )}
+              title="Add each displayed verse to the playlist as its own scripture item"
+            >
+              + Add to Playlist
+            </button>
+          )}
         </div>
       )}
       {tab === "reference" && viewMode === "list" && cards.length > 0 && (
@@ -659,12 +701,20 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
                   ctx.onSendSlideToLive(slide);
                 }
               }}
+              // 2026-07-25 field fix — long verses were clipping at the
+              // sanctuary-readability floor (24px). Grid thumbnails aren't
+              // audience-facing so we can safely drop the floor to 14px
+              // and keep pagination on so long verses split cleanly across
+              // pages with a page indicator (matches SlideGrid's card
+              // policy). `title` gives the operator the full raw text on
+              // hover regardless.
+              title={c.verses.map((v) => `${v.verse} ${v.text}`).join("\n")}
               className={cn(
                 "relative aspect-video rounded-md overflow-hidden border-2 transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
                 selected ? "border-[var(--color-brand)]" : "border-[var(--color-border)] hover:border-[var(--color-muted-foreground)]",
               )}
             >
-              <SlideRenderer slide={slide} />
+              <SlideRenderer slide={slide} textMinPx={14} />
               <div className="absolute top-1 left-1 text-[10px] font-mono text-white/70 bg-black/40 px-1 rounded">
                 {idx + 1}
               </div>

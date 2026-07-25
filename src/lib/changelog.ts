@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.46",
+    date: "2026-07-25",
+    headline: "Bible verse cards fit longer text + separate Load-Chapter/Add-to-Playlist buttons + transitions actually animate",
+    highlights: [
+      "Bible verse cards in the reference grid now use the same 14px readability floor as the SlideGrid instead of the sanctuary-facing 24px default — long verses (John 3:18, Psalm 119 subsections) no longer clip mid-word in the thumbnail. Full verse text is available as a tooltip on hover regardless. Projector output unchanged (still uses 24px min for sanctuary readability)",
+      "'+ Add all verses' button split into two clear actions: 'Load Chapter' (secondary ghost) loads every verse of the current chapter into the grid, and '+ Add to Playlist' (primary orange) adds the currently displayed verse cards to the service plan. Previously the single button conflated both semantics and operators guessed wrong",
+      "Transition picker actually animates the projector now. Root cause: the picker labels ('Cut', 'Fade', 'Slide (L→R)') never matched the effect IDs the projector renderer expects ('fade_in', 'slide_right'). Every picked transition silently fell through as unknown → no animation. Added the mapping so Cut, Fade, Dissolve (cross-fade), Slide L→R (slide_right), Slide R→L (slide_left), Wipe (wipe_right), Amoeba, Dispersion Blur, Color Burn, Iris, Push all resolve to real keyframes. Duration slider now affects transition time — 0s = instant, 3s = slow",
+    ],
+  },
+  {
     version: "0.1.45",
     date: "2026-07-25",
     headline: "Live preview panel — wider + taller so long verses don't clip mid-word",
