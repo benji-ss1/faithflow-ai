@@ -115,7 +115,34 @@ export function PlaylistSection({
                   <ContextMenu.Trigger asChild>
                     <button
                       type="button"
-                      onClick={() => ctx.onSetPreviewItem(idx)}
+                      onClick={() => {
+                        // 2026-07-25 field bug fix: click did nothing visible.
+                        // setPreview alone was firing but if centerMode was on
+                        // "songs"/"bible"/"media" (the library browsers), the
+                        // preview change had no visible surface. Now:
+                        //   1. switch to "slides" so the SlideGrid mounts and
+                        //      shows this item's slides
+                        //   2. set preview item so it's the selected one
+                        //   3. if AUTO is on AND the item has a first slide,
+                        //      send it live immediately (one click → on
+                        //      screen, matching operator expectation)
+                        onCenterMode?.("slides");
+                        ctx.onSetPreviewItem(idx);
+                        const autoOn = (() => {
+                          try {
+                            return typeof window !== "undefined"
+                              && (window.sessionStorage.getItem("presentflow.pro.autoApprove.v1") === "1"
+                                || window.localStorage.getItem("presentflow.pro.autoApprove.v1") === "1");
+                          } catch { return false; }
+                        })();
+                        if (autoOn) {
+                          const first = it.slides?.[0];
+                          if (first) {
+                            try { ctx.onSendSlideToLive(first); }
+                            catch { /* non-fatal; slide preview still worked */ }
+                          }
+                        }
+                      }}
                       className={cn(
                         "w-full flex items-center gap-2 px-2 py-1 text-[12px] text-left transition-colors",
                         active

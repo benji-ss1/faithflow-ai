@@ -597,6 +597,25 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       liveSongRef.current = { songId, title, slides, currentIdx: 0, confirmedAt: now };
       lastAdvanceTsRef.current = now;
       matchStreakRef.current = 0;
+      // 2026-07-25 field bug fix: when the AI auto-projects a song, also
+      // update the operator's visible playlist selection + scroll it into
+      // view + pulse-highlight it. Before this, operators had no visual
+      // cue that the sidebar's currently-selected item had changed to the
+      // song the AI just fired — they'd look for it manually.
+      try {
+        const playlistIdx = ctx.plan.items.findIndex((it) => (it as unknown as { songId?: string }).songId === songId);
+        if (playlistIdx >= 0) {
+          ctx.onSetPreviewItem(playlistIdx);
+          if (typeof window !== "undefined") {
+            const el = document.querySelector(`[data-playlist-item-idx="${playlistIdx}"]`) as HTMLElement | null;
+            if (el) {
+              el.scrollIntoView({ behavior: "smooth", block: "center" });
+              el.classList.add("presentflow-song-pulse");
+              setTimeout(() => el.classList.remove("presentflow-song-pulse"), 2000);
+            }
+          }
+        }
+      } catch { /* non-fatal — visual polish only */ }
       try {
         const raw = window.sessionStorage.getItem(SONG_AUTO_FIRED_SESSION_KEY);
         const map: Record<string, number> = raw ? JSON.parse(raw) : {};

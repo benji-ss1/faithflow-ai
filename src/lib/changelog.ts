@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.34",
+    date: "2026-07-25",
+    headline: "Playlist rows are clickable + AI detections auto-highlight the sidebar item",
+    highlights: [
+      "Clicking a song / hymn / verse in the left sidebar playlist now actually goes somewhere — it switches the center panel to the slide grid, previews that item's slides, and (if AUTO is on) sends the first slide live immediately. Before, the click set an invisible state and looked like nothing happened",
+      "When the AI auto-projects a song (worship team starts singing 'Amazing Grace...'), the sidebar's playlist row for that song now auto-scrolls into view + pulse-highlights so the operator can see at a glance which song is playing",
+      "Both changes together: 'they start singing → song appears on screen → sidebar row for it pulses so I know where I am in the plan'",
+    ],
+  },
+  {
     version: "0.1.33",
     date: "2026-07-24",
     headline: "Transcript feels snappier — finalized text lands ~50ms sooner",
