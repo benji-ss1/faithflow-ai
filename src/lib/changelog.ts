@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.57",
+    date: "2026-07-26",
+    headline: "Theme editor rebuilt — full-screen 2-panel with live 16:9 preview + 4 preview modes",
+    highlights: [
+      "Themes at /library/themes → clicking a card (or 'New theme') now opens a full-screen 2-panel editor: left panel is collapsible control groups (Typography, Background, Layout, Lower third, Scripture, Transitions), right panel is a live 16:9 preview that updates instantly on every change. Preview mode toggles at the top let you switch between Lyrics, Scripture, Sermon point, and Blank + logo so you can check every content type against the theme in one place",
+      "Typography controls: headline font (Inter, Sora, Plus Jakarta, Georgia, Helvetica, Arial, Times New Roman), separate lyrics vs scripture size, weight 300–900, text color picker, alignment, text-shadow toggle. Background: solid / gradient (two colors) / image URL, plus opacity slider. Layout: 3×3 logo-placement grid + None, logo size slider, church-name toggle with top/bottom position. Lower third: enable + style (bar / gradient-fade / minimal) + color. Scripture: reference show/hide, position (above/below/inline), translation label toggle. Transitions: effect (fade/slide/none) + duration slider",
+      "Theme cards on the list view now render a real 16:9 preview thumbnail using the same live preview component — you can eyeball a theme before opening it. Duplicate + delete stay in the bottom-right of each card. Empty state (no themes yet) has a proper 'Create your first theme' CTA with an explanation of what a theme is",
+      "Under the hood: expanded the ThemeConfig type + server-side sanitizer to accept all the new fields (fontSizeScripturePx, bgType, bgColor2, bgOpacity, logoPosition, logoSizePx, lowerThird*, scripture*, transitionType, etc.). The operator projector will pick these up as it wires each field on its own timeline — the editor UI is ready today",
+    ],
+  },
+  {
     version: "0.1.56",
     date: "2026-07-25",
     headline: "Cleaner Organization + Songs pages — fewer cards, less noise",

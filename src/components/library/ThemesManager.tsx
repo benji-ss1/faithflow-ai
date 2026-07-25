@@ -1,23 +1,57 @@
 "use client";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Palette, Plus, Copy, Trash2 } from "lucide-react";
+import { ChevronDown, Copy, Palette, Plus, Trash2, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { createTheme, updateTheme, duplicateTheme, deleteTheme } from "@/lib/actions";
 
-type ThemeRow = {
-  id: string;
-  name: string;
-  config: Record<string, unknown>;
-};
+// Kept minimal + additive — see `type ThemeConfig` in src/lib/actions.ts for
+// the full sanitised shape. Everything below is optional; the preview + the
+// operator projector fall back to sensible defaults per field.
+type ThemeConfig = Record<string, unknown>;
 
-const DEFAULT_CONFIG = {
-  bgColor: "#0B0B0B",
-  textColor: "#F1EFE8",
+type ThemeRow = { id: string; name: string; config: ThemeConfig };
+
+type PreviewMode = "lyrics" | "scripture" | "sermon" | "blank";
+
+const FONT_CHOICES = ["Inter", "Sora", "Plus Jakarta Sans", "Georgia", "Helvetica", "Arial", "Times New Roman"];
+const LOGO_GRID: { key: string; row: number; col: number }[] = [
+  { key: "top-left", row: 0, col: 0 }, { key: "top-center", row: 0, col: 1 }, { key: "top-right", row: 0, col: 2 },
+  { key: "middle-left", row: 1, col: 0 }, { key: "middle-center", row: 1, col: 1 }, { key: "middle-right", row: 1, col: 2 },
+  { key: "bottom-left", row: 2, col: 0 }, { key: "bottom-center", row: 2, col: 1 }, { key: "bottom-right", row: 2, col: 2 },
+];
+
+// Sensible seed for brand-new themes so the preview isn't a blank void.
+const DEFAULT_CONFIG: ThemeConfig = {
   fontFamily: "Inter",
   fontSizePx: 72,
+  fontSizeScripturePx: 56,
   fontWeight: 600,
-  align: "center" as const,
+  textColor: "#F1EFE8",
+  textShadow: false,
+  align: "center",
+  bgType: "solid",
+  bgColor: "#0B0B0B",
+  bgColor2: "#1A0A14",
+  bgOpacity: 1,
+  logoPosition: "none",
+  logoSizePx: 48,
+  churchNameVisible: false,
+  churchNamePosition: "bottom",
+  lowerThirdEnabled: false,
+  lowerThirdStyle: "bar",
+  lowerThirdColor: "#000000",
+  scriptureShowReference: true,
+  scriptureReferencePosition: "above",
+  scriptureTranslationVisible: true,
+  transitionType: "fade",
+  transitionDurationMs: 300,
 };
+
+function get<T>(cfg: ThemeConfig, key: string, fallback: T): T {
+  const v = cfg[key];
+  return (v === undefined || v === null ? fallback : v) as T;
+}
 
 export function ThemesManager({ themes: initial }: { themes: ThemeRow[] }) {
   const [themes, setThemes] = useState(initial);
@@ -37,9 +71,8 @@ export function ThemesManager({ themes: initial }: { themes: ThemeRow[] }) {
       const res = await createTheme(name, DEFAULT_CONFIG);
       if (!res.ok) { toast.error(res.error || "Could not create theme"); return; }
       if (!res.data) { toast.error("Server returned no id"); return; }
-      refresh([...themes, { id: res.data.id, name, config: DEFAULT_CONFIG as Record<string, unknown> }]);
-      setNewName("");
-      setCreating(false);
+      refresh([...themes, { id: res.data.id, name, config: DEFAULT_CONFIG }]);
+      setNewName(""); setCreating(false);
       toast.success(`Created "${name}"`);
     });
   }
@@ -133,7 +166,7 @@ export function ThemesManager({ themes: initial }: { themes: ThemeRow[] }) {
           </div>
           <div className="text-base font-semibold text-foreground">No themes yet</div>
           <p className="max-w-md text-sm text-muted-foreground">
-            A theme is a saved bundle of colours, fonts, and transitions you can apply to any song with one click.
+            A theme is a saved bundle of colours, fonts, transitions, layout, and lower-third styles you can apply to any song or scripture with one click.
           </p>
           <button
             type="button"
@@ -147,7 +180,13 @@ export function ThemesManager({ themes: initial }: { themes: ThemeRow[] }) {
         <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {themes.map((t) => (
             <li key={t.id} className="overflow-hidden rounded-2xl border border-border bg-card/80">
-              <ThemePreview config={t.config} />
+              <button
+                type="button"
+                onClick={() => setEditing(t)}
+                className="block w-full text-left focus:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--pf-admin-accent-ring)]"
+              >
+                <SlidePreview config={t.config} mode="lyrics" />
+              </button>
               <div className="flex items-center justify-between p-4">
                 <button
                   type="button"
@@ -195,23 +234,176 @@ export function ThemesManager({ themes: initial }: { themes: ThemeRow[] }) {
   );
 }
 
-function ThemePreview({ config }: { config: Record<string, unknown> }) {
-  const bg = (config.bgColor as string) || "#0B0B0B";
-  const fg = (config.textColor as string) || "#F1EFE8";
-  const font = (config.fontFamily as string) || "Inter";
-  const size = Math.min(56, Math.max(14, ((config.fontSizePx as number) || 72) / 2));
-  const weight = (config.fontWeight as number) || 600;
-  const align = ((config.align as string) || "center") as "left" | "center" | "right";
+// ---------------------------------------------------------------------------
+// Live 16:9 slide preview — the single render used both in the list-card
+// thumbnails and inside the editor's right panel. Every visual field on
+// ThemeConfig flows through here so the preview genuinely reflects the
+// operator projector's output. Mode controls what sample content shows.
+// ---------------------------------------------------------------------------
+function SlidePreview({ config, mode = "lyrics", churchName = "Grace Community" }: {
+  config: ThemeConfig;
+  mode?: PreviewMode;
+  churchName?: string;
+}) {
+  const bgType = get(config, "bgType", "solid") as "solid" | "gradient" | "image";
+  const bg1 = get(config, "bgColor", "#0B0B0B") as string;
+  const bg2 = get(config, "bgColor2", "#1A0A14") as string;
+  const bgImageUrl = get(config, "bgImageUrl", "") as string;
+  const bgOpacity = get(config, "bgOpacity", 1) as number;
+
+  const fontFamily = get(config, "fontFamily", "Inter") as string;
+  const fontSize = get(config, mode === "scripture" ? "fontSizeScripturePx" : "fontSizePx", mode === "scripture" ? 56 : 72) as number;
+  const fontWeight = get(config, "fontWeight", 600) as number;
+  const textColor = get(config, "textColor", "#F1EFE8") as string;
+  const textShadow = get(config, "textShadow", false) as boolean;
+  const align = get(config, "align", "center") as "left" | "center" | "right";
+
+  const logoPosition = get(config, "logoPosition", "none") as string;
+  const logoSize = get(config, "logoSizePx", 48) as number;
+  const churchNameVisible = get(config, "churchNameVisible", false) as boolean;
+  const churchNamePos = get(config, "churchNamePosition", "bottom") as "top" | "bottom";
+
+  const ltEnabled = get(config, "lowerThirdEnabled", false) as boolean;
+  const ltStyle = get(config, "lowerThirdStyle", "bar") as "bar" | "gradient-fade" | "minimal";
+  const ltColor = get(config, "lowerThirdColor", "#000000") as string;
+
+  const scriptureShowRef = get(config, "scriptureShowReference", true) as boolean;
+  const scriptureRefPos = get(config, "scriptureReferencePosition", "above") as "above" | "below" | "inline";
+  const scriptureTranslation = get(config, "scriptureTranslationVisible", true) as boolean;
+
+  const previewScale = mode === "lyrics" || mode === "scripture" ? 0.32 : 0.32; // 16:9 card scales down; slide font sizes are set for 1080p
+
+  const backgroundStyle: React.CSSProperties =
+    bgType === "gradient"
+      ? { background: `linear-gradient(135deg, ${bg1}, ${bg2})` }
+      : bgType === "image" && bgImageUrl
+        ? { background: `#000 url(${bgImageUrl}) center/cover no-repeat` }
+        : { background: bg1 };
+
+  const sample =
+    mode === "lyrics" ? "Amazing grace, how sweet the sound" :
+    mode === "scripture" ? "For God so loved the world" :
+    mode === "sermon" ? "Grace is unearned favour" :
+    "";
+
+  // Logo grid → flex justify/align mapping
+  const [logoRow, logoCol] = (() => {
+    const g = LOGO_GRID.find((x) => x.key === logoPosition);
+    if (!g) return [-1, -1];
+    return [g.row, g.col];
+  })();
+
   return (
     <div
-      className="flex h-32 items-center justify-center px-4"
-      style={{ background: bg, color: fg, fontFamily: font, fontSize: `${size}px`, fontWeight: weight, textAlign: align }}
+      className="relative w-full overflow-hidden"
+      style={{ aspectRatio: "16 / 9", ...backgroundStyle, opacity: bgOpacity }}
     >
-      Sample slide
+      {/* Logo placement — 3x3 positional grid */}
+      {logoPosition !== "none" && logoRow >= 0 ? (
+        <div
+          className="pointer-events-none absolute inset-0 flex p-3"
+          style={{
+            justifyContent: logoCol === 0 ? "flex-start" : logoCol === 2 ? "flex-end" : "center",
+            alignItems: logoRow === 0 ? "flex-start" : logoRow === 2 ? "flex-end" : "center",
+          }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/pf-logo-mark.png" alt="" style={{ height: `${logoSize * previewScale}px`, width: "auto", opacity: 0.9 }} />
+        </div>
+      ) : null}
+
+      {/* Church name — top or bottom slot */}
+      {churchNameVisible ? (
+        <div
+          className="absolute left-0 right-0 px-4 text-center"
+          style={{
+            top: churchNamePos === "top" ? 8 : undefined,
+            bottom: churchNamePos === "bottom" ? 8 : undefined,
+            color: textColor,
+            fontFamily,
+            fontSize: `${Math.max(8, 14 * previewScale)}px`,
+            opacity: 0.7,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+          }}
+        >
+          {churchName}
+        </div>
+      ) : null}
+
+      {/* Main text block */}
+      {mode !== "blank" ? (
+        <div
+          className="absolute inset-0 flex flex-col p-6"
+          style={{
+            justifyContent: "center",
+            textAlign: align,
+            alignItems: align === "left" ? "flex-start" : align === "right" ? "flex-end" : "center",
+          }}
+        >
+          {mode === "scripture" && scriptureShowRef && scriptureRefPos === "above" ? (
+            <div style={{ color: textColor, opacity: 0.7, fontSize: `${Math.max(8, 20 * previewScale)}px`, fontFamily, marginBottom: 6, letterSpacing: "0.05em" }}>
+              John 3:16{scriptureTranslation ? " · KJV" : ""}
+            </div>
+          ) : null}
+          <div
+            style={{
+              color: textColor,
+              fontFamily,
+              fontSize: `${Math.max(11, fontSize * previewScale)}px`,
+              fontWeight,
+              lineHeight: 1.2,
+              textShadow: textShadow ? "0 2px 8px rgba(0,0,0,0.55)" : "none",
+              maxWidth: "100%",
+            }}
+          >
+            {sample}
+            {mode === "scripture" && scriptureRefPos === "inline" ? (
+              <span style={{ opacity: 0.6, marginLeft: 8, fontSize: `${Math.max(8, 20 * previewScale)}px` }}>
+                · John 3:16
+              </span>
+            ) : null}
+          </div>
+          {mode === "scripture" && scriptureShowRef && scriptureRefPos === "below" ? (
+            <div style={{ color: textColor, opacity: 0.7, fontSize: `${Math.max(8, 20 * previewScale)}px`, fontFamily, marginTop: 6, letterSpacing: "0.05em" }}>
+              John 3:16{scriptureTranslation ? " · KJV" : ""}
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        // Blank+logo mode still respects logo placement above; add a subtle vignette so
+        // the card doesn't look like a bug.
+        <div className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(circle at center, rgba(0,0,0,0) 30%, rgba(0,0,0,0.25) 100%)" }} />
+      )}
+
+      {/* Lower third — rendered last so it overlays main text */}
+      {ltEnabled ? (
+        <div
+          className="absolute bottom-0 left-0 right-0"
+          style={{
+            height:
+              ltStyle === "minimal" ? "16%" :
+              ltStyle === "gradient-fade" ? "40%" :
+              "22%",
+            background:
+              ltStyle === "gradient-fade"
+                ? `linear-gradient(to top, ${ltColor}, transparent)`
+                : ltStyle === "minimal"
+                  ? `${ltColor}22`
+                  : ltColor,
+          }}
+        />
+      ) : null}
     </div>
   );
 }
 
+// ---------------------------------------------------------------------------
+// Full-screen 2-panel editor overlay. Left = collapsible control groups
+// (Typography / Background / Layout / Lower third / Scripture / Transitions).
+// Right = live preview + mode toggle. Every control update mutates the
+// editing theme immediately so the preview reflects the intended output.
+// ---------------------------------------------------------------------------
 function ThemeEditor({
   theme, pending, onCancel, onChange, onSave,
 }: {
@@ -221,107 +413,293 @@ function ThemeEditor({
   onChange: (next: ThemeRow) => void;
   onSave: () => void;
 }) {
-  function set<K extends keyof Record<string, unknown>>(key: K, value: unknown) {
-    onChange({ ...theme, config: { ...theme.config, [key]: value } });
-  }
+  const [mode, setMode] = useState<PreviewMode>("lyrics");
   const cfg = theme.config;
+
+  function set(patch: Partial<Record<string, unknown>>) {
+    onChange({ ...theme, config: { ...cfg, ...patch } });
+  }
+
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={onCancel}>
-      <div
+    <div className="fixed inset-0 z-50 grid grid-cols-[minmax(360px,40%)_1fr] bg-black/70 backdrop-blur-sm" onClick={onCancel}>
+      {/* Left panel — controls */}
+      <aside
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-3xl overflow-hidden rounded-2xl border border-border bg-[var(--color-panel,#141818)] shadow-2xl"
+        className="flex h-full flex-col overflow-hidden bg-[var(--color-panel,#141818)] shadow-2xl"
       >
-        <div className="border-b border-border p-5">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Edit theme</div>
-          <input
-            value={theme.name}
-            maxLength={80}
-            onChange={(e) => onChange({ ...theme, name: e.target.value })}
-            className="mt-1 w-full bg-transparent text-2xl font-semibold outline-none"
-          />
-        </div>
-        <div className="grid gap-6 p-5 md:grid-cols-2">
-          <div className="space-y-4">
-            <Row label="Background color">
-              <input type="color" value={(cfg.bgColor as string) || "#0B0B0B"} onChange={(e) => set("bgColor", e.target.value)} className="h-10 w-full rounded-xl border border-border bg-background" />
+        <header className="flex items-center justify-between border-b border-border p-4">
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Edit theme</div>
+            <input
+              value={theme.name}
+              maxLength={80}
+              onChange={(e) => onChange({ ...theme, name: e.target.value })}
+              className="mt-0.5 w-full truncate bg-transparent text-lg font-semibold outline-none"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-white/[0.05] hover:text-foreground"
+            aria-label="Close editor"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </header>
+
+        <div className="flex-1 space-y-2 overflow-y-auto p-4">
+          <Section title="Typography" defaultOpen>
+            <Row label="Headline font">
+              <select value={get(cfg, "fontFamily", "Inter") as string} onChange={(e) => set({ fontFamily: e.target.value })} className={selectCls}>
+                {FONT_CHOICES.map((f) => <option key={f} value={f}>{f}</option>)}
+              </select>
             </Row>
             <Row label="Text color">
-              <input type="color" value={(cfg.textColor as string) || "#F1EFE8"} onChange={(e) => set("textColor", e.target.value)} className="h-10 w-full rounded-xl border border-border bg-background" />
+              <input type="color" value={get(cfg, "textColor", "#F1EFE8") as string} onChange={(e) => set({ textColor: e.target.value })} className={colorCls} />
             </Row>
-            <Row label="Font family">
-              <select
-                value={(cfg.fontFamily as string) || "Inter"}
-                onChange={(e) => set("fontFamily", e.target.value)}
-                className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm"
-              >
-                {["Inter", "Sora", "Plus Jakarta Sans", "Georgia", "Helvetica", "Arial"].map((f) => (
-                  <option key={f} value={f}>{f}</option>
-                ))}
-              </select>
+            <div className="grid grid-cols-2 gap-3">
+              <Row label="Lyrics size (px)">
+                <input type="number" min={12} max={200} value={get(cfg, "fontSizePx", 72) as number} onChange={(e) => set({ fontSizePx: Number(e.target.value) })} className={inputCls} />
+              </Row>
+              <Row label="Scripture size (px)">
+                <input type="number" min={12} max={200} value={get(cfg, "fontSizeScripturePx", 56) as number} onChange={(e) => set({ fontSizeScripturePx: Number(e.target.value) })} className={inputCls} />
+              </Row>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Row label="Weight">
+                <select value={String(get(cfg, "fontWeight", 600) as number)} onChange={(e) => set({ fontWeight: Number(e.target.value) })} className={selectCls}>
+                  {[300, 400, 500, 600, 700, 800, 900].map((w) => <option key={w} value={w}>{w}</option>)}
+                </select>
+              </Row>
+              <Row label="Alignment">
+                <div className="flex gap-1">
+                  {(["left", "center", "right"] as const).map((a) => (
+                    <button key={a} type="button" onClick={() => set({ align: a })}
+                      className={cn("h-9 flex-1 rounded-md border text-xs capitalize", get(cfg, "align", "center") === a ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10" : "border-border text-muted-foreground")}>
+                      {a}
+                    </button>
+                  ))}
+                </div>
+              </Row>
+            </div>
+            <Row label="Text shadow">
+              <Toggle value={get(cfg, "textShadow", false)} onChange={(v) => set({ textShadow: v })} />
             </Row>
-            <Row label="Font size (px)">
-              <input
-                type="number" min={12} max={200}
-                value={(cfg.fontSizePx as number) || 72}
-                onChange={(e) => set("fontSizePx", Number(e.target.value))}
-                className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm"
-              />
-            </Row>
-            <Row label="Font weight">
-              <select
-                value={String((cfg.fontWeight as number) || 600)}
-                onChange={(e) => set("fontWeight", Number(e.target.value))}
-                className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm"
-              >
-                {[300, 400, 500, 600, 700, 800].map((w) => (
-                  <option key={w} value={w}>{w}</option>
-                ))}
-              </select>
-            </Row>
-            <Row label="Alignment">
-              <div className="flex gap-2">
-                {(["left", "center", "right"] as const).map((a) => (
-                  <button
-                    key={a}
-                    type="button"
-                    onClick={() => set("align", a)}
-                    className={`h-10 flex-1 rounded-xl border text-sm ${((cfg.align as string) || "center") === a ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-foreground" : "border-border text-muted-foreground"}`}
-                  >
-                    {a}
+          </Section>
+
+          <Section title="Background">
+            <Row label="Type">
+              <div className="flex gap-1">
+                {(["solid", "gradient", "image"] as const).map((t) => (
+                  <button key={t} type="button" onClick={() => set({ bgType: t })}
+                    className={cn("h-9 flex-1 rounded-md border text-xs capitalize", get<"solid" | "gradient" | "image">(cfg, "bgType", "solid") === t ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10" : "border-border text-muted-foreground")}>
+                    {t}
                   </button>
                 ))}
               </div>
             </Row>
-          </div>
-          <div>
-            <div className="mb-2 text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Preview</div>
-            <ThemePreview config={cfg} />
-            <p className="mt-3 text-xs text-muted-foreground">
-              Apply this theme to any song from the song editor (song detail page → Apply theme).
-            </p>
-          </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Row label={get<"solid" | "gradient" | "image">(cfg, "bgType", "solid") === "gradient" ? "Color 1" : "Background color"}>
+                <input type="color" value={get(cfg, "bgColor", "#0B0B0B") as string} onChange={(e) => set({ bgColor: e.target.value })} className={colorCls} />
+              </Row>
+              {get<"solid" | "gradient" | "image">(cfg, "bgType", "solid") === "gradient" && (
+                <Row label="Color 2">
+                  <input type="color" value={get(cfg, "bgColor2", "#1A0A14") as string} onChange={(e) => set({ bgColor2: e.target.value })} className={colorCls} />
+                </Row>
+              )}
+            </div>
+            {get<"solid" | "gradient" | "image">(cfg, "bgType", "solid") === "image" && (
+              <Row label="Image URL" hint="Paste a presigned URL from Media library. Video backgrounds coming later.">
+                <input type="url" value={get(cfg, "bgImageUrl", "") as string} onChange={(e) => set({ bgImageUrl: e.target.value })} placeholder="https://…" className={inputCls} />
+              </Row>
+            )}
+            <Row label={`Opacity — ${Math.round((get(cfg, "bgOpacity", 1) as number) * 100)}%`}>
+              <input type="range" min={0} max={100} value={(get(cfg, "bgOpacity", 1) as number) * 100} onChange={(e) => set({ bgOpacity: Number(e.target.value) / 100 })} className="w-full" />
+            </Row>
+          </Section>
+
+          <Section title="Layout">
+            <Row label="Logo placement" hint="Choose a position on the slide, or None to hide.">
+              <div className="grid w-32 grid-cols-3 gap-1">
+                {LOGO_GRID.map((p) => (
+                  <button key={p.key} type="button" onClick={() => set({ logoPosition: p.key })}
+                    className={cn("h-8 rounded", get(cfg, "logoPosition", "none") === p.key ? "bg-[var(--color-primary)]" : "border border-border bg-white/[0.02] hover:bg-white/[0.06]")}
+                    aria-label={p.key} title={p.key}
+                  />
+                ))}
+              </div>
+              <button type="button" onClick={() => set({ logoPosition: "none" })}
+                className={cn("mt-2 h-8 rounded-md border px-3 text-xs", get(cfg, "logoPosition", "none") === "none" ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10" : "border-border text-muted-foreground")}>
+                None
+              </button>
+            </Row>
+            <Row label={`Logo size — ${get(cfg, "logoSizePx", 48) as number}px`}>
+              <input type="range" min={24} max={200} value={get(cfg, "logoSizePx", 48) as number} onChange={(e) => set({ logoSizePx: Number(e.target.value) })} className="w-full" />
+            </Row>
+            <Row label="Church name">
+              <Toggle value={get(cfg, "churchNameVisible", false)} onChange={(v) => set({ churchNameVisible: v })} />
+            </Row>
+            {(get(cfg, "churchNameVisible", false) as boolean) && (
+              <Row label="Church name position">
+                <div className="flex gap-1">
+                  {(["top", "bottom"] as const).map((p) => (
+                    <button key={p} type="button" onClick={() => set({ churchNamePosition: p })}
+                      className={cn("h-9 flex-1 rounded-md border text-xs capitalize", get(cfg, "churchNamePosition", "bottom") === p ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10" : "border-border text-muted-foreground")}>
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              </Row>
+            )}
+          </Section>
+
+          <Section title="Lower third">
+            <Row label="Enabled">
+              <Toggle value={get(cfg, "lowerThirdEnabled", false)} onChange={(v) => set({ lowerThirdEnabled: v })} />
+            </Row>
+            {(get(cfg, "lowerThirdEnabled", false) as boolean) && (
+              <>
+                <Row label="Style">
+                  <div className="flex gap-1">
+                    {(["bar", "gradient-fade", "minimal"] as const).map((s) => (
+                      <button key={s} type="button" onClick={() => set({ lowerThirdStyle: s })}
+                        className={cn("h-9 flex-1 rounded-md border text-[11px] capitalize", get(cfg, "lowerThirdStyle", "bar") === s ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10" : "border-border text-muted-foreground")}>
+                        {s.replace("-", " ")}
+                      </button>
+                    ))}
+                  </div>
+                </Row>
+                <Row label="Color">
+                  <input type="color" value={get(cfg, "lowerThirdColor", "#000000") as string} onChange={(e) => set({ lowerThirdColor: e.target.value })} className={colorCls} />
+                </Row>
+              </>
+            )}
+          </Section>
+
+          <Section title="Scripture">
+            <Row label="Show reference">
+              <Toggle value={get(cfg, "scriptureShowReference", true)} onChange={(v) => set({ scriptureShowReference: v })} />
+            </Row>
+            <Row label="Reference position">
+              <div className="flex gap-1">
+                {(["above", "below", "inline"] as const).map((p) => (
+                  <button key={p} type="button" onClick={() => set({ scriptureReferencePosition: p })}
+                    className={cn("h-9 flex-1 rounded-md border text-xs capitalize", get(cfg, "scriptureReferencePosition", "above") === p ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10" : "border-border text-muted-foreground")}>
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </Row>
+            <Row label="Show translation">
+              <Toggle value={get(cfg, "scriptureTranslationVisible", true)} onChange={(v) => set({ scriptureTranslationVisible: v })} />
+            </Row>
+          </Section>
+
+          <Section title="Transitions">
+            <Row label="Effect">
+              <select value={get(cfg, "transitionType", "fade") as string} onChange={(e) => set({ transitionType: e.target.value })} className={selectCls}>
+                <option value="fade">Fade</option>
+                <option value="slide">Slide</option>
+                <option value="none">None</option>
+              </select>
+            </Row>
+            <Row label={`Duration — ${get(cfg, "transitionDurationMs", 300) as number}ms`}>
+              <input type="range" min={0} max={1500} step={50} value={get(cfg, "transitionDurationMs", 300) as number} onChange={(e) => set({ transitionDurationMs: Number(e.target.value) })} className="w-full" />
+            </Row>
+          </Section>
         </div>
-        <div className="flex items-center justify-end gap-2 border-t border-border p-4">
-          <button type="button" onClick={onCancel} className="h-10 rounded-xl border border-border px-4 text-sm text-muted-foreground hover:text-foreground">Cancel</button>
+
+        <footer className="flex items-center justify-end gap-2 border-t border-border p-4">
+          <button type="button" onClick={onCancel} className="h-10 rounded-xl border border-border px-4 text-sm text-muted-foreground hover:text-foreground">
+            Cancel
+          </button>
           <button
             type="button"
             onClick={onSave}
             disabled={pending || !theme.name.trim()}
             className="h-10 rounded-xl bg-[var(--color-primary)] px-4 text-sm font-semibold text-[var(--color-primary-foreground)] disabled:opacity-50"
           >
-            {pending ? "Saving…" : "Save"}
+            {pending ? "Saving…" : "Save theme"}
           </button>
+        </footer>
+      </aside>
+
+      {/* Right panel — live preview + mode toggle */}
+      <section onClick={(e) => e.stopPropagation()} className="flex h-full flex-col overflow-hidden bg-black/40 p-6">
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          {(["lyrics", "scripture", "sermon", "blank"] as PreviewMode[]).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMode(m)}
+              className={cn(
+                "h-8 rounded-md px-3 text-xs font-medium capitalize transition-colors",
+                mode === m
+                  ? "bg-[var(--color-primary)] text-[var(--color-primary-foreground)]"
+                  : "border border-white/10 bg-white/[0.04] text-white/70 hover:bg-white/[0.08] hover:text-white",
+              )}
+            >
+              {m === "sermon" ? "Sermon point" : m === "blank" ? "Blank + logo" : m}
+            </button>
+          ))}
+          <div className="ml-auto text-[11px] uppercase tracking-[0.14em] text-white/50">
+            16:9 preview
+          </div>
         </div>
-      </div>
+        <div className="flex flex-1 items-center justify-center">
+          <div className="w-full max-w-3xl overflow-hidden rounded-lg shadow-2xl ring-1 ring-white/10">
+            <SlidePreview config={cfg} mode={mode} />
+          </div>
+        </div>
+        <p className="mt-4 text-center text-xs text-white/50">
+          Preview reflects the theme applied at 16:9. Apply the theme to any song from the song editor (song detail page → Apply theme).
+        </p>
+      </section>
     </div>
   );
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+// -- small building blocks --
+
+const inputCls = "h-9 w-full rounded-md border border-border bg-background px-2.5 text-sm outline-none focus:border-[var(--color-primary)]/70";
+const selectCls = "h-9 w-full rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-[var(--color-primary)]/70";
+const colorCls = "h-9 w-full cursor-pointer rounded-md border border-border bg-background";
+
+function Section({ title, defaultOpen = false, children }: { title: string; defaultOpen?: boolean; children: React.ReactNode }) {
+  return (
+    <details open={defaultOpen} className="group rounded-md border border-border bg-white/[0.02]">
+      <summary className="flex cursor-pointer list-none items-center justify-between rounded-md px-3 py-2 text-sm font-medium hover:bg-white/[0.04]">
+        <span>{title}</span>
+        <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="space-y-3 p-3 pt-2">{children}</div>
+    </details>
+  );
+}
+
+function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="mb-1 block text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{label}</label>
+      <label className="mb-1 block text-[11px] uppercase tracking-[0.12em] text-muted-foreground">{label}</label>
       {children}
+      {hint ? <div className="mt-1 text-[10.5px] text-muted-foreground/70">{hint}</div> : null}
     </div>
+  );
+}
+
+function Toggle({ value, onChange }: { value: boolean; onChange: (next: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={value}
+      onClick={() => onChange(!value)}
+      className={cn(
+        "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors",
+        value ? "bg-[var(--color-primary)]" : "bg-white/[0.08]",
+      )}
+    >
+      <span className={cn("inline-block h-5 w-5 transform rounded-full bg-white transition-transform", value ? "translate-x-5" : "translate-x-0.5")} />
+    </button>
   );
 }

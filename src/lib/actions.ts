@@ -998,21 +998,62 @@ export async function deleteAnnouncementPreset(id: string): Promise<Result> {
 // Phase 5D-2 — Themes
 // ============================================================================
 
+// Extended per Section 4 of the visual-overhaul brief. Existing fields kept
+// so applyThemeToSong (which reads a subset) keeps working. New fields are
+// pure additive — the operator projector uses whatever's defined and falls
+// back to defaults elsewhere. downstream operator surface will pick these
+// up in its own commit; the editor UI can already read/write them today.
 type ThemeConfig = {
-  bgColor?: string;
-  bgImageUrl?: string;
-  fontFamily?: string;
-  fontSizePx?: number;
-  fontWeight?: number;
+  // Typography
+  fontFamily?: string;                    // headline (also song lyrics for now)
+  fontBodyFamily?: string;                // body / caption
+  fontSizePx?: number;                    // lyrics size
+  fontSizeScripturePx?: number;           // scripture verse size
+  fontWeight?: number;                    // headline / lyrics weight
   textColor?: string;
+  textShadow?: boolean;
   align?: "left" | "center" | "right";
-  safeArea?: boolean;
+  // Background
+  bgType?: "solid" | "gradient" | "image";
+  bgColor?: string;                       // solid + gradient stop 1
+  bgColor2?: string;                      // gradient stop 2
+  bgImageUrl?: string;
+  bgOpacity?: number;                     // 0..1
+  // Layout
+  logoPosition?:
+    | "top-left" | "top-center" | "top-right"
+    | "middle-left" | "middle-center" | "middle-right"
+    | "bottom-left" | "bottom-center" | "bottom-right"
+    | "none";
+  logoSizePx?: number;
+  churchNameVisible?: boolean;
+  churchNamePosition?: "top" | "bottom";
+  // Lower third
+  lowerThirdEnabled?: boolean;
+  lowerThirdStyle?: "bar" | "gradient-fade" | "minimal";
+  lowerThirdColor?: string;
+  // Scripture
+  scriptureShowReference?: boolean;
+  scriptureReferencePosition?: "above" | "below" | "inline";
+  scriptureTranslationVisible?: boolean;
+  // Transitions (existing "transition" kept for backwards compat; simpler
+  // pair below is what the editor UI reads/writes)
   transition?: { effectId: string; durationMs: number; easing: string };
+  transitionType?: "fade" | "slide" | "none";
+  transitionDurationMs?: number;
+  // Layout misc
+  safeArea?: boolean;
 };
 
 const THEME_ALLOWED_KEYS: (keyof ThemeConfig)[] = [
-  "bgColor", "bgImageUrl", "fontFamily", "fontSizePx", "fontWeight",
-  "textColor", "align", "safeArea", "transition",
+  "fontFamily", "fontBodyFamily", "fontSizePx", "fontSizeScripturePx",
+  "fontWeight", "textColor", "textShadow", "align",
+  "bgType", "bgColor", "bgColor2", "bgImageUrl", "bgOpacity",
+  "logoPosition", "logoSizePx", "churchNameVisible", "churchNamePosition",
+  "lowerThirdEnabled", "lowerThirdStyle", "lowerThirdColor",
+  "scriptureShowReference", "scriptureReferencePosition", "scriptureTranslationVisible",
+  "transition", "transitionType", "transitionDurationMs",
+  "safeArea",
 ];
 
 function sanitizeThemeConfig(input: unknown): { config: ThemeConfig; rejected: string[] } {
