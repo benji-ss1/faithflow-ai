@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.52",
+    date: "2026-07-25",
+    headline: "Onboarding wizard rebuilt — 6 focused steps with branding + hymn library one-click",
+    highlights: [
+      "New church admins now walk through a 6-step onboarding: Welcome hero → Church profile (name/city/country/denomination/congregation size, timezone auto-detected) → Church branding (drag-drop logo upload right in the wizard, reuses the same uploader the Organization page uses) → Songs setup (import from ProPresenter/EasyWorship, one-click add all 50 built-in public-domain hymns, or skip) → Team invites (multi-email with role picker per invite: Operator/Admin/Pastor) → Download desktop app + finish. The old 4-step 'use case' wizard is retired",
+      "'Start with built-in hymns' one-click seeds all 50 hand-verified public-domain hymns into the church's library in a single action — no more running `npm run db:seed:hymns` on the CLI. Idempotent + church-scoped: safe to click twice, safe if you already have some seeded (skips duplicates by title). Reports 'Added X' to confirm",
+      "The wizard's branding step doesn't just say 'upload later' — it embeds the same ChurchBrandingUploader component the Organization page uses, so admins can drop a logo mid-flow and see it in the sidebar workspace pill immediately when they land on the dashboard",
+      "Every step after the profile is skippable (branding, songs, team, download all have 'Continue' with no required action) so no admin gets stuck. Returning users who partially completed onboarding land at the branding step (skipping welcome + already-done church profile). Role picker on invites lets you send Operator/Admin/Pastor invitations in a single flow instead of everyone defaulting to Operator",
+    ],
+  },
+  {
     version: "0.1.51",
     date: "2026-07-25",
     headline: "Admin topbar + dashboard rebuild — clean light-mode SaaS surface, no more dark ribbon over white",
