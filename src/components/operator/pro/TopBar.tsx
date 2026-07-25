@@ -521,45 +521,61 @@ export function TopBar({
                 actually flowing. Only shown while listening. 60px wide,
                 6px tall bar with a smooth green→amber→red fill. Reads the
                 throttled `audioLevel` (0..1) exposed by useAudioStream. */}
-            {listening && (
-              <Tooltip.Root>
-                <Tooltip.Trigger asChild>
-                  <div
-                    role="meter"
-                    aria-label="Audio input level"
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={Math.round((ctx.audio.audioLevel ?? 0) * 100)}
-                    className="flex items-center h-[24px] px-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-panel)]"
-                    data-testid="topbar-audio-meter"
-                  >
-                    <div className="relative w-[60px] h-[6px] rounded-full overflow-hidden bg-black/40">
-                      <div
-                        className="absolute inset-y-0 left-0 transition-[width] duration-100 ease-out"
-                        style={{
-                          width: `${Math.max(2, Math.round((ctx.audio.audioLevel ?? 0) * 100))}%`,
-                          background: (ctx.audio.audioLevel ?? 0) > 0.9
-                            ? "#e11d48" // red — clipping zone
-                            : (ctx.audio.audioLevel ?? 0) > 0.6
-                              ? "#f59e0b" // amber — hot
-                              : (ctx.audio.audioLevel ?? 0) > 0.05
-                                ? "#10b981" // green — good
-                                : "#6b7280", // grey — near silence
-                        }}
-                      />
+            {listening && (() => {
+              // 🟡 Stress F5 fix — mic-audio flows locally even while the
+              // Fly WebSocket bridge is disconnected, which made the meter
+              // stay green during Deepgram outages (misleadingly reassuring).
+              // Grey the meter + adjust tooltip whenever the pipeline isn't
+              // healthy (not ready OR mid-reconnect) so the operator knows
+              // audio is captured but nothing is reaching transcription.
+              const pipelineHealthy = ctx.audio.ready && !ctx.audio.reconnectFailed && ctx.audio.reconnectAttempts === 0;
+              const level = ctx.audio.audioLevel ?? 0;
+              const fillColor = !pipelineHealthy
+                ? "#6b7280" // grey — bridge down; audio is local-only
+                : level > 0.9
+                  ? "#e11d48"
+                  : level > 0.6
+                    ? "#f59e0b"
+                    : level > 0.05
+                      ? "#10b981"
+                      : "#6b7280";
+              const tooltipText = !pipelineHealthy
+                ? "Audio is being captured locally, but the AI pipeline is disconnected. Verse detection is paused until it reconnects."
+                : "Live audio input level. If this bar stays flat while the preacher is talking, PresentFlow isn't hearing your mixer — check Settings › Audio › Source Type is set to Mixer / Interface and the right device is picked.";
+              return (
+                <Tooltip.Root>
+                  <Tooltip.Trigger asChild>
+                    <div
+                      role="meter"
+                      aria-label="Audio input level"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={Math.round(level * 100)}
+                      className="flex items-center h-[24px] px-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-panel)]"
+                      data-testid="topbar-audio-meter"
+                    >
+                      <div className="relative w-[60px] h-[6px] rounded-full overflow-hidden bg-black/40">
+                        <div
+                          className="absolute inset-y-0 left-0 transition-[width] duration-100 ease-out"
+                          style={{
+                            width: `${Math.max(2, Math.round(level * 100))}%`,
+                            background: fillColor,
+                          }}
+                        />
+                      </div>
                     </div>
-                  </div>
-                </Tooltip.Trigger>
-                <Tooltip.Portal>
-                  <Tooltip.Content
-                    sideOffset={6}
-                    className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] px-2 py-1 text-[11px] z-50 font-mono max-w-[280px]"
-                  >
-                    Live audio input level. If this bar stays flat while the preacher is talking, PresentFlow isn't hearing your mixer — check Settings › Audio › Source Type is set to Mixer / Interface and the right device is picked.
-                  </Tooltip.Content>
-                </Tooltip.Portal>
-              </Tooltip.Root>
-            )}
+                  </Tooltip.Trigger>
+                  <Tooltip.Portal>
+                    <Tooltip.Content
+                      sideOffset={6}
+                      className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] px-2 py-1 text-[11px] z-50 font-mono max-w-[280px]"
+                    >
+                      {tooltipText}
+                    </Tooltip.Content>
+                  </Tooltip.Portal>
+                </Tooltip.Root>
+              );
+            })()}
             {listening && ctx.audio.audioQuality === "low" && (
               <Tooltip.Root>
                 <Tooltip.Trigger asChild>

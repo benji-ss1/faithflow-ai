@@ -521,10 +521,18 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const NO_SIGNAL_DBFS = -70; // effectively pure silence, quieter than gate
   const NO_SIGNAL_HOLD_MS = 15_000;
   // Level exposure throttle — flush the peak RMS every LEVEL_TICK_MS
-  // instead of setting state on every ~10ms worklet chunk.
+  // instead of setting state on every ~10ms worklet chunk. Reviewer 🔴 F1
+  // fix: bumped 100ms → 250ms AND quantize to 5% buckets so setState is
+  // skipped when the meter wouldn't visibly change. Under a 700-item plan
+  // the previous 10 Hz identity-refresh of ctx.audio propagated a whole
+  // ProOperatorShell rerender every 100ms, which hitched slide-fire during
+  // busy services. 4 Hz peak x bucket dedupe = a handful of rerenders per
+  // second during speech, near-zero during silence — meter still bounces
+  // convincingly to a human eye.
   const levelPeakRef = useRef<number>(0);
   const levelLastPushRef = useRef<number>(0);
-  const LEVEL_TICK_MS = 100;
+  const LEVEL_TICK_MS = 250;
+  const LEVEL_QUANTIZE = 20; // 5% steps (0..20 → 0..1.00)
   // R8: hysteresis — close at -60 dBFS, reopen at -55.
   const SILENCE_CLOSE_DBFS = -60;
   const SILENCE_OPEN_DBFS = -55;
@@ -677,6 +685,14 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const reconnectSuccessesRef = useRef(0);
   // Y12: last known metric-flush failure info for the localStorage retry queue.
   const METRICS_RETRY_KEY = "presentflow.metrics.retryQueue.v1";
+  // Mirror the two liveness fields as refs — the audio-input-changed /
+  // devicechange effect binds ONCE (per stress F2) and must read current
+  // values at execution time, not closure-captured values.
+  const listeningRef = useRef(false);
+  const warmStartedRef = useRef(false);
+  useEffect(() => { listeningRef.current = state.listening; }, [state.listening]);
+  useEffect(() => { warmStartedRef.current = state.warmStarted; }, [state.warmStarted]);
+
   // Auto-reconnect bookkeeping. `intentionalStopRef` distinguishes an
   // operator-initiated stop (never reconnect) from an abnormal WS close
   // (Fly bridge blip, transient network drop). `reconnectTimerRef` lets
@@ -896,8 +912,13 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       setState((s) => ({ ...s, silenceGateClosed: false }));
     }
     // Fresh session — clear any prior "no signal" warning so it can re-arm.
+    // Also zero `error` so a successful start dismisses a lingering
+    // audioError toast (review 🟡 F3 — the toast used duration: Infinity
+    // and was never cleared on a normal start(), only on restart(),
+    // leaving Mac Studio operators who plugged in a USB device and hit
+    // Start staring at a stale "no microphone found" toast forever).
     noAudioSignalRef.current = false;
-    setState((s) => ({ ...s, noAudioSignal: false, audioLevel: 0 }));
+    setState((s) => ({ ...s, noAudioSignal: false, audioLevel: 0, error: null }));
     // Y7: only open a metrics session when mic is actually going to send audio.
     // Warm-start opens WS with mic muted → don't accumulate a 0-metrics
     // session that pollutes the audio_sessions rollup. sessionStart is opened
@@ -1361,9 +1382,12 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           );
         }
         if (name === "OverconstrainedError" || /overconstrained|constraint/i.test(msg)) {
+          // 🟡 Stress F7 fix — prior copy claimed "PresentFlow will retry
+          // at the device's native rate", but no retry code exists here.
+          // Tell the operator the accurate story: pick a different device.
           throw new Error(
-            "This audio device doesn't support the requested format. " +
-            "PresentFlow will retry at the device's native rate — if this repeats, pick a different input in Settings › Audio.",
+            "This audio device rejected PresentFlow's requested format. " +
+            "Try a different input in Settings › Audio — most modern USB interfaces work.",
           );
         }
         throw new Error(`Microphone unavailable: ${msg || name || "unknown"}. Check Audio Setup and retry.`);
@@ -1376,6 +1400,25 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       }
       setStage("mic_granted"); log("4b mic granted", stream.getAudioTracks().map((t) => t.label));
       streamRef.current = stream;
+      // 🔴 Stress F3 — track.onended fires when the OS revokes the capture,
+      // typically because the USB interface was unplugged mid-service. Without
+      // this handler, worklet chunks silently stop arriving, the level meter
+      // freezes at its last value, and noAudioSignal's timer never runs
+      // (because it's driven by chunks). Surface immediately with a specific
+      // toast + set noAudioSignal so the operator knows why AI stopped.
+      // The existing devicechange handler will fire a restart in parallel,
+      // which will either recover (if the device came back) or surface
+      // NotFoundError (if truly gone).
+      try {
+        const track = stream.getAudioTracks()[0];
+        if (track) {
+          track.onended = () => {
+            if (isDevOrTraceOn()) console.log("[presentflow-audio] track.ended — device likely unplugged");
+            noAudioSignalRef.current = true;
+            setState((s) => ({ ...s, noAudioSignal: true, audioLevel: 0, error: "Audio device disconnected — reconnect the USB cable or pick a different input in Settings › Audio." }));
+          };
+        }
+      } catch { /* older browsers: skip */ }
       // Bluetooth / AirPods often refuse a 16kHz AudioContext (macOS HFP path
       // forces 8/16kHz mono; some drivers force 44.1kHz stereo). Try 16k
       // first; on failure fall back to the device's native rate and let the
@@ -1471,10 +1514,14 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           const normalized = dbfs === -Infinity ? 0 : Math.max(0, Math.min(1, (dbfs + 60) / 60));
           if (normalized > levelPeakRef.current) levelPeakRef.current = normalized;
           if (nowMs - levelLastPushRef.current >= LEVEL_TICK_MS) {
-            const flushed = levelPeakRef.current;
+            // Quantize to LEVEL_QUANTIZE buckets so setState is skipped
+            // when the meter wouldn't visibly change. Kills the 10 Hz
+            // ctx.audio identity refresh that was rerendering the whole
+            // ProOperatorShell tree (code review 🔴 F1).
+            const bucket = Math.round(levelPeakRef.current * LEVEL_QUANTIZE) / LEVEL_QUANTIZE;
             levelPeakRef.current = 0;
             levelLastPushRef.current = nowMs;
-            setState((s) => (s.audioLevel === flushed ? s : { ...s, audioLevel: flushed }));
+            setState((s) => (s.audioLevel === bucket ? s : { ...s, audioLevel: bucket }));
           }
         }
         // Long-silence UX warning — separate from the gate, only fires when
@@ -1650,37 +1697,47 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   }, [flushSessionMetrics]);
 
   // Restart pipeline when the operator changes the audio input mid-service.
+  // 2026-07-25 review fixes:
+  //   🔴 Stress F1 — was bailing on `!state.listening`, which meant a
+  //     Source Type flip made before pressing AI ON was silently dropped
+  //     (warm-start had already claimed the device with stale constraints).
+  //     Now: fire when EITHER `listening` OR `warmStarted` is true.
+  //   🔴 Stress F2 — the closures were capturing `state.listening` at
+  //     effect-bind time. A toggle during the 500ms devicechange debounce
+  //     would use the OLD value. Read from refs at execution time instead.
+  //   🟡 Security F3 — audio-input-changed had no debounce; a rapid Source
+  //     Type flip or an injected event could spam pipeline restarts.
+  //     Consolidated with devicechange onto a single 300ms coalescing timer
+  //     so N signals collapse to one stop+start.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const handler = () => {
-      if (!state.listening) return;
-      // Full restart so getUserMedia picks up the new deviceId.
-      stop();
-      setTimeout(() => { startRef.current().catch(() => { /* ignore */ }); }, 100);
-    };
-    window.addEventListener("presentflow:audio-input-changed", handler);
-    // Also react to the OS-level devicechange event (headphones unplugged
-    // mid-service, USB interface hot-swapped, Bluetooth reconnect). Debounced
-    // by 500ms — some drivers fire 3-4 events in a burst on plug/unplug.
-    let deviceChangeTimer: ReturnType<typeof setTimeout> | null = null;
-    const onDeviceChange = () => {
-      if (deviceChangeTimer) clearTimeout(deviceChangeTimer);
-      deviceChangeTimer = setTimeout(() => {
-        deviceChangeTimer = null;
-        if (!state.listening) return;
-        if (isDevOrTraceOn()) console.log("[presentflow-audio] devicechange — restarting pipeline");
+    let restartTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRestart = (reason: string, debounceMs: number) => {
+      if (restartTimer) clearTimeout(restartTimer);
+      restartTimer = setTimeout(() => {
+        restartTimer = null;
+        // Refs, not captured state — F2.
+        if (!listeningRef.current && !warmStartedRef.current) return;
+        if (isDevOrTraceOn()) console.log(`[presentflow-audio] ${reason} — restarting pipeline`);
         stop();
         setTimeout(() => { startRef.current().catch(() => { /* ignore */ }); }, 100);
-      }, 500);
+      }, debounceMs);
     };
+    const handler = () => scheduleRestart("input-changed", 300);
+    const onDeviceChange = () => scheduleRestart("devicechange", 500);
+    window.addEventListener("presentflow:audio-input-changed", handler);
     const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
     md?.addEventListener?.("devicechange", onDeviceChange);
     return () => {
       window.removeEventListener("presentflow:audio-input-changed", handler);
       md?.removeEventListener?.("devicechange", onDeviceChange);
-      if (deviceChangeTimer) clearTimeout(deviceChangeTimer);
+      if (restartTimer) clearTimeout(restartTimer);
     };
-  }, [state.listening, stop, isDevOrTraceOn]);
+    // Refs-only effect — no state deps so we bind ONCE per hook mount, not
+    // per listening/warmStart transition. The handler reads current values
+    // from refs at execution time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const resume = useCallback(() => {
     lastTranscriptAtRef.current = Date.now();

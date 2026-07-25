@@ -1239,12 +1239,18 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // wasn't plugged in got total silence with zero explanation. Duration
   // Infinity so it stays until they act; a single toast per distinct message
   // so a stuck error doesn't spam.
+  // 🟡 Stress F6 fix — dedup by the FIRST-SENTENCE prefix (an error class
+  // signature) rather than the exact string. NotReadableError messages on
+  // Windows sometimes trail the driver name (which varies per reconnect
+  // attempt), which meant otherwise-identical errors were producing a
+  // toast stack over the course of a backoff. Prefix-match collapses them.
   const lastAudioErrorRef = useRef<string | null>(null);
   const audioError = ctx.audio.error;
   useEffect(() => {
     if (!audioError) { lastAudioErrorRef.current = null; return; }
-    if (audioError === lastAudioErrorRef.current) return;
-    lastAudioErrorRef.current = audioError;
+    const sig = audioError.split(/[.!?—]/, 1)[0].trim().slice(0, 80);
+    if (sig === lastAudioErrorRef.current) return;
+    lastAudioErrorRef.current = sig;
     toast.error(audioError, { duration: Infinity, id: "presentflow-audio-error" });
   }, [audioError]);
 
