@@ -382,6 +382,56 @@ export function isValidChapter(book: string, chapter: number): boolean {
 
 // Pattern order matters — most specific first.
 // Group 1: book (from BOOK_PATTERN), Group 2/3/... numbers.
+/**
+ * Given a book and a run of 3–5 digits fused to it (e.g. `1010` after
+ * `john`), decide whether the digits represent a whole chapter or a
+ * chapter+verse pair, and return the parsed form.
+ *
+ * Whole-chapter takes priority whenever the full number is a valid chapter
+ * for the book AND ≥ 100 (so `psalm119` → Psalm 119, `psalm150` → Psalm 150,
+ * not `1:19`/`1:50`). Below 100, whole is ambiguous with ch:vs so we
+ * always split (`john316` → 3:16, `matt125` → 1:25).
+ *
+ * Split preference per digit count matches how people naturally type:
+ *   3 digits: 1+2 first (john316 → 3:16), then 2+1 (job121 → 12:1)
+ *   4 digits: 2+2 first (john1010 → 10:10), then 1+3, then 3+1
+ *   5 digits: 3+2 first (psalms11911 → 119:11), then 2+3
+ * Rejects splits where chapter exceeds book's max or verse is 0/leading-zero.
+ */
+type FusedResult = { chapter: number; verse: number | null };
+function trySplitFusedDigits(book: string, digits: string): FusedResult | null {
+  const n = digits.length;
+  if (n < 3 || n > 5) return null;
+  const maxCh = maxChapterFor(book);
+  const whole = parseInt(digits, 10);
+  // Whole-chapter shortcut when it's plausible (≥ 100 and within range).
+  // Only Psalms actually goes past 99, so in practice this branch fires
+  // for "psalm100" through "psalm150" (the popular ones) and stays out
+  // of the way for every other book.
+  if (typeof maxCh === "number" && whole >= 100 && whole <= maxCh) {
+    return { chapter: whole, verse: null };
+  }
+  const orders: Record<number, number[]> = {
+    3: [1, 2],
+    4: [2, 1, 3],
+    5: [3, 2],
+  };
+  for (const chLen of orders[n]) {
+    if (chLen >= n) continue;
+    const chStr = digits.slice(0, chLen);
+    const vsStr = digits.slice(chLen);
+    if (chStr.length > 1 && chStr.startsWith("0")) continue;
+    if (vsStr.length > 1 && vsStr.startsWith("0")) continue;
+    const ch = parseInt(chStr, 10);
+    const vs = parseInt(vsStr, 10);
+    if (!Number.isFinite(ch) || !Number.isFinite(vs)) continue;
+    if (ch <= 0 || vs <= 0 || vs > 176) continue;
+    if (typeof maxCh === "number" && ch > maxCh) continue;
+    return { chapter: ch, verse: vs };
+  }
+  return null;
+}
+
 const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => ParsedReference | null }[] = [
   // "SingleChapterBook verse N"
   {
@@ -509,6 +559,41 @@ const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => Pa
       }
       if (!isValidChapter(book, chapter)) return null;
       return { book, chapter, verseStart: verse, verseEnd: verse, confidence: 92, matchedText: m[0], needsSemanticFallback: false };
+    },
+  },
+  // "BookNNNN" fused digits (no space, no separator) → chapter+verse split.
+  // Handles the shorthand people naturally type on mobile / when in a hurry:
+  //   john1010 → John 10:10
+  //   john316  → John 3:16
+  //   ps11911  → Psalms 119:11
+  //   matt77   → skipped (only 2 digits — see below)
+  // Applies to EVERY book (not hard-coded to one), using the shared BOOK_PATTERN.
+  // Requires 3-5 digits: 2-digit is too ambiguous with whole-chapter shortcuts
+  // ("psalm91" almost certainly means Psalm 91 the whole chapter, not 9:1).
+  // Split-choice heuristic below prefers the most-likely operator intent
+  // per digit count, then filters against per-book max chapter + 1..176 verse
+  // range so a nonsense split is rejected rather than misfiring.
+  {
+    name: "book_fused_digits",
+    regex: new RegExp(`\\b(${BOOK_PATTERN})(\\d{3,5})\\b`, "gi"),
+    parse: (m) => {
+      const bookKey = m[1].toLowerCase().replace(/\s+/g, " ");
+      const book = VARIANT_TO_BOOK.get(bookKey);
+      if (!book) return null;
+      const split = trySplitFusedDigits(book, m[2]);
+      if (!split) return null;
+      if (SINGLE_CHAPTER_BOOKS.has(book)) {
+        const v = parseInt(m[2], 10);
+        if (!Number.isFinite(v) || v <= 0 || v > 176) return null;
+        return { book, chapter: 1, verseStart: v, verseEnd: v, confidence: 82, matchedText: m[0], needsSemanticFallback: false };
+      }
+      if (split.verse === null) {
+        // Whole-chapter case (Psalm 119, Psalm 150). Match book_ch's
+        // encoding (verseStart=1, verseEnd=1) so downstream lookup code
+        // treats it the same as a spoken "Psalm 119".
+        return { book, chapter: split.chapter, verseStart: 1, verseEnd: 1, confidence: 80, matchedText: m[0], needsSemanticFallback: false };
+      }
+      return { book, chapter: split.chapter, verseStart: split.verse, verseEnd: split.verse, confidence: 82, matchedText: m[0], needsSemanticFallback: false };
     },
   },
   // "Book Chapter Verse" — bare-space separator, chapter must be single token
