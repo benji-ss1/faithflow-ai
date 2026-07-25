@@ -5,8 +5,9 @@
 // a client-side parser or a third party. On confirm the client calls the
 // finalizeImport server action.
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
+import { CheckCircle2, FileText, FolderOpen, Upload, X } from "lucide-react";
 import { finalizeImport } from "@/lib/import-actions";
 import { ElectronPickFilesButton, ElectronPickFolderButton } from "@/components/electron/ElectronFilePickers";
 
@@ -25,7 +26,7 @@ const SOURCES: SourceCard[] = [
   { id: "easyworship", title: "EasyWorship", subtitle: "SongsDB.db (SQLite)", support: "stub" },
   { id: "mediashout", title: "MediaShout", subtitle: ".msh (proprietary)", support: "stub" },
   { id: "worshiptools", title: "WorshipTools", subtitle: ".wtx / .wtt", support: "stub" },
-  { id: "none", title: "Starting Fresh", subtitle: "Skip and start with an empty library", support: "skip" },
+  { id: "none", title: "Starting fresh", subtitle: "Skip and start with an empty library", support: "skip" },
 ];
 
 type Summary = {
@@ -40,20 +41,31 @@ export function WizardClient() {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [source, setSource] = useState<SourceCard | null>(null);
   const [files, setFiles] = useState<File[]>([]);
+  const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [migrationJobId, setMigrationJobId] = useState<string | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [finalized, setFinalized] = useState<{ songs: number; media: number; skipped: number } | null>(null);
 
+  const addFiles = useCallback((incoming: File[]) => {
+    if (incoming.length === 0) return;
+    setFiles((prev) => {
+      const byKey = new Map(prev.map((f) => [`${f.name}:${f.size}`, f]));
+      for (const f of incoming) byKey.set(`${f.name}:${f.size}`, f);
+      return Array.from(byKey.values());
+    });
+  }, []);
+
+  function removeFile(target: File) {
+    setFiles((prev) => prev.filter((f) => !(f.name === target.name && f.size === target.size)));
+  }
+
   function pickSource(s: SourceCard) {
     setSource(s);
     setError(null);
-    if (s.id === "none") {
-      setStep(4); // Nothing to import — jump to done state.
-    } else {
-      setStep(2);
-    }
+    if (s.id === "none") setStep(4);
+    else setStep(2);
   }
 
   async function submitFiles() {
@@ -97,31 +109,53 @@ export function WizardClient() {
 
   return (
     <div className="space-y-6">
-      <ol className="flex gap-2 text-xs text-muted-foreground">
-        {[1, 2, 3, 4].map((n) => (
-          <li key={n} className={`px-2 py-1 rounded-sm ${step === n ? "bg-primary text-primary-foreground font-medium" : "bg-muted"}`}>
-            Step {n}
+      {/* Stepper */}
+      <ol className="flex items-center gap-2 text-xs">
+        {[
+          { n: 1, label: "Source" },
+          { n: 2, label: "Files" },
+          { n: 3, label: "Review" },
+          { n: 4, label: "Done" },
+        ].map((s, i, arr) => (
+          <li key={s.n} className="flex items-center gap-2">
+            <span
+              className={`inline-flex h-6 items-center rounded-full px-2.5 font-medium ${
+                step === s.n
+                  ? "bg-[var(--pf-admin-accent)] text-[var(--pf-admin-text-inverse)]"
+                  : step > s.n
+                    ? "bg-[var(--pf-admin-accent-soft)] text-[var(--pf-admin-accent)]"
+                    : "bg-[var(--pf-admin-bg-muted)] text-[var(--pf-admin-text-secondary)]"
+              }`}
+            >
+              {step > s.n ? <CheckCircle2 className="mr-1 h-3 w-3" /> : null}
+              {s.label}
+            </span>
+            {i < arr.length - 1 ? <span className="text-[var(--pf-admin-text-muted)]">→</span> : null}
           </li>
         ))}
       </ol>
 
-      {error && <div className="border border-destructive bg-destructive/10 text-destructive text-sm rounded-md p-3">{error}</div>}
+      {error && (
+        <div className="rounded-md border border-red-500/40 bg-red-500/5 p-3 text-sm text-red-400">
+          {error}
+        </div>
+      )}
 
       {step === 1 && (
         <div>
-          <h2 className="text-lg font-medium mb-3">What are you switching from?</h2>
+          <h2 className="mb-3 text-lg font-medium">What are you switching from?</h2>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {SOURCES.map((s) => (
               <button
                 key={s.id}
                 onClick={() => pickSource(s)}
-                className="text-left border border-border rounded-md p-4 hover:border-primary hover:bg-muted transition-colors"
+                className="rounded-md border border-border bg-card p-4 text-left transition-colors hover:border-[var(--pf-admin-accent)]/40 hover:bg-[var(--pf-admin-bg-hover)]"
               >
                 <div className="font-medium">{s.title}</div>
-                <div className="text-xs text-muted-foreground mt-1">{s.subtitle}</div>
+                <div className="mt-1 text-xs text-muted-foreground">{s.subtitle}</div>
                 <div className="mt-2 text-[10px] uppercase tracking-wide">
-                  {s.support === "full" && <span className="text-success">Fully supported</span>}
-                  {s.support === "partial" && <span className="text-warning">Partial support</span>}
+                  {s.support === "full" && <span className="text-[var(--pf-admin-green)]">Fully supported</span>}
+                  {s.support === "partial" && <span className="text-[var(--pf-admin-gold)]">Partial support</span>}
                   {s.support === "stub" && <span className="text-muted-foreground">Detection only — export as CSV</span>}
                   {s.support === "skip" && <span className="text-muted-foreground">No import</span>}
                 </div>
@@ -135,99 +169,149 @@ export function WizardClient() {
         <div className="space-y-4">
           <div>
             <button onClick={() => setStep(1)} className="text-xs text-muted-foreground hover:underline">← Change source</button>
-            <h2 className="text-lg font-medium mt-2">Select files from your {source.title} library</h2>
-            <p className="text-xs text-muted-foreground mt-1">
-              Pick individual files or an entire folder. Files are parsed server-side; nothing leaves your session until you confirm.
+            <h2 className="mt-2 text-lg font-medium">Select files from your {source.title} library</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Drop files, pick a folder, or choose individual files. Everything is parsed server-side; nothing commits until you confirm on the next step.
             </p>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="border border-border rounded-md p-4 cursor-pointer hover:border-primary">
-              <div className="font-medium text-sm">Pick a folder</div>
-              <div className="text-xs text-muted-foreground mt-1">Recursively scans everything inside.</div>
-              <input
-                type="file"
-                // @ts-expect-error webkitdirectory is nonstandard but widely supported
-                webkitdirectory=""
-                directory=""
-                multiple
-                className="mt-2 text-xs"
-                onChange={(e) => setFiles(Array.from(e.target.files || []))}
-              />
-            </label>
-            <label className="border border-border rounded-md p-4 cursor-pointer hover:border-primary">
-              <div className="font-medium text-sm">Pick individual files</div>
-              <div className="text-xs text-muted-foreground mt-1">Cmd/Ctrl-click to select multiple.</div>
-              <input
-                type="file"
-                multiple
-                className="mt-2 text-xs"
-                onChange={(e) => setFiles(Array.from(e.target.files || []))}
-              />
-            </label>
-          </div>
+
+          {/* Prominent full-width drop zone — primary interaction. */}
           <div
-            className="flex flex-wrap items-center gap-2"
-            onDragOver={(e) => e.preventDefault()}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
             onDrop={(e) => {
               e.preventDefault();
+              setDragOver(false);
               const dropped = Array.from(e.dataTransfer.files || []);
-              if (dropped.length) setFiles(dropped);
+              addFiles(dropped);
             }}
+            className={`relative flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-6 py-14 text-center transition-colors ${
+              dragOver
+                ? "border-[var(--pf-admin-accent)] bg-[var(--pf-admin-accent-soft)]"
+                : "border-border bg-[var(--pf-admin-bg-subtle)] hover:border-[var(--pf-admin-border-strong)]"
+            }`}
           >
-            <ElectronPickFilesButton
-              extensions={[".pro6", ".pro7", ".pro7x", ".pro5", ".xml", ".easypres", ".osz", ".json", ".csv", ".txt"]}
-              label="Choose from computer…"
-              className="h-9 px-3 border border-border rounded-md text-sm font-semibold hover:bg-accent"
-              onFiles={async (picked) => {
-                const built: File[] = [];
-                for (const f of picked) {
-                  if (f.tooLarge || !f.base64) continue;
-                  const bin = atob(f.base64);
-                  const bytes = new Uint8Array(bin.length);
-                  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-                  built.push(new File([bytes], f.name));
-                }
-                if (built.length) setFiles((prev) => [...prev, ...built]);
-              }}
-            />
-            <ElectronPickFolderButton
-              extensions={[".pro6", ".pro7", ".pro7x", ".pro5", ".easypres", ".xml"]}
-              label="Import folder…"
-              className="h-9 px-3 border border-border rounded-md text-sm font-semibold hover:bg-accent"
-              onFolder={async (entries) => {
-                const api = window.electronAPI!;
-                const built: File[] = [];
-                for (const entry of entries) {
-                  const r = await api.fs.readFile(entry.absPath);
-                  if (r.tooLarge) continue;
-                  const bin = atob(r.base64);
-                  const bytes = new Uint8Array(bin.length);
-                  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-                  const file = new File([bytes], r.name);
-                  // Attach relative path (used server-side via file.webkitRelativePath).
-                  try { Object.defineProperty(file, "webkitRelativePath", { value: entry.relPath }); } catch { /* readonly in some runtimes */ }
-                  built.push(file);
-                }
-                if (built.length) setFiles((prev) => [...prev, ...built]);
-              }}
-            />
-            <span className="text-xs text-muted-foreground">Or drop files here.</span>
+            <div className="grid h-12 w-12 place-items-center rounded-full bg-[var(--pf-admin-accent-soft)]">
+              <Upload className="h-6 w-6 text-[var(--pf-admin-accent)]" />
+            </div>
+            <div className="text-base font-semibold text-foreground">
+              {dragOver ? "Drop to add files" : `Drop ${source.title} files here`}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              or use the buttons below to pick from your computer
+            </div>
+
+            <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+              <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-4 text-sm font-medium hover:bg-[var(--pf-admin-bg-hover)]">
+                <FolderOpen className="h-4 w-4" />
+                Pick a folder
+                <input
+                  type="file"
+                  // @ts-expect-error webkitdirectory is nonstandard but widely supported
+                  webkitdirectory=""
+                  directory=""
+                  multiple
+                  className="sr-only"
+                  onChange={(e) => addFiles(Array.from(e.target.files || []))}
+                />
+              </label>
+              <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-4 text-sm font-medium hover:bg-[var(--pf-admin-bg-hover)]">
+                <FileText className="h-4 w-4" />
+                Pick individual files
+                <input
+                  type="file"
+                  multiple
+                  className="sr-only"
+                  onChange={(e) => addFiles(Array.from(e.target.files || []))}
+                />
+              </label>
+              <ElectronPickFilesButton
+                extensions={[".pro6", ".pro7", ".pro7x", ".pro5", ".xml", ".easypres", ".osz", ".json", ".csv", ".txt"]}
+                label="Choose from computer…"
+                className="inline-flex h-10 items-center gap-2 rounded-md border border-border bg-background px-4 text-sm font-medium hover:bg-[var(--pf-admin-bg-hover)]"
+                onFiles={async (picked) => {
+                  const built: File[] = [];
+                  for (const f of picked) {
+                    if (f.tooLarge || !f.base64) continue;
+                    const bin = atob(f.base64);
+                    const bytes = new Uint8Array(bin.length);
+                    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                    built.push(new File([bytes], f.name));
+                  }
+                  if (built.length) addFiles(built);
+                }}
+              />
+              <ElectronPickFolderButton
+                extensions={[".pro6", ".pro7", ".pro7x", ".pro5", ".easypres", ".xml"]}
+                label="Import folder…"
+                className="inline-flex h-10 items-center gap-2 rounded-md border border-border bg-background px-4 text-sm font-medium hover:bg-[var(--pf-admin-bg-hover)]"
+                onFolder={async (entries) => {
+                  const api = window.electronAPI!;
+                  const built: File[] = [];
+                  for (const entry of entries) {
+                    const r = await api.fs.readFile(entry.absPath);
+                    if (r.tooLarge) continue;
+                    const bin = atob(r.base64);
+                    const bytes = new Uint8Array(bin.length);
+                    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                    const file = new File([bytes], r.name);
+                    try { Object.defineProperty(file, "webkitRelativePath", { value: entry.relPath }); } catch { /* readonly in some runtimes */ }
+                    built.push(file);
+                  }
+                  if (built.length) addFiles(built);
+                }}
+              />
+            </div>
           </div>
+
           {files.length > 0 && (
-            <div className="text-sm">
-              <div className="font-medium">{files.length} file(s) selected</div>
-              <div className="text-xs text-muted-foreground">
-                Total {(files.reduce((s, f) => s + f.size, 0) / 1024 / 1024).toFixed(1)} MB
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <div className="font-medium text-foreground">
+                  {files.length} file{files.length === 1 ? "" : "s"} selected
+                  <span className="ml-2 text-muted-foreground">
+                    · {(files.reduce((s, f) => s + f.size, 0) / 1024 / 1024).toFixed(1)} MB total
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFiles([])}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  Clear all
+                </button>
               </div>
+              <ul className="max-h-52 divide-y divide-border overflow-y-auto rounded-md border border-border bg-[var(--pf-admin-bg-subtle)] text-xs">
+                {files.map((f) => (
+                  <li key={`${f.name}:${f.size}`} className="flex items-center justify-between gap-2 p-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className="truncate">{f.webkitRelativePath || f.name}</span>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="text-muted-foreground">{(f.size / 1024).toFixed(0)} KB</span>
+                      <button
+                        type="button"
+                        onClick={() => removeFile(f)}
+                        title="Remove"
+                        className="grid h-6 w-6 place-items-center rounded text-muted-foreground hover:bg-white/[0.04] hover:text-red-400"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
+
           <div className="flex gap-2">
             <button
               disabled={files.length === 0 || uploading}
               onClick={submitFiles}
-              className="bg-primary text-primary-foreground text-sm px-4 py-2 rounded-md disabled:opacity-50"
+              className="inline-flex h-10 items-center rounded-md bg-[var(--pf-admin-accent)] px-4 text-sm font-semibold text-[var(--pf-admin-text-inverse)] transition-colors hover:bg-[var(--pf-admin-accent-hover)] disabled:opacity-50"
             >
-              {uploading ? "Parsing…" : "Parse files"}
+              {uploading ? `Parsing ${files.length} file${files.length === 1 ? "" : "s"}…` : `Parse ${files.length || ""} file${files.length === 1 ? "" : "s"}`}
             </button>
           </div>
         </div>
@@ -237,26 +321,30 @@ export function WizardClient() {
         <div className="space-y-4">
           <div>
             <h2 className="text-lg font-medium">Review parse results</h2>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="mt-1 text-xs text-muted-foreground">
               Nothing has been added to your library yet. Confirm below to commit.
+              Duplicates (matched by title against songs already in your church) are
+              automatically skipped — nothing overwrites your existing lyrics.
             </p>
           </div>
-          <div className="grid grid-cols-3 gap-3 max-w-lg">
-            <Stat label="Songs found" value={summary.counts.songs} />
-            <Stat label="Media files" value={summary.counts.media} />
-            <Stat label="Skipped" value={summary.counts.skipped} />
+          <div className="grid max-w-lg grid-cols-3 gap-3">
+            <Stat label="Songs found" value={summary.counts.songs} tone="brand" />
+            <Stat label="Media files" value={summary.counts.media} tone="neutral" />
+            <Stat label="Skipped" value={summary.counts.skipped} tone={summary.counts.skipped > 0 ? "warning" : "neutral"} />
           </div>
           {summary.songs.length > 0 && (
             <div>
-              <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Sample songs</div>
-              <ul className="border border-border rounded-md divide-y divide-border text-sm">
+              <div className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">
+                Sample songs (first 10 of {summary.songs.length})
+              </div>
+              <ul className="divide-y divide-border rounded-md border border-border text-sm">
                 {summary.songs.slice(0, 10).map((s, i) => (
-                  <li key={i} className="p-2 flex justify-between gap-2">
+                  <li key={i} className="flex justify-between gap-2 p-2">
                     <div className="min-w-0">
                       <div className="truncate font-medium">{s.title}</div>
                       {s.artist && <div className="text-xs text-muted-foreground">{s.artist}</div>}
                     </div>
-                    <div className="text-xs text-muted-foreground shrink-0">{s.slideCount} slides</div>
+                    <div className="shrink-0 text-xs text-muted-foreground">{s.slideCount} slides</div>
                   </li>
                 ))}
               </ul>
@@ -264,11 +352,13 @@ export function WizardClient() {
           )}
           {summary.skipped.length > 0 && (
             <div>
-              <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Skipped (top 10)</div>
-              <ul className="border border-border rounded-md divide-y divide-border text-xs">
+              <div className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">
+                Skipped (top 10)
+              </div>
+              <ul className="divide-y divide-border rounded-md border border-border text-xs">
                 {summary.skipped.slice(0, 10).map((s, i) => (
                   <li key={i} className="p-2">
-                    <div className="font-mono truncate">{s.file}</div>
+                    <div className="truncate font-mono">{s.file}</div>
                     <div className="text-muted-foreground">{s.reason}</div>
                   </li>
                 ))}
@@ -279,13 +369,13 @@ export function WizardClient() {
             <button
               disabled={uploading || summary.counts.songs === 0}
               onClick={confirmImport}
-              className="bg-primary text-primary-foreground text-sm px-4 py-2 rounded-md disabled:opacity-50"
+              className="inline-flex h-10 items-center rounded-md bg-[var(--pf-admin-accent)] px-4 text-sm font-semibold text-[var(--pf-admin-text-inverse)] disabled:opacity-50"
             >
               {uploading ? "Importing…" : "Confirm import"}
             </button>
             <button
               onClick={() => { setStep(1); setSummary(null); setMigrationJobId(null); setFiles([]); }}
-              className="border border-border text-sm px-4 py-2 rounded-md"
+              className="inline-flex h-10 items-center rounded-md border border-border px-4 text-sm hover:bg-[var(--pf-admin-bg-hover)]"
             >
               Cancel
             </button>
@@ -295,18 +385,26 @@ export function WizardClient() {
 
       {step === 4 && (
         <div className="space-y-4">
-          <h2 className="text-lg font-medium">All done</h2>
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-5 w-5 text-[var(--pf-admin-green)]" />
+            <h2 className="text-lg font-medium">All done</h2>
+          </div>
           {finalized ? (
             <p className="text-sm">
-              Imported <strong>{finalized.songs}</strong> song(s), <strong>{finalized.media}</strong> media asset(s).
-              {" "}Skipped <strong>{finalized.skipped}</strong>.
+              Imported <strong>{finalized.songs}</strong> song{finalized.songs === 1 ? "" : "s"},{" "}
+              <strong>{finalized.media}</strong> media asset{finalized.media === 1 ? "" : "s"}.
+              {finalized.skipped > 0 ? <> Skipped <strong>{finalized.skipped}</strong> (duplicates or parse errors).</> : null}
             </p>
           ) : (
             <p className="text-sm text-muted-foreground">Nothing to import. Your library is ready to use.</p>
           )}
           <div className="flex gap-2">
-            <Link href="/library/songs" className="bg-primary text-primary-foreground text-sm px-4 py-2 rounded-md">Go to songs</Link>
-            <Link href="/library/imports/wizard" className="border border-border text-sm px-4 py-2 rounded-md">Import another</Link>
+            <Link href="/library/songs" className="inline-flex h-10 items-center rounded-md bg-[var(--pf-admin-accent)] px-4 text-sm font-semibold text-[var(--pf-admin-text-inverse)]">
+              Go to songs
+            </Link>
+            <Link href="/library/imports/wizard" className="inline-flex h-10 items-center rounded-md border border-border px-4 text-sm hover:bg-[var(--pf-admin-bg-hover)]">
+              Import another
+            </Link>
           </div>
         </div>
       )}
@@ -314,9 +412,15 @@ export function WizardClient() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({ label, value, tone = "neutral" }: { label: string; value: number; tone?: "brand" | "warning" | "neutral" }) {
+  const cls =
+    tone === "brand"
+      ? "border-[var(--pf-admin-accent)]/25 bg-[var(--pf-admin-accent-soft)]"
+      : tone === "warning"
+        ? "border-[var(--pf-admin-gold)]/25 bg-[rgba(239,159,39,0.08)]"
+        : "border-border bg-[var(--pf-admin-bg-subtle)]";
   return (
-    <div className="border border-border rounded-md p-3">
+    <div className={`rounded-md border p-3 ${cls}`}>
       <div className="text-2xl font-semibold">{value}</div>
       <div className="text-xs text-muted-foreground">{label}</div>
     </div>

@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.60",
+    date: "2026-07-26",
+    headline: "Import wizard polish — prominent drop zone, per-file remove, tokenised chrome",
+    highlights: [
+      "Migration wizard (Songs → Import) now leads with a big full-width drop zone as the primary interaction. Was 'or drop files here' buried under two small file-input labels; now: dashed dropzone that lights up amber on drag-over, upload icon centered, buttons for folder/file/Electron pickers below. All input paths add to the same accumulator, so you can drop one file, then add more via the folder picker, without losing the first",
+      "Selected-files list is now itemised — each file shows the name, size, and an X to remove that specific file (was: pick a whole new set to change anything). Also added a 'Clear all' link and a running total-size counter. Duplicate detection by name+size prevents adding the same file twice",
+      "Stepper across the top now uses named steps (Source / Files / Review / Done) with checkmarks on completed steps and admin-palette colors — instead of numeric 'Step 1 · Step 2' pills in the old primary/muted tokens. Confirm-import button uses the amber admin accent, review-step Stat cards tint per tone (green for songs found, amber for skipped)",
+      "Review step now explains what 'skipped' means: duplicate detection (matched by title against existing songs in your church) auto-skips rather than overwriting. Nothing you've already got gets clobbered by a re-import",
+    ],
+  },
+  {
     version: "0.1.59",
     date: "2026-07-26",
     headline: "New upgrade landing pages — Pro cinematic hero + Starter/Church detail pages",
