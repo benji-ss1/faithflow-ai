@@ -1290,3 +1290,42 @@ export async function updateChurch(patch: {
   revalidatePath("/dashboard");
   return { ok: true };
 }
+
+// Onboarding + library helper: bulk-seed the built-in public-domain hymn
+// library for the caller's church. Idempotent — if a hymn already exists
+// (matched by title + public_domain source in this church), it's skipped
+// rather than duplicated. Empty-slide entries in the library (deliberate
+// PD-safety placeholders like the non-PD English "How Great Thou Art"
+// translation) are always skipped.
+//
+// Used by the onboarding wizard's "Start with built-in hymns" step and by
+// any future "Add hymn library" affordance on the songs page's empty state.
+export async function addBuiltInHymnsToMyChurch(): Promise<Result<{ added: number; skipped: number }>> {
+  const user = await requireUser();
+  const { HYMNS } = await import("./hymn-library");
+  const db = getDb();
+  let added = 0;
+  let skipped = 0;
+  for (const h of HYMNS) {
+    if (h.slides.length === 0) { skipped++; continue; }
+    const [existing] = await db.select({ id: songs.id }).from(songs)
+      .where(and(
+        eq(songs.churchId, user.churchId),
+        eq(songs.title, h.title),
+        eq(songs.source, "public_domain"),
+      )).limit(1);
+    if (existing) { skipped++; continue; }
+    const [row] = await db.insert(songs).values({
+      churchId: user.churchId,
+      title: h.title,
+      artist: h.author,
+      source: "public_domain",
+    }).returning({ id: songs.id });
+    await db.insert(songSlides).values(
+      h.slides.map((lyrics, i) => ({ songId: row.id, order: i, lyrics })),
+    );
+    added++;
+  }
+  revalidatePath("/library/songs");
+  return { ok: true, data: { added, skipped } };
+}
