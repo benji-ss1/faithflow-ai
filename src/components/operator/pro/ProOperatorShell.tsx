@@ -690,6 +690,12 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   // is treated as a stale echo. 8s gives detection + Whisper canonical
   // round-trip time headroom without letting a truly stale one re-fire.
   const SUGGESTION_FRESHNESS_MS = 8 * 1000;
+  // 2026-07-26 — hard debounce map keyed by songId: autoLiveSong itself
+  // refuses to re-run for the same song within 5s. Belt-and-braces on top
+  // of every other guard, catches the case where the outer effect's
+  // id-dedup was defeated by Deepgram's interim → final → whisper cascade
+  // producing multiple new suggestion IDs for the same utterance.
+  const autoLiveDebounceRef = useRef<Map<string, number>>(new Map());
 
   // Word-tracking buffers for Part 7/8.
   const recentWordsRef = useRef<string[]>([]);
@@ -728,6 +734,21 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   const autoLiveSong = useCallback(async (songId: string, title: string, confidence: number) => {
     if (stagingInFlightRef.current.has(songId)) return;
     if (liveSongRef.current?.songId === songId) return; // already live
+    // 2026-07-26 hard debounce — the field-report "glitching, repeatedly
+    // firing GTF → LIVE toast" that survived v0.1.68's outer-effect guards.
+    // Even after id + freshness dedup at the effect layer, Deepgram's
+    // interim → final → whisper cascade produces 3-5 new suggestion IDs
+    // per single utterance, each replacing the previous in place with
+    // fresh id + ts. Add a hard 5s debounce PER SONG at the entry of
+    // autoLiveSong so no matter how many times the outer effect calls in
+    // for the same song, only the first one in a 5s window actually
+    // proceeds. Different songs are unaffected — the map is per-songId.
+    const lastAutoLiveAt = autoLiveDebounceRef.current.get(songId) ?? 0;
+    if (Date.now() - lastAutoLiveAt < 5000) {
+      console.log(`[song-autolive] hard-debounced: "${title}" (${songId}) — last fire ${Date.now() - lastAutoLiveAt}ms ago`);
+      return;
+    }
+    autoLiveDebounceRef.current.set(songId, Date.now());
     // Replay suppression — same 5min-window pattern as AUTO_FIRED_SESSION_KEY.
     // 2026-07-24 fix: apply the guard ONLY when THE SAME song is already
     // live (echo suppression). Any other case — Bible live, media live,

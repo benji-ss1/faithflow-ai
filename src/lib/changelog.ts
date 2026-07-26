@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.69",
+    date: "2026-07-26",
+    headline: "Song auto-fire hard debounce — final fix for the 'GTF → LIVE' repeat toast loop",
+    highlights: [
+      "v0.1.68's freshness + id-dedup checks in the outer effect weren't enough — Deepgram's interim → final → whisper cascade produces 3-5 new suggestion IDs for a single utterance, each with a genuinely fresh ts + new id, so both outer gates let them through and autoLiveSong got called repeatedly. Now: hard 5s debounce PER SONG at the entry of autoLiveSong itself. Doesn't matter how many times the outer effect calls in for the same song — only the first one in a 5s window actually proceeds",
+      "Different-song swaps are unaffected (the debounce map is keyed by songId). Real back-and-forth after 5s+ works normally. This layer is a belt-and-braces on top of every other guard, and it survives even if the effect-at-line-969 accidentally clears liveSongRef mid-fire (which was another way the toast could re-appear)",
+    ],
+  },
+  {
     version: "0.1.68",
     date: "2026-07-26",
     headline: "Song auto-fire stale-echo fix — v0.1.67's 3s floor let old detections re-fire every few seconds",
