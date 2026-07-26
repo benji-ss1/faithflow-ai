@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.70",
+    date: "2026-07-26",
+    headline: "Docs cut — surfaces the Bible parser fuzzy spoken-form fix that quietly shipped in v0.1.69",
+    highlights: [
+      "No new code in this DMG — v0.1.70 is a documentation bump so the What's New modal correctly credits the parser fuzzy spoken-form fallback ('filippians four thirteen' → Philippians 4:13) that landed in v0.1.69's binary but wasn't listed in v0.1.69's release notes. See the v0.1.69 entry below for the full details of both fixes now attributed to that release",
+      "If you're upgrading from ≤0.1.68 straight to 0.1.70, you'll see three real fixes in the modal: the song hard-debounce (v0.1.69), the parser fuzzy spoken-form fallback (also v0.1.69, now properly credited), and this docs bump (v0.1.70). No behavior change vs v0.1.69",
+    ],
+  },
+  {
     version: "0.1.69",
     date: "2026-07-26",
     headline: "Song auto-fire hard debounce — final fix for the 'GTF → LIVE' repeat toast loop",
