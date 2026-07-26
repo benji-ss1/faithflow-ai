@@ -257,9 +257,15 @@ export function AudioTab() {
               {/* NDI helper — only shows if NO NDI-labeled device is present.
                   Common at JPD when NDI Tools isn't installed on the Mac. */}
               {!devices.some((d) => /ndi/i.test(d.label)) && (
-                <div className="px-2 py-2 mt-1 border-t text-[10px] leading-snug text-zinc-400" style={{ borderColor: "#2a3232" }}>
-                  <div className="font-semibold text-zinc-300 mb-1">Using NDI at your church?</div>
-                  <div>Install <a href="https://ndi.video/tools/" target="_blank" rel="noopener noreferrer" className="text-[#f97316] underline">NDI Tools</a> (free), open NDI Virtual Input, pick your NDI source. It'll appear here as a device labeled "NDI Something".</div>
+                <div className="px-2 py-2 mt-1 border-t text-[10px] leading-snug text-zinc-400 space-y-1" style={{ borderColor: "#2a3232" }}>
+                  <div className="font-semibold text-zinc-300">Using NDI at your church?</div>
+                  <div>No NDI device is showing up here yet. Three things to check, in order:</div>
+                  <ol className="list-decimal pl-4 space-y-0.5">
+                    <li>Is <span className="font-mono text-zinc-300">NDI Virtual Input.app</span> actually <strong>open</strong>? Check your macOS menu bar for the NDI icon. If not there, open it from Applications → NDI Tools folder</li>
+                    <li>Click that NDI menu-bar icon → pick your church's NDI source (checkmark = active)</li>
+                    <li>macOS System Settings → Sound → Input should list "NDI Video" or similar. Then this picker refreshes on the next open</li>
+                  </ol>
+                  <div className="pt-1">Don't have NDI Tools installed? Grab it free from <a href="https://ndi.video/tools/" target="_blank" rel="noopener noreferrer" className="text-[#f97316] underline">ndi.video/tools</a></div>
                 </div>
               )}
             </Popover.Content>

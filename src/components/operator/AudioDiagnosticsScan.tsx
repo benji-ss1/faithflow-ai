@@ -330,9 +330,14 @@ export function AudioDiagnosticsScan({ onClose, onSelectDevice }: {
               churches that use NDI for audio transport but haven't installed
               NDI Tools on the Mac running PresentFlow. */}
           {results.length > 0 && !results.some((r) => /ndi/i.test(r.label)) && (
-            <div className="pt-1">
-              <span className="font-semibold text-zinc-400">Using NDI at your church?</span>{" "}
-              Install <a href="https://ndi.video/tools/" target="_blank" rel="noopener noreferrer" className="text-[#f97316] underline">NDI Tools</a> (free), open NDI Virtual Input, pick your NDI source — then rescan. NDI feeds appear here labeled "NDI Something".
+            <div className="pt-1 space-y-0.5">
+              <div><span className="font-semibold text-zinc-400">No NDI device showing up?</span> If NDI Tools is installed:</div>
+              <ol className="list-decimal pl-4 text-zinc-500">
+                <li>Open <span className="font-mono">NDI Virtual Input.app</span> from Applications (or check the menu bar for the NDI icon)</li>
+                <li>Click the NDI menu-bar icon → select your church's NDI source (checkmark on the active one)</li>
+                <li>Click Rescan above</li>
+              </ol>
+              <div className="pt-0.5">Don't have NDI Tools installed? <a href="https://ndi.video/tools/" target="_blank" rel="noopener noreferrer" className="text-[#f97316] underline">Free download</a></div>
             </div>
           )}
         </div>
