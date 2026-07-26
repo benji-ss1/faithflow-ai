@@ -703,6 +703,34 @@ const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => Pa
       return { book, chapter, verseStart: verse, verseEnd: verse, confidence: 55, matchedText: m[0], needsSemanticFallback: true };
     },
   },
+  // Fuzzy fallback for SPOKEN form ("filippians four thirteen"). Same
+  // safety gate as fuzzy_book_ch_verse (candidate must not be an exact
+  // known variant, must fuzzy-match a real book, chapter must validate),
+  // plus the stricter NUM_SINGLE atoms so we can't drift into arbitrary
+  // number-word sequences. Requires the candidate to be ≥6 letters so we
+  // don't fuzzy-match short English words ("read", "give") against short
+  // book names ("Ezra", "Ruth").
+  {
+    name: "fuzzy_book_ch_space_verse",
+    regex: new RegExp(
+      `\\b([a-z]{6,20})\\s+(?:chapter\\s+)?${NUM_SINGLE}\\s+${NUM_SINGLE}\\b(?!\\s*(?:to\\b|through\\b|thru\\b|-|–|—|hundred\\b))`,
+      "gi",
+    ),
+    parse: (m) => {
+      const candidate = m[1].toLowerCase().trim();
+      if (VARIANT_TO_BOOK.has(candidate)) return null;
+      const book = fuzzyBookMatch(candidate);
+      if (!book) return null;
+      const chapter = chunkToNum(m[2]);
+      const verse = chunkToNum(m[3]);
+      if (!isFinite(chapter) || !isFinite(verse)) return null;
+      if (SINGLE_CHAPTER_BOOKS.has(book)) {
+        return { book, chapter: 1, verseStart: chapter, verseEnd: chapter, confidence: 55, matchedText: m[0], needsSemanticFallback: true };
+      }
+      if (!isValidChapter(book, chapter)) return null;
+      return { book, chapter, verseStart: verse, verseEnd: verse, confidence: 55, matchedText: m[0], needsSemanticFallback: true };
+    },
+  },
 ];
 
 /** Parse a transcript segment for Bible references. Returns all matches. */
