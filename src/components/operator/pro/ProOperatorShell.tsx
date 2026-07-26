@@ -1716,8 +1716,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       if (!q) return;
       // Re-check auto-approve is still on before firing the queued one (R4).
       try {
-        if (window.sessionStorage.getItem(AUTO_APPROVE_KEY_INSTANT) !== "1"
-            && window.localStorage.getItem(AUTO_APPROVE_KEY_INSTANT) !== "1") return;
+        // 2026-07-25 security fix (review 🔴): sessionStorage ONLY — the
+        // localStorage "migration" fallback let XSS pre-arm auto-live across
+        // restarts, the exact hole Y3 closed. Migration window is over.
+        if (window.sessionStorage.getItem(AUTO_APPROVE_KEY_INSTANT) !== "1") return;
       } catch { /* noop */ }
       lastAutoFireAtRef.current = Date.now();
       if (pfTraceOn()) console.log("[auto-approve] firing (queued):", q.ref, q.conf);
@@ -1760,8 +1762,9 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // migration so existing operators aren't dropped mid-service.
     let autoOn = false;
     try {
-      autoOn = window.sessionStorage.getItem(AUTO_APPROVE_KEY_INSTANT) === "1"
-        || window.localStorage.getItem(AUTO_APPROVE_KEY_INSTANT) === "1";
+      // 2026-07-25 security fix (review 🔴): sessionStorage ONLY — see the
+      // queued-fire re-check above for why the localStorage fallback is gone.
+      autoOn = window.sessionStorage.getItem(AUTO_APPROVE_KEY_INSTANT) === "1";
     } catch { /* noop */ }
     if (!autoOn) return;
     // 2026-07-25 field bug fix: if the operator is actively typing in a
@@ -1903,8 +1906,8 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       const iv = window.setInterval(() => {
         // R4 belt-and-braces: if operator flipped AutoApprove OFF, stop.
         try {
-          if (window.sessionStorage.getItem(AUTO_APPROVE_KEY_INSTANT) !== "1"
-              && window.localStorage.getItem(AUTO_APPROVE_KEY_INSTANT) !== "1") {
+          // 2026-07-25 security fix (review 🔴): sessionStorage ONLY.
+          if (window.sessionStorage.getItem(AUTO_APPROVE_KEY_INSTANT) !== "1") {
             window.clearInterval(iv);
             autoAdvanceIntervalRef.current = null;
             return;
@@ -2139,7 +2142,8 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     if (prevCenterModeRef.current === centerMode) return;
     prevCenterModeRef.current = centerMode;
     let autoOn = false;
-    try { autoOn = window.localStorage.getItem(AUTO_APPROVE_KEY_INSTANT) === "1"; } catch { /* noop */ }
+    // 2026-07-25 security fix (review 🔴): sessionStorage ONLY (was localStorage).
+    try { autoOn = window.sessionStorage.getItem(AUTO_APPROVE_KEY_INSTANT) === "1"; } catch { /* noop */ }
     if (!autoOn) return;
     if (centerMode === "bible") {
       const cards = bibleSession.state.cards;

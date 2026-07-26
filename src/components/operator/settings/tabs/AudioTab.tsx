@@ -8,7 +8,6 @@ import { MIC_BOOST_KEY, MIC_HIGHPASS_KEY } from "@/components/operator/useAudioS
 
 const AUDIO_INPUT_KEY = "presentflow.pro.audioInput.v1";
 const AUDIO_SOURCE_TYPE_KEY = "presentflow.pro.audioSourceType.v1";
-const INPUT_GAIN_KEY = "presentflow.pro.inputGain.v1";
 const TRANSCRIPTION_MODE_KEY = "presentflow.pro.transcriptionMode.v1";
 const VOICE_COMMANDS_KEY = "presentflow.pro.voiceCommandsEnabled.v1";
 const CUSTOM_COMMANDS_KEY = "presentflow.pro.voiceCommands.v1";
@@ -68,7 +67,6 @@ type CustomCommand = { id: string; phrase: string; action: string };
 
 export function AudioTab() {
   const [mode, setMode] = useState<"online" | "offline">("online");
-  const [gain, setGain] = useState(75);
   const [voiceOn, setVoiceOn] = useState(true);
   const [autoPause, setAutoPause] = useState(true);
   const [autoAdvanceSec, setAutoAdvanceSec] = useState(0);
@@ -90,8 +88,6 @@ export function AudioTab() {
     try {
       const m = localStorage.getItem(TRANSCRIPTION_MODE_KEY);
       if (m === "offline" || m === "online") setMode(m);
-      const g = Number(localStorage.getItem(INPUT_GAIN_KEY));
-      if (!Number.isNaN(g) && g > 0) setGain(g);
       const v = localStorage.getItem(VOICE_COMMANDS_KEY);
       setVoiceOn(v !== "0");
       const ap = localStorage.getItem(AUTO_PAUSE_KEY);
@@ -154,7 +150,7 @@ export function AudioTab() {
 
   return (
     <div className="space-y-6">
-      <SectionHeader title="Audio" description="Transcription mode, input device, gain, and voice commands." />
+      <SectionHeader title="Audio" description="Transcription mode, input device, mic boost, and voice commands." />
 
       {/* Task 6 — manual "Restart AI listener" recovery control. Dispatches
           a window event that ProOperatorShell handles by calling
@@ -312,6 +308,8 @@ export function AudioTab() {
                 }}
                 onMouseUp={restartPipeline}
                 onTouchEnd={restartPipeline}
+                onKeyUp={restartPipeline}
+                onBlur={restartPipeline}
                 className="w-[220px] accent-orange-500"
                 aria-label="Microphone boost multiplier"
               />
@@ -337,16 +335,10 @@ export function AudioTab() {
         );
       })()}
 
-      <Row label={`Input Gain — ${gain}%`}>
-        <input
-          type="range"
-          min={0}
-          max={100}
-          value={gain}
-          onChange={(e) => { const v = Number(e.target.value); setGain(v); try { localStorage.setItem(INPUT_GAIN_KEY, String(v)); } catch {} }}
-          className="w-[220px] accent-orange-500"
-        />
-      </Row>
+      {/* The old "Input Gain" slider was removed 2026-07-25 (reviewer 🟡):
+          it persisted INPUT_GAIN_KEY but nothing in the capture pipeline
+          ever read it — a decorative control sitting next to the real
+          Mic Boost slider above was actively misleading. */}
 
       <div className="pt-3 space-y-3">
         <div className="flex items-center justify-between">

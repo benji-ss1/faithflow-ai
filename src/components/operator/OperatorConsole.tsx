@@ -108,12 +108,21 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
       // #4: honor the simplified auto-approve toggle first — it's the
       // primary switch operators interact with. If the toggle key is set
       // it wins over the legacy autopilot mode key.
-      const autoRaw = window.localStorage.getItem("presentflow.pro.autoApprove.v1");
+      // 2026-07-25 security fix (review 🔴): read sessionStorage ONLY, matching
+      // the Y3 decision that auto-LIVE must be consciously re-armed each
+      // session. This was reading localStorage, which — combined with the new
+      // AI-listening auto-start — let two XSS-written localStorage keys arm a
+      // zero-touch mic→detect→auto-live chain on every future app launch.
+      // Same reason the legacy autopilot key below may hydrate any mode
+      // EXCEPT "active": localStorage can restore preferences, never live-fire.
+      const autoRaw = window.sessionStorage.getItem("presentflow.pro.autoApprove.v1");
       if (autoRaw === "1") { setAutopilotModeInner("active"); return; }
       if (autoRaw === "0") { setAutopilotModeInner("suggestion"); return; }
       const raw = window.localStorage.getItem(AUTOPILOT_MODE_KEY);
-      if (raw === "manual" || raw === "suggestion" || raw === "armed" || raw === "active") {
+      if (raw === "manual" || raw === "suggestion" || raw === "armed") {
         setAutopilotModeInner(raw);
+      } else if (raw === "active") {
+        setAutopilotModeInner("armed"); // one keypress from live, never auto
       }
     } catch { /* noop */ }
   }, []);
@@ -346,14 +355,40 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
   // start fails (revoked permission, device gone), useAudioStream surfaces
   // its normal error state — same as a manual toggle failing.
   const aiAutoStartTriedRef = useRef(false);
+  // Latest audio state for the deferred auto-start check below — the mount
+  // effect's closure would otherwise see the initial (pre-warmStart) state.
+  const audioLatestRef = useRef(audio);
+  useEffect(() => { audioLatestRef.current = audio; });
   useEffect(() => {
     if (aiAutoStartTriedRef.current) return;
-    aiAutoStartTriedRef.current = true;
-    if (autopilotMode === "manual") return; // manual mode forces audio off
-    let intentOn = false;
-    try { intentOn = window.localStorage.getItem(AI_LISTEN_INTENT_KEY) === "1"; } catch { /* noop */ }
-    if (!intentOn || audio.listening) return;
-    startAudio().catch(() => { /* error surfaced via audio.error */ });
+    try {
+      // Reviewer 🟡 fix: read the PERSISTED mode, not the `autopilotMode`
+      // state var — hydration commits after this effect, so a saved
+      // "manual" mode would otherwise start the mic and immediately stop
+      // it (permission/pipeline flap on every load for manual-mode users).
+      if (window.localStorage.getItem(AUTOPILOT_MODE_KEY) === "manual") return;
+      if (window.localStorage.getItem(AI_LISTEN_INTENT_KEY) !== "1") return;
+    } catch { return; }
+    // Reviewer 🟡 fix: defer past the shell's warm-start effect and prefer
+    // resume() over a second cold start() when the pipeline is already warm
+    // (avoids churning the mic + a wasted ticket fetch on every launch).
+    const t = window.setTimeout(() => {
+      // Marked tried at FIRE time (not schedule time) so a StrictMode
+      // dev double-mount's cancelled first timer doesn't burn the one-shot.
+      if (aiAutoStartTriedRef.current) return;
+      aiAutoStartTriedRef.current = true;
+      const a = audioLatestRef.current;
+      if (a.listening) return;
+      const kick = a.warmStarted ? Promise.resolve(resumeAudio()) : startAudio();
+      Promise.resolve(kick)
+        .then(() => {
+          // Surprise-hot-mic guard (security review 🟡): make the auto-resume
+          // visible so an operator who forgot AI was armed notices immediately.
+          toast.info("AI listening auto-resumed from your last session — toggle AI OFF in the top bar to stop.");
+        })
+        .catch(() => { /* error surfaced via audio.error */ });
+    }, 600);
+    return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

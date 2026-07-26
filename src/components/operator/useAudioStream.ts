@@ -856,6 +856,12 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
 
   const scheduleReconnect = useCallback(() => {
     if (intentionalStopRef.current) return;
+    // Reviewer 🟡 fix: pending-timer guard. If the watchdog kicks a socket
+    // stuck in CLOSING and its eventual onclose then schedules again, the
+    // second setTimeout would overwrite reconnectTimerRef — the first timer
+    // leaks, both fire, and teardown+start churn twice. One pending retry
+    // at a time; the pending one already covers the recovery.
+    if (reconnectTimerRef.current !== null) return;
     const attempt = ++reconnectAttemptsRef.current;
     reconnectsCountRef.current += 1;
     setState((s) => ({ ...s, reconnectAttempts: attempt }));
@@ -1199,7 +1205,11 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         if (msg.type === "interim") { setStage("receiving_interim"); log("7 interim", msg.text); }
         if (msg.type === "final") { setStage("receiving_final"); log("8 final", msg.text); }
         if (msg.type === "detection" || msg.type === "song" || msg.type === "command") log(`9 ${msg.type}`);
-        if (msg.type === "interim") { lastTranscriptAtRef.current = Date.now(); setState((s) => ({ ...s, interim: msg.text })); }
+        // Reviewer 🟡 fix: only refresh the transcript clock for NON-EMPTY
+        // text. Deepgram emits empty interims/finals during pure silence
+        // (keepalive pushes, VAD flushes); counting those kept the heartbeat
+        // dot green and deferred auto-pause while nothing was being heard.
+        if (msg.type === "interim") { if (typeof msg.text === "string" && msg.text.trim()) lastTranscriptAtRef.current = Date.now(); setState((s) => ({ ...s, interim: msg.text })); }
         else if (msg.type === "interim_final_candidate") {
           // Perf fix #2E: run detection on a high-confidence, sufficiently-
           // long interim so verse cards can render 1-2s earlier than the
@@ -1219,7 +1229,8 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           }
         }
         else if (msg.type === "final") {
-          lastTranscriptAtRef.current = Date.now();
+          // Non-empty guard: see interim handler above.
+          if (typeof msg.text === "string" && msg.text.trim()) lastTranscriptAtRef.current = Date.now();
           const words = Array.isArray(msg.words) ? msg.words as { w: string; c: number }[] : undefined;
           // Server sets wordsDropped when > 500 words were trimmed off a long
           // utterance. Persist that so the auto-approve gate can conservatively

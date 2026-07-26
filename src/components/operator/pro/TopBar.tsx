@@ -554,13 +554,18 @@ export function TopBar({
                   grey        = AI off */}
             {(() => {
               const lastAt = ctx.audio.lastTranscriptAt;
-              const beat: "off" | "down" | "quiet" | "flowing" = !listening
-                ? "off"
-                : (!ctx.audio.ready || ctx.audio.noAudioSignal)
-                  ? "down"
-                  : (typeof lastAt === "number" && heartbeatNow - lastAt < 10_000)
-                    ? "flowing"
-                    : "quiet";
+              // reconnectFailed outranks !listening (stress review follow-up):
+              // a give-up flips listening=false, and a grey dot there reads
+              // as "operator turned it off" when the truth is "it died".
+              const beat: "off" | "down" | "quiet" | "flowing" = ctx.audio.reconnectFailed
+                ? "down"
+                : !listening
+                  ? "off"
+                  : (!ctx.audio.ready || ctx.audio.noAudioSignal)
+                    ? "down"
+                    : (typeof lastAt === "number" && heartbeatNow - lastAt < 10_000)
+                      ? "flowing"
+                      : "quiet";
               const label = beat === "off" ? "AI is off"
                 : beat === "down" ? "AI pipeline down — audio isn't reaching transcription (reconnecting or no signal)"
                 : beat === "quiet" ? "Connected, but no speech transcribed in the last 10s — check the mic is unmuted and someone is speaking"
@@ -572,7 +577,8 @@ export function TopBar({
                       role="status"
                       aria-label={`AI heartbeat: ${label}`}
                       data-testid="ai-heartbeat-dot"
-                      className="flex items-center justify-center w-4 h-4"
+                      tabIndex={0}
+                      className="flex items-center justify-center w-4 h-4 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
                     >
                       <span
                         aria-hidden
