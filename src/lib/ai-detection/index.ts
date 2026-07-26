@@ -75,7 +75,13 @@ export async function detectAll(chunk: string, ctx: DetectAllContext): Promise<D
     const hit = detectSongInTranscript(chunk, ctx.library, { useDedupe: false });
     if (hit && (hit.matchType === "exact" || hit.matchType === "substring")) {
       const song = ctx.library.find((s) => s.songId === hit.songId);
-      if (song) {
+      // SAFETY GATE (same invariant as matchSongCue): a song whose slides
+      // carry no lyric text must never become a candidate — there is
+      // nothing to project, and an exact-title trigger hit was surfacing
+      // it at 98% with an empty previewPayload. This path was built after
+      // the gate and missed it.
+      const hasLyrics = !!song && song.slides.some((s) => s.lyrics && s.lyrics.trim().length > 0);
+      if (song && hasLyrics) {
         const planIdSet = new Set(ctx.planSongIds || []);
         const source: SongMatchResult["source"] = planIdSet.has(song.songId)
           ? "playlist"
