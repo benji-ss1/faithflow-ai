@@ -139,16 +139,49 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
     }
   };
 
-  const handleSongChipClick = (songId: string, songTitle: string, inPlaylist: boolean) => {
-    if (inPlaylist) {
-      scrollToPlaylistSong(songId);
+  // 2026-07-26 — direct operator click on a song chip fires slide 1 to live.
+  // CLAUDE.md rule 7 forbids AI/autopilot from projecting songs below 85%
+  // confidence, but it explicitly carves out "direct operator intent is
+  // trusted" (see SongsBrowser onClick for the same pattern). A chip click
+  // is unambiguous operator intent. 10s per-song cooldown so a jitter of
+  // repeat clicks (or the same click landing on the chip + the underlying
+  // banner) can't double-fire the same song.
+  const songClickFiredAtRef = useRef<Map<string, number>>(new Map());
+  const SONG_CLICK_COOLDOWN_MS = 10_000;
+  const handleSongChipClick = async (songId: string, songTitle: string, inPlaylist: boolean) => {
+    const lastFire = songClickFiredAtRef.current.get(songId) ?? 0;
+    if (Date.now() - lastFire < SONG_CLICK_COOLDOWN_MS) {
+      // Second click within cooldown — treat as "take me to it in the playlist"
+      // (previous click already fired live).
+      if (inPlaylist) scrollToPlaylistSong(songId);
       return;
     }
-    if (ctx.onAddLibraryItem) {
-      // Load slides into the plan; the reload triggered by onAddLibraryItem
-      // will surface the new item at the end of the playlist. Do NOT
-      // auto-project — per CLAUDE.md rule 7, songs never auto-project.
-      void ctx.onAddLibraryItem("song", { id: songId, title: songTitle });
+    try {
+      // Fetch slides directly instead of waiting on onAddLibraryItem's async
+      // reload — the operator wants the projector updated NOW, not on next
+      // router.refresh() round trip.
+      const res = await fetch(`/api/songs/${songId}/slides`).then((r) => r.json());
+      const slides = Array.isArray(res.slides) ? (res.slides as { lyrics: string }[]) : [];
+      const firstLyric = slides.map((s) => (typeof s.lyrics === "string" ? s.lyrics : "")).find((t) => t.trim().length > 0);
+      if (firstLyric) {
+        ctx.onSendSlideToLive({ kind: "text", text: firstLyric });
+        songClickFiredAtRef.current.set(songId, Date.now());
+        toast.success(`"${songTitle}" → LIVE (slide 1)`);
+      } else {
+        toast.info(`"${songTitle}" has no lyric slides yet — open the song in the library to add lyrics.`);
+      }
+    } catch (e) {
+      console.warn("[song-chip-click] fetch slides failed", e);
+      toast.error(`Couldn't load "${songTitle}" — check DevTools console.`);
+      return;
+    }
+    // Add to playlist too if not there yet, so the operator can navigate
+    // between slides via the transport bar / SlideGrid afterward.
+    if (!inPlaylist && ctx.onAddLibraryItem) {
+      try { await ctx.onAddLibraryItem("song", { id: songId, title: songTitle }); }
+      catch { /* non-fatal — live already fired */ }
+    } else if (inPlaylist) {
+      scrollToPlaylistSong(songId);
     }
   };
 
@@ -216,14 +249,14 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
             const songId = s.match.songId;
             const title = s.match.title;
             const inPlaylist = playlistSongIds.has(songId);
+            // 2026-07-26 tip reflects the new click behavior: chip click
+            // fires slide 1 to live (direct operator intent, trusted per
+            // rule 7). Second click within 10s = scroll-to-playlist only.
             const rawTip = inPlaylist
-              ? `${title} — already in playlist (${s.confidence}%)`
-              : `${title} (${s.confidence}%) — click to add`;
-            // Y8: keep tooltip DOM attr from ballooning on very long song titles.
-            const tip = rawTip.length > 120 ? rawTip.slice(0, 117) + "…" : rawTip;
-            // Y6: full a11y label — screen readers get title + confidence +
-            // playlist state + affordance.
-            const ariaLabel = `${title}, ${s.confidence}% match${inPlaylist ? ", already in playlist" : ", click to add"}`;
+              ? `${title} — in playlist (${s.confidence}%) — click to play slide 1 live`
+              : `${title} (${s.confidence}%) — click to play slide 1 live (also adds to playlist)`;
+            const tip = rawTip.length > 140 ? rawTip.slice(0, 137) + "…" : rawTip;
+            const ariaLabel = `${title}, ${s.confidence}% match${inPlaylist ? ", in playlist" : ""}, click to play slide 1 live`;
             return (
               <button
                 key={s.id}

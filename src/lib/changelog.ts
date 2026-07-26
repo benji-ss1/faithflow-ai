@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.63",
+    date: "2026-07-26",
+    headline: "Song chip click now fires slide 1 to LIVE (direct operator intent) + adds to playlist",
+    highlights: [
+      "Clicking a song chip in the AI chips bar at the bottom now fetches that song and pushes slide 1 to the projector immediately, plus adds it to the playlist if it wasn't already there. Previously the click only added-to-playlist (or scrolled to it) — never projected. Direct operator intent is trusted per CLAUDE.md rule 7's carve-out, same policy the SongsBrowser click uses. Success toast confirms the fire. 10-second per-song cooldown so a jittery double-click can't double-fire (second click within cooldown scrolls to the playlist row instead)",
+      "Empty-lyric songs (song row with slides but no text yet) show an actionable toast on click ('open in library to add lyrics') instead of silently projecting a blank slide. This is the same hasLyrics safety gate v0.1.62 added to the AI title-trigger path — now consistent between AI detection and manual chip click",
+      "Note on the 60-84% band: AI-detected songs at 60-84% confidence still STAGE (orange banner appears with a 'GO LIVE →' button; press G to fire). Zero-click auto-project stays at ≥85% per the copyright-safety product policy. If you want a lower auto-project threshold, that needs a separate product signoff — clicking the chip is the manual override in the meantime",
+    ],
+  },
+  {
     version: "0.1.62",
     date: "2026-07-26",
     headline: "Audio reliability pass — heartbeat dot, AI auto-start, mic boost + high-pass, cache-clear menu, empty-song safety, more homophone repairs",
