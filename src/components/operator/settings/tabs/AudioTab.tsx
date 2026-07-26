@@ -287,7 +287,10 @@ export function AudioTab() {
           100 Hz high-pass before the worklet). Changes restart the listener
           via the same audio-input-changed event device switches use. */}
       {(() => {
-        const effectiveBoost = micBoost ?? (sourceType === "microphone" ? 1.5 : 1);
+        // Mixer feeds cap at 2x (line-level signal clips at 3x — see the
+        // matching clamp in useAudioStream's pipeline build); mics get 3x.
+        const maxBoost = sourceType === "microphone" ? 3 : 2;
+        const effectiveBoost = Math.min(maxBoost, micBoost ?? (sourceType === "microphone" ? 1.5 : 1));
         const effectiveHp = highpassOn ?? (sourceType === "microphone");
         const restartPipeline = () => {
           try { window.dispatchEvent(new CustomEvent("presentflow:audio-input-changed", { detail: { reason: "mic-preprocessing" } })); } catch {}
@@ -298,11 +301,11 @@ export function AudioTab() {
               <input
                 type="range"
                 min={1}
-                max={3}
+                max={maxBoost}
                 step={0.1}
                 value={effectiveBoost}
                 onChange={(e) => {
-                  const v = Math.min(3, Math.max(1, Number(e.target.value) || 1));
+                  const v = Math.min(maxBoost, Math.max(1, Number(e.target.value) || 1));
                   setMicBoost(v);
                   try { localStorage.setItem(MIC_BOOST_KEY, String(v)); } catch {}
                 }}

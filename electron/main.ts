@@ -177,8 +177,8 @@ function installApplicationMenu() {
         // 2026-07-25 Bug-5 (tester stale-build): replace the stock
         // forceReload role (same Cmd+Shift+R accelerator) with a
         // deeper "clear cache and reload" that also drops Service
-        // Workers and CacheStorage — the two stores a plain
-        // reloadIgnoringCache leaves intact. Deliberately does NOT
+        // Workers, CacheStorage, and the GPU shader cache — stores a
+        // plain reloadIgnoringCache leaves intact. Deliberately does NOT
         // clear localStorage/cookies: that would sign the operator out
         // and wipe their audio/display settings mid-troubleshoot.
         {

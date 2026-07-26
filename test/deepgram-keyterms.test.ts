@@ -58,11 +58,14 @@ test("per-church file overrides default.json", () => {
     path.join(dir, "deepgram-keyterms", "default.json"),
     JSON.stringify({ terms: ["Default1"] }),
   );
+  // Y15 hardening: loadKeyterms only honors UUID-shaped church ids (path
+  // traversal guard) — a slug like "church-xyz" is treated as default.
+  const uuid = "3f2b1a90-1111-4222-8333-abcdefabcdef";
   fs.writeFileSync(
-    path.join(dir, "deepgram-keyterms", "church-xyz.json"),
+    path.join(dir, "deepgram-keyterms", `${uuid}.json`),
     JSON.stringify({ terms: ["Custom1", "Custom2"] }),
   );
-  const terms = loadKeyterms("church-xyz");
+  const terms = loadKeyterms(uuid);
   assert.deepEqual(terms, ["Custom1", "Custom2"]);
 });
 

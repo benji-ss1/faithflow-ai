@@ -66,7 +66,11 @@ class FakeWebSocket {
 (globalThis as unknown as { WebSocket: unknown }).WebSocket = FakeWebSocket;
 
 // --- fetch stub ---
+// R7 hardening in useAudioStream checks status/ok before parsing the body;
+// a stub without them reads as `!ok` → "Ticket undefined" → instant stop().
 (globalThis as unknown as { fetch: unknown }).fetch = async () => ({
+  ok: true,
+  status: 200,
   json: async () => ({ url: "ws://localhost/fake" }),
 });
 
@@ -141,8 +145,14 @@ async function main() {
   const ws1 = FakeWebSocket.instances[0];
   await act(async () => { ws1.forceAbnormalClose(); await sleep(10); });
   assert(apiRef!.state.listening === true, "listening stays true during reconnect");
-  assert(apiRef!.state.ready === false, "ready flipped false");
-  assert(/Reconnecting/.test(apiRef!.state.error || ""), "error shows reconnecting", apiRef!.state.error || "");
+  // 2026-07-24 silent-reconnect decision (see TopBar binary-pill comment +
+  // scheduleReconnect): a transient blip must NOT surface to the operator.
+  // `ready` rides a 3s grace window before downgrading, and no user-facing
+  // error string is set during the backoff loop — the old assertions
+  // ("ready flips false immediately", "error shows Reconnecting") tested
+  // behavior that was deliberately removed.
+  assert(apiRef!.state.error === null, "no user-facing error during transient reconnect", apiRef!.state.error || "null");
+  assert(apiRef!.state.reconnectAttempts >= 1, "reconnect attempt scheduled", String(apiRef!.state.reconnectAttempts));
 
   // Wait for first backoff (~0.5s + jitter up to 0.5s => 500-1000ms) + safety margin
   await act(async () => { await sleep(1500); });

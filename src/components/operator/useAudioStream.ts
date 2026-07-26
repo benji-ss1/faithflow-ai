@@ -1651,7 +1651,11 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         highpassOn = hpRaw === null ? isMicSource : hpRaw === "1";
         const boostRaw = window.localStorage.getItem(MIC_BOOST_KEY);
         const parsedBoost = boostRaw === null ? (isMicSource ? 1.5 : 1) : parseFloat(boostRaw);
-        boost = Number.isFinite(parsedBoost) ? Math.min(3, Math.max(1, parsedBoost)) : 1;
+        // Stress review: a mixer feed is already line-level; 3x drives it
+        // into the worklet's [-1,1] clamp (hard clipping → worse ASR, not
+        // better). Cap mixer at 2x; bare mics keep the full 3x headroom.
+        const maxBoost = isMicSource ? 3 : 2;
+        boost = Number.isFinite(parsedBoost) ? Math.min(maxBoost, Math.max(1, parsedBoost)) : 1;
       } catch { highpassOn = false; boost = 1; }
       let pipelineTail: AudioNode = source;
       if (highpassOn) {
@@ -1802,12 +1806,29 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   useEffect(() => {
     if (typeof window === "undefined") return;
     let restartTimer: ReturnType<typeof setTimeout> | null = null;
+    // Security review 🟡 — restart floor. The 300ms debounce coalesces
+    // bursts but doesn't rate-limit SUSTAINED spam: an injected
+    // audio-input-changed every ~400ms kept the pipeline in a perpetual
+    // stop/reopen cycle (each cycle = a fresh Deepgram WS = billable
+    // connection churn). Enforce a minimum interval between ACTUAL
+    // restarts; a request landing inside the floor is deferred to the
+    // floor boundary, never dropped, so a legitimate rapid device swap
+    // still applies — just up to 5s later.
+    const RESTART_FLOOR_MS = 5_000;
+    let lastPipelineRestartAt = 0;
     const scheduleRestart = (reason: string, debounceMs: number) => {
       if (restartTimer) clearTimeout(restartTimer);
       restartTimer = setTimeout(() => {
         restartTimer = null;
         // Refs, not captured state — F2.
         if (!listeningRef.current && !warmStartedRef.current) return;
+        const sinceLast = Date.now() - lastPipelineRestartAt;
+        if (sinceLast < RESTART_FLOOR_MS) {
+          if (isDevOrTraceOn()) console.log(`[presentflow-audio] ${reason} — inside restart floor, deferring ${RESTART_FLOOR_MS - sinceLast}ms`);
+          scheduleRestart(reason, RESTART_FLOOR_MS - sinceLast);
+          return;
+        }
+        lastPipelineRestartAt = Date.now();
         if (isDevOrTraceOn()) console.log(`[presentflow-audio] ${reason} — restarting pipeline`);
         stop();
         setTimeout(() => { startRef.current().catch(() => { /* ignore */ }); }, 100);

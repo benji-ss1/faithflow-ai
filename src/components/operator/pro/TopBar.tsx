@@ -573,8 +573,12 @@ export function TopBar({
               return (
                 <Tooltip.Root>
                   <Tooltip.Trigger asChild>
+                    {/* role="img" not role="status" (reviewer 🟡): a live
+                        region would re-announce every quiet↔flowing flap
+                        during normal speech pauses — constant SR chatter.
+                        The label is read on focus; state changes stay silent. */}
                     <span
-                      role="status"
+                      role="img"
                       aria-label={`AI heartbeat: ${label}`}
                       data-testid="ai-heartbeat-dot"
                       tabIndex={0}
