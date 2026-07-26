@@ -37,8 +37,8 @@ const RAW_BOOKS: [string, string[]][] = [
   ["2 Samuel", ["2 samuel", "second samuel", "2nd samuel", "two samuel", "ii samuel", "2 sam", "2sam", "2 sm", "2s"]],
   ["1 Kings", ["1 kings", "first kings", "1st kings", "one kings", "i kings", "1 kgs", "1kgs"]],
   ["2 Kings", ["2 kings", "second kings", "2nd kings", "two kings", "ii kings", "2 kgs", "2kgs"]],
-  ["1 Chronicles", ["1 chronicles", "first chronicles", "1st chronicles", "one chronicles", "i chronicles", "1 chron", "1 ch"]],
-  ["2 Chronicles", ["2 chronicles", "second chronicles", "2nd chronicles", "two chronicles", "ii chronicles", "2 chron", "2 ch"]],
+  ["1 Chronicles", ["1 chronicles", "first chronicles", "1st chronicles", "one chronicles", "i chronicles", "1 chron", "1 chr", "1 ch"]],
+  ["2 Chronicles", ["2 chronicles", "second chronicles", "2nd chronicles", "two chronicles", "ii chronicles", "2 chron", "2 chr", "2 ch"]],
   ["Ezra", ["ezra", "ezr"]],
   ["Nehemiah", ["nehemiah", "neh"]],
   ["Esther", ["esther", "esth", "est"]],
@@ -443,7 +443,11 @@ const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => Pa
   // "SingleChapterBook verse N"
   {
     name: "single_chapter_book_verse",
-    regex: new RegExp(`\\b(obadiah|philemon|2 john|3 john|second john|third john|jude)\\s+(?:verse\\s+)?${NUM_CHUNK}\\b`, "gi"),
+    // Don't match when the "verse" number is really a chapter followed by
+    // ":verse" — for single-chapter books people often still write "1:6"
+    // (chapter 1, verse 6). That case is handled correctly by
+    // book_ch_colon_verse below once we skip it here.
+    regex: new RegExp(`\\b(obadiah|philemon|2 john|3 john|second john|third john|jude)\\s+(?:verse\\s+)?${NUM_CHUNK}\\b(?!\\s*:)`, "gi"),
     parse: (m) => {
       const bookKey = m[1].toLowerCase().replace(/\s+/g, " ");
       const book = VARIANT_TO_BOOK.get(bookKey);
@@ -560,8 +564,15 @@ const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => Pa
       const chapter = chunkToNum(m[2]);
       const verse = chunkToNum(m[3]);
       if (!book || !isFinite(chapter) || !isFinite(verse)) return null;
-      // Chapter-only books (Obadiah, Philemon, 2/3 John, Jude) — the "verse" is actually a chapter number if we mis-detect
+      // Chapter-only books (Obadiah, Philemon, 2/3 John, Jude): when
+      // written "Philemon 1:6" (with explicit chapter=1 + colon), the
+      // second number is the verse. Only fall back to "first number is
+      // verse" if the leading number isn't literally 1 (which would be
+      // impossible as a real verse-in-chapter-that-doesn't-exist).
       if (SINGLE_CHAPTER_BOOKS.has(book)) {
+        if (chapter === 1) {
+          return { book, chapter: 1, verseStart: verse, verseEnd: verse, confidence: 92, matchedText: m[0], needsSemanticFallback: false };
+        }
         return { book, chapter: 1, verseStart: chapter, verseEnd: chapter, confidence: 90, matchedText: m[0], needsSemanticFallback: false };
       }
       if (!isValidChapter(book, chapter)) return null;

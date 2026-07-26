@@ -585,20 +585,30 @@ function LiveTranscriptPanel({ ctx }: { ctx: OperatorShellCtx }) {
 // ---------------------------------------------------------------------------
 // Parts 6-8 — Song auto-stage/auto-live and word-timing slide auto-advance.
 //
-// Policy (explicit, user-approved 2026-07-22 — see CLAUDE.md rule 7): below
-// SONG_AUTOLIVE_CONFIDENCE, a song detection only stages (human "G" keypress
-// via `confirmStagedSongLive` required to go live). At/above
-// SONG_AUTOLIVE_CONFIDENCE, `autoLiveSong` pushes it live with ZERO human
-// action, using the exact same anti-replay/min-gap guardrails proven out by
-// Bible's `doAutoFire` (see AUTO_APPROVE_KEY_INSTANT effect below): a
-// session-persisted fired-key map (5min replay suppression) and a min-gap
-// cooldown between auto-live events (falls back to staging, never silently
-// drops, if a second high-confidence song lands inside the cooldown). This
-// is a deliberate, documented exception to the historical "only one human
-// keypress may call ctx.onSendSlideToLive" invariant — the user explicitly
-// accepted the copyright-safety tradeoff for the ≥85% tier only. Do not lower
-// SONG_AUTOLIVE_CONFIDENCE or extend zero-click to other content without new
-// explicit sign-off.
+// Policy (originally user-approved 2026-07-22; threshold-lowered with fresh
+// sign-off 2026-07-26 — see CLAUDE.md rule 7): below SONG_AUTOLIVE_CONFIDENCE,
+// a song detection only stages (human "G" keypress via `confirmStagedSongLive`
+// required to go live). At/above SONG_AUTOLIVE_CONFIDENCE, `autoLiveSong`
+// pushes it live with ZERO human action, using the exact same
+// anti-replay/min-gap guardrails proven out by Bible's `doAutoFire` (see
+// AUTO_APPROVE_KEY_INSTANT effect below): a session-persisted fired-key map
+// (5min replay suppression) and a min-gap cooldown between auto-live events
+// (falls back to staging, never silently drops, if a second high-confidence
+// song lands inside the cooldown). This is a deliberate, documented exception
+// to the historical "only one human keypress may call ctx.onSendSlideToLive"
+// invariant — the user explicitly accepted the copyright-safety tradeoff.
+//
+// 2026-07-26 threshold change: 85 → 70 (user sign-off). Rationale from the
+// field: at 85% the auto-live band was too narrow — most real detections
+// landed in the 60-84% stage-only band, requiring a human G keypress that
+// operators often missed. Lowering to 70 widens the zero-click band while
+// keeping a ≥10-point gap above SONG_STAGE_CONFIDENCE so the intermediate
+// "operator confirms" band still exists. If 70 turns out to still fire
+// undesirably, drop to 65 with a fresh sign-off; do not go below 65 without
+// a fresh field-data conversation about false-fire risk.
+//
+// Do not lower SONG_AUTOLIVE_CONFIDENCE further or extend zero-click to
+// other content types without new explicit sign-off.
 //
 // CLAUDE.md rule 7 is enforced upstream in autopilot.ts's isSong branch and
 // OperatorConsole's gate — neither is touched here.
@@ -609,7 +619,7 @@ const SONG_AUTOSTAGE_CONFIRM_KEY = "KeyG"; // "G" for "Go live" — Space is
 // deliberately picked a different key to avoid a silent collision.
 
 const SONG_STAGE_CONFIDENCE = 60; // stage for human "G" confirm
-const SONG_AUTOLIVE_CONFIDENCE = 85; // zero-click auto-live, see policy note above
+const SONG_AUTOLIVE_CONFIDENCE = 70; // zero-click auto-live — lowered 85→70 on 2026-07-26 with user sign-off; see policy note above
 const SONG_AUTO_FIRED_SESSION_KEY = "presentflow.pro.songAutoFired.v1"; // 5min replay suppression, mirrors AUTO_FIRED_SESSION_KEY
 // 2026-07-24 nudge to 800 ms after false-trigger report at 700 ms. Per
 // tuning heuristic: if false triggers climb at any step, +100 ms until

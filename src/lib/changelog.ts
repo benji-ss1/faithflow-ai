@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.64",
+    date: "2026-07-26",
+    headline: "Songs now auto-project at 70% confidence (was 85%) — product-owner sign-off after field test",
+    highlights: [
+      "SONG_AUTOLIVE_CONFIDENCE lowered from 85 → 70. At/above 70%, an AI-detected song now zero-click auto-projects to LIVE. Between 60-69%, songs continue to STAGE (orange banner + G to fire). Below 60%, chip only. Rationale from JPD field test data: at 85% the auto-live band was so narrow most real detections landed in the stage-only band and operators frequently missed the G keypress. The 60-69% stage band is preserved as the intermediate 'operator confirms' tier",
+      "Same anti-replay + min-gap guardrails apply at the new 70% floor (5-min per-song replay suppression + 800ms min-gap between auto-fires, both with the different-song-live bypass). Copyright rule 7 is now updated in CLAUDE.md with the new threshold + the sign-off recorded",
+      "This complements v0.1.63's chip-click carve-out (direct operator click ALWAYS fires slide 1 to live regardless of confidence). Together: the AI handles ≥70% by itself, 60-69% ask you to confirm, and clicking any chip is the manual override for anything else",
+    ],
+  },
+  {
     version: "0.1.63",
     date: "2026-07-26",
     headline: "Song chip click now fires slide 1 to LIVE (direct operator intent) + adds to playlist",
