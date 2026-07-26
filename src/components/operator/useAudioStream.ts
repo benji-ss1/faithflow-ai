@@ -1476,11 +1476,32 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         const TARGET_RATE = 16000;
         const INPUT_RATE = ${ctxRate};
         const RATIO = INPUT_RATE / TARGET_RATE;
+        // 2026-07-26 mixer-USB fix — multi-channel devices (Allen & Heath
+        // SQ = 32 ch, Behringer X32 etc.) send many channels over USB.
+        // Previous worklet only read ch = input[0] (channel 0), which was
+        // silent on most mixers because the main mix is routed to a
+        // different channel. We now sum all incoming channels sample-wise
+        // (like a per-sample mean) so we catch signal on ANY routed
+        // channel. Safe no-op for single-channel mics (input.length === 1).
+        // Scale by 1/sqrt(N) to keep summed signal in the -1..1 range
+        // (matches Web Audio's speakers-downmix normalization for N > 1).
+        function mixToMono(inputChannels, outLen) {
+          const N = inputChannels.length;
+          if (N === 1) return inputChannels[0];
+          const mixed = new Float32Array(outLen);
+          const norm = 1 / Math.sqrt(N);
+          for (let c = 0; c < N; c++) {
+            const src = inputChannels[c];
+            for (let i = 0; i < outLen; i++) mixed[i] += src[i] * norm;
+          }
+          return mixed;
+        }
         class PCMSender extends AudioWorkletProcessor {
           process(inputs) {
             const input = inputs[0];
             if (!input || !input[0]) return true;
-            const ch = input[0];
+            // Sum all channels to mono BEFORE resample/quantize.
+            const ch = mixToMono(input, input[0].length);
             let out;
             if (RATIO === 1) {
               out = new Int16Array(ch.length);
@@ -1513,7 +1534,25 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       URL.revokeObjectURL(workletUrl);
       setStage("worklet_loaded"); log("worklet_loaded");
 
-      const node = new AudioWorkletNode(audioCtx, "pcm-sender");
+      // 2026-07-26 mixer-USB fix — determine the actual channel count of
+      // the incoming stream so we can wire the worklet node to accept
+      // all of them without letting Chromium's default speakers-downmix
+      // collapse a 32-channel SQ USB feed to stereo before it hits the
+      // worklet. With channelCountMode:"max" (default) + channelCount:2
+      // (default), a 32-ch source gets downmixed to 2. We need to
+      // preserve all channels so mixToMono() in the worklet can sum
+      // whatever routed channel actually carries the vocal.
+      const streamTrack = stream.getAudioTracks()[0];
+      const streamChannels = Math.max(1, streamTrack?.getSettings?.().channelCount || 1);
+      log("4d stream channels", streamChannels);
+      const node = new AudioWorkletNode(audioCtx, "pcm-sender", {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        // Explicit channel handling so multi-ch mixer feeds reach process() intact.
+        channelCount: streamChannels,
+        channelCountMode: "explicit",
+        channelInterpretation: "discrete",
+      });
       workletNodeRef.current = node;
       let sentChunks = 0;
       node.port.onmessage = (e) => {

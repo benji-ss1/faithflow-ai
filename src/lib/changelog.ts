@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.77",
+    date: "2026-07-26",
+    headline: "Multi-channel mixer USB support — Allen & Heath SQ, Behringer X32, Yamaha TF etc. now capture audio on ANY routed channel",
+    highlights: [
+      "Field-critical from JPD live: Allen & Heath SQ mixer connected via USB was showing as selected in PresentFlow but no audio was reaching Deepgram. Root cause: professional digital mixers (SQ, X32, TF, StudioLive, Soundcraft Ui, QSC TouchMix, Midas M32) send up to 32 channels over USB, and Chromium defaults to `channelCount: 1` which captures channel 1 only — usually silent because the main mix / vocal bus is routed to a different USB channel",
+      "Fix: when Source Type is 'Mixer / Interface' (the default), PresentFlow now requests up to 32 channels via `getUserMedia({channelCount: {ideal: 32}})`. The browser negotiates down to whatever the device actually supports — 1 for a mic, 2 for a stereo interface, up to 32 for an SQ. All received channels get summed to mono in the audio worklet BEFORE downsampling/quantizing, so we catch signal on ANY routed channel without the operator having to know which USB channel carries the vocal. Signal is normalized by 1/sqrt(N) to prevent clipping",
+      "For 'Microphone' source type (bare room mic), we keep `channelCount: 1` because DSP paths (echo cancellation, noise suppression, auto-gain) get confused by ambiguous multi-channel negotiation. Single-channel USB mics and Bluetooth devices unaffected — they still receive 1 channel and the sum is a no-op",
+      "Trade-off: on a multi-channel mixer where the vocal is on ONE specific channel, this sum-all approach also includes any instruments/room sounds routed to other channels. Fine for most preacher-mic setups; if you need per-channel selection (only vocals, ignore band mix), that's coming in a follow-up ship with a proper channel picker UI",
+    ],
+  },
+  {
     version: "0.1.76",
     date: "2026-07-26",
     headline: "Right-sidebar Settings › Audio popover is REAL now — was a 'coming soon' placeholder for months",

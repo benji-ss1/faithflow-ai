@@ -153,12 +153,31 @@ export function audioConstraintsFor(
 ): MediaStreamConstraints {
   const type = sourceType ?? readAudioSourceType();
   const dspOn = type === "microphone";
-  const base = {
+  const base: MediaTrackConstraints = {
     echoCancellation: dspOn,
     noiseSuppression: dspOn,
     autoGainControl: dspOn,
     sampleRate: 16000,
-  } as MediaTrackConstraints;
+  };
+  // 2026-07-26 mixer-USB fix — professional digital mixers (Allen & Heath
+  // SQ, Behringer X32, Yamaha TF, Midas M32, PreSonus StudioLive,
+  // Soundcraft Ui, QSC TouchMix) send up to 32 channels over USB. Chromium
+  // defaults to channelCount: 1 which captures channel 1 only — usually
+  // silent because the main mix / vocal bus is on a different channel.
+  // We now ask for up to 32 channels via `ideal`; browser negotiates down
+  // to whatever the device supports (1 for a mic, 2 for a stereo
+  // interface, up to 32 for an SQ). Worklet sums all channels to mono
+  // downstream — safe no-op for single-channel devices, functional
+  // sum for multi-channel mixers so we catch signal on ANY routed
+  // channel without operator having to know which one is the vocal.
+  // "microphone" mode keeps channelCount: 1 because a bare mic is
+  // mono by definition + DSP paths get confused by ambiguous channel
+  // negotiation.
+  if (type === "mixer") {
+    base.channelCount = { ideal: 32 } as ConstrainULong;
+  } else {
+    base.channelCount = 1;
+  }
   if (pref?.kind === "device" && pref.id && pref.id !== "default") {
     return { audio: { ...base, deviceId: { exact: pref.id } as ConstrainDOMString } };
   }
