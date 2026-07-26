@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.72",
+    date: "2026-07-26",
+    headline: "New-version notice banner — you'll now get pinged the moment a fresh DMG is out",
+    highlights: [
+      "Unsigned tester builds can't use the built-in macOS auto-updater (Squirrel refuses signature-less swaps at the OS level — pending Apple Developer enrollment). Until then, the app now polls GitHub every 30 min and shows a violet banner at the top of the operator when a newer release is available: 'Update X.Y.Z available — click to download the new DMG'. Click opens the release page in your browser; download the DMG for your Mac, right-click → Open on first launch, done",
+      "No behavior change if you're already on the latest version — banner only appears when GitHub actually has something newer than the version you're running",
+      "Ships to every existing tester on next Cmd+R / app relaunch (this is a web change served from Vercel, not a shell change — no reinstall required to get the banner itself)",
+    ],
+  },
+  {
     version: "0.1.70",
     date: "2026-07-26",
     headline: "Docs cut — surfaces the Bible parser fuzzy spoken-form fix that quietly shipped in v0.1.69",

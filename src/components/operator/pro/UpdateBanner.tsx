@@ -5,11 +5,17 @@
  * present with an `update` surface). The web build is a no-op.
  *
  * States:
- *   idle        → nothing rendered
- *   downloading → blue banner "Downloading update <v>…" (with 60s hang watchdog)
- *   ready       → green banner "Update <v> ready. Click to restart & install."
- *                 (blocks installNow mid-service; confirms before killing projection)
- *   error       → dismissible orange banner "Update check failed: <reason>"
+ *   idle              → nothing rendered
+ *   manual-available  → violet banner "Update <v> available. Click to download."
+ *                       Only surfaces on unsigned builds where the Squirrel
+ *                       auto-update gate in electron/main.ts:641 is closed.
+ *                       Polls the GitHub release API instead of relying on
+ *                       electron-updater. Click opens the release page in the
+ *                       default browser so the operator can install manually.
+ *   downloading       → blue banner "Downloading update <v>…" (auto-updater path)
+ *   ready             → green banner "Update <v> ready. Click to restart & install."
+ *                       (blocks installNow mid-service; confirms before killing projection)
+ *   error             → dismissible orange banner "Update check failed: <reason>"
  *
  * Live-service guard: if AI is listening OR the live slide is anything other
  * than empty/blank, we refuse installNow without an explicit confirm. Auto
@@ -18,8 +24,23 @@
 import { useEffect, useRef, useState } from "react";
 import type { SlidePayload } from "@/lib/broadcast";
 
+const GITHUB_LATEST_URL = "https://api.github.com/repos/benji-ss1/faithflow-ai/releases/latest";
+const GITHUB_RELEASE_PAGE = "https://github.com/benji-ss1/faithflow-ai/releases/latest";
+const MANUAL_POLL_INTERVAL_MS = 30 * 60 * 1000; // 30 min
+const MANUAL_POLL_INITIAL_DELAY_MS = 15 * 1000; // 15s after mount
+
+// Compare two semver-ish strings ("0.1.71" vs "0.1.36"). Returns >0 if a>b.
+// Ignores pre-release tags. Missing components treated as 0.
+function compareSemver(a: string, b: string): number {
+  const parse = (s: string) => s.replace(/^v/, "").split(".").map((n) => parseInt(n, 10) || 0);
+  const [a1, a2, a3] = parse(a);
+  const [b1, b2, b3] = parse(b);
+  return (a1 - b1) || (a2 - b2) || (a3 - b3);
+}
+
 type State =
   | { kind: "idle" }
+  | { kind: "manual-available"; version: string; url: string }
   | { kind: "downloading"; version: string }
   | { kind: "ready"; version: string }
   | { kind: "error"; message: string };
@@ -64,7 +85,66 @@ export function UpdateBanner({ liveSlide, listening }: { liveSlide?: SlidePayloa
     };
   }, []);
 
+  // Manual poll — for unsigned builds where the Squirrel auto-updater gate
+  // (electron/main.ts:641) refuses to initialize. This is the reality for every
+  // tester today; without this poll they'd never learn a new DMG exists. Skips
+  // when the auto-updater path is already active (downloading/ready/error) so
+  // signed builds don't get a duplicate surface.
+  useEffect(() => {
+    const api = typeof window !== "undefined" ? window.electronAPI : undefined;
+    if (!api?.app?.version) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const check = async () => {
+      try {
+        const current = await api.app.version();
+        if (cancelled || typeof current !== "string") return;
+        const res = await fetch(GITHUB_LATEST_URL, {
+          headers: { Accept: "application/vnd.github+json" },
+          cache: "no-store",
+        });
+        if (!res.ok || cancelled) return;
+        const data = await res.json() as { tag_name?: string; html_url?: string };
+        const latest = (data.tag_name || "").replace(/^v/, "");
+        if (!latest) return;
+        if (compareSemver(latest, current) > 0) {
+          setState((prev) => (prev.kind === "idle" ? { kind: "manual-available", version: latest, url: data.html_url || GITHUB_RELEASE_PAGE } : prev));
+        }
+      } catch { /* silent — offline / rate-limited / network flap */ }
+    };
+
+    const schedule = (delay: number) => {
+      timer = setTimeout(async () => {
+        if (cancelled) return;
+        await check();
+        schedule(MANUAL_POLL_INTERVAL_MS);
+      }, delay);
+    };
+    schedule(MANUAL_POLL_INITIAL_DELAY_MS);
+
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, []);
+
   if (state.kind === "idle") return null;
+
+  if (state.kind === "manual-available") {
+    return (
+      <button
+        onClick={async () => {
+          try {
+            await window.electronAPI?.shell?.openExternal(state.url);
+          } catch { /* noop — worst case operator uses the About dialog */ }
+        }}
+        className="w-full px-4 py-2 text-sm font-medium text-white flex items-center justify-center gap-2 cursor-pointer bg-violet-600 hover:bg-violet-500"
+        title="Open the release page in your browser to download the latest DMG"
+      >
+        <span>
+          ⬇ Update {state.version} available — click to download the new DMG (right-click → Open on first launch)
+        </span>
+      </button>
+    );
+  }
 
   if (state.kind === "downloading") {
     return (
