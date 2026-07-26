@@ -194,6 +194,14 @@ async function openDeepgram(churchId: string): Promise<WebSocket> {
     // issues in casual testing). Detection latency unaffected —
     // interim-final-candidate path bypasses this gate.
     endpointing: "100",
+    // 2026-07-25 distant-mic tuning: strip "uh"/"um" from transcripts —
+    // they add noise to the operator transcript and to the parser's input
+    // without carrying any scripture/song signal. (The companion ask to
+    // raise endpointing to 300 ms was declined — CLAUDE.md rule 10 and the
+    // 2026-07-24 field progression above lock low endpointing as a latency
+    // requirement; detection uses the interim path and is unaffected by
+    // quiet-speech finalization timing.)
+    filler_words: "false",
     encoding: "linear16",
     sample_rate: "16000",
     channels: "1",

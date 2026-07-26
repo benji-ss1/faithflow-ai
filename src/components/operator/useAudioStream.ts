@@ -4,7 +4,7 @@ import { detectAll, SuggestionDedupe, type DetectAllResult } from "@/lib/ai-dete
 import { parseBareVerse, parseBookVerseOnly, isValidChapter } from "@/lib/bible-parser";
 import { buildIndex, type IndexedSong, type SongIndex } from "@/lib/ai-detection/lyric-fragment";
 import type { SongMatchResult } from "@/lib/ai-detection/song-match";
-import { matchCustomCommand, readCustomCommands, readAudioInputPref, audioConstraintsFor } from "@/lib/voice-commands";
+import { matchCustomCommand, readCustomCommands, readAudioInputPref, audioConstraintsFor, AUDIO_SOURCE_TYPE_KEY } from "@/lib/voice-commands";
 import { dispatchInternal } from "@/lib/internal-events";
 import { CONFIDENCE_THRESHOLD } from "@/lib/audio-thresholds";
 
@@ -141,6 +141,12 @@ export type AudioStreamState = {
   // silent misfires is a mic / room / signal problem, not an AI bug.
   audioQuality: "ok" | "low" | null;
   audioQualityAvg: number; // 0..1 rolling avg of last N final-segment confidences
+  // Heartbeat (2026-07-25 Bug-3): wall-clock ms of the last transcript-bearing
+  // Deepgram message (interim / final / interim_final_candidate). Committed at
+  // most ~1Hz alongside dgMessagesReceived so the TopBar heartbeat dot can
+  // distinguish "socket open but nothing transcribing" (amber) from "flowing"
+  // (green) without adding render pressure. null until first transcript.
+  lastTranscriptAt: number | null;
   // Roadmap #2 — canonical (Whisper) two-pass corrections. Server sends
   // one of these when Groq Whisper disagrees with Deepgram's parse of a
   // low-confidence scripture detection. Client renders a small chip so
@@ -174,6 +180,13 @@ export type DetectContextProvider = () => {
   hasSongContext: boolean;
 };
 
+// 2026-07-25 distant-mic improvements — capture-pipeline pre-processing knobs,
+// set in Settings › Audio. Unset keys default per Source Type (microphone →
+// 1.5x boost + high-pass ON; mixer → unity / OFF). Applied at pipeline build,
+// so changes take effect via the existing audio-input-changed restart path.
+export const MIC_BOOST_KEY = "presentflow.pro.micBoost.v1"; // float "1".."3"
+export const MIC_HIGHPASS_KEY = "presentflow.pro.micHighpass.v1"; // "1" | "0"
+
 export function useAudioStream(planId: string, opts?: { library?: IndexedSong[]; getDetectContext?: DetectContextProvider }) {
   const [state, setState] = useState<AudioStreamState>({
     listening: false, ready: false, error: null, transcript: [], interim: "",
@@ -182,6 +195,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     reconnectFailed: false, reconnectAttempts: 0, warmStarted: false,
     silenceGateClosed: false, noAudioSignal: false, audioLevel: 0, msgsPerSec: 0, lastLatencyMs: null, avgConfidence: 0,
     audioQuality: null, audioQualityAvg: 0,
+    lastTranscriptAt: null,
     canonicalCorrections: [],
   });
 
@@ -1087,7 +1101,10 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         if (dgMsgCountRef.current === 1 || now - lastDgStateCommitAtRef.current >= 1000) {
           lastDgStateCommitAtRef.current = now;
           const committedCount = dgMsgCountRef.current;
-          setState((s) => ({ ...s, dgMessagesReceived: committedCount, msgsPerSec: rate, lastLatencyMs: lastLatencyMsRef.current ?? s.lastLatencyMs }));
+          // lastTranscriptAt: the pre-existing auto-pause ref (updated on
+          // interim/final below) surfaced into state at ~1Hz so the TopBar
+          // heartbeat dot can decay green → amber when transcripts stop.
+          setState((s) => ({ ...s, dgMessagesReceived: committedCount, msgsPerSec: rate, lastLatencyMs: lastLatencyMsRef.current ?? s.lastLatencyMs, lastTranscriptAt: lastTranscriptAtRef.current }));
         }
         // Task 10/11: track word-level confidence buckets for autopilot gating.
         // Roadmap #4: same walk feeds the learned-keyterm miner.
@@ -1608,7 +1625,39 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         if (sentChunks === 1) { setStage("first_chunk_sent"); log("6 first audio chunk sent"); }
         else if (sentChunks % 400 === 0) log(`6 sent ${sentChunks} audio chunks`);
       };
-      source.connect(node);
+      // 2026-07-25 distant-mic improvements: optional high-pass (kills HVAC /
+      // traffic rumble below 100 Hz) then a boost gain, inserted BEFORE the
+      // worklet so the RMS silence gate + level meter see the boosted signal
+      // (a quiet room mic that only clears the gate boosted should open it).
+      // Keys are set in Settings › Audio; when unset, defaults follow the
+      // Source Type: bare microphone → 1.5x boost + high-pass ON, mixer feed
+      // → unity + OFF (never color a clean mixer signal uninvited).
+      let highpassOn = false;
+      let boost = 1;
+      try {
+        const isMicSource = window.localStorage.getItem(AUDIO_SOURCE_TYPE_KEY) === "microphone";
+        const hpRaw = window.localStorage.getItem(MIC_HIGHPASS_KEY);
+        highpassOn = hpRaw === null ? isMicSource : hpRaw === "1";
+        const boostRaw = window.localStorage.getItem(MIC_BOOST_KEY);
+        const parsedBoost = boostRaw === null ? (isMicSource ? 1.5 : 1) : parseFloat(boostRaw);
+        boost = Number.isFinite(parsedBoost) ? Math.min(3, Math.max(1, parsedBoost)) : 1;
+      } catch { highpassOn = false; boost = 1; }
+      let pipelineTail: AudioNode = source;
+      if (highpassOn) {
+        const hp = audioCtx.createBiquadFilter();
+        hp.type = "highpass";
+        hp.frequency.value = 100;
+        pipelineTail.connect(hp);
+        pipelineTail = hp;
+      }
+      if (boost > 1) {
+        const g = audioCtx.createGain();
+        g.gain.value = boost;
+        pipelineTail.connect(g);
+        pipelineTail = g;
+      }
+      if (pipelineTail !== source) log("mic pre-processing", { highpassOn, boost });
+      pipelineTail.connect(node);
       const silent = audioCtx.createGain();
       silent.gain.value = 0;
       node.connect(silent).connect(audioCtx.destination);
@@ -1624,6 +1673,36 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   // Expose the latest `start` to scheduleReconnect without recreating it on
   // every render (would restart the backoff clock).
   useEffect(() => { startRef.current = start; }, [start]);
+
+  // 2026-07-25 Bug-3 hardening — 10s health watchdog while listening.
+  // Covers the two silent-death modes the reconnect loop can't see:
+  // (a) Chromium/Electron suspends the AudioContext mid-session (no event
+  //     fires; worklet chunks just stop) → resume it.
+  // (b) The WS is wedged in a non-OPEN, non-CONNECTING state with no
+  //     reconnect pending (e.g. a close handler raced a teardown and the
+  //     backoff timer never armed) → kick scheduleReconnect. Normal closes
+  //     already arm their own backoff, so this only fires on the wedge case.
+  useEffect(() => {
+    if (!state.listening) return;
+    const id = setInterval(() => {
+      const actx = audioCtxRef.current;
+      if (actx && actx.state === "suspended") {
+        console.warn("[presentflow-audio] watchdog: AudioContext suspended — resuming");
+        void actx.resume().catch(() => { /* retried next tick */ });
+      }
+      // Only a socket that EXISTS but is dead counts as wedged — a null
+      // wsRef can mean start() is still mid-flight (mic permission prompt),
+      // and kicking a reconnect there would double the pipeline. The
+      // null-after-close path already arms its own backoff in onclose.
+      const ws = wsRef.current;
+      const wedged = !!ws && ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CONNECTING;
+      if (wedged && reconnectTimerRef.current === null && !intentionalStopRef.current) {
+        console.warn("[presentflow-audio] watchdog: socket wedged with no reconnect pending — kicking reconnect");
+        scheduleReconnect();
+      }
+    }, 10_000);
+    return () => clearInterval(id);
+  }, [state.listening, scheduleReconnect]);
 
   // Privacy scope: capture only while the service-operating screen is mounted.
   // This hook lives in OperatorConsole (the screen you open to run a service),

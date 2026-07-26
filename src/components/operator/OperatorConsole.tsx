@@ -36,6 +36,12 @@ import { useShell } from "@/hooks/useShell";
 
 type Cursor = { itemIdx: number; slideIdx: number };
 
+// 2026-07-25 Bug-3: operator's AI ON/OFF intent, persisted across sessions so
+// the console resumes listening on load without a manual re-arm. Deliberately
+// localStorage (not sessionStorage like auto-approve): auto-LISTENING is safe
+// to restore — it never sends anything to live on its own.
+const AI_LISTEN_INTENT_KEY = "presentflow.pro.aiListenIntent.v1";
+
 export type AutoApproveConfig = {
   enabled: boolean;
   confidenceFloor: number;   // 0-100
@@ -331,6 +337,25 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     if (autopilotMode === "manual" && audio.listening) stopAudio();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autopilotMode, audio.listening]);
+
+  // 2026-07-25 Bug-3: resume listening on load if AI was ON when the operator
+  // last used the console (intent persisted in onListenToggle below). The
+  // tester expectation: open the app → AI is already listening, no manual
+  // re-arm every session. Mic permission is already granted on a machine
+  // that's used the listener before, so getUserMedia won't prompt; if the
+  // start fails (revoked permission, device gone), useAudioStream surfaces
+  // its normal error state — same as a manual toggle failing.
+  const aiAutoStartTriedRef = useRef(false);
+  useEffect(() => {
+    if (aiAutoStartTriedRef.current) return;
+    aiAutoStartTriedRef.current = true;
+    if (autopilotMode === "manual") return; // manual mode forces audio off
+    let intentOn = false;
+    try { intentOn = window.localStorage.getItem(AI_LISTEN_INTENT_KEY) === "1"; } catch { /* noop */ }
+    if (!intentOn || audio.listening) return;
+    startAudio().catch(() => { /* error surfaced via audio.error */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Verse bank: per-service history of approved refs + ±5 preload window
   const { bank, currentRef: currentBankRef, addReference: bankAdd, advanceOne: bankAdvance, jumpTo: bankJumpTo, clear: bankClear, bankedToSlide } = useVerseBank(defaultTranslationCode);
@@ -1084,7 +1109,12 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     autoApproveOn: autoApprove.enabled,
     autoSendToLive: autoApprove.autoSendToLive,
     audio,
-    onListenToggle: () => audio.listening ? stopAudio() : startAudio(),
+    onListenToggle: () => {
+      // Persist the operator's ON/OFF intent so the next app load resumes
+      // listening automatically (2026-07-25 Bug-3 auto-start above).
+      try { window.localStorage.setItem(AI_LISTEN_INTENT_KEY, audio.listening ? "0" : "1"); } catch { /* noop */ }
+      if (audio.listening) stopAudio(); else startAudio();
+    },
     onResumeAudio: resumeAudio,
     onRestartAudio: restartAudio,
     onWarmStartAudio: warmStartAudio,

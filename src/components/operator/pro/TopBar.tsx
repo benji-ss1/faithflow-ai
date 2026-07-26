@@ -144,6 +144,16 @@ export function TopBar({
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [diagOpen, setDiagOpen] = useState(false);
+  // Heartbeat clock — re-render every 2s while listening so the dot can decay
+  // green → amber when transcripts stop arriving (lastTranscriptAt goes stale
+  // without any state change to trigger a render). Cheap: one shallow render
+  // of TopBar per tick, nothing below it depends on this value.
+  const [heartbeatNow, setHeartbeatNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!listening) return;
+    const id = setInterval(() => setHeartbeatNow(Date.now()), 2000);
+    return () => clearInterval(id);
+  }, [listening]);
   const { tier } = useTier();
   const canProContent = tier !== null && canAccess(tier, "pro-content");
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
@@ -531,6 +541,62 @@ export function TopBar({
             </Tooltip.Root>
             {/* Reconnecting spinner removed 2026-07-24 — see comment above the
                 `listening` declaration for the rationale. Binary pill only. */}
+            {/* 2026-07-25 heartbeat dot — product-owner-requested revision of
+                the "binary pill only" rule above: the pill still shows only
+                intent, but this separate dot answers "is Deepgram actually
+                hearing and transcribing RIGHT NOW?" after field reports of
+                AI silently dying while the pill stayed green.
+                  green pulse = socket ready + transcripts within 10s
+                  amber       = socket ready but no transcripts in 10s
+                                (mic muted / silence / wrong device)
+                  red         = listening but pipeline down (reconnecting,
+                                no audio signal, or device gone)
+                  grey        = AI off */}
+            {(() => {
+              const lastAt = ctx.audio.lastTranscriptAt;
+              const beat: "off" | "down" | "quiet" | "flowing" = !listening
+                ? "off"
+                : (!ctx.audio.ready || ctx.audio.noAudioSignal)
+                  ? "down"
+                  : (typeof lastAt === "number" && heartbeatNow - lastAt < 10_000)
+                    ? "flowing"
+                    : "quiet";
+              const label = beat === "off" ? "AI is off"
+                : beat === "down" ? "AI pipeline down — audio isn't reaching transcription (reconnecting or no signal)"
+                : beat === "quiet" ? "Connected, but no speech transcribed in the last 10s — check the mic is unmuted and someone is speaking"
+                : "AI healthy — audio flowing and transcripts arriving";
+              return (
+                <Tooltip.Root>
+                  <Tooltip.Trigger asChild>
+                    <span
+                      role="status"
+                      aria-label={`AI heartbeat: ${label}`}
+                      data-testid="ai-heartbeat-dot"
+                      className="flex items-center justify-center w-4 h-4"
+                    >
+                      <span
+                        aria-hidden
+                        className={cn(
+                          "inline-block w-2.5 h-2.5 rounded-full",
+                          beat === "flowing" && "bg-green-400 animate-pulse",
+                          beat === "quiet" && "bg-amber-400",
+                          beat === "down" && "bg-red-500",
+                          beat === "off" && "bg-zinc-600",
+                        )}
+                      />
+                    </span>
+                  </Tooltip.Trigger>
+                  <Tooltip.Portal>
+                    <Tooltip.Content
+                      sideOffset={6}
+                      className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] px-2 py-1 text-[11px] z-50 font-mono max-w-[280px]"
+                    >
+                      {label}
+                    </Tooltip.Content>
+                  </Tooltip.Portal>
+                </Tooltip.Root>
+              );
+            })()}
             {/* Roadmap #1 — audio-quality chip. Only renders when the rolling
                 confidence window has dropped below the "low" threshold in
                 useAudioStream, so it's invisible during normal use. When it

@@ -4,6 +4,7 @@ import * as Popover from "@radix-ui/react-popover";
 import { ChevronDown, X, Plus, Stethoscope } from "lucide-react";
 import { SectionHeader, Row, Toggle } from "./DisplayTab";
 import { AudioDiagnosticsScan } from "@/components/operator/AudioDiagnosticsScan";
+import { MIC_BOOST_KEY, MIC_HIGHPASS_KEY } from "@/components/operator/useAudioStream";
 
 const AUDIO_INPUT_KEY = "presentflow.pro.audioInput.v1";
 const AUDIO_SOURCE_TYPE_KEY = "presentflow.pro.audioSourceType.v1";
@@ -74,6 +75,11 @@ export function AudioTab() {
   const [holdDuringSong, setHoldDuringSong] = useState(false);
   const [selected, setSelected] = useState<AudioInputSel>({ kind: "ndi", id: "ndi:default", label: "NDI Audio (Routed)" });
   const [sourceType, setSourceType] = useState<"mixer" | "microphone">("mixer");
+  // 2026-07-25 distant-mic improvements. null = "auto" (follow Source Type:
+  // microphone → 1.5x + high-pass ON, mixer → 1.0x + OFF) — mirrors the
+  // defaulting in useAudioStream's pipeline build.
+  const [micBoost, setMicBoost] = useState<number | null>(null);
+  const [highpassOn, setHighpassOn] = useState<boolean | null>(null);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [ndiSources, setNdiSources] = useState<{ id: string; label: string }[]>(NDI_PLACEHOLDERS);
   const [customs, setCustoms] = useState<CustomCommand[]>([]);
@@ -98,6 +104,10 @@ export function AudioTab() {
       if (parsedSel) setSelected(parsedSel);
       const st = localStorage.getItem(AUDIO_SOURCE_TYPE_KEY);
       setSourceType(st === "microphone" ? "microphone" : "mixer");
+      const mb = parseFloat(localStorage.getItem(MIC_BOOST_KEY) ?? "");
+      if (Number.isFinite(mb)) setMicBoost(Math.min(3, Math.max(1, mb)));
+      const hp = localStorage.getItem(MIC_HIGHPASS_KEY);
+      if (hp === "1" || hp === "0") setHighpassOn(hp === "1");
       setCustoms(parseCustomCommands(localStorage.getItem(CUSTOM_COMMANDS_KEY)));
     } catch {}
     // enumerate devices
@@ -275,6 +285,57 @@ export function AudioTab() {
           ? "Echo cancellation, noise suppression, and auto-gain are OFF — sending the mixer's raw feed straight to the AI."
           : "Echo cancellation, noise suppression, and auto-gain are ON — good for a bare mic in a noisy room."}
       </div>
+
+      {/* 2026-07-25 distant-mic improvements — mic boost + rumble filter feed
+          the REAL capture pipeline (useAudioStream inserts a GainNode +
+          100 Hz high-pass before the worklet). Changes restart the listener
+          via the same audio-input-changed event device switches use. */}
+      {(() => {
+        const effectiveBoost = micBoost ?? (sourceType === "microphone" ? 1.5 : 1);
+        const effectiveHp = highpassOn ?? (sourceType === "microphone");
+        const restartPipeline = () => {
+          try { window.dispatchEvent(new CustomEvent("presentflow:audio-input-changed", { detail: { reason: "mic-preprocessing" } })); } catch {}
+        };
+        return (
+          <>
+            <Row label={`Mic Boost — ${effectiveBoost.toFixed(1)}x${micBoost === null ? " (auto)" : ""}`}>
+              <input
+                type="range"
+                min={1}
+                max={3}
+                step={0.1}
+                value={effectiveBoost}
+                onChange={(e) => {
+                  const v = Math.min(3, Math.max(1, Number(e.target.value) || 1));
+                  setMicBoost(v);
+                  try { localStorage.setItem(MIC_BOOST_KEY, String(v)); } catch {}
+                }}
+                onMouseUp={restartPipeline}
+                onTouchEnd={restartPipeline}
+                className="w-[220px] accent-orange-500"
+                aria-label="Microphone boost multiplier"
+              />
+            </Row>
+            <div className="text-[11px] text-zinc-500 -mt-2 pl-2">
+              Amplifies quiet audio before transcription. Use 1.5–2x for a room mic picking up a distant preacher; leave at 1x for a mixer feed.
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-[12px] font-semibold text-zinc-100">Reduce low-frequency rumble</div>
+                <div className="text-[11px] text-zinc-500 mt-0.5">Cuts audio below 100 Hz (HVAC, traffic, stage bass) before it reaches the AI. Recommended for room microphones.</div>
+              </div>
+              <Toggle
+                on={effectiveHp}
+                onChange={(v) => {
+                  setHighpassOn(v);
+                  try { localStorage.setItem(MIC_HIGHPASS_KEY, v ? "1" : "0"); } catch {}
+                  restartPipeline();
+                }}
+              />
+            </div>
+          </>
+        );
+      })()}
 
       <Row label={`Input Gain — ${gain}%`}>
         <input

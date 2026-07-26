@@ -174,7 +174,27 @@ function installApplicationMenu() {
             }
           },
         },
-        { role: "forceReload" }, { role: "toggleDevTools" },
+        // 2026-07-25 Bug-5 (tester stale-build): replace the stock
+        // forceReload role (same Cmd+Shift+R accelerator) with a
+        // deeper "clear cache and reload" that also drops Service
+        // Workers and CacheStorage — the two stores a plain
+        // reloadIgnoringCache leaves intact. Deliberately does NOT
+        // clear localStorage/cookies: that would sign the operator out
+        // and wipe their audio/display settings mid-troubleshoot.
+        {
+          label: "Clear Cache and Reload",
+          accelerator: isMac ? "Cmd+Shift+R" : "Ctrl+Shift+R",
+          click: () => {
+            const wc = mainWindow?.webContents;
+            if (!wc) return;
+            void Promise.resolve()
+              .then(() => wc.session.clearCache())
+              .then(() => wc.session.clearStorageData({ storages: ["serviceworkers", "cachestorage", "shadercache"] }))
+              .catch((e: unknown) => { console.warn("[menu] clear-cache failed (reloading anyway)", e); })
+              .then(() => { wc.reloadIgnoringCache(); });
+          },
+        },
+        { role: "toggleDevTools" },
         { type: "separator" }, { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" },
         { type: "separator" }, { role: "togglefullscreen" },
     ] },
