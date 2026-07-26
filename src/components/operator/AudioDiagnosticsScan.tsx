@@ -274,18 +274,36 @@ export function AudioDiagnosticsScan({ onClose, onSelectDevice }: {
                           ) : (
                             <Circle className="w-3 h-3 text-zinc-600 shrink-0" />
                           )}
-                          {/* 2026-07-26 — NDI tag when the device label looks
-                              like NDI Virtual Input. Signals to the operator
-                              that this is the church's network audio feed. */}
-                          {/ndi/i.test(r.label) && (
-                            <span
-                              className="text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded shrink-0"
-                              style={{ background: "#8b5cf6", color: "white" }}
-                              title="Audio via NDI network stream (NDI Virtual Input)"
-                            >
-                              NDI
-                            </span>
-                          )}
+                          {/* 2026-07-26 — visual tags: NDI (network audio),
+                              MIXER (clean feed from a USB interface / mixer
+                              USB out / BlackHole loopback). Both mean "pick
+                              this one, don't pick the built-in mic". */}
+                          {(() => {
+                            const isNdi = /ndi/i.test(r.label);
+                            const isMixer = !isNdi && /focusrite|scarlett|clarett|behringer|umc|u-phoria|presonus|audiobox|studio ?[12]?[46]|motu|apollo|volt|universal audio|audient|evo|steinberg|ur[0-9]|mackie|onyx|roland|rubix|rme|fireface|babyface|apogee|duet|ensemble|symphony|ssl|solid state|arturia|minifuse|tascam|zoom livetrak|zoom h[0-9]|x32|xr18|xr16|xr12|x-air|yamaha tf|mg[0-9]|allen.*heath|sq-|dlive|qu-|midas|m32|mr18|soundcraft|ui[0-9]|signature|studiolive|touchmix|qsc|dl[0-9]+s|profx|usb audio codec|usb audio device|blackhole/i.test(r.label);
+                            return (
+                              <>
+                                {isNdi && (
+                                  <span
+                                    className="text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded shrink-0"
+                                    style={{ background: "#8b5cf6", color: "white" }}
+                                    title="Audio via NDI network stream (NDI Virtual Input)"
+                                  >
+                                    NDI
+                                  </span>
+                                )}
+                                {isMixer && (
+                                  <span
+                                    className="text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded shrink-0"
+                                    style={{ background: "#10b981", color: "white" }}
+                                    title="USB audio interface / mixer / loopback bridge — best signal quality"
+                                  >
+                                    MIXER
+                                  </span>
+                                )}
+                              </>
+                            );
+                          })()}
                           <div className="truncate">{r.label}</div>
                         </div>
                       </td>

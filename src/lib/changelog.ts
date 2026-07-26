@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.75",
+    date: "2026-07-26",
+    headline: "MIXER tag in audio picker + diagnostics — instantly spot USB interfaces, mixer USB-outs, and BlackHole",
+    highlights: [
+      "The Audio Input picker and Audio Diagnostics scanner now show a green MIXER tag next to any device that looks like a clean feed source: Focusrite Scarlett / Clarett, Behringer UMC / U-Phoria / X32 / XR18, PreSonus AudioBox / StudioLive, MOTU, Apollo, Universal Audio Volt, Audient, RME, Apogee, Steinberg UR-series, Mackie Onyx, Roland Rubix, Zoom LiveTrak / H-series, Yamaha TF / MG, Allen & Heath SQ / DLive / Qu, Midas M32 / MR18, Soundcraft Ui, QSC TouchMix, generic 'USB Audio CODEC' (typical mixer USB out) — AND BlackHole (loopback bridge)",
+      "Same purple NDI tag from v0.1.74 continues to identify NDI Virtual Input devices. Combined: at a glance you can see which item is your church's mixer feed vs which is a bare mic that would give you room echo + HVAC noise",
+      "MIXER-tagged devices sort ahead of untagged ones in the picker (NDI first, MIXER second, then everything else). If you plug in a USB interface, it lands near the top of the list — no scrolling to find it in a long device list",
+    ],
+  },
+  {
     version: "0.1.74",
     date: "2026-07-26",
     headline: "NDI audio support — real detection + tag + install helper; killed the misleading placeholder NDI options",

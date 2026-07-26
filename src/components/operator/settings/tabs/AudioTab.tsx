@@ -227,24 +227,44 @@ export function AudioTab() {
               <Group label="Audio inputs">
                 {devices.length === 0 && <Empty>No microphones detected</Empty>}
                 {(() => {
-                  const ndiDevices = devices.filter((d) => /ndi/i.test(d.label));
-                  const otherDevices = devices.filter((d) => !/ndi/i.test(d.label));
-                  return [...ndiDevices, ...otherDevices].map((d) => {
-                    const isNdi = /ndi/i.test(d.label);
+                  // 2026-07-26 — device categorization for visual tags.
+                  // NDI = network audio bridge (via NDI Virtual Input etc.)
+                  // MIXER = USB audio interface / mixer USB-out / BlackHole
+                  //         etc. — anything that reads like a clean feed.
+                  //         Focusrite, Behringer, PreSonus, MOTU, Zoom Livetrak,
+                  //         RME, Universal Audio, Steinberg, "USB Audio CODEC"
+                  //         (generic mixer USB), BlackHole (loopback bridge).
+                  const isNdi = (l: string) => /ndi/i.test(l);
+                  const isMixer = (l: string) => /focusrite|scarlett|clarett|behringer|umc|u-phoria|presonus|audiobox|studio ?[12]?[46]|motu|apollo|volt|universal audio|audient|evo|steinberg|ur[0-9]|mackie|onyx|roland|rubix|rme|fireface|babyface|apogee|duet|ensemble|symphony|ssl|solid state|arturia|minifuse|tascam|zoom livetrak|zoom h[0-9]|x32|xr18|xr16|xr12|x-air|yamaha tf|mg[0-9]|allen.*heath|sq-|dlive|qu-|midas|m32|mr18|soundcraft|ui[0-9]|signature|studiolive|touchmix|qsc|dl[0-9]+s|profx|usb audio codec|usb audio device|blackhole/i.test(l);
+                  const ndiDevices = devices.filter((d) => isNdi(d.label));
+                  const mixerDevices = devices.filter((d) => !isNdi(d.label) && isMixer(d.label));
+                  const otherDevices = devices.filter((d) => !isNdi(d.label) && !isMixer(d.label));
+                  return [...ndiDevices, ...mixerDevices, ...otherDevices].map((d) => {
+                    const ndi = isNdi(d.label);
+                    const mixer = !ndi && isMixer(d.label);
                     return (
                       <Item
                         key={d.deviceId}
                         selected={selected.kind === "device" && selected.id === d.deviceId}
-                        onClick={() => persistSelection({ kind: "device", id: d.deviceId, label: d.label || (isNdi ? "NDI Audio" : "Microphone") })}
+                        onClick={() => persistSelection({ kind: "device", id: d.deviceId, label: d.label || (ndi ? "NDI Audio" : "Microphone") })}
                       >
                         <span className="inline-flex items-center gap-1.5">
-                          {isNdi && (
+                          {ndi && (
                             <span
-                              className="text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded"
+                              className="text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded shrink-0"
                               style={{ background: "#8b5cf6", color: "white" }}
                               title="Audio via NDI network stream"
                             >
                               NDI
+                            </span>
+                          )}
+                          {mixer && (
+                            <span
+                              className="text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded shrink-0"
+                              style={{ background: "#10b981", color: "white" }}
+                              title="USB audio interface / mixer / loopback bridge — best signal quality, Source Type should be Mixer / Interface"
+                            >
+                              MIXER
                             </span>
                           )}
                           <span className="truncate">{d.label || "Microphone"}</span>
