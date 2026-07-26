@@ -21,6 +21,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     highlights: [
       "v0.1.68's freshness + id-dedup checks in the outer effect weren't enough — Deepgram's interim → final → whisper cascade produces 3-5 new suggestion IDs for a single utterance, each with a genuinely fresh ts + new id, so both outer gates let them through and autoLiveSong got called repeatedly. Now: hard 5s debounce PER SONG at the entry of autoLiveSong itself. Doesn't matter how many times the outer effect calls in for the same song — only the first one in a 5s window actually proceeds",
       "Different-song swaps are unaffected (the debounce map is keyed by songId). Real back-and-forth after 5s+ works normally. This layer is a belt-and-braces on top of every other guard, and it survives even if the effect-at-line-969 accidentally clears liveSongRef mid-fire (which was another way the toast could re-appear)",
+      "Bible verse detection — new fuzzy spoken-form fallback: 'filippians four thirteen' now resolves to Philippians 4:13, the same way 'filippians 4:13' already did. Sits at low confidence + semantic-fallback (below both the 70 context-trust floor and the 85 Bible auto-fire floor), so it can never auto-project on its own — you just get a chip to click. This is the specific fix v0.1.65's changelog promised; that DMG shipped the 787-case audit suite but was missing this fallback, so it's landing now",
     ],
   },
   {
