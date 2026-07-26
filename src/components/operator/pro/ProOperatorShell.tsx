@@ -876,16 +876,25 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       // skip re-staging for the full dismissal TTL (10 min).
       const dismissedAt = dismissedSongsRef.current.get(c.songId);
       if (dismissedAt && now - dismissedAt < SONG_DISMISS_TTL_MS) continue;
-      // 2026-07-25 bump staging-cooldown bypass floor from 15s → 60s.
-      // 15s was too aggressive — the same lyric fragment lands every
-      // 5-10s during a real song, so the banner would blink back the
-      // moment the operator was still figuring out what to press.
-      const SONG_REDETECT_BYPASS_FLOOR_MS = 60 * 1000;
+      // 2026-07-26 fix — enable real preacher/worship-leader back-and-forth.
+      // The previous 60s floor for the different-song-live case blocked a
+      // legitimate return to a song that was fired 30s earlier (Amazing
+      // Grace → GTF → Amazing Grace within a couple minutes). autoLiveSong
+      // already has its own layered guards: (a) same-song-live short-circuit,
+      // (b) 5-min replay map for same-song, (c) 800ms min-gap between any
+      // two auto-fires. So the outer effect only needs a THIN quick-refire
+      // floor to swallow per-transcript-word chatter during ONE ongoing
+      // song, not a 60s brick wall that breaks song swaps.
+      //   - same song already live → skip (echo suppression stays 5 min)
+      //   - different song / nothing live → allow through if gap ≥ 3s,
+      //     which is longer than Deepgram's ~1s finalize cadence but well
+      //     under any realistic content-swap interval
+      const SONG_QUICK_REFIRE_MS = 3 * 1000;
       const sameSongAlreadyLive = liveSongRef.current !== null && liveSongRef.current.songId === c.songId;
       if (handledAt) {
         const gap = now - handledAt;
         if (sameSongAlreadyLive && gap < SONG_REDETECT_COOLDOWN_MS) continue;
-        if (!sameSongAlreadyLive && gap < SONG_REDETECT_BYPASS_FLOOR_MS) continue;
+        if (!sameSongAlreadyLive && gap < SONG_QUICK_REFIRE_MS) continue;
       }
       if (c.confidence >= SONG_AUTOLIVE_CONFIDENCE) {
         stagedOrHandledRef.current.set(c.songId, now);

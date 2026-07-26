@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.67",
+    date: "2026-07-26",
+    headline: "Songs can now go back-and-forth without a 60s brick wall — fires reliably on each swap",
+    highlights: [
+      "Fixed: singing Song A → Song B → back to Song A within a minute got blocked on the third detection because a 60s 'quick-refire floor' in the outer song-candidates effect treated the previous handling as an anti-chatter guard. Real preacher/worship-leader back-and-forth needs seconds, not a minute. Floor dropped to 3s (just enough to swallow per-transcript-word chatter within ONE ongoing song, doesn't touch cross-song swaps)",
+      "The 5-minute same-song-already-live echo suppression stays put (it's the actual anti-double-fire guard). autoLiveSong's own 800ms min-gap + same-song-live short-circuit + 5-min replay map continue to prevent real chatter. What went away was a redundant outer gate that also happened to break the swap use case",
+      "Combined with v0.1.66's AUTO/MANUAL decoupling: songs at ≥70% now fire reliably in either mode, on every legitimate swap, no matter how many times you go back and forth. Test verified: A→B→A→B→A→B all fire",
+    ],
+  },
+  {
     version: "0.1.66",
     date: "2026-07-26",
     headline: "Song auto-fire no longer gated on AUTO/MANUAL toggle — ≥70% policy applies unconditionally",
