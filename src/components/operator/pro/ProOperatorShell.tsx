@@ -798,12 +798,18 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   }, [ctx, stageSong]);
 
   useEffect(() => {
-    if (!autoApprove) {
-      // 2026-07-24 diagnostic: log once per session if AUTO is off but
-      // candidates are arriving — the #1 field-report reason "song not
-      // auto-projecting" would be operator having AUTO toggled off.
-      return;
-    }
+    // 2026-07-26 policy change (user sign-off): song auto-fire is NO
+    // LONGER gated by the AUTO/MANUAL toggle. Rule 7's confidence-tier
+    // policy (≥70% auto-live, 60-69% stage+G, <60% chip only) applies
+    // unconditionally. The AUTO/MANUAL toggle now only controls Bible
+    // auto-approve (its original purpose). Rationale: field report from
+    // JPD — operator was in MANUAL mode, Amazing Grace hit 87% but
+    // silently no-op'd; user expected the ≥70% policy to fire regardless
+    // of the Bible-focused AUTO toggle. Songs have their own auth model
+    // (per-confidence-tier + G-key for the mid band); the AUTO toggle was
+    // an extra gate that made MANUAL mode useless for song detection.
+    // Bible auto-approve still respects `autoApprove` in the AUTO_APPROVE
+    // effect further down — that gate is untouched.
     const candidates: { songId: string; title: string; confidence: number }[] = [];
     for (const s of ctx.audio.suggestions) {
       if (s.type !== "song" && s.type !== "lyric") continue;
@@ -891,7 +897,9 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       void stageSong(c.songId, c.title, c.confidence, "detection");
       break;
     }
-  }, [ctx.audio.suggestions, ctx.audio.songSuggestions, autoApprove, stagedSong, stageSong, autoLiveSong]);
+    // autoApprove intentionally NOT in deps — see 2026-07-26 policy note
+    // above (song auto-fire no longer gated on the AUTO/MANUAL toggle).
+  }, [ctx.audio.suggestions, ctx.audio.songSuggestions, stagedSong, stageSong, autoLiveSong]);
 
   // ---- Part 6: THE ONE confirm path that may touch ctx.onSendSlideToLive --
   const confirmStagedSongLive = useCallback(() => {

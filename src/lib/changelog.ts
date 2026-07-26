@@ -15,6 +15,28 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.66",
+    date: "2026-07-26",
+    headline: "Song auto-fire no longer gated on AUTO/MANUAL toggle — ≥70% policy applies unconditionally",
+    highlights: [
+      "The AUTO/MANUAL toggle in the top bar now ONLY controls Bible auto-approve (its original purpose). Song auto-fire runs based purely on the confidence policy: ≥70% auto-projects, 60-69% stages with G-key confirm, <60% chip-only. Field report from JPD test: operator was in MANUAL mode, Amazing Grace hit 87%, but the entire song path silently no-op'd because the AUTO toggle blocked it. Fixed",
+      "What this means: if you leave AI ON in MANUAL mode, Bible detections still just show as chips (require click), but songs at 70%+ will project themselves. If you want the old 'nothing auto-fires' behavior, turn AI OFF entirely",
+      "CLAUDE.md rule 7 updated with the sign-off + rationale. The chip-click carve-out from v0.1.63 (direct operator click always fires slide 1 live regardless of confidence) remains in effect",
+    ],
+  },
+  {
+    version: "0.1.65",
+    date: "2026-07-26",
+    headline: "Bible verse detection — 787-case audit, 100% pass rate, three targeted parser fixes",
+    highlights: [
+      "New automated Bible detection test suite covers all 66 books across 7 formats (spoken-full, spoken-short, abbreviated, conversational, partial, tricky collisions, and Deepgram mishearings) — 787 total cases. Every book now sits at 100% detection; every format at 100%. Prior baseline was 99.24% (6 failures). Suite lives at src/tests/bibleDetection/ and runs via `npx tsx src/tests/bibleDetection/detectionTestRunner.ts`",
+      "Fixed 1 Chr / 2 Chr abbreviation — previously '1 Chr 16:11' silently returned no match because the variant list stopped at '1 chron' / '1 ch'. Added '1 chr' and '2 chr' so testers using the standard SBL abbreviation now resolve",
+      "Fixed Philemon (and other single-chapter books) with explicit chapter notation — 'Philemon 1:6' was parsing as Philemon 1:1 because the single_chapter_book_verse regex greedy-ate the '1' as the verse and dropped ':6'. Now: when the shape is Book 1:N, N is the verse; other cases still map correctly. Applies to Obadiah, Philemon, 2 John, 3 John, Jude",
+      "Fixed fuzzy book-name match for SPOKEN form — 'filippians four thirteen' now resolves to Philippians 4:13. Previously only the colon shape (filippians 4:13) fuzzy-matched. New pattern requires a ≥6-char candidate + validates chapter so it can't drift into ordinary English speech",
+      "Psalm 46:10 gate — all six required phrasings ('Psalm 46:10', 'Psalm forty six verse ten', 'Psalm 46 verse 10', 'Psalms 46:10', 'Be still and know that I am God Psalm 46:10', 'Turn to Psalm 46 verse 10') now pass",
+    ],
+  },
+  {
     version: "0.1.64",
     date: "2026-07-26",
     headline: "Songs now auto-project at 70% confidence (was 85%) — product-owner sign-off after field test",
