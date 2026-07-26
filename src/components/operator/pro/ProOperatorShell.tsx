@@ -1387,11 +1387,28 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const lastAudioErrorRef = useRef<string | null>(null);
   const audioError = ctx.audio.error;
   useEffect(() => {
-    if (!audioError) { lastAudioErrorRef.current = null; return; }
+    if (!audioError) {
+      lastAudioErrorRef.current = null;
+      // 2026-07-26 — dismiss the sticky error toast the moment error clears
+      // (reconnect succeeded, operator restarted, etc.). Without this the
+      // "Failed to fetch" toast lingered forever even after connectivity
+      // recovered.
+      toast.dismiss("presentflow-audio-error");
+      return;
+    }
     const sig = audioError.split(/[.!?—]/, 1)[0].trim().slice(0, 80);
     if (sig === lastAudioErrorRef.current) return;
     lastAudioErrorRef.current = sig;
-    toast.error(audioError, { duration: Infinity, id: "presentflow-audio-error" });
+    // 2026-07-26 — transient network errors get a 10s auto-dismiss instead
+    // of sticking forever. If the error truly needs operator action (mic
+    // permission denied, no audio device, etc.) it re-surfaces because the
+    // state doesn't clear until fixed. Sticky-forever was a footgun for
+    // brief Vercel deploy swaps and network flaps.
+    const isTransient = /reach the server|network|retry|reconnect|WebSocket/i.test(audioError);
+    toast.error(audioError, {
+      duration: isTransient ? 10_000 : Infinity,
+      id: "presentflow-audio-error",
+    });
   }, [audioError]);
 
   // Long-silence warning — noAudioSignal flips true after 15s of pure silence.

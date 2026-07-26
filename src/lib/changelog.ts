@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.73",
+    date: "2026-07-26",
+    headline: "'Failed to fetch' toast fixed — actionable message + auto-dismiss on recovery, no more sticky-forever",
+    highlights: [
+      "When the audio-ticket call couldn't reach Vercel (brief network flap, deploy mid-swap), the raw native `TypeError: Failed to fetch` was surfacing as a bare 'Failed to fetch' toast that stuck on screen forever. Fixed: transient network errors now show 'AI listener can't reach the server — check your internet, will retry automatically' with a 10s auto-dismiss, AND the pipeline schedules a reconnect automatically",
+      "Any audio error toast now auto-dismisses the moment the underlying state clears (reconnect succeeded, operator fixed the thing). Actionable errors (permission denied, no audio device, etc.) still stick indefinitely because they need operator action; transient errors clear themselves",
+    ],
+  },
+  {
     version: "0.1.72",
     date: "2026-07-26",
     headline: "New-version notice banner — you'll now get pinged the moment a fresh DMG is out",

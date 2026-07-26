@@ -1680,8 +1680,23 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
 
       setState((s) => ({ ...s, listening: true }));
     } catch (e) {
-      setState((s) => ({ ...s, error: e instanceof Error ? e.message : "Start failed" }));
-      stop();
+      // 2026-07-26 field bug — raw `TypeError: Failed to fetch` from the
+      // ticket call was reaching the operator as a bare "Failed to fetch"
+      // toast with duration: Infinity. Unhelpful and sticky. Rewrite to
+      // an actionable message + let the reconnect path pick it up (which
+      // clears the toast the moment ready flips true again).
+      let msg = e instanceof Error ? e.message : "Start failed";
+      if (/failed to fetch|networkerror|network error|load failed/i.test(msg)) {
+        msg = "AI listener can't reach the server — check your internet, will retry automatically.";
+      }
+      setState((s) => ({ ...s, error: msg }));
+      // If this looks like a transient network error, schedule a reconnect
+      // instead of teardown+stop. reconnect success clears state.error.
+      if (!intentionalStopRef.current && /failed to fetch|networkerror|network error|load failed|Ticket 5\d\d/i.test(e instanceof Error ? e.message : "")) {
+        scheduleReconnect();
+      } else {
+        stop();
+      }
     }
   }, [planId, stop, setStage, scheduleReconnect, isDevOrTraceOn]);
 
