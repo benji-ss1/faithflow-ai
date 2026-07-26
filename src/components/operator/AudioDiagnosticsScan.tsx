@@ -274,6 +274,18 @@ export function AudioDiagnosticsScan({ onClose, onSelectDevice }: {
                           ) : (
                             <Circle className="w-3 h-3 text-zinc-600 shrink-0" />
                           )}
+                          {/* 2026-07-26 — NDI tag when the device label looks
+                              like NDI Virtual Input. Signals to the operator
+                              that this is the church's network audio feed. */}
+                          {/ndi/i.test(r.label) && (
+                            <span
+                              className="text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded shrink-0"
+                              style={{ background: "#8b5cf6", color: "white" }}
+                              title="Audio via NDI network stream (NDI Virtual Input)"
+                            >
+                              NDI
+                            </span>
+                          )}
                           <div className="truncate">{r.label}</div>
                         </div>
                       </td>
@@ -311,8 +323,18 @@ export function AudioDiagnosticsScan({ onClose, onSelectDevice }: {
           )}
         </div>
 
-        <div className="px-4 py-2 border-t text-[10px] text-zinc-500" style={{ borderColor: "#2a3232" }}>
-          Locked devices (ASIO exclusive mode, driver crash) show a red status — close the other app or pick a different input.
+        <div className="px-4 py-2 border-t text-[10px] text-zinc-500 space-y-1" style={{ borderColor: "#2a3232" }}>
+          <div>Locked devices (ASIO exclusive mode, driver crash) show a red status — close the other app or pick a different input.</div>
+          {/* 2026-07-26 — NDI helper: shown when the scan found devices but
+              none of them look like an NDI Virtual Input source. Common at
+              churches that use NDI for audio transport but haven't installed
+              NDI Tools on the Mac running PresentFlow. */}
+          {results.length > 0 && !results.some((r) => /ndi/i.test(r.label)) && (
+            <div className="pt-1">
+              <span className="font-semibold text-zinc-400">Using NDI at your church?</span>{" "}
+              Install <a href="https://ndi.video/tools/" target="_blank" rel="noopener noreferrer" className="text-[#f97316] underline">NDI Tools</a> (free), open NDI Virtual Input, pick your NDI source — then rescan. NDI feeds appear here labeled "NDI Something".
+            </div>
+          )}
         </div>
       </div>
     </div>

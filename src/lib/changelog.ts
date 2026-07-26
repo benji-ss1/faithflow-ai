@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.74",
+    date: "2026-07-26",
+    headline: "NDI audio support — real detection + tag + install helper; killed the misleading placeholder NDI options",
+    highlights: [
+      "The Audio Input picker's old 'NDI Audio (Routed) (Default)' + hardcoded NDI entries (JPDBROACASTCOMP etc.) have been removed. They were UI theater — selecting one silently captured the DEFAULT mic instead of NDI audio. Anyone at a church that thought they were using NDI through PresentFlow via those entries was actually just capturing whatever mic macOS defaulted to. Fixed",
+      "Real NDI audio path: install NDI Tools (free, from ndi.video/tools) → open NDI Virtual Input → pick your church's NDI source. It'll appear in PresentFlow's Audio Input picker as a real device labeled 'NDI …' with a purple NDI tag next to it. Picker sorts NDI devices to the top. Audio Diagnostics scanner shows the same tag, so operators immediately know which entry is the NDI feed vs a mic",
+      "If no NDI device is present in the list, both the picker and the diagnostics scanner now show a helpful 'Using NDI at your church?' hint with a link to ndi.video/tools. Was previously silent — operators had no way to know NDI support existed",
+    ],
+  },
+  {
     version: "0.1.73",
     date: "2026-07-26",
     headline: "'Failed to fetch' toast fixed — actionable message + auto-dismiss on recovery, no more sticky-forever",

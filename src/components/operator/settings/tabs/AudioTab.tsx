@@ -48,11 +48,11 @@ function parseCustomCommands(raw: string | null): CustomCommand[] {
   } catch { return []; }
 }
 
-const NDI_PLACEHOLDERS = [
-  { id: "ndi:JPDBROACASTCOMP", label: "JPDBROACASTCOMP (macOS AV Output)" },
-  { id: "ndi:JPDBROPRESENTER", label: "JPDBROPRESENTER (JPD's Mac mini - NDI 1)" },
-  { id: "ndi:JPDSBROASTAUDIO", label: "JPDSBROASTAUDIO (macOS AV Output)" },
-];
+// 2026-07-26 — NDI_PLACEHOLDERS + ndiSources state removed. See picker
+// rewrite below: real NDI devices are surfaced through enumerateDevices()
+// (labels containing "NDI" when NDI Virtual Input is installed on the Mac).
+// Old hardcoded placeholders were UI theater that routed to the default
+// mic when selected — actively misleading operators.
 
 const BUILT_IN_COMMANDS = ["next verse", "previous verse", "give me NIV", "show blank", "kill live", "go back"];
 const ACTIONS = [
@@ -79,7 +79,6 @@ export function AudioTab() {
   const [micBoost, setMicBoost] = useState<number | null>(null);
   const [highpassOn, setHighpassOn] = useState<boolean | null>(null);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
-  const [ndiSources, setNdiSources] = useState<{ id: string; label: string }[]>(NDI_PLACEHOLDERS);
   const [customs, setCustoms] = useState<CustomCommand[]>([]);
   const [newPhrase, setNewPhrase] = useState("");
   const [newAction, setNewAction] = useState(ACTIONS[0].value);
@@ -112,15 +111,11 @@ export function AudioTab() {
         setDevices(all.filter((d) => d.kind === "audioinput"));
       }).catch(() => {});
     }
-    // NDI IPC probe
-    try {
-      const api = (window as any).electronAPI?.audio;
-      if (api?.listNdiSources) {
-        Promise.resolve(api.listNdiSources()).then((r: any) => {
-          if (Array.isArray(r) && r.length) setNdiSources(r.map((s: any) => ({ id: s.id || s.name, label: s.label || s.name })));
-        }).catch(() => {});
-      }
-    } catch {}
+    // 2026-07-26 — the IPC-based NDI source probe (listNdiSources) was
+    // removed. Electron main never actually implemented that bridge, and
+    // the fallback populated fake JPD-flavoured placeholders that routed
+    // to the default mic when selected. Real NDI devices now show up
+    // through enumerateDevices() when NDI Virtual Input is installed.
   }, []);
 
   function persistSelection(sel: AudioInputSel) {
@@ -219,37 +214,54 @@ export function AudioTab() {
               className="z-[70] w-[320px] max-h-[380px] overflow-y-auto rounded-md border shadow-2xl p-2"
               style={{ borderColor: "#2a3232", background: "#1e2525" }}
             >
-              <Group label="Microphones & Devices">
+              {/* 2026-07-26 NDI rewrite. Old design: showed hardcoded NDI
+                  placeholder entries + a "kind: ndi" pref shape that
+                  audioConstraintsFor didn't actually implement — selecting
+                  one silently captured the DEFAULT mic instead of NDI.
+                  New design: NDI devices are real audio inputs created by
+                  NDI Virtual Input (nditools.tv). If installed, they show
+                  up in the standard device list with "NDI" in the label,
+                  ranked first + tagged with a NETWORK label so operators
+                  know which entry to pick. No entries below? → show the
+                  install prompt at the bottom of the popover. */}
+              <Group label="Audio inputs">
                 {devices.length === 0 && <Empty>No microphones detected</Empty>}
-                {devices.map((d) => (
-                  <Item
-                    key={d.deviceId}
-                    selected={selected.kind === "device" && selected.id === d.deviceId}
-                    onClick={() => persistSelection({ kind: "device", id: d.deviceId, label: d.label || "Microphone" })}
-                  >
-                    {d.label || "Microphone"}
-                  </Item>
-                ))}
+                {(() => {
+                  const ndiDevices = devices.filter((d) => /ndi/i.test(d.label));
+                  const otherDevices = devices.filter((d) => !/ndi/i.test(d.label));
+                  return [...ndiDevices, ...otherDevices].map((d) => {
+                    const isNdi = /ndi/i.test(d.label);
+                    return (
+                      <Item
+                        key={d.deviceId}
+                        selected={selected.kind === "device" && selected.id === d.deviceId}
+                        onClick={() => persistSelection({ kind: "device", id: d.deviceId, label: d.label || (isNdi ? "NDI Audio" : "Microphone") })}
+                      >
+                        <span className="inline-flex items-center gap-1.5">
+                          {isNdi && (
+                            <span
+                              className="text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded"
+                              style={{ background: "#8b5cf6", color: "white" }}
+                              title="Audio via NDI network stream"
+                            >
+                              NDI
+                            </span>
+                          )}
+                          <span className="truncate">{d.label || "Microphone"}</span>
+                        </span>
+                      </Item>
+                    );
+                  });
+                })()}
               </Group>
-              <Group label="NDI Audio (Routed) (Default)">
-                <Item
-                  selected={selected.kind === "ndi" && selected.id === "ndi:default"}
-                  onClick={() => persistSelection({ kind: "ndi", id: "ndi:default", label: "NDI Audio (Routed)" })}
-                >
-                  NDI Audio (Routed)
-                </Item>
-              </Group>
-              <Group label="NDI Sources">
-                {ndiSources.map((s) => (
-                  <Item
-                    key={s.id}
-                    selected={selected.kind === "ndi" && selected.id === s.id}
-                    onClick={() => persistSelection({ kind: "ndi", id: s.id, label: s.label })}
-                  >
-                    {s.label}
-                  </Item>
-                ))}
-              </Group>
+              {/* NDI helper — only shows if NO NDI-labeled device is present.
+                  Common at JPD when NDI Tools isn't installed on the Mac. */}
+              {!devices.some((d) => /ndi/i.test(d.label)) && (
+                <div className="px-2 py-2 mt-1 border-t text-[10px] leading-snug text-zinc-400" style={{ borderColor: "#2a3232" }}>
+                  <div className="font-semibold text-zinc-300 mb-1">Using NDI at your church?</div>
+                  <div>Install <a href="https://ndi.video/tools/" target="_blank" rel="noopener noreferrer" className="text-[#f97316] underline">NDI Tools</a> (free), open NDI Virtual Input, pick your NDI source. It'll appear here as a device labeled "NDI Something".</div>
+                </div>
+              )}
             </Popover.Content>
           </Popover.Portal>
         </Popover.Root>
