@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.76",
+    date: "2026-07-26",
+    headline: "Right-sidebar Settings › Audio popover is REAL now — was a 'coming soon' placeholder for months",
+    highlights: [
+      "Field-critical for JPD: the Audio tab in the right-sidebar Settings popover (⚙ icon → Audio) was a 'Audio playlist — coming soon' stub. Operators mid-service kept opening it expecting to find their audio-input picker and finding nothing. That was a bug — the popover was showing the wrong AudioTab component (the audio-playlist-feature placeholder instead of the audio-settings surface). Fixed",
+      "The popover now has: Input device dropdown with NDI/MIXER/BT tags and sort order (NDI first, MIXER second, Bluetooth third, everything else last), Source Type toggle (Mixer / Interface ↔ Microphone) with an inline explanation of what the DSP toggle does, Run diagnostics button, ↻ Restart button, and an NDI helper if no NDI device is detected. Same visual language as the full Settings page picker",
+      "Bluetooth devices (AirPods, Beats, Jabra, Bose, Sony WH-1000, Sennheiser Momentum, Galaxy Buds) now get a blue BT tag so the operator knows they'll work but with 100-300ms latency — verse detection will be slightly delayed. Not blocked, just labeled",
+      "Advanced audio settings (voice commands, mic boost slider, auto-pause, hold-during-song) still live in the full /settings page — link at the bottom of the popover for anyone who wants them",
+    ],
+  },
+  {
     version: "0.1.75",
     date: "2026-07-26",
     headline: "MIXER tag in audio picker + diagnostics — instantly spot USB interfaces, mixer USB-outs, and BlackHole",
