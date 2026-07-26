@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.68",
+    date: "2026-07-26",
+    headline: "Song auto-fire stale-echo fix — v0.1.67's 3s floor let old detections re-fire every few seconds",
+    highlights: [
+      "Fixed: after dropping the cross-song refire floor 60s → 3s to enable back-and-forth, songs started auto-projecting REPEATEDLY when the user wasn't singing them. Root cause: suggestions persist in the array and get replaced-in-place by songId — my 3s floor let the same stale detection re-fire every 3s. Now: only fire when the suggestion is fresh (ts within last 8s) AND we haven't already fired for that specific suggestion id. New detection events bump the id + ts, so real back-and-forth still works; stale echoes don't",
+      "Belt-and-braces: 200-entry LRU cap on the fired-suggestion-id set prevents unbounded growth over long sessions. The 3s outer refire floor from v0.1.67 stays as a redundant chatter guard",
+      "Net result vs v0.1.67: same back-and-forth capability (Song A → Song B → Song A → Song B all fire on real re-detection), but no more phantom re-fires when you stop singing",
+    ],
+  },
+  {
     version: "0.1.67",
     date: "2026-07-26",
     headline: "Songs can now go back-and-forth without a 60s brick wall — fires reliably on each swap",

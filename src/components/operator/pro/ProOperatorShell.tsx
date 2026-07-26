@@ -679,6 +679,17 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   const confirmPendingRef = useRef(false);
   const lastSongAutoLiveAtRef = useRef(0); // min-gap cooldown for Part 6b auto-live
   const promotionInFlightRef = useRef<Set<string>>(new Set()); // dedupe for staged->auto-live promotion
+  // 2026-07-26 — set of suggestion ids we've already auto-fired for.
+  // Suggestions get replaced-in-place by songId (see useAudioStream:496)
+  // so a NEW detection event bumps the id; a stale detection sitting in
+  // the array keeps its old id. This ref lets us re-fire on new events
+  // without re-firing on stale ones. Bounded to last 200 to prevent
+  // unbounded growth over long sessions.
+  const firedSuggestionIdsRef = useRef<Set<string>>(new Set());
+  // How fresh a suggestion must be to trigger auto-fire — anything older
+  // is treated as a stale echo. 8s gives detection + Whisper canonical
+  // round-trip time headroom without letting a truly stale one re-fire.
+  const SUGGESTION_FRESHNESS_MS = 8 * 1000;
 
   // Word-tracking buffers for Part 7/8.
   const recentWordsRef = useRef<string[]>([]);
@@ -810,17 +821,26 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     // an extra gate that made MANUAL mode useless for song detection.
     // Bible auto-approve still respects `autoApprove` in the AUTO_APPROVE
     // effect further down — that gate is untouched.
-    const candidates: { songId: string; title: string; confidence: number }[] = [];
+    // 2026-07-26 fix — carry the suggestion `id` + `ts` through to the
+    // candidate so we can:
+    //   (a) skip stale detections (ts older than freshness window)
+    //   (b) dedupe by suggestion id (fired-for-this-exact-detection set)
+    // Suggestions are UPDATED IN PLACE in useAudioStream by songId key
+    // (line ~496) — each new detection replaces the old with a new id +
+    // fresh ts. So the freshness check is a valid "is this a NEW detection
+    // event or the same one sitting stale in the array?" heuristic.
+    const candidates: { songId: string; title: string; confidence: number; suggestionId: string; ts: number }[] = [];
     for (const s of ctx.audio.suggestions) {
       if (s.type !== "song" && s.type !== "lyric") continue;
       if (s.confidence < SONG_STAGE_CONFIDENCE) continue;
       const songId = s.match?.songId;
       if (!songId) continue;
-      candidates.push({ songId, title: s.match.title, confidence: s.confidence });
+      candidates.push({ songId, title: s.match.title, confidence: s.confidence, suggestionId: s.id, ts: s.ts });
     }
     for (const s of ctx.audio.songSuggestions) {
       if (s.confidence < SONG_STAGE_CONFIDENCE || !s.songId) continue;
-      candidates.push({ songId: s.songId, title: s.title, confidence: s.confidence });
+      // songSuggestions doesn't carry ts; treat as fresh (server-side pushed).
+      candidates.push({ songId: s.songId, title: s.title, confidence: s.confidence, suggestionId: s.suggestionId, ts: Date.now() });
     }
     if (candidates.length === 0) return;
     // Highest confidence first.
@@ -857,6 +877,16 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
 
     const now = Date.now();
     for (const c of candidates) {
+      // 2026-07-26 stale-echo fix — reject old suggestions that are still
+      // sitting in the array from an earlier detection. Without this, my
+      // v0.1.67 3s floor let stale detections re-fire every 3s (Great Is
+      // Thy Faithfulness auto-fired repeatedly because the suggestion
+      // persisted at 95% confidence in the array even after the user stopped
+      // singing it). A new real detection updates the suggestion IN PLACE
+      // (useAudioStream:496) with fresh ts + new id, so freshness + id-dedup
+      // together fire on new events only.
+      if (now - c.ts > SUGGESTION_FRESHNESS_MS) continue;
+      if (firedSuggestionIdsRef.current.has(c.suggestionId)) continue;
       const handledAt = stagedOrHandledRef.current.get(c.songId);
       // Cooldown bypass logic:
       //   - Same song IS live → skip (echo suppression). No point re-firing
@@ -898,11 +928,24 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       }
       if (c.confidence >= SONG_AUTOLIVE_CONFIDENCE) {
         stagedOrHandledRef.current.set(c.songId, now);
+        firedSuggestionIdsRef.current.add(c.suggestionId);
+        // Prune fired-id set to last 200 entries (LRU-ish via clear+re-add
+        // when it grows) — bounds long-session memory without needing a
+        // separate timer.
+        if (firedSuggestionIdsRef.current.size > 200) {
+          const keep = Array.from(firedSuggestionIdsRef.current).slice(-100);
+          firedSuggestionIdsRef.current = new Set(keep);
+        }
         void autoLiveSong(c.songId, c.title, c.confidence);
         break;
       }
       if (stagedSong) break; // one staged banner at a time
       stagedOrHandledRef.current.set(c.songId, now);
+      firedSuggestionIdsRef.current.add(c.suggestionId);
+      if (firedSuggestionIdsRef.current.size > 200) {
+        const keep = Array.from(firedSuggestionIdsRef.current).slice(-100);
+        firedSuggestionIdsRef.current = new Set(keep);
+      }
       void stageSong(c.songId, c.title, c.confidence, "detection");
       break;
     }
