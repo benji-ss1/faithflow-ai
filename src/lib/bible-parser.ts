@@ -228,7 +228,14 @@ function repairNumberHomophones(s: string): string {
   // "Ruth 4:1", "Numbers 24 is 3" → "Numbers 24:3", etc. Guarded to
   // fire ONLY when digits appear on both sides so ordinary English
   // ("truth is love", "verse is important") isn't touched.
-  s = s.replace(/\b(\d{1,3})\s+is\s+(\d{1,3})\b/g, "$1:$2");
+  //
+  // 2026-07-26 extension: same treatment for "was" / "has" / "and" / "at" /
+  // "of" — Deepgram consistently mangles the word "verse" between two digits
+  // into these short function words, especially in African-accented speech
+  // ("Nehemiah 2 was 1", "Romans 8 has 8", "John 3 and 16", "Matthew 5 of 5"
+  //  → "verse" every time). Same digits-both-sides guard so ordinary English
+  // ("truth was told", "5 and counting") isn't touched.
+  s = s.replace(/\b(\d{1,3})\s+(?:is|was|has|and|at|of|are|were)\s+(\d{1,3})\b/g, "$1:$2");
   return s;
 }
 

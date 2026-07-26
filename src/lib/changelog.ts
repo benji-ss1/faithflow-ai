@@ -15,6 +15,20 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.62",
+    date: "2026-07-26",
+    headline: "Audio reliability pass — heartbeat dot, AI auto-start, mic boost + high-pass, cache-clear menu, empty-song safety, more homophone repairs",
+    highlights: [
+      "New heartbeat dot next to the AI ON pill in the top bar — green pulses while Deepgram is actively transcribing, amber when speech has paused, red when the socket has failed, grey when off. Answers the 'is the AI actually listening right now?' question at a glance without opening DevTools",
+      "AI listening intent now persists — if AI was ON when you last closed the app, the next launch auto-resumes listening (with a toast so a surprise hot mic is never a surprise). Manual-mode / auto-approve state does NOT auto-hydrate (security fix — an XSS-planted localStorage key can no longer arm zero-touch mic → detect → auto-live). Combined with a 600ms defer + resume() preference, no more mic flap on every load for manual-mode users",
+      "10s health watchdog resumes a suspended AudioContext (Chromium sometimes suspends it silently on tab throttle) and kicks a reconnect when the WebSocket is wedged with no backoff pending. Sustained audio-input-changed spam now has a 5s floor between actual pipeline restarts so a device-swap avalanche can't churn Deepgram connections",
+      "New Settings › Audio Mic Boost slider (1x–3x, capped at 2x for mixer/interface sources to avoid clamp distortion) and a 'Reduce low-frequency rumble' toggle (100Hz high-pass) — helps distant-mic pickup in echoey rooms. Defaults follow Source Type: microphone gets 1.5x + filter ON; mixer stays unity. The old decorative Input Gain slider (which persisted a key nothing read) is retired",
+      "New View menu → 'Clear Cache and Reload' (Cmd+Shift+R) — nukes HTTP cache, Service Workers, and CacheStorage without wiping localStorage or cookies, so you stay signed in. Fixes the 'my app is showing an old version even after Cmd+R' cases",
+      "AI safety: an exact-title trigger phrase ('let's sing Amazing Grace') can no longer surface a song candidate whose slides carry NO lyric text — the Priority-6 title-trigger path now respects the same hasLyrics gate that the fuzzy matcher enforces. Prevents a one-click-projects-blank-screen footgun in libraries with placeholder-slide songs",
+      "Bible parser: extended the `N is M → N:M` repair to also catch `N was M`, `N has M`, `N and M`, `N at M`, `N of M`, `N are M`, `N were M` — Deepgram consistently mangles the word 'verse' between two digits into these short function words, especially in African-accented speech. 'Nehemiah 2 was 1' now parses as Nehemiah 2:1 on the first Deepgram pass instead of waiting for Whisper canonical correction",
+    ],
+  },
+  {
     version: "0.1.61",
     date: "2026-07-26",
     headline: "Team page polish — avatar initials, unified list with Pending pills, real empty state",
