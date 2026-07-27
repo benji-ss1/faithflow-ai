@@ -1412,22 +1412,53 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   }, [audioError]);
 
   // Long-silence warning — noAudioSignal flips true after 15s of pure silence.
-  // Typical cause: wrong device picked, mixer channel muted, cable unplugged.
-  // Dismissable single toast per session; re-arms after signal returns.
+  // 2026-07-27 JPD upgrade — the toast now includes ACTIONABLE diagnostics
+  // (device label + negotiated channel count + sample rate) so the operator
+  // can distinguish between "wrong channel picked" (32ch negotiated → open
+  // channel grid) vs "mixer isn't routing anything to USB" (32ch negotiated,
+  // all silent → talk to the audio engineer, open the USB Sends menu on the
+  // mixer). Both look identical without this data.
   const lastNoSignalRef = useRef(false);
   const noAudioSignal = ctx.audio.noAudioSignal;
+  const streamChannelCount = ctx.audio.streamChannelCount;
+  const streamSampleRate = ctx.audio.streamSampleRate;
   useEffect(() => {
     if (noAudioSignal && !lastNoSignalRef.current) {
       lastNoSignalRef.current = true;
+      // Pull the friendly device label from the same localStorage key the
+      // AudioTab picker writes to — avoids threading it through the whole
+      // audio hook state.
+      let deviceLabel = "your input device";
+      try {
+        const raw = localStorage.getItem("presentflow.pro.audioInput.v1");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed.label === "string" && parsed.label.length > 0) {
+            deviceLabel = parsed.label.replace(/^Default - /, "");
+          }
+        }
+      } catch { /* noop */ }
+      const chInfo = streamChannelCount != null
+        ? `${streamChannelCount}ch${streamSampleRate ? ` @ ${Math.round(streamSampleRate / 1000)}kHz` : ""} negotiated`
+        : "channel count unknown";
+      // Guidance branches on what the numbers actually say:
+      //   1 channel   → likely a bare mic OR a mixer without the vendor USB driver
+      //   >1 channel  → mixer is negotiated multi-ch but sending silence — check USB routing on the mixer
+      let guidance: string;
+      if (streamChannelCount != null && streamChannelCount > 1) {
+        guidance = "PresentFlow IS receiving multi-channel audio but every channel is silent. Most likely: your mixer isn't routing anything to USB Sends. Open the mixer's USB Send menu (Home → Setup → I/O → USB on Allen & Heath SQ) and route your vocal mic to USB. Or pick a specific channel via the channel grid in Settings › Audio.";
+      } else {
+        guidance = "PresentFlow is receiving a single-channel stream and it's silent. Check: (1) mixer channel isn't muted, (2) USB cable is seated, (3) you've picked the correct input in Settings › Audio. If this is a multi-channel mixer, install the vendor USB driver (e.g. Allen & Heath SQ driver from allen-heath.com).";
+      }
       toast.warning(
-        "No audio detected for 15s — check the mixer channel isn't muted, the cable is plugged in, and you've picked the right input in Settings › Audio.",
-        { duration: 12_000, id: "presentflow-no-signal" },
+        `No audio detected for 15s — ${deviceLabel}: ${chInfo}, 0 signal. ${guidance}`,
+        { duration: 20_000, id: "presentflow-no-signal" },
       );
     } else if (!noAudioSignal && lastNoSignalRef.current) {
       lastNoSignalRef.current = false;
       toast.dismiss("presentflow-no-signal");
     }
-  }, [noAudioSignal]);
+  }, [noAudioSignal, streamChannelCount, streamSampleRate]);
 
   // 2026-07-24 T4 fix — batch preload every image URL in the current plan
   // when the operator opens/updates it. Without this, an image slide

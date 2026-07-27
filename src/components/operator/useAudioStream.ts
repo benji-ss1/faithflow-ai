@@ -141,6 +141,13 @@ export type AudioStreamState = {
   // to keep rerender pressure low — the raw worklet chunks land every ~10ms
   // which would blow up React reconciliation if pushed straight through.
   audioLevel: number;
+  // 2026-07-27 JPD diagnostic — surface the negotiated stream channel count
+  // + sample rate so the "no audio" toast can tell operators WHAT the
+  // pipeline is actually seeing. Distinguishes "wrong channel" (32ch
+  // negotiated, all silent) from "no driver" (1ch negotiated, still silent).
+  // Both mean "check the mixer", but the fix path differs.
+  streamChannelCount: number | null;
+  streamSampleRate: number | null;
   // Observability (Task 15).
   msgsPerSec: number;
   lastLatencyMs: number | null;
@@ -204,7 +211,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     detections: [], phraseMatches: [], songSuggestions: [], commandSuggestions: [], suggestions: [],
     stage: "idle", stageHistory: [], chunksSent: 0, dgMessagesReceived: 0,
     reconnectFailed: false, reconnectAttempts: 0, warmStarted: false,
-    silenceGateClosed: false, noAudioSignal: false, audioLevel: 0, msgsPerSec: 0, lastLatencyMs: null, avgConfidence: 0,
+    silenceGateClosed: false, noAudioSignal: false, audioLevel: 0, streamChannelCount: null, streamSampleRate: null, msgsPerSec: 0, lastLatencyMs: null, avgConfidence: 0,
     audioQuality: null, audioQualityAvg: 0,
     lastTranscriptAt: null,
     canonicalCorrections: [],
@@ -1710,7 +1717,10 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       // whatever routed channel actually carries the vocal.
       const streamTrack = stream.getAudioTracks()[0];
       const streamChannels = Math.max(1, streamTrack?.getSettings?.().channelCount || 1);
-      log("4d stream channels", streamChannels);
+      const streamSr = streamTrack?.getSettings?.().sampleRate ?? null;
+      log("4d stream channels", { streamChannels, streamSr });
+      // 2026-07-27 — surface for the "no audio for 15s" diagnostic toast.
+      setState((s) => ({ ...s, streamChannelCount: streamChannels, streamSampleRate: streamSr }));
       const node = new AudioWorkletNode(audioCtx, "pcm-sender", {
         numberOfInputs: 1,
         numberOfOutputs: 1,

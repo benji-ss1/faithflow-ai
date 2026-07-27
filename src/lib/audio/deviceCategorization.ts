@@ -31,8 +31,28 @@ export type DeviceCategory =
 
 const NDI_RE = /ndi/i;
 
+// 2026-07-27 JPD field bug — regex was `sq-` (SQ immediately followed by
+// hyphen) which does NOT match "SQ - Audio (22f0:0019)" (the OS format
+// when the Allen & Heath USB driver isn't installed, spaces around the
+// hyphen). Broadened to `\bsq\b` so "SQ", "SQ-5", "SQ 5", "SQ - Audio"
+// all match. Same fix for `qu-` (Qu-16 vs "Qu 16 - Audio").
+//
+// Also added USB Vendor ID (VID) prefix matching. macOS surfaces the USB
+// VID:PID in the device label as e.g. `(22f0:0019)`. VIDs are universal
+// across a manufacturer's whole product line and are the STRONGEST
+// mixer signal — they don't depend on how the OS decides to name the
+// device or whether the vendor's driver is installed:
+//   22f0 → Allen & Heath (SQ, dLive, Qu, ZED, ZEDi)
+//   1397 → Behringer / Midas (X32, XR18, M32, MR18, UMC, U-Phoria, X-Air)
+//   0499 → Yamaha (TF, MG, DM, AG, UR — via Steinberg USB)
+//   194f → PreSonus (StudioLive, AudioBox, Studio)
+//   05fc → Harman / Soundcraft (Ui, Signature, MTK)
+//   1a19 → Solid State Logic (SSL) — older interfaces
+//   152a → Thesycon (Focusrite/audient/etc use this generic UAC2 driver)
+// Word-boundaries on the short SKU tokens (`sq`, `qu`, `mg`, `ur`) prevent
+// false matches like "sequel" or "murky".
 const MIXER_RE =
-  /focusrite|scarlett|clarett|behringer|umc|u-phoria|presonus|audiobox|studio ?[12]?[46]|motu|apollo|volt|universal audio|audient|evo|steinberg|ur[0-9]|mackie|onyx|roland|rubix|rme|fireface|babyface|apogee|duet|ensemble|symphony|ssl|solid state|arturia|minifuse|tascam|zoom livetrak|zoom h[0-9]|x32|xr18|xr16|xr12|x-air|yamaha tf|mg[0-9]|allen.*heath|sq-|dlive|qu-|midas|m32|mr18|soundcraft|ui[0-9]|signature|studiolive|touchmix|qsc|dl[0-9]+s|profx|usb audio codec|usb audio device|blackhole/i;
+  /\(22f0:|\(1397:|\(0499:|\(194f:|\(05fc:|\(1a19:|focusrite|scarlett|clarett|behringer|umc|u-phoria|presonus|audiobox|studio ?[12]?[46]|motu|apollo|volt|universal audio|audient|evo|steinberg|\bur[0-9]|mackie|onyx|roland|rubix|rme|fireface|babyface|apogee|duet|ensemble|symphony|ssl|solid state|arturia|minifuse|tascam|zoom livetrak|zoom h[0-9]|x32|xr[0-9]{2}|x-air|yamaha tf|\bmg[0-9]|allen.*heath|\bsq\b|dlive|\bqu\b|midas|m32|mr18|soundcraft|\bui[0-9]|signature|studiolive|touchmix|qsc|dl[0-9]+s|profx|usb audio codec|usb audio device|blackhole/i;
 
 const BT_RE =
   /bluetooth|airpods|beats|jabra|bose|sony wh|sennheiser momentum|galaxy buds|wh-1000/i;

@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.79",
+    date: "2026-07-27",
+    headline: "Mixer detection now matches by USB Vendor ID (not just label) — SQ, X32, TF etc. detected even without vendor drivers, and 'No audio' toast is now actually diagnostic",
+    highlights: [
+      "Field bug from JPD live: the auto-mixer-mode fix shipped in v0.1.78 didn't fire for the Allen & Heath SQ because macOS labeled it 'Default - SQ - Audio (22f0:0019)' — the regex was looking for 'sq-' (SQ immediately followed by hyphen) which doesn't match 'SQ - Audio' (spaces around the hyphen). Broadened to word-boundary `\\bsq\\b` so 'SQ', 'SQ-5', 'SQ 5', 'SQ - Audio' all match. Same fix for Qu-series",
+      "Deeper engineering: mixer detection now also matches on USB Vendor ID prefix, which is UNIVERSAL across a manufacturer's product line and doesn't depend on how macOS names the device or whether the vendor's driver is installed. Added VIDs: 22f0 (Allen & Heath — SQ, dLive, Qu, ZED), 1397 (Behringer/Midas — X32, XR18, M32, MR18, UMC), 0499 (Yamaha — TF, MG, DM, AG), 194f (PreSonus — StudioLive, AudioBox), 05fc (Harman/Soundcraft — Ui, Signature), 1a19 (SSL). If your device label contains a VID prefix like (22f0:...) PresentFlow will treat it as a mixer regardless of the rest of the label",
+      "The 'No audio detected for 15s' toast used to say 'check the mixer channel isn't muted, cable is plugged in, and you've picked the right input' — three generic checks. Now it's DIAGNOSTIC: 'SQ - Audio: 32ch @ 48kHz negotiated, 0 signal. PresentFlow IS receiving multi-channel audio but every channel is silent. Most likely: your mixer isn't routing anything to USB Sends. Open the mixer's USB Send menu (Home → Setup → I/O → USB on Allen & Heath SQ) and route your vocal mic to USB.' The message branches on the negotiated channel count — 1ch guidance differs from >1ch guidance because the fix path differs",
+      "Combined effect: on the JPD SQ, opening PresentFlow will now (a) auto-detect it as a mixer via the 22f0 VID, (b) auto-switch Source Type to Mixer/Interface, (c) negotiate 32 channels, (d) sum them all to mono via the v0.1.77 worklet. If your SQ has ANYTHING routed to a USB Send, PresentFlow will hear it. If your SQ has nothing on USB, the diagnostic toast now tells you that explicitly instead of generic 'check the cable'",
+    ],
+  },
+  {
     version: "0.1.78",
     date: "2026-07-27",
     headline: "Per-channel USB mixer picker — click the exact channel carrying the pastor's vocal, with live meters and auto-detect",
