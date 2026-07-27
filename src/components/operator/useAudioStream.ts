@@ -7,6 +7,17 @@ import type { SongMatchResult } from "@/lib/ai-detection/song-match";
 import { matchCustomCommand, readCustomCommands, readAudioInputPref, audioConstraintsFor, AUDIO_SOURCE_TYPE_KEY } from "@/lib/voice-commands";
 import { dispatchInternal } from "@/lib/internal-events";
 import { CONFIDENCE_THRESHOLD } from "@/lib/audio-thresholds";
+import {
+  readDeviceChannelPref,
+  readDeviceChannelPrefByLabel,
+  migratePrefDeviceId,
+  DEVICE_CHANNEL_PREF_CHANGED_EVENT,
+  type DeviceChannelPrefChangedDetail,
+} from "@/lib/audio/deviceChannelPrefs";
+import {
+  openMultiChannelCapture,
+  type MultiChannelCapture,
+} from "@/lib/audio/multiChannelCapture";
 
 export type Detection = {
   id: string;
@@ -519,6 +530,18 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const audioCtxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
+  // 2026-07-27 per-channel routing — when the operator picks a specific
+  // channel or stereo pair in the mixer picker, we open a
+  // MultiChannelCapture instead of the raw sum-all getUserMedia stream.
+  // The capture owns its own AudioContext + splitter; we bridge its
+  // extracted MediaStream into the primary pipeline just like a normal
+  // mic. Ref so teardown can close it and null it out.
+  const multiChannelCaptureRef = useRef<MultiChannelCapture | null>(null);
+  // Tracks the deviceId currently feeding the pipeline so the
+  // device-channel-pref-changed listener can ignore prefs for other
+  // devices. null when no device-specific pref is active or when the
+  // pipeline is idle.
+  const currentDeviceIdRef = useRef<string | null>(null);
   // Task 4: 5-second PCM ring buffer used while the WS is closed to backfill
   // on reconnect. 16kHz * 2 bytes/sample * 5s = 160,000 bytes cap.
   const RING_CAP_BYTES = 160_000;
@@ -751,6 +774,13 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     try { audioCtxRef.current?.suspend(); } catch { /* ignore */ }
     try { audioCtxRef.current?.close(); } catch { /* ignore */ }
     audioCtxRef.current = null;
+    // Close the multi-channel capture (owns its own AudioContext,
+    // splitter, per-channel analysers, and the underlying getUserMedia
+    // stream). Safe no-op when the current session used the sum-all
+    // fallback path.
+    try { multiChannelCaptureRef.current?.close(); } catch { /* ignore */ }
+    multiChannelCaptureRef.current = null;
+    currentDeviceIdRef.current = null;
   }, []);
 
   // Task 14: fire-and-forget metrics POST on session finalize.
@@ -1359,67 +1389,190 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         console.log("[ai-pipeline:1] NDI source selected — falling back to default device (NDI capture not yet implemented)");
       }
       const constraints = audioConstraintsFor(inputPref);
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-      } catch (micErr) {
-        // Give a specific actionable message per browser-level error name
-        // rather than a raw string an operator can't act on.
-        const name = (micErr as { name?: string })?.name || "";
-        const msg = (micErr as { message?: string })?.message || "";
-        if (name === "NotAllowedError" || /denied|permission/i.test(msg)) {
-          // Electron only: distinguish "macOS never even offered the
-          // permission dialog" (usually means this build isn't code-signed
-          // — see electron/main.ts's launch-time check) from a plain user
-          // denial, since the fix is completely different (reinstall a
-          // signed build vs. just flipping a toggle in System Settings).
-          const electronApi = (typeof window !== "undefined" ? (window as { electronAPI?: { audio?: { getMicPermissionStatus?: () => Promise<string> } } }).electronAPI : undefined);
-          if (electronApi?.audio?.getMicPermissionStatus) {
-            try {
-              const status = await electronApi.audio.getMicPermissionStatus();
-              if (status === "not-determined") {
-                throw new Error("macOS never showed a microphone permission prompt for Present Flow — this usually means the app isn't code-signed yet. Try quitting and reopening the app once; if it still doesn't prompt, this needs a signed build to fix.");
-              }
-            } catch { /* fall through to the generic message below */ }
+      // Inner helper — the classic v0.1.77 sum-all getUserMedia call with
+      // full actionable error mapping. Used by BOTH the sum-all default
+      // path AND as the safety-net fallback when per-channel capture
+      // fails. Keeps the error mapping in exactly one place.
+      const acquireSumAllStream = async (): Promise<MediaStream> => {
+        try {
+          return await navigator.mediaDevices.getUserMedia(constraints);
+        } catch (micErr) {
+          // Give a specific actionable message per browser-level error name
+          // rather than a raw string an operator can't act on.
+          const name = (micErr as { name?: string })?.name || "";
+          const msg = (micErr as { message?: string })?.message || "";
+          if (name === "NotAllowedError" || /denied|permission/i.test(msg)) {
+            // Electron only: distinguish "macOS never even offered the
+            // permission dialog" (usually means this build isn't code-signed
+            // — see electron/main.ts's launch-time check) from a plain user
+            // denial, since the fix is completely different (reinstall a
+            // signed build vs. just flipping a toggle in System Settings).
+            const electronApi = (typeof window !== "undefined" ? (window as { electronAPI?: { audio?: { getMicPermissionStatus?: () => Promise<string> } } }).electronAPI : undefined);
+            if (electronApi?.audio?.getMicPermissionStatus) {
+              try {
+                const status = await electronApi.audio.getMicPermissionStatus();
+                if (status === "not-determined") {
+                  throw new Error("macOS never showed a microphone permission prompt for Present Flow — this usually means the app isn't code-signed yet. Try quitting and reopening the app once; if it still doesn't prompt, this needs a signed build to fix.");
+                }
+              } catch { /* fall through to the generic message below */ }
+            }
+            throw new Error("Microphone permission denied — enable it in System Settings → Privacy & Security → Microphone, then restart Present Flow.");
           }
-          throw new Error("Microphone permission denied — enable it in System Settings → Privacy & Security → Microphone, then restart Present Flow.");
-        }
-        if (name === "NotFoundError" || /not found|no device/i.test(msg)) {
-          throw new Error("No microphone found — connect a mic (or select one in Audio Setup) and try again.");
-        }
-        if (name === "NotReadableError" || /in use|busy/i.test(msg)) {
-          // NotReadableError semantics differ meaningfully by platform:
-          // - macOS/CoreAudio: shared-mode is the default; this basically
-          //   only fires if the OS-level driver truly locked the device
-          //   (rare — usually an old FireWire/Thunderbolt driver crash).
-          // - Windows/WASAPI: firmly points at ASIO exclusive-mode. Pro
-          //   audio apps (Ableton, Cubase, Reaper) frequently hold the
-          //   device via ASIO which locks it away from every other app.
-          //   Show the fix, not the generic "close another app" copy.
-          const plat = typeof navigator !== "undefined" ? navigator.platform : "";
-          const isWin = /win/i.test(plat);
-          if (isWin) {
+          if (name === "NotFoundError" || /not found|no device/i.test(msg)) {
+            throw new Error("No microphone found — connect a mic (or select one in Audio Setup) and try again.");
+          }
+          if (name === "NotReadableError" || /in use|busy/i.test(msg)) {
+            // NotReadableError semantics differ meaningfully by platform:
+            // - macOS/CoreAudio: shared-mode is the default; this basically
+            //   only fires if the OS-level driver truly locked the device
+            //   (rare — usually an old FireWire/Thunderbolt driver crash).
+            // - Windows/WASAPI: firmly points at ASIO exclusive-mode. Pro
+            //   audio apps (Ableton, Cubase, Reaper) frequently hold the
+            //   device via ASIO which locks it away from every other app.
+            //   Show the fix, not the generic "close another app" copy.
+            const plat = typeof navigator !== "undefined" ? navigator.platform : "";
+            const isWin = /win/i.test(plat);
+            if (isWin) {
+              throw new Error(
+                "This audio device is locked by another app (ASIO exclusive mode). " +
+                "In the other app (Ableton, Reaper, Cubase, or your ASIO driver control panel), " +
+                "turn off Exclusive Mode or switch to WASAPI Shared. Or pick a different input in Settings › Audio.",
+              );
+            }
             throw new Error(
-              "This audio device is locked by another app (ASIO exclusive mode). " +
-              "In the other app (Ableton, Reaper, Cubase, or your ASIO driver control panel), " +
-              "turn off Exclusive Mode or switch to WASAPI Shared. Or pick a different input in Settings › Audio.",
+              "Microphone is in use by another app (Zoom, OBS, another browser tab). Close it and retry, or pick a different input in Settings › Audio.",
             );
           }
-          throw new Error(
-            "Microphone is in use by another app (Zoom, OBS, another browser tab). Close it and retry, or pick a different input in Settings › Audio.",
-          );
+          if (name === "OverconstrainedError" || /overconstrained|constraint/i.test(msg)) {
+            // 🟡 Stress F7 fix — prior copy claimed "PresentFlow will retry
+            // at the device's native rate", but no retry code exists here.
+            // Tell the operator the accurate story: pick a different device.
+            throw new Error(
+              "This audio device rejected PresentFlow's requested format. " +
+              "Try a different input in Settings › Audio — most modern USB interfaces work.",
+            );
+          }
+          throw new Error(`Microphone unavailable: ${msg || name || "unknown"}. Check Audio Setup and retry.`);
         }
-        if (name === "OverconstrainedError" || /overconstrained|constraint/i.test(msg)) {
-          // 🟡 Stress F7 fix — prior copy claimed "PresentFlow will retry
-          // at the device's native rate", but no retry code exists here.
-          // Tell the operator the accurate story: pick a different device.
-          throw new Error(
-            "This audio device rejected PresentFlow's requested format. " +
-            "Try a different input in Settings › Audio — most modern USB interfaces work.",
-          );
+      };
+
+      // 2026-07-27 per-channel routing — if the operator has picked a
+      // specific channel (or stereo pair) for this device in the mixer
+      // picker, open a MultiChannelCapture, extract ONLY the requested
+      // channels, and feed that MediaStream through the same pipeline as
+      // a normal getUserMedia stream. On any failure (device gone,
+      // permission denied, out-of-range channel index, malformed pref)
+      // we fall back to the v0.1.77 sum-all behaviour — a bad pref must
+      // NEVER break a live service. sum-all + missing pref + NDI + the
+      // default device all take the classic sum-all path unchanged.
+      const devicePrefDeviceId =
+        inputPref?.kind === "device" && inputPref.id && inputPref.id !== "default"
+          ? inputPref.id
+          : null;
+      let devicePref: ReturnType<typeof readDeviceChannelPref> = null;
+      if (devicePrefDeviceId) {
+        try {
+          devicePref = readDeviceChannelPref(devicePrefDeviceId);
+          // 🔴 Stress fix — MediaDeviceInfo.deviceId can change after a USB
+          // power-cycle or hub renumber. If the exact id has no pref but a
+          // stored pref exists under the same label (e.g. "SQ-5 USB"),
+          // migrate it silently so the operator doesn't lose their Ch 3
+          // pick just because they re-seated the cable. Pipeline stays
+          // silent — the AudioTab surfaces the migration toast.
+          if (!devicePref && inputPref?.kind === "device" && inputPref.label) {
+            const byLabel = readDeviceChannelPrefByLabel(inputPref.label);
+            if (byLabel && byLabel.deviceId !== devicePrefDeviceId) {
+              const migrated = migratePrefDeviceId(byLabel.deviceId, devicePrefDeviceId);
+              if (migrated) {
+                console.log(
+                  `[ai-pipeline] pref migrated from ${byLabel.deviceId} to ${devicePrefDeviceId} (same label: ${inputPref.label})`,
+                );
+                devicePref = migrated;
+              }
+            }
+          }
+        } catch (prefErr) {
+          // Malformed pref state → treat as sum-all. Never let the picker
+          // storage layer crash a live audio start.
+          console.warn("[ai-pipeline] readDeviceChannelPref failed — falling back to sum-all", prefErr);
+          devicePref = null;
         }
-        throw new Error(`Microphone unavailable: ${msg || name || "unknown"}. Check Audio Setup and retry.`);
       }
+      const wantsChannelRouting =
+        !!devicePrefDeviceId &&
+        !!devicePref &&
+        (devicePref.mode === "mono" || devicePref.mode === "stereo") &&
+        Array.isArray(devicePref.selectedChannels) &&
+        ((devicePref.mode === "mono" && devicePref.selectedChannels.length === 1) ||
+          (devicePref.mode === "stereo" && devicePref.selectedChannels.length === 2));
+
+      // gainDbToApply is 0 when no routing is active OR when the pref
+      // gain is exactly 0dB. Only the routing branch consumes it; the
+      // sum-all fallback path never inserts an extra GainNode.
+      let gainDbToApply = 0;
+      let stream: MediaStream;
+      let routedViaMultiChannel = false;
+      if (wantsChannelRouting && devicePrefDeviceId && devicePref) {
+        try {
+          const capture = await openMultiChannelCapture({
+            deviceId: devicePrefDeviceId,
+            requestedChannels: 32,
+          });
+          // Guard: if the device came back with fewer channels than the
+          // pref points at, extractChannelStream would throw. Detect
+          // early and fall through to sum-all so we don't crash start().
+          const maxCh = Math.max(...devicePref.selectedChannels);
+          if (maxCh >= capture.channelCount) {
+            log("4a channel pref out of range — falling back to sum-all", {
+              deviceId: devicePrefDeviceId,
+              requested: devicePref.selectedChannels,
+              deviceChannels: capture.channelCount,
+            });
+            try { capture.close(); } catch { /* noop */ }
+            throw new Error("channel pref out of range");
+          }
+          const channels =
+            devicePref.mode === "mono"
+              ? [devicePref.selectedChannels[0]!]
+              : [devicePref.selectedChannels[0]!, devicePref.selectedChannels[1]!];
+          const routedStream = capture.extractChannelStream(channels);
+          multiChannelCaptureRef.current = capture;
+          gainDbToApply = Number.isFinite(devicePref.gainDb) ? devicePref.gainDb : 0;
+          stream = routedStream;
+          routedViaMultiChannel = true;
+          log("4a per-channel capture opened", {
+            deviceId: devicePrefDeviceId,
+            mode: devicePref.mode,
+            channels,
+            gainDb: gainDbToApply,
+            deviceChannels: capture.channelCount,
+          });
+        } catch (routeErr) {
+          // Safety net: any failure in the routing path falls back to
+          // the classic v0.1.77 sum-all path. Field debug: watch for this
+          // warn to spot devices that silently lost their per-channel
+          // routing (usually because the OS renumbered channels or the
+          // device dropped USB briefly).
+          console.warn(
+            "[ai-pipeline] per-channel capture failed — falling back to sum-all",
+            routeErr instanceof Error ? routeErr.message : routeErr,
+          );
+          if (multiChannelCaptureRef.current) {
+            try { multiChannelCaptureRef.current.close(); } catch { /* noop */ }
+            multiChannelCaptureRef.current = null;
+          }
+          stream = await acquireSumAllStream();
+          gainDbToApply = 0;
+          routedViaMultiChannel = false;
+        }
+      } else {
+        stream = await acquireSumAllStream();
+      }
+      currentDeviceIdRef.current = devicePrefDeviceId;
+      // routedViaMultiChannel is consumed by the pre-processing stage
+      // below to decide whether to insert the pref's gainDb node. Suppress
+      // the "unused if only false" lint by referencing it here.
+      void routedViaMultiChannel;
       // R6: mic acquired but a newer start() superseded us — release + abort.
       if (generation !== pipelineGenerationRef.current) {
         try { stream.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
@@ -1438,13 +1591,26 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       // which will either recover (if the device came back) or surface
       // NotFoundError (if truly gone).
       try {
+        const handleDeviceEnded = () => {
+          if (isDevOrTraceOn()) console.log("[presentflow-audio] track.ended — device likely unplugged");
+          noAudioSignalRef.current = true;
+          setState((s) => ({ ...s, noAudioSignal: true, audioLevel: 0, error: "Audio device disconnected — reconnect the USB cable or pick a different input in Settings › Audio." }));
+        };
         const track = stream.getAudioTracks()[0];
         if (track) {
-          track.onended = () => {
-            if (isDevOrTraceOn()) console.log("[presentflow-audio] track.ended — device likely unplugged");
-            noAudioSignalRef.current = true;
-            setState((s) => ({ ...s, noAudioSignal: true, audioLevel: 0, error: "Audio device disconnected — reconnect the USB cable or pick a different input in Settings › Audio." }));
-          };
+          track.onended = handleDeviceEnded;
+        }
+        // 🔴 Stress fix — when routed through MultiChannelCapture, `stream`
+        // is a synthetic MediaStreamAudioDestinationNode.stream whose track's
+        // onended never fires on real USB disconnect (the synthetic track is
+        // driven by the AudioContext, not the underlying hardware). Attach
+        // onended to the underlying getUserMedia track too so the operator
+        // still gets the disconnect warning in the per-channel path.
+        if (routedViaMultiChannel && multiChannelCaptureRef.current) {
+          const underlying = multiChannelCaptureRef.current.stream.getAudioTracks()[0];
+          if (underlying) {
+            underlying.onended = handleDeviceEnded;
+          }
         }
       } catch { /* older browsers: skip */ }
       // Bluetooth / AirPods often refuse a 16kHz AudioContext (macOS HFP path
@@ -1697,6 +1863,25 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         boost = Number.isFinite(parsedBoost) ? Math.min(maxBoost, Math.max(1, parsedBoost)) : 1;
       } catch { highpassOn = false; boost = 1; }
       let pipelineTail: AudioNode = source;
+      // 2026-07-27 per-channel routing — apply the mixer picker's gainDb
+      // trim FIRST, before any generic mic pre-processing. Only inserted
+      // when we actually took the multi-channel routing path AND the
+      // pref requests a non-zero gain. A tap on the extracted MediaStream
+      // has line-level range; the operator's dB trim is meant to
+      // compensate for a soft mixer bus feed. Skipping when gainDb === 0
+      // keeps the graph identical to the sum-all path for the common case.
+      if (routedViaMultiChannel && gainDbToApply !== 0) {
+        const routedGain = audioCtx.createGain();
+        // Clamp the pref's gainDb to a sane [-24, +24] band (matches the
+        // DeviceChannelPref schema). If gainDbToApply somehow escaped
+        // clamp (custom localStorage write), clamp here defensively so we
+        // can never generate a runaway gain factor.
+        const clampedDb = Math.max(-24, Math.min(24, gainDbToApply));
+        routedGain.gain.value = Math.pow(10, clampedDb / 20);
+        pipelineTail.connect(routedGain);
+        pipelineTail = routedGain;
+        log("per-channel gain applied", { gainDb: clampedDb, factor: routedGain.gain.value });
+      }
       if (highpassOn) {
         const hp = audioCtx.createBiquadFilter();
         hp.type = "highpass";
@@ -1890,11 +2075,25 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     };
     const handler = () => scheduleRestart("input-changed", 300);
     const onDeviceChange = () => scheduleRestart("devicechange", 500);
+    // 2026-07-27 per-channel routing — when the user tweaks the mixer
+    // picker (switches channel, changes mode, adjusts gain), fire the
+    // same restart path as a device swap so the new routing takes
+    // effect without a full reload. Filtered by currentDeviceIdRef so
+    // an unrelated device's pref change doesn't disturb our live audio.
+    const onChannelPrefChanged = (ev: Event) => {
+      const detail = (ev as CustomEvent<DeviceChannelPrefChangedDetail>).detail;
+      if (!detail || typeof detail.deviceId !== "string") return;
+      const currentId = currentDeviceIdRef.current;
+      if (!currentId || detail.deviceId !== currentId) return;
+      scheduleRestart("channel-pref-changed", 300);
+    };
     window.addEventListener("presentflow:audio-input-changed", handler);
+    window.addEventListener(DEVICE_CHANNEL_PREF_CHANGED_EVENT, onChannelPrefChanged);
     const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
     md?.addEventListener?.("devicechange", onDeviceChange);
     return () => {
       window.removeEventListener("presentflow:audio-input-changed", handler);
+      window.removeEventListener(DEVICE_CHANNEL_PREF_CHANGED_EVENT, onChannelPrefChanged);
       md?.removeEventListener?.("devicechange", onDeviceChange);
       if (restartTimer) clearTimeout(restartTimer);
     };

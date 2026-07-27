@@ -1,10 +1,33 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
-import { ChevronDown, X, Plus, Stethoscope } from "lucide-react";
+import { ChevronDown, ChevronRight, X, Plus, Stethoscope, Wand2 } from "lucide-react";
+import { toast } from "sonner";
 import { SectionHeader, Row, Toggle } from "./DisplayTab";
 import { AudioDiagnosticsScan } from "@/components/operator/AudioDiagnosticsScan";
 import { MIC_BOOST_KEY, MIC_HIGHPASS_KEY } from "@/components/operator/useAudioStream";
+import { VocalChannelAutoDetectModal } from "@/components/operator/VocalChannelAutoDetectModal";
+import {
+  categorizeDevice,
+  categoryRank,
+  getDeviceCapabilities,
+  isMixerDevice,
+  isNdiDevice,
+} from "@/lib/audio/deviceCategorization";
+import {
+  openMultiChannelCapture,
+  type ChannelLevels,
+  type MultiChannelCapture,
+} from "@/lib/audio/multiChannelCapture";
+import {
+  clearDeviceChannelPref,
+  migratePrefDeviceId,
+  readDeviceChannelPref,
+  readDeviceChannelPrefByLabel,
+  writeDeviceChannelPref,
+  type DeviceChannelMode,
+} from "@/lib/audio/deviceChannelPrefs";
+import { findGuideForDevice } from "@/lib/audio/mixerSetupGuides";
 
 const AUDIO_INPUT_KEY = "presentflow.pro.audioInput.v1";
 const AUDIO_SOURCE_TYPE_KEY = "presentflow.pro.audioSourceType.v1";
@@ -83,6 +106,24 @@ export function AudioTab() {
   const [newPhrase, setNewPhrase] = useState("");
   const [newAction, setNewAction] = useState(ACTIONS[0].value);
 
+  // --- Channel-grid state (multi-channel USB mixer picker) ---------------
+  // Only rendered when the selected device has > 1 channel. Preserves the
+  // v0.1.77 sum-all fallback when no explicit channel is picked.
+  type GridMode = "sum-all" | "mono" | "stereo";
+  const [channelCount, setChannelCount] = useState<number>(1);
+  const [capsProbed, setCapsProbed] = useState(false);
+  const [gridMode, setGridMode] = useState<GridMode>("sum-all");
+  const [selectedChannels, setSelectedChannels] = useState<number[]>([]);
+  const [gainDb, setGainDb] = useState<number>(0);
+  const [levels, setLevels] = useState<ChannelLevels[]>([]);
+  const [activeMap, setActiveMap] = useState<boolean[]>([]);
+  const [captureError, setCaptureError] = useState<string | null>(null);
+  const [guideOpen, setGuideOpen] = useState(true); // Default OPEN in settings
+  const [autoDetectOpen, setAutoDetectOpen] = useState(false);
+  const captureRef = useRef<MultiChannelCapture | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastActiveRef = useRef<number[]>([]);
+
   useEffect(() => {
     try {
       const m = localStorage.getItem(TRANSCRIPTION_MODE_KEY);
@@ -106,17 +147,220 @@ export function AudioTab() {
       setCustoms(parseCustomCommands(localStorage.getItem(CUSTOM_COMMANDS_KEY)));
     } catch {}
     // enumerate devices
-    if (navigator.mediaDevices?.enumerateDevices) {
+    const enumerate = () => {
+      if (!navigator.mediaDevices?.enumerateDevices) return;
       navigator.mediaDevices.enumerateDevices().then((all) => {
         setDevices(all.filter((d) => d.kind === "audioinput"));
       }).catch(() => {});
-    }
+    };
+    enumerate();
     // 2026-07-26 — the IPC-based NDI source probe (listNdiSources) was
     // removed. Electron main never actually implemented that bridge, and
     // the fallback populated fake JPD-flavoured placeholders that routed
     // to the default mic when selected. Real NDI devices now show up
     // through enumerateDevices() when NDI Virtual Input is installed.
+
+    // 🔴 Stress fix — refresh the device list on OS hardware change so
+    // the picker isn't stale when an operator plugs in a mixer mid-setup.
+    if (navigator.mediaDevices?.addEventListener) {
+      navigator.mediaDevices.addEventListener("devicechange", enumerate);
+      return () => {
+        try { navigator.mediaDevices.removeEventListener("devicechange", enumerate); } catch { /* noop */ }
+      };
+    }
   }, []);
+
+  // --- Channel-grid effects & handlers ----------------------------------
+  // Probe capabilities + hydrate stored pref when the device changes.
+  useEffect(() => {
+    setCapsProbed(false);
+    setChannelCount(1);
+    setLevels([]);
+    setActiveMap([]);
+    // 6c — clear stale activity timestamps so a prior 32-channel device
+    // can't leak "active" state into a fresh 2-channel one.
+    lastActiveRef.current = [];
+    setCaptureError(null);
+    if (!selected || selected.kind !== "device") {
+      setGridMode("sum-all");
+      setSelectedChannels([]);
+      setGainDb(0);
+      return;
+    }
+    // 2026-07-27 JPD field fix — auto-switch Source Type to "mixer" when the
+    // selected device is recognized as a mixer (SQ, X32, TF, StudioLive, etc.)
+    // but the user is stuck in "microphone" mode. That combination silently
+    // yields no signal on a 32-ch USB mixer (channelCount:1 grabs the wrong
+    // channel + Chromium DSP degrades a clean feed). The operator shouldn't
+    // have to know they need to change TWO settings.
+    if (isMixerDevice(selected.label) && sourceType === "microphone") {
+      persistSourceType("mixer");
+      toast.success(`${selected.label.replace(/^Default - /, "")} looks like a mixer — switched Source Type to Mixer / Interface`);
+    }
+    let cancelled = false;
+    (async () => {
+      const caps = await getDeviceCapabilities(selected.id);
+      if (cancelled) return;
+      const ch = caps?.channelCount ?? 1;
+      setChannelCount(ch);
+      setCapsProbed(true);
+      // First lookup by deviceId; if empty, fall back to label so a USB
+      // power-cycle doesn't silently wipe the operator's channel pick.
+      let pref = readDeviceChannelPref(selected.id);
+      if (!pref && selected.label) {
+        const byLabel = readDeviceChannelPrefByLabel(selected.label);
+        if (byLabel && byLabel.deviceId !== selected.id) {
+          const migrated = migratePrefDeviceId(byLabel.deviceId, selected.id);
+          if (migrated) {
+            pref = migrated;
+            toast.success(`Restored channel pref for ${selected.label}`);
+          }
+        }
+      }
+      if (pref) {
+        setGridMode(pref.mode as GridMode);
+        setSelectedChannels(pref.selectedChannels);
+        setGainDb(pref.gainDb);
+      } else {
+        setGridMode("sum-all");
+        setSelectedChannels([]);
+        setGainDb(0);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selected?.kind, selected?.id]);
+
+  // Open capture whenever the settings tab is visible AND there's a
+  // multi-channel device. Poll at 20fps (100ms).
+  useEffect(() => {
+    const teardown = () => {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+      if (captureRef.current) {
+        try { captureRef.current.close(); } catch { /* noop */ }
+        captureRef.current = null;
+      }
+    };
+    if (!selected || selected.kind !== "device" || !capsProbed || channelCount <= 1) {
+      teardown();
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const cap = await openMultiChannelCapture({ deviceId: selected.id, requestedChannels: Math.max(2, channelCount) });
+        if (cancelled) { try { cap.close(); } catch {} return; }
+        captureRef.current = cap;
+        setCaptureError(null);
+        pollRef.current = setInterval(() => {
+          if (!captureRef.current) return;
+          try {
+            const l = captureRef.current.readLevels();
+            setLevels(l);
+            const now = Date.now();
+            const active: boolean[] = new Array(l.length);
+            const prev = lastActiveRef.current;
+            for (let i = 0; i < l.length; i += 1) {
+              if (l[i]!.rms > 0.02) prev[i] = now;
+              active[i] = (prev[i] ?? 0) > now - 200;
+            }
+            setActiveMap(active);
+          } catch { /* noop */ }
+        }, 100);
+      } catch (err) {
+        if (cancelled) return;
+        setCaptureError(err instanceof Error ? err.message : "capture failed");
+      }
+    })();
+    return () => { cancelled = true; teardown(); };
+  }, [selected?.kind, selected?.id, capsProbed, channelCount]);
+
+  // Unmount safety
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      if (captureRef.current) { try { captureRef.current.close(); } catch {} }
+    };
+  }, []);
+
+  function commitPref(next: {
+    mode?: GridMode;
+    selectedChannels?: number[];
+    gainDb?: number;
+    autoDetected?: boolean;
+  }) {
+    if (!selected || selected.kind !== "device") return;
+    const mode = next.mode ?? gridMode;
+    const chs = next.selectedChannels ?? selectedChannels;
+    const g = next.gainDb ?? gainDb;
+    const storedMode: DeviceChannelMode = mode === "sum-all" ? "sum-all" : mode;
+    writeDeviceChannelPref({
+      deviceId: selected.id,
+      deviceLabel: selected.label,
+      mode: storedMode,
+      selectedChannels: mode === "sum-all" ? [] : chs,
+      gainDb: g,
+      autoDetected: next.autoDetected ?? false,
+      updatedAt: Date.now(),
+    });
+  }
+  function handleGridModeChange(next: GridMode) {
+    setGridMode(next);
+    if (next === "sum-all") {
+      setSelectedChannels([]);
+      commitPref({ mode: next, selectedChannels: [] });
+    } else {
+      commitPref({ mode: next });
+    }
+  }
+  function handleChannelClick(n: number) {
+    if (gridMode === "sum-all") {
+      setGridMode("mono");
+      setSelectedChannels([n]);
+      commitPref({ mode: "mono", selectedChannels: [n] });
+      return;
+    }
+    if (gridMode === "mono") {
+      setSelectedChannels([n]);
+      commitPref({ mode: "mono", selectedChannels: [n] });
+      return;
+    }
+    if (selectedChannels.length === 1) {
+      const first = selectedChannels[0]!;
+      if (n === first) return;
+      const pair = [first, n].sort((a, b) => a - b);
+      setSelectedChannels(pair);
+      commitPref({ mode: "stereo", selectedChannels: pair });
+    } else {
+      const neighbour = n + 1 < channelCount ? n + 1 : Math.max(0, n - 1);
+      const pair = [n, neighbour].sort((a, b) => a - b);
+      setSelectedChannels(pair);
+      commitPref({ mode: "stereo", selectedChannels: pair });
+    }
+  }
+  // 🔴 Stress/reviewer fix — mirror the MIC_BOOST_KEY pattern below: keep
+  // the slider visual live in local state during drag, only write the pref
+  // (which fires pref-changed → pipeline restart) on release. Prevents a
+  // 50-writes-per-drag localStorage storm mid-service.
+  const gainDirtyRef = useRef(false);
+  const pendingGainDbRef = useRef<number>(0);
+  function handleChannelGainDrag(v: number) {
+    setGainDb(v);
+    pendingGainDbRef.current = v;
+    gainDirtyRef.current = true;
+  }
+  function commitChannelGainIfDirty() {
+    if (!gainDirtyRef.current) return;
+    gainDirtyRef.current = false;
+    commitPref({ gainDb: pendingGainDbRef.current });
+  }
+  function handleClearChannelPref() {
+    if (!selected || selected.kind !== "device") return;
+    clearDeviceChannelPref(selected.id);
+    setGridMode("sum-all");
+    setSelectedChannels([]);
+    setGainDb(0);
+    toast.success("Channel preference cleared — back to sum-all mode");
+  }
 
   function persistSelection(sel: AudioInputSel) {
     setSelected(sel);
@@ -227,21 +471,20 @@ export function AudioTab() {
               <Group label="Audio inputs">
                 {devices.length === 0 && <Empty>No microphones detected</Empty>}
                 {(() => {
-                  // 2026-07-26 — device categorization for visual tags.
-                  // NDI = network audio bridge (via NDI Virtual Input etc.)
-                  // MIXER = USB audio interface / mixer USB-out / BlackHole
-                  //         etc. — anything that reads like a clean feed.
-                  //         Focusrite, Behringer, PreSonus, MOTU, Zoom Livetrak,
-                  //         RME, Universal Audio, Steinberg, "USB Audio CODEC"
-                  //         (generic mixer USB), BlackHole (loopback bridge).
-                  const isNdi = (l: string) => /ndi/i.test(l);
-                  const isMixer = (l: string) => /focusrite|scarlett|clarett|behringer|umc|u-phoria|presonus|audiobox|studio ?[12]?[46]|motu|apollo|volt|universal audio|audient|evo|steinberg|ur[0-9]|mackie|onyx|roland|rubix|rme|fireface|babyface|apogee|duet|ensemble|symphony|ssl|solid state|arturia|minifuse|tascam|zoom livetrak|zoom h[0-9]|x32|xr18|xr16|xr12|x-air|yamaha tf|mg[0-9]|allen.*heath|sq-|dlive|qu-|midas|m32|mr18|soundcraft|ui[0-9]|signature|studiolive|touchmix|qsc|dl[0-9]+s|profx|usb audio codec|usb audio device|blackhole/i.test(l);
-                  const ndiDevices = devices.filter((d) => isNdi(d.label));
-                  const mixerDevices = devices.filter((d) => !isNdi(d.label) && isMixer(d.label));
-                  const otherDevices = devices.filter((d) => !isNdi(d.label) && !isMixer(d.label));
-                  return [...ndiDevices, ...mixerDevices, ...otherDevices].map((d) => {
-                    const ndi = isNdi(d.label);
-                    const mixer = !ndi && isMixer(d.label);
+                  // 2026-07-27 — device categorization now imported from
+                  // src/lib/audio/deviceCategorization.ts (single source of
+                  // truth shared with the sidebar popover + diagnostics
+                  // scanner). The old inline regexes were duplicated in 3
+                  // files and prone to drift.
+                  const sorted = [...devices].sort((a, b) => {
+                    const ra = categoryRank(categorizeDevice(a.label));
+                    const rb = categoryRank(categorizeDevice(b.label));
+                    if (ra !== rb) return ra - rb;
+                    return (a.label || "").localeCompare(b.label || "");
+                  });
+                  return sorted.map((d) => {
+                    const ndi = isNdiDevice(d.label);
+                    const mixer = !ndi && isMixerDevice(d.label);
                     return (
                       <Item
                         key={d.deviceId}
@@ -276,7 +519,7 @@ export function AudioTab() {
               </Group>
               {/* NDI helper — only shows if NO NDI-labeled device is present.
                   Common at JPD when NDI Tools isn't installed on the Mac. */}
-              {!devices.some((d) => /ndi/i.test(d.label)) && (
+              {!devices.some((d) => isNdiDevice(d.label)) && (
                 <div className="px-2 py-2 mt-1 border-t text-[10px] leading-snug text-zinc-400 space-y-1" style={{ borderColor: "#2a3232" }}>
                   <div className="font-semibold text-zinc-300">Using NDI at your church?</div>
                   <div>No NDI device is showing up here yet. Three things to check, in order:</div>
@@ -292,6 +535,186 @@ export function AudioTab() {
           </Popover.Portal>
         </Popover.Root>
       </Row>
+
+      {/* --- Channel Grid (multi-channel USB mixer picker) ---------------- */}
+      {selected.kind === "device" && capsProbed && channelCount > 1 && (() => {
+        const guide = findGuideForDevice(selected.label);
+        return (
+          <div className="rounded-lg border p-3 space-y-3" style={{ borderColor: "#2a3232", background: "#171c1c" }}>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-[12px] font-semibold text-zinc-100 uppercase tracking-wider">Channels</div>
+                <div className="text-[11px] text-zinc-500 mt-0.5">
+                  {channelCount} channels · Mode: {gridMode === "sum-all" ? "Sum all" : gridMode === "mono" ? "Mono" : "Stereo"}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setAutoDetectOpen(true)}
+                  className="h-8 px-3 rounded-md text-[11px] font-semibold text-white inline-flex items-center gap-1.5"
+                  style={{ background: "#f97316" }}
+                  title="Listen for 5s and suggest the loudest vocal-band channel"
+                >
+                  <Wand2 className="w-3.5 h-3.5" /> Auto-detect vocal
+                </button>
+                <button
+                  onClick={handleClearChannelPref}
+                  className="h-8 px-3 rounded-md border text-[11px] font-medium text-zinc-300 hover:bg-white/5"
+                  style={{ borderColor: "#2a3232", background: "#1a2020" }}
+                  title="Reset to default sum-all mode for this device"
+                >
+                  Clear channel preference
+                </button>
+              </div>
+            </div>
+
+            {captureError && (
+              <div className="px-3 py-2 rounded text-[11px] leading-snug border" style={{ borderColor: "#f59e0b", background: "rgba(245,158,11,0.08)", color: "#f59e0b" }}>
+                Multi-channel scan failed — using sum-all mode. ({captureError})
+              </div>
+            )}
+
+            {!captureError && (
+              <>
+                {/* Mode toggle */}
+                <div className="inline-flex rounded-md p-0.5" style={{ background: "#1a2020", border: "1px solid #2a3232" }}>
+                  {(["sum-all", "mono", "stereo"] as const).map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => handleGridModeChange(m)}
+                      className={"h-7 px-3 rounded text-[11px] font-medium capitalize " + (gridMode === m ? "text-white" : "text-zinc-400 hover:text-zinc-200")}
+                      style={gridMode === m ? { background: "#f97316" } : {}}
+                    >
+                      {m === "sum-all" ? "Sum all" : m}
+                    </button>
+                  ))}
+                </div>
+
+                {gridMode === "sum-all" && (
+                  <div className="text-[11px] leading-snug text-zinc-500">
+                    All channels summed to mono. Pick a specific channel for cleaner vocal capture.
+                  </div>
+                )}
+                {gridMode === "stereo" && selectedChannels.length === 1 && (
+                  <div className="text-[11px] leading-snug text-zinc-500">
+                    Click a second channel to pair, or a single channel to auto-pair with its neighbour.
+                  </div>
+                )}
+
+                {/* Grid: 4 per row in settings (bigger cards) */}
+                <div className="grid grid-cols-4 gap-2">
+                  {levels.length === 0 && Array.from({ length: Math.min(channelCount, 8) }).map((_, i) => (
+                    <div key={`ph-${i}`} className="h-24 rounded border animate-pulse" style={{ borderColor: "#2a3232", background: "#1a2020" }} />
+                  ))}
+                  {levels.map((lv, n) => {
+                    const isSel = selectedChannels.includes(n);
+                    const isActive = activeMap[n] === true;
+                    const rmsPct = Math.min(100, Math.round(lv.rms * 100));
+                    const vocalPct = Math.min(100, Math.round(lv.vocalBandEnergy * 100));
+                    const ratio = lv.vocalBandEnergy / Math.max(lv.rms, 0.001);
+                    return (
+                      <button
+                        key={n}
+                        onClick={() => handleChannelClick(n)}
+                        className="relative h-24 rounded overflow-hidden text-left"
+                        style={{
+                          border: isSel ? "2px solid #f97316" : "1px solid #2a3232",
+                          background: "#1a2020",
+                        }}
+                        title={`Channel ${n + 1}`}
+                      >
+                        {/* RMS meter fill (orange) */}
+                        <div
+                          className="absolute left-0 right-0 bottom-0"
+                          style={{ height: `${rmsPct}%`, background: "linear-gradient(180deg, rgba(249,115,22,0.55), rgba(249,115,22,0.25))" }}
+                        />
+                        {/* Vocal band overlay (yellow) */}
+                        <div
+                          className="absolute left-0 right-0 bottom-0"
+                          style={{ height: `${vocalPct}%`, background: "rgba(250,204,21,0.35)" }}
+                        />
+                        <div className="absolute top-1.5 left-2 text-[11px] font-semibold text-zinc-100">Ch {n + 1}</div>
+                        {isActive && (
+                          <div className="absolute top-1.5 right-2 inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-green-400">
+                            <span className="w-1.5 h-1.5 rounded-full bg-green-400" /> Active
+                          </div>
+                        )}
+                        <div className="absolute bottom-1 left-2 right-2 flex items-center justify-between text-[9px] font-mono text-zinc-300">
+                          <span>Peak {lv.peak.toFixed(2)}</span>
+                          <span>Ratio {ratio.toFixed(2)}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Gain slider */}
+                <div className="flex items-center gap-3">
+                  <div className="text-[11px] uppercase tracking-wider text-zinc-500 shrink-0">Gain</div>
+                  <input
+                    type="range"
+                    min={-24}
+                    max={24}
+                    step={1}
+                    value={gainDb}
+                    onChange={(e) => handleChannelGainDrag(Number(e.target.value) || 0)}
+                    onMouseUp={commitChannelGainIfDirty}
+                    onTouchEnd={commitChannelGainIfDirty}
+                    onKeyUp={commitChannelGainIfDirty}
+                    onBlur={commitChannelGainIfDirty}
+                    className="flex-1 accent-orange-500"
+                    aria-label="Channel gain"
+                  />
+                  <div className="text-[11px] text-zinc-100 font-mono w-16 text-right">{gainDb > 0 ? "+" : ""}{gainDb} dB</div>
+                </div>
+
+                {/* Setup guide (default OPEN in settings) */}
+                {guide && (
+                  <div className="border-t pt-3" style={{ borderColor: "#2a3232" }}>
+                    <button
+                      onClick={() => setGuideOpen((v) => !v)}
+                      className="w-full flex items-center gap-1 text-left text-[11px] uppercase tracking-wider text-zinc-400 hover:text-zinc-200"
+                    >
+                      {guideOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                      Setup guide: {guide.displayName}
+                    </button>
+                    {guideOpen && (
+                      <ol className="mt-2 px-4 py-3 rounded space-y-1.5 text-[11px] leading-snug text-zinc-300 list-decimal list-inside" style={{ background: "#1a2020" }}>
+                        {guide.steps.map((s, i) => <li key={i}>{s}</li>)}
+                        {guide.tips && guide.tips.length > 0 && (
+                          <div className="mt-2 pt-2 border-t space-y-1" style={{ borderColor: "#2a3232" }}>
+                            <div className="text-[10px] uppercase tracking-wider text-zinc-500">Tips</div>
+                            {guide.tips.map((t, i) => <div key={i} className="text-zinc-400">• {t}</div>)}
+                          </div>
+                        )}
+                        {guide.vocalChannelHint && (
+                          <div className="mt-2 pt-2 border-t text-zinc-100" style={{ borderColor: "#2a3232" }}>
+                            <span className="font-semibold">Vocal hint: </span>{guide.vocalChannelHint}
+                          </div>
+                        )}
+                      </ol>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
+            {autoDetectOpen && (
+              <VocalChannelAutoDetectModal
+                deviceId={selected.id}
+                deviceLabel={selected.label}
+                onClose={() => setAutoDetectOpen(false)}
+                onSelectChannel={(ch, mode, chs) => {
+                  setGridMode(mode as GridMode);
+                  setSelectedChannels(chs);
+                  commitPref({ mode: mode as GridMode, selectedChannels: chs, autoDetected: true });
+                  setAutoDetectOpen(false);
+                }}
+              />
+            )}
+          </div>
+        );
+      })()}
 
       {/* Source type — decides whether Chromium's echo cancellation, noise
           suppression, and auto-gain-control are ON or OFF for capture.

@@ -15,6 +15,20 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.78",
+    date: "2026-07-27",
+    headline: "Per-channel USB mixer picker — click the exact channel carrying the pastor's vocal, with live meters and auto-detect",
+    highlights: [
+      "Field-critical from JPD live: an Allen & Heath SQ was selected as the input device but no audio was reaching the AI listener. Root cause: 'Source Type' was stuck on 'Microphone' (forcing DSP ON + channelCount:1), so out of 32 SQ USB channels only channel 1 came through — silent, because the vocal isn't on channel 1 by default. PresentFlow now auto-switches Source Type to 'Mixer / Interface' when the picked device matches a known mixer (SQ, X32, TF, StudioLive, TouchMix, XR18, Ui, etc.) and toasts to explain why",
+      "New channel-grid picker: when you pick a multi-channel device, an inline grid appears with a live meter for every channel (updated 20fps). Click the channel that lights up when the pastor speaks — that's the one PresentFlow will send to Deepgram. Orange border = SELECTED, green dot = active signal in the last 200ms. Sidebar popover shows 2 per row, full /settings page shows 4 per row with peak + vocal-ratio readouts",
+      "'Auto-detect vocal channel' button: opens a 10-second scan that samples every channel with an FFT and ranks them by vocal-band energy (300-3400Hz) + how consistently active they are. At the end you get a recommendation ('Ch 3 looks like your vocal') with a one-click accept. If none of the channels had usable signal (e.g. no one was speaking), it says so and lets you retry",
+      "Mixer setup guides built-in: pick your SQ / X32 / Yamaha TF / Soundcraft Ui / PreSonus StudioLive / QSC TouchMix / Behringer XR18 / M32 / BlackHole / NDI Virtual Input and PresentFlow shows the exact steps to route your vocal mic to a USB channel it can see. Sidebar defaults collapsed (space-constrained), settings page defaults open",
+      "Modes: 'Sum all' (current v0.1.77 fallback — combines every channel to mono, catches signal on ANY routed channel), 'Mono' (one specific channel), 'Stereo' (a channel pair for LR bus / stereo interface). Per-device gain slider (-24 dB to +24 dB) writes only on release — mid-service slider drags won't churn the pipeline",
+      "Per-device persistence: your channel choice, mode, and gain are remembered per mixer. If your SQ gets a new deviceId after a USB power-cycle or hub renumber (macOS/Windows behavior), PresentFlow now falls back to matching by device LABEL and migrates the pref forward — you don't lose your channel pick after a reconnect",
+      "Sum-all fallback preserved: if you don't pick a channel, behavior is identical to v0.1.77 — all channels summed to mono. Multi-channel capture is only opened when the grid is visible, so the picker doesn't burn CPU when you're just opening the audio menu to check device names. Device-list refresh now listens for USB plug/unplug events so a mixer you plug in mid-service shows up in the picker without needing a manual Refresh click",
+    ],
+  },
+  {
     version: "0.1.77",
     date: "2026-07-26",
     headline: "Multi-channel mixer USB support — Allen & Heath SQ, Behringer X32, Yamaha TF etc. now capture audio on ANY routed channel",
