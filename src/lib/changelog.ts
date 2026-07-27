@@ -15,6 +15,18 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.83",
+    date: "2026-07-27",
+    headline: "Faster speech-to-screen projection — live transcription and AI-detected verses now reach the output sooner and recover cleanly from audio interruptions",
+    highlights: [
+      "Verse detection now runs on Deepgram's live interim transcript stream instead of waiting for the speaker to pause and a final transcript to arrive. The Live Transcript panel shows the first interim immediately, so operators can see that PresentFlow is hearing the room in real time",
+      "Audio now travels to the bridge as fixed 10 ms binary PCM packets, removing base64 conversion and large-buffer delays. Native ffmpeg capture also uses low-buffer and low-delay flags",
+      "AI-detected verses use an immediate one-shot output transition while preserving the operator's configured transition for manual slides. Repeating the same reference republishes it correctly to local and paired outputs",
+      "Deepgram sessions now use supported VAD and utterance-end signals, a 3–5 second keepalive cadence, bounded connection setup, faster reconnect backoff, and safe cancellation of stale reconnects",
+      "Electron operator and projector windows no longer throttle in the background, and the audio watchdog resumes a suspended AudioContext every second",
+    ],
+  },
+  {
     version: "0.1.82",
     date: "2026-07-27",
     headline: "Follow Mac system input — PresentFlow now captures whatever input the Mac itself is using, and tracks it live when you change it",
