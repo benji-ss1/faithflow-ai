@@ -15,6 +15,19 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.80",
+    date: "2026-07-27",
+    headline: "Native audio capture (ffmpeg) — bypasses Chromium's getUserMedia entirely for pro USB mixers like Allen & Heath SQ. REQUIRES NEW DMG INSTALL.",
+    highlights: [
+      "Root diagnosis after multiple JPD field sessions with a Mac Studio + Allen & Heath SQ-5 mixer: OBS Studio, Logic Pro, and macOS System Settings all captured audio from the SQ successfully. Only PresentFlow got silence. That's a Chromium problem, not a PresentFlow bug — Chromium's audio input backend is documented as unreliable with pro multi-channel USB audio interfaces (>2 channels, non-consumer sample-rate/channel-map combos). No amount of getUserMedia constraint tweaking will fix it",
+      "The fix: PresentFlow's Electron desktop app now captures audio via a NATIVE ffmpeg subprocess in the main process, using macOS CoreAudio (avfoundation) or Windows DirectShow directly. Same code path native apps use. PCM bytes stream from ffmpeg's stdout → IPC → renderer → Deepgram WebSocket. Chromium's audio stack is not involved at all",
+      "New Capture Mode toggle in the sidebar Audio settings: Auto / Native / Browser. Auto = native when the Electron shell supports it, else browser. Native shows a separate 'Native input device' picker listing devices exactly as OBS sees them (via ffmpeg's device enumeration, not Chromium's filtered view). Includes ffmpeg-static binary bundled with the app (~50MB unpacked)",
+      "Auto-restart on subprocess crash with exponential backoff (2s, 4s, 8s, 16s, 30s, 5 attempts). Silent recovery — chunks resume flowing after gaps. If the native path fails entirely (missing binary on unsupported OS, permission denied), automatic fallback to browser mode preserves v0.1.79 behavior — no regression",
+      "Web app users (chrome.faithflow-ai.vercel.app) see 'browser active' — native capture is only available in the desktop app because it requires bundling a native binary. Web users get the existing browser-mode path unchanged",
+      "IMPORTANT: this requires a new DMG install (electron main process + native binary change). Web changes alone can't ship native capture. Grab the v0.1.80 DMG when it's cut and reinstall on the Mac Studio at JPD — then the SQ will finally work",
+    ],
+  },
+  {
     version: "0.1.79",
     date: "2026-07-27",
     headline: "Mixer detection now matches by USB Vendor ID (not just label) — SQ, X32, TF etc. detected even without vendor drivers, and 'No audio' toast is now actually diagnostic",

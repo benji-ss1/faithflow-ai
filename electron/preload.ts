@@ -15,6 +15,62 @@ const api = {
     listInputs: () => ipcRenderer.invoke("audio:listInputs"),
     listSystemSources: () => ipcRenderer.invoke("audio:listSystemSources"),
     getMicPermissionStatus: () => ipcRenderer.invoke("audio:getMicPermissionStatus"),
+    // Wave 1: native ffmpeg-backed audio capture. Bypasses Chromium's
+    // getUserMedia (which silently drops 32-channel USB pro-audio input,
+    // confirmed at JPD field test) and pipes CoreAudio/DirectShow PCM
+    // straight from a main-process ffmpeg subprocess. Renderers check
+    // isAvailable() first and fall back to the legacy handlers above
+    // when it returns false (Linux, missing binary, etc.).
+    native: {
+      isAvailable: (): Promise<boolean> =>
+        ipcRenderer.invoke("audio:native:isAvailable"),
+      listDevices: (): Promise<Array<{
+        index: number;
+        name: string;
+        platform: "darwin" | "win32" | "linux";
+        channelCount?: number;
+        sampleRate?: number;
+      }>> => ipcRenderer.invoke("audio:native:listDevices"),
+      startCapture: (opts: {
+        deviceIndex: number;
+        channelFilter?: string;
+        sampleRate?: number;
+        channels?: number;
+      }): Promise<{ ok: boolean; error?: string }> =>
+        ipcRenderer.invoke("audio:native:startCapture", opts),
+      stopCapture: (): Promise<void> =>
+        ipcRenderer.invoke("audio:native:stopCapture"),
+      // PCM chunk subscription — the renderer is expected to forward these
+      // bytes directly into the Deepgram WebSocket. Chunks arrive as
+      // ArrayBuffer (structured-cloned across the IPC boundary).
+      onPcmChunk: (cb: (chunk: ArrayBuffer) => void) => {
+        const handler = (_e: IpcRendererEvent, chunk: ArrayBuffer) => cb(chunk);
+        ipcRenderer.on("audio:nativePcmChunk", handler);
+        return () => ipcRenderer.removeListener("audio:nativePcmChunk", handler);
+      },
+      onLevel: (cb: (level: { rms: number; db: number; peak: number }) => void) => {
+        const handler = (_e: IpcRendererEvent, level: { rms: number; db: number; peak: number }) => cb(level);
+        ipcRenderer.on("audio:nativeLevel", handler);
+        return () => ipcRenderer.removeListener("audio:nativeLevel", handler);
+      },
+      onError: (cb: (err: { message: string; suggestion?: string }) => void) => {
+        const handler = (_e: IpcRendererEvent, err: { message: string; suggestion?: string }) => cb(err);
+        ipcRenderer.on("audio:nativeError", handler);
+        return () => ipcRenderer.removeListener("audio:nativeError", handler);
+      },
+      startChannelProbe: (opts: {
+        deviceIndex: number;
+        channelCount: number;
+      }): Promise<{ ok: boolean; error?: string }> =>
+        ipcRenderer.invoke("audio:native:startChannelProbe", opts),
+      stopChannelProbe: (): Promise<void> =>
+        ipcRenderer.invoke("audio:native:stopChannelProbe"),
+      onChannelLevels: (cb: (levels: Array<{ channel: number; rms: number; db: number; peak: number }>) => void) => {
+        const handler = (_e: IpcRendererEvent, levels: Array<{ channel: number; rms: number; db: number; peak: number }>) => cb(levels);
+        ipcRenderer.on("audio:nativeChannelLevels", handler);
+        return () => ipcRenderer.removeListener("audio:nativeChannelLevels", handler);
+      },
+    },
   },
   dialog: {
     openFile: (options: any) => ipcRenderer.invoke("dialog:openFile", options),

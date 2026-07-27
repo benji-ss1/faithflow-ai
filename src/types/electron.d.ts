@@ -24,6 +24,37 @@ export interface ElectronAPI {
     listInputs: () => Promise<any>;
     listSystemSources: () => Promise<Array<{ id: string; name: string; display_id: string }> | { error: string; sources: any[] }>;
     getMicPermissionStatus: () => Promise<"not-determined" | "granted" | "denied" | "restricted" | "unknown" | "not-applicable">;
+    // Wave 1 (2026-07-27) — native ffmpeg-backed capture bridge. Only
+    // present on Electron builds where the bundled ffmpeg binary is
+    // available (macOS + Windows today). Wave 2 renderer code guards
+    // every access with optional chaining so the web build (no
+    // electronAPI) and Linux (no ffmpeg) both fall back cleanly.
+    native?: {
+      isAvailable: () => Promise<boolean>;
+      listDevices: () => Promise<Array<{
+        index: number;
+        name: string;
+        platform: "darwin" | "win32" | "linux";
+        channelCount?: number;
+        sampleRate?: number;
+      }>>;
+      startCapture: (opts: {
+        deviceIndex: number;
+        channelFilter?: string;
+        sampleRate?: number;
+        channels?: number;
+      }) => Promise<{ ok: boolean; error?: string }>;
+      stopCapture: () => Promise<void>;
+      onPcmChunk: (cb: (chunk: ArrayBuffer) => void) => () => void;
+      onLevel: (cb: (level: { rms: number; db: number; peak: number }) => void) => () => void;
+      onError: (cb: (err: { message: string; suggestion?: string }) => void) => () => void;
+      startChannelProbe: (opts: {
+        deviceIndex: number;
+        channelCount: number;
+      }) => Promise<{ ok: boolean; error?: string }>;
+      stopChannelProbe: () => Promise<void>;
+      onChannelLevels: (cb: (levels: Array<{ channel: number; rms: number; db: number; peak: number }>) => void) => () => void;
+    };
   };
   dialog: {
     openFile: (options?: any) => Promise<{ canceled: boolean; filePaths: string[] }>;

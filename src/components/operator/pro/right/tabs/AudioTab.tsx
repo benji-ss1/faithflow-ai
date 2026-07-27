@@ -47,6 +47,28 @@ import {
   type DeviceChannelMode,
 } from "@/lib/audio/deviceChannelPrefs";
 import { findGuideForDevice } from "@/lib/audio/mixerSetupGuides";
+// Wave 2 (2026-07-27) — capture-mode toggle + native device store.
+import {
+  readCaptureMode,
+  writeCaptureMode,
+  resolveEffectiveMode,
+  CAPTURE_MODE_CHANGED_EVENT,
+  type CaptureMode,
+} from "@/lib/audio/captureMode";
+import {
+  readNativeDevicePref,
+  writeNativeDevicePref,
+  clearNativeDevicePref,
+  type NativeDeviceMode,
+} from "@/lib/audio/nativeDeviceStore";
+
+type NativeDeviceInfo = {
+  index: number;
+  name: string;
+  platform: "darwin" | "win32" | "linux";
+  channelCount?: number;
+  sampleRate?: number;
+};
 
 const AUDIO_INPUT_KEY = "presentflow.pro.audioInput.v1";
 const AUDIO_SOURCE_TYPE_KEY = "presentflow.pro.audioSourceType.v1";
@@ -63,6 +85,18 @@ export function AudioTab() {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [diagOpen, setDiagOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+
+  // Wave 2 — capture-mode toggle state.
+  const [captureMode, setCaptureMode] = useState<CaptureMode>("auto");
+  const [effectiveMode, setEffectiveMode] = useState<"native" | "browser">("browser");
+  // Native-mode device list + selected pick.
+  const [nativeDevices, setNativeDevices] = useState<NativeDeviceInfo[]>([]);
+  const [nativeSelected, setNativeSelected] = useState<NativeDeviceInfo | null>(null);
+  const [nativeGridMode, setNativeGridMode] = useState<NativeDeviceMode>("sum-all");
+  const [nativeSelectedChannels, setNativeSelectedChannels] = useState<number[]>([]);
+  const [nativeChannelLevels, setNativeChannelLevels] = useState<Array<{ channel: number; rms: number; db: number; peak: number }>>([]);
+
+  const nativeProbeUnsubRef = useRef<(() => void) | null>(null);
 
   // Channel-grid state
   const [channelCount, setChannelCount] = useState<number>(1);
@@ -94,7 +128,27 @@ export function AudioTab() {
       const st = localStorage.getItem(AUDIO_SOURCE_TYPE_KEY);
       setSourceType(st === "microphone" ? "microphone" : "mixer");
     } catch { /* noop */ }
+    // Wave 2 — capture mode hydration + effective-mode resolve.
+    const mode = readCaptureMode();
+    setCaptureMode(mode);
+    void resolveEffectiveMode(mode).then(setEffectiveMode).catch(() => setEffectiveMode("browser"));
+    const onModeChanged = () => {
+      const m = readCaptureMode();
+      setCaptureMode(m);
+      void resolveEffectiveMode(m).then(setEffectiveMode).catch(() => setEffectiveMode("browser"));
+    };
+    window.addEventListener(CAPTURE_MODE_CHANGED_EVENT, onModeChanged);
+    // Hydrate native pref (may not exist yet).
+    const np = readNativeDevicePref();
+    if (np) {
+      setNativeSelected({ index: np.index, name: np.name, platform: (typeof navigator !== "undefined" && /win/i.test(navigator.platform)) ? "win32" : "darwin" });
+      setNativeGridMode(np.mode ?? "sum-all");
+      setNativeSelectedChannels(np.selectedChannels ?? []);
+    }
     refreshDevices();
+    // Fire an initial native devices probe (no-op if API missing).
+    void refreshNativeDevices();
+    const cleanupExtra = () => window.removeEventListener(CAPTURE_MODE_CHANGED_EVENT, onModeChanged);
     // 🔴 Stress fix — refresh the picker device list when the OS reports a
     // hardware change (USB plug/unplug, Bluetooth connect). Without this,
     // an operator with the popover open sees a stale list and has to click
@@ -104,8 +158,10 @@ export function AudioTab() {
       navigator.mediaDevices.addEventListener("devicechange", handler);
       return () => {
         try { navigator.mediaDevices.removeEventListener("devicechange", handler); } catch { /* noop */ }
+        cleanupExtra();
       };
     }
+    return cleanupExtra;
   }, []);
 
   // When device changes: probe capabilities + hydrate pref state.
@@ -238,6 +294,115 @@ export function AudioTab() {
     }).catch(() => { /* noop */ });
   }
 
+  async function refreshNativeDevices() {
+    const nativeApi = (typeof window !== "undefined"
+      ? (window as Window & { electronAPI?: { audio?: { native?: { listDevices: () => Promise<NativeDeviceInfo[]> } } } }).electronAPI
+      : undefined);
+    const list = nativeApi?.audio?.native?.listDevices;
+    if (typeof list !== "function") return;
+    try {
+      const devs = await list();
+      setNativeDevices(devs);
+    } catch { /* noop */ }
+  }
+
+  function persistNativeSelection(dev: NativeDeviceInfo) {
+    setNativeSelected(dev);
+    // Preserve existing mode/channels if pref for a same-index device exists.
+    const existing = readNativeDevicePref();
+    const carry = existing && existing.index === dev.index
+      ? { mode: existing.mode, selectedChannels: existing.selectedChannels, gainDb: existing.gainDb }
+      : {};
+    writeNativeDevicePref({
+      index: dev.index,
+      name: dev.name,
+      ...carry,
+    });
+  }
+
+  function commitNativeChannelPref(next: { mode?: NativeDeviceMode; selectedChannels?: number[] }) {
+    if (!nativeSelected) return;
+    const mode = next.mode ?? nativeGridMode;
+    const chs = next.selectedChannels ?? nativeSelectedChannels;
+    writeNativeDevicePref({
+      index: nativeSelected.index,
+      name: nativeSelected.name,
+      mode,
+      selectedChannels: mode === "sum-all" ? [] : chs,
+    });
+  }
+
+  function handleNativeModeChange(next: NativeDeviceMode) {
+    setNativeGridMode(next);
+    if (next === "sum-all") {
+      setNativeSelectedChannels([]);
+      commitNativeChannelPref({ mode: next, selectedChannels: [] });
+    } else {
+      commitNativeChannelPref({ mode: next });
+    }
+  }
+
+  function handleNativeChannelClick(n: number) {
+    if (nativeGridMode === "sum-all" || nativeGridMode === "mono") {
+      setNativeGridMode("mono");
+      setNativeSelectedChannels([n]);
+      commitNativeChannelPref({ mode: "mono", selectedChannels: [n] });
+      return;
+    }
+    // stereo
+    if (nativeSelectedChannels.length === 1) {
+      const first = nativeSelectedChannels[0]!;
+      if (n === first) return;
+      const pair = [first, n].sort((a, b) => a - b);
+      setNativeSelectedChannels(pair);
+      commitNativeChannelPref({ mode: "stereo", selectedChannels: pair });
+    } else {
+      const maxCh = nativeSelected?.channelCount ?? 2;
+      const neighbour = n + 1 < maxCh ? n + 1 : Math.max(0, n - 1);
+      const pair = [n, neighbour].sort((a, b) => a - b);
+      setNativeSelectedChannels(pair);
+      commitNativeChannelPref({ mode: "stereo", selectedChannels: pair });
+    }
+  }
+
+  // Native channel-probe lifecycle. Open when: popover open + native mode +
+  // multi-channel device selected. Wave 1 note: probe + capture share the
+  // ffmpeg backend so we must stop probe before capture ever starts; the
+  // useAudioStream hook calls stopChannelProbe() defensively too.
+  useEffect(() => {
+    const nativeApi = (typeof window !== "undefined"
+      ? (window as Window & { electronAPI?: { audio?: { native?: {
+          startChannelProbe: (o: { deviceIndex: number; channelCount: number }) => Promise<{ ok: boolean; error?: string }>;
+          stopChannelProbe: () => Promise<void>;
+          onChannelLevels: (cb: (levels: Array<{ channel: number; rms: number; db: number; peak: number }>) => void) => () => void;
+        } } } }).electronAPI
+      : undefined);
+    const nb = nativeApi?.audio?.native;
+    const chCount = nativeSelected?.channelCount ?? 0;
+    const shouldProbe = effectiveMode === "native" && pickerOpen && !!nativeSelected && chCount > 1 && !!nb;
+    if (!shouldProbe) {
+      if (nativeProbeUnsubRef.current) { try { nativeProbeUnsubRef.current(); } catch {} nativeProbeUnsubRef.current = null; }
+      try { void nb?.stopChannelProbe?.(); } catch {}
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await nb!.startChannelProbe({ deviceIndex: nativeSelected!.index, channelCount: chCount });
+        if (cancelled || !res?.ok) return;
+        const unsub = nb!.onChannelLevels((lvls) => {
+          if (!cancelled) setNativeChannelLevels(lvls);
+        });
+        nativeProbeUnsubRef.current = unsub;
+      } catch { /* noop */ }
+    })();
+    return () => {
+      cancelled = true;
+      if (nativeProbeUnsubRef.current) { try { nativeProbeUnsubRef.current(); } catch {} nativeProbeUnsubRef.current = null; }
+      try { void nb?.stopChannelProbe?.(); } catch {}
+    };
+  }, [effectiveMode, pickerOpen, nativeSelected?.index, nativeSelected?.channelCount]);
+
   function persistSelection(sel: AudioInputSel) {
     setSelected(sel);
     try { localStorage.setItem(AUDIO_INPUT_KEY, JSON.stringify(sel)); } catch { /* noop */ }
@@ -357,8 +522,85 @@ export function AudioTab() {
 
   return (
     <div className="flex flex-col gap-3 py-2 text-[12px]">
-      {/* Input device */}
+      {/* Wave 2 — Capture Mode toggle. Bypasses Chromium getUserMedia (which
+          silently drops 32-ch USB pro-audio input, JPD field test confirmed)
+          by routing through an ffmpeg subprocess in the Electron main process. */}
       <div className="flex flex-col gap-1">
+        <div className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)] px-1 flex items-center justify-between">
+          <span>Capture mode</span>
+          <span className="text-[9px] normal-case tracking-normal text-[var(--color-muted-foreground)]" title="Native: ffmpeg subprocess (reliable for pro mixers). Browser: Chromium getUserMedia (may fail with 32ch USB). Auto: Native when the desktop app supports it, otherwise Browser.">
+            {effectiveMode === "native" ? "🎛️ native active" : "🌐 browser active"}
+          </span>
+        </div>
+        <div className="inline-flex rounded-md p-0.5 border border-[var(--color-border)] bg-[var(--color-elevated)]">
+          {(["auto", "native", "browser"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => { setCaptureMode(m); writeCaptureMode(m); }}
+              className={"h-6 flex-1 px-2 rounded text-[10px] font-medium capitalize " + (captureMode === m ? "text-white" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]")}
+              style={captureMode === m ? { background: "#f97316" } : {}}
+              title={m === "native" ? "Force ffmpeg subprocess capture (recommended for pro mixers)" : m === "browser" ? "Force Chromium getUserMedia (legacy)" : "Native if available, else browser"}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Native device picker — shown when effective mode is native. */}
+      {effectiveMode === "native" && (
+        <div className="flex flex-col gap-1">
+          <div className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)] px-1 flex items-center justify-between">
+            <span>Native input device</span>
+            <button
+              onClick={() => void refreshNativeDevices()}
+              className="text-[9px] normal-case tracking-normal text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] inline-flex items-center gap-1 px-1 py-0.5 rounded hover:bg-white/5"
+              title="Rescan native devices via ffmpeg"
+            >
+              <RefreshCcw className="w-2.5 h-2.5" /> Refresh
+            </button>
+          </div>
+          {nativeDevices.length === 0 ? (
+            <div className="px-2 py-2 rounded border text-[10px] italic text-[var(--color-muted-foreground)]" style={{ borderColor: "var(--color-border)" }}>
+              No native devices detected. If the Electron shell was just launched, click Refresh in a second.
+            </div>
+          ) : (
+            <div className="flex flex-col gap-0.5 rounded border p-1" style={{ borderColor: "var(--color-border)", background: "var(--color-elevated)" }}>
+              {nativeDevices.map((d) => {
+                const isSel = nativeSelected?.index === d.index;
+                return (
+                  <button
+                    key={`${d.platform}-${d.index}-${d.name}`}
+                    onClick={() => {
+                      setNativeSelected(d);
+                      writeNativeDevicePref({ index: d.index, name: d.name, mode: "sum-all", selectedChannels: [], gainDb: 0 });
+                      try { window.dispatchEvent(new CustomEvent("presentflow:native-audio-input-changed", { detail: { index: d.index, name: d.name } })); } catch { /* noop */ }
+                      toast.success(`Native capture → ${d.name}${d.channelCount ? ` (${d.channelCount}ch)` : ""}`);
+                    }}
+                    className={"w-full text-left px-2 py-1.5 rounded text-[11px] flex items-center gap-1.5 " + (isSel ? "text-white bg-[color:rgba(249,115,22,0.15)]" : "text-[var(--color-foreground)] hover:bg-white/5")}
+                  >
+                    <span className="text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded shrink-0" style={{ background: "#10b981", color: "white" }} title="Native ffmpeg-backed capture">
+                      NATIVE
+                    </span>
+                    <span className="truncate">{d.name}</span>
+                    {d.channelCount != null && (
+                      <span className="text-[9px] text-[var(--color-muted-foreground)] ml-auto">{d.channelCount}ch</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {nativeSelected && nativeSelected.channelCount != null && nativeSelected.channelCount > 1 && (
+            <div className="text-[10px] text-[var(--color-muted-foreground)] px-1">
+              {nativeSelected.channelCount} channels available. Currently: sum-all (ffmpeg auto-downmixes to mono). Per-channel picker coming in a follow-up.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Browser-mode Input device (existing) — hidden when native is active. */}
+      <div className={"flex flex-col gap-1 " + (effectiveMode === "native" ? "hidden" : "")}>
         <div className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)] px-1">Input device</div>
         <Popover.Root open={pickerOpen} onOpenChange={setPickerOpen}>
           <Popover.Trigger asChild>

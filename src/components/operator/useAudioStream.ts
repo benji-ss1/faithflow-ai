@@ -18,6 +18,21 @@ import {
   openMultiChannelCapture,
   type MultiChannelCapture,
 } from "@/lib/audio/multiChannelCapture";
+// Wave 2 (2026-07-27) — capture-mode selector + native-mode device pick.
+// Native mode bypasses Chromium's getUserMedia entirely and receives PCM
+// from an ffmpeg subprocess in the Electron main process (Wave 1). Used
+// for pro multi-channel USB mixers that Chromium silently drops
+// (Allen & Heath SQ = 32ch, confirmed at JPD field test).
+import {
+  readCaptureMode,
+  resolveEffectiveMode,
+  CAPTURE_MODE_CHANGED_EVENT,
+} from "@/lib/audio/captureMode";
+import {
+  readNativeDevicePref,
+  buildChannelFilter,
+  NATIVE_AUDIO_INPUT_CHANGED_EVENT,
+} from "@/lib/audio/nativeDeviceStore";
 
 export type Detection = {
   id: string;
@@ -544,6 +559,14 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   // extracted MediaStream into the primary pipeline just like a normal
   // mic. Ref so teardown can close it and null it out.
   const multiChannelCaptureRef = useRef<MultiChannelCapture | null>(null);
+  // Wave 2 (2026-07-27) — native ffmpeg-backed capture bookkeeping. When
+  // this session is running in native mode, `nativeActiveRef` is true and
+  // `nativeUnsubsRef` holds the unsubscribe callbacks returned from the
+  // preload's onPcmChunk/onLevel/onError subscriptions. Teardown drains
+  // all three + issues `native.stopCapture()`. Kept null when the current
+  // session took the browser path so the teardown branch stays a no-op.
+  const nativeActiveRef = useRef<boolean>(false);
+  const nativeUnsubsRef = useRef<Array<() => void>>([]);
   // Tracks the deviceId currently feeding the pipeline so the
   // device-channel-pref-changed listener can ignore prefs for other
   // devices. null when no device-specific pref is active or when the
@@ -787,6 +810,21 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     // fallback path.
     try { multiChannelCaptureRef.current?.close(); } catch { /* ignore */ }
     multiChannelCaptureRef.current = null;
+    // Wave 2 — native capture teardown. Unsubscribe every IPC listener
+    // (stacked listeners multi-fire after hot reload otherwise) and stop
+    // the ffmpeg subprocess. stopCapture() is idempotent (Wave 1 note),
+    // so it's safe to call even if the pipeline never fully started.
+    if (nativeActiveRef.current) {
+      for (const un of nativeUnsubsRef.current) {
+        try { un(); } catch { /* ignore */ }
+      }
+      nativeUnsubsRef.current = [];
+      const nativeApi = (typeof window !== "undefined"
+        ? (window as Window & { electronAPI?: { audio?: { native?: { stopCapture?: () => Promise<void> } } } }).electronAPI
+        : undefined);
+      try { void nativeApi?.audio?.native?.stopCapture?.(); } catch { /* ignore */ }
+      nativeActiveRef.current = false;
+    }
     currentDeviceIdRef.current = null;
   }, []);
 
@@ -1389,6 +1427,196 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       };
 
       setStage("requesting_mic"); log("4a requesting mic");
+
+      // ---------------- Wave 2 (2026-07-27): native capture branch ----------------
+      // Resolve the effective capture mode (native vs browser). "auto" +
+      // available preload → native; explicit browser mode or missing
+      // preload → browser. If native is chosen but the start call fails
+      // (device index gone, ffmpeg spawn error, permission denied on the
+      // main process side), we log + fall back to the browser path so a
+      // bad native pref can never break a live service — same defence-
+      // in-depth pattern as the per-channel routing fallback below.
+      const preferredMode = readCaptureMode();
+      let effectiveMode: "native" | "browser" = "browser";
+      try {
+        effectiveMode = await resolveEffectiveMode(preferredMode);
+      } catch { effectiveMode = "browser"; }
+      // R6: async resolve — a newer start() may have superseded us.
+      if (generation !== pipelineGenerationRef.current) {
+        try { ws.close(1000, "superseded"); } catch { /* ignore */ }
+        return;
+      }
+      if (effectiveMode === "native") {
+        const nativeApi = (typeof window !== "undefined"
+          ? (window as Window & { electronAPI?: {
+              audio?: {
+                native?: {
+                  startCapture: (o: { deviceIndex: number; channelFilter?: string; sampleRate?: number; channels?: number }) => Promise<{ ok: boolean; error?: string }>;
+                  stopChannelProbe?: () => Promise<void>;
+                  onPcmChunk: (cb: (chunk: ArrayBuffer) => void) => () => void;
+                  onLevel: (cb: (level: { rms: number; db: number; peak: number }) => void) => () => void;
+                  onError: (cb: (err: { message: string; suggestion?: string }) => void) => () => void;
+                };
+              };
+            }; }).electronAPI
+          : undefined);
+        const nativeBridge = nativeApi?.audio?.native;
+        const nativePref = readNativeDevicePref();
+        // The pref is a hard requirement — without a device index there's
+        // nothing to open. When missing, drop through to the browser
+        // path (the operator hasn't picked a native device yet).
+        if (nativeBridge && nativePref) {
+          try {
+            // Stop any lingering channel-probe session first — Wave 1
+            // note says probe + capture share the ffmpeg backend and
+            // CoreAudio throws device-busy on some drivers when both are
+            // asked to open simultaneously. Idempotent.
+            try { await nativeBridge.stopChannelProbe?.(); } catch { /* ignore */ }
+            const channelFilter = buildChannelFilter(nativePref);
+            log("4a-native starting capture", {
+              deviceIndex: nativePref.index,
+              name: nativePref.name,
+              channelFilter,
+            });
+            const startRes = await nativeBridge.startCapture({
+              deviceIndex: nativePref.index,
+              channelFilter,
+              sampleRate: 16000,
+              channels: 1,
+            });
+            if (!startRes?.ok) {
+              throw new Error(startRes?.error || "native startCapture returned ok=false");
+            }
+            // Success — wire the PCM/level/error streams straight into
+            // the existing pipeline invariants. NO AudioContext, NO
+            // worklet, NO getUserMedia (Chromium can't reach the device
+            // reliably anyway — that's the whole reason for this path).
+            nativeActiveRef.current = true;
+            currentDeviceIdRef.current = String(nativePref.index);
+            // Populate diagnostic surface fields so the v0.1.79 "no
+            // audio for 15s" toast can tell operators WHAT the pipeline
+            // is seeing. streamChannelCount is best-effort from the
+            // pref (ffmpeg's listDevices populates it on macOS).
+            setState((s) => ({
+              ...s,
+              streamChannelCount: typeof nativePref.selectedChannels?.length === "number" && nativePref.selectedChannels.length > 0
+                ? nativePref.selectedChannels.length
+                : 1,
+              streamSampleRate: 16000,
+            }));
+            // Fake the stage-progression the browser path emits so
+            // downstream UI (stageHistory, diagnostic modal, warm-start
+            // detectors) doesn't have to learn a new native-mode
+            // dialect. mic_granted → audioctx_ready → worklet_loaded →
+            // worklet_connected are all "we have audio flowing" from
+            // the operator's perspective.
+            setStage("mic_granted"); log("4b-native mic granted");
+            setStage("audioctx_ready");
+            setStage("worklet_loaded");
+            setStage("worklet_connected"); log("worklet_connected (native)");
+
+            let sentChunks = 0;
+            const unsubChunk = nativeBridge.onPcmChunk((chunk) => {
+              // Wave 1 note: chunk is ArrayBuffer — wrap in Uint8Array
+              // before feeding the base64 helper. Also honour warm-mute.
+              if (micMutedRef.current) return;
+              if (!sessionStartRef.current) sessionStartRef.current = Date.now();
+              const bytes = new Uint8Array(chunk);
+              // Push into the reconnect ring so a WS blip mid-service
+              // doesn't drop live audio.
+              if (wsRef.current?.readyState !== WebSocket.OPEN) {
+                ringBufferRef.current.push(bytes);
+                ringBufferBytesRef.current += bytes.length;
+                while (ringBufferBytesRef.current > RING_CAP_BYTES && ringBufferRef.current.length > 0) {
+                  const dropped = ringBufferRef.current.shift();
+                  if (dropped) ringBufferBytesRef.current -= dropped.length;
+                }
+                return;
+              }
+              try {
+                const b64 = bytesToBase64(bytes);
+                wsRef.current.send(JSON.stringify({ type: "audio", b64 }));
+              } catch { /* ignore transient send errors */ }
+              sentChunks++;
+              if (firstChunkAtRef.current === null) firstChunkAtRef.current = Date.now();
+              // Throttle chunksSent commits at ~1Hz (native chunks land
+              // every ~50-100ms; per-chunk commits would flood React).
+              if (sentChunks - (lastChunkStateAtRef.current ?? 0) >= 40) {
+                lastChunkStateAtRef.current = sentChunks;
+                setState((s) => ({ ...s, chunksSent: sentChunks }));
+              }
+              if (sentChunks === 1) { setStage("first_chunk_sent"); log("6 first native audio chunk sent"); }
+            });
+            const unsubLevel = nativeBridge.onLevel((level) => {
+              // Feed the level meter + no-signal detector on the same
+              // 250ms cadence as the browser worklet path. Native
+              // levels arrive pre-computed (RMS 0..1, dbfs float) so we
+              // can skip the sumSq loop.
+              const nowMs = Date.now();
+              const rms = Math.max(0, Math.min(1, level.rms));
+              const dbfs = typeof level.db === "number" && Number.isFinite(level.db) ? level.db : (rms > 0 ? 20 * Math.log10(rms) : -Infinity);
+              const normalized = dbfs === -Infinity ? 0 : Math.max(0, Math.min(1, (dbfs + 60) / 60));
+              if (normalized > levelPeakRef.current) levelPeakRef.current = normalized;
+              if (nowMs - levelLastPushRef.current >= LEVEL_TICK_MS) {
+                const bucket = Math.round(levelPeakRef.current * LEVEL_QUANTIZE) / LEVEL_QUANTIZE;
+                levelPeakRef.current = 0;
+                levelLastPushRef.current = nowMs;
+                setState((s) => (s.audioLevel === bucket ? s : { ...s, audioLevel: bucket }));
+              }
+              // No-signal warning — same threshold + hold as the
+              // browser path so the diagnostic toast behaves
+              // identically across capture modes.
+              if (dbfs < NO_SIGNAL_DBFS) {
+                if (noSignalStartRef.current === null) noSignalStartRef.current = nowMs;
+                if (!noAudioSignalRef.current && nowMs - noSignalStartRef.current >= NO_SIGNAL_HOLD_MS) {
+                  noAudioSignalRef.current = true;
+                  setState((s) => ({ ...s, noAudioSignal: true }));
+                }
+              } else {
+                noSignalStartRef.current = null;
+                if (noAudioSignalRef.current) {
+                  noAudioSignalRef.current = false;
+                  setState((s) => ({ ...s, noAudioSignal: false }));
+                }
+              }
+            });
+            const unsubError = nativeBridge.onError((err) => {
+              const msg = err?.message || "Native capture error";
+              const suggestion = err?.suggestion ? " " + err.suggestion : "";
+              console.warn("[presentflow-audio:native] error", msg, err?.suggestion || "");
+              setState((s) => ({ ...s, error: msg + suggestion }));
+            });
+            nativeUnsubsRef.current = [unsubChunk, unsubLevel, unsubError];
+            setState((s) => ({ ...s, listening: true }));
+            // Skip the rest of start() — the browser mic/AudioContext/worklet
+            // block below is entirely irrelevant in native mode.
+            return;
+          } catch (nativeErr) {
+            // Any failure in the native path falls back to browser. Same
+            // defence pattern as the per-channel routing fallback: a bad
+            // native pref must NEVER break a live service.
+            console.warn(
+              "[presentflow-audio:native] startCapture failed — falling back to browser mode",
+              nativeErr instanceof Error ? nativeErr.message : nativeErr,
+            );
+            // Best-effort cleanup so we don't leave stacked listeners.
+            for (const un of nativeUnsubsRef.current) { try { un(); } catch { /* ignore */ } }
+            nativeUnsubsRef.current = [];
+            nativeActiveRef.current = false;
+          }
+        } else if (!nativeBridge) {
+          // resolveEffectiveMode said native but the preload isn't
+          // exposing the surface — treat as browser (dev harness).
+          log("4a-native surface missing, using browser mode");
+        } else {
+          // Native selected but the operator hasn't picked a device in
+          // native mode yet. Fall through — browser mode will use its
+          // default input (typically the system mic).
+          log("4a-native no device pref set, using browser mode");
+        }
+      }
+      // ---------------- end native branch ---------------------------------------
+
       // Honour user's Audio Input picker preference. NDI is not yet wired
       // to a real capture path — log and fall back to default device.
       const inputPref = readAudioInputPref();
@@ -2085,6 +2313,12 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     };
     const handler = () => scheduleRestart("input-changed", 300);
     const onDeviceChange = () => scheduleRestart("devicechange", 500);
+    // Wave 2 — capture-mode swap (browser ↔ native ↔ auto) and native
+    // device swap. Both feed the same debounced restart path as an
+    // audio-input change, so the pipeline picks up the new source on
+    // the next tick without a page reload.
+    const onCaptureModeChanged = () => scheduleRestart("capture-mode-changed", 300);
+    const onNativeInputChanged = () => scheduleRestart("native-input-changed", 300);
     // 2026-07-27 per-channel routing — when the user tweaks the mixer
     // picker (switches channel, changes mode, adjusts gain), fire the
     // same restart path as a device swap so the new routing takes
@@ -2099,11 +2333,15 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     };
     window.addEventListener("presentflow:audio-input-changed", handler);
     window.addEventListener(DEVICE_CHANNEL_PREF_CHANGED_EVENT, onChannelPrefChanged);
+    window.addEventListener(CAPTURE_MODE_CHANGED_EVENT, onCaptureModeChanged);
+    window.addEventListener(NATIVE_AUDIO_INPUT_CHANGED_EVENT, onNativeInputChanged);
     const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
     md?.addEventListener?.("devicechange", onDeviceChange);
     return () => {
       window.removeEventListener("presentflow:audio-input-changed", handler);
       window.removeEventListener(DEVICE_CHANNEL_PREF_CHANGED_EVENT, onChannelPrefChanged);
+      window.removeEventListener(CAPTURE_MODE_CHANGED_EVENT, onCaptureModeChanged);
+      window.removeEventListener(NATIVE_AUDIO_INPUT_CHANGED_EVENT, onNativeInputChanged);
       md?.removeEventListener?.("devicechange", onDeviceChange);
       if (restartTimer) clearTimeout(restartTimer);
     };

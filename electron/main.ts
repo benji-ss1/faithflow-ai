@@ -2,7 +2,7 @@ import { app, BrowserWindow, Tray, Menu, nativeImage, session, ipcMain, shell, s
 import * as path from "path";
 import * as fs from "fs";
 import { registerScreenIpc, closeAllOutputWindows, openOutputForRole } from "./ipc/screens";
-import { registerAudioIpc } from "./ipc/audio";
+import { registerAudioIpc, registerNativeAudioIpc, stopAllNativeAudio } from "./ipc/audio";
 import { registerDialogIpc } from "./ipc/dialog";
 import { registerFsIpc } from "./ipc/fs";
 import { autoUpdater } from "electron-updater";
@@ -306,7 +306,12 @@ async function createMainWindow() {
   });
 
   mainWindow.once("ready-to-show", () => mainWindow?.show());
-  mainWindow.on("closed", () => { mainWindow = null; });
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+    // Kill any ffmpeg subprocesses tied to this window's audio session so
+    // they don't zombie past the operator UI closing.
+    void stopAllNativeAudio();
+  });
 
   if (isDev) {
     mainWindow.webContents.openDevTools({ mode: "detach" });
@@ -528,6 +533,12 @@ app.whenReady().then(async () => {
   // IPC registration
   registerScreenIpc(() => appUrl);
   registerAudioIpc();
+  // Wave 1: native ffmpeg-backed audio capture. Additive — the legacy
+  // getUserMedia handlers above remain intact for the existing renderer path.
+  // Wave 2 (renderer) opts in to the native path when isAvailable() returns
+  // true. See electron/audio/nativeCapture.ts for context on why this
+  // exists (Chromium silent 32-channel capture, JPD field failure).
+  registerNativeAudioIpc(() => mainWindow);
   registerDialogIpc();
   registerFsIpc();
 
@@ -720,6 +731,10 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   closeAllOutputWindows();
+  // Belt-and-braces — window "closed" handler above already stops native
+  // audio, but before-quit fires even when the app is quit without closing
+  // windows first (Cmd+Q, tray Quit).
+  void stopAllNativeAudio();
 });
 
 // Export for other modules
