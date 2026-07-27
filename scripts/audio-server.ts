@@ -187,6 +187,11 @@ async function openDeepgram(churchId: string): Promise<WebSocket> {
     interim_results: "true",
     punctuate: "true",
     numerals: "true",
+    // Deepgram's supported live-stream speech-boundary signals. These do not
+    // gate interim delivery or verse detection; they give the bridge earlier
+    // VAD visibility and a bounded utterance-end event for diagnostics.
+    vad_events: "true",
+    utterance_end_ms: "1000",
     // 2026-07-24 tighten to 100 ms after real-service report that 150 ms
     // felt too slow for finalized (white) text to appear. Progression:
     // 10ms (broke), 50ms (broke, "97 What?" fragments), 75ms (edge),

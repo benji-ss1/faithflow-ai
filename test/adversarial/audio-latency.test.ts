@@ -25,6 +25,7 @@ const outputWindow = read("electron/windows/OutputWindow.ts");
 const deploy = read("scripts/deploy.sh");
 
 assert(/endpointing:\s*"100"/.test(server), "field-approved Deepgram endpointing remains 100ms");
+assert(/vad_events:\s*"true"/.test(server) && /utterance_end_ms:\s*"1000"/.test(server), "Deepgram VAD and utterance-end signals are enabled");
 assert(server.includes('type: "interim_final_candidate"'), "server predictive interim candidate path remains enabled");
 assert(server.includes("}, 4_000);") && server.includes("lastDgSendAt < 3000"), "Deepgram KeepAlive uses the official 3–5s cadence");
 assert(server.includes("Deepgram connection timed out") && server.includes("10_000"), "Deepgram setup has a bounded connection timeout");
