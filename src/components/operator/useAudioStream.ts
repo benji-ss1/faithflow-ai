@@ -1452,6 +1452,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
               audio?: {
                 native?: {
                   startCapture: (o: { deviceIndex: number; channelFilter?: string; sampleRate?: number; channels?: number }) => Promise<{ ok: boolean; error?: string }>;
+                  listDevices?: () => Promise<Array<{ index: number; name: string }>>;
                   stopChannelProbe?: () => Promise<void>;
                   onPcmChunk: (cb: (chunk: ArrayBuffer) => void) => () => void;
                   onLevel: (cb: (level: { rms: number; db: number; peak: number }) => void) => () => void;
@@ -1472,14 +1473,35 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
             // CoreAudio throws device-busy on some drivers when both are
             // asked to open simultaneously. Idempotent.
             try { await nativeBridge.stopChannelProbe?.(); } catch { /* ignore */ }
+            // Research finding (2026-07-27) — ffmpeg avfoundation ":N" indexes
+            // are enumeration-order positions, NOT stable device IDs. A USB
+            // replug or a new device appearing can shift every index, silently
+            // retargeting the capture at the wrong device. Re-resolve the
+            // stored device by NAME at capture start; fall back to the stored
+            // index only when the name isn't found (device renamed/absent).
+            let resolvedIndex = nativePref.index;
+            try {
+              const liveDevices = await nativeBridge.listDevices?.();
+              if (Array.isArray(liveDevices)) {
+                const byName = liveDevices.find((d) => d.name === nativePref.name);
+                if (byName && byName.index !== nativePref.index) {
+                  log("4a-native device index drift — re-resolved by name", {
+                    stored: nativePref.index, live: byName.index, name: nativePref.name,
+                  });
+                  resolvedIndex = byName.index;
+                } else if (byName) {
+                  resolvedIndex = byName.index;
+                }
+              }
+            } catch { /* enumeration failure → use stored index as-is */ }
             const channelFilter = buildChannelFilter(nativePref);
             log("4a-native starting capture", {
-              deviceIndex: nativePref.index,
+              deviceIndex: resolvedIndex,
               name: nativePref.name,
               channelFilter,
             });
             const startRes = await nativeBridge.startCapture({
-              deviceIndex: nativePref.index,
+              deviceIndex: resolvedIndex,
               channelFilter,
               sampleRate: 16000,
               channels: 1,
@@ -1492,7 +1514,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
             // worklet, NO getUserMedia (Chromium can't reach the device
             // reliably anyway — that's the whole reason for this path).
             nativeActiveRef.current = true;
-            currentDeviceIdRef.current = String(nativePref.index);
+            currentDeviceIdRef.current = String(resolvedIndex);
             // Populate diagnostic surface fields so the v0.1.79 "no
             // audio for 15s" toast can tell operators WHAT the pipeline
             // is seeing. streamChannelCount is best-effort from the
