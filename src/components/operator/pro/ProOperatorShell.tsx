@@ -54,6 +54,11 @@ import { WhatsNewModal } from "../WhatsNewModal";
 import { dispatchInternal, isInternalEvent, internalPayload } from "@/lib/internal-events";
 import { matchNextSlide, isLikelyEndOfSong } from "@/lib/ai-detection/lyric-position";
 import { parseContextCommand } from "@/lib/context-parser";
+// Audio Guardian (2026-07-27) — native-capture self-healing watchdog.
+// The shell only CONSUMES its state events (toasts + red chip); the state
+// machine itself lives in src/lib/audio/audioGuardian.ts, fed by
+// useAudioStream's native branch.
+import { GUARDIAN_STATE_EVENT, type GuardianStatus } from "@/lib/audio/audioGuardian";
 
 // PF trace gate (R2). Mirrors useAudioStream.isDevOrTraceOn — cheap re-impl
 // here so the shell doesn't have to receive it via ctx.
@@ -1460,6 +1465,60 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     }
   }, [noAudioSignal, streamChannelCount, streamSampleRate]);
 
+  // Audio Guardian (2026-07-27) — consume the watchdog's state events.
+  //   "switched"    → success toast (guardian auto-swapped to a live input)
+  //   "recovering"  → subtle deduped info toast while the ladder runs
+  //   "needs-human" → persistent red "⚠ AUDIO" chip next to the TopBar;
+  //                   clicking it opens Settings › Audio in the right
+  //                   sidebar (via presentflow:open-audio-settings, handled
+  //                   in RightIconBar where the popover state lives)
+  //   "healthy" after needs-human → chip clears + "Audio recovered" toast
+  const [guardianAlert, setGuardianAlert] = useState<GuardianStatus | null>(null);
+  const guardianWasAlertRef = useRef(false);
+  useEffect(() => {
+    const onGuardianState = (ev: Event) => {
+      const status = (ev as CustomEvent<GuardianStatus>).detail;
+      if (!status || typeof status.state !== "string") return;
+      switch (status.state) {
+        case "switched":
+          toast.success(
+            `Audio input switched to ${status.detail} — previous input went silent`,
+            { id: "presentflow-guardian-switched", duration: 12_000 },
+          );
+          break;
+        case "recovering":
+          toast.info(`Audio guardian: ${status.detail}`, {
+            id: "presentflow-guardian-recovering",
+            duration: 6_000,
+          });
+          break;
+        case "silent":
+          // Pre-escalation awareness only — the existing 15s no-signal
+          // toast already covers the operator-facing messaging here.
+          break;
+        case "needs-human":
+          guardianWasAlertRef.current = true;
+          setGuardianAlert(status);
+          toast.error(`Audio needs attention — ${status.detail}`, {
+            id: "presentflow-guardian-needs-human",
+            duration: Infinity,
+          });
+          break;
+        case "healthy":
+          toast.dismiss("presentflow-guardian-recovering");
+          toast.dismiss("presentflow-guardian-needs-human");
+          setGuardianAlert(null);
+          if (guardianWasAlertRef.current) {
+            guardianWasAlertRef.current = false;
+            toast.success("Audio recovered", { duration: 5_000 });
+          }
+          break;
+      }
+    };
+    window.addEventListener(GUARDIAN_STATE_EVENT, onGuardianState);
+    return () => window.removeEventListener(GUARDIAN_STATE_EVENT, onGuardianState);
+  }, []);
+
   // 2026-07-24 T4 fix — batch preload every image URL in the current plan
   // when the operator opens/updates it. Without this, an image slide
   // firing to live had to fetch + decode AFTER the projector's <img>
@@ -2690,7 +2749,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-[var(--color-app-bg)] text-[var(--color-foreground)]">
       <UpdateBanner liveSlide={ctx.liveSlide} listening={ctx.audio?.listening} />
       <AICaptionsBanner ctx={ctx} />
-      <div data-tour="top">
+      <div data-tour="top" className="relative">
         <TopBar
           centerMode={centerMode}
           onCenterMode={setCenterMode}
@@ -2698,6 +2757,25 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           mediaStripOpen={mediaStripOpen}
           ctx={ctx}
         />
+        {/* Audio Guardian "needs human" chip — overlaid on the TopBar's
+            right cluster (near the audio/routing indicators) so it can't
+            be missed mid-service. Removed the moment the guardian reports
+            healthy again. Click → Settings › Audio in the right sidebar. */}
+        {guardianAlert && (
+          <button
+            type="button"
+            onClick={() => {
+              try {
+                window.dispatchEvent(new CustomEvent("presentflow:open-audio-settings"));
+              } catch { /* ignore */ }
+            }}
+            title={guardianAlert.detail}
+            aria-label={`Audio needs attention: ${guardianAlert.detail}`}
+            className="absolute top-1/2 -translate-y-1/2 right-2 z-40 flex items-center gap-1 h-7 px-2.5 rounded-md bg-red-600 hover:bg-red-500 text-white text-[11px] font-semibold tracking-wide shadow-lg animate-pulse"
+          >
+            ⚠ AUDIO
+          </button>
+        )}
       </div>
 
       <div className="flex-1 min-h-0 flex">

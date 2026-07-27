@@ -28,7 +28,7 @@
  * - Screens → embeds ScreensPanel (per-machine resolution + display
  *   assignment + Configure Screens button).
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { BookOpen, Music, Link2, Settings as SettingsIcon, Monitor } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -53,6 +53,20 @@ export function RightIconBar({
   messages: MessagesApi;
 }) {
   const [openKey, setOpenKey] = useState<PopoverKey | null>(null);
+  // Audio Guardian (2026-07-27) — the shell's red "⚠ AUDIO" chip needs a
+  // programmatic way into Settings › Audio. The popover state lives here,
+  // so we own the listener. `settingsEpoch` keys SettingsPopoverBody so a
+  // guardian-triggered open remounts it on its default sub-tab ("audio")
+  // even if the popover was already open on Messages/Timers/etc.
+  const [settingsEpoch, setSettingsEpoch] = useState(0);
+  useEffect(() => {
+    const onOpenAudioSettings = () => {
+      setSettingsEpoch((n) => n + 1);
+      setOpenKey("settings");
+    };
+    window.addEventListener("presentflow:open-audio-settings", onOpenAudioSettings);
+    return () => window.removeEventListener("presentflow:open-audio-settings", onOpenAudioSettings);
+  }, []);
 
   // Badge counts derived directly from live suggestion state — updates
   // reactively as detections land, no separate subscription needed.
@@ -114,7 +128,7 @@ export function RightIconBar({
           renders and the icon-bar row is clean. */}
       {openKey === "settings" && (
         <PopoverShell title="Settings" onClose={() => setOpenKey(null)}>
-          <SettingsPopoverBody timer={timer} messages={messages} />
+          <SettingsPopoverBody key={settingsEpoch} timer={timer} messages={messages} />
         </PopoverShell>
       )}
       {openKey === "screens" && (

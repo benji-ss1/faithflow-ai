@@ -15,6 +15,19 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.81",
+    date: "2026-07-27",
+    headline: "Audio Guardian + unified input list — PresentFlow now picks the best input itself, watches it constantly, and self-heals when it goes silent",
+    highlights: [
+      "Confirmed at JPD: v0.1.80's native capture works with the Allen & Heath SQ over USB. This release builds on it: in the desktop app, the input list is now the NATIVE Mac-level list — every input macOS sees (SQ, NDI, Blackmagic, BlackHole, mics, Bluetooth) shows up ranked and tagged: MIXER (green), NDI (purple), VIRTUAL (gray), BT (blue)",
+      "Auto-pick on launch: if you've never chosen an input, PresentFlow picks the best one automatically (mixers first, then NDI, then virtual, then mics, Bluetooth last) and toasts what it chose and why. An AUTO-PICKED badge shows on the selection until you manually click a different one. Your choice is remembered per device name and survives USB replugs",
+      "Audio Guardian — a watchdog that never lets audio stall silently. If the signal goes quiet for 20 seconds it works a ladder: (1) restart capture on the same device, (2) rescan devices and re-resolve yours by name, (3) probe every OTHER input for live signal and switch to the best one that's actually producing sound (with a toast telling you it switched), (4) only if ALL of that fails, a red ⚠ AUDIO chip appears — clicking it takes you straight to the audio settings. When signal recovers, the chip clears and you get an 'Audio recovered' toast",
+      "Native channel auto-detect: for multi-channel devices (like the SQ's 32 USB channels), the Auto-detect vocal button runs a 10-second scan and recommends the strongest active channel with one-click accept. If no clear winner (nobody was speaking), it says so and shows a manual channel grid right there — click the channel that lights up",
+      "Guardian never fights the operator: it stands down for 30 seconds after any manual input change, runs at most one full recovery ladder per 5 minutes, and only arms in native mode — browser mode (web app) is unchanged",
+      "All of this is web-deployed — if you're on the v0.1.80 desktop app, Cmd+R gets you everything. No reinstall needed",
+    ],
+  },
+  {
     version: "0.1.80",
     date: "2026-07-27",
     headline: "Native audio capture (ffmpeg) — bypasses Chromium's getUserMedia entirely for pro USB mixers like Allen & Heath SQ. REQUIRES NEW DMG INSTALL.",

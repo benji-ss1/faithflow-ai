@@ -31,6 +31,13 @@ export type NativeDevicePref = {
   mode?: NativeDeviceMode;
   selectedChannels?: number[];
   gainDb?: number;
+  /** Set (epoch ms) when this pref was written by the launch auto-pick
+   *  rather than a manual operator click. Cleared implicitly when the
+   *  operator picks a device by hand (that write omits the field). */
+  autoPickedAt?: number;
+  /** Written by the audio guardian (Agent B) when capture from this
+   *  device last produced healthy signal — used for failover ranking. */
+  lastWorkingAt?: number;
 };
 
 function isBrowserEnv(): boolean {

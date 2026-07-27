@@ -61,6 +61,14 @@ import {
   clearNativeDevicePref,
   type NativeDeviceMode,
 } from "@/lib/audio/nativeDeviceStore";
+// Unified native input system (2026-07-27) — rank/sort/auto-pick helpers.
+import {
+  autoPickReason,
+  compareNativeDevices,
+  pickBestNativeDevice,
+  rankNativeDevice,
+  tagForRank,
+} from "@/lib/audio/inputRanking";
 
 type NativeDeviceInfo = {
   index: number;
@@ -79,6 +87,21 @@ type AudioInputSel = { kind: "device"; id: string; label: string };
 // but is held in React state so slider drags feel instant.
 type GridMode = "sum-all" | "mono" | "stereo";
 
+// Typed accessor for the native ffmpeg bridge (undefined on web / non-Electron).
+type NativeAudioBridge = {
+  isAvailable: () => Promise<boolean>;
+  listDevices: () => Promise<NativeDeviceInfo[]>;
+  startChannelProbe: (o: { deviceIndex: number; channelCount: number }) => Promise<{ ok: boolean; error?: string }>;
+  stopChannelProbe: () => Promise<void>;
+  onChannelLevels: (cb: (levels: Array<{ channel: number; rms: number; db: number; peak: number }>) => void) => () => void;
+};
+
+function getNativeAudioApi(): NativeAudioBridge | undefined {
+  if (typeof window === "undefined") return undefined;
+  return (window as Window & { electronAPI?: { audio?: { native?: NativeAudioBridge } } })
+    .electronAPI?.audio?.native;
+}
+
 export function AudioTab() {
   const [selected, setSelected] = useState<AudioInputSel | null>(null);
   const [sourceType, setSourceType] = useState<"mixer" | "microphone">("mixer");
@@ -95,6 +118,17 @@ export function AudioTab() {
   const [nativeGridMode, setNativeGridMode] = useState<NativeDeviceMode>("sum-all");
   const [nativeSelectedChannels, setNativeSelectedChannels] = useState<number[]>([]);
   const [nativeChannelLevels, setNativeChannelLevels] = useState<Array<{ channel: number; rms: number; db: number; peak: number }>>([]);
+  // Unified native input system — auto-pick + inline channel auto-detect.
+  const [autoPickedIndex, setAutoPickedIndex] = useState<number | null>(null);
+  const [isDesktopShell, setIsDesktopShell] = useState(false);
+  const [detectState, setDetectState] = useState<"idle" | "running" | "done">("idle");
+  const [detectProgress, setDetectProgress] = useState(0); // 0..1
+  const [detectResult, setDetectResult] = useState<{
+    winner: number | null;
+    stats: Array<{ channel: number; avgRms: number; activeFrac: number }>;
+  } | null>(null);
+  const detectSamplesRef = useRef<Array<Array<{ channel: number; rms: number }>>>([]);
+  const detectCleanupRef = useRef<(() => void) | null>(null);
 
   const nativeProbeUnsubRef = useRef<(() => void) | null>(null);
 
@@ -148,6 +182,9 @@ export function AudioTab() {
     refreshDevices();
     // Fire an initial native devices probe (no-op if API missing).
     void refreshNativeDevices();
+    // Desktop-shell detection (drives the "browser settings are web-only"
+    // hint). Done post-mount to stay SSR-safe.
+    setIsDesktopShell(!!getNativeAudioApi());
     const cleanupExtra = () => window.removeEventListener(CAPTURE_MODE_CHANGED_EVENT, onModeChanged);
     // 🔴 Stress fix — refresh the picker device list when the OS reports a
     // hardware change (USB plug/unplug, Bluetooth connect). Without this,
@@ -303,15 +340,147 @@ export function AudioTab() {
   }
 
   async function refreshNativeDevices() {
-    const nativeApi = (typeof window !== "undefined"
-      ? (window as Window & { electronAPI?: { audio?: { native?: { listDevices: () => Promise<NativeDeviceInfo[]> } } } }).electronAPI
-      : undefined);
-    const list = nativeApi?.audio?.native?.listDevices;
+    const list = getNativeAudioApi()?.listDevices;
     if (typeof list !== "function") return;
     try {
       const devs = await list();
       setNativeDevices(devs);
     } catch { /* noop */ }
+  }
+
+  // --- Auto-pick on launch (unified native input system) -----------------
+  // When native capture is the effective mode and the operator has NEVER
+  // picked a native device (no stored pref), auto-select the best-ranked
+  // device (mixer > NDI > virtual > mic > BT) so a fresh install at a
+  // church lands on the SQ/X32 with zero clicks. If a stored pref exists
+  // but its device is absent from the live list, do NOTHING here — the
+  // audio guardian owns failover and we must not clobber the stored pref
+  // (the mixer may just be powered off pre-service).
+  useEffect(() => {
+    if (effectiveMode !== "native" || nativeDevices.length === 0) return;
+    if (readNativeDevicePref() !== null) return;
+    const best = pickBestNativeDevice(nativeDevices);
+    if (!best) return;
+    setNativeSelected(best);
+    setNativeGridMode("sum-all");
+    setNativeSelectedChannels([]);
+    // writeNativeDevicePref dispatches presentflow:native-audio-input-changed.
+    writeNativeDevicePref({
+      index: best.index,
+      name: best.name,
+      mode: "sum-all",
+      selectedChannels: [],
+      gainDb: 0,
+      autoPickedAt: Date.now(),
+    });
+    setAutoPickedIndex(best.index);
+    toast.success(`Auto-selected ${best.name} (${autoPickReason(best.name)})`);
+  }, [effectiveMode, nativeDevices]);
+
+  // --- Native channel auto-detect (10s probe) ----------------------------
+  const DETECT_DURATION_MS = 10_000;
+
+  function stopDetectProbe() {
+    if (detectCleanupRef.current) {
+      try { detectCleanupRef.current(); } catch { /* noop */ }
+      detectCleanupRef.current = null;
+    }
+  }
+
+  function computeDetectResult() {
+    const samples = detectSamplesRef.current;
+    const sums = new Map<number, { total: number; count: number; active: number }>();
+    for (const frame of samples) {
+      for (const s of frame) {
+        const agg = sums.get(s.channel) ?? { total: 0, count: 0, active: 0 };
+        agg.total += s.rms;
+        agg.count += 1;
+        if (s.rms > 0.01) agg.active += 1;
+        sums.set(s.channel, agg);
+      }
+    }
+    const stats = [...sums.entries()]
+      .map(([channel, a]) => ({
+        channel,
+        avgRms: a.count > 0 ? a.total / a.count : 0,
+        activeFrac: a.count > 0 ? a.active / a.count : 0,
+      }))
+      .sort((a, b) => a.channel - b.channel);
+    // Clear winner: best avgRms among channels clearing both thresholds.
+    const qualifying = stats.filter((s) => s.avgRms > 0.02 && s.activeFrac > 0.2);
+    const winner = qualifying.length > 0
+      ? qualifying.reduce((best, s) => (s.avgRms > best.avgRms ? s : best)).channel
+      : null;
+    setDetectResult({ winner, stats });
+    setDetectState("done");
+  }
+
+  async function runNativeAutoDetect() {
+    const nb = getNativeAudioApi();
+    const dev = nativeSelected;
+    if (!nb || !dev || !dev.channelCount || dev.channelCount < 2) return;
+    stopDetectProbe();
+    detectSamplesRef.current = [];
+    setDetectResult(null);
+    setDetectProgress(0);
+    setDetectState("running");
+    try {
+      const res = await nb.startChannelProbe({ deviceIndex: dev.index, channelCount: dev.channelCount });
+      if (!res?.ok) {
+        setDetectState("idle");
+        toast.error(`Channel probe failed${res?.error ? ` — ${res.error}` : ""}`);
+        return;
+      }
+    } catch {
+      setDetectState("idle");
+      toast.error("Channel probe failed to start");
+      return;
+    }
+    const unsub = nb.onChannelLevels((lvls) => {
+      detectSamplesRef.current.push(lvls.map((l) => ({ channel: l.channel, rms: l.rms })));
+    });
+    const startedAt = Date.now();
+    const tick = setInterval(() => {
+      const p = Math.min(1, (Date.now() - startedAt) / DETECT_DURATION_MS);
+      setDetectProgress(p);
+      if (p >= 1) {
+        // Probe + capture share the ffmpeg backend — ALWAYS stop the probe.
+        clearInterval(tick);
+        try { unsub(); } catch { /* noop */ }
+        void nb.stopChannelProbe().catch(() => { /* noop */ });
+        detectCleanupRef.current = null;
+        computeDetectResult();
+      }
+    }, 200);
+    detectCleanupRef.current = () => {
+      clearInterval(tick);
+      try { unsub(); } catch { /* noop */ }
+      void nb.stopChannelProbe().catch(() => { /* noop */ });
+    };
+  }
+
+  // Safety net: stop the detect probe on unmount (shared ffmpeg backend).
+  useEffect(() => {
+    return () => { stopDetectProbe(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Reset detect flow when the selected native device changes.
+  useEffect(() => {
+    stopDetectProbe();
+    setDetectState("idle");
+    setDetectProgress(0);
+    setDetectResult(null);
+    detectSamplesRef.current = [];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nativeSelected?.index]);
+
+  function applyDetectedChannel(ch: number) {
+    setNativeGridMode("mono");
+    setNativeSelectedChannels([ch]);
+    // commitNativeChannelPref writes the pref + dispatches the change event.
+    commitNativeChannelPref({ mode: "mono", selectedChannels: [ch] });
+    toast.success(`Native capture → Ch ${ch + 1} (mono)`);
   }
 
   function persistNativeSelection(dev: NativeDeviceInfo) {
@@ -574,23 +743,44 @@ export function AudioTab() {
             </div>
           ) : (
             <div className="flex flex-col gap-0.5 rounded border p-1" style={{ borderColor: "var(--color-border)", background: "var(--color-elevated)" }}>
-              {nativeDevices.map((d) => {
+              {[...nativeDevices].sort(compareNativeDevices).map((d) => {
                 const isSel = nativeSelected?.index === d.index;
+                const tag = tagForRank(rankNativeDevice(d.name));
+                const tagStyle =
+                  tag === "MIXER" ? { background: "#10b981", color: "white" }
+                  : tag === "NDI" ? { background: "#8b5cf6", color: "white" }
+                  : tag === "VIRTUAL" ? { background: "#6b7280", color: "white" }
+                  : tag === "BT" ? { background: "#3b82f6", color: "white" }
+                  : undefined;
+                const tagTitle =
+                  tag === "MIXER" ? "USB audio interface / mixer — best pick for clean vocal capture"
+                  : tag === "NDI" ? "Audio via NDI network stream"
+                  : tag === "VIRTUAL" ? "Virtual / loopback driver"
+                  : tag === "BT" ? "Bluetooth audio (100-300ms latency — verse detection slightly delayed)"
+                  : undefined;
                 return (
                   <button
                     key={`${d.platform}-${d.index}-${d.name}`}
                     onClick={() => {
                       setNativeSelected(d);
+                      setAutoPickedIndex(null); // manual click supersedes auto-pick
                       writeNativeDevicePref({ index: d.index, name: d.name, mode: "sum-all", selectedChannels: [], gainDb: 0 });
                       try { window.dispatchEvent(new CustomEvent("presentflow:native-audio-input-changed", { detail: { index: d.index, name: d.name } })); } catch { /* noop */ }
                       toast.success(`Native capture → ${d.name}${d.channelCount ? ` (${d.channelCount}ch)` : ""}`);
                     }}
                     className={"w-full text-left px-2 py-1.5 rounded text-[11px] flex items-center gap-1.5 " + (isSel ? "text-white bg-[color:rgba(249,115,22,0.15)]" : "text-[var(--color-foreground)] hover:bg-white/5")}
                   >
-                    <span className="text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded shrink-0" style={{ background: "#10b981", color: "white" }} title="Native ffmpeg-backed capture">
-                      NATIVE
-                    </span>
+                    {tag && (
+                      <span className="text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded shrink-0" style={tagStyle} title={tagTitle}>
+                        {tag}
+                      </span>
+                    )}
                     <span className="truncate">{d.name}</span>
+                    {autoPickedIndex === d.index && isSel && (
+                      <span className="text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded shrink-0" style={{ background: "rgba(249,115,22,0.25)", color: "#f97316" }} title="Selected automatically at launch — click any device to override">
+                        AUTO-PICKED
+                      </span>
+                    )}
                     {d.channelCount != null && (
                       <span className="text-[9px] text-[var(--color-muted-foreground)] ml-auto">{d.channelCount}ch</span>
                     )}
@@ -599,9 +789,95 @@ export function AudioTab() {
               })}
             </div>
           )}
-          {nativeSelected && nativeSelected.channelCount != null && nativeSelected.channelCount > 1 && (
+          {nativeSelected && (nativeSelected.channelCount ?? 0) === 2 && (
             <div className="text-[10px] text-[var(--color-muted-foreground)] px-1">
-              {nativeSelected.channelCount} channels available. Currently: sum-all (ffmpeg auto-downmixes to mono). Per-channel picker coming in a follow-up.
+              Stereo input — ffmpeg downmixes both channels to mono for the AI listener.
+            </div>
+          )}
+          {/* Channel auto-detect — multi-channel native devices (>2ch) */}
+          {nativeSelected && (nativeSelected.channelCount ?? 0) > 2 && (
+            <div className="flex flex-col gap-1.5 border-t pt-2 mt-1" style={{ borderColor: "var(--color-border)" }}>
+              <div className="flex items-center justify-between px-1">
+                <div className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)]">
+                  Channels · {nativeSelected.channelCount}ch
+                </div>
+                <button
+                  onClick={() => void runNativeAutoDetect()}
+                  disabled={detectState === "running"}
+                  className="h-6 px-2 rounded text-[10px] font-semibold text-white inline-flex items-center gap-1 disabled:opacity-60"
+                  style={{ background: "#f97316" }}
+                  title="Listen for 10s and suggest the channel carrying the vocal"
+                >
+                  <Wand2 className="w-3 h-3" /> Auto-detect vocal channel
+                </button>
+              </div>
+              <div className="text-[10px] text-[var(--color-muted-foreground)] px-1">
+                {nativeGridMode === "mono" && nativeSelectedChannels.length === 1
+                  ? `Using Ch ${nativeSelectedChannels[0]! + 1} (mono)`
+                  : nativeGridMode === "stereo" && nativeSelectedChannels.length === 2
+                  ? `Using Ch ${nativeSelectedChannels[0]! + 1} + Ch ${nativeSelectedChannels[1]! + 1} (stereo pair)`
+                  : "Currently: sum-all (all channels downmixed to mono)"}
+              </div>
+              {detectState === "running" && (
+                <div className="flex flex-col gap-1 px-1">
+                  <div className="text-[10px] text-[var(--color-muted-foreground)]">
+                    Listening… have the vocal mic live for the next {Math.max(1, Math.ceil(10 - detectProgress * 10))}s
+                  </div>
+                  <div className="h-1.5 rounded overflow-hidden" style={{ background: "var(--color-elevated)" }}>
+                    <div className="h-full" style={{ width: `${Math.round(detectProgress * 100)}%`, background: "#f97316", transition: "width 200ms linear" }} />
+                  </div>
+                </div>
+              )}
+              {detectState === "done" && detectResult && detectResult.winner != null && (
+                <div className="flex items-center justify-between gap-2 px-2 py-1.5 rounded border" style={{ borderColor: "#10b981", background: "rgba(16,185,129,0.08)" }}>
+                  <div className="text-[11px] text-[var(--color-foreground)]">
+                    Recommended: <span className="font-semibold">Ch {detectResult.winner + 1}</span>
+                  </div>
+                  <button
+                    onClick={() => applyDetectedChannel(detectResult.winner!)}
+                    className="h-6 px-2 rounded text-[10px] font-semibold text-white shrink-0"
+                    style={{ background: "#10b981" }}
+                  >
+                    Use this channel
+                  </button>
+                </div>
+              )}
+              {detectState === "done" && detectResult && detectResult.winner == null && (
+                <div className="px-2 py-1.5 rounded text-[10px] leading-snug border" style={{ borderColor: "#f59e0b", background: "rgba(245,158,11,0.08)", color: "#f59e0b" }}>
+                  No clear signal — pick manually below.
+                </div>
+              )}
+              {/* Manual channel grid — rendered after any completed detect run
+                  (bars = avg rms from the 10s probe; click = mono select). */}
+              {detectState === "done" && detectResult && (
+                <div className="grid grid-cols-4 gap-1">
+                  {detectResult.stats.map((s) => {
+                    const isSel = nativeGridMode === "mono" && nativeSelectedChannels[0] === s.channel;
+                    const pct = Math.min(100, Math.round(s.avgRms * 400)); // avg rms 0.25 → full bar
+                    return (
+                      <button
+                        key={s.channel}
+                        onClick={() => applyDetectedChannel(s.channel)}
+                        className="relative h-12 rounded overflow-hidden text-left"
+                        style={{
+                          border: isSel ? "2px solid #f97316" : "1px solid var(--color-border)",
+                          background: "var(--color-elevated)",
+                        }}
+                        title={`Channel ${s.channel + 1} · avg rms ${s.avgRms.toFixed(3)} · active ${(s.activeFrac * 100).toFixed(0)}%`}
+                      >
+                        <div
+                          className="absolute left-0 right-0 bottom-0"
+                          style={{ height: `${pct}%`, background: "linear-gradient(180deg, rgba(249,115,22,0.55), rgba(249,115,22,0.25))" }}
+                        />
+                        <div className="absolute top-0.5 left-1 text-[9px] font-semibold text-[var(--color-foreground)]">{s.channel + 1}</div>
+                        {s.activeFrac > 0.2 && (
+                          <div className="absolute bottom-0.5 right-1 w-1.5 h-1.5 rounded-full bg-green-400" title="Active signal during probe" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -698,6 +974,11 @@ export function AudioTab() {
             </Popover.Content>
           </Popover.Portal>
         </Popover.Root>
+        {isDesktopShell && (
+          <div className="text-[10px] italic text-[var(--color-muted-foreground)] px-1">
+            Browser input settings apply to the web app only — the desktop app uses Native capture.
+          </div>
+        )}
       </div>
 
       {/* --- Channel Grid (multi-channel devices only) ------------------- */}

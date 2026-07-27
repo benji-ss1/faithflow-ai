@@ -33,6 +33,19 @@ import {
   buildChannelFilter,
   NATIVE_AUDIO_INPUT_CHANGED_EVENT,
 } from "@/lib/audio/nativeDeviceStore";
+// Audio Guardian (2026-07-27) — self-healing watchdog for the native path.
+// Fed level/error/lifecycle signals from the native branch below; runs the
+// silence-escalation ladder (restart → re-enumerate → probe alternates →
+// needs-human) entirely outside this hook. Browser mode never starts it.
+import {
+  startGuardian,
+  stopGuardian,
+  isGuardianBusy,
+  guardianOnLevel,
+  guardianOnCaptureStart,
+  guardianOnCaptureStop,
+  guardianOnError,
+} from "@/lib/audio/audioGuardian";
 
 export type Detection = {
   id: string;
@@ -824,6 +837,11 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         : undefined);
       try { void nativeApi?.audio?.native?.stopCapture?.(); } catch { /* ignore */ }
       nativeActiveRef.current = false;
+      // Guardian: capture is gone. NOTE: this is NOT stopGuardian() —
+      // teardown also runs mid-ladder (the guardian's own restart nudges
+      // land here) and killing the guardian would abort its recovery.
+      // stopGuardian() lives in stop() (intentional operator stop).
+      guardianOnCaptureStop();
     }
     currentDeviceIdRef.current = null;
   }, []);
@@ -913,6 +931,16 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const stop = useCallback(() => {
     if (isDevOrTraceOn()) console.log("[presentflow-audio] stop() called — hard-stopping pipeline");
     intentionalStopRef.current = true;
+    // Audio Guardian — an intentional stop() ends the pipeline lifecycle,
+    // so the watchdog goes down with it. Restarts (scheduleRestart path,
+    // guardian-initiated rebuilds) call stop()+start() back-to-back; the
+    // subsequent native start re-arms via startGuardian() (idempotent),
+    // EXCEPT while the guardian's ladder is mid-flight: its remedies come
+    // through this very stop()+start() path, and stopping it here would
+    // abort recovery at step 1 every time. Worst-case cost of the guard:
+    // a manual stop during an active ladder lets the ladder finish its
+    // bounded run (≤ ~1 min) against an intentionally-stopped pipeline.
+    if (!isGuardianBusy()) stopGuardian();
     if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
     // Cleared HERE (a real stop) rather than in teardown(): teardown runs on
     // every reconnect cycle, and clearing there kept re-disarming the 3s
@@ -1515,6 +1543,11 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
             // reliably anyway — that's the whole reason for this path).
             nativeActiveRef.current = true;
             currentDeviceIdRef.current = String(resolvedIndex);
+            // Audio Guardian — arm the watchdog for this native session.
+            // startGuardian() is idempotent, so restarts (device swap,
+            // guardian-initiated rebuilds) don't stack timers.
+            startGuardian();
+            guardianOnCaptureStart(nativePref.name);
             // Populate diagnostic surface fields so the v0.1.79 "no
             // audio for 15s" toast can tell operators WHAT the pipeline
             // is seeing. streamChannelCount is best-effort from the
@@ -1576,6 +1609,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
               // can skip the sumSq loop.
               const nowMs = Date.now();
               const rms = Math.max(0, Math.min(1, level.rms));
+              guardianOnLevel(rms);
               const dbfs = typeof level.db === "number" && Number.isFinite(level.db) ? level.db : (rms > 0 ? 20 * Math.log10(rms) : -Infinity);
               const normalized = dbfs === -Infinity ? 0 : Math.max(0, Math.min(1, (dbfs + 60) / 60));
               if (normalized > levelPeakRef.current) levelPeakRef.current = normalized;
@@ -1606,6 +1640,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
               const msg = err?.message || "Native capture error";
               const suggestion = err?.suggestion ? " " + err.suggestion : "";
               console.warn("[presentflow-audio:native] error", msg, err?.suggestion || "");
+              guardianOnError(msg);
               setState((s) => ({ ...s, error: msg + suggestion }));
             });
             nativeUnsubsRef.current = [unsubChunk, unsubLevel, unsubError];
