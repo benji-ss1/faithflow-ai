@@ -190,6 +190,12 @@ export function AudioTab() {
       persistSourceType("mixer");
       toast.success(`${selected.label.replace(/^Default - /, "")} looks like a mixer — switched Source Type to Mixer / Interface`);
     }
+    // Stale-code audit fix (2026-07-27) — do NOT open a getUserMedia probe
+    // while native (ffmpeg) capture may hold the same CoreAudio device.
+    // The probe grabs the device briefly and can trigger the exact
+    // device-busy conflict the native path defends against. In native
+    // mode the browser channel grid is hidden anyway — skip the probe.
+    if (effectiveMode === "native") return;
     let cancelled = false;
     (async () => {
       const caps = await getDeviceCapabilities(selected.id);
@@ -221,7 +227,7 @@ export function AudioTab() {
       }
     })();
     return () => { cancelled = true; };
-  }, [selected?.id]);
+  }, [selected?.id, effectiveMode]);
 
   // Open/close multi-channel capture based on: popover open + device selected
   // + more than 1 channel. Poll levels at 20fps (100ms).
@@ -239,7 +245,9 @@ export function AudioTab() {
     // actually render. Opening a 32-analyser graph every time the operator
     // pops open the audio menu (e.g. just to check device names) burns CPU
     // for zero UI benefit.
-    if (!pickerOpen || !selected || !capsProbed || channelCount <= 1) {
+    // Native-mode guard (stale-code audit) — never open a browser-side
+    // Web Audio capture while ffmpeg may hold the device.
+    if (effectiveMode === "native" || !pickerOpen || !selected || !capsProbed || channelCount <= 1) {
       teardown();
       return;
     }
@@ -276,7 +284,7 @@ export function AudioTab() {
     })();
 
     return () => { cancelled = true; teardown(); };
-  }, [pickerOpen, selected?.id, capsProbed, channelCount]);
+  }, [pickerOpen, selected?.id, capsProbed, channelCount, effectiveMode]);
 
   // Tear down on component unmount as a safety net (in case popover closes
   // via unmount rather than the open flag).
