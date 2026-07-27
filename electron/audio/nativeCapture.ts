@@ -97,6 +97,12 @@ function classifyStderr(line: string): { message: string; suggestion?: string } 
 function buildFfmpegArgs(opts: StartCaptureOpts, deviceName: string): string[] {
   const sr = opts.sampleRate ?? 16000;
   const ch = opts.channels ?? 1;
+  const lowLatencyInput = [
+    "-fflags", "nobuffer",
+    "-flags", "low_delay",
+    "-probesize", "32",
+    "-analyzeduration", "0",
+  ];
   const common = [
     ...(opts.channelFilter ? ["-af", opts.channelFilter] : []),
     "-ac", String(ch),
@@ -110,6 +116,7 @@ function buildFfmpegArgs(opts: StartCaptureOpts, deviceName: string): string[] {
     return [
       "-hide_banner",
       "-nostdin",
+      ...lowLatencyInput,
       "-f", "avfoundation",
       "-i", `:${opts.deviceIndex}`,
       ...common,
@@ -121,6 +128,7 @@ function buildFfmpegArgs(opts: StartCaptureOpts, deviceName: string): string[] {
     return [
       "-hide_banner",
       "-nostdin",
+      ...lowLatencyInput,
       "-f", "dshow",
       "-i", `audio=${deviceName}`,
       ...common,

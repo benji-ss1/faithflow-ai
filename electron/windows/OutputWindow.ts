@@ -81,12 +81,14 @@ export function createOutputWindow(
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      backgroundThrottling: false,
       // Y6: output pages (/live, /stage, /livestream) never call
       // window.electronAPI — verified by grep. Sandbox on for defense in
       // depth; if a future output page ever needs preload IPC, revisit.
       sandbox: true,
     },
   });
+  win.webContents.setBackgroundThrottling(false);
 
   try { win.setMenuBarVisibility(false); } catch { /* noop */ }
 

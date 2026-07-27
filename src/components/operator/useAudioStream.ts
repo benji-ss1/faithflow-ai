@@ -654,20 +654,6 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   // was an unthrottled per-message render storm (fixed below); the existing
   // stall watchdog + reconnect still recover a genuinely wedged socket.
 
-  // Perf helper — chunked Uint8Array → base64. A naive
-  //   String.fromCharCode(...bytes) + btoa()
-  // over ~160 KB blocks the main thread ~200 ms on reconnect flush (the
-  // exact moment the AI Live pill flips green). We chunk the char-code
-  // apply to 8 KB slices so no single call ever holds a huge string.
-  const bytesToBase64 = (bytes: Uint8Array): string => {
-    const CHUNK = 8192;
-    let bin = "";
-    for (let i = 0; i < bytes.length; i += CHUNK) {
-      const slice = bytes.subarray(i, Math.min(i + CHUNK, bytes.length));
-      bin += String.fromCharCode.apply(null, slice as unknown as number[]);
-    }
-    return btoa(bin);
-  };
   // R8: 200ms lookback ring. Even while the gate is CLOSED we keep the most
   // recent ~200ms of PCM around so that on reopen we flush the leading edge —
   // otherwise the first word of resumed speech is truncated at Deepgram.
@@ -731,8 +717,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       try {
         // 256 bytes = 128 samples PCM16 mono = 8ms at 16kHz. Silence.
         const silence = new Uint8Array(256);
-        const b64 = bytesToBase64(silence);
-        ws.send(JSON.stringify({ type: "audio", b64 }));
+        ws.send(silence);
       } catch { /* ignore */ }
     }, 5000);
   }, []);
@@ -997,10 +982,10 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       setState((s) => ({ ...s, reconnectFailed: true, listening: false, ready: false, error: null }));
       return;
     }
-    // Task 3: exponential backoff, base=500ms, cap=8s, +up to 500ms jitter.
-    // Attempts 1..8 → 500, 1000, 2000, 4000, 8000, 8000, 8000, 8000 (+jitter).
-    const base = Math.min(500 * Math.pow(2, attempt - 1), 8_000);
-    const delay = base + Math.floor(Math.random() * 500);
+    // Fast bounded backoff: 500ms, 1s, 2s, 4s, then 5s max including
+    // jitter. Keeps transient bridge gaps short during live speech.
+    const base = Math.min(500 * Math.pow(2, attempt - 1), 5_000);
+    const delay = Math.min(base + Math.floor(Math.random() * 500), 5_000);
     if (isDevOrTraceOn()) console.log(`[presentflow-audio] scheduling reconnect attempt ${attempt} in ${delay}ms`);
     // Don't set a user-facing error string during the transient reconnect
     // loop — the AI Live pill already carries the "connecting…" state and
@@ -1162,11 +1147,6 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           return;
         }
         setStage("ws_open"); log("3 WS open");
-        // Y8: count successful open (post-first) as a reconnect success.
-        if (reconnectAttemptsRef.current > 0) reconnectSuccessesRef.current += 1;
-        // Fresh connection stable — reset backoff so a later drop starts at attempt 1.
-        reconnectAttemptsRef.current = 0;
-        setState((s) => ({ ...s, error: null, reconnectFailed: false, reconnectAttempts: 0 }));
         // R9: fire up keep-alive so warm-muted sessions don't get idled out.
         startKeepAlive();
         // Task 4: flush the ring buffer of PCM captured while WS was closed.
@@ -1179,8 +1159,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           if (isDevOrTraceOn()) console.log(`[audio-buffer] retained ${ms} ms during reconnect`);
           for (const chunk of buffered) {
             try {
-              const b64 = bytesToBase64(chunk);
-              ws.send(JSON.stringify({ type: "audio", b64 }));
+              ws.send(chunk);
             } catch { /* drop on error */ break; }
           }
           ringBufferRef.current = [];
@@ -1312,10 +1291,16 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         }
         if (msg.type === "ready") {
           if (stallWatchdogRef.current) { clearTimeout(stallWatchdogRef.current); stallWatchdogRef.current = null; }
+          // Only reset reconnect backoff after the bridge confirms Deepgram is
+          // healthy. A raw browser-WebSocket open is not sufficient.
+          if (reconnectAttemptsRef.current > 0) reconnectSuccessesRef.current += 1;
+          reconnectAttemptsRef.current = 0;
           // Reconnected (or fresh) socket is live again — cancel any pending
           // pill-downgrade so a fast blip never flashed "connecting".
           if (readyDowngradeTimerRef.current) { clearTimeout(readyDowngradeTimerRef.current); readyDowngradeTimerRef.current = null; }
-          setStage("deepgram_ready"); log("5 deepgram ready"); setState((s) => ({ ...s, ready: true })); return;
+          setStage("deepgram_ready"); log("5 deepgram ready");
+          setState((s) => ({ ...s, ready: true, error: null, reconnectFailed: false, reconnectAttempts: 0 }));
+          return;
         }
         if (msg.type === "interim") { setStage("receiving_interim"); log("7 interim", msg.text); }
         if (msg.type === "final") { setStage("receiving_final"); log("8 final", msg.text); }
@@ -1643,8 +1628,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
                 return;
               }
               try {
-                const b64 = bytesToBase64(bytes);
-                wsRef.current.send(JSON.stringify({ type: "audio", b64 }));
+                wsRef.current.send(bytes);
               } catch { /* ignore transient send errors */ }
               sentChunks++;
               if (firstChunkAtRef.current === null) firstChunkAtRef.current = Date.now();
@@ -2009,32 +1993,35 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           return mixed;
         }
         class PCMSender extends AudioWorkletProcessor {
+          constructor() {
+            super();
+            this.position = 0;
+            this.pending = new Int16Array(160);
+            this.pendingCount = 0;
+          }
           process(inputs) {
             const input = inputs[0];
             if (!input || !input[0]) return true;
             // Sum all channels to mono BEFORE resample/quantize.
             const ch = mixToMono(input, input[0].length);
-            let out;
-            if (RATIO === 1) {
-              out = new Int16Array(ch.length);
-              for (let i = 0; i < ch.length; i++) {
-                const s = Math.max(-1, Math.min(1, ch[i]));
-                out[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+            for (let pos = this.position; pos < ch.length; pos += RATIO) {
+              const i0 = Math.floor(pos);
+              const i1 = Math.min(ch.length - 1, i0 + 1);
+              const frac = pos - i0;
+              const sample = ch[i0] * (1 - frac) + ch[i1] * frac;
+              const s = Math.max(-1, Math.min(1, sample));
+              this.pending[this.pendingCount++] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+              // Fixed 10 ms PCM packets keep capture latency tiny while
+              // avoiding hundreds of UI-thread messages/sec at 48 kHz.
+              if (this.pendingCount === this.pending.length) {
+                const packet = this.pending;
+                this.port.postMessage(packet.buffer, [packet.buffer]);
+                this.pending = new Int16Array(160);
+                this.pendingCount = 0;
               }
-            } else {
-              const outLen = Math.floor(ch.length / RATIO);
-              out = new Int16Array(outLen);
-              for (let i = 0; i < outLen; i++) {
-                const srcIdx = i * RATIO;
-                const i0 = Math.floor(srcIdx);
-                const i1 = Math.min(ch.length - 1, i0 + 1);
-                const frac = srcIdx - i0;
-                const sample = ch[i0] * (1 - frac) + ch[i1] * frac;
-                const s = Math.max(-1, Math.min(1, sample));
-                out[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-              }
+              this.position = pos + RATIO;
             }
-            this.port.postMessage(out.buffer, [out.buffer]);
+            this.position -= ch.length;
             return true;
           }
         }
@@ -2142,10 +2129,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
             if (ws.readyState === WebSocket.OPEN) {
               for (const chunk of lookbackRingRef.current) {
                 try {
-                  let bin = "";
-                  for (let i = 0; i < chunk.length; i++) bin += String.fromCharCode(chunk[i]);
-                  const b64 = btoa(bin);
-                  ws.send(JSON.stringify({ type: "audio", b64 }));
+                  ws.send(chunk);
                 } catch { break; }
               }
             }
@@ -2174,10 +2158,8 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           return;
         }
         if (firstChunkAtRef.current === null) firstChunkAtRef.current = nowMs;
-        // Use the chunked base64 helper for consistency with reconnect flush
-        // (was reintroducing the O(n²) String.fromCharCode loop here).
-        const b64 = bytesToBase64(bytes);
-        ws.send(JSON.stringify({ type: "audio", b64 }));
+        // Binary PCM avoids base64 expansion and JSON work on the UI thread.
+        ws.send(bytes);
         sentChunks++;
         // Throttle chunksSent state to ~1Hz. Was firing on every worklet
         // message (~50Hz) → ~180K React commits/hour × 3h = ~540K commits
@@ -2277,7 +2259,8 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   // every render (would restart the backoff clock).
   useEffect(() => { startRef.current = start; }, [start]);
 
-  // 2026-07-25 Bug-3 hardening — 10s health watchdog while listening.
+  // Health watchdog while listening. Check every second so a backgrounded
+  // renderer cannot leave AudioContext suspended long enough to drop speech.
   // Covers the two silent-death modes the reconnect loop can't see:
   // (a) Chromium/Electron suspends the AudioContext mid-session (no event
   //     fires; worklet chunks just stop) → resume it.
@@ -2303,7 +2286,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         console.warn("[presentflow-audio] watchdog: socket wedged with no reconnect pending — kicking reconnect");
         scheduleReconnect();
       }
-    }, 10_000);
+    }, 1_000);
     return () => clearInterval(id);
   }, [state.listening, scheduleReconnect]);
 

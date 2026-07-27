@@ -116,7 +116,11 @@ export type OperatorShellCtx = {
   // per-slide id (or stringified index if none). Optional so legacy shells
   // that never dnd-wrap can omit it.
   onReorderSlidesInItem?: (itemIdx: number, newOrder: string[]) => void;
-  onSendSlideToLive: (slide: SlidePayload, transition?: import("@/lib/broadcast").TransitionSpec | null) => void;
+  onSendSlideToLive: (
+    slide: SlidePayload,
+    transition?: import("@/lib/broadcast").TransitionSpec | null,
+    options?: { preserveConfiguredTransition?: boolean },
+  ) => void;
   onStageSlide: (slide: SlidePayload) => void;
   onBankAddReference: (ref: { book: string; chapter: number; verseStart: number; verseEnd: number }) => Promise<BankedVerse | null>;
   onSendBankedToLive: (idx: number) => void;

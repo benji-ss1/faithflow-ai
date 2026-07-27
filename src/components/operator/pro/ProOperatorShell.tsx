@@ -1876,7 +1876,9 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // R7: wrap send with error handling + toast.
   const safeSendLive = useCallback((slide: import("@/lib/broadcast").SlidePayload): boolean => {
     try {
-      const res = sendLiveRef.current(slide) as unknown;
+      // AI auto-fire uses an instant one-shot transition while preserving the
+      // operator's configured transition for subsequent manual sends.
+      const res = sendLiveRef.current(slide, null, { preserveConfiguredTransition: true }) as unknown;
       // Support async callbacks.
       if (res && typeof (res as { then?: unknown }).then === "function") {
         (res as Promise<unknown>).catch(() => {
