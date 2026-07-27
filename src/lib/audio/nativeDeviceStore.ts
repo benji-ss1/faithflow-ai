@@ -38,6 +38,13 @@ export type NativeDevicePref = {
   /** Written by the audio guardian (Agent B) when capture from this
    *  device last produced healthy signal — used for failover ranking. */
   lastWorkingAt?: number;
+  /** "Follow Mac system input" mode (2026-07-27). When true, `index` and
+   *  `name` are a LAST-RESOLVED CACHE, not the source of truth — the
+   *  capture path re-resolves the macOS system-default input by name at
+   *  every start (see src/lib/audio/systemDefaultInput.ts) and refreshes
+   *  the cache with a direct localStorage write (no event, to avoid a
+   *  restart loop). */
+  followSystemDefault?: boolean;
 };
 
 function isBrowserEnv(): boolean {
@@ -49,6 +56,11 @@ function isValidPref(v: unknown): v is NativeDevicePref {
   const o = v as Record<string, unknown>;
   if (typeof o.index !== "number" || !Number.isFinite(o.index)) return false;
   if (typeof o.name !== "string") return false;
+  // Sanitize followSystemDefault: anything non-boolean is coerced away so
+  // downstream truthiness checks can't be tricked by injected values.
+  if ("followSystemDefault" in o && typeof o.followSystemDefault !== "boolean") {
+    delete o.followSystemDefault;
+  }
   return true;
 }
 

@@ -15,6 +15,19 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.82",
+    date: "2026-07-27",
+    headline: "Follow Mac system input — PresentFlow now captures whatever input the Mac itself is using, and tracks it live when you change it",
+    highlights: [
+      "New pinned option at the top of the input list: '🖥 Follow Mac system input' (orange SYSTEM tag). When active, PresentFlow captures whatever input is selected in macOS System Settings → Sound → Input — SQ over USB, NDI, Blackmagic, Bluetooth, any interface. Change the input in Mac Settings and PresentFlow follows within seconds, automatically rebuilding capture onto the new device. The subtitle always shows what it's currently resolved to",
+      "Auto-pick upgraded: on a fresh setup, if the Mac's system input is already a mixer or NDI feed, PresentFlow defaults to follow-mode — so a correctly-configured Mac Studio needs ZERO clicks in PresentFlow. If the system default is just the built-in mic, the ranked direct pick (mixer first) still applies",
+      "New setup guide: 'Playback apps (Logic Pro, Spotify, QLab…)' — capturing audio from apps requires BlackHole (free loopback driver): create a Multi-Output Device so you still hear playback, point the app's output at it, then pick BlackHole in PresentFlow or set it as the Mac input and use follow-mode. Also added a Blackmagic/ATEM program-audio guide",
+      "Setup guides now surface for native-mode device picks too (previously browser-only) — select the SQ natively and the Allen & Heath USB routing guide appears right below",
+      "Resilience: if the system default can't be matched to a native device (transient enumeration failure, device just unplugged), capture falls back to the last-known device rather than dying — and the Audio Guardian's self-heal ladder from v0.1.81 covers a truly dead source",
+      "All web-deployed — Cmd+R on the v0.1.80 desktop app gets everything. No reinstall",
+    ],
+  },
+  {
     version: "0.1.81",
     date: "2026-07-27",
     headline: "Audio Guardian + unified input list — PresentFlow now picks the best input itself, watches it constantly, and self-heals when it goes silent",

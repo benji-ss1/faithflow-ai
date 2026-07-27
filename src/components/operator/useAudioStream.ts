@@ -32,7 +32,14 @@ import {
   readNativeDevicePref,
   buildChannelFilter,
   NATIVE_AUDIO_INPUT_CHANGED_EVENT,
+  NATIVE_AUDIO_INPUT_KEY,
 } from "@/lib/audio/nativeDeviceStore";
+// "Follow Mac system input" (2026-07-27) — resolve the macOS system-default
+// input by name and match it against the native ffmpeg device list.
+import {
+  getSystemDefaultInputName,
+  matchNativeDeviceByName,
+} from "@/lib/audio/systemDefaultInput";
 // Audio Guardian (2026-07-27) — self-healing watchdog for the native path.
 // Fed level/error/lifecycle signals from the native branch below; runs the
 // silence-escalation ladder (restart → re-enumerate → probe alternates →
@@ -580,6 +587,11 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   // session took the browser path so the teardown branch stays a no-op.
   const nativeActiveRef = useRef<boolean>(false);
   const nativeUnsubsRef = useRef<Array<() => void>>([]);
+  // "Follow Mac system input" — the raw system-default input name that was
+  // resolved at the last native capture start. The devicechange follower
+  // compares against this to decide whether a rebuild is actually needed
+  // (the OS default changed) vs. noise (unrelated device plug/unplug).
+  const followResolvedSysNameRef = useRef<string | null>(null);
   // Tracks the deviceId currently feeding the pipeline so the
   // device-channel-pref-changed listener can ignore prefs for other
   // devices. null when no device-specific pref is active or when the
@@ -1508,13 +1520,55 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
             // stored device by NAME at capture start; fall back to the stored
             // index only when the name isn't found (device renamed/absent).
             let resolvedIndex = nativePref.index;
+            let resolvedName = nativePref.name;
+            // "Follow Mac system input" (2026-07-27) — the stored index/name
+            // are only a last-resolved cache. Ask Chromium what macOS's
+            // system-default input is, match it against the native ffmpeg
+            // list by name, and capture THAT device. On any failure (no
+            // labels, no match, enumeration error) fall back to the cache
+            // so a live service never dies on a resolution hiccup.
+            if (nativePref.followSystemDefault) {
+              try {
+                const sysName = await getSystemDefaultInputName();
+                const liveDevices = await nativeBridge.listDevices?.();
+                const match = sysName && Array.isArray(liveDevices)
+                  ? matchNativeDeviceByName(sysName, liveDevices)
+                  : null;
+                if (sysName && match) {
+                  resolvedIndex = match.index;
+                  resolvedName = match.name;
+                  followResolvedSysNameRef.current = sysName;
+                  log("4a-native follow-system-default resolved", {
+                    systemDefault: sysName, index: match.index, name: match.name,
+                  });
+                  // Refresh the pref cache via a DIRECT localStorage write —
+                  // deliberately NOT writeNativeDevicePref(), whose change
+                  // event would schedule another pipeline restart and loop.
+                  if (match.index !== nativePref.index || match.name !== nativePref.name) {
+                    try {
+                      localStorage.setItem(
+                        NATIVE_AUDIO_INPUT_KEY,
+                        JSON.stringify({ ...nativePref, index: match.index, name: match.name }),
+                      );
+                    } catch { /* ignore */ }
+                  }
+                } else {
+                  console.warn(
+                    "[presentflow-audio:native] follow-system-default: no native match for system input",
+                    sysName ?? "(unresolvable)",
+                    "— falling back to cached device",
+                    nativePref.name,
+                  );
+                }
+              } catch { /* resolution failure → cached device below */ }
+            }
             try {
               const liveDevices = await nativeBridge.listDevices?.();
               if (Array.isArray(liveDevices)) {
-                const byName = liveDevices.find((d) => d.name === nativePref.name);
-                if (byName && byName.index !== nativePref.index) {
+                const byName = liveDevices.find((d) => d.name === resolvedName);
+                if (byName && byName.index !== resolvedIndex) {
                   log("4a-native device index drift — re-resolved by name", {
-                    stored: nativePref.index, live: byName.index, name: nativePref.name,
+                    stored: resolvedIndex, live: byName.index, name: resolvedName,
                   });
                   resolvedIndex = byName.index;
                 } else if (byName) {
@@ -1525,7 +1579,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
             const channelFilter = buildChannelFilter(nativePref);
             log("4a-native starting capture", {
               deviceIndex: resolvedIndex,
-              name: nativePref.name,
+              name: resolvedName,
               channelFilter,
             });
             const startRes = await nativeBridge.startCapture({
@@ -1547,7 +1601,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
             // startGuardian() is idempotent, so restarts (device swap,
             // guardian-initiated rebuilds) don't stack timers.
             startGuardian();
-            guardianOnCaptureStart(nativePref.name);
+            guardianOnCaptureStart(resolvedName);
             // Populate diagnostic surface fields so the v0.1.79 "no
             // audio for 15s" toast can tell operators WHAT the pipeline
             // is seeing. streamChannelCount is best-effort from the
@@ -2370,6 +2424,36 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     };
     const handler = () => scheduleRestart("input-changed", 300);
     const onDeviceChange = () => scheduleRestart("devicechange", 500);
+    // "Follow Mac system input" (2026-07-27) — when the operator changes
+    // the input in macOS System Settings → Sound, Chromium fires
+    // `devicechange` (the "Default - <name>" label changes). Debounce 2s
+    // (macOS emits bursts during device handoff), re-read the system
+    // default name, and only if it CHANGED from what native capture last
+    // resolved — and follow mode is on — trigger the same rebuild path as
+    // a native input change. Native mode only: nativeActiveRef gates it.
+    let followTimer: ReturnType<typeof setTimeout> | null = null;
+    const onFollowSystemDefaultChange = () => {
+      const pref = readNativeDevicePref();
+      if (!pref?.followSystemDefault || !nativeActiveRef.current) return;
+      if (followTimer) clearTimeout(followTimer);
+      followTimer = setTimeout(() => {
+        followTimer = null;
+        void getSystemDefaultInputName().then((sysName) => {
+          if (!sysName) return; // unresolvable → keep current capture
+          const current = readNativeDevicePref();
+          if (!current?.followSystemDefault) return;
+          if (sysName === followResolvedSysNameRef.current) return; // no change
+          if (isDevOrTraceOn()) {
+            console.log(
+              "[presentflow-audio] system default input changed →",
+              sysName,
+              "— rebuilding native capture",
+            );
+          }
+          scheduleRestart("system-default-input-changed", 0);
+        }).catch(() => { /* ignore */ });
+      }, 2000);
+    };
     // Wave 2 — capture-mode swap (browser ↔ native ↔ auto) and native
     // device swap. Both feed the same debounced restart path as an
     // audio-input change, so the pipeline picks up the new source on
@@ -2394,13 +2478,16 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     window.addEventListener(NATIVE_AUDIO_INPUT_CHANGED_EVENT, onNativeInputChanged);
     const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
     md?.addEventListener?.("devicechange", onDeviceChange);
+    md?.addEventListener?.("devicechange", onFollowSystemDefaultChange);
     return () => {
       window.removeEventListener("presentflow:audio-input-changed", handler);
       window.removeEventListener(DEVICE_CHANNEL_PREF_CHANGED_EVENT, onChannelPrefChanged);
       window.removeEventListener(CAPTURE_MODE_CHANGED_EVENT, onCaptureModeChanged);
       window.removeEventListener(NATIVE_AUDIO_INPUT_CHANGED_EVENT, onNativeInputChanged);
       md?.removeEventListener?.("devicechange", onDeviceChange);
+      md?.removeEventListener?.("devicechange", onFollowSystemDefaultChange);
       if (restartTimer) clearTimeout(restartTimer);
+      if (followTimer) clearTimeout(followTimer);
     };
     // Refs-only effect — no state deps so we bind ONCE per hook mount, not
     // per listening/warmStart transition. The handler reads current values

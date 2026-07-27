@@ -217,6 +217,37 @@ export const MIXER_SETUP_GUIDES: MixerSetupGuide[] = [
       "Route the pastor's mic to USB channel 1 for a single-channel capture.",
   },
   {
+    // Placed BEFORE the generic "blackhole" entry: findGuideForDevice
+    // returns the FIRST match, and this playback-apps guide is the richer,
+    // more actionable one for the common "capture Logic/Spotify/QLab"
+    // use-case that BlackHole selection almost always means.
+    id: "playback-apps-blackhole",
+    displayName: "Playback apps (Logic Pro, Spotify, QLab…)",
+    matchPatterns: [/blackhole/i],
+    channelCount: 2,
+    steps: [
+      "1. Install BlackHole (free) from existential.audio.",
+      "2. In Audio MIDI Setup, create a Multi-Output Device containing BlackHole + your speakers so you still hear playback.",
+      "3. In Logic (or the playback app), set the output device to that Multi-Output Device.",
+      "4. In PresentFlow's input list, pick 'BlackHole' (VIRTUAL tag) — or set BlackHole as the Mac's input in System Settings → Sound and use 'Follow Mac system input'.",
+      "5. Play audio — the meter should move.",
+    ],
+    vocalChannelHint: "BlackHole is stereo — sum-all mode captures both channels.",
+  },
+  {
+    id: "blackmagic",
+    displayName: "Blackmagic (ATEM / capture)",
+    matchPatterns: [/blackmagic/i],
+    channelCount: 2,
+    steps: [
+      "1. Connect the ATEM (or Blackmagic capture device) to your Mac via USB — program audio arrives as a standard 2ch input.",
+      "2. On the ATEM, make sure the program mix includes the vocal mic (check the Audio page in ATEM Software Control).",
+      "3. In PresentFlow's input list, pick the Blackmagic device — sum-all mode captures the stereo program feed.",
+    ],
+    vocalChannelHint:
+      "The ATEM program mix decides what audio arrives — confirm the pastor's mic is unmuted on the ATEM Audio page.",
+  },
+  {
     id: "blackhole",
     displayName: "BlackHole (Loopback)",
     matchPatterns: [

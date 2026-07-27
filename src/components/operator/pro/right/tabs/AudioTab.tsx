@@ -69,6 +69,12 @@ import {
   rankNativeDevice,
   tagForRank,
 } from "@/lib/audio/inputRanking";
+// "Follow Mac system input" (2026-07-27) — resolve macOS's system-default
+// input by name and match it against the native ffmpeg device list.
+import {
+  getSystemDefaultInputName,
+  matchNativeDeviceByName,
+} from "@/lib/audio/systemDefaultInput";
 
 type NativeDeviceInfo = {
   index: number;
@@ -120,6 +126,12 @@ export function AudioTab() {
   const [nativeChannelLevels, setNativeChannelLevels] = useState<Array<{ channel: number; rms: number; db: number; peak: number }>>([]);
   // Unified native input system — auto-pick + inline channel auto-detect.
   const [autoPickedIndex, setAutoPickedIndex] = useState<number | null>(null);
+  // "Follow Mac system input" — pinned mode at the top of the native list.
+  const [followActive, setFollowActive] = useState(false);
+  // Currently-resolved system-default device name (native-matched when
+  // possible, raw system name otherwise, null when unresolvable).
+  const [followResolvedName, setFollowResolvedName] = useState<string | null>(null);
+  const [nativeGuideOpen, setNativeGuideOpen] = useState(false);
   const [isDesktopShell, setIsDesktopShell] = useState(false);
   const [detectState, setDetectState] = useState<"idle" | "running" | "done">("idle");
   const [detectProgress, setDetectProgress] = useState(0); // 0..1
@@ -178,6 +190,7 @@ export function AudioTab() {
       setNativeSelected({ index: np.index, name: np.name, platform: (typeof navigator !== "undefined" && /win/i.test(navigator.platform)) ? "win32" : "darwin" });
       setNativeGridMode(np.mode ?? "sum-all");
       setNativeSelectedChannels(np.selectedChannels ?? []);
+      setFollowActive(!!np.followSystemDefault);
     }
     refreshDevices();
     // Fire an initial native devices probe (no-op if API missing).
@@ -348,33 +361,126 @@ export function AudioTab() {
     } catch { /* noop */ }
   }
 
+  // --- "Follow Mac system input" resolution ------------------------------
+  // Resolve what macOS System Settings → Sound → Input currently points at
+  // (via Chromium's "Default - <name>" enumerateDevices entry), match it
+  // against the native ffmpeg list, and keep the subtitle fresh on
+  // devicechange. Native mode only.
+  useEffect(() => {
+    if (effectiveMode !== "native") return;
+    let cancelled = false;
+    const resolve = async () => {
+      const sys = await getSystemDefaultInputName();
+      if (cancelled) return;
+      if (!sys) { setFollowResolvedName(null); return; }
+      const match = matchNativeDeviceByName(sys, nativeDevices);
+      setFollowResolvedName(match ? match.name : sys);
+    };
+    void resolve();
+    const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
+    const onChange = () => { void resolve(); };
+    md?.addEventListener?.("devicechange", onChange);
+    return () => {
+      cancelled = true;
+      md?.removeEventListener?.("devicechange", onChange);
+    };
+  }, [effectiveMode, nativeDevices]);
+
+  async function enableFollowSystemDefault() {
+    const sys = await getSystemDefaultInputName();
+    const match = sys ? matchNativeDeviceByName(sys, nativeDevices) : null;
+    // Cache fields: matched device when possible, else the current pick,
+    // else the first listed device — the capture path re-resolves live
+    // anyway; the cache is only the no-match fallback.
+    const cache = match
+      ?? (nativeSelected ? { index: nativeSelected.index, name: nativeSelected.name } : null)
+      ?? (nativeDevices[0] ? { index: nativeDevices[0].index, name: nativeDevices[0].name } : null);
+    if (!cache) {
+      toast.error("No native input devices available to follow");
+      return;
+    }
+    setFollowActive(true);
+    setAutoPickedIndex(null);
+    setNativeSelected(
+      nativeDevices.find((d) => d.index === cache.index)
+        ?? { index: cache.index, name: cache.name, platform: "darwin" },
+    );
+    setNativeGridMode("sum-all");
+    setNativeSelectedChannels([]);
+    // writeNativeDevicePref dispatches presentflow:native-audio-input-changed
+    // so the pipeline rebuilds onto the resolved device.
+    writeNativeDevicePref({
+      followSystemDefault: true,
+      index: cache.index,
+      name: cache.name,
+      mode: "sum-all",
+      selectedChannels: [],
+      gainDb: 0,
+    });
+    toast.success(`Following Mac system input — currently ${match?.name ?? sys ?? cache.name}`);
+  }
+
   // --- Auto-pick on launch (unified native input system) -----------------
   // When native capture is the effective mode and the operator has NEVER
   // picked a native device (no stored pref), auto-select the best-ranked
   // device (mixer > NDI > virtual > mic > BT) so a fresh install at a
-  // church lands on the SQ/X32 with zero clicks. If a stored pref exists
-  // but its device is absent from the live list, do NOTHING here — the
-  // audio guardian owns failover and we must not clobber the stored pref
-  // (the mixer may just be powered off pre-service).
+  // church lands on the SQ/X32 with zero clicks. 2026-07-27 follow-mode
+  // refinement: if the Mac's OWN system-default input resolves to a
+  // mixer/NDI-class native device, prefer "Follow Mac system input" so a
+  // church that manages routing via System Settings stays in sync
+  // automatically. If a stored pref exists but its device is absent from
+  // the live list, do NOTHING here — the audio guardian owns failover and
+  // we must not clobber the stored pref (the mixer may just be powered
+  // off pre-service).
   useEffect(() => {
     if (effectiveMode !== "native" || nativeDevices.length === 0) return;
     if (readNativeDevicePref() !== null) return;
-    const best = pickBestNativeDevice(nativeDevices);
-    if (!best) return;
-    setNativeSelected(best);
-    setNativeGridMode("sum-all");
-    setNativeSelectedChannels([]);
-    // writeNativeDevicePref dispatches presentflow:native-audio-input-changed.
-    writeNativeDevicePref({
-      index: best.index,
-      name: best.name,
-      mode: "sum-all",
-      selectedChannels: [],
-      gainDb: 0,
-      autoPickedAt: Date.now(),
-    });
-    setAutoPickedIndex(best.index);
-    toast.success(`Auto-selected ${best.name} (${autoPickReason(best.name)})`);
+    let cancelled = false;
+    void (async () => {
+      const sys = await getSystemDefaultInputName();
+      // Re-check after the await — a manual pick or another effect run may
+      // have written a pref while we were resolving.
+      if (cancelled || readNativeDevicePref() !== null) return;
+      const sysMatch = sys ? matchNativeDeviceByName(sys, nativeDevices) : null;
+      if (sysMatch && rankNativeDevice(sysMatch.name) <= 1) {
+        // System default is a mixer or NDI feed → follow it.
+        setFollowActive(true);
+        setNativeSelected(
+          nativeDevices.find((d) => d.index === sysMatch.index)
+            ?? { index: sysMatch.index, name: sysMatch.name, platform: "darwin" },
+        );
+        setNativeGridMode("sum-all");
+        setNativeSelectedChannels([]);
+        writeNativeDevicePref({
+          followSystemDefault: true,
+          index: sysMatch.index,
+          name: sysMatch.name,
+          mode: "sum-all",
+          selectedChannels: [],
+          gainDb: 0,
+          autoPickedAt: Date.now(),
+        });
+        toast.success(`Following Mac system input — currently ${sysMatch.name}`);
+        return;
+      }
+      const best = pickBestNativeDevice(nativeDevices);
+      if (!best) return;
+      setNativeSelected(best);
+      setNativeGridMode("sum-all");
+      setNativeSelectedChannels([]);
+      // writeNativeDevicePref dispatches presentflow:native-audio-input-changed.
+      writeNativeDevicePref({
+        index: best.index,
+        name: best.name,
+        mode: "sum-all",
+        selectedChannels: [],
+        gainDb: 0,
+        autoPickedAt: Date.now(),
+      });
+      setAutoPickedIndex(best.index);
+      toast.success(`Auto-selected ${best.name} (${autoPickReason(best.name)})`);
+    })();
+    return () => { cancelled = true; };
   }, [effectiveMode, nativeDevices]);
 
   // --- Native channel auto-detect (10s probe) ----------------------------
@@ -506,6 +612,9 @@ export function AudioTab() {
       name: nativeSelected.name,
       mode,
       selectedChannels: mode === "sum-all" ? [] : chs,
+      // Preserve follow mode across channel/mode tweaks — only an explicit
+      // device click disables it.
+      ...(followActive ? { followSystemDefault: true } : {}),
     });
   }
 
@@ -697,6 +806,16 @@ export function AudioTab() {
   const guide = selected ? findGuideForDevice(selected.label) : null;
   const showGrid = !!selected && capsProbed && channelCount > 1 && !captureError;
 
+  // Native-mode setup guide (2026-07-27) — previously guides only rendered
+  // for browser-mode selections. Match against the follow-resolved name
+  // when follow mode is active, else the picked native device's name.
+  const nativeGuideLabel = followActive
+    ? (followResolvedName ?? nativeSelected?.name ?? "")
+    : (nativeSelected?.name ?? "");
+  const nativeGuide = effectiveMode === "native" && nativeGuideLabel
+    ? findGuideForDevice(nativeGuideLabel)
+    : null;
+
   return (
     <div className="flex flex-col gap-3 py-2 text-[12px]">
       {/* Wave 2 — Capture Mode toggle. Bypasses Chromium getUserMedia (which
@@ -743,8 +862,27 @@ export function AudioTab() {
             </div>
           ) : (
             <div className="flex flex-col gap-0.5 rounded border p-1" style={{ borderColor: "var(--color-border)", background: "var(--color-elevated)" }}>
+              {/* Pinned: "Follow Mac system input" — capture whatever macOS
+                  System Settings → Sound → Input points at, and track it
+                  live when it changes. */}
+              <button
+                onClick={() => void enableFollowSystemDefault()}
+                className={"w-full text-left px-2 py-1.5 rounded text-[11px] flex flex-col gap-0.5 border " + (followActive ? "text-white bg-[color:rgba(249,115,22,0.15)]" : "text-[var(--color-foreground)] hover:bg-white/5")}
+                style={{ borderColor: followActive ? "#f97316" : "transparent" }}
+                title="Capture whatever input macOS is set to (System Settings → Sound → Input) and follow it when it changes"
+              >
+                <span className="flex items-center gap-1.5">
+                  <span className="text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded shrink-0" style={{ background: "#f97316", color: "white" }}>
+                    SYSTEM
+                  </span>
+                  <span className="truncate">🖥 Follow Mac system input</span>
+                </span>
+                <span className="text-[9px] text-[var(--color-muted-foreground)] pl-0.5 truncate">
+                  {followResolvedName ? `Currently: ${followResolvedName}` : "System input not resolved yet"}
+                </span>
+              </button>
               {[...nativeDevices].sort(compareNativeDevices).map((d) => {
-                const isSel = nativeSelected?.index === d.index;
+                const isSel = !followActive && nativeSelected?.index === d.index;
                 const tag = tagForRank(rankNativeDevice(d.name));
                 const tagStyle =
                   tag === "MIXER" ? { background: "#10b981", color: "white" }
@@ -764,6 +902,7 @@ export function AudioTab() {
                     onClick={() => {
                       setNativeSelected(d);
                       setAutoPickedIndex(null); // manual click supersedes auto-pick
+                      setFollowActive(false); // explicit device pick disables follow mode
                       writeNativeDevicePref({ index: d.index, name: d.name, mode: "sum-all", selectedChannels: [], gainDb: 0 });
                       try { window.dispatchEvent(new CustomEvent("presentflow:native-audio-input-changed", { detail: { index: d.index, name: d.name } })); } catch { /* noop */ }
                       toast.success(`Native capture → ${d.name}${d.channelCount ? ` (${d.channelCount}ch)` : ""}`);
@@ -877,6 +1016,28 @@ export function AudioTab() {
                     );
                   })}
                 </div>
+              )}
+            </div>
+          )}
+          {/* Setup guide for the native pick (collapsible, default closed). */}
+          {nativeGuide && (
+            <div className="border-t pt-2 mt-1" style={{ borderColor: "var(--color-border)" }}>
+              <button
+                onClick={() => setNativeGuideOpen((v) => !v)}
+                className="w-full flex items-center gap-1 text-left text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] px-1"
+              >
+                {nativeGuideOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                Setup guide: {nativeGuide.displayName}
+              </button>
+              {nativeGuideOpen && (
+                <ol className="mt-1 px-3 py-2 rounded space-y-1 text-[10px] leading-snug text-[var(--color-muted-foreground)] list-decimal list-inside" style={{ background: "var(--color-elevated)" }}>
+                  {nativeGuide.steps.map((s, i) => <li key={i}>{s}</li>)}
+                  {nativeGuide.vocalChannelHint && (
+                    <li className="mt-1 pt-1 border-t text-[var(--color-foreground)]" style={{ borderColor: "var(--color-border)" }}>
+                      <span className="font-semibold">Vocal hint: </span>{nativeGuide.vocalChannelHint}
+                    </li>
+                  )}
+                </ol>
               )}
             </div>
           )}
