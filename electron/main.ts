@@ -301,9 +301,11 @@ async function createMainWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      backgroundThrottling: false,
       preload: path.join(__dirname, "preload.js"),
     },
   });
+  mainWindow.webContents.setBackgroundThrottling(false);
 
   mainWindow.once("ready-to-show", () => mainWindow?.show());
   mainWindow.on("closed", () => {

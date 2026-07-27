@@ -99,7 +99,7 @@ export type TimerOverlay =
   | { clear: true };
 
 export type LiveMessage =
-  | { type: "set"; slide: SlidePayload }              // legacy: just live surface
+  | { type: "set"; slide: SlidePayload; transition?: TransitionSpec | null } // legacy + optional one-shot override
   | { type: "clear" }
   | { type: "ping" }
   | { type: "pong"; slide: SlidePayload }
@@ -134,7 +134,11 @@ export function isValidLiveMessage(m: unknown): m is LiveMessage {
     case "ping":
     case "clear":
       return true;
-    case "set":
+    case "set": {
+      const candidate = m as { slide?: unknown; transition?: unknown };
+      return isValidSlide(candidate.slide)
+        && (candidate.transition === undefined || isValidTransitionSpec(candidate.transition));
+    }
     case "pong":
       return isValidSlide((m as { slide?: unknown }).slide);
     case "output":

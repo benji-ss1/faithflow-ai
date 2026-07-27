@@ -187,6 +187,11 @@ async function openDeepgram(churchId: string): Promise<WebSocket> {
     interim_results: "true",
     punctuate: "true",
     numerals: "true",
+    // Deepgram's supported live-stream speech-boundary signals. These do not
+    // gate interim delivery or verse detection; they give the bridge earlier
+    // VAD visibility and a bounded utterance-end event for diagnostics.
+    vad_events: "true",
+    utterance_end_ms: "1000",
     // 2026-07-24 tighten to 100 ms after real-service report that 150 ms
     // felt too slow for finalized (white) text to appear. Progression:
     // 10ms (broke), 50ms (broke, "97 What?" fragments), 75ms (edge),
@@ -239,8 +244,25 @@ async function openDeepgram(churchId: string): Promise<WebSocket> {
   const url = `wss://api.deepgram.com/v1/listen?${params}`;
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url, { headers: { Authorization: `Token ${DG_KEY}` } });
-    ws.once("open", () => resolve(ws));
-    ws.once("error", reject);
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      ws.terminate();
+      reject(new Error("Deepgram connection timed out"));
+    }, 10_000);
+    ws.once("open", () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(ws);
+    });
+    ws.once("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      reject(error);
+    });
   });
 }
 
@@ -450,9 +472,31 @@ wss.on("connection", async (ws: WebSocket, req) => {
     return;
   }
 
+  // Register setup cancellation before any database or Deepgram await. A
+  // browser that disappears during startup must not leave an upstream socket
+  // or a per-user connection entry behind.
+  let setupCancelled = false;
+  let setupUpstream: WebSocket | null = null;
+  let trackedUserSet: Set<WebSocket> | undefined;
+  let trackedUserId = "";
+  const detachTrackedClient = () => {
+    if (!trackedUserSet) return;
+    trackedUserSet.delete(ws);
+    if (trackedUserSet.size === 0 && trackedUserId) openByUser.delete(trackedUserId);
+  };
+  ws.once("close", () => {
+    setupCancelled = true;
+    detachTrackedClient();
+    const upstream = setupUpstream;
+    setupUpstream = null;
+    if (!upstream) return;
+    try { upstream.close(); } catch { /* ignore */ }
+  });
+
   const planId = url.searchParams.get("planId") || "";
   const churchIdRaw = url.searchParams.get("churchId") || "";
   const userId = url.searchParams.get("userId") || "";
+  trackedUserId = userId;
   const exp = url.searchParams.get("exp") || "";
   const sig = url.searchParams.get("sig") || "";
   // Y15: churchId must be UUID or empty (bible-only default). Bad format = reject.
@@ -472,6 +516,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
   if (!verifyTicket(planId, churchId, userId, exp, sig)) { ws.close(1008, "invalid ticket"); return; }
 
   const [plan] = await db.select().from(servicePlans).where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, churchId))).limit(1);
+  if (setupCancelled || ws.readyState !== WebSocket.OPEN) return;
   if (!plan) { ws.close(1008, "unknown plan"); return; }
 
   // R7: enforce per-user concurrent-connection cap + same-plan dedupe.
@@ -479,6 +524,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // - Total per user > cap → close oldest (LRU) with 1013.
   let userSet = openByUser.get(userId);
   if (!userSet) { userSet = new Set(); openByUser.set(userId, userSet); }
+  trackedUserSet = userSet;
   // Prune ghost sockets first — abnormal disconnects (Fly restart, upstream
   // reset) don't always fire ws.on("close"), so the Set can retain sockets
   // whose readyState is CLOSED. Without this pruning, force-closing a dead
@@ -533,10 +579,23 @@ wss.on("connection", async (ws: WebSocket, req) => {
   };
   try {
     dg = await openDeepgram(churchId);
+    setupUpstream = dg;
+    if (setupCancelled || ws.readyState !== WebSocket.OPEN) {
+      detachTrackedClient();
+      try { dg.close(); } catch { /* ignore */ }
+      setupUpstream = null;
+      return;
+    }
+    setupUpstream = null;
   } catch (e) {
     console.error("[audio] Deepgram connect failed:", e instanceof Error ? e.message : e);
-    send({ type: "error", message: "Could not reach Deepgram" });
-    ws.close();
+    detachTrackedClient();
+    if (!setupCancelled && ws.readyState === WebSocket.OPEN) {
+      send({ type: "error", message: "Could not reach Deepgram" });
+      // Retryable upstream failure. Do not use a normal close (1000/1005),
+      // because clients intentionally do not reconnect after those codes.
+      ws.close(1013, "Deepgram temporarily unavailable");
+    }
     return;
   }
 
@@ -643,17 +702,17 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // KeepAlive frame those silences trip DG's timeout with code 1011
   // "did not receive audio data or a text message" — which is what the
   // preexisting logs were showing all along. Send a KeepAlive JSON text
-  // frame every 6s whenever the socket's been quiet for ≥5s and DG is
-  // open. This is DG's documented pattern for long-running open sockets.
+  // frame every 4s whenever the socket's been quiet for ≥3s and DG is
+  // open. Deepgram's documented cadence is every 3–5 seconds.
   const keepAliveTimer = setInterval(() => {
     const now = Date.now();
     if (dg.readyState !== WebSocket.OPEN) return;
-    if (now - lastDgSendAt < 5000) return; // recent audio counts as keepalive
+    if (now - lastDgSendAt < 3000) return; // recent audio counts as keepalive
     try {
       dg.send(JSON.stringify({ type: "KeepAlive" }));
       lastDgSendAt = now;
     } catch { /* ignore */ }
-  }, 6_000);
+  }, 4_000);
   keepAliveTimer.unref?.();
   // Ensure the intervals don't keep running after the client WS closes —
   // orphaned intervals would try to close a long-gone `dg` reference.
@@ -1087,52 +1146,71 @@ wss.on("connection", async (ws: WebSocket, req) => {
   });
 
   let dgNeedsReopen = false;
+  let lazyReopenGeneration = 0;
 
-  ws.on("message", (raw) => {
+  const handleAudio = (buf: Buffer) => {
+    // Y16: drop chunks > 64KB (audio should be tiny PCM frames).
+    if (buf.length > 64 * 1024) return;
+    audioChunks++;
+    lastAudioAt = Date.now();
+    if (audioChunks === 1 || audioChunks % 500 === 0) {
+      console.log(`[audio] received chunk #${audioChunks} (${buf.length} bytes)`);
+    }
+    // Feed canonical ring buffer (roadmap #2). Cheap unconditional push;
+    // trim from the front when we exceed the byte cap.
+    if (canonicalEnabled) {
+      canonicalRing.push(buf);
+      canonicalRingBytes += buf.length;
+      while (canonicalRingBytes > CANONICAL_BUFFER_MAX_BYTES && canonicalRing.length > 0) {
+        const shifted = canonicalRing.shift();
+        if (shifted) canonicalRingBytes -= shifted.length;
+      }
+    }
+    // R9: lazy-reopen DG if it closed while we were idle.
+    if (dgNeedsReopen && dg.readyState !== WebSocket.OPEN) {
+      dgNeedsReopen = false;
+      const reopenGeneration = ++lazyReopenGeneration;
+      openDeepgram(churchId).then((newDg) => {
+        if (reopenGeneration !== lazyReopenGeneration || ws.readyState !== WebSocket.OPEN) {
+          try { newDg.close(); } catch { /* ignore */ }
+          return;
+        }
+        dg = newDg;
+        console.log(`[audio] DG reopened lazily on audio resume`);
+        // Rewire handlers on the new socket.
+        dg.on("message", dgOnMessage);
+        dg.on("error", (err: Error) => { console.error("[audio] Deepgram error:", err.message); send({ type: "error", message: "Deepgram error" }); });
+        dg.on("close", (code: number, reason: Buffer) => {
+          console.log(`[audio] Deepgram closed code=${code} reason=${reason.toString() || "(none)"}`);
+          if (ws.readyState === WebSocket.OPEN && (code === 1011 || code === 1006)) dgNeedsReopen = true;
+        });
+        send({ type: "ready" });
+        try { dg.send(buf); lastDgSendAt = Date.now(); } catch { /* ignore */ }
+      }).catch((err) => {
+        console.error("[audio] DG lazy reopen failed:", err instanceof Error ? err.message : err);
+        if (reopenGeneration === lazyReopenGeneration && ws.readyState === WebSocket.OPEN) {
+          dgNeedsReopen = true;
+        }
+      });
+      return;
+    }
+    // Only forward if Deepgram socket is still open.
+    if (dg.readyState === WebSocket.OPEN) {
+      try { dg.send(buf); lastDgSendAt = Date.now(); } catch (e) { console.error("[audio] send err", e); }
+    }
+  };
+
+  ws.on("message", (raw, isBinary) => {
+    if (isBinary) {
+      const buf = Array.isArray(raw) ? Buffer.concat(raw) : Buffer.from(raw as ArrayBuffer);
+      handleAudio(buf);
+      return;
+    }
     let msg: ClientMessage;
     try { msg = JSON.parse(raw.toString()) as ClientMessage; } catch { return; }
     if (msg.type === "audio") {
-      const buf = Buffer.from(msg.b64, "base64");
-      // Y16: drop chunks > 64KB (audio should be ~4KB each; anything larger is malformed).
-      if (buf.length > 64 * 1024) { return; }
-      audioChunks++;
-      lastAudioAt = Date.now();
-      if (audioChunks === 1 || audioChunks % 500 === 0) console.log(`[audio] received chunk #${audioChunks} (${buf.length} bytes)`);
-      // Feed canonical ring buffer (roadmap #2). Cheap unconditional push;
-      // trim from the front when we exceed the byte cap.
-      if (canonicalEnabled) {
-        canonicalRing.push(buf);
-        canonicalRingBytes += buf.length;
-        while (canonicalRingBytes > CANONICAL_BUFFER_MAX_BYTES && canonicalRing.length > 0) {
-          const shifted = canonicalRing.shift();
-          if (shifted) canonicalRingBytes -= shifted.length;
-        }
-      }
-      // R9: lazy-reopen DG if it closed while we were idle.
-      if (dgNeedsReopen && dg.readyState !== WebSocket.OPEN) {
-        dgNeedsReopen = false;
-        openDeepgram(churchId).then((newDg) => {
-          dg = newDg;
-          console.log(`[audio] DG reopened lazily on audio resume`);
-          // Rewire handlers on the new socket.
-          dg.on("message", dgOnMessage);
-          dg.on("error", (err: Error) => { console.error("[audio] Deepgram error:", err.message); send({ type: "error", message: "Deepgram error" }); });
-          dg.on("close", (code: number, reason: Buffer) => {
-            console.log(`[audio] Deepgram closed code=${code} reason=${reason.toString() || "(none)"}`);
-            if (ws.readyState === WebSocket.OPEN && (code === 1011 || code === 1006)) dgNeedsReopen = true;
-          });
-          send({ type: "ready" });
-          try { dg.send(buf); } catch { /* ignore */ }
-        }).catch((err) => {
-          console.error("[audio] DG lazy reopen failed:", err instanceof Error ? err.message : err);
-          dgNeedsReopen = true;
-        });
-        return;
-      }
-      // Only forward if Deepgram socket is still open.
-      if (dg.readyState === WebSocket.OPEN) {
-        try { dg.send(buf); lastDgSendAt = Date.now(); } catch (e) { console.error("[audio] send err", e); }
-      }
+      // Compatibility with older web/desktop clients during rollout.
+      handleAudio(Buffer.from(msg.b64, "base64"));
     } else if (msg.type === "stop") {
       try { dg.send(JSON.stringify({ type: "CloseStream" })); } catch { /* ignore */ }
     }
@@ -1140,6 +1218,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
   ws.on("close", () => {
     console.log("[audio] client disconnected");
+    lazyReopenGeneration++;
     try {
       if (dg.readyState === WebSocket.OPEN) dg.send(JSON.stringify({ type: "CloseStream" }));
       dg.close();

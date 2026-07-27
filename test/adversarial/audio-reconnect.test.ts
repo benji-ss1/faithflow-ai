@@ -42,6 +42,7 @@ class FakeWebSocket {
   onerror: ((e: unknown) => void) | null = null;
   onclose: ((e: { code: number; reason: string }) => void) | null = null;
   url: string;
+  sent: unknown[] = [];
   constructor(url: string) {
     this.url = url;
     FakeWebSocket.instances.push(this);
@@ -53,7 +54,7 @@ class FakeWebSocket {
       this.onmessage?.({ data: JSON.stringify({ type: "ready" }) });
     }, 5);
   }
-  send() { /* discard */ }
+  send(data: unknown) { this.sent.push(data); }
   close(code = 1000, reason = "") {
     this.readyState = 3;
     this.onclose?.({ code, reason });
@@ -82,7 +83,13 @@ const fakeStream = { getTracks: () => [fakeTrack], getAudioTracks: () => [fakeTr
 };
 
 // --- AudioContext + worklet stub ---
-class FakeAudioWorkletNode { port = { onmessage: null, close: () => {} }; disconnect() {} connect(x: unknown) { return x; } }
+class FakeAudioWorkletNode {
+  static instances: FakeAudioWorkletNode[] = [];
+  port: { onmessage: ((e: { data: ArrayBuffer }) => void) | null; close: () => void } = { onmessage: null, close: () => {} };
+  constructor() { FakeAudioWorkletNode.instances.push(this); }
+  disconnect() {}
+  connect(x: unknown) { return x; }
+}
 class FakeGainNode { gain = { value: 0 }; connect(x: unknown) { return x; } }
 class FakeAudioContext {
   state = "running";
@@ -139,10 +146,19 @@ async function main() {
   assert(apiRef!.state.listening === true, "listening=true after start");
   assert(apiRef!.state.ready === true, "ready=true after deepgram_ready");
   assert(apiRef!.state.stage === "worklet_connected" || apiRef!.state.stage === "deepgram_ready", "stage reached open pipeline", apiRef!.state.stage);
+  const ws1 = FakeWebSocket.instances[0];
+  const worklet = FakeAudioWorkletNode.instances[0];
+  await act(async () => {
+    worklet.port.onmessage?.({ data: new ArrayBuffer(320) });
+    await sleep(10);
+  });
+  assert(
+    ws1.sent.some((item) => item instanceof Uint8Array || item instanceof ArrayBuffer),
+    "browser capture sends binary PCM instead of base64 JSON",
+  );
 
   // --- 2: abnormal close triggers reconnect ---
   console.log("--- Test 2: abnormal close schedules reconnect ---");
-  const ws1 = FakeWebSocket.instances[0];
   await act(async () => { ws1.forceAbnormalClose(); await sleep(10); });
   assert(apiRef!.state.listening === true, "listening stays true during reconnect");
   // 2026-07-24 silent-reconnect decision (see TopBar binary-pill comment +

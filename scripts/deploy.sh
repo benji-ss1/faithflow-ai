@@ -39,20 +39,19 @@ case "${1:-help}" in
       ok "app faithflow-audio exists"
     fi
 
-    step "3/4 — Set secrets (DEEPGRAM_API_KEY + AUTH_SECRET + DATABASE_URL from .env.local)"
+    step "3/4 — Set secrets (audio keys from .env.local, DATABASE_URL from environment)"
     DG=$(grep '^DEEPGRAM_API_KEY=' .env.local | cut -d= -f2-)
     AS=$(grep '^AUTH_SECRET='     .env.local | cut -d= -f2-)
-    # DATABASE_URL must be the hosted Supabase pooler URL (same DB Vercel
-    # uses) — never hardcode a real credential in this script. If .env.local
-    # is pointed at localhost postgres, fix that first (it must stay wired
-    # to the hosted pooler for this to work, same as the Next.js app env).
-    DB=$(grep '^DATABASE_URL='   .env.local | cut -d= -f2-)
+    # Supply DATABASE_URL from the approved production secret store:
+    #   DATABASE_URL='...' ./scripts/deploy.sh audio
+    # Never read a production database credential from a tracked file.
+    DB="${DATABASE_URL:-}"
     if [ -z "$DG" ] || [ -z "$AS" ] || [ -z "$DB" ]; then
-      echo "Missing DEEPGRAM_API_KEY, AUTH_SECRET, or DATABASE_URL in .env.local"
+      echo "Missing DEEPGRAM_API_KEY/AUTH_SECRET in .env.local or DATABASE_URL in the environment"
       exit 1
     fi
     if [[ "$DB" == *localhost* ]]; then
-      echo "DATABASE_URL in .env.local points at localhost — Fly can't reach it. Point it at the Supabase pooler URL first."
+      echo "DATABASE_URL points at localhost — Fly can't reach it. Supply the hosted pooler URL."
       exit 1
     fi
     flyctl secrets set \

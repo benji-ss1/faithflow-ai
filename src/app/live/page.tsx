@@ -85,7 +85,10 @@ export default function LivePage() {
         const msg = raw as LiveMessage;
         lastMsgAt.current = Date.now();
         setConnected(true);
-        if (msg.type === "set") setSlide(msg.slide);
+        if (msg.type === "set") {
+          if (msg.transition !== undefined) setTransition(msg.transition);
+          setSlide(msg.slide);
+        }
         else if (msg.type === "clear") setSlide({ kind: "empty" });
         else if (msg.type === "pong") setSlide(msg.slide);
         else if (msg.type === "output") {

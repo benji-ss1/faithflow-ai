@@ -182,6 +182,8 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
   // Phase 5D-2: projector-level layers
   const [announcement, setAnnouncement] = useState<import("@/lib/broadcast").AnnouncementPayload | null>(null);
   const [transitionSpec, setTransitionSpec] = useState<import("@/lib/broadcast").TransitionSpec | null>(null);
+  const fastTransitionSlideRef = useRef<SlidePayload | null>(null);
+  const [liveBroadcastRevision, setLiveBroadcastRevision] = useState(0);
 
   // Compute next-slide payload for /stage
   const nextSlideForStage: SlidePayload | null = (() => {
@@ -210,6 +212,10 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
   })();
   const lastEmittedKeyRef = useRef<string>("");
   useEffect(() => {
+    const useFastTransition = fastTransitionSlideRef.current === live;
+    // If another slide superseded the AI slide before this effect committed,
+    // discard the stale one-shot marker so it cannot affect a later replay.
+    if (!useFastTransition && fastTransitionSlideRef.current) fastTransitionSlideRef.current = null;
     const state: OutputState = {
       live,
       next: nextSlideForStage,
@@ -222,19 +228,20 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
       lowerThird: null,
       countdownEndsAt,
       announcement,
-      transition: transitionSpec,
+      transition: useFastTransition ? null : transitionSpec,
       nextItem: nextItemForStage,
     };
     // Shallow signature — good enough for the fields we actually emit.
     let key: string;
-    try { key = JSON.stringify(state); } catch { key = String(Math.random()); }
+    try { key = `${JSON.stringify(state)}:${liveBroadcastRevision}`; } catch { key = String(Math.random()); }
     if (key === lastEmittedKeyRef.current) return;
     lastEmittedKeyRef.current = key;
     lastOutputStateRef.current = state; // cached for snapshot-on-join replay
     safePost(chRef.current, { type: "output", state });
     if (rtRef.current) { void rtRef.current.publish(state); }
+    if (useFastTransition) fastTransitionSlideRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec]);
+  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec]);
   const chRef = useRef<BroadcastChannel | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;
@@ -397,7 +404,11 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
   // Bible-panel handlers (Bible redesign)
   const [hiddenBankIds, setHiddenBankIds] = useState<Set<string>>(new Set());
   const effectiveBank = useMemo(() => bank.filter((b) => !hiddenBankIds.has(b.id)), [bank, hiddenBankIds]);
-  const sendSlideToLive = useCallback((slide: SlidePayload, spec?: import("@/lib/broadcast").TransitionSpec | null) => {
+  const sendSlideToLive = useCallback((
+    slide: SlidePayload,
+    spec?: import("@/lib/broadcast").TransitionSpec | null,
+    options?: { preserveConfiguredTransition?: boolean },
+  ) => {
     // 2026-07-25 — added tracing + defensive guards after a field report
     // that "clicking a song slide does nothing" (v0.1.42 hunt). The pipeline
     // is unified for songs and Bible verses so a shape-specific bug is the
@@ -408,9 +419,21 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
       console.warn("[live] sendSlideToLive got invalid slide payload — no-op", slide);
       return;
     }
-    if (spec !== undefined) setTransitionSpec(spec);
+    if (options?.preserveConfiguredTransition) {
+      fastTransitionSlideRef.current = slide;
+    } else if (spec !== undefined) {
+      setTransitionSpec(spec);
+    }
     setLive(slide);
-    const posted = chRef.current?.postMessage({ type: "set", slide } as LiveMessage);
+    // A repeated reference can reuse the exact same slide object. Force the
+    // networked OutputState effect to republish even when React bails out of
+    // the identical setLive value.
+    setLiveBroadcastRevision((revision) => revision + 1);
+    const posted = chRef.current?.postMessage({
+      type: "set",
+      slide,
+      ...(spec !== undefined ? { transition: spec } : {}),
+    } as LiveMessage);
     try { console.log("[live] setLive committed + broadcast posted", { posted: posted !== undefined ? "ok" : "no-channel" }); } catch { /* ignore */ }
   }, []);
   const stageSlide = useCallback((slide: SlidePayload) => setStagedAISlide(slide), []);
