@@ -19,6 +19,7 @@ import { SuggestionHistory } from "./SuggestionHistory";
 import { EditSuggestionModal, type EditableSuggestion } from "./EditSuggestionModal";
 import { transition } from "@/lib/autopilot";
 import { useVerseBank, type BankedVerse } from "./useVerseBank";
+import { loadSessionState, updateSessionState } from "@/lib/operatorSessionState";
 import { parseContextCommand } from "@/lib/context-parser";
 import { Bookmark, Zap } from "lucide-react";
 import { ProductionRail, type RailSection } from "./ProductionRail";
@@ -151,6 +152,23 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
   }), [autopilotMode, autoApproveProp.confidenceFloor, autoApproveProp.autoSendToLive]);
   const shell = useShell(initialShell);
   const [preview, setPreview] = useState<Cursor>({ itemIdx: 0, slideIdx: 0 });
+  // JPD Fix 5 (2026-07-27): restore the operator's last PREVIEW position on
+  // relaunch. Preview-only — never touches the live output. Guarded by plan
+  // id (a different plan starts at the top) and 12h staleness (inside
+  // loadSessionState). Runs once post-mount so SSR hydration stays clean.
+  const sessionRestoredRef = useRef(false);
+  useEffect(() => {
+    if (sessionRestoredRef.current) return;
+    sessionRestoredRef.current = true;
+    const saved = loadSessionState();
+    if (!saved || saved.activePlanId !== planProp.id) return;
+    const itemIdx = Math.min(Math.max(0, saved.lastActiveItemIdx), Math.max(0, planProp.items.length - 1));
+    const item = planProp.items[itemIdx];
+    if (!item) return;
+    const slideIdx = Math.min(Math.max(0, saved.lastActiveSlideIdx), Math.max(0, item.slides.length - 1));
+    setPreview({ itemIdx, slideIdx });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [live, setLive] = useState<SlidePayload>({ kind: "empty" });
   const [autoSend, setAutoSend] = useState(false);
   // AI staging state — a scripture slide from an approved detection lives
@@ -398,6 +416,19 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // JPD Fix 5: persist the operator's position (debounced 2s in the lib,
+  // flushed on pagehide/visibilitychange so quitting the app can't lose the
+  // last change). `aiWasOn` is a mirror only — AI auto-resume stays with the
+  // existing AI_LISTEN_INTENT_KEY path (Bug-3 above).
+  useEffect(() => {
+    updateSessionState({
+      lastActiveItemIdx: preview.itemIdx,
+      lastActiveSlideIdx: preview.slideIdx,
+      aiWasOn: audio.listening,
+      activePlanId: plan.id,
+    });
+  }, [preview.itemIdx, preview.slideIdx, audio.listening, plan.id]);
 
   // Verse bank: per-service history of approved refs + ±5 preload window
   const { bank, currentRef: currentBankRef, addReference: bankAdd, advanceOne: bankAdvance, jumpTo: bankJumpTo, clear: bankClear, bankedToSlide } = useVerseBank(defaultTranslationCode);

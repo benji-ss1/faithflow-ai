@@ -35,8 +35,15 @@ export default function LivestreamPage() {
   const [announcement, setAnnouncement] = useState<AnnouncementPayload | null>(null);
   const [transition, setTransition] = useState<TransitionSpec | null>(null);
   const [transitionsEnabled, setTransitionsEnabled] = useState(false);
-  const [messageOverlay, setMessageOverlay] = useState<string | null>(null);
+  // allowWeb: operator's "Allow on web" gate — /livestream is the PUBLIC
+  // surface, so allowWeb === false messages must never render here (default
+  // true for old-format payloads without the field).
+  const [messageOverlay, setMessageOverlay] = useState<{ text: string; allowWeb: boolean } | null>(null);
   const messageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Heartbeat bookkeeping — operator re-posts the message at 1Hz. Only re-arm
+  // the dismiss countdown on content change; sweep stale messages after 5s.
+  const lastMessageContentRef = useRef<string | null>(null);
+  const lastMessageMsgAt = useRef<number>(0);
   const [timerOverlay, setTimerOverlay] = useState<{ name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed" } | null>(null);
   const [connected, setConnected] = useState(false);
   const [pairBadge, setPairBadge] = useState<string | null>(null);
@@ -84,12 +91,22 @@ export default function LivestreamPage() {
           setAnnouncement(msg.state.announcement ?? null);
           setTransition(msg.state.transition ?? null);
         } else if (msg.type === "message") {
-          if (messageTimerRef.current) { clearTimeout(messageTimerRef.current); messageTimerRef.current = null; }
-          if ("clear" in msg.overlay && msg.overlay.clear) setMessageOverlay(null);
-          else if ("text" in msg.overlay) {
-            setMessageOverlay(msg.overlay.text);
+          if ("clear" in msg.overlay && msg.overlay.clear) {
+            if (messageTimerRef.current) { clearTimeout(messageTimerRef.current); messageTimerRef.current = null; }
+            lastMessageContentRef.current = null;
+            lastMessageMsgAt.current = 0;
+            setMessageOverlay(null);
+          } else if ("text" in msg.overlay) {
+            lastMessageMsgAt.current = Date.now();
+            setMessageOverlay({ text: msg.overlay.text, allowWeb: msg.overlay.allowWeb !== false });
+            // 1Hz heartbeat re-posts must not restart the dismiss countdown.
             const ms = msg.overlay.dismissAfterMs;
-            if (typeof ms === "number" && ms > 0) messageTimerRef.current = setTimeout(() => setMessageOverlay(null), ms);
+            const contentKey = `${msg.overlay.text}|${typeof ms === "number" ? ms : "manual"}`;
+            if (contentKey !== lastMessageContentRef.current) {
+              lastMessageContentRef.current = contentKey;
+              if (messageTimerRef.current) { clearTimeout(messageTimerRef.current); messageTimerRef.current = null; }
+              if (typeof ms === "number" && ms > 0) messageTimerRef.current = setTimeout(() => setMessageOverlay(null), ms);
+            }
           }
         } else if (msg.type === "timer") {
           if ("clear" in msg.overlay && msg.overlay.clear) setTimerOverlay(null);
@@ -108,6 +125,14 @@ export default function LivestreamPage() {
     const timer = setInterval(() => {
       const stale = Date.now() - lastMsgAt.current;
       if (stale > 3000) setConnected(false);
+      // Stale-message sweep: operator heartbeats at 1Hz while showing; 5s of
+      // silence means the operator is gone — take the message down.
+      if (lastMessageMsgAt.current > 0 && Date.now() - lastMessageMsgAt.current > 5000) {
+        lastMessageMsgAt.current = 0;
+        lastMessageContentRef.current = null;
+        if (messageTimerRef.current) { clearTimeout(messageTimerRef.current); messageTimerRef.current = null; }
+        setMessageOverlay(null);
+      }
       // Y4: silent-channel recovery.
       if (stale > 5000 && reopenCount < 20) {
         try { ch?.close(); } catch { /* ignore */ }
@@ -223,10 +248,12 @@ export default function LivestreamPage() {
           leaked song lyrics into the OBS overlay. Cleaner boundary: only
           the operator's explicit lower-third string ever renders here. */}
 
-      {messageOverlay && mode === "full" && (
+      {/* allowWeb === false → operator said in-building only; never show on
+          this public OBS-facing surface. */}
+      {messageOverlay && messageOverlay.allowWeb && mode === "full" && (
         <div className="absolute left-[6%] right-[6%] bottom-[10%] pointer-events-none">
           <div className="bg-black/70 backdrop-blur-sm border-l-4 p-6 rounded-sm" style={{ borderColor: "var(--color-brand, #06b6d4)" }}>
-            <div className="text-white text-2xl md:text-4xl font-semibold leading-tight text-left">{messageOverlay}</div>
+            <div className="text-white text-2xl md:text-4xl font-semibold leading-tight text-left">{messageOverlay.text}</div>
           </div>
         </div>
       )}

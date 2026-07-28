@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { openLiveChannel, safePost, isValidLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec } from "@/lib/broadcast";
+import { openLiveChannel, safePost, isValidLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition } from "@/lib/broadcast";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
 import { TransitionWrapper } from "@/components/live/TransitionWrapper";
@@ -39,14 +39,38 @@ if (typeof window !== "undefined" && !(window as unknown as { __ffLiveGuarded?: 
  *  - fullscreen API rejections
  *  - Any raw DOM event that could otherwise become "[object Event]"
  */
+/** Map an overlay position to absolute placement classes inside the slide canvas. */
+function overlayPosClass(pos: OverlayPosition): string {
+  switch (pos) {
+    case "top-left": return "absolute top-[6%] left-[6%]";
+    case "top-right": return "absolute top-[6%] right-[6%]";
+    case "bottom-left": return "absolute bottom-[6%] left-[6%]";
+    case "bottom-right": return "absolute bottom-[6%] right-[6%]";
+    case "center": return "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2";
+    case "lower-third":
+    default:
+      return "absolute left-[6%] right-[6%] bottom-[10%]";
+  }
+}
+
 export default function LivePage() {
   const [slide, setSlide] = useState<SlidePayload>({ kind: "empty" });
   const [announcement, setAnnouncement] = useState<AnnouncementPayload | null>(null);
   const [transition, setTransition] = useState<TransitionSpec | null>(null);
   const [aspectRatio, setAspectRatio] = useState<"16:9" | "4:3" | "custom">("16:9");
-  const [messageOverlay, setMessageOverlay] = useState<string | null>(null);
+  const [messageOverlay, setMessageOverlay] = useState<{ text: string; position: OverlayPosition } | null>(null);
   const messageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [timerOverlay, setTimerOverlay] = useState<{ name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed" } | null>(null);
+  // Content key (text|dismissAfterMs) of the currently shown message — the
+  // operator heartbeats the same overlay at 1Hz, and we must only (re)arm the
+  // client-side dismiss countdown when the CONTENT changes, not per heartbeat.
+  const lastMessageContentRef = useRef<string | null>(null);
+  // Operator heartbeats the message overlay at 1Hz while showing — sweep a
+  // stale message (incl. dismiss:manual) off screen if the beats stop.
+  const lastMessageMsgAt = useRef<number>(0);
+  const [timerOverlay, setTimerOverlay] = useState<{ name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed"; position?: OverlayPosition } | null>(null);
+  // Operator heartbeats the timer overlay at 1Hz while shown — if the beats
+  // stop (operator window closed/crashed) we sweep the stale timer off screen.
+  const lastTimerMsgAt = useRef<number>(0);
   const [connected, setConnected] = useState(false);
   const [showHelp, setShowHelp] = useState(true);
   const [warning, setWarning] = useState<string | null>(null);
@@ -99,19 +123,31 @@ export default function LivePage() {
         } else if (msg.type === "message") {
           // Auto-dismiss timer is client-side, so multiple output windows
           // stay in sync without needing a shared wall-clock deadline.
-          if (messageTimerRef.current) { clearTimeout(messageTimerRef.current); messageTimerRef.current = null; }
           if ("clear" in msg.overlay && msg.overlay.clear) {
+            if (messageTimerRef.current) { clearTimeout(messageTimerRef.current); messageTimerRef.current = null; }
+            lastMessageContentRef.current = null;
+            lastMessageMsgAt.current = 0;
             setMessageOverlay(null);
           } else if ("text" in msg.overlay) {
-            setMessageOverlay(msg.overlay.text);
+            lastMessageMsgAt.current = Date.now();
+            setMessageOverlay({ text: msg.overlay.text, position: msg.overlay.position ?? "lower-third" });
+            // Operator re-posts the same message at 1Hz (heartbeat). Only
+            // (re)arm the dismiss countdown when content actually changes —
+            // otherwise the countdown would restart every second and a timed
+            // message would never dismiss.
             const ms = msg.overlay.dismissAfterMs;
-            if (typeof ms === "number" && ms > 0) {
-              messageTimerRef.current = setTimeout(() => setMessageOverlay(null), ms);
+            const contentKey = `${msg.overlay.text}|${typeof ms === "number" ? ms : "manual"}`;
+            if (contentKey !== lastMessageContentRef.current) {
+              lastMessageContentRef.current = contentKey;
+              if (messageTimerRef.current) { clearTimeout(messageTimerRef.current); messageTimerRef.current = null; }
+              if (typeof ms === "number" && ms > 0) {
+                messageTimerRef.current = setTimeout(() => setMessageOverlay(null), ms);
+              }
             }
           }
         } else if (msg.type === "timer") {
           if ("clear" in msg.overlay && msg.overlay.clear) setTimerOverlay(null);
-          else setTimerOverlay(msg.overlay);
+          else { setTimerOverlay(msg.overlay); lastTimerMsgAt.current = Date.now(); }
         }
       } catch (err) {
         console.warn("[live] message handler error:", err instanceof Error ? err.message : String(err));
@@ -127,6 +163,21 @@ export default function LivePage() {
     const timer = setInterval(() => {
       const stale = Date.now() - lastMsgAt.current;
       if (stale > 3000) setConnected(false);
+      // Stale-timer sweep: operator posts every second while a timer is
+      // shown. 5s of silence means the operator is gone — take it down.
+      if (lastTimerMsgAt.current > 0 && Date.now() - lastTimerMsgAt.current > 5000) {
+        lastTimerMsgAt.current = 0;
+        setTimerOverlay(null);
+      }
+      // Stale-message sweep: same contract as timers — operator heartbeats at
+      // 1Hz while a message is showing; 5s of silence means the operator is
+      // gone, so even a `dismiss: manual` message comes down.
+      if (lastMessageMsgAt.current > 0 && Date.now() - lastMessageMsgAt.current > 5000) {
+        lastMessageMsgAt.current = 0;
+        lastMessageContentRef.current = null;
+        if (messageTimerRef.current) { clearTimeout(messageTimerRef.current); messageTimerRef.current = null; }
+        setMessageOverlay(null);
+      }
       // Y4: silent-channel recovery. If we've received nothing for >5s AND
       // the channel is still nominally open, close and re-open. Bounded
       // to avoid a hot reopen loop when the whole tab has been backgrounded.
@@ -251,25 +302,13 @@ export default function LivePage() {
             <SlideRenderer slide={slide} projectorFit />
           </TransitionWrapper>
           <AnnouncementLayer ann={announcement} />
-          {messageOverlay && (
-            /* Lower-third message overlay — rendered on top of the current
-               slide. Semi-transparent panel, left-aligned text, auto-hides
-               via the client-side dismiss timer. */
-            <div className="absolute left-[6%] right-[6%] bottom-[10%] pointer-events-none">
-              <div
-                className="bg-black/70 backdrop-blur-sm border-l-4 p-6 rounded-sm"
-                style={{ borderColor: "var(--color-brand, #06b6d4)" }}
-              >
-                <div className="text-white text-2xl md:text-4xl font-semibold leading-tight text-left">
-                  {messageOverlay}
-                </div>
-              </div>
-            </div>
-          )}
+          {/* z-order: slide < timer (z-20) < message (z-30). Corner/lower-third
+              placement keeps overlays off the slide text unless the operator
+              explicitly picks "center". */}
           {timerOverlay && (
-            <div className="absolute top-[6%] right-[6%] pointer-events-none">
+            <div className={`${overlayPosClass(timerOverlay.position ?? "top-right")} pointer-events-none z-20`}>
               <div
-                className="bg-black/70 backdrop-blur-sm px-6 py-3 rounded-md border"
+                className="inline-block bg-black/70 backdrop-blur-sm px-6 py-3 rounded-md border"
                 style={{ borderColor: timerOverlay.remainingSec < 0 ? "#ef4444" : "var(--color-brand, #06b6d4)" }}
               >
                 {timerOverlay.name && (
@@ -279,6 +318,21 @@ export default function LivePage() {
                   className={`text-white text-3xl md:text-5xl font-mono font-bold tabular-nums leading-none ${timerOverlay.remainingSec < 0 ? "text-red-400" : ""}`}
                 >
                   {formatTimerMMSS(timerOverlay.remainingSec)}
+                </div>
+              </div>
+            </div>
+          )}
+          {messageOverlay && (
+            /* Message overlay — rendered on top of the current slide (and any
+               timer). Semi-transparent panel, auto-hides via the client-side
+               dismiss timer. Position is operator-chosen; lower-third default. */
+            <div className={`${overlayPosClass(messageOverlay.position)} pointer-events-none z-30`}>
+              <div
+                className={`bg-black/70 backdrop-blur-sm border-l-4 p-6 rounded-sm ${messageOverlay.position !== "lower-third" ? "inline-block max-w-[60vw]" : ""}`}
+                style={{ borderColor: "var(--color-brand, #06b6d4)" }}
+              >
+                <div className="text-white text-2xl md:text-4xl font-semibold leading-tight text-left">
+                  {messageOverlay.text}
                 </div>
               </div>
             </div>

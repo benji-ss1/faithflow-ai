@@ -8,6 +8,11 @@
  * run independently of tab visibility.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { OVERLAY_POSITIONS, type OverlayPosition } from "@/lib/broadcast";
+
+function sanitizePosition(p: unknown, fallback: OverlayPosition): OverlayPosition {
+  return typeof p === "string" && (OVERLAY_POSITIONS as string[]).includes(p) ? (p as OverlayPosition) : fallback;
+}
 
 // ---------------------------------------------------------------- Timer (R4)
 const TIMER_KEY = "presentflow.pro.timer.v1";
@@ -19,6 +24,9 @@ export type TimerState = {
   duration: string; // mm:ss
   remaining: number; // seconds
   running: boolean;
+  /** Whether the timer overlay is projected on live/stage outputs. */
+  shown: boolean;
+  position: OverlayPosition;
 };
 
 export type TimerApi = {
@@ -28,6 +36,8 @@ export type TimerApi = {
   setDuration: (d: string) => void;
   toggleRun: () => void;
   reset: () => void;
+  toggleShown: () => void;
+  setPosition: (p: OverlayPosition) => void;
 };
 
 export function useTimerSession(): TimerApi {
@@ -36,6 +46,10 @@ export function useTimerSession(): TimerApi {
   const [duration, setDuration] = useState("05:00");
   const [remaining, setRemaining] = useState(300);
   const [running, setRunning] = useState(false);
+  // "shown" is deliberately NOT persisted — a fresh operator session should
+  // never resurrect a projected timer overlay from last week's service.
+  const [shown, setShown] = useState(false);
+  const [position, setPosition] = useState<OverlayPosition>("top-right");
   const startedAt = useRef<number | null>(null);
   const baseline = useRef(300);
 
@@ -47,16 +61,17 @@ export function useTimerSession(): TimerApi {
         setName(p.name ?? "Timer");
         setType(p.type ?? "countdown");
         setDuration(p.duration ?? "05:00");
+        setPosition(sanitizePosition(p.position, "top-right"));
       }
     } catch { /* noop */ }
   }, []);
 
   useEffect(() => {
-    try { window.localStorage.setItem(TIMER_KEY, JSON.stringify({ name, type, duration })); } catch { /* noop */ }
+    try { window.localStorage.setItem(TIMER_KEY, JSON.stringify({ name, type, duration, position })); } catch { /* noop */ }
     const [mm, ss] = duration.split(":").map((x) => parseInt(x, 10) || 0);
     baseline.current = mm * 60 + ss;
     if (!running) setRemaining(baseline.current);
-  }, [name, type, duration, running]);
+  }, [name, type, duration, running, position]);
 
   useEffect(() => {
     if (!running) return;
@@ -71,37 +86,62 @@ export function useTimerSession(): TimerApi {
 
   const toggleRun = useCallback(() => setRunning((r) => !r), []);
   const reset = useCallback(() => { setRunning(false); setRemaining(baseline.current); }, []);
+  const toggleShown = useCallback(() => setShown((s) => !s), []);
 
   return {
-    state: { name, type, duration, remaining, running },
-    setName, setType, setDuration, toggleRun, reset,
+    state: { name, type, duration, remaining, running, shown, position },
+    setName, setType, setDuration, toggleRun, reset, toggleShown, setPosition,
   };
 }
 
 // ------------------------------------------------------------- Messages (R4)
 const MSG_KEY = "presentflow.pro.messages.v1";
-export type MessagesState = { text: string; dismiss: string; allowWeb: boolean; showing: boolean };
+export type MessagesState = { text: string; dismiss: string; allowWeb: boolean; showing: boolean; position: OverlayPosition };
 export type MessagesApi = {
   state: MessagesState;
   setText: (v: string) => void;
   setDismiss: (v: string) => void;
   setAllowWeb: (v: boolean) => void;
+  setPosition: (v: OverlayPosition) => void;
   toggleShow: () => void;
 };
 
+// Auto-dismiss durations. Owned here (not in MessagesTab) so the countdown
+// survives the popover closing — the tab unmounts, the session hook doesn't.
+const MSG_DISMISS_MS: Record<string, number> = {
+  "5s": 5000, "10s": 10000, "30s": 30000, "1min": 60000, "5min": 300000,
+};
+
 export function useMessagesSession(): MessagesApi {
-  const [state, setState] = useState<MessagesState>({ text: "", dismiss: "manual", allowWeb: false, showing: false });
+  const [state, setState] = useState<MessagesState>({ text: "", dismiss: "manual", allowWeb: false, showing: false, position: "lower-third" });
+
+  // Auto-dismiss: when showing and dismiss !== manual, flip showing:false
+  // after N ms. Lives at the session (shell) level so closing the Messages
+  // popover can't strand operator state at "showing" while the projector
+  // has already hidden the overlay.
+  useEffect(() => {
+    if (!state.showing) return;
+    const ms = MSG_DISMISS_MS[state.dismiss];
+    if (!ms) return;
+    const id = setTimeout(() => setState((s) => ({ ...s, showing: false })), ms);
+    return () => clearTimeout(id);
+  }, [state.showing, state.dismiss]);
 
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(MSG_KEY);
-      if (raw) setState((s) => ({ ...s, ...JSON.parse(raw) }));
+      // `showing` is intentionally never persisted/restored — a message must
+      // not resurrect onto the projector from a previous session.
+      if (raw) {
+        const p = JSON.parse(raw) as Partial<MessagesState>;
+        setState((s) => ({ ...s, ...p, position: sanitizePosition(p.position, "lower-third"), showing: false }));
+      }
     } catch { /* noop */ }
   }, []);
   useEffect(() => {
     try {
-      const { text, dismiss, allowWeb } = state;
-      window.localStorage.setItem(MSG_KEY, JSON.stringify({ text, dismiss, allowWeb }));
+      const { text, dismiss, allowWeb, position } = state;
+      window.localStorage.setItem(MSG_KEY, JSON.stringify({ text, dismiss, allowWeb, position }));
     } catch { /* noop */ }
   }, [state]);
 
@@ -110,6 +150,7 @@ export function useMessagesSession(): MessagesApi {
     setText: (v) => setState((s) => ({ ...s, text: v })),
     setDismiss: (v) => setState((s) => ({ ...s, dismiss: v })),
     setAllowWeb: (v) => setState((s) => ({ ...s, allowWeb: v })),
+    setPosition: (v) => setState((s) => ({ ...s, position: v })),
     toggleShow: () => setState((s) => ({ ...s, showing: !s.showing })),
   };
 }

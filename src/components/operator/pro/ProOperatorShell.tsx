@@ -1701,39 +1701,77 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // doesn't re-broadcast the same message overlay N times.
   const previewSlideIdxRef = useRef<number | undefined>(undefined);
   useEffect(() => { previewSlideIdxRef.current = ctx.previewSlideIdx; }, [ctx.previewSlideIdx]);
+  // Symmetry with the timer heartbeat below: while showing, re-post the full
+  // message overlay at 1Hz so (a) a /live reload mid-service recovers the
+  // message within a second, and (b) the renderer-side 5s stale sweep can
+  // take a `dismiss: manual` message down if this operator page crashes.
+  // Renderers only (re)arm their client-side dismiss countdown when message
+  // CONTENT changes (text + dismissAfterMs), so heartbeats never restart it.
+  const messagesStateRef = useRef(messages.state);
+  useEffect(() => { messagesStateRef.current = messages.state; }, [messages.state]);
   const messagePostedRef = useRef(false);
   useEffect(() => {
     const ch = overlayChRef.current;
     if (!ch) return;
-    if (messages.state.showing && messages.state.text.trim().length > 0) {
+    if (!(messages.state.showing && messages.state.text.trim().length > 0)) {
+      if (messagePostedRef.current) {
+        // Only broadcast clear:true after at least one show — otherwise every
+        // slide navigation on a fresh operator would spam `{clear:true}`.
+        safePost(ch, { type: "message", overlay: { clear: true } });
+        messagePostedRef.current = false;
+      }
+      return;
+    }
+    const post = () => {
+      const s = messagesStateRef.current;
       // Simple {{time}}/{{date}}/{{currentSlide}} token expansion at post time.
       const now = new Date();
-      const text = messages.state.text
+      const text = s.text
         .replace(/\{\{time\}\}/g, now.toLocaleTimeString())
         .replace(/\{\{date\}\}/g, now.toLocaleDateString())
         .replace(/\{\{currentSlide\}\}/g, String((previewSlideIdxRef.current ?? 0) + 1));
       const DISMISS_MS: Record<string, number | null> = {
         "5s": 5000, "10s": 10000, "30s": 30000, "1min": 60000, "5min": 300000, manual: null,
       };
-      safePost(ch, { type: "message", overlay: { text, dismissAfterMs: DISMISS_MS[messages.state.dismiss] ?? null } });
+      safePost(ch, {
+        type: "message",
+        overlay: {
+          text,
+          dismissAfterMs: DISMISS_MS[s.dismiss] ?? null,
+          position: s.position,
+          allowWeb: s.allowWeb,
+        },
+      });
       messagePostedRef.current = true;
-    } else if (messagePostedRef.current) {
-      // Only broadcast clear:true after at least one show — otherwise every
-      // slide navigation on a fresh operator would spam `{clear:true}`.
-      safePost(ch, { type: "message", overlay: { clear: true } });
-      messagePostedRef.current = false;
-    }
-  }, [messages.state.showing, messages.state.text, messages.state.dismiss]);
+    };
+    post();
+    const id = setInterval(post, 1000);
+    return () => clearInterval(id);
+  }, [messages.state.showing, messages.state.text, messages.state.dismiss, messages.state.position, messages.state.allowWeb]);
 
-  // Publish timer at ~2Hz while running, plus edge on run/stop/reset.
+  // JPD Fix 1: timer overlay is projected ONLY while `shown` (explicit
+  // "Show on screen" toggle in the Timers tab). While shown we heartbeat at
+  // 1Hz even when paused — the operator side owns the countdown and each post
+  // fully re-materializes the overlay, so a /live reload mid-service recovers
+  // within a second. Hiding sends {clear:true}. Ownership lives here at the
+  // shell (useTimerSession is shell-level), so closing the Timers tab/popover
+  // never kills the on-screen timer.
   // Read `remaining` via a ref inside the interval — putting it in the dep
   // list re-created the interval on every tick, so setInterval never
   // actually fired (was accidentally driven by dep-change edges only).
   const timerStateRef = useRef(timer.state);
   useEffect(() => { timerStateRef.current = timer.state; }, [timer.state]);
+  const timerPostedRef = useRef(false);
   useEffect(() => {
     const ch = overlayChRef.current;
     if (!ch) return;
+    if (!timer.state.shown) {
+      if (timerPostedRef.current) {
+        safePost(ch, { type: "timer", overlay: { clear: true } });
+        timerPostedRef.current = false;
+      }
+      return;
+    }
     const post = () => {
       const s = timerStateRef.current;
       safePost(ch, {
@@ -1743,14 +1781,15 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           remainingSec: Math.max(-3600, Math.min(24 * 60 * 60, Math.round(s.remaining))),
           running: s.running,
           kind: s.type === "elapsed" ? "elapsed" : "countdown",
+          position: s.position,
         },
       });
+      timerPostedRef.current = true;
     };
     post();
-    if (!timer.state.running) return;
-    const id = setInterval(post, 500);
+    const id = setInterval(post, 1000);
     return () => clearInterval(id);
-  }, [timer.state.running, timer.state.name, timer.state.type]);
+  }, [timer.state.shown, timer.state.running, timer.state.name, timer.state.type, timer.state.position]);
 
   // Auto-route AI scripture detections into the Bible session so switching
   // into Bible mode shows the detected passage immediately — even if the

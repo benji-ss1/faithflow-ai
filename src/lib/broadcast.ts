@@ -86,8 +86,20 @@ export type OutputState = {
  * the moment the output page receives it (client-side timer, so cross-tab
  * clock skew doesn't matter). Send `{clear:true}` to hide immediately.
  */
+/** Overlay placement on the output canvas. Corners never cover slide text;
+ * "center" is reserved for messages the operator explicitly chooses. */
+export type OverlayPosition = "top-left" | "top-right" | "bottom-left" | "bottom-right" | "lower-third" | "center";
+export const OVERLAY_POSITIONS: OverlayPosition[] = ["top-left", "top-right", "bottom-left", "bottom-right", "lower-third", "center"];
+const OVERLAY_POSITION_SET = new Set<string>(OVERLAY_POSITIONS);
+function isValidOverlayPosition(p: unknown): boolean {
+  return p === undefined || (typeof p === "string" && OVERLAY_POSITION_SET.has(p));
+}
+
 export type MessageOverlay =
-  | { text: string; dismissAfterMs?: number | null; clear?: false }
+  /** `allowWeb` gates the PUBLIC /livestream surface only (default true for
+   * old-format compat). /live and /stage are in-building operator surfaces
+   * and always render. */
+  | { text: string; dismissAfterMs?: number | null; position?: OverlayPosition; allowWeb?: boolean; clear?: false }
   | { clear: true };
 
 /**
@@ -95,7 +107,7 @@ export type MessageOverlay =
  * is authoritative; renderers just format it. Send `{clear:true}` to hide.
  */
 export type TimerOverlay =
-  | { name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed"; clear?: false }
+  | { name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed"; position?: OverlayPosition; clear?: false }
   | { clear: true };
 
 export type LiveMessage =
@@ -165,6 +177,7 @@ export function isValidTimerOverlay(overlay: unknown): overlay is TimerOverlay {
   if (typeof o.running !== "boolean") return false;
   if (o.kind !== "countdown" && o.kind !== "elapsed") return false;
   if (o.name != null && (typeof o.name !== "string" || o.name.length > 120)) return false;
+  if (!isValidOverlayPosition(o.position)) return false;
   return true;
 }
 
@@ -181,6 +194,9 @@ export function isValidMessageOverlay(overlay: unknown): overlay is MessageOverl
     const ms = o.dismissAfterMs;
     if (typeof ms !== "number" || !Number.isFinite(ms) || ms <= 0 || ms > MAX_DISMISS_MS) return false;
   }
+  if (!isValidOverlayPosition(o.position)) return false;
+  // allowWeb: optional boolean (absent = true, old-format compat).
+  if (o.allowWeb !== undefined && typeof o.allowWeb !== "boolean") return false;
   return true;
 }
 

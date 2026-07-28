@@ -28,7 +28,8 @@
  * - Screens → embeds ScreensPanel (per-machine resolution + display
  *   assignment + Configure Screens button).
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { loadSessionState, updateSessionState } from "@/lib/operatorSessionState";
 import * as Popover from "@radix-ui/react-popover";
 import { BookOpen, Music, Link2, Settings as SettingsIcon, Monitor } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -52,7 +53,22 @@ export function RightIconBar({
   timer: TimerApi;
   messages: MessagesApi;
 }) {
-  const [openKey, setOpenKey] = useState<PopoverKey | null>(null);
+  const [openKey, setOpenKeyInner] = useState<PopoverKey | null>(null);
+  // JPD Fix 5 (2026-07-27): restore the last-open sidebar popover on
+  // relaunch and persist changes. Restore runs post-mount (no SSR/hydration
+  // mismatch) and only accepts currently-valid keys — "logs" is UI-hidden,
+  // so a stale "logs" value stays closed (see the popover comment below).
+  const setOpenKey = useCallback((k: PopoverKey | null) => {
+    setOpenKeyInner(k);
+    updateSessionState({ sidebarTab: k });
+  }, []);
+  useEffect(() => {
+    const saved = loadSessionState()?.sidebarTab;
+    if (saved === "bible" || saved === "songs" || saved === "xrefs" || saved === "settings" || saved === "screens") {
+      setOpenKeyInner(saved);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Audio Guardian (2026-07-27) — the shell's red "⚠ AUDIO" chip needs a
   // programmatic way into Settings › Audio. The popover state lives here,
   // so we own the listener. `settingsEpoch` keys SettingsPopoverBody so a

@@ -1,23 +1,22 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import type { MessagesApi } from "../../hooks";
+import { OVERLAY_POSITIONS, type OverlayPosition } from "@/lib/broadcast";
 
-const DISMISS_MS: Record<string, number> = {
-  "5s": 5000, "10s": 10000, "30s": 30000, "1min": 60000, "5min": 300000,
+const POSITION_LABELS: Record<OverlayPosition, string> = {
+  "top-left": "Top left",
+  "top-right": "Top right",
+  "bottom-left": "Bottom left",
+  "bottom-right": "Bottom right",
+  "lower-third": "Lower third",
+  "center": "Center",
 };
 
 export function MessagesTab({ api }: { api: MessagesApi }) {
-  const { state, setText, setDismiss, setAllowWeb, toggleShow } = api;
+  const { state, setText, setDismiss, setAllowWeb, setPosition, toggleShow } = api;
   const taRef = useRef<HTMLTextAreaElement | null>(null);
-
-  // Auto-dismiss timer: when showing and dismiss !== manual, hide after N ms.
-  useEffect(() => {
-    if (!state.showing) return;
-    const ms = DISMISS_MS[state.dismiss];
-    if (!ms) return;
-    const id = setTimeout(() => toggleShow(), ms);
-    return () => clearTimeout(id);
-  }, [state.showing, state.dismiss, toggleShow]);
+  // NOTE: auto-dismiss is owned by useMessagesSession (pro/hooks.ts) so it
+  // survives this popover unmounting — do not re-add a timeout here.
 
   const insertToken = (token: string) => {
     const ta = taRef.current;
@@ -69,13 +68,25 @@ export function MessagesTab({ api }: { api: MessagesApi }) {
           <option value="5min">5min</option>
         </select>
       </div>
+      <div>
+        <div className="eyebrow mb-1">Position</div>
+        <select
+          value={state.position}
+          onChange={(e) => setPosition(e.target.value as OverlayPosition)}
+          className="w-full h-8 px-2 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded"
+        >
+          {OVERLAY_POSITIONS.map((p) => (
+            <option key={p} value={p}>{POSITION_LABELS[p]}</option>
+          ))}
+        </select>
+      </div>
       <label className="flex items-center gap-2">
         <input
           type="checkbox"
           checked={state.allowWeb}
           onChange={(e) => setAllowWeb(e.target.checked)}
         />
-        Allow Web Notifications
+        Allow on web (livestream output)
       </label>
       <button
         onClick={toggleShow}

@@ -40,6 +40,10 @@ export default function StagePage() {
   const [transition, setTransition] = useState<TransitionSpec | null>(null);
   const [messageOverlay, setMessageOverlay] = useState<string | null>(null);
   const messageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Heartbeat bookkeeping — operator re-posts the message at 1Hz. Only re-arm
+  // the dismiss countdown on content change; sweep stale messages after 5s.
+  const lastMessageContentRef = useRef<string | null>(null);
+  const lastMessageMsgAt = useRef<number>(0);
   const [timerOverlay, setTimerOverlay] = useState<{ name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed" } | null>(null);
   const [connected, setConnected] = useState(false);
   const [pairBadge, setPairBadge] = useState<string | null>(null);
@@ -48,6 +52,9 @@ export default function StagePage() {
   useEffect(() => { setNow(new Date()); }, []);
   const [showHelp, setShowHelp] = useState(true);
   const lastMsgAt = useRef<number>(Date.now());
+  // Operator heartbeats the timer overlay at 1Hz while shown — sweep it off
+  // if the beats stop (operator window closed/crashed).
+  const lastTimerMsgAt = useRef<number>(0);
 
   // Body chrome hide (same trick as /live)
   useEffect(() => {
@@ -83,16 +90,26 @@ export default function StagePage() {
           setAnnouncement(msg.state.announcement ?? null);
           setTransition(msg.state.transition ?? null);
         } else if (msg.type === "message") {
-          if (messageTimerRef.current) { clearTimeout(messageTimerRef.current); messageTimerRef.current = null; }
-          if ("clear" in msg.overlay && msg.overlay.clear) setMessageOverlay(null);
-          else if ("text" in msg.overlay) {
+          if ("clear" in msg.overlay && msg.overlay.clear) {
+            if (messageTimerRef.current) { clearTimeout(messageTimerRef.current); messageTimerRef.current = null; }
+            lastMessageContentRef.current = null;
+            lastMessageMsgAt.current = 0;
+            setMessageOverlay(null);
+          } else if ("text" in msg.overlay) {
+            lastMessageMsgAt.current = Date.now();
             setMessageOverlay(msg.overlay.text);
+            // 1Hz heartbeat re-posts must not restart the dismiss countdown.
             const ms = msg.overlay.dismissAfterMs;
-            if (typeof ms === "number" && ms > 0) messageTimerRef.current = setTimeout(() => setMessageOverlay(null), ms);
+            const contentKey = `${msg.overlay.text}|${typeof ms === "number" ? ms : "manual"}`;
+            if (contentKey !== lastMessageContentRef.current) {
+              lastMessageContentRef.current = contentKey;
+              if (messageTimerRef.current) { clearTimeout(messageTimerRef.current); messageTimerRef.current = null; }
+              if (typeof ms === "number" && ms > 0) messageTimerRef.current = setTimeout(() => setMessageOverlay(null), ms);
+            }
           }
         } else if (msg.type === "timer") {
           if ("clear" in msg.overlay && msg.overlay.clear) setTimerOverlay(null);
-          else setTimerOverlay(msg.overlay);
+          else { setTimerOverlay(msg.overlay); lastTimerMsgAt.current = Date.now(); }
         }
       } catch (err) {
         console.warn("[stage] message handler error:", err instanceof Error ? err.message : String(err));
@@ -107,6 +124,18 @@ export default function StagePage() {
     const timer = setInterval(() => {
       const stale = Date.now() - lastMsgAt.current;
       if (stale > 3000) setConnected(false);
+      if (lastTimerMsgAt.current > 0 && Date.now() - lastTimerMsgAt.current > 5000) {
+        lastTimerMsgAt.current = 0;
+        setTimerOverlay(null);
+      }
+      // Stale-message sweep: 5s without a heartbeat → operator is gone, take
+      // the message (incl. dismiss:manual) down.
+      if (lastMessageMsgAt.current > 0 && Date.now() - lastMessageMsgAt.current > 5000) {
+        lastMessageMsgAt.current = 0;
+        lastMessageContentRef.current = null;
+        if (messageTimerRef.current) { clearTimeout(messageTimerRef.current); messageTimerRef.current = null; }
+        setMessageOverlay(null);
+      }
       // Y4: reopen the BroadcastChannel if we've heard nothing for >5s.
       if (stale > 5000 && reopenCount < 20) {
         try { ch?.close(); } catch { /* ignore */ }

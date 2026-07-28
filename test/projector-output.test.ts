@@ -202,6 +202,59 @@ async function main() {
     assert.strictEqual(isValidLiveMessage({ type: "output", state: bad } as unknown), false);
   });
 
+  // --- 2b2. Overlay position validation (timer + message) ------------------
+  await check("timer overlay accepts position top-left", () => {
+    const m: LiveMessage = { type: "timer", overlay: { remainingSec: 60, running: true, kind: "countdown", position: "top-left" } };
+    assert.strictEqual(isValidLiveMessage(m), true);
+  });
+
+  await check("timer overlay rejects position evil-string", () => {
+    assert.strictEqual(
+      isValidLiveMessage({ type: "timer", overlay: { remainingSec: 60, running: true, kind: "countdown", position: "evil-string" } } as unknown),
+      false,
+    );
+  });
+
+  await check("timer overlay accepts position undefined (old-format compat)", () => {
+    const m: LiveMessage = { type: "timer", overlay: { remainingSec: 60, running: true, kind: "countdown", position: undefined } };
+    assert.strictEqual(isValidLiveMessage(m), true);
+  });
+
+  await check("message overlay accepts position top-left", () => {
+    const m: LiveMessage = { type: "message", overlay: { text: "hi", position: "top-left" } };
+    assert.strictEqual(isValidLiveMessage(m), true);
+  });
+
+  await check("message overlay rejects position evil-string", () => {
+    assert.strictEqual(
+      isValidLiveMessage({ type: "message", overlay: { text: "hi", position: "evil-string" } } as unknown),
+      false,
+    );
+  });
+
+  await check("message overlay accepts position undefined (old-format compat)", () => {
+    const m: LiveMessage = { type: "message", overlay: { text: "hi", position: undefined } };
+    assert.strictEqual(isValidLiveMessage(m), true);
+  });
+
+  // --- 2b3. allowWeb gate (public /livestream) ------------------------------
+  await check("message overlay accepts allowWeb=false", () => {
+    const m: LiveMessage = { type: "message", overlay: { text: "hi", allowWeb: false } };
+    assert.strictEqual(isValidLiveMessage(m), true);
+  });
+
+  await check("message overlay accepts allowWeb absent (old-format compat)", () => {
+    const m: LiveMessage = { type: "message", overlay: { text: "hi" } };
+    assert.strictEqual(isValidLiveMessage(m), true);
+  });
+
+  await check("message overlay rejects non-boolean allowWeb", () => {
+    assert.strictEqual(
+      isValidLiveMessage({ type: "message", overlay: { text: "hi", allowWeb: "yes" } } as unknown),
+      false,
+    );
+  });
+
   // --- 2c. Transition spec validation --------------------------------------
   await check("output state accepts valid transition with duration 600ms", () => {
     const s = { ...EMPTY_OUTPUT, transition: { effectId: "Fade", name: "Fade", durationMs: 600, easing: "ease" } };

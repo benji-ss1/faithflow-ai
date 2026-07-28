@@ -1,6 +1,16 @@
 "use client";
-import { Play, Pause, RotateCcw } from "lucide-react";
+import { Play, Pause, RotateCcw, Monitor, MonitorOff } from "lucide-react";
 import type { TimerApi, TimerType } from "../../hooks";
+import { OVERLAY_POSITIONS, type OverlayPosition } from "@/lib/broadcast";
+
+const POSITION_LABELS: Record<OverlayPosition, string> = {
+  "top-left": "Top left",
+  "top-right": "Top right",
+  "bottom-left": "Bottom left",
+  "bottom-right": "Bottom right",
+  "lower-third": "Lower third",
+  "center": "Center",
+};
 
 function pad(n: number) { return String(Math.max(0, Math.floor(n))).padStart(2, "0"); }
 function fmt(secs: number) {
@@ -11,8 +21,8 @@ function fmt(secs: number) {
 // R4: state is lifted to ProOperatorShell via useTimerSession() so ticks
 // survive when Radix Tabs unmounts this component on tab-switch.
 export function TimersTab({ api }: { api: TimerApi }) {
-  const { state, setName, setType, setDuration, toggleRun, reset } = api;
-  const { name, type, duration, remaining, running } = state;
+  const { state, setName, setType, setDuration, toggleRun, reset, toggleShown, setPosition } = api;
+  const { name, type, duration, remaining, running, shown, position } = state;
 
   return (
     <div className="flex flex-col gap-3">
@@ -60,6 +70,34 @@ export function TimersTab({ api }: { api: TimerApi }) {
           <RotateCcw className="w-4 h-4" />
         </button>
       </div>
+      <div>
+        <div className="eyebrow mb-1">Position</div>
+        <select
+          value={position}
+          onChange={(e) => setPosition(e.target.value as OverlayPosition)}
+          className="w-full h-8 px-2 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded"
+        >
+          {OVERLAY_POSITIONS.map((p) => (
+            <option key={p} value={p}>{POSITION_LABELS[p]}</option>
+          ))}
+        </select>
+      </div>
+      <button
+        onClick={toggleShown}
+        className={`h-9 rounded-md font-semibold flex items-center justify-center gap-2 ${
+          shown
+            ? "bg-red-600 text-white"
+            : "border border-[var(--color-border)] text-[var(--color-foreground)]"
+        }`}
+      >
+        {shown ? <MonitorOff className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
+        {shown ? "Hide from screen" : "Show on screen"}
+      </button>
+      {shown && (
+        <div className="text-[10px] text-center text-[var(--color-muted-foreground)]">
+          Timer live on projector &amp; stage {!running && "(paused)"}
+        </div>
+      )}
     </div>
   );
 }

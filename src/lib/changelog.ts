@@ -15,6 +15,19 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.90",
+    date: "2026-07-28",
+    headline: "Timers & messages now ACTUALLY show on the projector — plus the app reopens exactly where you left off",
+    highlights: [
+      "Timers on screen for real: Settings › Timers now has 'Show on screen' with a position picker (corners, lower-third, center). The countdown renders live on the projector AND stage display, ticks every second, survives closing the settings popover, and re-appears within 1 second if the output window reloads mid-service. Wall-clock anchored — a laptop sleep doesn't freeze it behind",
+      "Messages on screen for real: type a message, pick a position, Show — it overlays ON TOP of the current verse/lyric with a dark readable panel. Auto-dismiss after a set duration or hide manually. If the operator machine dies, outputs clear stuck overlays within 5 seconds instead of pinning them on the projector all service",
+      "'Allow on web' is now honest: messages only reach the public livestream output when that box is checked — private operator notes ('wrap up', 'collect child #14') stay in the building",
+      "Reopen where you left off: quit and relaunch → same playlist (was already saved), same preview position (item + slide, restored to PREVIEW only — nothing fires to live by itself), same sidebar tab, AI resumes with the existing visible toast. Saturday-night prep now survives to Sunday morning (36-hour window, plan-matched)",
+      "Nothing auto-fires on restore, stale overlays can't resurrect from a previous session, and all overlay messages are validated end-to-end (51 automated checks pass)",
+      "Web-only deploy — Cmd+R gets everything",
+    ],
+  },
+  {
     version: "0.1.89",
     date: "2026-07-28",
     headline: "Default themes + last-active on the team page",
