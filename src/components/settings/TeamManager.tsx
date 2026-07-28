@@ -6,8 +6,21 @@ import { cn } from "@/lib/utils";
 import { inviteTeammate, revokeInvitation, updateTeammateRole, removeTeammate } from "@/lib/invitation-actions";
 
 type Role = "admin" | "operator" | "pastor";
-type Member = { id: string; email: string; name: string; role: Role; jobTitle: string | null; emailVerified: boolean };
+type Member = { id: string; email: string; name: string; role: Role; jobTitle: string | null; emailVerified: boolean; lastActiveAt: string | null };
 type Pending = { id: string; email: string; role: Role; expiresAt: string };
+
+function relativeAgo(iso: string | null): string {
+  if (!iso) return "Never";
+  const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
 
 const ROLE_BLURB: Record<Role, string> = {
   admin: "Church settings + user management + everything an operator can do.",
@@ -204,6 +217,10 @@ function MemberRow({
         </div>
         <div className="truncate text-xs text-muted-foreground">
           {member.email}{member.jobTitle && ` · ${member.jobTitle}`}
+          {" · "}
+          <span title={member.lastActiveAt ? new Date(member.lastActiveAt).toLocaleString() : "Never signed in with the new session-tracking on"}>
+            Active {relativeAgo(member.lastActiveAt)}
+          </span>
         </div>
       </div>
       <select

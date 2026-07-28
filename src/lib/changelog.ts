@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.89",
+    date: "2026-07-28",
+    headline: "Default themes + last-active on the team page",
+    highlights: [
+      "You can now mark one theme as the church default from /library/themes — click the star icon on any card. The default gets an amber 'Default' pill in the corner and its border tints amber. Setting a new default automatically unsets the previous one (transactionally, church-scoped). Downstream: new songs will apply this theme on creation once the operator projector picks up the flag",
+      "Team page rows now show 'Active Nm ago' next to each member — bumped on every authenticated request (throttled to one write per 5 min per user, so no hot-write on prefetch). Was: no visibility into who's been logging in and who's stopped. Members who've never signed in since this rolled out show 'Never'",
+      "Schema note: two additive columns went live — users.last_active_at (nullable timestamp) and themes.is_default (boolean default false). Both default-safe so existing rows keep working without backfill. Migration already applied to the production Supabase database",
+    ],
+  },
+  {
     version: "0.1.88",
     date: "2026-07-28",
     headline: "JPD post-session fixes — clicks always land, projector text never tiny, and AI never LOOKS like it turned off",

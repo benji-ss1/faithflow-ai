@@ -1,16 +1,16 @@
 "use client";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { ChevronDown, Copy, Palette, Plus, Trash2, X } from "lucide-react";
+import { ChevronDown, Copy, Palette, Plus, Star, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { createTheme, updateTheme, duplicateTheme, deleteTheme } from "@/lib/actions";
+import { createTheme, updateTheme, duplicateTheme, deleteTheme, setDefaultTheme } from "@/lib/actions";
 
 // Kept minimal + additive — see `type ThemeConfig` in src/lib/actions.ts for
 // the full sanitised shape. Everything below is optional; the preview + the
 // operator projector fall back to sensible defaults per field.
 type ThemeConfig = Record<string, unknown>;
 
-type ThemeRow = { id: string; name: string; config: ThemeConfig };
+type ThemeRow = { id: string; name: string; config: ThemeConfig; isDefault?: boolean };
 
 type PreviewMode = "lyrics" | "scripture" | "sermon" | "blank";
 
@@ -100,6 +100,17 @@ export function ThemesManager({ themes: initial }: { themes: ThemeRow[] }) {
     });
   }
 
+  function onSetDefault(id: string) {
+    startTransition(async () => {
+      const res = await setDefaultTheme(id);
+      if (!res.ok) { toast.error(res.error || "Could not set default"); return; }
+      // Mirror the server transaction locally: unset any current default,
+      // then set the target. Avoids a full refetch.
+      setThemes((prev) => prev.map((t) => ({ ...t, isDefault: t.id === id })));
+      toast.success("Set as default");
+    });
+  }
+
   function onSaveEdit() {
     if (!editing) return;
     const target = editing;
@@ -179,7 +190,12 @@ export function ThemesManager({ themes: initial }: { themes: ThemeRow[] }) {
       ) : (
         <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {themes.map((t) => (
-            <li key={t.id} className="overflow-hidden rounded-2xl border border-border bg-card/80">
+            <li key={t.id} className={cn("relative overflow-hidden rounded-2xl border bg-card/80", t.isDefault ? "border-[var(--pf-admin-accent)]/40" : "border-border")}>
+              {t.isDefault ? (
+                <span className="absolute right-3 top-3 z-10 inline-flex items-center gap-1 rounded-full bg-[var(--pf-admin-accent)]/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--pf-admin-text-inverse)]">
+                  <Star className="h-2.5 w-2.5 fill-current" /> Default
+                </span>
+              ) : null}
               <button
                 type="button"
                 onClick={() => setEditing(t)}
@@ -196,6 +212,17 @@ export function ThemesManager({ themes: initial }: { themes: ThemeRow[] }) {
                   {t.name}
                 </button>
                 <div className="flex items-center gap-1">
+                  {!t.isDefault ? (
+                    <button
+                      type="button"
+                      onClick={() => onSetDefault(t.id)}
+                      title="Set as default"
+                      disabled={pending}
+                      className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-[var(--pf-admin-accent)]/10 hover:text-[var(--pf-admin-accent)] disabled:opacity-50"
+                    >
+                      <Star className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => onDuplicate(t.id)}

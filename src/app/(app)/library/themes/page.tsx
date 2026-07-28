@@ -10,6 +10,7 @@ export default async function ThemesPage() {
     id: r.id,
     name: r.name,
     config: (r.config as Record<string, unknown>) ?? {},
+    isDefault: (r as { isDefault?: boolean }).isDefault ?? false,
   }));
 
   return (

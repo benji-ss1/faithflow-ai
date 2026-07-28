@@ -14,6 +14,25 @@ export type CurrentUser = {
 
 export type PartialUser = { id: string; email: string; name: string; churchId: string | null; role: string; emailVerified: boolean };
 
+// Throttle map for lastActiveAt bumps — one write per user per LAST_ACTIVE_TTL.
+// Per-Vercel-instance memory is fine here: worst case a hot user is written to
+// slightly more than once per TTL across instances; never fewer. No PII leaks,
+// no cross-user state.
+const LAST_ACTIVE_TTL_MS = 5 * 60 * 1000;
+const lastActiveTouched = new Map<string, number>();
+
+function touchLastActive(userId: string): void {
+  const now = Date.now();
+  const seen = lastActiveTouched.get(userId);
+  if (seen && now - seen < LAST_ACTIVE_TTL_MS) return;
+  lastActiveTouched.set(userId, now);
+  // Fire-and-forget — no await. A failed bump on a bad-DB blip just means
+  // the timestamp lags a bit; nothing user-visible breaks.
+  const db = getDb();
+  db.update(users).set({ lastActiveAt: new Date(now) }).where(eq(users.id, userId))
+    .catch(() => { /* ignore */ });
+}
+
 async function resolvePartialUser(): Promise<PartialUser | null> {
   const session = await auth();
   const email = session?.user?.email;
@@ -21,6 +40,7 @@ async function resolvePartialUser(): Promise<PartialUser | null> {
   const db = getDb();
   const [row] = await db.select().from(users).where(eq(users.email, email)).limit(1);
   if (!row) return null;
+  touchLastActive(row.id);
   return { id: row.id, email: row.email, name: row.name, churchId: row.churchId, role: row.role, emailVerified: !!row.emailVerifiedAt };
 }
 

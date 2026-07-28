@@ -45,6 +45,10 @@ export const users = pgTable("users", {
   tutorialCompletedAt: timestamp("tutorial_completed_at"),
   totpSecret: text("totp_secret"),
   totpEnabled: boolean("totp_enabled").notNull().default(false),
+  // Bumped by middleware on every authenticated request (throttled ~5min per
+  // user so we don't hot-write on every RSC prefetch). Surfaces on the Team
+  // page so admins can see who's been active recently.
+  lastActiveAt: timestamp("last_active_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -441,6 +445,10 @@ export const themes = pgTable("themes", {
   churchId: uuid("church_id").references(() => churches.id, { onDelete: "cascade" }).notNull(),
   name: text("name").notNull(),
   config: jsonb("config").notNull().default({}),
+  // Marks the church's default theme — at most one per church, enforced
+  // via a transactional `setDefaultTheme` action (unsets prior default,
+  // then sets new one). Nullable/false is the "no default" state.
+  isDefault: boolean("is_default").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

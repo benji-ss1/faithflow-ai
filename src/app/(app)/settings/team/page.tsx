@@ -11,7 +11,7 @@ export default async function TeamPage() {
 
   const members = await db.select({
     id: users.id, email: users.email, name: users.name, role: users.role, jobTitle: users.jobTitle,
-    emailVerifiedAt: users.emailVerifiedAt,
+    emailVerifiedAt: users.emailVerifiedAt, lastActiveAt: users.lastActiveAt,
   }).from(users).where(eq(users.churchId, admin.churchId));
 
   const pending = await db.select().from(invitations).where(and(
@@ -29,7 +29,11 @@ export default async function TeamPage() {
       />
       <TeamManager
         currentUserId={admin.id}
-        members={members.map((m) => ({ ...m, emailVerified: !!m.emailVerifiedAt }))}
+        members={members.map((m) => ({
+          ...m,
+          emailVerified: !!m.emailVerifiedAt,
+          lastActiveAt: m.lastActiveAt ? m.lastActiveAt.toISOString() : null,
+        }))}
         pendingInvites={pending.map((p) => ({ id: p.id, email: p.email, role: p.role, expiresAt: p.expiresAt.toISOString() }))}
       />
     </div>

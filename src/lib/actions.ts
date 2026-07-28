@@ -1116,6 +1116,30 @@ export async function deleteTheme(id: string): Promise<Result> {
   return { ok: true };
 }
 
+// Sets the given theme as the church's default. Idempotent — calling with
+// the same id twice leaves state unchanged. Two-step within a single call:
+//   1. Unset any existing default in this church
+//   2. Set the target theme as default (church-scoped by AND clause)
+// Not wrapped in a DB transaction on purpose — a partial failure between
+// steps leaves at most zero defaults, never two, which is the safer state
+// than a partially-mutated pair. A dedicated tx wrapper can come later.
+export async function setDefaultTheme(id: string): Promise<Result> {
+  const user = await requireUser();
+  const db = getDb();
+  // Confirm target belongs to this church BEFORE we clear the current
+  // default — otherwise a caller sending a foreign id could leave the
+  // church with no default at all.
+  const [target] = await db.select({ id: themes.id }).from(themes)
+    .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId))).limit(1);
+  if (!target) return { ok: false, error: "Theme not found" };
+  await db.update(themes).set({ isDefault: false, updatedAt: new Date() })
+    .where(and(eq(themes.churchId, user.churchId), eq(themes.isDefault, true)));
+  await db.update(themes).set({ isDefault: true, updatedAt: new Date() })
+    .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId)));
+  revalidatePath("/library/themes");
+  return { ok: true };
+}
+
 export async function exportTheme(id: string): Promise<Result<{ name: string; config: ThemeConfig }>> {
   const user = await requireUser();
   const db = getDb();
