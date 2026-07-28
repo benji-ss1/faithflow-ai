@@ -11,7 +11,7 @@ import { apiUser } from "@/lib/session";
 import { getEntitlement, canUseAI } from "@/lib/server/entitlement";
 import {
   improveReadability, formatLyrics, suggestEffect, draftAnnouncement, fixSlide,
-  MissingApiKeyError,
+  MissingApiKeyError, GroqRateLimitedError,
 } from "@/lib/ai-helpers";
 import type { EditableSlide } from "@/lib/slide-objects";
 
@@ -104,6 +104,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ action: string
     }
   } catch (e) {
     if (e instanceof MissingApiKeyError) return err("MISSING_API_KEY", "Groq API key required");
+    if (e instanceof GroqRateLimitedError) {
+      // Both primary + fallback models rate-limited: degrade softly (200,
+      // ok:false) exactly like the missing-key path so the client disables
+      // the helper instead of erroring.
+      const until = e.resetAt ? ` (resets ${new Date(e.resetAt).toISOString()})` : "";
+      return err("RATE_LIMITED", `AI temporarily rate-limited${until}`);
+    }
     const msg = e instanceof Error ? e.message : String(e);
     return err("UPSTREAM", msg.slice(0, 200), 502);
   }

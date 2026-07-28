@@ -6,6 +6,7 @@ import { buildIndex, type IndexedSong, type SongIndex } from "@/lib/ai-detection
 import type { SongMatchResult } from "@/lib/ai-detection/song-match";
 import { matchCustomCommand, readCustomCommands, readAudioInputPref, audioConstraintsFor, AUDIO_SOURCE_TYPE_KEY } from "@/lib/voice-commands";
 import { dispatchInternal } from "@/lib/internal-events";
+import { readVocabulary, VOCABULARY_CHANGED_EVENT } from "@/lib/audio/customVocabulary";
 import { CONFIDENCE_THRESHOLD } from "@/lib/audio-thresholds";
 import {
   readDeviceChannelPref,
@@ -1147,6 +1148,12 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           return;
         }
         setStage("ws_open"); log("3 WS open");
+        // Custom vocabulary → Deepgram keyterm boosting. Must be the FIRST
+        // message on the wire: the bridge waits briefly for a config message
+        // before dialing Deepgram (keyterms ride the Deepgram URL). Sent
+        // unconditionally (empty list included) so the bridge can resolve its
+        // config wait immediately instead of burning the fallback timeout.
+        try { ws.send(JSON.stringify({ type: "config", keyterms: readVocabulary() })); } catch { /* ignore */ }
         // R9: fire up keep-alive so warm-muted sessions don't get idled out.
         startKeepAlive();
         // Task 4: flush the ring buffer of PCM captured while WS was closed.
@@ -2443,6 +2450,11 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     // the next tick without a page reload.
     const onCaptureModeChanged = () => scheduleRestart("capture-mode-changed", 300);
     const onNativeInputChanged = () => scheduleRestart("native-input-changed", 300);
+    // Custom vocabulary changed — keyterms only apply when the Deepgram
+    // connection (re)opens, so feed the same debounced restart path. Longer
+    // debounce than a device swap: an operator adding several terms in a row
+    // should collapse into one restart.
+    const onVocabularyChanged = () => scheduleRestart("vocabulary-changed", 1500);
     // 2026-07-27 per-channel routing — when the user tweaks the mixer
     // picker (switches channel, changes mode, adjusts gain), fire the
     // same restart path as a device swap so the new routing takes
@@ -2459,6 +2471,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     window.addEventListener(DEVICE_CHANNEL_PREF_CHANGED_EVENT, onChannelPrefChanged);
     window.addEventListener(CAPTURE_MODE_CHANGED_EVENT, onCaptureModeChanged);
     window.addEventListener(NATIVE_AUDIO_INPUT_CHANGED_EVENT, onNativeInputChanged);
+    window.addEventListener(VOCABULARY_CHANGED_EVENT, onVocabularyChanged);
     const md = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
     md?.addEventListener?.("devicechange", onDeviceChange);
     md?.addEventListener?.("devicechange", onFollowSystemDefaultChange);
@@ -2467,6 +2480,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       window.removeEventListener(DEVICE_CHANNEL_PREF_CHANGED_EVENT, onChannelPrefChanged);
       window.removeEventListener(CAPTURE_MODE_CHANGED_EVENT, onCaptureModeChanged);
       window.removeEventListener(NATIVE_AUDIO_INPUT_CHANGED_EVENT, onNativeInputChanged);
+      window.removeEventListener(VOCABULARY_CHANGED_EVENT, onVocabularyChanged);
       md?.removeEventListener?.("devicechange", onDeviceChange);
       md?.removeEventListener?.("devicechange", onFollowSystemDefaultChange);
       if (restartTimer) clearTimeout(restartTimer);

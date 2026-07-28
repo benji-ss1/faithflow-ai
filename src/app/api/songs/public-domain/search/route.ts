@@ -19,6 +19,7 @@
 import { NextResponse } from "next/server";
 import { apiUser } from "@/lib/session";
 import { createLimiter } from "@/lib/rate-limit";
+import { GROQ_FALLBACK_MODEL, getGroqActiveModel, markGroqPrimaryLimited } from "@/lib/groq-fallback";
 
 export const runtime = "nodejs";
 
@@ -141,26 +142,33 @@ async function expandHymn(match: HymnMatch): Promise<PublicDomainCandidate | nul
 
   if (!key) return fallback();
   const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-  const model = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), 6000);
+  const call = async (model: string): Promise<Response> => {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 6000);
+    try {
+      return await fetch(GROQ_URL, {
+        method: "POST",
+        signal: ctl.signal,
+        headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model,
+          temperature: 0.1,
+          max_tokens: 900,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: 'Return JSON {"lyrics":["verse 1 text","verse 2 text","chorus text"]} for the well-known PUBLIC-DOMAIN hymn named by the user. Only include verses you are confident are public domain (pre-1929 / traditional). Never invent or paraphrase — if you are not certain of the actual verses, return {"lyrics":[]}.' },
+            { role: "user", content: `Hymn title: "${match.title.slice(0, 200)}"${match.firstLine ? ` (first line: "${match.firstLine.slice(0, 200)}")` : ""}` },
+          ],
+        }),
+      });
+    } finally { clearTimeout(timer); }
+  };
   try {
-    const res = await fetch(GROQ_URL, {
-      method: "POST",
-      signal: ctl.signal,
-      headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        temperature: 0.1,
-        max_tokens: 900,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: 'Return JSON {"lyrics":["verse 1 text","verse 2 text","chorus text"]} for the well-known PUBLIC-DOMAIN hymn named by the user. Only include verses you are confident are public domain (pre-1929 / traditional). Never invent or paraphrase — if you are not certain of the actual verses, return {"lyrics":[]}.' },
-          { role: "user", content: `Hymn title: "${match.title.slice(0, 200)}"${match.firstLine ? ` (first line: "${match.firstLine.slice(0, 200)}")` : ""}` },
-        ],
-      }),
-    });
-    clearTimeout(timer);
+    let res = await call(getGroqActiveModel());
+    if (res.status === 429 && getGroqActiveModel() !== GROQ_FALLBACK_MODEL) {
+      markGroqPrimaryLimited(res, await res.text().catch(() => ""));
+      res = await call(GROQ_FALLBACK_MODEL);
+    }
     if (!res.ok) return fallback();
     const data = await res.json().catch(() => null) as { choices?: { message?: { content?: string } }[] } | null;
     const raw = data?.choices?.[0]?.message?.content;
@@ -171,7 +179,6 @@ async function expandHymn(match: HymnMatch): Promise<PublicDomainCandidate | nul
     if (lyrics.length === 0) return fallback();
     return sanitiseCandidate({ source: "hymnary", title: match.title, author: match.author, lyrics });
   } catch {
-    clearTimeout(timer);
     return fallback();
   }
 }
@@ -183,26 +190,33 @@ async function searchGroq(q: string): Promise<PublicDomainCandidate[]> {
   const key = process.env.GROQ_API_KEY;
   if (!key) return []; // graceful degradation
   const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-  const model = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), 6000);
+  const call = async (model: string): Promise<Response> => {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 6000);
+    try {
+      return await fetch(GROQ_URL, {
+        method: "POST",
+        signal: ctl.signal,
+        headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model,
+          temperature: 0.2,
+          max_tokens: 900,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: 'Return JSON {"candidates":[{"title":"...","author":"...","lyrics":["verse 1 text","verse 2 text","chorus text"]}]}. Only include VERIFIED public-domain hymns (pre-1929 or well-known traditional). Return up to 3 candidates. Never invent lyrics — if uncertain, return {"candidates":[]}.' },
+            { role: "user", content: `Public-domain hymn matching lyric fragment: ${q.slice(0, 200)}` },
+          ],
+        }),
+      });
+    } finally { clearTimeout(timer); }
+  };
   try {
-    const res = await fetch(GROQ_URL, {
-      method: "POST",
-      signal: ctl.signal,
-      headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        temperature: 0.2,
-        max_tokens: 900,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: 'Return JSON {"candidates":[{"title":"...","author":"...","lyrics":["verse 1 text","verse 2 text","chorus text"]}]}. Only include VERIFIED public-domain hymns (pre-1929 or well-known traditional). Return up to 3 candidates. Never invent lyrics — if uncertain, return {"candidates":[]}.' },
-          { role: "user", content: `Public-domain hymn matching lyric fragment: ${q.slice(0, 200)}` },
-        ],
-      }),
-    });
-    clearTimeout(timer);
+    let res = await call(getGroqActiveModel());
+    if (res.status === 429 && getGroqActiveModel() !== GROQ_FALLBACK_MODEL) {
+      markGroqPrimaryLimited(res, await res.text().catch(() => ""));
+      res = await call(GROQ_FALLBACK_MODEL);
+    }
     if (!res.ok) return [];
     const data = await res.json().catch(() => null) as { choices?: { message?: { content?: string } }[] } | null;
     const raw = data?.choices?.[0]?.message?.content;
@@ -224,7 +238,6 @@ async function searchGroq(q: string): Promise<PublicDomainCandidate[]> {
     }
     return out;
   } catch {
-    clearTimeout(timer);
     return [];
   }
 }

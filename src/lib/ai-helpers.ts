@@ -1,20 +1,31 @@
 // Phase 5D-3 — server-only AI helpers, exposed via /api/ai/helpers/[action].
 //
-// Groq is the ONLY provider (per user global CLAUDE.md). No fallback.
+// Groq is the ONLY provider (per user global CLAUDE.md). No other providers.
 // Every helper:
 //   • throws MissingApiKeyError if GROQ_API_KEY is not set,
 //   • uses a 6s AbortController timeout,
 //   • requests json_object response format,
-//   • retries once on 5xx.
+//   • retries once on 5xx,
+//   • on 429 falls back to llama-3.1-8b-instant (see groq-fallback.ts);
+//     if the fallback ALSO 429s it throws GroqRateLimitedError so callers
+//     degrade like the missing-key path.
 //
 // This module must be imported ONLY from server code (API routes / server
 // actions). It must never be bundled into a client component.
 
 import type { EditableSlide, SlideObject } from "./slide-objects";
 import type { EffectId } from "./effects";
+import {
+  GROQ_FALLBACK_MODEL,
+  GroqRateLimitedError,
+  getGroqActiveModel,
+  getGroqLimitStatus,
+  markGroqPrimaryLimited,
+} from "./groq-fallback";
+
+export { GroqRateLimitedError };
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
 const TIMEOUT_MS = 6000;
 
 export class MissingApiKeyError extends Error {
@@ -28,30 +39,43 @@ async function groqJson<T>(messages: ChatMessage[], temperature = 0.2): Promise<
   const key = process.env.GROQ_API_KEY;
   if (!key) throw new MissingApiKeyError();
 
-  const body = {
-    model: GROQ_MODEL,
-    messages,
-    temperature,
-    max_tokens: 800,
-    response_format: { type: "json_object" as const },
-  };
-
-  const attempt = async (): Promise<Response> => {
+  const attempt = async (model: string): Promise<Response> => {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
     try {
       return await fetch(GROQ_URL, {
         method: "POST",
         headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          model,
+          messages,
+          temperature,
+          max_tokens: 800,
+          response_format: { type: "json_object" as const },
+        }),
         signal: ctl.signal,
       });
     } finally { clearTimeout(timer); }
   };
 
-  let res = await attempt();
+  // Model ladder: skip the primary entirely while it is known rate-limited.
+  let model = getGroqActiveModel();
+  let res = await attempt(model);
   if (res.status >= 500) {
-    res = await attempt();
+    res = await attempt(model);
+  }
+  if (res.status === 429) {
+    if (model !== GROQ_FALLBACK_MODEL) {
+      // Primary rate-limited: record it and retry the SAME request on fallback.
+      const errText = await res.text().catch(() => "");
+      markGroqPrimaryLimited(res, errText);
+      model = GROQ_FALLBACK_MODEL;
+      res = await attempt(model);
+    }
+    if (res.status === 429) {
+      // Both models limited — degrade like the missing-key path.
+      throw new GroqRateLimitedError(getGroqLimitStatus().resetAt);
+    }
   }
   if (!res.ok) {
     const errText = await res.text().catch(() => "");

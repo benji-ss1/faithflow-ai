@@ -15,6 +15,18 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.84",
+    date: "2026-07-28",
+    headline: "Custom Vocabulary — teach the AI your pastor's name, Nigerian names, and song titles it keeps mishearing",
+    highlights: [
+      "New 'Custom Vocabulary' section in Settings › Audio (plus a quick-add row in the sidebar Audio popover): add up to 100 names, places, and song titles the AI keeps getting wrong — pastor names, your church's name, Yoruba/Igbo names, anything Deepgram mangles. Terms are sent to the speech engine as keyterm prompts when the listener starts, so it HEARS them correctly instead of us correcting after the fact",
+      "This attacks the mishears at the source: overnight field logs showed corrections like 'Psalm 82' → 'Psalm 23' happening AFTER detection. With the right terms in your vocabulary, the first transcript comes out right. Terms apply on the next listener (re)start — adding a term schedules one automatically",
+      "Multi-word terms supported ('Pastor Adeboye', full song titles). Case-insensitive dedupe, 100-term cap (the speech engine's limit). Your list stays on this machine",
+      "Under the hood: AI helper calls now auto-switch to a fast fallback model the moment the primary hits a rate limit, remember when the limit resets, and route straight to the fallback until then — no more silent AI-assist dropouts during heavy sessions. If both models are limited, features degrade gracefully exactly like before",
+      "Web + audio-bridge deploy — Cmd+R gets you everything, no reinstall",
+    ],
+  },
+  {
     version: "0.1.83",
     date: "2026-07-27",
     headline: "Faster speech-to-screen projection — live transcription and AI-detected verses now reach the output sooner and recover cleanly from audio interruptions",

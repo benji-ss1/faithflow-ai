@@ -28,6 +28,7 @@ import {
   type DeviceChannelMode,
 } from "@/lib/audio/deviceChannelPrefs";
 import { findGuideForDevice } from "@/lib/audio/mixerSetupGuides";
+import { addVocabularyTerm, MAX_VOCABULARY_TERMS, readVocabulary, removeVocabularyTerm } from "@/lib/audio/customVocabulary";
 
 const AUDIO_INPUT_KEY = "presentflow.pro.audioInput.v1";
 const AUDIO_SOURCE_TYPE_KEY = "presentflow.pro.audioSourceType.v1";
@@ -105,6 +106,8 @@ export function AudioTab() {
   const [customs, setCustoms] = useState<CustomCommand[]>([]);
   const [newPhrase, setNewPhrase] = useState("");
   const [newAction, setNewAction] = useState(ACTIONS[0].value);
+  const [vocab, setVocab] = useState<string[]>([]);
+  const [newVocabTerm, setNewVocabTerm] = useState("");
 
   // --- Channel-grid state (multi-channel USB mixer picker) ---------------
   // Only rendered when the selected device has > 1 channel. Preserves the
@@ -145,6 +148,7 @@ export function AudioTab() {
       const hp = localStorage.getItem(MIC_HIGHPASS_KEY);
       if (hp === "1" || hp === "0") setHighpassOn(hp === "1");
       setCustoms(parseCustomCommands(localStorage.getItem(CUSTOM_COMMANDS_KEY)));
+      setVocab(readVocabulary());
     } catch {}
     // enumerate devices
     const enumerate = () => {
@@ -915,6 +919,65 @@ export function AudioTab() {
               <span key={p} className="text-[10px] px-2 py-0.5 rounded-full font-mono" style={{ background: "#1a2020", color: "#a3a3a3", border: "1px solid #2a3232" }}>{p}</span>
             ))}
           </div>
+        </div>
+
+        <div className="space-y-2 pt-2 border-t" style={{ borderColor: "#2a3232" }}>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-[12px] font-semibold text-zinc-100">Custom Vocabulary</div>
+              <div className="text-[11px] text-zinc-500 mt-0.5">
+                Names, places, and song titles the AI keeps mishearing — e.g. pastor names, Nigerian names, your church's name. Applied next time the listener (re)starts.
+              </div>
+            </div>
+            <div className="text-[10px] text-zinc-500 whitespace-nowrap ml-3">{vocab.length} / {MAX_VOCABULARY_TERMS} terms</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              value={newVocabTerm}
+              onChange={(e) => setNewVocabTerm(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && newVocabTerm.trim()) {
+                  setVocab(addVocabularyTerm(newVocabTerm));
+                  setNewVocabTerm("");
+                }
+              }}
+              placeholder="e.g. Pastor Adeboye"
+              className="flex-1 h-8 px-2 rounded-md border text-[11px] text-zinc-100 placeholder:text-zinc-500"
+              style={{ borderColor: "#2a3232", background: "#1a2020" }}
+            />
+            <button
+              onClick={() => {
+                if (!newVocabTerm.trim()) return;
+                setVocab(addVocabularyTerm(newVocabTerm));
+                setNewVocabTerm("");
+              }}
+              disabled={vocab.length >= MAX_VOCABULARY_TERMS}
+              className="h-8 px-3 rounded-md text-[11px] font-semibold text-white inline-flex items-center gap-1 disabled:opacity-50"
+              style={{ background: "#f97316" }}
+            >
+              <Plus className="w-3.5 h-3.5" /> Add
+            </button>
+          </div>
+          {vocab.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {vocab.map((t) => (
+                <span
+                  key={t.toLowerCase()}
+                  className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full"
+                  style={{ background: "#1a2020", color: "#d4d4d4", border: "1px solid #2a3232" }}
+                >
+                  {t}
+                  <button
+                    onClick={() => setVocab(removeVocabularyTerm(t))}
+                    className="text-zinc-500 hover:text-zinc-200"
+                    aria-label={`Remove ${t}`}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

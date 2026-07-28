@@ -179,7 +179,36 @@ const db = getDb();
  * though the same URL + params + audio worked when driven by hand-rolled
  * WS. Simpler, fewer moving parts.
  */
-async function openDeepgram(churchId: string): Promise<WebSocket> {
+// Operator-maintained custom vocabulary arriving in the client's session
+// `config` message. Untrusted input — enforce shape/size before it goes
+// anywhere near the Deepgram URL. Terms may be names (PII): never log them.
+const MAX_SESSION_KEYTERMS = 100;
+const MAX_KEYTERM_LENGTH = 60;
+function sanitizeKeyterms(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of input) {
+    if (typeof raw !== "string") continue;
+    // Strip control chars then trim + length-cap. Filter by char code
+    // rather than a control-char regex class (keeps the source free of
+    // literal/escaped control characters and lint exceptions).
+    const cleaned = Array.from(raw)
+      .filter((ch) => { const c = ch.charCodeAt(0); return c >= 0x20 && c !== 0x7f; })
+      .join("")
+      .trim()
+      .slice(0, MAX_KEYTERM_LENGTH);
+    if (!cleaned) continue;
+    const key = cleaned.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(cleaned);
+    if (out.length >= MAX_SESSION_KEYTERMS) break;
+  }
+  return out;
+}
+
+async function openDeepgram(churchId: string, sessionKeyterms: string[] = []): Promise<WebSocket> {
   const params = new URLSearchParams({
     model: "nova-3",
     language: "en",
@@ -233,7 +262,9 @@ async function openDeepgram(churchId: string): Promise<WebSocket> {
   ]);
   const seen = new Set<string>();
   const merged: string[] = [];
-  for (const t of [...staticTerms, ...learnedTerms]) {
+  // Session (operator custom-vocabulary) terms take precedence — they're the
+  // operator's explicit "Deepgram keeps mishearing this" list for THIS setup.
+  for (const t of [...sessionKeyterms, ...staticTerms, ...learnedTerms]) {
     const key = t.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
@@ -414,7 +445,13 @@ function rateLimitOk(ip: string): boolean {
 
 type ClientMessage =
   | { type: "audio"; b64: string }
-  | { type: "stop" };
+  | { type: "stop" }
+  // Session config sent by newer clients immediately on WS open, before any
+  // audio. `keyterms` = operator-maintained custom vocabulary (names, song
+  // titles) boosted via Deepgram keyterm prompting. Consumed during setup;
+  // late/duplicate configs are ignored (keyterms ride the Deepgram URL, so
+  // they can only apply to a fresh connection).
+  | { type: "config"; keyterms?: unknown };
 
 type ServerMessage =
   | { type: "ready" }
@@ -577,8 +614,44 @@ wss.on("connection", async (ws: WebSocket, req) => {
       if (oldest !== undefined) recentEmittedTexts.delete(oldest);
     }
   };
+  // Custom vocabulary — newer clients send { type: "config", keyterms: [...] }
+  // as their FIRST message, before any audio. Keyterms ride the Deepgram URL,
+  // so they must be known before we dial upstream: wait briefly for the config
+  // message. Resolve early if the first message is anything else (older
+  // clients never send config — zero behaviour change for them beyond the
+  // short race, and any non-config message seen here is buffered and replayed
+  // through the normal handler once it's registered below).
+  let sessionKeyterms: string[] = [];
+  const preSetupBacklog: { raw: Buffer | ArrayBuffer | Buffer[]; isBinary: boolean }[] = [];
+  await new Promise<void>((resolve) => {
+    const finish = () => { clearTimeout(configTimer); ws.off("message", onPreSetupMessage); resolve(); };
+    const configTimer = setTimeout(finish, 750);
+    function onPreSetupMessage(raw: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) {
+      if (!isBinary) {
+        try {
+          const m = JSON.parse(raw.toString()) as { type?: string; keyterms?: unknown };
+          if (m?.type === "config") {
+            sessionKeyterms = sanitizeKeyterms(m.keyterms);
+            finish();
+            return;
+          }
+        } catch { /* not JSON — treat like any other non-config message */ }
+      }
+      // First message wasn't config → older client. Don't hold the session;
+      // keep the message so nothing is dropped.
+      preSetupBacklog.push({ raw, isBinary });
+      finish();
+    }
+    ws.on("message", onPreSetupMessage);
+  });
+  if (ws.readyState !== WebSocket.OPEN || setupCancelled) {
+    detachTrackedClient();
+    return;
+  }
+  // Count only — terms can be personal names; never log contents.
+  if (sessionKeyterms.length > 0) console.log(`[audio] keyterms applied: ${sessionKeyterms.length}`);
   try {
-    dg = await openDeepgram(churchId);
+    dg = await openDeepgram(churchId, sessionKeyterms);
     setupUpstream = dg;
     if (setupCancelled || ws.readyState !== WebSocket.OPEN) {
       detachTrackedClient();
@@ -1170,7 +1243,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     if (dgNeedsReopen && dg.readyState !== WebSocket.OPEN) {
       dgNeedsReopen = false;
       const reopenGeneration = ++lazyReopenGeneration;
-      openDeepgram(churchId).then((newDg) => {
+      openDeepgram(churchId, sessionKeyterms).then((newDg) => {
         if (reopenGeneration !== lazyReopenGeneration || ws.readyState !== WebSocket.OPEN) {
           try { newDg.close(); } catch { /* ignore */ }
           return;
@@ -1200,7 +1273,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     }
   };
 
-  ws.on("message", (raw, isBinary) => {
+  const onClientMessage = (raw: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
     if (isBinary) {
       const buf = Array.isArray(raw) ? Buffer.concat(raw) : Buffer.from(raw as ArrayBuffer);
       handleAudio(buf);
@@ -1214,7 +1287,13 @@ wss.on("connection", async (ws: WebSocket, req) => {
     } else if (msg.type === "stop") {
       try { dg.send(JSON.stringify({ type: "CloseStream" })); } catch { /* ignore */ }
     }
-  });
+    // "config" after setup: ignored — keyterms only apply to a fresh
+    // Deepgram connection (the client restarts the pipeline on changes).
+  };
+  ws.on("message", onClientMessage);
+  // Replay any message that arrived during the pre-setup config wait so
+  // nothing an older client sent is dropped.
+  for (const pending of preSetupBacklog) onClientMessage(pending.raw, pending.isBinary);
 
   ws.on("close", () => {
     console.log("[audio] client disconnected");

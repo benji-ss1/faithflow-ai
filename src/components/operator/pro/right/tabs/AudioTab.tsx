@@ -22,7 +22,7 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as Popover from "@radix-ui/react-popover";
-import { ChevronDown, ChevronRight, RefreshCcw, Stethoscope, Wand2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, RefreshCcw, Stethoscope, Wand2 } from "lucide-react";
 import { AudioDiagnosticsScan } from "@/components/operator/AudioDiagnosticsScan";
 import { VocalChannelAutoDetectModal } from "@/components/operator/VocalChannelAutoDetectModal";
 import {
@@ -47,6 +47,9 @@ import {
   type DeviceChannelMode,
 } from "@/lib/audio/deviceChannelPrefs";
 import { findGuideForDevice } from "@/lib/audio/mixerSetupGuides";
+// Custom vocabulary quick-add (2026-07-27) — Deepgram keyterm boosting for
+// names/song titles the AI keeps mishearing. Full management in Settings.
+import { addVocabularyTerm, MAX_VOCABULARY_TERMS, readVocabulary, VOCABULARY_CHANGED_EVENT } from "@/lib/audio/customVocabulary";
 // Wave 2 (2026-07-27) — capture-mode toggle + native device store.
 import {
   readCaptureMode,
@@ -114,6 +117,23 @@ export function AudioTab() {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [diagOpen, setDiagOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // Custom vocabulary quick-add — count kept in sync via the changed event
+  // (the settings page may add/remove terms while this popover is mounted).
+  const [vocabCount, setVocabCount] = useState(0);
+  const [vocabTerm, setVocabTerm] = useState("");
+  useEffect(() => {
+    setVocabCount(readVocabulary().length);
+    const onChanged = () => setVocabCount(readVocabulary().length);
+    window.addEventListener(VOCABULARY_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(VOCABULARY_CHANGED_EVENT, onChanged);
+  }, []);
+  const addVocab = () => {
+    if (!vocabTerm.trim()) return;
+    const next = addVocabularyTerm(vocabTerm);
+    setVocabCount(next.length);
+    setVocabTerm("");
+    toast.success("Added — applies when the listener restarts");
+  };
 
   // Wave 2 — capture-mode toggle state.
   const [captureMode, setCaptureMode] = useState<CaptureMode>("auto");
@@ -1329,8 +1349,34 @@ export function AudioTab() {
         </button>
       </div>
 
+      {/* Custom vocabulary quick-add — full management lives in Settings → Audio */}
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center justify-between px-1">
+          <div className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)]">Vocabulary</div>
+          <div className="text-[10px] text-[var(--color-muted-foreground)]">{vocabCount} / {MAX_VOCABULARY_TERMS}</div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <input
+            value={vocabTerm}
+            onChange={(e) => setVocabTerm(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") addVocab(); }}
+            placeholder="Name the AI mishears…"
+            className="flex-1 h-7 px-2 rounded-md border border-[var(--color-border)] bg-[var(--color-elevated)] text-[10px] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)]"
+          />
+          <button
+            onClick={addVocab}
+            disabled={vocabCount >= MAX_VOCABULARY_TERMS}
+            className="h-7 px-2 rounded-md text-[10px] font-semibold text-white inline-flex items-center gap-1 disabled:opacity-50"
+            style={{ background: "#f97316" }}
+            title="Boost recognition of a name / song title Deepgram keeps mishearing"
+          >
+            <Plus className="w-3 h-3" /> Add
+          </button>
+        </div>
+      </div>
+
       <div className="text-[10px] text-[var(--color-muted-foreground)] px-1">
-        Advanced settings (voice commands, mic boost, auto-pause) live in the full Settings page.
+        Advanced settings (voice commands, mic boost, auto-pause, full vocabulary list) live in the full Settings page.
       </div>
 
       {diagOpen && (
