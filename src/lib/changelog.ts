@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.86",
+    date: "2026-07-28",
+    headline: "Theme editor now supports video backgrounds + inline image/video upload",
+    highlights: [
+      "Themes › Background: new 'Video' type joins Solid / Gradient / Image. Autoplay-muted-loop video backgrounds render in the live 16:9 preview and (once the operator projector picks up the field) on real slides. Silent by design — a projector never wants audio",
+      "New shared BgAssetPicker in the editor: paste a presigned URL OR upload a new image/video directly from the theme editor without leaving to the Media library first. Uploads land under {churchId}/media/... via the existing /api/media/presign flow, so they're immediately reusable from anywhere else in the app",
+    ],
+  },
+  {
     version: "0.1.85",
     date: "2026-07-28",
     headline: "Import wizard streams real parse progress + lists duplicate titles up front",

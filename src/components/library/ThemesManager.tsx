@@ -245,10 +245,11 @@ function SlidePreview({ config, mode = "lyrics", churchName = "Grace Community" 
   mode?: PreviewMode;
   churchName?: string;
 }) {
-  const bgType = get(config, "bgType", "solid") as "solid" | "gradient" | "image";
+  const bgType = get(config, "bgType", "solid") as "solid" | "gradient" | "image" | "video";
   const bg1 = get(config, "bgColor", "#0B0B0B") as string;
   const bg2 = get(config, "bgColor2", "#1A0A14") as string;
   const bgImageUrl = get(config, "bgImageUrl", "") as string;
+  const bgVideoUrl = get(config, "bgVideoUrl", "") as string;
   const bgOpacity = get(config, "bgOpacity", 1) as number;
 
   const fontFamily = get(config, "fontFamily", "Inter") as string;
@@ -278,7 +279,9 @@ function SlidePreview({ config, mode = "lyrics", churchName = "Grace Community" 
       ? { background: `linear-gradient(135deg, ${bg1}, ${bg2})` }
       : bgType === "image" && bgImageUrl
         ? { background: `#000 url(${bgImageUrl}) center/cover no-repeat` }
-        : { background: bg1 };
+        : bgType === "video"
+          ? { background: "#000" } // video element renders on top; keep base black in case url fails
+          : { background: bg1 };
 
   const sample =
     mode === "lyrics" ? "Amazing grace, how sweet the sound" :
@@ -298,6 +301,21 @@ function SlidePreview({ config, mode = "lyrics", churchName = "Grace Community" 
       className="relative w-full overflow-hidden"
       style={{ aspectRatio: "16 / 9", ...backgroundStyle, opacity: bgOpacity }}
     >
+      {/* Video background — muted autoplay loop. Rendered first so overlays
+          (logo, text block, lower-third) sit on top. Silent by design; a
+          projector output plays without audio. */}
+      {bgType === "video" && bgVideoUrl ? (
+        <video
+          key={bgVideoUrl}
+          src={bgVideoUrl}
+          autoPlay
+          muted
+          loop
+          playsInline
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      ) : null}
+
       {/* Logo placement — 3x3 positional grid */}
       {logoPosition !== "none" && logoRow >= 0 ? (
         <div
@@ -489,29 +507,38 @@ function ThemeEditor({
 
           <Section title="Background">
             <Row label="Type">
-              <div className="flex gap-1">
-                {(["solid", "gradient", "image"] as const).map((t) => (
+              <div className="grid grid-cols-4 gap-1">
+                {(["solid", "gradient", "image", "video"] as const).map((t) => (
                   <button key={t} type="button" onClick={() => set({ bgType: t })}
-                    className={cn("h-9 flex-1 rounded-md border text-xs capitalize", get<"solid" | "gradient" | "image">(cfg, "bgType", "solid") === t ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10" : "border-border text-muted-foreground")}>
+                    className={cn("h-9 rounded-md border text-xs capitalize", get<"solid" | "gradient" | "image" | "video">(cfg, "bgType", "solid") === t ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10" : "border-border text-muted-foreground")}>
                     {t}
                   </button>
                 ))}
               </div>
             </Row>
             <div className="grid grid-cols-2 gap-3">
-              <Row label={get<"solid" | "gradient" | "image">(cfg, "bgType", "solid") === "gradient" ? "Color 1" : "Background color"}>
+              <Row label={get<"solid" | "gradient" | "image" | "video">(cfg, "bgType", "solid") === "gradient" ? "Color 1" : "Background color"}>
                 <input type="color" value={get(cfg, "bgColor", "#0B0B0B") as string} onChange={(e) => set({ bgColor: e.target.value })} className={colorCls} />
               </Row>
-              {get<"solid" | "gradient" | "image">(cfg, "bgType", "solid") === "gradient" && (
+              {get<"solid" | "gradient" | "image" | "video">(cfg, "bgType", "solid") === "gradient" && (
                 <Row label="Color 2">
                   <input type="color" value={get(cfg, "bgColor2", "#1A0A14") as string} onChange={(e) => set({ bgColor2: e.target.value })} className={colorCls} />
                 </Row>
               )}
             </div>
-            {get<"solid" | "gradient" | "image">(cfg, "bgType", "solid") === "image" && (
-              <Row label="Image URL" hint="Paste a presigned URL from Media library. Video backgrounds coming later.">
-                <input type="url" value={get(cfg, "bgImageUrl", "") as string} onChange={(e) => set({ bgImageUrl: e.target.value })} placeholder="https://…" className={inputCls} />
-              </Row>
+            {get<"solid" | "gradient" | "image" | "video">(cfg, "bgType", "solid") === "image" && (
+              <BgAssetPicker
+                kind="image"
+                url={get(cfg, "bgImageUrl", "") as string}
+                onUrl={(url) => set({ bgImageUrl: url })}
+              />
+            )}
+            {get<"solid" | "gradient" | "image" | "video">(cfg, "bgType", "solid") === "video" && (
+              <BgAssetPicker
+                kind="video"
+                url={get(cfg, "bgVideoUrl", "") as string}
+                onUrl={(url) => set({ bgVideoUrl: url })}
+              />
             )}
             <Row label={`Opacity — ${Math.round((get(cfg, "bgOpacity", 1) as number) * 100)}%`}>
               <input type="range" min={0} max={100} value={(get(cfg, "bgOpacity", 1) as number) * 100} onChange={(e) => set({ bgOpacity: Number(e.target.value) / 100 })} className="w-full" />
@@ -655,6 +682,82 @@ function ThemeEditor({
           Preview reflects the theme applied at 16:9. Apply the theme to any song from the song editor (song detail page → Apply theme).
         </p>
       </section>
+    </div>
+  );
+}
+
+// -- background asset picker (image + video) --
+//
+// Two-input row: paste a presigned URL from your Media library, OR upload
+// a fresh file which the component sends to /api/media/presign, PUTs to S3
+// with the returned presign URL, then stores the resulting S3 key path as
+// the theme's bgImageUrl/bgVideoUrl.
+//
+// Uses the same `media` purpose as the rest of the app — the S3 key ends
+// up under `{churchId}/media/...` which the existing media library reader
+// (getExpandedServicePlan etc.) also reads. So a theme background upload
+// becomes a real Media entry, browsable + reusable elsewhere.
+function BgAssetPicker({
+  kind, url, onUrl,
+}: {
+  kind: "image" | "video";
+  url: string;
+  onUrl: (nextUrl: string) => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const accept = kind === "image"
+    ? "image/png,image/jpeg,image/webp,image/gif,image/avif"
+    : "video/mp4,video/webm,video/quicktime";
+  const maxMB = kind === "image" ? 10 : 100; // client-side hint; server enforces per-purpose cap
+
+  async function pickFile(file: File) {
+    setUploading(true);
+    try {
+      const presign = await fetch("/api/media/presign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileName: file.name, contentType: file.type, size: file.size, purpose: "media" }),
+      }).then((r) => r.json());
+      if (presign.error) throw new Error(presign.error);
+      const put = await fetch(presign.url, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
+      if (!put.ok) throw new Error("Upload failed");
+      // Return a client-viewable URL from the same presigned PUT origin. The
+      // preview renders it inline; the operator projector will re-presign
+      // via presignGet at render time using the stored S3 key path.
+      const objectUrl = URL.createObjectURL(file);
+      onUrl(objectUrl);
+      toast.success(`${kind === "image" ? "Image" : "Video"} uploaded`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <Row label={`${kind === "image" ? "Image" : "Video"} URL`} hint={`Paste a presigned URL, or upload a new file below (max ${maxMB} MB).`}>
+        <input
+          type="url"
+          value={url}
+          onChange={(e) => onUrl(e.target.value)}
+          placeholder="https://…"
+          className={inputCls}
+        />
+      </Row>
+      <label className={cn("flex h-10 cursor-pointer items-center justify-center rounded-md border border-dashed border-border bg-[var(--pf-admin-bg-subtle,rgba(255,255,255,0.02))] px-3 text-xs font-medium text-muted-foreground transition-colors hover:border-[var(--color-primary)]/50 hover:text-foreground", uploading && "pointer-events-none cursor-wait opacity-60")}>
+        {uploading ? "Uploading…" : `Or upload a new ${kind}…`}
+        <input
+          type="file"
+          accept={accept}
+          className="sr-only"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void pickFile(f);
+            e.target.value = "";
+          }}
+        />
+      </label>
     </div>
   );
 }

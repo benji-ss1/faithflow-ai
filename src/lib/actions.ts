@@ -1014,10 +1014,11 @@ type ThemeConfig = {
   textShadow?: boolean;
   align?: "left" | "center" | "right";
   // Background
-  bgType?: "solid" | "gradient" | "image";
+  bgType?: "solid" | "gradient" | "image" | "video";
   bgColor?: string;                       // solid + gradient stop 1
   bgColor2?: string;                      // gradient stop 2
-  bgImageUrl?: string;
+  bgImageUrl?: string;                    // used when bgType === "image"
+  bgVideoUrl?: string;                    // used when bgType === "video" (autoplay muted loop)
   bgOpacity?: number;                     // 0..1
   // Layout
   logoPosition?:
@@ -1048,7 +1049,7 @@ type ThemeConfig = {
 const THEME_ALLOWED_KEYS: (keyof ThemeConfig)[] = [
   "fontFamily", "fontBodyFamily", "fontSizePx", "fontSizeScripturePx",
   "fontWeight", "textColor", "textShadow", "align",
-  "bgType", "bgColor", "bgColor2", "bgImageUrl", "bgOpacity",
+  "bgType", "bgColor", "bgColor2", "bgImageUrl", "bgVideoUrl", "bgOpacity",
   "logoPosition", "logoSizePx", "churchNameVisible", "churchNamePosition",
   "lowerThirdEnabled", "lowerThirdStyle", "lowerThirdColor",
   "scriptureShowReference", "scriptureReferencePosition", "scriptureTranslationVisible",
