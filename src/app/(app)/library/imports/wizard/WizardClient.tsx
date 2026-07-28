@@ -31,10 +31,28 @@ const SOURCES: SourceCard[] = [
 
 type Summary = {
   parserId: string;
-  counts: { songs: number; media: number; skipped: number };
-  songs: { title: string; artist: string | null; slideCount: number; sourceFile: string }[];
+  counts: { songs: number; media: number; skipped: number; duplicates: number };
+  // `alreadyExists` marks songs whose title matches an existing entry in the
+  // church's library — finalize will silently skip them, so we surface which
+  // ones on the review step.
+  songs: { title: string; artist: string | null; slideCount: number; sourceFile: string; alreadyExists: boolean }[];
   media: { fileName: string; mimeType: string; sizeBytes: number }[];
   skipped: { file: string; reason: string }[];
+  duplicates: string[];
+};
+
+type StageKind = "parsing" | "uploading-media" | "checking-duplicates";
+type ProgressState = {
+  stage: StageKind;
+  processed: number;
+  total: number;
+  currentFile?: string;
+};
+
+const STAGE_LABELS: Record<StageKind, string> = {
+  parsing: "Parsing files",
+  "uploading-media": "Uploading media",
+  "checking-duplicates": "Checking for duplicates",
 };
 
 export function WizardClient() {
@@ -43,6 +61,7 @@ export function WizardClient() {
   const [files, setFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState<ProgressState | null>(null);
   const [migrationJobId, setMigrationJobId] = useState<string | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -72,6 +91,7 @@ export function WizardClient() {
     if (!source || files.length === 0) return;
     setUploading(true);
     setError(null);
+    setProgress({ stage: "parsing", processed: 0, total: files.length });
     try {
       const fd = new FormData();
       for (const f of files) fd.append("files", f, f.webkitRelativePath || f.name);
@@ -79,15 +99,64 @@ export function WizardClient() {
         method: "POST",
         body: fd,
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-      setMigrationJobId(json.migrationJobId);
-      setSummary(json.summary);
-      setStep(3);
+      if (!res.ok) {
+        // Errors on the parse endpoint are JSON (not NDJSON) — a 4xx / 5xx
+        // never enters streaming mode. Fall back to json().
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || `HTTP ${res.status}`);
+      }
+      // Consume NDJSON stream — one JSON event per line. Bufferful reads
+      // are split on newlines; anything after the last newline stays in
+      // buffer for the next chunk.
+      if (!res.body) throw new Error("No response body");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          let event: {
+            type: string;
+            stage?: StageKind;
+            processed?: number;
+            total?: number;
+            currentFile?: string;
+            migrationJobId?: string;
+            summary?: Summary;
+            error?: string;
+          };
+          try {
+            event = JSON.parse(trimmed);
+          } catch { continue; }
+          if (event.type === "stage" || event.type === "progress") {
+            if (event.stage && typeof event.processed === "number" && typeof event.total === "number") {
+              setProgress({
+                stage: event.stage,
+                processed: event.processed,
+                total: event.total,
+                currentFile: event.currentFile,
+              });
+            }
+          } else if (event.type === "done") {
+            if (event.migrationJobId) setMigrationJobId(event.migrationJobId);
+            if (event.summary) setSummary(event.summary);
+            setStep(3);
+          } else if (event.type === "error") {
+            throw new Error(event.error || "Server error during parse");
+          }
+        }
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
     } finally {
       setUploading(false);
+      setProgress(null);
     }
   }
 
@@ -305,6 +374,35 @@ export function WizardClient() {
             </div>
           )}
 
+          {/* Real progress bar driven by the NDJSON stream from
+              /api/imports/parse. When idle: hidden. When running: shows
+              the current stage (parsing / uploading-media / checking-
+              duplicates), an X of Y, and the current filename. */}
+          {uploading && progress ? (
+            <div className="space-y-2 rounded-md border border-border bg-[var(--pf-admin-bg-subtle)] p-4">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-medium text-foreground">
+                  {STAGE_LABELS[progress.stage]}
+                  {progress.total > 0 ? ` — ${Math.min(progress.processed, progress.total)} of ${progress.total}` : ""}
+                </span>
+                <span className="text-muted-foreground">
+                  {progress.total > 0 ? `${Math.round((progress.processed / progress.total) * 100)}%` : "…"}
+                </span>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--pf-admin-bg-muted)]">
+                <div
+                  className="h-full rounded-full bg-[var(--pf-admin-accent)] transition-all duration-200"
+                  style={{ width: progress.total > 0 ? `${Math.min(100, (progress.processed / progress.total) * 100)}%` : "5%" }}
+                />
+              </div>
+              {progress.currentFile ? (
+                <div className="truncate font-mono text-[11px] text-muted-foreground" title={progress.currentFile}>
+                  {progress.currentFile}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="flex gap-2">
             <button
               disabled={files.length === 0 || uploading}
@@ -327,11 +425,32 @@ export function WizardClient() {
               automatically skipped — nothing overwrites your existing lyrics.
             </p>
           </div>
-          <div className="grid max-w-lg grid-cols-3 gap-3">
+          <div className="grid max-w-xl grid-cols-4 gap-3">
             <Stat label="Songs found" value={summary.counts.songs} tone="brand" />
-            <Stat label="Media files" value={summary.counts.media} tone="neutral" />
+            <Stat label="Duplicates" value={summary.counts.duplicates} tone={summary.counts.duplicates > 0 ? "warning" : "neutral"} />
+            <Stat label="Media" value={summary.counts.media} tone="neutral" />
             <Stat label="Skipped" value={summary.counts.skipped} tone={summary.counts.skipped > 0 ? "warning" : "neutral"} />
           </div>
+
+          {summary.duplicates.length > 0 && (
+            <div>
+              <div className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">
+                Duplicates — will be skipped ({summary.duplicates.length})
+              </div>
+              <div className="rounded-md border border-[var(--pf-admin-gold)]/25 bg-[rgba(239,159,39,0.06)] p-3 text-xs">
+                <p className="mb-2 text-muted-foreground">
+                  These titles already exist in your church library. Finalize will skip them instead of overwriting your existing lyrics. Rename in your source file and re-import if you want a second copy.
+                </p>
+                <ul className="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto">
+                  {summary.duplicates.map((title) => (
+                    <li key={title} className="rounded border border-[var(--pf-admin-gold)]/30 bg-[var(--pf-admin-bg-card)] px-2 py-1 font-medium text-foreground">
+                      {title}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
           {summary.songs.length > 0 && (
             <div>
               <div className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">

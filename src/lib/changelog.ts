@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.85",
+    date: "2026-07-28",
+    headline: "Import wizard streams real parse progress + lists duplicate titles up front",
+    highlights: [
+      "The migration wizard now shows a real per-file progress bar during parse. Three stages stream from the server as they happen — Parsing files, Uploading media, Checking for duplicates — with the current filename shown below the bar. Was a static 'Parsing…' spinner with no visibility. Under the hood, /api/imports/parse now streams NDJSON progress events (one JSON per line) and the client reads them via fetch().body.getReader()",
+      "Review step now surfaces the exact list of duplicate titles that finalize will skip, not just a count. New 'Duplicates' stat tile in the summary + an amber-tinted expandable card listing every duplicate title with a note explaining that finalize won't overwrite existing lyrics. If you want a second copy, rename in your source file and re-import",
+    ],
+  },
+  {
     version: "0.1.84",
     date: "2026-07-28",
     headline: "Custom Vocabulary — teach the AI your pastor's name, Nigerian names, and song titles it keeps mishearing",
