@@ -16,6 +16,7 @@ import {
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { getRouteMeta } from "@/components/layout/navigation";
 import { ChurchLogoAvatar } from "@/components/brand/ChurchLogoAvatar";
+import { SyncIndicator } from "@/components/layout/SyncIndicator";
 
 type TopbarProps = {
   user: { name: string; email: string };
@@ -280,6 +281,8 @@ export function Topbar({ user, churchName, churchLogoUrl, onOpenNavigation }: To
             </div>
           </div>
         </div>
+
+        <SyncIndicator />
 
         <div className="hidden md:block">
           <ThemeToggle compact />

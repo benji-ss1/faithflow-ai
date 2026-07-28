@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.87",
+    date: "2026-07-28",
+    headline: "Sync indicator in the topbar — green/amber/red dot with 'last synced' status",
+    highlights: [
+      "New small pill in the topbar (right side, next to theme toggle) that reads 'Synced · Nm ago' with a coloured dot: green when everything's fresh, amber when actively syncing, red when the browser reports offline. Hover for the full tooltip. First slice of the web ↔ desktop sync work — the UI surface is in place today, real Supabase Realtime hooks will drive the state in a later commit",
+      "For now the state auto-reacts to browser online/offline events, so if your Wi-Fi drops you'll see the pill flip to red immediately without a page reload. Any component can dispatch window.dispatchEvent(new CustomEvent('presentflow:sync-state', { detail: { state: 'syncing' } })) to drive it — the wiring surface is documented in SyncIndicator.tsx",
+    ],
+  },
+  {
     version: "0.1.86",
     date: "2026-07-28",
     headline: "Theme editor now supports video backgrounds + inline image/video upload",
