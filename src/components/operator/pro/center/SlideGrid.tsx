@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { cn } from "@/lib/utils";
@@ -37,10 +37,20 @@ function safeMode() {
 }
 
 // Debounce accidental fast repeat clicks / trackpad noise (250ms).
+// 2026-07-27 field fix: the old debounce was GLOBAL — clicking slide 1 then
+// slide 2 within 250ms silently swallowed slide 2 ("clicked but didn't go
+// live" at a live service). Now keyed per-slide: only a repeat click on the
+// SAME slide is suppressed; a click on a different slide always fires
+// (latest-wins — the send path is idempotent).
+let __lastLiveKey = "";
 let __lastLiveFire = 0;
-function fireLive(fn: () => void) {
+function fireLive(key: string, fn: () => void) {
   const now = Date.now();
-  if (now - __lastLiveFire < 250) return;
+  if (key === __lastLiveKey && now - __lastLiveFire < 250) {
+    console.log("[click] slide live suppressed (same-slide repeat <250ms)", { key });
+    return;
+  }
+  __lastLiveKey = key;
   __lastLiveFire = now;
   fn();
 }
@@ -48,6 +58,7 @@ function fireLive(fn: () => void) {
 export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize: number }) {
   const item = ctx.plan.items[ctx.previewItemIdx];
   const slides: SlidePayload[] = item?.slides ?? [];
+  const lastDragEndRef = useRef(0);
 
   // View mode is toggled by the BottomBar (fires "presentflow:slide-view-mode").
   // Persist per-machine so operators keep their preferred layout across launches.
@@ -76,12 +87,23 @@ export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize
     return `slide-${i}`;
   });
 
+  // 2026-07-27 field fix: distance raised 6 → 8px. A shaky mouse/trackpad
+  // press that drifts >6px turned the click into a drag activation and the
+  // click never fired (classic dnd-kit click-swallow at live services).
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
   const onDragEnd = (e: DragEndEvent) => {
+    // dnd-kit can let a trailing click through after a drop — record the drop
+    // time so onSelect can ignore that ghost click (prevents an accidental
+    // go-live right after reordering slides).
+    lastDragEndRef.current = Date.now();
+    // Fix-loop 2026-07-27: reordering changes which slide sits behind each
+    // key/index — a stale dedupe key could wrongly suppress (or allow) the
+    // next go-live. Reset so post-drag clicks always evaluate fresh.
+    __lastLiveKey = "";
     const { active, over } = e;
     if (!over || active.id === over.id) return;
     const oldIdx = slideIds.indexOf(String(active.id));
@@ -123,15 +145,27 @@ export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize
                 index={idx + 1}
                 selected={idx === ctx.previewSlideIdx}
                 onSelect={() => {
-                  if (safeMode()) {
-                    ctx.onJumpSlide(ctx.previewItemIdx, idx);
-                  } else {
-                    ctx.onJumpSlide(ctx.previewItemIdx, idx);
-                    fireLive(() => ctx.onSendSlideToLive(s));
+                  console.log("[click] slide", { id: slideIds[idx], idx, safeMode: safeMode() });
+                  // Ignore the ghost click dnd-kit lets through right after a
+                  // drag-drop — otherwise reordering could fire a slide live.
+                  // Fix-loop 2026-07-27: the guard suppresses ONLY the go-live
+                  // fire; preview selection still happens (window 200 → 120ms).
+                  const justDragged = Date.now() - lastDragEndRef.current < 120;
+                  ctx.onJumpSlide(ctx.previewItemIdx, idx);
+                  if (justDragged) {
+                    console.log("[click] slide live suppressed (just finished drag)", { id: slideIds[idx] });
+                    return;
+                  }
+                  if (!safeMode()) {
+                    // Fix-loop 2026-07-27: dedupe key includes the playlist
+                    // item — the `slide-${i}` fallback collides across items
+                    // and across reorders.
+                    fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => ctx.onSendSlideToLive(s));
                   }
                 }}
                 onDouble={() => {
-                  if (safeMode()) fireLive(() => ctx.onSendSlideToLive(s));
+                  console.log("[click] slide double", { id: slideIds[idx], idx });
+                  if (safeMode()) fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => ctx.onSendSlideToLive(s));
                 }}
                 onDelete={() => ctx.onDeleteSlide?.(ctx.previewItemIdx, idx)}
               />

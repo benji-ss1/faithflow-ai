@@ -557,18 +557,32 @@ export function TopBar({
               // reconnectFailed outranks !listening (stress review follow-up):
               // a give-up flips listening=false, and a grey dot there reads
               // as "operator turned it off" when the truth is "it died".
+              // JPD Fix 4 (2026-07-27): noAudioSignal no longer maps to
+              // "down" (red). Field report — during natural service pauses
+              // (prayer, communion) the input goes pure-silent for 15s+,
+              // noAudioSignal flips, and the red dot read as "AI turned
+              // itself off", so operators toggled it. The pipeline is fully
+              // healthy during silence (always-on mode never tears down);
+              // red is reserved for a genuinely down pipeline (!ready /
+              // reconnect exhausted). Silence shows amber "quiet" with a
+              // label that says explicitly the AI is still ON.
               const beat: "off" | "down" | "quiet" | "flowing" = ctx.audio.reconnectFailed
                 ? "down"
                 : !listening
                   ? "off"
-                  : (!ctx.audio.ready || ctx.audio.noAudioSignal)
+                  : !ctx.audio.ready
                     ? "down"
-                    : (typeof lastAt === "number" && heartbeatNow - lastAt < 10_000)
-                      ? "flowing"
-                      : "quiet";
+                    : ctx.audio.noAudioSignal
+                      ? "quiet"
+                      : (typeof lastAt === "number" && heartbeatNow - lastAt < 10_000)
+                        ? "flowing"
+                        : "quiet";
               const label = beat === "off" ? "AI is off"
                 : beat === "down" ? "AI pipeline down — audio isn't reaching transcription (reconnecting or no signal)"
-                : beat === "quiet" ? "Connected, but no speech transcribed in the last 10s — check the mic is unmuted and someone is speaking"
+                : beat === "quiet"
+                  ? (ctx.audio.noAudioSignal
+                    ? "AI is still ON — the room is silent right now (no signal for 15s+). It will resume detecting the moment speech returns. If someone IS speaking, check the mic/mixer routing."
+                    : "Connected, but no speech transcribed in the last 10s — check the mic is unmuted and someone is speaking")
                 : "AI healthy — audio flowing and transcripts arriving";
               return (
                 <Tooltip.Root>

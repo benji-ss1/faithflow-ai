@@ -2,7 +2,7 @@
 import type { SlidePayload } from "@/lib/broadcast";
 import { AutoFitText } from "./AutoFitText";
 
-export function SlideRenderer({ slide, className, textMinPx, disablePagination }: {
+export function SlideRenderer({ slide, className, textMinPx, disablePagination, projectorFit }: {
   slide: SlidePayload;
   className?: string;
   // 2026-07-25: pass-through to AutoFitText for text slides. Grid cards
@@ -10,6 +10,10 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination }
   // the sanctuary-readability default.
   textMinPx?: number;
   disablePagination?: boolean;
+  // 2026-07-27 JPD Fix 2: projector-surface sizing — word-count-banded
+  // % of container height with a hard 3%-of-height floor. Only the /live
+  // and /stage output routes pass this; thumbnails/previews are untouched.
+  projectorFit?: boolean;
 }) {
   const base = "w-full h-full flex items-center justify-center overflow-hidden";
 
@@ -39,6 +43,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination }
           maxPx={120}
           minPx={textMinPx}
           disablePagination={disablePagination}
+          projectorFit={projectorFit}
           className="text-white font-display font-semibold"
         />
       </div>

@@ -760,11 +760,28 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // closing the wrong socket if a stall + reopen collide.
   let lastDgResultAt = Date.now();
   let lastAudioAt = 0;
+  // JPD Fix 4 (2026-07-27): the stall check must key off VOICED audio, not
+  // any audio. Always-on clients stream silence PCM continuously through
+  // prayers/communion; Deepgram correctly sends no Results for pure silence,
+  // so the old (lastAudioAt fresh + no Results in 30s) condition declared a
+  // "stall" every ~30s of a quiet service and churned the DG socket —
+  // dropping the leading edge of resumed speech during each lazy reopen.
+  // handleAudio() updates lastVoicedAudioAt only when a chunk actually has
+  // signal, so a real stall (speech flowing, no Results) still closes DG.
+  let lastVoicedAudioAt = 0;
   let lastDgSendAt = Date.now();
+  // Fix-loop 2026-07-27: stall-close backoff. After the watchdog closes DG
+  // for a stall, don't allow another stall-close for 5 minutes on this
+  // client connection — prevents socket churn if a marginal room repeatedly
+  // trips the check.
+  let lastStallCloseAt = 0;
+  const STALL_CLOSE_BACKOFF_MS = 5 * 60_000;
   const stallTimer = setInterval(() => {
     const now = Date.now();
-    if (lastAudioAt > 0 && now - lastAudioAt < 5000 && now - lastDgResultAt > 30_000) {
-      console.warn(`[audio] DG stall detected — no Results in 30s while audio flowing. Closing DG for reconnect.`);
+    if (now - lastStallCloseAt < STALL_CLOSE_BACKOFF_MS) return;
+    if (lastVoicedAudioAt > 0 && now - lastVoicedAudioAt < 5000 && now - lastDgResultAt > 30_000) {
+      console.warn(`[audio] DG stall detected — no Results in 30s while voiced audio flowing. Closing DG for reconnect.`);
+      lastStallCloseAt = now;
       try { dg.close(1006, "stall"); } catch { /* ignore */ }
     }
   }, 5_000);
@@ -807,6 +824,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
       const slice = debugOn ? ` text="${(data.channel?.alternatives?.[0]?.transcript ?? "").slice(0, 40)}"` : "";
       console.log(`[audio] dg msg #${dgMessages} type=${data.type ?? "?"} final=${data.is_final ?? "?"}${slice}`);
     }
+    // Fix-loop 2026-07-27: ANY Deepgram message (incl. Metadata frames)
+    // proves the socket isn't wedged — bump the stall clock before the
+    // Results-only filter so instrumental music / non-speech audio that
+    // yields Metadata-but-no-Results doesn't read as a stall.
+    lastDgResultAt = Date.now();
     if (data.type !== "Results") return;
     // 2026-07-23 real-bug fix (root cause of the DG stall/reconnect churn
     // seen in Fly logs): lastDgResultAt was previously bumped only on
@@ -1226,6 +1248,21 @@ wss.on("connection", async (ws: WebSocket, req) => {
     if (buf.length > 64 * 1024) return;
     audioChunks++;
     lastAudioAt = Date.now();
+    // JPD Fix 4: cheap voiced-audio probe for the stall watchdog. PCM16LE
+    // little-endian; stride 16 samples (32 bytes) keeps this ~O(len/32).
+    // Threshold 55 ≈ -55 dBFS peak. Fix-loop 2026-07-27: the previous 330
+    // (≈ -40 dBFS) was too high — a far/quiet mic peaking around -45 dBFS
+    // never armed the watchdog, so a genuinely wedged DG socket was never
+    // detected and detections silently stopped. -55 dBFS is still far above
+    // digital-silence keepalives (literal zero PCM) and USB noise floor,
+    // For reference: the client declares NO_SIGNAL at -70 dBFS — anything
+    // above that is "signal present" to the operator, and -55 dBFS keeps the
+    // watchdog armed for quiet-but-real rooms while staying deaf to true
+    // silence. See lastVoicedAudioAt above.
+    for (let i = 0; i + 1 < buf.length; i += 32) {
+      const s = buf.readInt16LE(i);
+      if (s > 55 || s < -55) { lastVoicedAudioAt = Date.now(); break; }
+    }
     if (audioChunks === 1 || audioChunks % 500 === 0) {
       console.log(`[audio] received chunk #${audioChunks} (${buf.length} bytes)`);
     }

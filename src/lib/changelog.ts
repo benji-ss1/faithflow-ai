@@ -15,6 +15,20 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.88",
+    date: "2026-07-28",
+    headline: "JPD post-session fixes — clicks always land, projector text never tiny, and AI never LOOKS like it turned off",
+    highlights: [
+      "Song/slide clicks are now bulletproof: the old go-live debounce silently DROPPED a click on a different slide within 250ms of the last one (click verse 1, quickly click verse 2 → verse 2 highlighted but never went live). Now only a same-slide repeat is suppressed. Also fixed: slightly-shaky clicks turning into dead drags (drag threshold widened), and clicks right after reordering slides accidentally firing to live (now they select but don't fire for 120ms)",
+      "Projector text is NEVER tiny anymore: the output had a fixed 24-pixel minimum that ignored screen size — 2% of a 1080p projector, unreadable from the back. Now the floor is 3% of the actual display height (~32px on 1080p, scales up on 4K), sizes step down in bands by text length, and body text is always bold. If a slide is SO long it can't fit even at the floor, it renders at the readable floor and the console suggests splitting the slide",
+      "The 'AI turned off' mystery solved: AI never actually turned off — after 15 seconds of silence (prayer, communion) the status dot went RED with 'AI pipeline down', so operators toggled it. Silence now shows an amber 'quiet' dot with 'AI is still ON — the room is silent right now. It will resume the moment speech returns.' Red is reserved for a genuinely dead pipeline",
+      "Real bug found underneath: the audio bridge was quietly restarting its transcription connection every ~30 seconds during silent stretches (a stall-detector misreading silence as a wedged connection), which clipped the first words when the preacher resumed. It now only declares a stall when actual voiced audio was flowing, recognizes ANY response from the transcription engine as alive, and won't restart more than once per 5 minutes",
+      "Audio Guardian tuned for liturgy: mere silence no longer triggers input-switching — a 10-minute communion won't make PresentFlow hunt for a different microphone. Full self-heal (including auto-switching inputs) still fires instantly on real capture errors and device loss",
+      "Auto-pause is now strictly opt-in and honestly labeled ('Auto-pause capture during long silence — not recommended for live services')",
+      "Web + audio-bridge deploy — Cmd+R gets everything, no reinstall",
+    ],
+  },
+  {
     version: "0.1.87",
     date: "2026-07-28",
     headline: "Sync indicator in the topbar — green/amber/red dot with 'last synced' status",

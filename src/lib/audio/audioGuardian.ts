@@ -11,12 +11,23 @@
  *                                   (the pipeline rebuilds on it), wait 15s.
  *   2. Re-enumerate + re-resolve  — listDevices(), confirm the stored pref
  *                                   name is still present, restart once more.
- *   3. Probe alternates           — short 4s captures on every OTHER input
- *                                   (ranked best-first via device category);
- *                                   first device with rms > PROBE_RMS gets
- *                                   written to the native pref (sum-all) and
- *                                   the pipeline swaps to it.
+ *   3. Probe alternates           — ERROR-TRIGGERED LADDERS ONLY. Short 4s
+ *                                   captures on every OTHER input (ranked
+ *                                   best-first via device category); first
+ *                                   device with rms > PROBE_RMS gets written
+ *                                   to the native pref (sum-all) and the
+ *                                   pipeline swaps to it.
  *   4. Needs human                — persistent UI (shell renders a red chip).
+ *
+ * Trigger split (fix-loop 2026-07-27): silence ALONE never means the audio
+ * path is broken — long liturgical silences (communion, prayer, altar calls)
+ * are normal, and auto-switching the live input on mere silence contradicts
+ * the "AI is still ON — the room is silent, ignore this" operator messaging.
+ *   - onError trigger (capture errors, device loss): full ladder, steps 1-4.
+ *   - Silence trigger: only after 10 MINUTES of continuous silence, and even
+ *     then runs ONLY steps 1-2 (restart same device, re-resolve). It never
+ *     probes/auto-switches to alternate inputs — a live audio-path change is
+ *     reserved for error-triggered ladders.
  *
  * Safety rails:
  *   - Never escalates within 30s of a MANUAL device/mode change (the
@@ -59,7 +70,10 @@ export const GUARDIAN_STATE_EVENT = "presentflow:audio-guardian-state";
 // --- Tunables --------------------------------------------------------------
 
 const SILENCE_RMS = 0.004;          // below this = silence
-const SILENCE_HOLD_MS = 20_000;     // continuous silence before ladder starts
+// Fix-loop 2026-07-27: 20s → 10 minutes. A 10-min communion / prayer silence
+// is normal liturgy, not a fault; only genuinely abnormal silence should
+// trigger even the restart-only silence ladder.
+const SILENCE_HOLD_MS = 10 * 60_000; // continuous silence before ladder starts
 const RESTART_WAIT_MS = 15_000;     // wait-for-signal after a restart step
 const PROBE_MS = 4_000;             // per-device probe listen window
 const PROBE_RMS = 0.01;             // probe "this device has real signal" bar
@@ -230,7 +244,7 @@ async function probeDevice(bridge: NativeBridge, device: NativeDeviceInfo): Prom
 
 // --- The escalation ladder -------------------------------------------------
 
-async function runLadder(trigger: string) {
+async function runLadder(trigger: string, opts: { silenceOnly: boolean }) {
   if (ladderRunning) return;
   ladderRunning = true;
   lastLadderRunAt = Date.now();
@@ -279,7 +293,21 @@ async function runLadder(trigger: string) {
     }
     if (!started) return;
 
-    // ---- Step 3: probe alternates --------------------------------------
+    // ---- Step 3: probe alternates (ERROR-triggered ladders ONLY) -------
+    // Fix-loop 2026-07-27: a silence-only ladder must NEVER probe or
+    // auto-switch inputs — swapping the live audio path on mere silence
+    // (e.g. to the laptop's internal mic mid-communion) is worse than the
+    // condition it "fixes". Steps 1-2 already restarted/re-resolved; a
+    // silence-only run stops here.
+    if (opts.silenceOnly) {
+      glog("silence-only ladder — steps 1-2 exhausted; NOT probing alternates");
+      emitState(
+        "silent",
+        `${originalName || "Input"} restarted but still silent. If the room is genuinely quiet this is fine; ` +
+        "otherwise check the mixer's USB sends / cable, or pick a different input in Settings › Audio.",
+      );
+      return;
+    }
     if (bridge && devices.length > 0) {
       const alternates = rankAlternates(devices, pref?.name ?? originalName);
       glog("step 3 probing", alternates.length, "alternate device(s):", alternates.map((d) => d.name));
@@ -348,9 +376,11 @@ function tick() {
     }
     return;
   }
-  const trigger = errorTriggered ? `capture error: ${pendingErrorMsg}` : "20s continuous silence";
+  // Trigger split: error-triggered ladders get the full ladder (incl. the
+  // step-3 probe/auto-switch); silence-only ladders run steps 1-2 only.
+  const trigger = errorTriggered ? `capture error: ${pendingErrorMsg}` : "10min continuous silence";
   pendingErrorMsg = null;
-  void runLadder(trigger);
+  void runLadder(trigger, { silenceOnly: !errorTriggered });
 }
 
 // --- Inputs (called from useAudioStream's native branch) -------------------
@@ -380,7 +410,7 @@ export function guardianOnLevel(rms: number): void {
       now - silenceStartAt >= SILENCE_HOLD_MS &&
       !ladderRunning
     ) {
-      emitState("silent", `No signal from ${currentDeviceName || "input"} for 20s`);
+      emitState("silent", `No signal from ${currentDeviceName || "input"} for 10 minutes`);
     }
   }
 }

@@ -132,7 +132,7 @@ export function PlaylistSection({
                         //      those are typically pre-loaded but the operator
                         //      wants to pick WHICH verse — auto-firing the
                         //      first would be wrong
-                        try { console.log("[playlist] item clicked", { idx, type: it.type, title: it.title, slideCount: it.slides?.length ?? 0 }); } catch { /* ignore */ }
+                        try { console.log("[click] playlist item", { id: it.id, idx, type: it.type, title: it.title, slideCount: it.slides?.length ?? 0 }); } catch { /* ignore */ }
                         onCenterMode?.("slides");
                         ctx.onSetPreviewItem(idx);
                         if (it.type === "song") {

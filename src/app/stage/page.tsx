@@ -248,7 +248,7 @@ export default function StagePage() {
         <div className="border-r border-white/10 relative">
           <div className="absolute top-3 left-4 text-[10px] font-mono uppercase tracking-widest text-white/60 z-10">Current</div>
           <TransitionWrapper identityKey={stageIdentity(current)} transition={transition}>
-            <SlideRenderer slide={current} />
+            <SlideRenderer slide={current} projectorFit />
           </TransitionWrapper>
           <AnnouncementLayer ann={announcement} />
         </div>
@@ -263,7 +263,7 @@ export default function StagePage() {
             )}
           </div>
           {next && next.kind !== "empty" ? (
-            <div className="opacity-50 w-full h-full"><SlideRenderer slide={next} /></div>
+            <div className="opacity-50 w-full h-full"><SlideRenderer slide={next} projectorFit /></div>
           ) : (
             <div className="w-full h-full flex items-center justify-center text-white/20 text-sm">— end of item —</div>
           )}

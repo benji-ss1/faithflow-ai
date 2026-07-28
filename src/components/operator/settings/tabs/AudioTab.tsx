@@ -92,7 +92,8 @@ type CustomCommand = { id: string; phrase: string; action: string };
 export function AudioTab() {
   const [mode, setMode] = useState<"online" | "offline">("online");
   const [voiceOn, setVoiceOn] = useState(true);
-  const [autoPause, setAutoPause] = useState(true);
+  // JPD Fix 4: default OFF — AI stays on until the operator turns it off.
+  const [autoPause, setAutoPause] = useState(false);
   const [autoAdvanceSec, setAutoAdvanceSec] = useState(0);
   const [holdDuringSong, setHoldDuringSong] = useState(false);
   const [selected, setSelected] = useState<AudioInputSel>({ kind: "ndi", id: "ndi:default", label: "NDI Audio (Routed)" });
@@ -133,8 +134,10 @@ export function AudioTab() {
       if (m === "offline" || m === "online") setMode(m);
       const v = localStorage.getItem(VOICE_COMMANDS_KEY);
       setVoiceOn(v !== "0");
+      // JPD Fix 4: strict opt-in ("1" only) — matches isAutoPauseEnabled()
+      // in useAudioStream.ts. Machines that never touched the key get OFF.
       const ap = localStorage.getItem(AUTO_PAUSE_KEY);
-      setAutoPause(ap !== "0");
+      setAutoPause(ap === "1");
       const aa = Number(localStorage.getItem(AUTO_ADVANCE_KEY));
       if (!Number.isNaN(aa) && aa >= 0) setAutoAdvanceSec(aa);
       const hs = localStorage.getItem(HOLD_DURING_SONG_KEY);
@@ -811,8 +814,8 @@ export function AudioTab() {
       <div className="pt-3 space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-[12px] font-semibold text-zinc-100">Auto-pause after 10 min of silence</div>
-            <div className="text-[11px] text-zinc-500 mt-0.5">Close the transcription connection when no voice activity is detected to save cost.</div>
+            <div className="text-[12px] font-semibold text-zinc-100">Auto-pause capture during long silence — not recommended for live services</div>
+            <div className="text-[11px] text-zinc-500 mt-0.5">Off by default: once AI is ON it stays ON until you turn it off. Turning this on closes the transcription connection after 30 min without speech to save cost — you&apos;ll have to restart AI by hand if the service goes quiet that long.</div>
           </div>
           <Toggle
             on={autoPause}

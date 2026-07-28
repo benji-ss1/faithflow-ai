@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { calculateProjectorFontSize, projectorFloorPx } from "@/lib/projectorFontSize";
 
 // Congregation-readability floor per operator spec: 24px absolute minimum.
 // Below this on a 1080p projector at sanctuary distance verses become
@@ -40,7 +41,23 @@ function fitCacheSet(k: string, v: number) {
   fitCache.set(k, v);
 }
 
-export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06, minPx, disablePagination }:
+// Fix-loop 2026-07-27: the overflow-at-floor warning used to fire on EVERY
+// refit (resize, page change) — warn once per unique text, capped at ~50
+// entries so a long service can't grow this unbounded.
+const OVERFLOW_WARNED_MAX = 50;
+const overflowWarned = new Set<string>();
+function warnOverflowOnce(text: string, floorPx: number) {
+  if (overflowWarned.has(text)) return;
+  if (overflowWarned.size >= OVERFLOW_WARNED_MAX) overflowWarned.clear();
+  overflowWarned.add(text);
+  console.warn(
+    `[projector] slide text overflows even at the ${floorPx}px readability floor ` +
+    `(${text.length} chars). Tightening line-height and clipping into safe-area ` +
+    `padding — consider splitting this slide.`
+  );
+}
+
+export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06, minPx, disablePagination, projectorFit }:
   {
     text: string;
     className?: string;
@@ -56,6 +73,17 @@ export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06,
     // indicator inside a thumbnail is unreadable at glance size. Live
     // preview keeps pagination (readability floor is more important there).
     disablePagination?: boolean;
+    // 2026-07-27 JPD Fix 2: `projectorFit` — viewport-proportional sizing
+    // for the LIVE/STAGE output surfaces. The old 24px absolute floor is
+    // tiny on a projector (~2.2% of 1080p). In projector mode the target
+    // size comes from calculateProjectorFontSize() (word-count-banded % of
+    // container height) and the floor is a HARD 3% of container height.
+    // If even the floor overflows, we tighten line-height slightly and
+    // clip into the safe-area padding rather than shrink further, and log
+    // a console warning suggesting the slide be split. Grid thumbnails and
+    // operator preview panes do NOT pass this flag — their sizing is
+    // untouched.
+    projectorFit?: boolean;
   }) {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
@@ -72,6 +100,10 @@ export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06,
   const effectiveMinPx = Math.max(1, Math.min(maxPx, minPx ?? MIN_READABLE_PX));
   const lastFittedRef = useRef<number>(effectiveMinPx);
   const [size, setSize] = useState(lastFittedRef.current);
+  // Projector floor-clipping mode: at the hard 3%-of-height floor a very
+  // long slide may still overflow. We tighten line-height (1.15 → 1.05)
+  // and let the safe-area padding absorb the excess rather than shrink.
+  const [tightLine, setTightLine] = useState(false);
   const [pad, setPad] = useState(4);
   const [pageIdx, setPageIdx] = useState(0);
 
@@ -93,6 +125,54 @@ export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06,
     const bw = box.clientWidth - padPx * 2;
     const bh = box.clientHeight - padPx * 2;
     if (bw <= 0 || bh <= 0) return;
+
+    // JPD Fix 2 — projector mode: viewport-proportional sizing with a
+    // HARD readability floor of 3% of container height. Target size is
+    // word-count-banded (calculateProjectorFontSize). If the target
+    // overflows, step down toward the floor; NEVER go below it. At the
+    // floor, tighten line-height and allow clipping into the safe-area
+    // padding instead of shrinking further.
+    if (projectorFit) {
+      const containerH = box.clientHeight;
+      const floorPx = projectorFloorPx(containerH);
+      const targetPx = Math.max(floorPx, calculateProjectorFontSize(currentText, containerH));
+      t.style.lineHeight = "1.15";
+      const fitsAt = (px: number) => {
+        t.style.fontSize = `${px}px`;
+        return t.scrollWidth <= bw + 1 && t.scrollHeight <= bh + 1;
+      };
+      let best = floorPx;
+      let overflowAtFloor = false;
+      if (fitsAt(targetPx)) {
+        best = targetPx;
+      } else {
+        // Binary search downward between floor and target.
+        let lo = floorPx, hi = targetPx - 1, found = -1;
+        while (lo <= hi) {
+          const mid = Math.floor((lo + hi) / 2);
+          if (fitsAt(mid)) { found = mid; lo = mid + 1; } else { hi = mid - 1; }
+        }
+        if (found >= floorPx) {
+          best = found;
+        } else {
+          best = floorPx;
+          overflowAtFloor = true;
+          warnOverflowOnce(currentText, floorPx);
+        }
+      }
+      // Fix-loop 2026-07-27: explicitly pin the DOM to the winning size and
+      // intended line-height. The search's last PROBE may have been a
+      // failing size; if setState is a no-op (size unchanged after a
+      // resize), React never re-renders and the failing probe value would
+      // stick on screen.
+      t.style.fontSize = `${best}px`;
+      t.style.lineHeight = overflowAtFloor ? "1.05" : "1.15";
+      lastFittedRef.current = best;
+      setTightLine(overflowAtFloor);
+      setSize(best);
+      return;
+    }
+    setTightLine(false);
 
     // T3 cache hit — same text, same box → skip binary search entirely.
     // Cache key includes effectiveMinPx so grid thumbnails don't share
@@ -131,6 +211,10 @@ export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06,
         hi = mid - 1;
       }
     }
+    // Fix-loop 2026-07-27: pin the DOM to the winning size — the loop's last
+    // probe may have been a failing value, and a no-op setState (resize with
+    // unchanged best) would otherwise leave it on screen.
+    t.style.fontSize = `${best}px`;
     lastFittedRef.current = best;
     fitCacheSet(cacheKey, best);
     setSize(best);
@@ -168,7 +252,7 @@ export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06,
         className={className}
         style={{
           fontSize: `${size}px`,
-          lineHeight: 1.15,
+          lineHeight: tightLine ? 1.05 : 1.15,
           whiteSpace: "pre-wrap",
           overflowWrap: "break-word",
           wordBreak: "normal",

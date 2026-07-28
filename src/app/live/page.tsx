@@ -248,7 +248,7 @@ export default function LivePage() {
           }
         >
           <TransitionWrapper identityKey={slideIdentity(slide)} transition={transition}>
-            <SlideRenderer slide={slide} />
+            <SlideRenderer slide={slide} projectorFit />
           </TransitionWrapper>
           <AnnouncementLayer ann={announcement} />
           {messageOverlay && (

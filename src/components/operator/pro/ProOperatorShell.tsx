@@ -1455,8 +1455,12 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       } else {
         guidance = "PresentFlow is receiving a single-channel stream and it's silent. Check: (1) mixer channel isn't muted, (2) USB cable is seated, (3) you've picked the correct input in Settings › Audio. If this is a multi-channel mixer, install the vendor USB driver (e.g. Allen & Heath SQ driver from allen-heath.com).";
       }
+      // JPD Fix 4: lead with "AI is still ON" — operators read this toast
+      // during natural service silences (prayer, communion) as "the AI
+      // timed out and turned off" and manually re-toggled it. The AI never
+      // stops on silence; this is a signal diagnostic only.
       toast.warning(
-        `No audio detected for 15s — ${deviceLabel}: ${chInfo}, 0 signal. ${guidance}`,
+        `AI is still ON and listening — but no audio signal for 15s. ${deviceLabel}: ${chInfo}, 0 signal. If this is just a quiet moment in the service, ignore this. Otherwise: ${guidance}`,
         { duration: 20_000, id: "presentflow-no-signal" },
       );
     } else if (!noAudioSignal && lastNoSignalRef.current) {

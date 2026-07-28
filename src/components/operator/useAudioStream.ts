@@ -794,11 +794,16 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const lastTranscriptAtRef = useRef<number>(Date.now());
   const autoPauseTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isAutoPauseEnabled = useCallback((): boolean => {
+    // JPD Fix 4 (2026-07-27): default flipped OFF. Field report — operators
+    // believed AI "turned itself off" during natural service pauses. Once AI
+    // is ON it must stay ON until the operator turns it off; auto-pause is
+    // now a strict opt-in ("1"), clearly labeled in Settings › Audio as not
+    // recommended for live services.
     try {
-      if (typeof localStorage === "undefined") return true;
+      if (typeof localStorage === "undefined") return false;
       const raw = localStorage.getItem("presentflow.pro.autoPause.enabled");
-      return raw !== "0"; // default true
-    } catch { return true; }
+      return raw === "1"; // default false — explicit opt-in only
+    } catch { return false; }
   }, []);
 
   const teardown = useCallback(() => {
