@@ -264,28 +264,31 @@ html.light {
  * for the intended admin palette without conflicting with operator theming.
  */
 .pf-admin-scope {
-  /* Neutrals — clean SaaS panel */
-  --pf-admin-bg-page:     #FFFFFF;
-  --pf-admin-bg-card:     #FFFFFF;
-  --pf-admin-bg-subtle:   #FAFAF9;
-  --pf-admin-bg-muted:    #F5F4F2;
-  --pf-admin-bg-hover:    #F0EEEB;
-  --pf-admin-bg-accent:   rgba(232, 116, 42, 0.05);
+  /* Neutrals — warm ivory panel (softer than pure white so the terracotta
+     accent doesn't scream against a stark background) */
+  --pf-admin-bg-page:     #F5F1EA;
+  --pf-admin-bg-card:     #FAF6EF;
+  --pf-admin-bg-subtle:   #EFEBE2;
+  --pf-admin-bg-muted:    #E8E3D8;
+  --pf-admin-bg-hover:    #E1DBCE;
+  --pf-admin-bg-accent:   rgba(184, 88, 38, 0.05);
 
-  --pf-admin-text:        #1A1A1A;
-  --pf-admin-text-secondary: #6B6A66;
-  --pf-admin-text-muted:  #9C9A95;
-  --pf-admin-text-inverse:#FFFFFF;
+  --pf-admin-text:        #1A1614;
+  --pf-admin-text-secondary: #6B665E;
+  --pf-admin-text-muted:  #96908A;
+  --pf-admin-text-inverse:#FAF6EF;
 
-  --pf-admin-border:      #E8E6E3;
-  --pf-admin-border-subtle: #F0EEEB;
-  --pf-admin-border-strong: #D4D2CE;
+  --pf-admin-border:      #DED7C8;
+  --pf-admin-border-subtle: #E8E2D3;
+  --pf-admin-border-strong: #C7BFAD;
 
-  /* Brand accents */
-  --pf-admin-accent:       #E8742A;
-  --pf-admin-accent-hover: #D4681F;
-  --pf-admin-accent-soft:  rgba(232, 116, 42, 0.08);
-  --pf-admin-accent-ring:  rgba(232, 116, 42, 0.25);
+  /* Brand accents — deeper terracotta, dropped from #E8742A to sit calmer
+     against the ivory panel and read as a mature brand rather than a CTA
+     shout. */
+  --pf-admin-accent:       #B85826;
+  --pf-admin-accent-hover: #9C481B;
+  --pf-admin-accent-soft:  rgba(184, 88, 38, 0.08);
+  --pf-admin-accent-ring:  rgba(184, 88, 38, 0.25);
 
   --pf-admin-purple: #9B8FE8;
   --pf-admin-pink:   #D4537E;
@@ -295,9 +298,9 @@ html.light {
 
   /* Signature PresentFlow gradient — reserved for accent strips + hero glows */
   --pf-gradient-brand:
-    linear-gradient(135deg, #9B8FE8 0%, #E8742A 50%, #D4537E 100%);
+    linear-gradient(135deg, #9B8FE8 0%, #B85826 50%, #D4537E 100%);
   --pf-gradient-brand-subtle:
-    linear-gradient(135deg, rgba(155,143,232,0.15) 0%, rgba(232,116,42,0.15) 50%, rgba(212,83,126,0.15) 100%);
+    linear-gradient(135deg, rgba(155,143,232,0.15) 0%, rgba(184,88,38,0.15) 50%, rgba(212,83,126,0.15) 100%);
   --pf-gradient-dark-bg:
     linear-gradient(135deg, #0B0B0B 0%, #1A0A14 40%, #0B0B0B 100%);
 }
@@ -309,7 +312,7 @@ html:not(.light) .pf-admin-scope {
   --pf-admin-bg-subtle:   #141414;
   --pf-admin-bg-muted:    #1E1E1E;
   --pf-admin-bg-hover:    #252525;
-  --pf-admin-bg-accent:   rgba(232, 116, 42, 0.10);
+  --pf-admin-bg-accent:   rgba(184, 88, 38, 0.10);
 
   --pf-admin-text:        #F1EFE8;
   --pf-admin-text-secondary: #A8A6A0;
@@ -320,8 +323,8 @@ html:not(.light) .pf-admin-scope {
   --pf-admin-border-subtle: rgba(255,255,255,0.04);
   --pf-admin-border-strong: rgba(255,255,255,0.15);
 
-  --pf-admin-accent-soft:  rgba(232, 116, 42, 0.12);
-  --pf-admin-accent-ring:  rgba(232, 116, 42, 0.3);
+  --pf-admin-accent-soft:  rgba(184, 88, 38, 0.14);
+  --pf-admin-accent-ring:  rgba(184, 88, 38, 0.3);
 }
 
 /* Reusable admin-scoped utility: signature 2px brand gradient stripe */

@@ -25,7 +25,7 @@ export function OnboardingSplash() {
         className="pointer-events-none absolute inset-0"
         style={{
           background:
-            "radial-gradient(circle at 12% 18%, rgba(155,143,232,0.22), transparent 42%), radial-gradient(circle at 88% 82%, rgba(232,116,42,0.28), transparent 42%)",
+            "radial-gradient(circle at 12% 18%, rgba(155,143,232,0.22), transparent 42%), radial-gradient(circle at 88% 82%, rgba(184,88,38,0.28), transparent 42%)",
         }}
       />
       <div className="relative flex flex-col items-center gap-5">
@@ -36,14 +36,14 @@ export function OnboardingSplash() {
           height={72}
           className="object-contain"
           style={{
-            filter: "drop-shadow(0 12px 34px rgba(232,116,42,0.4))",
+            filter: "drop-shadow(0 12px 34px rgba(184,88,38,0.4))",
             animation: "pfPulse 2.4s ease-in-out infinite",
           }}
           priority
         />
         <div className="text-[24px] font-semibold tracking-[-0.01em]">
           <span style={{ color: "#F1EFE8" }}>Present</span>
-          <span style={{ color: "#E8742A" }}>Flow</span>
+          <span style={{ color: "#B85826" }}>Flow</span>
         </div>
         <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.24em]" style={{ color: "#6B6A66" }}>
           Getting things ready

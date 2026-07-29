@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.93",
+    date: "2026-07-29",
+    headline: "Softer admin palette — warm ivory instead of stark white, deeper terracotta instead of bright orange",
+    highlights: [
+      "The admin panel background moved from pure #FFFFFF to a warm ivory (#F5F1EA) so the surface reads as premium paper rather than a lit lightbox — easier on the eyes for a Sunday-morning setup session and it lets the brand accent breathe instead of fighting the background",
+      "Brand accent dropped from #E8742A to #B85826 (deeper terracotta). Same warm orange family, but calmer and more mature — reads as a considered brand mark rather than a look-at-me CTA. Applied across the sidebar wordmark, onboarding splash, buttons, focus rings, and the signature brand gradient",
+      "Also fixed the /dashboard 500 that hit prod earlier — root cause was the users.last_active_at column missing from prod Supabase (Bucket 5 migration only ran locally). Applied via SQL to the live DB; no code change needed",
+      "Web-only deploy — Cmd+R gets everything",
+    ],
+  },
+  {
     version: "0.1.92",
     date: "2026-07-29",
     headline: "New roles: Volunteer and Viewer",
