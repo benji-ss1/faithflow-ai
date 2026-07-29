@@ -9,6 +9,7 @@ import { listTranslations } from "@/lib/server/bible";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { SettingsForm } from "@/components/settings/SettingsForm";
 import { TranslationsPanel } from "@/components/settings/TranslationsPanel";
+import { SentryTestButton } from "@/components/dev/SentryTestButton";
 
 export default async function SettingsPage() {
   const user = await requireUser();
@@ -80,6 +81,7 @@ export default async function SettingsPage() {
             Looking for billing, team members, or your church profile? Those live in the sidebar under
             <span className="font-medium"> People</span> and <span className="font-medium">Admin</span>.
           </p>
+          <SentryTestButton />
         </div>
       )}
     </div>
