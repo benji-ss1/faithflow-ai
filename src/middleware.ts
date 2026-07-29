@@ -78,16 +78,13 @@ const DESKTOP_ALLOWED_API_EXACT = new Set<string>([
   "/api/bible/lookup",
   "/api/bible/search",
   "/api/bible/translations",
-  "/api/imports/list",
-  "/api/imports/parse",
-  "/api/media/list",
-  "/api/media/presign",
+  // NOTE: media/imports/themes/songs/search are ADMIN surfaces too — web
+  // admin needs them for the Media page, Imports page, Themes editor, Songs
+  // library, and top-bar search. Removed from desktop-only list. They stay
+  // auth-gated at the server-action / route-handler level (requireCap /
+  // requireUser), so exposing them to web doesn't widen the security surface.
   "/api/pptx/convert",
-  "/api/search",
   "/api/sermon/match",
-  "/api/songs/library",
-  "/api/songs/list",
-  "/api/themes",
 ]);
 
 // Narrow prefixes for dynamic-segment routes that the operator legitimately

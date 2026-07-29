@@ -15,6 +15,27 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.95",
+    date: "2026-07-29",
+    headline: "Web admin can actually upload logos, media, songs, and themes now",
+    highlights: [
+      "Fixed the 'This action is only available in the Present Flow desktop app' toast that fired when admins tried to upload a church logo or open the media library on web. Root cause: the middleware had /api/media/*, /api/imports/*, /api/themes, /api/songs/library|list, /api/bible/*, /api/search all listed as desktop-only surfaces — but every one of those is an admin surface too. Removed them from the desktop-only list; they stay auth-gated at the server-action level, so no security surface was widened",
+      "Only /api/pptx/convert and /api/sermon/match remain restricted (both are genuinely heavy / desktop-triggered flows)",
+      "Web-only deploy — Cmd+R gets everything",
+    ],
+  },
+  {
+    version: "0.1.94",
+    date: "2026-07-29",
+    headline: "Cross-device sync now covers songs, plans, branding & team — plus Vercel Analytics wired on prod",
+    highlights: [
+      "The web admin's Realtime bridge (the thing that keeps two open tabs on two machines in step) now watches songs, service plans, service items, branding/logo settings, and team member role/name changes — not just themes. Edit a song title on your laptop and the admin open on the church desktop refreshes within a Realtime hop, no F5 needed. Chatty item edits are debounced to 500ms so a burst of drag-reorders coalesces into one refresh",
+      "Same-machine BroadcastChannel (the zero-latency operator path) is untouched — Realtime is strictly additive fan-out for cross-device. If Supabase Realtime env is missing (local dev without keys), the bridge quietly no-ops and nothing breaks",
+      "Vercel Web Analytics + Speed Insights now enabled on the production deployment (skipped on preview and local so noise stays out). The Vercel dashboard should flip both from 'Not Enabled' to green after this deploys",
+      "Web-only deploy — Cmd+R gets everything",
+    ],
+  },
+  {
     version: "0.1.93",
     date: "2026-07-29",
     headline: "Softer admin palette — warm ivory instead of stark white, deeper terracotta instead of bright orange",
