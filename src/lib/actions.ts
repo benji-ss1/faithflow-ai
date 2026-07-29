@@ -1116,6 +1116,31 @@ export async function deleteTheme(id: string): Promise<Result> {
   return { ok: true };
 }
 
+// Persist a new display order for the church's themes. `orderedIds` is
+// the full list of theme ids in the intended visual order. Any id not
+// belonging to this church is silently skipped — dnd-kit shouldn't emit
+// foreign ids, but this defends against a malformed client payload.
+export async function reorderThemes(orderedIds: string[]): Promise<Result> {
+  const user = await requireUser();
+  const db = getDb();
+  if (!Array.isArray(orderedIds) || orderedIds.length === 0) return { ok: true };
+  // Fetch the church's own themes so we can filter out any foreign ids
+  // in one pass — cheaper than N per-row ownership checks.
+  const owned = new Set(
+    (await db.select({ id: themes.id }).from(themes).where(eq(themes.churchId, user.churchId))).map((r) => r.id),
+  );
+  const now = new Date();
+  let position = 0;
+  for (const id of orderedIds) {
+    if (!owned.has(id)) continue;
+    await db.update(themes).set({ sortOrder: position, updatedAt: now })
+      .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId)));
+    position++;
+  }
+  revalidatePath("/library/themes");
+  return { ok: true };
+}
+
 // Sets the given theme as the church's default. Idempotent — calling with
 // the same id twice leaves state unchanged. Two-step within a single call:
 //   1. Unset any existing default in this church

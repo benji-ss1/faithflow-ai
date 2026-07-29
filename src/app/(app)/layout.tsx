@@ -52,6 +52,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="min-h-screen bg-background">
       <AppShell
         user={{ name: user.name, email: user.email }}
+        churchId={user.churchId}
         churchName={church?.name || "PresentFlow Church"}
         churchLogoUrl={churchLogoUrl}
         initialShell={initialShell}

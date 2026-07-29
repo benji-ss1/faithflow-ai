@@ -3,18 +3,20 @@
 import { useState } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
+import { RealtimeSyncBridge } from "@/components/layout/RealtimeSyncBridge";
 import { useShell, type Shell } from "@/hooks/useShell";
 
 type AppShellProps = {
   children: React.ReactNode;
   user: { name: string; email: string };
+  churchId: string;
   churchName: string;
   churchLogoUrl?: string | null;
   // Y6: optional SSR-provided initial shell to prevent flash of web chrome.
   initialShell?: Shell;
 };
 
-export function AppShell({ children, user, churchName, churchLogoUrl, initialShell }: AppShellProps) {
+export function AppShell({ children, user, churchId, churchName, churchLogoUrl, initialShell }: AppShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const shell = useShell(initialShell);
   const isDesktop = shell === "desktop";
@@ -49,6 +51,7 @@ export function AppShell({ children, user, churchName, churchLogoUrl, initialShe
           {children}
         </main>
       </div>
+      <RealtimeSyncBridge churchId={churchId} />
     </div>
   );
 }

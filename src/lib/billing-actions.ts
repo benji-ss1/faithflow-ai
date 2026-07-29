@@ -9,20 +9,35 @@ import { getSongBundle } from "./song-limits";
 
 type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
 
-// Pilot never charges. This exists only so the checkout redirect never
-// accidentally fires when we're not ready.
-const TIER_TO_STRIPE_PRICE: Record<"starter" | "pro" | "enterprise", string | undefined> = {
-  starter: process.env.STRIPE_PRICE_STARTER,
-  pro: process.env.STRIPE_PRICE_PRO,
-  enterprise: process.env.STRIPE_PRICE_ENTERPRISE,
-};
+// Cycle-aware pricing lookup. Prefer per-cycle env vars
+// (STRIPE_PRICE_{TIER}_{MONTHLY|YEARLY}) when set; fall back to the
+// legacy single-price env var (STRIPE_PRICE_{TIER}) which is treated as
+// monthly. Both paths are pilot-safe — if no env var exists for the
+// requested tier+cycle, the caller gets a clean {ok:false} instead of a
+// Stripe error.
+type TierKey = "starter" | "pro" | "enterprise";
+type Cycle = "monthly" | "yearly";
 
-export async function createCheckoutSession(input: { tier: "starter" | "pro" | "enterprise" }): Promise<Result<{ url: string }>> {
+function resolveStripePrice(tier: TierKey, cycle: Cycle): string | undefined {
+  const upperTier = tier.toUpperCase();
+  const upperCycle = cycle.toUpperCase();
+  const cycled = process.env[`STRIPE_PRICE_${upperTier}_${upperCycle}`];
+  if (cycled) return cycled;
+  // Legacy fallback — monthly only. Anyone still using the flat
+  // STRIPE_PRICE_* env vars gets monthly regardless of the requested
+  // cycle. That's the safe direction — you can never accidentally
+  // upsell a customer to a yearly plan that doesn't exist.
+  if (cycle === "monthly") return process.env[`STRIPE_PRICE_${upperTier}`];
+  return undefined;
+}
+
+export async function createCheckoutSession(input: { tier: TierKey; cycle?: Cycle }): Promise<Result<{ url: string }>> {
   const admin = await requireRole("admin");
   if (!isStripeConfigured()) return { ok: false, error: "Billing is not configured yet. Contact support." };
 
-  const priceId = TIER_TO_STRIPE_PRICE[input.tier];
-  if (!priceId) return { ok: false, error: `No price configured for ${input.tier} yet. This tier is not active.` };
+  const cycle: Cycle = input.cycle === "yearly" ? "yearly" : "monthly";
+  const priceId = resolveStripePrice(input.tier, cycle);
+  if (!priceId) return { ok: false, error: `No ${cycle} price configured for ${input.tier} yet. This tier/cycle is not active.` };
 
   const db = getDb();
   const [sub] = await db.select().from(subscriptions).where(eq(subscriptions.churchId, admin.churchId)).limit(1);
@@ -40,12 +55,12 @@ export async function createCheckoutSession(input: { tier: "starter" | "pro" | "
       line_items: [{ price: priceId, quantity: 1 }],
       customer_email: admin.email,
       client_reference_id: admin.churchId,
-      metadata: { churchId: admin.churchId, tier: input.tier },
+      metadata: { churchId: admin.churchId, tier: input.tier, cycle },
       success_url: `${appUrl}/settings/billing?ok=1`,
       cancel_url: `${appUrl}/settings/billing?canceled=1`,
       ...(sub?.stripeCustomerId ? { customer: sub.stripeCustomerId } : {}),
       subscription_data: {
-        metadata: { churchId: admin.churchId, churchName: church?.name || "" },
+        metadata: { churchId: admin.churchId, churchName: church?.name || "", cycle },
       },
     });
     if (!session.url) return { ok: false, error: "Stripe returned no checkout URL — try again in a minute" };

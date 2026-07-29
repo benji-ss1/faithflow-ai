@@ -1,9 +1,12 @@
 "use client";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { ChevronDown, Copy, Palette, Plus, Star, Trash2, X } from "lucide-react";
+import { ChevronDown, Copy, GripVertical, Palette, Plus, Star, Trash2, X } from "lucide-react";
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, useSortable, arrayMove, rectSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
-import { createTheme, updateTheme, duplicateTheme, deleteTheme, setDefaultTheme } from "@/lib/actions";
+import { createTheme, updateTheme, duplicateTheme, deleteTheme, setDefaultTheme, reorderThemes } from "@/lib/actions";
 
 // Kept minimal + additive — see `type ThemeConfig` in src/lib/actions.ts for
 // the full sanitised shape. Everything below is optional; the preview + the
@@ -100,6 +103,27 @@ export function ThemesManager({ themes: initial }: { themes: ThemeRow[] }) {
     });
   }
 
+  // dnd-kit — only fire the reorder server action if the drag actually
+  // resulted in a change. Optimistic local reorder + revert on server
+  // failure keeps the list stable.
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  function onDragEnd(e: DragEndEvent) {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const oldIndex = themes.findIndex((t) => t.id === active.id);
+    const newIndex = themes.findIndex((t) => t.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const next = arrayMove(themes, oldIndex, newIndex);
+    setThemes(next);
+    startTransition(async () => {
+      const res = await reorderThemes(next.map((t) => t.id));
+      if (!res.ok) {
+        toast.error(res.error || "Could not save order");
+        setThemes(themes);
+      }
+    });
+  }
+
   function onSetDefault(id: string) {
     startTransition(async () => {
       const res = await setDefaultTheme(id);
@@ -188,64 +212,23 @@ export function ThemesManager({ themes: initial }: { themes: ThemeRow[] }) {
           </button>
         </div>
       ) : (
-        <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {themes.map((t) => (
-            <li key={t.id} className={cn("relative overflow-hidden rounded-2xl border bg-card/80", t.isDefault ? "border-[var(--pf-admin-accent)]/40" : "border-border")}>
-              {t.isDefault ? (
-                <span className="absolute right-3 top-3 z-10 inline-flex items-center gap-1 rounded-full bg-[var(--pf-admin-accent)]/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--pf-admin-text-inverse)]">
-                  <Star className="h-2.5 w-2.5 fill-current" /> Default
-                </span>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => setEditing(t)}
-                className="block w-full text-left focus:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--pf-admin-accent-ring)]"
-              >
-                <SlidePreview config={t.config} mode="lyrics" />
-              </button>
-              <div className="flex items-center justify-between p-4">
-                <button
-                  type="button"
-                  onClick={() => setEditing(t)}
-                  className="truncate text-left text-sm font-medium hover:underline"
-                >
-                  {t.name}
-                </button>
-                <div className="flex items-center gap-1">
-                  {!t.isDefault ? (
-                    <button
-                      type="button"
-                      onClick={() => onSetDefault(t.id)}
-                      title="Set as default"
-                      disabled={pending}
-                      className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-[var(--pf-admin-accent)]/10 hover:text-[var(--pf-admin-accent)] disabled:opacity-50"
-                    >
-                      <Star className="h-3.5 w-3.5" />
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => onDuplicate(t.id)}
-                    title="Duplicate"
-                    disabled={pending}
-                    className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-white/[0.04] hover:text-foreground disabled:opacity-50"
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onDelete(t.id, t.name)}
-                    title="Delete"
-                    disabled={pending}
-                    className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </div>
-            </li>
-          ))}
-        </ul>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+          <SortableContext items={themes.map((t) => t.id)} strategy={rectSortingStrategy}>
+            <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {themes.map((t) => (
+                <SortableThemeCard
+                  key={t.id}
+                  theme={t}
+                  pending={pending}
+                  onEdit={() => setEditing(t)}
+                  onSetDefault={() => onSetDefault(t.id)}
+                  onDuplicate={() => onDuplicate(t.id)}
+                  onDelete={() => onDelete(t.id, t.name)}
+                />
+              ))}
+            </ul>
+          </SortableContext>
+        </DndContext>
       )}
 
       {editing ? (
@@ -710,6 +693,102 @@ function ThemeEditor({
         </p>
       </section>
     </div>
+  );
+}
+
+// -- sortable theme card --
+//
+// One theme card in the /library/themes grid. Attaches a dnd-kit drag
+// handle so admins can reorder cards; the parent's onDragEnd (which
+// calls the reorderThemes server action) persists the order.
+function SortableThemeCard({
+  theme, pending, onEdit, onSetDefault, onDuplicate, onDelete,
+}: {
+  theme: ThemeRow;
+  pending: boolean;
+  onEdit: () => void;
+  onSetDefault: () => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: theme.id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.65 : 1,
+    zIndex: isDragging ? 10 : undefined,
+  };
+  return (
+    <li
+      ref={setNodeRef}
+      style={style}
+      className={cn("relative overflow-hidden rounded-2xl border bg-card/80", theme.isDefault ? "border-[var(--pf-admin-accent)]/40" : "border-border")}
+    >
+      {theme.isDefault ? (
+        <span className="absolute right-3 top-3 z-10 inline-flex items-center gap-1 rounded-full bg-[var(--pf-admin-accent)]/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--pf-admin-text-inverse)]">
+          <Star className="h-2.5 w-2.5 fill-current" /> Default
+        </span>
+      ) : null}
+      <button
+        type="button"
+        onClick={onEdit}
+        className="block w-full text-left focus:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--pf-admin-accent-ring)]"
+      >
+        <SlidePreview config={theme.config} mode="lyrics" />
+      </button>
+      <div className="flex items-center justify-between p-4">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <button
+            type="button"
+            className="grid h-8 w-6 shrink-0 cursor-grab place-items-center rounded text-muted-foreground opacity-40 transition hover:opacity-90 active:cursor-grabbing"
+            title="Drag to reorder"
+            aria-label={`Drag ${theme.name}`}
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onEdit}
+            className="min-w-0 truncate text-left text-sm font-medium hover:underline"
+          >
+            {theme.name}
+          </button>
+        </div>
+        <div className="flex items-center gap-1">
+          {!theme.isDefault ? (
+            <button
+              type="button"
+              onClick={onSetDefault}
+              title="Set as default"
+              disabled={pending}
+              className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-[var(--pf-admin-accent)]/10 hover:text-[var(--pf-admin-accent)] disabled:opacity-50"
+            >
+              <Star className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onDuplicate}
+            title="Duplicate"
+            disabled={pending}
+            className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-white/[0.04] hover:text-foreground disabled:opacity-50"
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            title="Delete"
+            disabled={pending}
+            className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+    </li>
   );
 }
 

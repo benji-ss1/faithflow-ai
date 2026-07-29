@@ -108,10 +108,14 @@ export function BillingPanel({ tier, status, currentPeriodEnd, trialEnd, hasStri
   // detail page has its own Stripe CTA. Church tier's page uses a mailto
   // instead of Stripe. This preserves createCheckoutSession as the shared
   // action all upgrade pages use for the actual buy.
+  // Pass the selected cycle through to the upgrade page as a query param
+  // so the detail page's Start-free-trial button hands the right cycle to
+  // Stripe checkout. Falls back to monthly on the upgrade page if absent.
+  const cycleQ = `?cycle=${cycle}`;
   const TIER_TO_HREF: Record<PlanTier["key"], string> = {
-    starter: "/upgrade/starter",
-    pro: "/upgrade/pro",
-    enterprise: "/upgrade/church",
+    starter: `/upgrade/starter${cycleQ}`,
+    pro: `/upgrade/pro${cycleQ}`,
+    enterprise: `/upgrade/church${cycleQ}`,
   };
 
   function portal() {

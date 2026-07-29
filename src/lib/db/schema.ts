@@ -449,6 +449,10 @@ export const themes = pgTable("themes", {
   // via a transactional `setDefaultTheme` action (unsets prior default,
   // then sets new one). Nullable/false is the "no default" state.
   isDefault: boolean("is_default").notNull().default(false),
+  // Manual ordering for the /library/themes list. Lower value = earlier.
+  // Ties broken by name alphabetically. Never referenced by the operator
+  // projector — display-only.
+  sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

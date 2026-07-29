@@ -202,5 +202,5 @@ export async function listPptxImports(churchId: string) {
 
 export async function listThemes(churchId: string) {
   const db = getDb();
-  return db.select().from(themes).where(eq(themes.churchId, churchId)).orderBy(asc(themes.name));
+  return db.select().from(themes).where(eq(themes.churchId, churchId)).orderBy(asc(themes.sortOrder), asc(themes.name));
 }
