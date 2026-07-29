@@ -11,12 +11,14 @@
  * Selecting a Songs/Bible/Media result switches the center mode so the
  * user can locate the item. Selecting a Playlist entry jumps preview to it.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Command } from "cmdk";
-import { Music, BookOpen, Image as ImageIcon, ListOrdered } from "lucide-react";
+import { Music, BookOpen, Image as ImageIcon, ListOrdered, Quote } from "lucide-react";
 import type { OperatorShellCtx } from "../shell/types";
 import type { CenterMode } from "./ProOperatorShell";
+import { phraseSearch } from "@/services/bible/phraseSearch";
+import { dispatchInternal } from "@/lib/internal-events";
 
 type SongLite = { id: string; title: string; artist?: string | null };
 type MediaLite = { id: string; fileName?: string; name?: string };
@@ -36,6 +38,17 @@ export function SearchPalette({
 }) {
   const [songs, setSongs] = useState<SongLite[]>([]);
   const [media, setMedia] = useState<MediaLite[]>([]);
+  const [query, setQuery] = useState("");
+
+  // Reference-shaped queries win over phrase results (mirrors COMMON_REFS
+  // matching path). Skip phrase section for those to avoid noise.
+  const REF_SHAPE = /\b(?:[1-3]\s*)?[a-z]{3,}\s*\d+(?::\d+(?:\s*-\s*\d+)?)?\b/i;
+  const phraseHits = useMemo(() => {
+    const q = query.trim();
+    if (q.length < 2) return [];
+    if (REF_SHAPE.test(q)) return [];
+    return phraseSearch(q).slice(0, 5);
+  }, [query]);
 
   useEffect(() => {
     if (!open) return;
@@ -66,6 +79,8 @@ export function SearchPalette({
           <Command className="flex flex-col max-h-[420px]">
             <Command.Input
               autoFocus
+              value={query}
+              onValueChange={setQuery}
               placeholder="Search songs, Bible verses, media, playlist…"
               className="h-11 px-3 bg-transparent border-b border-[var(--color-border)] outline-none text-[13px]"
             />
@@ -102,6 +117,38 @@ export function SearchPalette({
                   </Command.Item>
                 ))}
               </Command.Group>
+
+              {phraseHits.length > 0 && (
+                <Command.Group heading="Bible Phrases" className="[&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-[var(--color-muted-foreground)]">
+                  {phraseHits.map((h) => (
+                    <Command.Item
+                      key={h.entry.id}
+                      value={`phrase ${h.entry.reference} ${h.entry.phrase}`}
+                      onSelect={() => {
+                        onCenterMode("bible");
+                        // Review fix (A-2, 2026-07-29): actually LOAD the selected
+                        // phrase's verse — landing in Bible mode with nothing
+                        // loaded was a bait-and-switch.
+                        dispatchInternal("presentflow:bible-goto", {
+                          book: h.entry.book,
+                          chapter: h.entry.chapter,
+                          verseStart: h.entry.verse,
+                          verseEnd: h.entry.verseEnd ?? h.entry.verse,
+                          live: false,
+                        });
+                        onOpenChange(false);
+                      }}
+                      className="px-3 py-2 rounded flex items-center gap-2 cursor-pointer data-[selected=true]:bg-[var(--color-elevated)]"
+                    >
+                      <Quote className="w-3.5 h-3.5" />
+                      <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-muted-foreground)] shrink-0">
+                        {h.entry.reference}
+                      </span>
+                      <span className="truncate">{h.entry.phrase}</span>
+                    </Command.Item>
+                  ))}
+                </Command.Group>
+              )}
 
               {songs.length > 0 && (
                 <Command.Group heading="Songs" className="[&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-[var(--color-muted-foreground)]">

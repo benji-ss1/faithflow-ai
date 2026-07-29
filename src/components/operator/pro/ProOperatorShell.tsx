@@ -218,13 +218,19 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
           {scriptureCards.map((s) => {
             if (s.type !== "scripture") return null;
             const ref = `${s.ref.book} ${s.ref.chapter}:${s.ref.verseStart}${s.ref.verseEnd !== s.ref.verseStart ? `-${s.ref.verseEnd}` : ""}`;
+            const isPhrase = !!s.isPhraseMatch;
+            const tip = isPhrase
+              ? "Phrase match — quoted text, not a spoken reference. Tap to load."
+              : `${ref} (${s.confidence}%) — click to load, Shift+click to send live`;
             return (
               <div
                 key={s.id}
                 role="button"
                 tabIndex={0}
-                title={`${ref} (${s.confidence}%) — click to load, Shift+click to send live`}
-                aria-label={`${ref}, ${s.confidence}% confidence — click to load, Shift+click to send live`}
+                title={tip}
+                aria-label={isPhrase
+                  ? `${ref}, phrase match — quoted text, not a spoken reference. Tap to load.`
+                  : `${ref}, ${s.confidence}% confidence — click to load, Shift+click to send live`}
                 onClick={(e) => dispatchInternal("presentflow:bible-goto", {
                   book: s.ref.book, chapter: s.ref.chapter, verseStart: s.ref.verseStart, verseEnd: s.ref.verseEnd, live: e.shiftKey,
                 })}
@@ -238,12 +244,25 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
               >
                 <span className="font-semibold">{ref}</span>
                 <span className="text-[9px] font-mono opacity-60">{s.confidence}%</span>
-                <span
-                  className="ml-1 text-[8px] font-bold px-1 py-[1px] rounded bg-[var(--color-success,#10b981)] text-white"
-                  aria-label="AI detected"
-                >
-                  AI
-                </span>
+                {isPhrase ? (
+                  // ✦ phrase-match badge — visually distinct from the "AI"
+                  // hard-reference badge so operators can tell a fuzzy quote
+                  // match from a spoken reference at a glance.
+                  <span
+                    className="ml-1 text-[8px] font-bold px-1 py-[1px] rounded bg-violet-500/80 text-white"
+                    aria-label="Phrase match"
+                    data-testid="phrase-match-badge"
+                  >
+                    ✦
+                  </span>
+                ) : (
+                  <span
+                    className="ml-1 text-[8px] font-bold px-1 py-[1px] rounded bg-[var(--color-success,#10b981)] text-white"
+                    aria-label="AI detected"
+                  >
+                    AI
+                  </span>
+                )}
               </div>
             );
           })}
@@ -1896,6 +1915,8 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const queuedAutoFireRef = useRef<{ slide: import("@/lib/broadcast").SlidePayload; key: string; ref: string; conf: number } | null>(null);
   const queuedTimerRef = useRef<number | null>(null);
   const autoAdvanceIntervalRef = useRef<number | null>(null); // R4/R9
+  // 2026-07-29 crash fix: one auto-fire per detection event (see effect below).
+  const lastHandledAutoFireSuggestionIdRef = useRef<string | null>(null);
   const lastLiveWasSongRef = useRef<boolean>(false); // Y8
 
   // Part 2 (verse forward-continuation): word-timing tracking buffers, same
@@ -2073,14 +2094,27 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // time, even minutes apart) bypasses the normal 85% floor — restating a
     // verse is itself the "make sure this is on screen" signal. AUTO mode
     // being on (the `autoOn` check above) is still required either way.
-    const scripture = suggestions.find((s) => s.type === "scripture" && (s.confidence >= 85 || s.forceLive) && !lowConfBlockedSpans.has(s.id));
+    // isPhraseMatch exclusion — phrase-quote matches are capped at 74 and
+    // never carry forceLive, so this filter is belt-and-braces on top of
+    // those source guards (2026-07-28 sign-off: phrase matches NEVER auto-fire).
+    const scripture = suggestions.find((s) => s.type === "scripture" && !s.isPhraseMatch && (s.confidence >= 85 || s.forceLive) && !lowConfBlockedSpans.has(s.id));
     if (!scripture || scripture.type !== "scripture") return;
+    // 2026-07-29 crash fix (Maximum update depth exceeded): this effect depends
+    // on ctx.liveSlide, so a fire re-runs it. forceLive/voiceCommand suggestions
+    // bypass BOTH the min-gap and the 5-min replay guard, so the SAME suggestion
+    // object re-fired on every re-render → synchronous render loop. Dedupe by
+    // suggestion id: one fire per detection EVENT. A preacher restating the
+    // reference later produces a NEW suggestion (new id) and still fires.
+    if (lastHandledAutoFireSuggestionIdRef.current === scripture.id) return;
     const first = cards[0];
     // R8: skip placeholder cards (loading / no-text / lookup-failed) AND
     // empty-text guard as belt-and-braces.
     if (!first || first.placeholder === true || !first.verses?.length) return;
     const firstText = first.verses[0]?.text ?? "";
-    if (!firstText || firstText === "Loading…" || firstText.length === 0) return;
+    // 2026-07-29 field bug fix: error cards ("(no verse text available)" for a
+    // nonexistent verse like John 3:60, "(lookup failed)") must never project —
+    // previously only the "Loading…" placeholder text was screened here.
+    if (!firstText || firstText === "Loading…" || firstText.startsWith("(no verse text") || firstText.startsWith("(lookup failed")) return;
 
     const key = first.id;
     // R5: check sessionStorage for recent replays (5 min TTL). This is the
@@ -2172,6 +2206,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       // not queued/blocked) — logged AFTER min-gap check inside doAutoFire.
       (slide as unknown as { __detToFireMs: number }).__detToFireMs = detToFireMs;
     }
+    lastHandledAutoFireSuggestionIdRef.current = scripture.id;
     doAutoFire(slide, key, ref, scripture.confidence, !!(scripture.forceLive || scripture.voiceCommand));
     bibleSession.setSelectedIdx(0);
     lastLiveWasSongRef.current = false;

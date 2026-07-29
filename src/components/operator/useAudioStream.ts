@@ -117,7 +117,7 @@ export type TranscriptChunk = { id: string; text: string; final: boolean; ts: nu
  *  by (segmentId, [start,end]) instead of naive substring includes(). */
 export type MatchedSpan = { start: number; end: number };
 export type UnifiedSuggestion =
-  | { id: string; type: "scripture"; segmentId: string; ts: number; confidence: number; matchedText: string; matchedSpan?: MatchedSpan; ref: { book: string; chapter: number; verseStart: number; verseEnd: number }; forceLive?: boolean; voiceCommand?: boolean }
+  | { id: string; type: "scripture"; segmentId: string; ts: number; confidence: number; matchedText: string; matchedSpan?: MatchedSpan; ref: { book: string; chapter: number; verseStart: number; verseEnd: number }; forceLive?: boolean; voiceCommand?: boolean; isPhraseMatch?: boolean }
   | { id: string; type: "song"; segmentId: string; ts: number; confidence: number; matchedText: string; matchedSpan?: MatchedSpan; match: SongMatchResult }
   | { id: string; type: "lyric"; segmentId: string; ts: number; confidence: number; matchedText: string; matchedSpan?: MatchedSpan; match: SongMatchResult }
   | { id: string; type: "section"; segmentId: string; ts: number; confidence: number; matchedText: string; matchedSpan?: MatchedSpan; section: "chorus" | "verse" | "bridge" | "outro" | "tag"; index?: number };
@@ -476,7 +476,14 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     for (const r of result.scripture) {
       const id = `sc-${segmentId}-${r.book}-${r.chapter}-${r.verseStart}-${r.verseEnd}`;
       const key = `${r.book} ${r.chapter}:${r.verseStart}-${r.verseEnd}`;
-      const conf = blendScripture(r);
+      // Phrase-quote matches (2026-07-28 sign-off): detectAll caps them at 74,
+      // but blendScripture's boost/parserConf+10 headroom could lift a 74 up
+      // to 84 — re-clamp here so the cap survives client-side blending. They
+      // are also excluded from chapter context + forceLive below: a fuzzy
+      // quote match must never seed "verse N" resolution or bypass the
+      // auto-fire confidence floor (CLAUDE.md rule 7 — no auto-fire path).
+      const isPhrase = !!r.isPhraseMatch;
+      const conf = isPhrase ? Math.min(blendScripture(r), 74) : blendScripture(r);
       // Review found: the fuzzy/phonetic book-match pattern (confidence 55
       // raw, ~65 max after blending) can coincidentally hit a real book name
       // from ordinary speech ("room 1:2" -> Romans 1:2). That's an
@@ -487,7 +494,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       // live-fire. Gate both on a confidence floor comfortably above that
       // pattern's ceiling; genuine low-confidence-but-real hits (the
       // pre-existing semantic-fallback tier) sit at 72+ and are unaffected.
-      const trustworthyForContext = conf >= 70;
+      const trustworthyForContext = conf >= 70 && !isPhrase;
       if (trustworthyForContext) lastActiveRefRef.current = { book: r.book, chapter: r.chapter };
       // Restating the exact same reference (even minutes apart) is itself a
       // "make sure this is on screen" signal — flags forceLive so the
@@ -502,7 +509,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       // Auto-fire's other guards (AUTO toggle, min-gap, different-live-ref
       // check) keep this from spamming.
       const forceLive = occurrenceCount >= 2 && trustworthyForContext;
-      const suggestion: UnifiedSuggestion = { id, type: "scripture", segmentId, ts, confidence: conf, matchedText: r.matchedText, matchedSpan: spanFor(r.matchedText), ref: { book: r.book, chapter: r.chapter, verseStart: r.verseStart, verseEnd: r.verseEnd }, ...(forceLive ? { forceLive: true } : {}), ...(r.isNavigationCommand ? { voiceCommand: true } : {}) };
+      const suggestion: UnifiedSuggestion = { id, type: "scripture", segmentId, ts, confidence: conf, matchedText: r.matchedText, matchedSpan: spanFor(r.matchedText), ref: { book: r.book, chapter: r.chapter, verseStart: r.verseStart, verseEnd: r.verseEnd }, ...(forceLive ? { forceLive: true } : {}), ...(r.isNavigationCommand ? { voiceCommand: true } : {}), ...(isPhrase ? { isPhraseMatch: true } : {}) };
       if (forceLive || r.isNavigationCommand) {
         // Bypass the normal 30s dedupe cooldown for this one signal — the
         // repeat is very often said within that same window (that's the

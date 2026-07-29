@@ -13,6 +13,16 @@ import { matchSongCue, type SongMatchResult, type MatchContext } from "./song-ma
 import { detectSongInTranscript, resetSongDedupe } from "./song-detection";
 export { resetSongDedupe };
 import type { IndexedSong, SongIndex } from "./lyric-fragment";
+import { topPhraseForSpeech } from "@/services/bible/phraseSearch";
+
+// Widened ParsedReference — carries the phrase-match provenance flag so
+// downstream renderers can display a ✦ badge instead of the default AI badge.
+// Threaded end-to-end (2026-07-27): useAudioStream copies it onto the
+// scripture UnifiedSuggestion (re-clamping confidence to 74 and excluding
+// phrase matches from chapter-context + forceLive), the ProOperatorShell
+// chips bar and AIDetectionsPanel Bible rows render the ✦ badge, and the
+// shell's auto-fire selector explicitly filters `!s.isPhraseMatch`.
+export type PhraseMatchParsedReference = ParsedReference & { isPhraseMatch?: boolean };
 
 export type DetectAllContext = {
   churchId: string;
@@ -27,7 +37,7 @@ export type DetectAllContext = {
 };
 
 export type DetectAllResult = {
-  scripture: ParsedReference[];
+  scripture: PhraseMatchParsedReference[];
   song: SongMatchResult[];      // title-similarity matches (from cues or free text)
   lyric: SongMatchResult[];     // lyric-fragment matches
   command: ContextCommand[];    // generic slide/verse navigation
@@ -35,8 +45,67 @@ export type DetectAllResult = {
   section: SectionCommand[];    // song section jumps (chorus/verse N)
 };
 
+// Phrase-match cooldown — keyed by reference (e.g. "Psalms 23:1"). Phrases
+// repeat naturally in preaching, so we cool longer (15s) than the direct-
+// reference SuggestionDedupe (30s wall / bypassed on refresh). Entries older
+// than 60s are pruned to keep the map bounded for a 12h service.
+const PHRASE_COOLDOWN_MS = 15_000;
+const PHRASE_TTL_MS = 60_000;
+const phraseCooldown = new Map<string, number>();
+function phraseCooldownAllows(ref: string, nowMs: number): boolean {
+  // Sweep older entries — cheap linear pass, map stays tiny (<50 refs).
+  for (const [k, ts] of phraseCooldown) {
+    if (nowMs - ts > PHRASE_TTL_MS) phraseCooldown.delete(k);
+  }
+  const prev = phraseCooldown.get(ref);
+  if (prev !== undefined && nowMs - prev < PHRASE_COOLDOWN_MS) return false;
+  phraseCooldown.set(ref, nowMs);
+  return true;
+}
+export function _resetPhraseCooldown() { phraseCooldown.clear(); }
+
+/** Take the last N words of a transcript window — matches the AI-detection
+ *  budget so we don't rescan a 30-minute rolling buffer on every interim. */
+function lastWords(text: string, n: number): string {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= n) return text.trim();
+  return words.slice(-n).join(" ");
+}
+
 export async function detectAll(chunk: string, ctx: DetectAllContext): Promise<DetectAllResult> {
-  const scripture = parseReferences(chunk);
+  const scripture: PhraseMatchParsedReference[] = parseReferences(chunk);
+
+  // Phrase-match fallback (CLAUDE.md #9-tier signal): if the direct-reference
+  // parser found nothing, run a spoken-phrase lookup on the last 40 words of
+  // the transcript window. Direct references ALWAYS win — this branch is
+  // guarded on scripture.length === 0.
+  if (scripture.length === 0) {
+    const window = lastWords(chunk, 40);
+    const top = window ? topPhraseForSpeech(window) : null;
+    if (top && phraseCooldownAllows(top.entry.reference, Date.now())) {
+      const e = top.entry;
+      scripture.push({
+        book: e.book,
+        chapter: e.chapter,
+        verseStart: e.verse,
+        verseEnd: e.verseEnd ?? e.verse,
+        // 2026-07-28 user sign-off: phrase-quote matches must NEVER auto-fire.
+        // The Bible auto-approve confidenceFloor defaults to 90 and phrase
+        // scores range up to 90 — capping at 74 keeps every phrase match
+        // strictly below the default floor, so it surfaces as a chip the
+        // operator can click but cannot zero-click project (CLAUDE.md rule 7:
+        // extending auto-projection to a new detection path needs sign-off,
+        // and the sign-off given was "cap below auto-fire"). If the approve
+        // path ever gains an explicit isPhraseMatch filter, this cap becomes
+        // belt-and-braces rather than the primary guard.
+        confidence: Math.min(top.confidence, 74),
+        matchedText: e.phrase,
+        needsSemanticFallback: true,
+        isPhraseMatch: true,
+      });
+    }
+  }
+
   const cue = detectSongCues(chunk);
   // Min-word gate for song detection: only fire on transcripts with >=4
   // words unless a cue phrase was recognized (in which case a short

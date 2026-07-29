@@ -13,6 +13,8 @@ import {
   setProbeTarget,
   type StartProbeOpts,
 } from "../audio/multiChannelProbe";
+import { swiftHelper, setSwiftHelperTarget, toNativeDevices } from "../audio/swiftHelper";
+import { resolveCaptureTier, forceFfmpegTier } from "../audio/captureTier";
 
 export function registerAudioIpc() {
   // Lets the renderer distinguish "macOS never granted this app mic access
@@ -70,8 +72,15 @@ export function registerAudioIpc() {
 export function registerNativeAudioIpc(getMainWindow: () => BrowserWindow | null) {
   setCaptureTarget(getMainWindow);
   setProbeTarget(getMainWindow);
+  setSwiftHelperTarget(getMainWindow);
 
   ipcMain.handle("audio:native:isAvailable", async () => {
+    // Available if EITHER tier can capture. Tier order: swift → ffmpeg.
+    try {
+      if ((await resolveCaptureTier()) === "swift") return true;
+    } catch (err) {
+      console.warn("[audio:native:isAvailable] tier probe", err);
+    }
     try {
       return await isNativeCaptureAvailable();
     } catch (err) {
@@ -82,6 +91,12 @@ export function registerNativeAudioIpc(getMainWindow: () => BrowserWindow | null
 
   ipcMain.handle("audio:native:listDevices", async () => {
     try {
+      if ((await resolveCaptureTier()) === "swift") {
+        const devices = await swiftHelper.listDevices();
+        if (devices.length > 0) return toNativeDevices(devices);
+        // Swift answered but with nothing — degrade for this call only.
+        console.warn("[audio:native:listDevices] swift returned empty; using ffmpeg list");
+      }
       return await listNativeDevices();
     } catch (err) {
       console.warn("[audio:native:listDevices]", err);
@@ -99,16 +114,33 @@ export function registerNativeAudioIpc(getMainWindow: () => BrowserWindow | null
     if (typeof o.deviceIndex !== "number" || !Number.isFinite(o.deviceIndex)) {
       return { ok: false, error: "deviceIndex must be a number" };
     }
-    return nativeStartCapture({
+    const cleanOpts = {
       deviceIndex: o.deviceIndex,
       channelFilter: typeof o.channelFilter === "string" ? o.channelFilter : undefined,
       sampleRate: typeof o.sampleRate === "number" ? o.sampleRate : undefined,
       channels: typeof o.channels === "number" ? o.channels : undefined,
-    });
+    };
+    if ((await resolveCaptureTier()) === "swift") {
+      try {
+        const res = await swiftHelper.startCapture({
+          deviceIndex: cleanOpts.deviceIndex,
+          channelFilter: cleanOpts.channelFilter,
+        });
+        if (res.ok) return res;
+        // Swift start failed — degrade to ffmpeg for the session and retry
+        // the command once (per-call graceful degrade).
+        forceFfmpegTier(`startCapture failed: ${res.error ?? "unknown"}`);
+      } catch (err) {
+        forceFfmpegTier(`startCapture threw: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    return nativeStartCapture(cleanOpts);
   });
 
   ipcMain.handle("audio:native:stopCapture", async () => {
-    await nativeStopCapture();
+    // Stop both tiers — cheap no-ops on the inactive one, and covers a
+    // capture that started on swift before a mid-session degrade.
+    await Promise.allSettled([swiftHelper.stopCapture(), nativeStopCapture()]);
     return { ok: true };
   });
 
@@ -120,6 +152,17 @@ export function registerNativeAudioIpc(getMainWindow: () => BrowserWindow | null
     if (typeof o.deviceIndex !== "number" || typeof o.channelCount !== "number") {
       return { ok: false, error: "deviceIndex and channelCount required" };
     }
+    if ((await resolveCaptureTier()) === "swift") {
+      try {
+        const res = await swiftHelper.startChannelProbe({ deviceIndex: o.deviceIndex });
+        if (res.ok) return res;
+        forceFfmpegTier(`startChannelProbe failed: ${res.error ?? "unknown"}`);
+      } catch (err) {
+        forceFfmpegTier(
+          `startChannelProbe threw: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    }
     return nativeStartChannelProbe({
       deviceIndex: o.deviceIndex,
       channelCount: o.channelCount,
@@ -127,7 +170,7 @@ export function registerNativeAudioIpc(getMainWindow: () => BrowserWindow | null
   });
 
   ipcMain.handle("audio:native:stopChannelProbe", async () => {
-    await nativeStopChannelProbe();
+    await Promise.allSettled([swiftHelper.stopChannelProbe(), nativeStopChannelProbe()]);
     return { ok: true };
   });
 }
@@ -137,5 +180,9 @@ export function registerNativeAudioIpc(getMainWindow: () => BrowserWindow | null
  * never outlive the Electron main process.
  */
 export async function stopAllNativeAudio(): Promise<void> {
-  await Promise.allSettled([nativeStopCapture(), nativeStopChannelProbe()]);
+  await Promise.allSettled([
+    nativeStopCapture(),
+    nativeStopChannelProbe(),
+    swiftHelper.shutdown(),
+  ]);
 }

@@ -50,6 +50,13 @@ Before running the release script, verify:
 - Typecheck clean: `npx tsc --noEmit 2>&1 | grep -v "test/adversarial/audio-reconnect\|jsdom" | head` returns nothing
 - `gh auth status` shows authenticated with `repo` scope
 - `fly` CLI available if the bridge also needs redeploying (`~/.fly/bin/fly` on this machine)
+- **Swift audio helper (since v0.1.92):** run `bash native/macos/build.sh` and verify
+  `resources/native/macos/PresentFlowAudioHelper` exists and `file` reports a
+  **universal (arm64 + x86_64)** Mach-O — a single-arch helper silently downgrades
+  Apple Silicon churches to the ffmpeg tier. The build script needs a Swift
+  toolchain; with bare Command Line Tools it uses the `--triple` + `lipo` path.
+  When Apple Developer signing lands, the helper needs its own codesign entry
+  (currently ad-hoc signed, which is sufficient for the unsigned .app).
 
 ---
 

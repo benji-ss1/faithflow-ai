@@ -15,6 +15,7 @@ import { addServiceItem, addServiceItems } from "@/lib/actions";
 import { Plus, Pencil, Check } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { isInternalEvent } from "@/lib/internal-events";
+import { phraseSearch, findPhraseByReference, type PhraseSearchResult } from "@/services/bible/phraseSearch";
 
 /**
  * R5: All session state (ref, translation, mode, cards, selectedIdx) is
@@ -82,6 +83,17 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
     return () => window.removeEventListener("presentflow:center-slide-size", handler);
   }, []);
   const router = useRouter();
+
+  // Phrase-search dropdown (client-side, curated corpus). When the input
+  // doesn't look like a reference we debounce and show inline suggestions
+  // directly below the input — separate from the server-side pgvector phrase
+  // search that the Lookup button triggers.
+  const [dropdownHits, setDropdownHits] = useState<PhraseSearchResult[]>([]);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [dropdownHighlight, setDropdownHighlight] = useState(-1);
+  const [dropdownNoResults, setDropdownNoResults] = useState(false);
+  const [showAllCrossRefs, setShowAllCrossRefs] = useState(false);
+  const dropdownDebounceRef = useRef<number | null>(null);
 
   // Pending guards against duplicate-add: a rapid double-click or impatient
   // repeat-click on the `+` button (or the batch "add all" button) could
@@ -304,6 +316,68 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
     } catch { return true; }
   })();
 
+  useEffect(() => {
+    if (dropdownDebounceRef.current !== null) {
+      window.clearTimeout(dropdownDebounceRef.current);
+      dropdownDebounceRef.current = null;
+    }
+    const trimmed = ref.trim();
+    if (isRef || trimmed.length < 3) {
+      setDropdownHits([]);
+      setDropdownOpen(false);
+      setDropdownHighlight(-1);
+      setDropdownNoResults(false);
+      return;
+    }
+    dropdownDebounceRef.current = window.setTimeout(() => {
+      const hits = phraseSearch(trimmed);
+      setDropdownHits(hits);
+      setDropdownOpen(true);
+      setDropdownHighlight(-1);
+      setDropdownNoResults(hits.length === 0);
+    }, 200);
+    return () => {
+      if (dropdownDebounceRef.current !== null) {
+        window.clearTimeout(dropdownDebounceRef.current);
+        dropdownDebounceRef.current = null;
+      }
+    };
+  }, [ref, isRef]);
+
+  const loadPhraseHit = useCallback(async (hit: PhraseSearchResult) => {
+    const e = hit.entry;
+    setRef(e.reference);
+    setDropdownOpen(false);
+    setDropdownHits([]);
+    setDropdownHighlight(-1);
+    setDropdownNoResults(false);
+    setPhraseHits([]);
+    setShowAllCrossRefs(false);
+    await runLookup({
+      book: e.book,
+      chapter: e.chapter,
+      verseStart: e.verse,
+      verseEnd: e.verseEnd ?? e.verse,
+    });
+  }, [runLookup, setRef, setPhraseHits]);
+
+  const loadReferenceString = useCallback(async (referenceStr: string) => {
+    const parser = await import("@/lib/bible-parser");
+    const parsed = parser.parseTypedReference(referenceStr);
+    if (parsed.length === 0) { toast.info(`Couldn't parse "${referenceStr}"`); return; }
+    const p = parsed[0];
+    setRef(referenceStr);
+    setDropdownOpen(false);
+    setDropdownHits([]);
+    setPhraseHits([]);
+    setShowAllCrossRefs(false);
+    await runLookup({
+      book: p.book, chapter: p.chapter,
+      verseStart: p.verseStart, verseEnd: p.verseEnd,
+      chapterEnd: p.chapterEnd,
+    });
+  }, [runLookup, setRef, setPhraseHits]);
+
   // Called from the Browse tab: single verse → load into card area & switch tab.
   const pickBrowsedVerse = useCallback((r: { book: string; chapter: number; verse: number }) => {
     setRef(`${r.book} ${r.chapter}:${r.verse}`);
@@ -388,7 +462,38 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
           <input
             value={ref}
             onChange={(e) => setRef(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void lookup(); } }}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown" && dropdownOpen && dropdownHits.length > 0) {
+                e.preventDefault();
+                setDropdownHighlight((h) => (h + 1) % dropdownHits.length);
+                return;
+              }
+              if (e.key === "ArrowUp" && dropdownOpen && dropdownHits.length > 0) {
+                e.preventDefault();
+                setDropdownHighlight((h) => (h <= 0 ? dropdownHits.length - 1 : h - 1));
+                return;
+              }
+              if (e.key === "Escape" && dropdownOpen) {
+                e.preventDefault();
+                setDropdownOpen(false);
+                return;
+              }
+              if (e.key === "Tab" && dropdownOpen) {
+                setDropdownOpen(false);
+                return;
+              }
+              if (e.key === "Enter") {
+                e.preventDefault();
+                if (dropdownOpen && dropdownHits.length > 0) {
+                  const idx = dropdownHighlight >= 0 ? dropdownHighlight : 0;
+                  void loadPhraseHit(dropdownHits[idx]);
+                  return;
+                }
+                void lookup();
+              }
+            }}
+            onFocus={() => { if (dropdownHits.length > 0) setDropdownOpen(true); }}
+            onBlur={() => { window.setTimeout(() => setDropdownOpen(false), 150); }}
             placeholder="John 3:16 or 'The Lord is my shepherd'"
             className="w-full bg-[var(--color-elevated)] border border-[var(--color-border)] rounded-md px-3 pr-20 h-9 text-sm outline-none focus:border-[var(--color-brand)]"
           />
@@ -398,6 +503,87 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
           >
             {isRef ? "REFERENCE" : "PHRASE"}
           </span>
+          {dropdownOpen && (dropdownHits.length > 0 || dropdownNoResults) && (
+            <div
+              className="absolute left-0 right-0 top-full mt-1 z-30"
+              style={{
+                background: "#1E1E1E",
+                border: "1px solid rgba(255,255,255,0.1)",
+                borderRadius: "0 0 8px 8px",
+                boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+                maxHeight: 400,
+                overflowY: "auto",
+              }}
+              onMouseDown={(e) => e.preventDefault()}
+            >
+              {dropdownHits.length === 0 && dropdownNoResults && (
+                <div className="px-3 py-2 text-[12px]" style={{ color: "#6B6A66" }}>
+                  No results found. Try a verse reference like &quot;John 3:16&quot;
+                </div>
+              )}
+              {dropdownHits.map((hit, i) => {
+                const e = hit.entry;
+                const highlighted = i === dropdownHighlight;
+                const filled = Math.max(0, Math.min(5, Math.round((e.popularity ?? 0) / 2)));
+                const truncated = e.fullText.length > 80 ? `${e.fullText.slice(0, 80)}…` : e.fullText;
+                return (
+                  <div
+                    key={e.id}
+                    role="option"
+                    aria-selected={highlighted}
+                    onMouseEnter={() => setDropdownHighlight(i)}
+                    onClick={() => { void loadPhraseHit(hit); }}
+                    className="flex items-start gap-2 px-3 py-2 cursor-pointer"
+                    style={{
+                      background: highlighted ? "rgba(232,116,42,0.06)" : "transparent",
+                    }}
+                  >
+                    <span
+                      style={{
+                        background: "rgba(232,116,42,0.10)",
+                        color: "#E8742A",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        padding: "2px 6px",
+                        borderRadius: 4,
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                        marginTop: 2,
+                      }}
+                    >
+                      {e.reference}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div style={{ fontSize: 14, color: "#F1EFE8", fontWeight: 500 }} className="truncate">
+                        {e.phrase}
+                      </div>
+                      <div style={{ fontSize: 12, color: "#6B6A66" }} className="truncate">
+                        {truncated}
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                      <span
+                        style={{
+                          fontSize: 10,
+                          padding: "1px 6px",
+                          borderRadius: 999,
+                          background: "rgba(255,255,255,0.06)",
+                          color: "rgba(255,255,255,0.55)",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.04em",
+                        }}
+                      >
+                        {e.category}
+                      </span>
+                      <span style={{ fontSize: 10, color: "rgba(232,116,42,0.75)", letterSpacing: 1 }}>
+                        {"●".repeat(filled)}{"○".repeat(5 - filled)}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
         <select
           value={translation}
@@ -419,7 +605,17 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
           <option value="ASV">American Standard Version</option>
         </select>
         <button
-          onClick={() => void lookup()}
+          onClick={() => {
+            if (!isRef && dropdownHits.length > 0) {
+              void loadPhraseHit(dropdownHits[0]);
+              return;
+            }
+            if (!isRef && dropdownNoResults) {
+              toast.info("No results found. Try a verse reference like \"John 3:16\"");
+              return;
+            }
+            void lookup();
+          }}
           disabled={loading}
           className="h-9 px-3 rounded-md bg-[var(--color-brand)] text-black text-sm font-semibold disabled:opacity-60"
         >
@@ -737,6 +933,70 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
         })}
       </div>
       )}
+
+      {tab === "reference" && cards.length > 0 && (() => {
+        const anchorIdx = selectedIdx ?? 0;
+        const anchorLabel = cards[anchorIdx]?.label || "";
+        const strippedRef = anchorLabel.replace(/\s*\([^)]*\)\s*$/, "").trim();
+        const phraseEntry = findPhraseByReference(strippedRef);
+        const refs = phraseEntry?.crossRefs || [];
+        if (refs.length === 0) return null;
+        const visible = showAllCrossRefs ? refs : refs.slice(0, 5);
+        return (
+          <div className="flex flex-col gap-2">
+            <div
+              style={{
+                fontSize: 11,
+                color: "rgba(255,255,255,0.5)",
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+              }}
+            >
+              Related Verses
+            </div>
+            <div className="flex flex-wrap gap-1.5 items-center">
+              {visible.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => { void loadReferenceString(r); }}
+                  style={{
+                    background: "rgba(155,143,232,0.08)",
+                    color: "#9B8FE8",
+                    fontSize: 12,
+                    fontWeight: 500,
+                    padding: "4px 8px",
+                    borderRadius: 4,
+                    border: "none",
+                    cursor: "pointer",
+                    transition: "background 120ms ease",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(155,143,232,0.15)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(155,143,232,0.08)"; }}
+                >
+                  {r}
+                </button>
+              ))}
+              {refs.length > 5 && !showAllCrossRefs && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllCrossRefs(true)}
+                  style={{
+                    fontSize: 12,
+                    color: "#9B8FE8",
+                    background: "transparent",
+                    border: "none",
+                    padding: "4px 6px",
+                    cursor: "pointer",
+                  }}
+                >
+                  Show more →
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -15,6 +15,18 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.102",
+    date: "2026-07-29",
+    headline: "Quote a verse and PresentFlow finds it — plus a new native audio engine for rock-solid mixer capture (NEW DMG)",
+    highlights: [
+      "Phrase search is live: the preacher QUOTES a familiar line — 'for God so loved the world', 'the Lord is my shepherd' — without saying the reference, and a suggestion chip appears with a violet ✦ badge. The ✦ means 'quoted text, not a spoken reference' so you always know it's the AI's best guess. Phrase matches can NEVER auto-project (hard-capped below the auto-fire threshold at three separate layers) — tap the chip to load it, Shift-click to send live. 233 curated phrases covering the most-quoted verses plus African/RCCG staples",
+      "Phrase search also works in the ⌘K palette and the Bible panel input — type part of a quote, pick the hit, the verse loads with related-verse cross-references",
+      "New native audio engine (desktop app, needs this DMG): a dedicated macOS audio helper now captures your mixer via CoreAudio directly — stable device identity that survives USB replugs (no more 'wrong input after reconnect'), instant channel/gain changes without restarting capture, and hot-plug detection the moment a device appears. The proven ffmpeg engine from v0.1.80 stays as an automatic fallback — if the helper ever fails, capture switches over by itself and keeps running",
+      "Zero configuration: the app picks the best engine automatically. Everything you already set up (input choice, channels, vocabulary, guardian) works identically on both engines",
+      "Existing testers auto-update within the hour; fresh installs: right-click → Open on first launch (unsigned build)",
+    ],
+  },
+  {
     version: "0.1.101",
     date: "2026-07-29",
     headline: "Error tracking (Sentry) + GitHub Actions CI — the two red items from the security review",

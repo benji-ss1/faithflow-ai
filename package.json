@@ -1,6 +1,6 @@
 {
   "name": "presentflow",
-  "version": "0.1.101",
+  "version": "0.1.102",
   "private": true,
   "description": "PresentFlow — AI-native church presentation software.",
   "author": "PresentFlow",
@@ -154,6 +154,15 @@
       "**/node_modules/ffmpeg-static/**"
     ],
     "mac": {
+      "extraResources": [
+        {
+          "from": "resources/native/macos",
+          "to": "native/macos",
+          "filter": [
+            "**/*"
+          ]
+        }
+      ],
       "target": [
         {
           "target": "dmg",

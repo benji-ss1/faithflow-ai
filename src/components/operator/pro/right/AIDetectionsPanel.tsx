@@ -65,6 +65,7 @@ export type BibleRow = {
   ts: number;
   preview?: string;       // first 40 chars of verse text
   invalid?: boolean;      // db lookup returned 0 verses
+  isPhraseMatch?: boolean; // fuzzy quote match (✦ badge), not a spoken reference
 };
 
 // ---------- Song row shape ----------
@@ -135,6 +136,7 @@ export function bibleRowFromSuggestion(s: UnifiedSuggestion): BibleRow | null {
     book, chapter, verseStart, verseEnd,
     confidence: s.confidence,
     ts: s.ts,
+    ...(s.isPhraseMatch ? { isPhraseMatch: true } : {}),
   };
 }
 
@@ -442,7 +444,10 @@ export function AIDetectionsPanel({ ctx, sections }: { ctx: OperatorShellCtx; se
                   key={row.key}
                   role="button"
                   tabIndex={0}
-                  aria-label={`Bible detection ${row.book} ${row.chapter}:${row.verseStart}${row.verseEnd !== row.verseStart ? "-" + row.verseEnd : ""} at ${conf}% confidence — Enter to load, Shift+Enter to send live`}
+                  aria-label={row.isPhraseMatch
+                    ? `Bible phrase match ${row.book} ${row.chapter}:${row.verseStart}${row.verseEnd !== row.verseStart ? "-" + row.verseEnd : ""} — quoted text, not a spoken reference. Enter to load, Shift+Enter to send live`
+                    : `Bible detection ${row.book} ${row.chapter}:${row.verseStart}${row.verseEnd !== row.verseStart ? "-" + row.verseEnd : ""} at ${conf}% confidence — Enter to load, Shift+Enter to send live`}
+                  title={row.isPhraseMatch ? "Phrase match — quoted text, not a spoken reference. Tap to load." : undefined}
                   onClick={() => loadBible(row)}
                   onDoubleClick={(e) => { e.preventDefault(); void sendBibleLive(row); }}
                   onKeyDown={(e) => {
@@ -461,6 +466,15 @@ export function AIDetectionsPanel({ ctx, sections }: { ctx: OperatorShellCtx; se
                         {row.book} {row.chapter}:{row.verseStart}
                         {row.verseEnd !== row.verseStart ? `-${row.verseEnd}` : ""}
                       </span>
+                      {row.isPhraseMatch && (
+                        <span
+                          aria-label="Phrase match"
+                          data-testid="phrase-match-badge"
+                          className="shrink-0 text-[8px] font-bold px-1 py-[1px] rounded bg-violet-500/80 text-white"
+                        >
+                          ✦
+                        </span>
+                      )}
                       {passesAA && (
                         <span
                           aria-label="auto-approve"

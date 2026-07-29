@@ -17,3 +17,4 @@ test/screenshots/
 dist-electron/
 release/
 .claude/worktrees/
+native/macos/.build/
