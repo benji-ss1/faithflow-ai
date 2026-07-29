@@ -684,6 +684,21 @@ export async function deleteMediaAsset(id: string): Promise<Result> {
   return { ok: true };
 }
 
+export async function renameMediaAsset(id: string, newName: string): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const trimmed = newName.trim().slice(0, 200);
+  if (!trimmed) return { ok: false, error: "Name required" };
+  const db = getDb();
+  // Church-scoped UPDATE — no row-level pre-check needed since the WHERE
+  // enforces ownership. Zero rowCount = wrong church or gone.
+  const upd = await db.update(mediaAssets)
+    .set({ fileName: trimmed })
+    .where(and(eq(mediaAssets.id, id), eq(mediaAssets.churchId, user.churchId)));
+  if ((upd as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Not found" };
+  revalidatePath("/library/media");
+  return { ok: true };
+}
+
 // PPTX -----------------------------------------------------------------------
 export async function createPptxImport(fileName: string, s3Key: string): Promise<Result<{ id: string }>> {
   const user = await requireCap("edit_library");

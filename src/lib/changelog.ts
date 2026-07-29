@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.99",
+    date: "2026-07-29",
+    headline: "Edit & delete on Media and PPTX imports, editable worship defaults",
+    highlights: [
+      "Media library: every media card now has a three-dot menu with Download, Rename, and Delete. Rename is inline — click Rename, edit the filename, press Enter (or click away) to save. Empty state got a friendlier message + clear CTA pointing to the upload button",
+      "Imports (PowerPoint): every import row now has a trash icon to delete both the source file AND the converted slides from storage in one action. Church-scoped: you can only delete your own imports",
+      "Church Profile: Default Bible translation and Blank screen color are now inline-editable on the Church Profile page (previously read-only display). One save button covers both, updates in a single round-trip",
+      "Web-only deploy — Cmd+R gets everything",
+    ],
+  },
+  {
     version: "0.1.98",
     date: "2026-07-29",
     headline: "Light mode default, cleaner Settings, ad-hoc cleanup, beta notice",

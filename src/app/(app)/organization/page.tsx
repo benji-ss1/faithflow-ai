@@ -1,12 +1,14 @@
 import { eq } from "drizzle-orm";
 import { requireRole } from "@/lib/session";
 import { getDb } from "@/lib/db/client";
-import { bibleTranslations, churches, churchPreferences, settings } from "@/lib/db/schema";
+import { churches, churchPreferences, settings } from "@/lib/db/schema";
 import { presignGet } from "@/lib/s3";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { AccountCard } from "@/components/account/AccountCard";
 import { ChurchProfileForm } from "@/components/organization/ChurchProfileForm";
 import { ChurchBrandingUploader } from "@/components/organization/ChurchBrandingUploader";
+import { WorshipDefaultsForm } from "@/components/organization/WorshipDefaultsForm";
+import { listTranslations } from "@/lib/server/bible";
 
 export default async function OrganizationPage() {
   const admin = await requireRole("admin");
@@ -14,9 +16,10 @@ export default async function OrganizationPage() {
   const [church] = await db.select().from(churches).where(eq(churches.id, admin.churchId)).limit(1);
   const [display] = await db.select().from(settings).where(eq(settings.churchId, admin.churchId)).limit(1);
   const [prefs] = await db.select().from(churchPreferences).where(eq(churchPreferences.churchId, admin.churchId)).limit(1);
-  const [translation] = prefs?.defaultTranslationId
-    ? await db.select().from(bibleTranslations).where(eq(bibleTranslations.id, prefs.defaultTranslationId)).limit(1)
-    : [];
+  const allTranslations = await listTranslations();
+  const publicTranslations = allTranslations
+    .filter((t) => !t.licenseRequired)
+    .map((t) => ({ id: t.id, code: t.code, name: t.name }));
   const logoUrl = display?.logoS3Key ? await presignGet(display.logoS3Key) : null;
 
   return (
@@ -46,10 +49,13 @@ export default async function OrganizationPage() {
             <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               Worship defaults
             </div>
-            <dl className="grid gap-4 sm:grid-cols-2">
-              <Detail label="Default Bible translation" value={translation ? `${translation.code} · ${translation.name}` : "Not set"} />
-              <Detail label="Blank screen color" value={display?.blankBgColor || "#000000"} />
-            </dl>
+            <WorshipDefaultsForm
+              translations={publicTranslations}
+              initial={{
+                defaultTranslationId: prefs?.defaultTranslationId ?? null,
+                blankBgColor: display?.blankBgColor || "#000000",
+              }}
+            />
           </div>
         </AccountCard>
         <AccountCard title="Church branding" description="Upload your logo — it appears in the sidebar, in the desktop app splash, and as a Logo slide in service plans.">
@@ -62,11 +68,3 @@ export default async function OrganizationPage() {
   );
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl border border-border bg-white/[0.02] p-3">
-      <dt className="mb-1 text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{label}</dt>
-      <dd className="text-sm font-medium">{value}</dd>
-    </div>
-  );
-}

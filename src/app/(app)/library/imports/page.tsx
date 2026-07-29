@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/session";
 import { listPptxImports } from "@/lib/server/services";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { PptxRetryButton } from "@/components/library/PptxRetryButton";
+import { PptxDeleteButton } from "@/components/library/PptxDeleteButton";
 import { ImportsGrid } from "@/components/library/ImportsGrid";
 
 const STATUS_COLOR: Record<string, string> = {
@@ -42,6 +43,7 @@ export default async function ImportsPage() {
                   <Link href={`/library/imports/${p.id}`} className="eyebrow underline text-muted-foreground hover:text-foreground">
                     Metadata
                   </Link>
+                  <PptxDeleteButton importId={p.id} fileName={p.originalFileName} />
                 </div>
               </li>
             ))}
