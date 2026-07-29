@@ -16,7 +16,7 @@
  * between them anyway.
  */
 
-import { useState, useTransition, useMemo, useCallback } from "react";
+import { useState, useTransition, useMemo, useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import {
   Upload, X, FileText, ChevronDown, ChevronRight, CheckCircle2,
@@ -72,9 +72,16 @@ async function fileToBase64(file: File): Promise<string> {
   return btoa(binary);
 }
 
-export function ProPresenterImportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function ProPresenterImportDialog({
+  open, onClose, initialFiles,
+}: {
+  open: boolean;
+  onClose: () => void;
+  /** Pre-loaded files (used when a drop on the parent surface routes here). */
+  initialFiles?: File[];
+}) {
   const [phase, setPhase] = useState<Phase>("upload");
-  const [files, setFiles] = useState<File[]>([]);
+  const [files, setFiles] = useState<File[]>(initialFiles ?? []);
   const [preview, setPreview] = useState<PreviewData | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -99,6 +106,15 @@ export function ProPresenterImportDialog({ open, onClose }: { open: boolean; onC
     reset();
     onClose();
   }, [pending, reset, onClose]);
+
+  // If the parent hands us pre-loaded files (drag-drop routed here), adopt
+  // them on open so the user lands on the upload step with them queued.
+  useEffect(() => {
+    if (open && initialFiles && initialFiles.length > 0) {
+      setFiles(initialFiles);
+      setPhase("upload");
+    }
+  }, [open, initialFiles]);
 
   const handleFiles = useCallback((incoming: FileList | File[]) => {
     const arr = Array.from(incoming).filter((f) => fileMatchesAccept(f.name));

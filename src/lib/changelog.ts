@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.104",
+    date: "2026-07-29",
+    headline: "ProPresenter import in the desktop operator too — no more 'nothing works' on Pro7 drops",
+    highlights: [
+      "The operator console's Songs library Import button now opens the same polished 4-step ProPresenter dialog as the admin web page. Previously it ran a legacy path that read every file as UTF-8 text — which silently mangled Pro7 binaries and rejected .proBundle ZIPs, showing '0 songs imported' with no useful error. Now Pro7 / .proBundle / .pro7x / .pro / .pro6 / .pro5 all route through the same pipeline in both surfaces.",
+      "Drag-and-drop onto the operator's Songs library now also detects .proBundle / .pro7 / binary .pro drops and opens the dialog pre-loaded with those files. Legacy .pro6 / .pro5 XML drops still take the fast one-shot path.",
+    ],
+  },
+  {
     version: "0.1.103",
     date: "2026-07-29",
     headline: "One-click ProPresenter migration — songs and backgrounds, .proBundle + Pro7",

@@ -16,6 +16,7 @@ import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload } from "@/lib/broadcast";
 import { createSong, createSongSlide, importPro6Files, updateSongSlides } from "@/lib/actions";
 import { isInternalEvent } from "@/lib/internal-events";
+import { ProPresenterImportDialog } from "@/components/library/ProPresenterImportDialog";
 
 type SongRow = { id: string; title: string; artist: string | null };
 type SlideRow = { id?: string; lyrics: string };
@@ -70,8 +71,16 @@ export function SongsBrowser({
   }, [reloadKey]);
 
   // --- ProPresenter import (button + drag-drop) ----------------------------
+  // The button now opens the polished 4-step dialog (handles Pro7, .proBundle,
+  // media extraction, thumbnails, background linking). The drag-drop path
+  // stays on the legacy per-file importPro6Files action because a bare
+  // .pro6/.pro5 drop is a fast one-shot flow — no need to force the modal
+  // for it. Drop a .proBundle here and it'll route to the dialog instead
+  // (see onDrop below).
   const [importing, setImporting] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [droppedFiles, setDroppedFiles] = useState<File[] | undefined>(undefined);
   const dragDepth = useRef(0);
 
   const importProFiles = useCallback(async (fileList: FileList | File[]) => {
@@ -139,6 +148,19 @@ export function SongsBrowser({
     e.preventDefault();
     dragDepth.current = 0;
     setDragOver(false);
+    const arr = Array.from(e.dataTransfer.files);
+    // Route through the dialog for anything Pro7/bundle-shaped. Legacy
+    // .pro6/.pro5 XML drops keep the fast one-shot path so a single-file
+    // drop of an older ProPresenter export still finishes in one action.
+    const needsDialog = arr.some((f) =>
+      /\.(proBundle|pro7|pro7x|zip)$/i.test(f.name) ||
+      /\.pro$/i.test(f.name), // .pro is Pro7 binary — dialog handles it
+    );
+    if (needsDialog) {
+      setDroppedFiles(arr);
+      setImportDialogOpen(true);
+      return;
+    }
     void importProFiles(e.dataTransfer.files);
   }, [importProFiles]);
 
@@ -232,7 +254,7 @@ export function SongsBrowser({
       {dragOver && (
         <div className="absolute inset-2 z-40 rounded-lg border-2 border-dashed border-[var(--color-brand)] bg-[var(--color-brand)]/10 flex items-center justify-center pointer-events-none">
           <div className="text-sm font-semibold text-[var(--color-brand)] bg-[var(--color-panel)]/90 px-4 py-2 rounded-md">
-            Drop ProPresenter files (.pro6 / .pro5) to import
+            Drop ProPresenter files (.proBundle / .pro / .pro7 / .pro6 / .pro5) to import
           </div>
         </div>
       )}
@@ -245,27 +267,17 @@ export function SongsBrowser({
             placeholder={loading ? "Loading songs…" : `Search ${songs.length} songs…`}
             className="flex-1 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded-md px-3 h-8 text-sm outline-none focus:border-[var(--color-brand)]"
           />
-          <label
-            title="Import ProPresenter files (.pro6 / .pro5) — or drag & drop them anywhere here"
+          <button
+            type="button"
+            onClick={() => setImportDialogOpen(true)}
+            title="Import from ProPresenter (.proBundle, .pro, .pro7, .pro6, .pro5) with background thumbnails"
             className={cn(
               "h-8 px-2 rounded-md border border-[var(--color-border)] flex items-center gap-1 text-[11px] font-semibold cursor-pointer hover:bg-[var(--color-elevated)]",
               importing && "opacity-50 pointer-events-none",
             )}
           >
-            <input
-              type="file"
-              multiple
-              accept=".pro6,.pro5,.pro,.propresenter"
-              disabled={importing}
-              className="hidden"
-              onChange={(e) => {
-                const files = e.target.files;
-                if (files && files.length > 0) void importProFiles(files);
-                e.target.value = "";
-              }}
-            />
             <Upload className="w-3.5 h-3.5" /> {importing ? "Importing…" : "Import"}
-          </label>
+          </button>
           <AddSongDialog
             existingTitles={songs.map((s) => s.title)}
             onCreated={(row) => {
@@ -447,6 +459,19 @@ export function SongsBrowser({
           )}
         </div>
       </div>
+      <ProPresenterImportDialog
+        open={importDialogOpen}
+        initialFiles={droppedFiles}
+        onClose={() => {
+          setImportDialogOpen(false);
+          setDroppedFiles(undefined);
+          // Refresh the song list after the modal closes — even a partial
+          // import should surface in the operator's library without a full
+          // page reload.
+          setReloadKey((k) => k + 1);
+          try { window.dispatchEvent(new Event("presentflow:songs-changed")); } catch { /* ignore */ }
+        }}
+      />
     </div>
   );
 }
