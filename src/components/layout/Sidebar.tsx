@@ -307,18 +307,18 @@ export function Sidebar({ mobileOpen, onMobileOpenChange, churchLogoUrl, churchN
           className="pointer-events-none absolute inset-0 opacity-60"
           style={{
             background:
-              "radial-gradient(circle at 15% 20%, rgba(155,143,232,0.18), transparent 55%), radial-gradient(circle at 85% 90%, rgba(184,88,38,0.22), transparent 55%)",
+              "radial-gradient(circle at 15% 20%, rgba(155,143,232,0.18), transparent 55%), radial-gradient(circle at 85% 90%, rgba(156,72,27,0.22), transparent 55%)",
           }}
         />
         <div className={cn("relative flex min-h-[80px] min-w-0 items-center gap-3 pt-4", collapsed && "justify-center")}>
           <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur">
-            <Sparkles className="h-4 w-4 text-[#B85826]" strokeWidth={2} />
+            <Sparkles className="h-4 w-4 text-[#9C481B]" strokeWidth={2} />
           </div>
           {!collapsed ? (
             <div className="min-w-0">
               <div className="truncate text-[15px] font-semibold leading-tight">
                 <span className="text-[#F1EFE8]">Present</span>
-                <span className="text-[#B85826]">Flow</span>
+                <span className="text-[#9C481B]">Flow</span>
               </div>
               <div className="truncate text-[10px] uppercase tracking-[0.22em] text-[#A8A6A0]">Dashboard</div>
             </div>

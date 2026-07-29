@@ -258,7 +258,7 @@ export function OnboardingWizard({
                 height={64}
                 className="mx-auto object-contain"
                 style={{
-                  filter: "drop-shadow(0 12px 34px rgba(184,88,38,0.35))",
+                  filter: "drop-shadow(0 12px 34px rgba(156,72,27,0.35))",
                   animation: "pfPulse 3.4s ease-in-out infinite",
                 }}
               />
