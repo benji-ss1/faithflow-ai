@@ -6,7 +6,13 @@ export const mediaKindEnum = pgEnum("media_kind", ["image", "video"]);
 export const pptxStatusEnum = pgEnum("pptx_status", ["pending", "converting", "ready", "failed"]);
 
 // Phase 5 additions ---------------------------------------------------------
-export const userRoleEnum = pgEnum("user_role", ["admin", "operator", "pastor"]);
+// Role hierarchy (most → least privileged):
+//   admin     — church settings + user management + everything an operator can do
+//   operator  — run services + edit playlists + upload media + edit songs library
+//   volunteer — run services + view library, but CANNOT edit songs / upload media / change themes
+//   pastor    — read-only view of the sermon archive
+//   viewer    — read-only view of services, songs, and archive (broader than pastor)
+export const userRoleEnum = pgEnum("user_role", ["admin", "operator", "volunteer", "pastor", "viewer"]);
 export const subscriptionStatusEnum = pgEnum("subscription_status", ["pilot", "trialing", "active", "past_due", "canceled"]);
 export const subscriptionTierEnum = pgEnum("subscription_tier", ["pilot", "starter", "pro", "enterprise"]);
 export const migrationSourceEnum = pgEnum("migration_source", ["propresenter", "easyworship", "proclaim", "csv", "none"]);

@@ -15,6 +15,18 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.92",
+    date: "2026-07-29",
+    headline: "New roles: Volunteer and Viewer",
+    highlights: [
+      "Volunteer role: can operate services (run playlists, fire slides live, add scripture/song/media to a plan) and view the whole library — but CANNOT edit or delete songs, upload media, or change themes. Perfect for the Sunday-morning helper who runs the desk but shouldn't be reshaping the song library",
+      "Viewer role: read-only across services, songs, media, themes, and sermon archive. Good for a pastor's assistant or an oversight account that needs visibility without any write access anywhere",
+      "Capability-based gating is now enforced on the server: every song/media/theme write action checks the caller's capability, and Viewer is blocked from touching service plans too. The new roles are real permissions, not cosmetic labels — a Viewer or Volunteer trying to delete a song gets bounced with an insufficient-role redirect",
+      "Supabase security checklist added under docs/ — practical steps to close the dashboard security-email findings (leaked-password protection, OTP expiry, MFA methods, function search_path) and an honest explainer of why we enforce tenant isolation at the app layer, not via RLS",
+      "Web-only deploy — Cmd+R gets everything",
+    ],
+  },
+  {
     version: "0.1.91",
     date: "2026-07-29",
     headline: "Say 'read that in NLT' and it switches — plus Screens/Audio in the left sidebar and ProPresenter import",

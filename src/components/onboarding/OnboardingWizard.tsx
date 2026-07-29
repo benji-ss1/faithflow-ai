@@ -37,7 +37,7 @@ import {
  * an explicit session refresh.
  */
 
-type Invite = { email: string; role: "admin" | "operator" | "pastor" };
+type Invite = { email: string; role: "admin" | "operator" | "volunteer" | "pastor" | "viewer" };
 type ImportChoice = "wizard" | "hymns" | "skip" | null;
 
 const TOTAL_STEPS = 6;
@@ -456,8 +456,10 @@ export function OnboardingWizard({
                   style={{ color: "#c4bcaf", border: "1px solid rgba(255,255,255,0.1)" }}
                 >
                   <option value="operator" style={{ background: "#171319" }}>Operator</option>
+                  <option value="volunteer" style={{ background: "#171319" }}>Volunteer</option>
                   <option value="admin" style={{ background: "#171319" }}>Admin</option>
                   <option value="pastor" style={{ background: "#171319" }}>Pastor</option>
+                  <option value="viewer" style={{ background: "#171319" }}>Viewer</option>
                 </select>
                 <button
                   type="button"

@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { eq, and, asc, sql } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { servicePlans, serviceItems, songs, songSlides, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes } from "./db/schema";
-import { requireUser, requireRole } from "./session";
+import { requireUser, requireRole, requireCap } from "./session";
 import { deleteObject } from "./s3";
 import { validateReorderItemSlides } from "./reorder-validator";
 import { createLimiter } from "./rate-limit";
@@ -16,7 +16,7 @@ const addServiceItemsLimiter = createLimiter("add-service-items", 30, 60 * 1000)
 
 // Service plans ---------------------------------------------------------------
 export async function createServicePlan(formData: FormData): Promise<Result<{ id: string }>> {
-  const user = await requireUser();
+  const user = await requireCap("operate_services");
   const title = String(formData.get("title") || "").trim().slice(0, 200);
   const applySuggestion = formData.get("applySuggestion") === "1";
   if (!title) return { ok: false, error: "Title required" };
@@ -38,7 +38,7 @@ export async function createServicePlan(formData: FormData): Promise<Result<{ id
 }
 
 export async function deleteServicePlan(id: string): Promise<Result> {
-  const user = await requireUser();
+  const user = await requireCap("operate_services");
   const db = getDb();
   await db.delete(servicePlans).where(and(eq(servicePlans.id, id), eq(servicePlans.churchId, user.churchId)));
   revalidatePath("/services");
@@ -103,7 +103,7 @@ async function validateAddServiceItemPayload(
 }
 
 export async function addServiceItem(planId: string, type: "song" | "scripture" | "media" | "sermon" | "blank" | "logo", title: string, payload: Record<string, unknown>): Promise<Result> {
-  const user = await requireUser();
+  const user = await requireCap("operate_services");
   const db = getDb();
   const [plan] = await db.select().from(servicePlans).where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, user.churchId))).limit(1);
   if (!plan) return { ok: false, error: "Not found" };
@@ -149,7 +149,7 @@ export async function addServiceItems(
   planId: string,
   items: Array<{ type: "song" | "scripture" | "media" | "sermon" | "blank" | "logo"; title: string; payload: Record<string, unknown> }>,
 ): Promise<Result<{ inserted: number; skipped: number }>> {
-  const user = await requireUser();
+  const user = await requireCap("operate_services");
   if (!(await addServiceItemsLimiter(user.id))) {
     return { ok: false, error: "Too many bulk-add requests. Please wait a moment before retrying." };
   }
@@ -202,7 +202,7 @@ export async function addServiceItems(
 }
 
 export async function removeServiceItem(id: string): Promise<Result> {
-  const user = await requireUser();
+  const user = await requireCap("operate_services");
   const db = getDb();
   // Join to the parent plan and require it belongs to the caller's church.
   const [it] = await db.select({ id: serviceItems.id, planId: serviceItems.servicePlanId })
@@ -217,7 +217,7 @@ export async function removeServiceItem(id: string): Promise<Result> {
 }
 
 export async function reorderServiceItems(planId: string, orderedIds: string[]): Promise<Result> {
-  const user = await requireUser();
+  const user = await requireCap("operate_services");
   const db = getDb();
   // Verify the plan belongs to the caller's church, THEN verify every
   // orderedId belongs to that plan. Two-hop check prevents a client
@@ -260,7 +260,7 @@ export async function reorderItemSlides(
   itemId: string,
   newOrder: string[]
 ): Promise<Result> {
-  const user = await requireUser();
+  const user = await requireCap("operate_services");
   const db = getDb();
   // Two-hop ownership check: plan.churchId === user.churchId, AND item
   // belongs to that plan.
@@ -317,7 +317,7 @@ export async function reorderItemSlides(
 
 // Songs ----------------------------------------------------------------------
 export async function createSong(formData: FormData): Promise<Result<{ id: string }>> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   const title = String(formData.get("title") || "").trim().slice(0, 200);
   const artistRaw = String(formData.get("artist") || "").trim().slice(0, 120);
   const artist = artistRaw || null;
@@ -333,7 +333,7 @@ export async function createSong(formData: FormData): Promise<Result<{ id: strin
 }
 
 export async function updateSongSlides(songId: string, slides: { lyrics: string }[]): Promise<Result> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   const db = getDb();
   const [song] = await db.select().from(songs).where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId))).limit(1);
   if (!song) return { ok: false, error: "Song not found" };
@@ -393,7 +393,7 @@ type EditableSlideInput = {
 };
 
 export async function saveSlideObjects(slideId: string, editable: EditableSlideInput): Promise<Result> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   const db = getDb();
   const owned = await assertSlideOwned(db, slideId, user.churchId);
   if (!owned) return { ok: false, error: "Slide not found" };
@@ -418,7 +418,7 @@ export async function saveSlideObjects(slideId: string, editable: EditableSlideI
 }
 
 export async function createSongSlide(songId: string, atIndex?: number, initial?: EditableSlideInput): Promise<Result<{ id: string }>> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   const db = getDb();
   const song = await assertSongOwned(db, songId, user.churchId);
   if (!song) return { ok: false, error: "Song not found" };
@@ -451,7 +451,7 @@ export async function createSongSlide(songId: string, atIndex?: number, initial?
 }
 
 export async function deleteSongSlide(slideId: string): Promise<Result> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   const db = getDb();
   const owned = await assertSlideOwned(db, slideId, user.churchId);
   if (!owned) return { ok: false, error: "Slide not found" };
@@ -467,7 +467,7 @@ export async function deleteSongSlide(slideId: string): Promise<Result> {
 }
 
 export async function duplicateSongSlide(slideId: string): Promise<Result<{ id: string }>> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   const db = getDb();
   const owned = await assertSlideOwned(db, slideId, user.churchId);
   if (!owned) return { ok: false, error: "Slide not found" };
@@ -491,7 +491,7 @@ export async function duplicateSongSlide(slideId: string): Promise<Result<{ id: 
 }
 
 export async function reorderSongSlides(songId: string, orderedIds: string[]): Promise<Result> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   const db = getDb();
   const song = await assertSongOwned(db, songId, user.churchId);
   if (!song) return { ok: false, error: "Song not found" };
@@ -512,7 +512,7 @@ const PRO6_TITLE_MAX = 200;
 const PRO6_SLIDE_MAX = 5000;
 
 export async function importPro6Files(files: { name: string; content: string }[]): Promise<Result<{ added: number; skipped: number; duplicates: number; limitSkipped: number; failed: number; warnings: { file: string; warnings: string[] }[] }>> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   const db = getDb();
   const { parsePro6 } = await import("./pro6-parser");
 
@@ -573,7 +573,7 @@ export async function importPro6Files(files: { name: string; content: string }[]
 }
 
 export async function importSongsCsv(text: string): Promise<Result<{ added: number; skipped: number }>> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   const db = getDb();
 
   // Two formats supported:
@@ -634,7 +634,7 @@ export async function importSongsCsv(text: string): Promise<Result<{ added: numb
 }
 
 export async function deleteSong(id: string): Promise<Result> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   const db = getDb();
   await db.delete(songs).where(and(eq(songs.id, id), eq(songs.churchId, user.churchId)));
   revalidatePath("/library/songs");
@@ -643,7 +643,7 @@ export async function deleteSong(id: string): Promise<Result> {
 
 // Media ----------------------------------------------------------------------
 export async function registerMediaAsset(data: { kind: "image" | "video"; fileName: string; s3Key: string; mimeType: string; sizeBytes: number }): Promise<Result<{ id: string }>> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   const db = getDb();
   const [row] = await db.insert(mediaAssets).values({ ...data, churchId: user.churchId }).returning();
   revalidatePath("/library/media");
@@ -651,7 +651,7 @@ export async function registerMediaAsset(data: { kind: "image" | "video"; fileNa
 }
 
 export async function deleteMediaAsset(id: string): Promise<Result> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   const db = getDb();
   const [row] = await db.select().from(mediaAssets).where(and(eq(mediaAssets.id, id), eq(mediaAssets.churchId, user.churchId))).limit(1);
   if (!row) return { ok: false, error: "Not found" };
@@ -663,7 +663,7 @@ export async function deleteMediaAsset(id: string): Promise<Result> {
 
 // PPTX -----------------------------------------------------------------------
 export async function createPptxImport(fileName: string, s3Key: string): Promise<Result<{ id: string }>> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   const db = getDb();
   const [row] = await db.insert(pptxImports).values({ churchId: user.churchId, originalFileName: fileName, sourceS3Key: s3Key, status: "pending" }).returning();
   revalidatePath("/library/imports");
@@ -671,7 +671,7 @@ export async function createPptxImport(fileName: string, s3Key: string): Promise
 }
 
 export async function deletePptxImport(id: string): Promise<Result> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   const db = getDb();
   // Ownership check FIRST. Previous version deleted the row + S3 objects
   // before verifying, so passing a foreign church's import id would delete
@@ -1106,7 +1106,7 @@ function sanitizeThemeConfig(input: unknown): { config: ThemeConfig; rejected: s
 }
 
 export async function createTheme(name: string, config: ThemeConfig): Promise<Result<{ id: string }>> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   if (!name?.trim()) return { ok: false, error: "Theme name required" };
   const db = getDb();
   const { config: clean } = sanitizeThemeConfig(config);
@@ -1117,7 +1117,7 @@ export async function createTheme(name: string, config: ThemeConfig): Promise<Re
 }
 
 export async function updateTheme(id: string, patch: { name?: string; config?: ThemeConfig }): Promise<Result> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   const db = getDb();
   const updates: Record<string, unknown> = { updatedAt: new Date() };
   if (patch.name !== undefined) updates.name = patch.name;
@@ -1128,7 +1128,7 @@ export async function updateTheme(id: string, patch: { name?: string; config?: T
 }
 
 export async function duplicateTheme(id: string): Promise<Result<{ id: string }>> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   const db = getDb();
   const [existing] = await db.select().from(themes)
     .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId))).limit(1);
@@ -1142,7 +1142,7 @@ export async function duplicateTheme(id: string): Promise<Result<{ id: string }>
 }
 
 export async function deleteTheme(id: string): Promise<Result> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   const db = getDb();
   await db.delete(themes)
     .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId)));
@@ -1154,7 +1154,7 @@ export async function deleteTheme(id: string): Promise<Result> {
 // belonging to this church is silently skipped — dnd-kit shouldn't emit
 // foreign ids, but this defends against a malformed client payload.
 export async function reorderThemes(orderedIds: string[]): Promise<Result> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   const db = getDb();
   if (!Array.isArray(orderedIds) || orderedIds.length === 0) return { ok: true };
   // Fetch the church's own themes so we can filter out any foreign ids
@@ -1182,7 +1182,7 @@ export async function reorderThemes(orderedIds: string[]): Promise<Result> {
 // steps leaves at most zero defaults, never two, which is the safer state
 // than a partially-mutated pair. A dedicated tx wrapper can come later.
 export async function setDefaultTheme(id: string): Promise<Result> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   const db = getDb();
   // Confirm target belongs to this church BEFORE we clear the current
   // default — otherwise a caller sending a foreign id could leave the
@@ -1208,7 +1208,7 @@ export async function exportTheme(id: string): Promise<Result<{ name: string; co
 }
 
 export async function importTheme(json: unknown): Promise<Result<{ id: string; rejectedFields: string[] }>> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   if (!json || typeof json !== "object") return { ok: false, error: "Invalid theme JSON" };
   const obj = json as { name?: unknown; config?: unknown };
   const name = typeof obj.name === "string" && obj.name.trim() ? obj.name.trim() : "Imported theme";
@@ -1222,7 +1222,7 @@ export async function importTheme(json: unknown): Promise<Result<{ id: string; r
 }
 
 export async function applyThemeToSong(themeId: string, songId: string): Promise<Result<{ slidesUpdated: number }>> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   const db = getDb();
   const [theme] = await db.select().from(themes)
     .where(and(eq(themes.id, themeId), eq(themes.churchId, user.churchId))).limit(1);
@@ -1266,7 +1266,7 @@ export async function applyThemeToSong(themeId: string, songId: string): Promise
 }
 
 export async function updateSongSettings(songId: string, patch: Record<string, unknown>): Promise<Result> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   const db = getDb();
   const [song] = await db.select().from(songs)
     .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId))).limit(1);
@@ -1293,7 +1293,7 @@ export async function importPublicDomainSong(input: {
   lyrics: string[];
   source: "hymnary" | "llm";
 }): Promise<Result<{ id: string; duplicate: boolean }>> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   const title = String(input?.title || "").trim().slice(0, 200);
   if (!title) return { ok: false, error: "Title required" };
   const artist = input?.author ? String(input.author).trim().slice(0, 120) : null;
@@ -1430,7 +1430,7 @@ export async function updateChurch(patch: {
 const hymnSeedLimiter = createLimiter("hymn-seed", 3, 60 * 60 * 1000);
 
 export async function addBuiltInHymnsToMyChurch(): Promise<Result<{ added: number; skipped: number }>> {
-  const user = await requireUser();
+  const user = await requireCap("edit_library");
   if (!(await hymnSeedLimiter(user.id))) {
     return { ok: false, error: "You've hit the hourly limit for bulk hymn imports. Try again later." };
   }

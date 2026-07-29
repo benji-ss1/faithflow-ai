@@ -5,7 +5,7 @@ import { UserPlus, Trash2, MailCheck, MailWarning, Users2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { inviteTeammate, revokeInvitation, updateTeammateRole, removeTeammate } from "@/lib/invitation-actions";
 
-type Role = "admin" | "operator" | "pastor";
+type Role = "admin" | "operator" | "volunteer" | "pastor" | "viewer";
 type Member = { id: string; email: string; name: string; role: Role; jobTitle: string | null; emailVerified: boolean; lastActiveAt: string | null };
 type Pending = { id: string; email: string; role: Role; expiresAt: string };
 
@@ -25,7 +25,9 @@ function relativeAgo(iso: string | null): string {
 const ROLE_BLURB: Record<Role, string> = {
   admin: "Church settings + user management + everything an operator can do.",
   operator: "Run services, edit playlists, upload media & songs.",
+  volunteer: "Run services and view the library, but can't edit songs, upload media, or change themes.",
   pastor: "Read-only view of the sermon archive. Cannot operate services.",
+  viewer: "Read-only across services, songs, and the sermon archive. Cannot operate anything.",
 };
 
 // Merged row shape: existing team members + pending invites both render in
@@ -118,7 +120,9 @@ export function TeamManager({ currentUserId, members, pendingInvites }: {
               className="h-9 rounded-md border border-border bg-background px-3 text-sm"
             >
               <option value="operator">Operator</option>
+              <option value="volunteer">Volunteer</option>
               <option value="pastor">Pastor</option>
+              <option value="viewer">Viewer</option>
               <option value="admin">Admin</option>
             </select>
           </label>
@@ -235,7 +239,9 @@ function MemberRow({
       >
         <option value="admin">Admin</option>
         <option value="operator">Operator</option>
+        <option value="volunteer">Volunteer</option>
         <option value="pastor">Pastor</option>
+        <option value="viewer">Viewer</option>
       </select>
       <button
         onClick={onRemove}

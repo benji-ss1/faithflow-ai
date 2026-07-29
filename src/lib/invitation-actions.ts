@@ -10,10 +10,10 @@ import { sendInvitationEmail } from "./email";
 
 type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
 
-const VALID_ROLES = ["admin", "operator", "pastor"] as const;
+const VALID_ROLES = ["admin", "operator", "volunteer", "pastor", "viewer"] as const;
 type ValidRole = typeof VALID_ROLES[number];
 
-export async function inviteTeammate(input: { email: string; role: "admin" | "operator" | "pastor" }): Promise<Result> {
+export async function inviteTeammate(input: { email: string; role: ValidRole }): Promise<Result> {
   const admin = await requireRole("admin");
   const email = input.email.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: "Invalid email" };
@@ -55,7 +55,8 @@ export async function revokeInvitation(id: string): Promise<Result> {
   return { ok: true };
 }
 
-export async function updateTeammateRole(userId: string, role: "admin" | "operator" | "pastor"): Promise<Result> {
+export async function updateTeammateRole(userId: string, role: ValidRole): Promise<Result> {
+  if (!VALID_ROLES.includes(role)) return { ok: false, error: "Invalid role" };
   const admin = await requireRole("admin");
   const db = getDb();
   const [target] = await db.select().from(users).where(and(eq(users.id, userId), eq(users.churchId, admin.churchId))).limit(1);

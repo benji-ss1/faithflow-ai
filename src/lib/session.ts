@@ -95,14 +95,20 @@ export async function requireUser(): Promise<CurrentUser> {
  * Enforce that the current user has one of the given roles. Throws (as a
  * plain error result — actions convert to { ok: false, error }) if not.
  *
- * Role hierarchy:
- *  - admin: everything, plus church settings + user management
- *  - operator: run services, edit playlists, upload media/songs
- *  - pastor: read-only view of sermon archive; cannot operate
+ * Role hierarchy (most → least privileged):
+ *  - admin      : everything, plus church settings + user management
+ *  - operator   : run services, edit playlists, upload media, edit songs library
+ *  - volunteer  : run services + view library, but CANNOT edit songs /
+ *                 upload media / change themes / touch settings
+ *  - pastor     : read-only view of sermon archive; cannot operate
+ *  - viewer     : read-only across services, songs, and archive (broader
+ *                 than pastor); cannot operate anything
  */
-export async function requireRole(...roles: ("admin" | "operator" | "pastor")[]): Promise<CurrentUser> {
+export type Role = "admin" | "operator" | "volunteer" | "pastor" | "viewer";
+
+export async function requireRole(...roles: Role[]): Promise<CurrentUser> {
   const user = await requireUser();
-  if (!roles.includes(user.role as "admin" | "operator" | "pastor")) {
+  if (!roles.includes(user.role as Role)) {
     // Redirect rather than 500. Not fatal — user might have picked a
     // link they shouldn't have seen.
     redirect("/dashboard?reason=insufficient-role");
@@ -110,9 +116,48 @@ export async function requireRole(...roles: ("admin" | "operator" | "pastor")[])
   return user;
 }
 
-export async function apiRequireRole(...roles: ("admin" | "operator" | "pastor")[]): Promise<CurrentUser | null> {
+export async function apiRequireRole(...roles: Role[]): Promise<CurrentUser | null> {
   const user = await resolveUser();
   if (!user) return null;
-  if (!roles.includes(user.role as "admin" | "operator" | "pastor")) return null;
+  if (!roles.includes(user.role as Role)) return null;
+  return user;
+}
+
+/**
+ * Capability checks — prefer these over enumerating roles in every action.
+ * The mapping below is the SINGLE source of truth for what each role can
+ * do. If we add or rename roles, update this map and every server action
+ * automatically gets the correct behavior.
+ */
+export type Capability =
+  | "manage_church"        // settings, branding, church profile
+  | "manage_team"          // invite, remove, change roles
+  | "manage_billing"       // Stripe portal, plan changes
+  | "edit_library"         // create/edit/delete songs, upload media, edit themes
+  | "operate_services"     // run services, fire slides live, use the operator console
+  | "view_library"         // read songs, bible, media, themes
+  | "view_archive";        // read sermon archive + summaries
+
+const ROLE_CAPS: Record<Role, Capability[]> = {
+  admin:     ["manage_church", "manage_team", "manage_billing", "edit_library", "operate_services", "view_library", "view_archive"],
+  operator:  ["edit_library", "operate_services", "view_library", "view_archive"],
+  volunteer: ["operate_services", "view_library", "view_archive"],
+  pastor:    ["view_archive"],
+  viewer:    ["view_library", "view_archive"],
+};
+
+export function hasCap(role: string, cap: Capability): boolean {
+  return (ROLE_CAPS[role as Role] || []).includes(cap);
+}
+
+/**
+ * requireCap — capability-based gate used by server actions instead of
+ * hard-coded role lists. Same redirect semantics as requireRole. Prefer
+ * this in new code so role additions don't require touching every
+ * action.
+ */
+export async function requireCap(cap: Capability): Promise<CurrentUser> {
+  const user = await requireUser();
+  if (!hasCap(user.role, cap)) redirect("/dashboard?reason=insufficient-role");
   return user;
 }
