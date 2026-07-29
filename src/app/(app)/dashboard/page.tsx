@@ -81,7 +81,10 @@ export default async function DashboardPage() {
     },
     {
       label: "Audio input",
-      hint: prefs?.audioInputDeviceLabel ? prefs.audioInputDeviceLabel : "Select a listening source",
+      // Audio capture happens on the desktop app (native ffmpeg). The web
+      // dashboard has no way to configure it, so show as neutral info rather
+      // than a warning the admin can't act on here.
+      hint: prefs?.audioInputDeviceLabel ? prefs.audioInputDeviceLabel : "Configure in desktop app",
       done: !!prefs?.audioInputDeviceLabel,
       href: "/settings",
     },
@@ -107,8 +110,11 @@ export default async function DashboardPage() {
         ? "success"
         : "neutral";
 
-  const audioTone = prefs?.audioInputDeviceLabel ? "success" : "warning";
-  const projectorTone = settingsRow?.logoS3Key || mediaRows.length > 0 ? "brand" : "warning";
+  // Audio + projector setup happen in the desktop app; on web we surface
+  // status but never mark them as a warning the admin should chase from here.
+  const audioTone: "success" | "neutral" = prefs?.audioInputDeviceLabel ? "success" : "neutral";
+  const projectorTone: "brand" | "neutral" =
+    settingsRow?.logoS3Key || mediaRows.length > 0 ? "brand" : "neutral";
 
   return (
     <div className="space-y-6">
@@ -207,7 +213,7 @@ export default async function DashboardPage() {
               </div>
             </div>
             <div className="mt-3">
-              <StatusPill label={prefs?.audioInputDeviceLabel ? "Configured" : "Needs setup"} tone={audioTone} />
+              <StatusPill label={prefs?.audioInputDeviceLabel ? "Configured" : "Configure in desktop"} tone={audioTone} />
             </div>
           </DashboardCard>
 
@@ -226,7 +232,7 @@ export default async function DashboardPage() {
               </div>
             </div>
             <div className="mt-3">
-              <StatusPill label={projectorTone === "warning" ? "Review" : "Prepared"} tone={projectorTone} />
+              <StatusPill label={projectorTone === "neutral" ? "Configure in desktop" : "Prepared"} tone={projectorTone} />
             </div>
           </DashboardCard>
         </div>

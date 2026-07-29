@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.96",
+    date: "2026-07-29",
+    headline: "Collapsible sidebar sections + honest dashboard status",
+    highlights: [
+      "The Content and Admin sidebar sections are now collapsible with a chevron on the group label. Content defaults open, Admin defaults collapsed; state persists per-user in localStorage — so if you like Admin folded away, it stays folded",
+      "Dashboard: Audio Input, Projector Setup, and AI Health cards no longer show orange warning pills for things you can't fix from the web. They now read 'Configure in desktop' as neutral info — the desktop app is where those actually get set up",
+      "Web-only deploy — Cmd+R gets everything",
+    ],
+  },
+  {
     version: "0.1.95",
     date: "2026-07-29",
     headline: "Web admin can actually upload logos, media, songs, and themes now",

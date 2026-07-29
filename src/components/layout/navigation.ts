@@ -33,6 +33,11 @@ export type NavItem = {
 export type NavGroup = {
   label: string;
   items: NavItem[];
+  // When set, the group header becomes a clickable chevron toggle that
+  // expands/collapses its children. Read by Sidebar.tsx and persisted per
+  // user in localStorage under key `pf_sidebar_sections_v1`.
+  collapsible?: boolean;
+  defaultOpen?: boolean;
 };
 
 export type ActiveNavMatch = {
@@ -58,6 +63,8 @@ export const workspaceNav: NavGroup[] = [
   },
   {
     label: "Content",
+    collapsible: true,
+    defaultOpen: true,
     items: [
       { href: "/library/songs", label: "Songs", icon: Music4 },
       { href: "/library/bible", label: "Bible", icon: BookOpen },
@@ -77,6 +84,8 @@ export const workspaceNav: NavGroup[] = [
   },
   {
     label: "Admin",
+    collapsible: true,
+    defaultOpen: false,
     items: [
       { href: "/organization", label: "Church Profile", icon: Building2 },
       { href: "/subscriptions", label: "Billing", icon: CreditCard },

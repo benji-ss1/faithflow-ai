@@ -127,16 +127,51 @@ function NavSection({
   unlocked: string[] | null;
   onNavigate?: () => void;
 }) {
+  const [openMap, setOpenMap] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("pf_sidebar_sections_v1");
+      if (raw) setOpenMap(JSON.parse(raw));
+    } catch { /* ignore */ }
+  }, []);
+  function toggleSection(label: string, next: boolean) {
+    setOpenMap((prev) => {
+      const upd = { ...prev, [label]: next };
+      try { localStorage.setItem("pf_sidebar_sections_v1", JSON.stringify(upd)); } catch { /* ignore */ }
+      return upd;
+    });
+  }
+
   return (
     <>
-      {groups.map((group) => (
+      {groups.map((group) => {
+        const groupActive = group.items.some(
+          (i) => !!i.href && (pathname === i.href || pathname.startsWith(i.href + "/")),
+        );
+        const stored = openMap[group.label];
+        const isOpen = group.collapsible
+          ? (typeof stored === "boolean" ? stored : (group.defaultOpen ?? true)) || groupActive
+          : true;
+        return (
         <div key={group.label} className="space-y-0.5">
           {!collapsed ? (
-            <div className="px-3 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--pf-admin-text-muted)]">
-              {group.label}
-            </div>
+            group.collapsible ? (
+              <button
+                type="button"
+                onClick={() => toggleSection(group.label, !isOpen)}
+                aria-expanded={isOpen}
+                className="flex w-full items-center gap-1.5 px-3 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--pf-admin-text-muted)] transition-colors hover:text-[var(--pf-admin-text)]"
+              >
+                <span className="flex-1 text-left">{group.label}</span>
+                <ChevronDown className={cn("h-3 w-3 transition-transform duration-200", isOpen ? "rotate-0" : "-rotate-90")} />
+              </button>
+            ) : (
+              <div className="px-3 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--pf-admin-text-muted)]">
+                {group.label}
+              </div>
+            )
           ) : null}
-          {group.items.map((item) => {
+          {isOpen ? group.items.map((item) => {
             const hasChildren = !!item.children && item.children.length > 0;
             const childActive = hasChildren && item.children!.some((c) => !!c.href && (pathname === c.href || pathname.startsWith(c.href + "/")));
             const active = (!!item.href && (pathname === item.href || pathname.startsWith(item.href + "/"))) || childActive;
@@ -210,9 +245,10 @@ function NavSection({
               </Link>
             );
             return collapsed ? <IconTooltip key={item.href} label={item.label}>{link}</IconTooltip> : link;
-          })}
+          }) : null}
         </div>
-      ))}
+        );
+      })}
     </>
   );
 }
