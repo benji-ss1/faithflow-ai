@@ -15,6 +15,19 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.98",
+    date: "2026-07-29",
+    headline: "Light mode default, cleaner Settings, ad-hoc cleanup, beta notice",
+    highlights: [
+      "Light mode is now the default for first-time visitors. The web admin panel spends most of its time as a daylight planning surface — the warm ivory palette reads better as the first-visit experience than the dark stage look. Existing users who explicitly picked dark keep dark",
+      "Sidebar branded header now respects light mode. Previously the top block stayed dark-gradient in light mode with white text on cream — hard to read. Now flips to a warm cream→terracotta wash with dark ink in light mode; keeps the near-black gradient in dark mode. The church logo/monogram tile adapts too",
+      "Services page: every row now has a delete button (trash icon on the right). When you have multiple leftover 'Ad-hoc service' plans from prior operator sessions, a banner appears at the top with a 'Clean up ad-hocs' button that keeps the most recent one and removes the rest in a single click",
+      "Settings landing (web) is no longer a duplicate link hub. Church Profile, Billing, Team, and Devices already live in the sidebar; the Settings page now just points to the desktop-app download and a note directing you to the sidebar for the rest",
+      "Billing page: added a Beta notice at the top of the pricing card ('Your current plan is our beta / pilot access — no card required'), and fixed the layout so the RECOMMENDED badge no longer clips into the 'Pricing that fits your Sunday' heading at narrower widths",
+      "Web-only deploy — Cmd+R gets everything",
+    ],
+  },
+  {
     version: "0.1.97",
     date: "2026-07-29",
     headline: "Billing goes premium — Pro tier now visibly stands out",

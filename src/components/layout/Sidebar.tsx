@@ -335,9 +335,10 @@ export function Sidebar({ mobileOpen, onMobileOpenChange, churchLogoUrl, churchN
           bottom separates it from the neutral nav below. */}
       <div
         className={cn("relative flex flex-col overflow-hidden", collapsed ? "px-3" : "px-4")}
-        style={{ background: "var(--pf-gradient-dark-bg)" }}
+        style={{ background: "var(--pf-sidebar-header-bg)" }}
       >
-        {/* Subtle brand glow — echoes the landing page */}
+        {/* Subtle brand glow — echoes the landing page. Same rgba both modes,
+            reads well against either the ivory wash (light) or dark plate. */}
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 opacity-60"
@@ -347,30 +348,37 @@ export function Sidebar({ mobileOpen, onMobileOpenChange, churchLogoUrl, churchN
           }}
         />
         <div className={cn("relative flex min-h-[80px] min-w-0 items-center gap-3 pt-4", collapsed && "justify-center")}>
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur">
+          <div
+            className="flex size-9 shrink-0 items-center justify-center rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.15)] backdrop-blur"
+            style={{ background: "var(--pf-sidebar-header-tile-bg)", border: "1px solid var(--pf-sidebar-header-tile-border)" }}
+          >
             <Sparkles className="h-4 w-4 text-[#9C481B]" strokeWidth={2} />
           </div>
           {!collapsed ? (
             <div className="min-w-0">
               <div className="truncate text-[15px] font-semibold leading-tight">
-                <span className="text-[#F1EFE8]">Present</span>
+                <span style={{ color: "var(--pf-sidebar-header-text)" }}>Present</span>
                 <span className="text-[#9C481B]">Flow</span>
               </div>
-              <div className="truncate text-[10px] uppercase tracking-[0.22em] text-[#A8A6A0]">Dashboard</div>
+              <div className="truncate text-[10px] uppercase tracking-[0.22em]" style={{ color: "var(--pf-sidebar-header-text-muted)" }}>Dashboard</div>
             </div>
           ) : null}
         </div>
         {!collapsed && (churchLogoUrl || churchName) ? (
-          <div className="relative mb-4 mt-3 flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-2 py-1.5 backdrop-blur">
-            <ChurchLogoAvatar logoUrl={churchLogoUrl} churchName={churchName} size={22} variant="dark" />
-            <span className="truncate text-[11px] font-medium text-white/85">{churchName || "Church workspace"}</span>
+          <div
+            className="relative mb-4 mt-3 flex items-center gap-2 rounded-lg px-2 py-1.5 backdrop-blur"
+            style={{ background: "var(--pf-sidebar-header-tile-bg)", border: "1px solid var(--pf-sidebar-header-tile-border)" }}
+          >
+            <ChurchLogoAvatar logoUrl={churchLogoUrl} churchName={churchName} size={22} />
+            <span className="truncate text-[11px] font-medium" style={{ color: "var(--pf-sidebar-header-text)" }}>{churchName || "Church workspace"}</span>
           </div>
         ) : collapsed && (churchLogoUrl || churchName) ? (
-          // Collapsed mode: show just the logo (or monogram) so church
-          // identity doesn't disappear entirely when the sidebar shrinks.
           <IconTooltip label={churchName || "Church workspace"} side="right">
-            <div className="relative mx-auto mb-4 mt-3 grid h-8 w-8 place-items-center rounded-lg border border-white/10 bg-white/[0.06] backdrop-blur">
-              <ChurchLogoAvatar logoUrl={churchLogoUrl} churchName={churchName} size={22} variant="dark" />
+            <div
+              className="relative mx-auto mb-4 mt-3 grid h-8 w-8 place-items-center rounded-lg backdrop-blur"
+              style={{ background: "var(--pf-sidebar-header-tile-bg)", border: "1px solid var(--pf-sidebar-header-tile-border)" }}
+            >
+              <ChurchLogoAvatar logoUrl={churchLogoUrl} churchName={churchName} size={22} />
             </div>
           </IconTooltip>
         ) : (

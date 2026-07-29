@@ -162,6 +162,31 @@ export function BillingPanel({ tier, status, currentPeriodEnd, trialEnd, hasStri
       </div>
 
       <div className="relative space-y-8 p-6 sm:p-8">
+        {/* Beta notice — surfaces the pilot posture at the top so admins
+            aren't hunting for it. Kept minimal so the plan summary below
+            still carries the state-of-plan detail. */}
+        {tier === "pilot" && (
+          <div
+            className="flex flex-wrap items-center gap-3 rounded-lg px-4 py-3 text-xs"
+            style={{
+              background: "rgba(64,200,140,0.08)",
+              border: "1px solid rgba(64,200,140,0.25)",
+              color: "#B7EACB",
+            }}
+          >
+            <span
+              className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em]"
+              style={{ background: "#4FD18B", color: "#08130C" }}
+            >
+              Beta
+            </span>
+            <span>
+              Your current plan is our <strong>beta / pilot access</strong> — every feature below is unlocked
+              for you at no cost while we validate pricing with the first churches. No card required.
+            </span>
+          </div>
+        )}
+
         {/* Section 1 — Current plan summary (sleek one-line banner) */}
         <SummaryBanner
           tier={tier}
@@ -185,7 +210,11 @@ export function BillingPanel({ tier, status, currentPeriodEnd, trialEnd, hasStri
               <CycleToggle cycle={cycle} onChange={setCycle} />
             </div>
 
-            <div className="grid gap-4 md:grid-cols-3">
+            {/* pt-6 so the Recommended badge (which is absolutely positioned
+                at -top-3 on the Pro card) never gets clipped by the parent's
+                edge — noticeable at narrow widths where cards start closer to
+                the container top. */}
+            <div className="grid gap-4 pt-6 md:grid-cols-3">
               {TIERS.map((t) => (
                 <PlanCard
                   key={t.key}

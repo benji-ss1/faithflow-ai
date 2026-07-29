@@ -19,19 +19,18 @@ export function ChurchLogoAvatar({
   logoUrl,
   churchName,
   size,
-  variant = "dark",
+  variant = "auto",
   className,
 }: {
   logoUrl: string | null | undefined;
   churchName: string | null | undefined;
   size: number;
   /**
-   * "dark" — for placement inside the sidebar's branded dark gradient header
-   *          (fallback bg reads against dark chrome).
-   * "light" — for the topbar's neutral admin-palette badge (fallback bg
-   *           reads against the light card).
+   * "auto"  — default. Uses sidebar-header tile tokens (which flip with theme).
+   * "dark"  — legacy dark surface (kept for external callers that hardcoded).
+   * "light" — legacy light surface.
    */
-  variant?: "dark" | "light";
+  variant?: "auto" | "dark" | "light";
   className?: string;
 }) {
   const [failed, setFailed] = useState(false);
@@ -42,10 +41,16 @@ export function ChurchLogoAvatar({
   const fallbackCls =
     variant === "light"
       ? "bg-[var(--pf-admin-bg-muted)] text-[var(--pf-admin-text-secondary)]"
-      : "bg-white/15 text-white/90";
+      : variant === "dark"
+        ? "bg-white/15 text-white/90"
+        : "bg-[var(--pf-sidebar-header-tile-bg)] text-[var(--pf-sidebar-header-text)]";
 
   const skeletonCls =
-    variant === "light" ? "bg-[var(--pf-admin-bg-muted)]" : "bg-white/10";
+    variant === "light"
+      ? "bg-[var(--pf-admin-bg-muted)]"
+      : variant === "dark"
+        ? "bg-white/10"
+        : "bg-[var(--pf-sidebar-header-tile-bg)]";
 
   return (
     <div

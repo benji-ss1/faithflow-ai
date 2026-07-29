@@ -15,13 +15,16 @@ export const metadata: Metadata = {
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  // Dark is now DEFAULT. Users opt-in to light via ff_theme=light cookie.
-  // Legacy ff_dark cookie is preserved for backwards compatibility.
+  // Light is now DEFAULT for the web admin surface. Users opt-in to dark
+  // via ff_theme=dark cookie (or the legacy ff_dark=1 cookie). Reason:
+  // admins spend most of their time in the admin panel during daylight
+  // planning, not stage-side; the warm ivory palette reads better as the
+  // first-visit surface than the dark stage look.
   const cookieStore = await cookies();
   const theme = cookieStore.get("ff_theme")?.value;
   const legacyDark = cookieStore.get("ff_dark")?.value === "1";
-  const isLight = theme === "light" || (!theme && !legacyDark && false);
-  const htmlClass = isLight ? "light" : "";
+  const isDark = theme === "dark" || (!theme && legacyDark);
+  const htmlClass = isDark ? "" : "light";
 
   // Vercel Analytics + Speed Insights: only mount when running on the
   // production Vercel deployment. Dev + preview + local Electron shell all
@@ -33,7 +36,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="en" className={htmlClass} suppressHydrationWarning>
       <body suppressHydrationWarning>
         {children}
-        <Toaster position="top-right" theme="dark" richColors closeButton />
+        <Toaster position="top-right" theme={isDark ? "dark" : "light"} richColors closeButton />
         {isVercelProd ? <Analytics /> : null}
         {isVercelProd ? <SpeedInsights /> : null}
       </body>

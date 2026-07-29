@@ -303,6 +303,16 @@ html.light {
     linear-gradient(135deg, rgba(155,143,232,0.15) 0%, rgba(156,72,27,0.15) 50%, rgba(212,83,126,0.15) 100%);
   --pf-gradient-dark-bg:
     linear-gradient(135deg, #0B0B0B 0%, #1A0A14 40%, #0B0B0B 100%);
+
+  /* Sidebar branded header — light mode uses a warm cream→terracotta wash
+     so the block reads as a considered brand plate on the ivory panel;
+     dark mode overrides this below with the near-black gradient. */
+  --pf-sidebar-header-bg:
+    linear-gradient(135deg, #FAF6EF 0%, #F0E7DA 55%, #E9D9C4 100%);
+  --pf-sidebar-header-text:        #1A1614;
+  --pf-sidebar-header-text-muted:  #6B665E;
+  --pf-sidebar-header-tile-bg:     rgba(156,72,27,0.08);
+  --pf-sidebar-header-tile-border: rgba(156,72,27,0.18);
 }
 
 /* Dark variant of admin scope — kicks in when the app is in dark mode */
@@ -325,6 +335,12 @@ html:not(.light) .pf-admin-scope {
 
   --pf-admin-accent-soft:  rgba(156,72,27, 0.14);
   --pf-admin-accent-ring:  rgba(156,72,27, 0.3);
+
+  --pf-sidebar-header-bg:          var(--pf-gradient-dark-bg);
+  --pf-sidebar-header-text:        #F1EFE8;
+  --pf-sidebar-header-text-muted:  #A8A6A0;
+  --pf-sidebar-header-tile-bg:     rgba(255,255,255,0.06);
+  --pf-sidebar-header-tile-border: rgba(255,255,255,0.10);
 }
 
 /* Reusable admin-scoped utility: signature 2px brand gradient stripe */

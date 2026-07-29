@@ -45,6 +45,29 @@ export async function deleteServicePlan(id: string): Promise<Result> {
   return { ok: true };
 }
 
+// Bulk cleanup of leftover "Ad-hoc service" plans that pile up from repeated
+// operator opens without a scheduled plan. Keeps the single most recent
+// ad-hoc (by id desc) and deletes the rest. Church-scoped via the WHERE.
+export async function cleanupAdHocServicePlans(): Promise<Result<{ deleted: number }>> {
+  const user = await requireCap("operate_services");
+  const db = getDb();
+  const adHocs = await db
+    .select({ id: servicePlans.id })
+    .from(servicePlans)
+    .where(and(eq(servicePlans.churchId, user.churchId), eq(servicePlans.title, "Ad-hoc service")));
+  if (adHocs.length <= 1) return { ok: true, data: { deleted: 0 } };
+  // Keep the last (largest id — most recent insert); delete the rest one-by-one
+  // via the existing single-delete path so we get the same church-scoped WHERE
+  // discipline and cascade behavior.
+  const sorted = [...adHocs].sort((a, b) => a.id.localeCompare(b.id));
+  const toDelete = sorted.slice(0, -1);
+  for (const row of toDelete) {
+    await db.delete(servicePlans).where(and(eq(servicePlans.id, row.id), eq(servicePlans.churchId, user.churchId)));
+  }
+  revalidatePath("/services");
+  return { ok: true, data: { deleted: toDelete.length } };
+}
+
 // Discriminated union guard for addServiceItem payload. Validates that the
 // caller-supplied `payload` matches the `type` shape AND (where applicable)
 // that referenced library items belong to the same church. Any mismatch or
