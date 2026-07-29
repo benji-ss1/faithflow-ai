@@ -6,15 +6,15 @@
  * jump to slides mode. "Send first to live" button honors nothing extra —
  * onSendSlideToLive is the operator's opt-in.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Plus, Pencil } from "lucide-react";
+import { Plus, Pencil, Upload } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload } from "@/lib/broadcast";
-import { createSong, createSongSlide, updateSongSlides } from "@/lib/actions";
+import { createSong, createSongSlide, importPro6Files, updateSongSlides } from "@/lib/actions";
 import { isInternalEvent } from "@/lib/internal-events";
 
 type SongRow = { id: string; title: string; artist: string | null };
@@ -53,6 +53,7 @@ export function SongsBrowser({
     return () => window.removeEventListener("presentflow:center-slide-size", handler);
   }, []);
 
+  const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -66,7 +67,80 @@ export function SongsBrowser({
       .catch((err) => { if (!cancelled) toast.error(err instanceof Error ? err.message : "Failed to load songs"); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
+  }, [reloadKey]);
+
+  // --- ProPresenter import (button + drag-drop) ----------------------------
+  const [importing, setImporting] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const dragDepth = useRef(0);
+
+  const importProFiles = useCallback(async (fileList: FileList | File[]) => {
+    if (importing) return;
+    const all = Array.from(fileList);
+    if (all.length === 0) return;
+    // .pro6/.pro5 = XML we parse; .pro/.propresenter = Pro7 — send anyway so
+    // the server reports the honest per-file "export as Pro6" message and the
+    // rest of the batch continues.
+    const matched = all.filter((f) => /\.(pro6|pro5|pro|propresenter)$/i.test(f.name));
+    if (matched.length === 0) {
+      toast.error("No ProPresenter files found — drop .pro6 (or .pro5) exports.");
+      return;
+    }
+    const ignored = all.length - matched.length;
+    setImporting(true);
+    try {
+      const payload: { name: string; content: string }[] = [];
+      for (const f of matched) payload.push({ name: f.name, content: await f.text() });
+      const res = await importPro6Files(payload);
+      if (!res.ok) { toast.error(res.error || "Import failed"); return; }
+      const { added, duplicates, limitSkipped, failed, warnings } = res.data!;
+      const parts = [`Imported ${added} song${added === 1 ? "" : "s"}`];
+      if (duplicates > 0) parts.push(`${duplicates} duplicate${duplicates === 1 ? "" : "s"} skipped`);
+      if (limitSkipped > 0) parts.push(`${limitSkipped} skipped — song limit reached`);
+      if (failed > 0) parts.push(`${failed} failed`);
+      if (ignored > 0) parts.push(`${ignored} non-ProPresenter file${ignored === 1 ? "" : "s"} ignored`);
+      const msg = parts.join(", ");
+      if (added > 0) toast.success(msg, { duration: 5000 });
+      else toast.warning(msg, { duration: 5000 });
+      // Surface the first few per-file reasons (e.g. ".pro7 — export as Pro6").
+      for (const w of warnings.slice(0, 3)) {
+        toast.info(`${w.file}: ${w.warnings[0]}`, { duration: 6000 });
+      }
+      if (warnings.length > 3) toast.info(`…and ${warnings.length - 3} more files had warnings`, { duration: 4000 });
+      if (added > 0) {
+        setReloadKey((k) => k + 1);
+        // Live detector must pick up the new library in-session.
+        try { window.dispatchEvent(new Event("presentflow:songs-changed")); } catch { /* ignore */ }
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Import failed");
+    } finally {
+      setImporting(false);
+    }
+  }, [importing]);
+
+  const onDragEnter = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes("Files")) return;
+    e.preventDefault();
+    dragDepth.current++;
+    setDragOver(true);
   }, []);
+  const onDragOver = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes("Files")) return;
+    e.preventDefault();
+  }, []);
+  const onDragLeave = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes("Files")) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragOver(false);
+  }, []);
+  const onDrop = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer?.files?.length) return;
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragOver(false);
+    void importProFiles(e.dataTransfer.files);
+  }, [importProFiles]);
 
   useEffect(() => {
     if (!selected) { setSlides(null); return; }
@@ -147,7 +221,21 @@ export function SongsBrowser({
   };
 
   return (
-    <div className="p-4 grid gap-3 h-full" style={{ gridTemplateColumns: "minmax(280px, 360px) 1fr" }}>
+    <div
+      className="relative p-4 grid gap-3 h-full"
+      style={{ gridTemplateColumns: "minmax(280px, 360px) 1fr" }}
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {dragOver && (
+        <div className="absolute inset-2 z-40 rounded-lg border-2 border-dashed border-[var(--color-brand)] bg-[var(--color-brand)]/10 flex items-center justify-center pointer-events-none">
+          <div className="text-sm font-semibold text-[var(--color-brand)] bg-[var(--color-panel)]/90 px-4 py-2 rounded-md">
+            Drop ProPresenter files (.pro6 / .pro5) to import
+          </div>
+        </div>
+      )}
       {/* Song list */}
       <div className="flex flex-col border border-[var(--color-border)] rounded-md overflow-hidden">
         <div className="p-2 border-b border-[var(--color-border)] flex items-center gap-2">
@@ -157,6 +245,27 @@ export function SongsBrowser({
             placeholder={loading ? "Loading songs…" : `Search ${songs.length} songs…`}
             className="flex-1 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded-md px-3 h-8 text-sm outline-none focus:border-[var(--color-brand)]"
           />
+          <label
+            title="Import ProPresenter files (.pro6 / .pro5) — or drag & drop them anywhere here"
+            className={cn(
+              "h-8 px-2 rounded-md border border-[var(--color-border)] flex items-center gap-1 text-[11px] font-semibold cursor-pointer hover:bg-[var(--color-elevated)]",
+              importing && "opacity-50 pointer-events-none",
+            )}
+          >
+            <input
+              type="file"
+              multiple
+              accept=".pro6,.pro5,.pro,.propresenter"
+              disabled={importing}
+              className="hidden"
+              onChange={(e) => {
+                const files = e.target.files;
+                if (files && files.length > 0) void importProFiles(files);
+                e.target.value = "";
+              }}
+            />
+            <Upload className="w-3.5 h-3.5" /> {importing ? "Importing…" : "Import"}
+          </label>
           <AddSongDialog
             existingTitles={songs.map((s) => s.title)}
             onCreated={(row) => {

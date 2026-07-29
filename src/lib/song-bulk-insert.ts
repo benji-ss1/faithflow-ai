@@ -21,9 +21,17 @@ export async function bulkInsertSongs(
   churchId: string,
   candidates: SongCandidate[],
   headroom: number,
-): Promise<{ added: number; skipped: number }> {
+): Promise<{
+  added: number;
+  /** Legacy combined count (invalid + duplicate + limit) — MigrationStep still renders this. */
+  skipped: number;
+  /** Skipped because the title already exists (in DB or earlier in this batch) or was invalid. */
+  duplicateSkipped: number;
+  /** Skipped because the church hit its song-limit headroom — NOT duplicates. */
+  limitSkipped: number;
+}> {
   const db = getDb();
-  if (candidates.length === 0) return { added: 0, skipped: 0 };
+  if (candidates.length === 0) return { added: 0, skipped: 0, duplicateSkipped: 0, limitSkipped: 0 };
 
   const existingTitles = new Set(
     (await db.select({ title: songs.title }).from(songs).where(eq(songs.churchId, churchId))).map((r) => r.title),
@@ -32,19 +40,20 @@ export async function bulkInsertSongs(
   const toInsert: SongCandidate[] = [];
   const seenInBatch = new Set<string>();
   let remaining = headroom;
-  let skipped = 0;
+  let duplicateSkipped = 0;
+  let limitSkipped = 0;
 
   for (const c of candidates) {
     const title = c.title.trim();
-    if (!title || c.slides.length === 0) { skipped++; continue; }
-    if (existingTitles.has(title) || seenInBatch.has(title)) { skipped++; continue; }
-    if (remaining <= 0) { skipped++; continue; }
+    if (!title || c.slides.length === 0) { duplicateSkipped++; continue; }
+    if (existingTitles.has(title) || seenInBatch.has(title)) { duplicateSkipped++; continue; }
+    if (remaining <= 0) { limitSkipped++; continue; }
     seenInBatch.add(title);
     toInsert.push({ ...c, title });
     remaining--;
   }
 
-  if (toInsert.length === 0) return { added: 0, skipped };
+  if (toInsert.length === 0) return { added: 0, skipped: duplicateSkipped + limitSkipped, duplicateSkipped, limitSkipped };
 
   // Match returned rows back up by TITLE, not array position. Postgres
   // reliably returns RETURNING rows in VALUES order today for a plain,
@@ -67,5 +76,10 @@ export async function bulkInsertSongs(
     await db.insert(songSlides).values(slideRows);
   }
 
-  return { added: toInsert.length, skipped };
+  return {
+    added: toInsert.length,
+    skipped: duplicateSkipped + limitSkipped,
+    duplicateSkipped,
+    limitSkipped,
+  };
 }

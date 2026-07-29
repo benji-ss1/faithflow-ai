@@ -77,7 +77,9 @@ export const propresenterParser: Parser = {
           continue;
         }
 
-        const title = (parsed.title || "").trim();
+        // Many real exports omit CCLISongTitle — fall back to the filename.
+        const title = (parsed.title || "").trim()
+          || f.name.split(/[/\\]/).pop()!.replace(/\.(pro6|pro5|pro)$/i, "").trim();
         if (!title || parsed.slides.length === 0) {
           skipped.push({ file: f.name, reason: parsed.warnings[0] || "No title or slides found" });
           continue;

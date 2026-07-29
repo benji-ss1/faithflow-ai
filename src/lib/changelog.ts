@@ -15,6 +15,18 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.91",
+    date: "2026-07-29",
+    headline: "Say 'read that in NLT' and it switches — plus Screens/Audio in the left sidebar and ProPresenter import",
+    highlights: [
+      "Bible translation by voice: the preacher says 'switch to NIV', 'let's read the King James Version', or even 'make we read am for NLT' (pidgin understood) — and PresentFlow switches. In AUTO mode it also re-renders the verse currently on the projector in the new translation (same verse, new text) and toasts what happened; in co-pilot mode you get a tap-to-confirm prompt. Every verse detected afterwards uses the new translation, and the Bible panel dropdown follows",
+      "Built carefully so sermon talk can't false-fire: 'caught in a web of sin' will NOT switch to the WEB translation, 'the message of hope' will NOT switch to MSG, 'back in King James' day' does nothing — ambiguous names need clear switch phrasing ('read', 'switch', 'version', 'translation'). Unambiguous codes like NIV/KJV/NLT work bare. 10-second cooldown between switches. 34 automated language tests",
+      "HARDWARE section in the left sidebar: Screens and Audio now open as roomy 360px slide-out panels from the left — the once-per-service hardware setup no longer hides in the right-sidebar popover (which still works too; same settings, two doors)",
+      "ProPresenter import: Import button + drag-and-drop in the Songs browser accepts .pro6/.pro5 files, decodes the lyrics with sections intact (Verse/Chorus), skips duplicates, respects your song limit with an honest message, and tells ProPresenter 7 users exactly what to do (export as Pro6). Imported songs are immediately available to the AI song detector",
+      "Web-only deploy — Cmd+R gets everything",
+    ],
+  },
+  {
     version: "0.1.90",
     date: "2026-07-28",
     headline: "Timers & messages now ACTUALLY show on the projector — plus the app reopens exactly where you left off",

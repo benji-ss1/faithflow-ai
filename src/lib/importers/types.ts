@@ -16,6 +16,8 @@ export type ParsedSong = {
 
 export type ImportedItem =
   | { kind: "song"; song: ParsedSong }
+  /** File matched a parser but can't be imported — surface why (e.g. .pro7). */
+  | { kind: "skip"; warnings: string[] }
   | { kind: "media"; media: { fileName: string; mimeType: string; contents: Buffer } }
   | { kind: "logo"; media: { fileName: string; mimeType: string; contents: Buffer; confidence: number } };
 

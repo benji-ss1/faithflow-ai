@@ -97,6 +97,12 @@ export function runImportPipeline(input: PipelineInput): PipelineOutput {
       const items = parser.parseFile(file.path, file.contents);
       if (items.length === 0) { acc.skipped++; continue; }
       for (const item of items) {
+        if (item.kind === "skip") {
+          acc.skipped++;
+          output.warnings.push({ file: file.path, warnings: item.warnings });
+          parsedByAny = true; // parser handled the file, just couldn't import it
+          continue;
+        }
         if (item.kind !== "song") continue;
         parsedByAny = true;
         const key = item.song.title.trim().toLowerCase();

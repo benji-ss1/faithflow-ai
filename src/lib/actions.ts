@@ -506,10 +506,18 @@ export async function reorderSongSlides(songId: string, orderedIds: string[]): P
   return { ok: true };
 }
 
-export async function importPro6Files(files: { name: string; content: string }[]): Promise<Result<{ added: number; skipped: number; warnings: { file: string; warnings: string[] }[] }>> {
+const PRO6_IMPORT_MAX_FILES = 500;
+const PRO6_IMPORT_MAX_FILE_BYTES = 2 * 1024 * 1024; // 2MB — real .pro6 lyric files are <100KB
+const PRO6_TITLE_MAX = 200;
+const PRO6_SLIDE_MAX = 5000;
+
+export async function importPro6Files(files: { name: string; content: string }[]): Promise<Result<{ added: number; skipped: number; duplicates: number; limitSkipped: number; failed: number; warnings: { file: string; warnings: string[] }[] }>> {
   const user = await requireUser();
   const db = getDb();
   const { parsePro6 } = await import("./pro6-parser");
+
+  if (!Array.isArray(files) || files.length === 0) return { ok: false, error: "No files provided" };
+  if (files.length > PRO6_IMPORT_MAX_FILES) return { ok: false, error: `Too many files (max ${PRO6_IMPORT_MAX_FILES} per import)` };
 
   let parseSkipped = 0;
   const warnings: { file: string; warnings: string[] }[] = [];
@@ -521,22 +529,47 @@ export async function importPro6Files(files: { name: string; content: string }[]
   const candidates: { title: string; artist?: string | null; slides: string[]; source: "imported" }[] = [];
   for (const f of files) {
     try {
+      if (typeof f?.name !== "string" || typeof f?.content !== "string") {
+        parseSkipped++;
+        warnings.push({ file: String(f?.name ?? "unknown"), warnings: ["Invalid file payload"] });
+        continue;
+      }
+      if (f.content.length > PRO6_IMPORT_MAX_FILE_BYTES) {
+        parseSkipped++;
+        warnings.push({ file: f.name, warnings: ["File too large (max 2MB) — not a lyric document"] });
+        continue;
+      }
       const parsed = parsePro6(f.content);
-      if (!parsed.title.trim() || parsed.slides.length === 0) {
+      // Many real .pro6 exports omit CCLISongTitle — fall back to the filename.
+      const title = (parsed.title.trim()
+        || f.name.split(/[/\\]/).pop()!.replace(/\.(pro6|pro5|pro)$/i, "").trim()).slice(0, PRO6_TITLE_MAX);
+      if (!title || parsed.slides.length === 0) {
         parseSkipped++;
         if (parsed.warnings.length) warnings.push({ file: f.name, warnings: parsed.warnings });
         continue;
       }
-      candidates.push({ title: parsed.title, artist: parsed.artist, slides: parsed.slides, source: "imported" });
+      candidates.push({
+        title,
+        artist: parsed.artist ? parsed.artist.slice(0, 120) : null,
+        slides: parsed.slides.map((s) => s.slice(0, PRO6_SLIDE_MAX)),
+        source: "imported",
+      });
       if (parsed.warnings.length) warnings.push({ file: f.name, warnings: parsed.warnings });
     } catch (e) {
       parseSkipped++;
       warnings.push({ file: f.name, warnings: [e instanceof Error ? e.message : "Parse failed"] });
     }
   }
-  const { added, skipped: bulkSkipped } = await bulkInsertSongs(user.churchId, candidates, remainingHeadroom);
+  const { added, skipped: bulkSkipped, duplicateSkipped, limitSkipped } = await bulkInsertSongs(user.churchId, candidates, remainingHeadroom);
   revalidatePath("/library/songs");
-  return { ok: true, data: { added, skipped: parseSkipped + bulkSkipped, warnings } };
+  // `skipped` keeps the legacy combined meaning (MigrationStep renders it);
+  // `duplicates` / `limitSkipped` / `failed` let newer UIs report
+  // "Imported N, M duplicates skipped, K skipped (limit), J failed" honestly —
+  // plan-limit skips are NOT duplicates and are no longer mislabeled as such.
+  if (limitSkipped > 0) {
+    warnings.push({ file: "*", warnings: [`${limitSkipped} song${limitSkipped === 1 ? "" : "s"} skipped — song limit reached`] });
+  }
+  return { ok: true, data: { added, skipped: parseSkipped + bulkSkipped, duplicates: duplicateSkipped, limitSkipped, failed: parseSkipped, warnings } };
 }
 
 export async function importSongsCsv(text: string): Promise<Result<{ added: number; skipped: number }>> {

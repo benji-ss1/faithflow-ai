@@ -5,6 +5,7 @@ import { parseBareVerse, parseBookVerseOnly, isValidChapter } from "@/lib/bible-
 import { buildIndex, type IndexedSong, type SongIndex } from "@/lib/ai-detection/lyric-fragment";
 import type { SongMatchResult } from "@/lib/ai-detection/song-match";
 import { matchCustomCommand, readCustomCommands, readAudioInputPref, audioConstraintsFor, AUDIO_SOURCE_TYPE_KEY } from "@/lib/voice-commands";
+import { detectTranslationSwitch } from "@/lib/translation-commands";
 import { dispatchInternal } from "@/lib/internal-events";
 import { readVocabulary, VOCABULARY_CHANGED_EVENT } from "@/lib/audio/customVocabulary";
 import { CONFIDENCE_THRESHOLD } from "@/lib/audio-thresholds";
@@ -1372,6 +1373,21 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
               // Y1: nonce-gated dispatch. Handlers verify the nonce and drop
               // anything else on the floor.
               dispatchInternal("presentflow:voice-command", match);
+            }
+          } catch { /* ignore */ }
+          // JPD Fix 6 — spoken translation switch ("read that in NLT",
+          // "let's go to King James"). Pure detector in
+          // src/lib/translation-commands.ts; reuses the same
+          // `presentflow:voice-command` dispatch the custom-command path
+          // uses, with a parameterized `switch_translation:<CODE>` action
+          // the shell handles next to the existing `give_me_niv` case.
+          try {
+            const tHit = detectTranslationSwitch(msg.text);
+            if (tHit && typeof window !== "undefined") {
+              dispatchInternal("presentflow:voice-command", {
+                action: `switch_translation:${tHit.code}`,
+                phrase: tHit.matchedPhrase,
+              });
             }
           } catch { /* ignore */ }
         }

@@ -163,6 +163,9 @@ export function AudioTab() {
   const detectCleanupRef = useRef<(() => void) | null>(null);
 
   const nativeProbeUnsubRef = useRef<(() => void) | null>(null);
+  // True only while THIS instance owns the running channel probe — dual
+  // mounts (HardwarePanel + popover) must never stop each other's probe.
+  const startedProbeRef = useRef(false);
 
   // Channel-grid state
   const [channelCount, setChannelCount] = useState<number>(1);
@@ -686,16 +689,31 @@ export function AudioTab() {
     const nb = nativeApi?.audio?.native;
     const chCount = nativeSelected?.channelCount ?? 0;
     const shouldProbe = effectiveMode === "native" && pickerOpen && !!nativeSelected && chCount > 1 && !!nb;
+    // AudioTab is mounted TWICE (left HardwarePanel + right popover). Only
+    // the instance that actually STARTED the probe may stop it — otherwise
+    // the idle instance's unconditional stopChannelProbe() kills the active
+    // instance's probe on every re-run of this effect.
     if (!shouldProbe) {
       if (nativeProbeUnsubRef.current) { try { nativeProbeUnsubRef.current(); } catch {} nativeProbeUnsubRef.current = null; }
-      try { void nb?.stopChannelProbe?.(); } catch {}
+      if (startedProbeRef.current) {
+        startedProbeRef.current = false;
+        try { void nb?.stopChannelProbe?.(); } catch {}
+      }
       return;
     }
     let cancelled = false;
     (async () => {
       try {
         const res = await nb!.startChannelProbe({ deviceIndex: nativeSelected!.index, channelCount: chCount });
-        if (cancelled || !res?.ok) return;
+        if (!res?.ok) return;
+        startedProbeRef.current = true;
+        if (cancelled) {
+          // Cleanup already ran before start resolved — stop the probe we
+          // just started ourselves, since cleanup couldn't see it yet.
+          startedProbeRef.current = false;
+          try { void nb?.stopChannelProbe?.(); } catch {}
+          return;
+        }
         const unsub = nb!.onChannelLevels((lvls) => {
           if (!cancelled) setNativeChannelLevels(lvls);
         });
@@ -705,7 +723,10 @@ export function AudioTab() {
     return () => {
       cancelled = true;
       if (nativeProbeUnsubRef.current) { try { nativeProbeUnsubRef.current(); } catch {} nativeProbeUnsubRef.current = null; }
-      try { void nb?.stopChannelProbe?.(); } catch {}
+      if (startedProbeRef.current) {
+        startedProbeRef.current = false;
+        try { void nb?.stopChannelProbe?.(); } catch {}
+      }
     };
   }, [effectiveMode, pickerOpen, nativeSelected?.index, nativeSelected?.channelCount]);
 

@@ -24,6 +24,7 @@ import { TopBar } from "./TopBar";
 import { LibrarySection } from "./left/LibrarySection";
 import { PlaylistSection } from "./left/PlaylistSection";
 import { MediaSection } from "./left/MediaSection";
+import { HardwareSection } from "./left/HardwarePanel";
 import { CenterHeader } from "./center/CenterHeader";
 import { SlideGrid } from "./center/SlideGrid";
 import { BibleMode } from "./center/BibleMode";
@@ -40,6 +41,7 @@ import { MediaStrip } from "./MediaStrip";
 import { useTimerSession, useMessagesSession, useBibleSession } from "./hooks";
 import { openLiveChannel, safePost } from "@/lib/broadcast";
 import { cachedLookup } from "@/lib/bible-client-cache";
+import { setAvailableTranslationCodes } from "@/lib/translation-commands";
 import { fetchChapterCached, getCachedChapter, chapterKey, prefetchChapter } from "@/lib/bible-chapter-cache";
 import { cn } from "@/lib/utils";
 import { useOperatorHotkeys } from "@/hooks/useOperatorHotkeys";
@@ -2699,6 +2701,97 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     },
   });
 
+  // JPD Fix 6 — hydrate the spoken-translation-switch detector with the
+  // translations that actually exist in the DB (public-domain only; the
+  // /api/bible/translations route already filters licensed slots). Detector
+  // falls back to the seeded public-domain list until this resolves.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/bible/translations").then((r) => r.json());
+        const codes = Array.isArray(res?.translations)
+          ? (res.translations as Array<{ code?: string }>).map((t) => String(t.code || "")).filter(Boolean)
+          : [];
+        if (!cancelled && codes.length > 0) setAvailableTranslationCodes(codes);
+      } catch { /* keep seeded fallback */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // JPD Fix 6 — apply a spoken translation switch: update the shared Bible
+  // session (Bible panel dropdown + all subsequent detections/lookups read
+  // bibleSession.state.translation), notify OperatorConsole's
+  // defaultTranslationCode listener (same event the built-in "give_me_niv"
+  // voice command uses), and — if a scripture verse is currently live —
+  // re-fetch it in the new translation and re-send it to the live output.
+  const applyTranslationSwitch = useCallback(async (code: string, spokenPhrase: string) => {
+    bibleSession.setTranslation(code);
+    try {
+      window.dispatchEvent(new CustomEvent("presentflow:switch-translation", { detail: { code } }));
+    } catch { /* noop */ }
+    // Live scripture re-render. Bible slides go live as
+    // `${text}\n\n${Book C:V[-V] (CODE)}` — parse the label off the live
+    // slide; anything that doesn't match that shape (songs, plain slides)
+    // is left alone. The toast is HONEST: we only claim the live slide
+    // changed when sendLive actually fired (or it was already in the target
+    // translation); otherwise we say the next verse will use the new code.
+    let liveUpdated = false;
+    const live = ctx.liveSlide;
+    if (live?.kind === "text" && typeof live.text === "string") {
+      const parts = live.text.split("\n\n");
+      const label = parts[parts.length - 1]?.trim() ?? "";
+      const m = /^(.+?)\s+(\d+):(\d+)(?:-(\d+))?\s+\(([A-Za-z0-9]+)\)$/.exec(label);
+      if (m) {
+        const [, book, chapterStr, startStr, endStr, liveCode] = m;
+        if (liveCode.toUpperCase() === code.toUpperCase()) {
+          liveUpdated = true; // already in target translation — live output is correct
+        } else {
+          const chapter = Number(chapterStr);
+          const verseStart = Number(startStr);
+          const verseEnd = endStr ? Number(endStr) : verseStart;
+          try {
+            const res = await cachedLookup({ book, chapter, verseStart, verseEnd, translationCode: code, source: "ai" });
+            if (res.verses.length > 0) {
+              // Honor the operator's Bible display prefs so the re-render
+              // matches how BibleMode's cardToSlide would format the slide
+              // (verse numbers + one-verse-per-line). BibleMode owns these
+              // opts via BibleOptionsProvider, but persists them to the
+              // shared localStorage key — read that directly here since the
+              // formatter itself lives inside BibleMode (WIP, off-limits).
+              let showVerseNumbers = true;
+              let breakOnNewVerse = false;
+              try {
+                const raw = window.localStorage.getItem("presentflow.pro.bible.v1");
+                if (raw) {
+                  const o = JSON.parse(raw) as { showVerseNumbers?: boolean; breakOnNewVerse?: boolean };
+                  if (typeof o.showVerseNumbers === "boolean") showVerseNumbers = o.showVerseNumbers;
+                  if (typeof o.breakOnNewVerse === "boolean") breakOnNewVerse = o.breakOnNewVerse;
+                }
+              } catch { /* keep defaults (match BibleOptionsPopover DEFAULT) */ }
+              const newLabel = `${book} ${chapter}:${verseStart}${verseEnd !== verseStart ? `-${verseEnd}` : ""} (${res.translation})`;
+              const newText = res.verses
+                .map((v) => showVerseNumbers ? `${v.verse} ${v.text}` : v.text)
+                .join(breakOnNewVerse ? "\n" : " ");
+              sendLiveRef.current({ kind: "text", text: `${newText}\n\n${newLabel}` });
+              liveUpdated = true;
+            }
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : "Could not re-render live verse in new translation");
+          }
+        }
+      }
+    }
+    toast.success(
+      liveUpdated
+        ? `Switched to ${code} — "${spokenPhrase}"`
+        : `Switched to ${code} — next verse will use it`,
+      { id: "translation-switch" },
+    );
+  }, [bibleSession, ctx.liveSlide]);
+  const applyTranslationSwitchRef = useRef(applyTranslationSwitch);
+  useEffect(() => { applyTranslationSwitchRef.current = applyTranslationSwitch; }, [applyTranslationSwitch]);
+
   // Runtime hook for user-added voice commands. useAudioStream matches the
   // transcript against `presentflow.pro.voiceCommands.v1` and dispatches
   // `presentflow:voice-command` with { action, phrase }. Route the action to
@@ -2711,6 +2804,27 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       const p = detail.payload ?? (detail as { action: string; phrase: string });
       if (!p || typeof p.action !== "string") return;
       const { action, phrase } = p;
+      // JPD Fix 6 — parameterized translation switch from the spoken
+      // detector (`switch_translation:NLT`). AUTO (auto-approve armed):
+      // switch immediately. CO-PILOT/manual: tap-to-confirm suggestion via
+      // a toast action — direct operator tap is trusted, mirroring chips.
+      if (action.startsWith("switch_translation:")) {
+        const code = action.slice("switch_translation:".length).toUpperCase();
+        if (!/^[A-Z0-9]{2,10}$/.test(code)) return;
+        if (ctx.autoApproveOn) {
+          void applyTranslationSwitchRef.current(code, phrase ?? code);
+        } else {
+          toast.info(`Switch to ${code}? — heard "${phrase ?? code}"`, {
+            id: "translation-switch",
+            duration: 12000,
+            action: {
+              label: `Switch to ${code}`,
+              onClick: () => { void applyTranslationSwitchRef.current(code, phrase ?? code); },
+            },
+          });
+        }
+        return; // handled — skip generic "Voice command" toast below
+      }
       switch (action) {
         case "next_verse":
           if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("presentflow:hotkey-next"));
@@ -2829,6 +2943,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           <LibrarySection onCenterMode={setCenterMode} />
           <PlaylistSection ctx={ctx} onCenterMode={setCenterMode} />
           <MediaSection onCenterMode={setCenterMode} />
+          <HardwareSection />
         </aside>
 
         {/* CENTER */}
