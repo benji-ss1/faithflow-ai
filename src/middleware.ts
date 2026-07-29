@@ -95,6 +95,11 @@ const DESKTOP_ALLOWED_API_EXACT = new Set<string>([
   "/api/audio/session-metrics",  // audio diagnostics tab
   "/api/bible/translations/status",
   "/api/bible/chapters",
+  "/api/themes",                 // RightInspector theme picker
+  "/api/sermon/ask",             // sermon Q&A panel in operator
+  "/api/pptx/convert",           // pptx upload in operator library
+  "/api/health/ai",              // diagnostics panel
+  "/api/health/deepgram",        // audio diagnostics
 ]);
 
 // Narrow prefixes for dynamic-segment routes that the operator legitimately

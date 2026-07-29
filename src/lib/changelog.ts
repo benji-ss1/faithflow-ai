@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.106",
+    date: "2026-07-29",
+    headline: "Desktop shell allowlist: added /api/themes, /api/sermon/ask, /api/pptx/convert, /api/health/{ai,deepgram} — same class of bug as 0.1.105",
+    highlights: [
+      "After 0.1.105 unblocked songs/media/imports, the shell was STILL 403ing on /api/themes (RightInspector's theme picker fires on every open), /api/sermon/ask, /api/pptx/convert, /api/health/ai and /api/health/deepgram. Any one of these throws the 'not available in desktop shell' toast because the fetch handler surfaces the response error verbatim. Added them all to the desktop allowlist.",
+      "If you still see the toast: right-click the shell → Reload (Cmd+R may not be enough if the Electron page process is stale). If it survives that, open View → Toggle Developer Tools → Network tab, then reproduce — the failing URL tells us exactly which API path to add.",
+    ],
+  },
+  {
     version: "0.1.105",
     date: "2026-07-29",
     headline: "Desktop shell can see its own songs, media, and imports again — the 'not available in desktop shell' toast fixed",
