@@ -65,4 +65,18 @@ const nextConfig: NextConfig = {
   ],
 };
 
-export default nextConfig;
+// Sentry wrapper — silently pass-through when the SENTRY_* envs are missing
+// (i.e. locally / on any deploy without a Sentry project provisioned). Source
+// map upload + release plumbing only fire when SENTRY_AUTH_TOKEN is set.
+import { withSentryConfig } from "@sentry/nextjs";
+
+export default withSentryConfig(nextConfig, {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  silent: !process.env.CI,
+  widenClientFileUpload: true,
+  tunnelRoute: "/monitoring",
+  disableLogger: true,
+  automaticVercelMonitors: true,
+});

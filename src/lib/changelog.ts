@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.101",
+    date: "2026-07-29",
+    headline: "Error tracking (Sentry) + GitHub Actions CI — the two red items from the security review",
+    highlights: [
+      "Sentry wired in for client + server + edge runtimes with graceful no-op when SENTRY_DSN isn't set. To activate: create a free Sentry project, add NEXT_PUBLIC_SENTRY_DSN + SENTRY_DSN + SENTRY_ORG + SENTRY_PROJECT + SENTRY_AUTH_TOKEN to Vercel env vars, redeploy. Until then it's dormant weight — no runtime cost, ready when you are",
+      "GitHub Actions CI now runs on every PR to main: typecheck (tsc --noEmit) is required, lint is soft-warning-only until the legacy noise gets cleaned up. Would have caught the last_active_at DB drift before it hit prod",
+      "Rate limiting audit result: login (peekLoginIp + chargeLoginIp), signup (5/hr per IP), password reset (3/hr per IP + 3/hr per email), and /api/media/presign (60/min per user) are ALREADY rate-limited. My earlier claim that auth wasn't gated was wrong — the codebase is in better shape than I flagged",
+      "Web-only deploy — Cmd+R gets everything",
+    ],
+  },
+  {
     version: "0.1.100",
     date: "2026-07-29",
     headline: "Desktop defaults dark, real brand mark in sidebar, layout fixes",
