@@ -1,15 +1,16 @@
 "use server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireUser } from "./session";
 import { getDb } from "./db/client";
-import { mediaAssets, settings, migrationJobs } from "./db/schema";
+import { mediaAssets, settings, migrationJobs, songs } from "./db/schema";
 import { runImportPipeline, type PipelineOutput } from "./importers/pipeline";
 import { presignPut, isS3Configured, s3, BUCKET } from "./s3";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { randomUUID } from "node:crypto";
 import { getSongLimit, getSongUsage } from "./song-limits";
 import { bulkInsertSongs } from "./song-bulk-insert";
+import { generateImageThumbnail } from "./media-thumbnail";
 
 type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
 
@@ -27,13 +28,84 @@ async function putBuffer(key: string, body: Buffer, contentType: string) {
  * transport. This action never fails the whole batch on one bad file —
  * it collects warnings and reports them.
  */
+/**
+ * Preview-only pass over the drop — parses everything, uploads nothing,
+ * writes nothing. Powers the 4-step ProPresenter import dialog's preview
+ * step so the user sees exactly what they're about to bring in (songs,
+ * duplicates, background thumbnails) before committing.
+ *
+ * Duplicate detection is church-scoped: we compare parsed titles against
+ * existing songs.title for this church so the UI can pre-uncheck rows the
+ * user would otherwise import twice.
+ */
+export async function previewImportDrop(input: { drop: FileDrop[] }): Promise<Result<{
+  songs: {
+    title: string;
+    artist: string | null;
+    ccli: string | null;
+    slidesPreview: string[]; // first 2 slides only — enough for the expandable preview
+    slideCount: number;
+    mediaHints: string[];
+    isDuplicate: boolean;
+    sourceRef?: string;
+  }[];
+  mediaCount: number;
+  mediaSample: { fileName: string; kind: "image" | "video"; sizeBytes: number }[];
+  warnings: { file: string; warnings: string[] }[];
+  perParser: Record<string, { examined: number; imported: number; skipped: number }>;
+}>> {
+  const user = await requireUser();
+
+  const total = input.drop.reduce((sum, f) => sum + Math.ceil(f.b64.length * 0.75), 0);
+  if (total > MAX_TOTAL_BYTES) {
+    return { ok: false, error: `Drop is too large (${Math.round(total / 1024 / 1024)} MB). Split into smaller batches.` };
+  }
+  if (input.drop.length === 0) return { ok: false, error: "No files provided" };
+  if (input.drop.length > 5000) return { ok: false, error: "Too many files in one drop (max 5000)" };
+
+  const buffers = input.drop.map((f) => ({ path: f.path, contents: Buffer.from(f.b64, "base64") }));
+  const output: PipelineOutput = runImportPipeline(buffers);
+
+  const db = getDb();
+  const existingTitles = new Set(
+    (await db.select({ title: songs.title }).from(songs).where(eq(songs.churchId, user.churchId))).map((r) => r.title.trim().toLowerCase()),
+  );
+
+  return {
+    ok: true,
+    data: {
+      songs: output.songs.map((s) => ({
+        title: s.title,
+        artist: s.artist,
+        ccli: s.ccli,
+        slidesPreview: s.slides.slice(0, 2),
+        slideCount: s.slides.length,
+        mediaHints: s.mediaHints,
+        isDuplicate: existingTitles.has(s.title.trim().toLowerCase()),
+        sourceRef: s.sourceRef,
+      })),
+      mediaCount: output.mediaAssets.length,
+      mediaSample: output.mediaAssets.slice(0, 20).map((m) => ({
+        fileName: m.fileName,
+        kind: m.mimeType.startsWith("video/") ? "video" as const : "image" as const,
+        sizeBytes: m.contents.length,
+      })),
+      warnings: output.warnings,
+      perParser: output.byParser,
+    },
+  };
+}
+
 export async function importDrop(input: {
   drop: FileDrop[];
   applyLogo?: string; // filename of the logo the user picked, optional
+  /** Whitelist of song titles to actually insert. If omitted, all parsed songs are inserted. */
+  onlyTitles?: string[];
 }): Promise<Result<{
   added: number; skipped: number;
   mediaAdded: number;
   logoApplied: boolean;
+  backgroundsLinked: number;
   logoCandidates: { fileName: string; confidence: number }[];
   warnings: { file: string; warnings: string[] }[];
   perParser: Record<string, { examined: number; imported: number; skipped: number }>;
@@ -56,15 +128,32 @@ export async function importDrop(input: {
   const [__limit, __usage] = await Promise.all([getSongLimit(user.churchId), getSongUsage(user.churchId)]);
   const remainingHeadroom = Math.max(0, __limit - __usage);
 
+  // If the caller passed a whitelist (from the preview UI's per-song
+  // checkboxes), keep only those titles. Empty whitelist = import nothing.
+  const titleWhitelist = input.onlyTitles
+    ? new Set(input.onlyTitles.map((t) => t.trim().toLowerCase()))
+    : null;
+  const songsToInsert = titleWhitelist
+    ? output.songs.filter((s) => titleWhitelist.has(s.title.trim().toLowerCase()))
+    : output.songs;
+
   const { added, skipped } = await bulkInsertSongs(
     user.churchId,
-    output.songs.map((s) => ({ title: s.title, artist: s.artist, slides: s.slides, source: "imported" as const })),
+    songsToInsert.map((s) => ({ title: s.title, artist: s.artist, slides: s.slides, source: "imported" as const })),
     remainingHeadroom,
   );
 
   // Media upload — only if S3 is configured. Anything else surfaces as a
-  // warning rather than silently dropping.
+  // warning rather than silently dropping. Every image also gets a 320x180
+  // JPEG thumbnail uploaded next to it so the Media Browser + song row
+  // previews don't fetch the full-size image. Videos ship without a
+  // thumbnail (see media-thumbnail.ts for the rationale).
+  //
+  // We track fileName → mediaAssetId here so the linking pass below can
+  // resolve ProPresenter's `mediaHints` (which are filenames, not paths)
+  // back to the newly-inserted DB row.
   let mediaAdded = 0;
+  const mediaByFileName = new Map<string, string>();
   if (output.mediaAssets.length > 0) {
     if (!isS3Configured()) {
       output.warnings.push({ file: "*", warnings: [`${output.mediaAssets.length} media file(s) not uploaded — S3 is not configured`] });
@@ -72,20 +161,69 @@ export async function importDrop(input: {
       for (const m of output.mediaAssets) {
         try {
           const ext = m.fileName.split(".").pop() || "bin";
-          const key = `${user.churchId}/media/${randomUUID()}.${ext}`;
+          const uuid = randomUUID();
+          const key = `${user.churchId}/media/${uuid}.${ext}`;
           await putBuffer(key, m.contents, m.mimeType);
           const kind = m.mimeType.startsWith("video/") ? "video" as const : "image" as const;
-          await db.insert(mediaAssets).values({
+          // Thumbnail (images only). Best-effort — a failed thumb never
+          // fails the import; the browser will render the full image.
+          let thumbS3Key: string | null = null;
+          if (kind === "image") {
+            const thumb = await generateImageThumbnail(m.contents, m.mimeType);
+            if (thumb) {
+              const thumbKey = `${user.churchId}/media/${uuid}_thumb.jpg`;
+              try {
+                await putBuffer(thumbKey, thumb.buffer, thumb.mimeType);
+                thumbS3Key = thumbKey;
+              } catch { /* keep going without a thumb */ }
+            }
+          }
+          const [row] = await db.insert(mediaAssets).values({
             churchId: user.churchId,
             kind,
             fileName: m.fileName,
             s3Key: key,
+            thumbS3Key,
             mimeType: m.mimeType,
             sizeBytes: m.contents.length,
-          });
+          }).returning({ id: mediaAssets.id });
+          if (row) mediaByFileName.set(m.fileName.toLowerCase(), row.id);
           mediaAdded++;
         } catch (e) {
           output.warnings.push({ file: m.fileName, warnings: [e instanceof Error ? e.message : "Upload failed"] });
+        }
+      }
+    }
+  }
+
+  // Song ↔ background linking. For each imported song whose parser reported
+  // media hints (filenames referenced from within the .pro/.pro6 source),
+  // pick the first hint that matches an image asset we just uploaded and
+  // set it as the song's default background. Videos are skipped for the
+  // default — background videos are opt-in via the per-slide editor.
+  let backgroundsLinked = 0;
+  if (added > 0 && mediaByFileName.size > 0 && songsToInsert.length > 0) {
+    const insertedTitles = songsToInsert.map((s) => s.title.trim()).filter(Boolean);
+    if (insertedTitles.length > 0) {
+      // Church-scoped fetch: only look at rows we could have written.
+      const rows = await db
+        .select({ id: songs.id, title: songs.title })
+        .from(songs)
+        .where(and(eq(songs.churchId, user.churchId), inArray(songs.title, insertedTitles)));
+      const idByTitle = new Map(rows.map((r) => [r.title, r.id]));
+      for (const parsed of songsToInsert) {
+        const songId = idByTitle.get(parsed.title.trim());
+        if (!songId) continue;
+        for (const hint of parsed.mediaHints) {
+          const matched = mediaByFileName.get(hint.toLowerCase());
+          if (!matched) continue;
+          try {
+            await db.update(songs)
+              .set({ defaultBackgroundAssetId: matched })
+              .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId)));
+            backgroundsLinked++;
+          } catch { /* one bad link never fails the batch */ }
+          break; // first matching hint wins
         }
       }
     }
@@ -121,6 +259,7 @@ export async function importDrop(input: {
     ok: true,
     data: {
       added, skipped, mediaAdded, logoApplied,
+      backgroundsLinked,
       logoCandidates: output.logoCandidates.map((l) => ({ fileName: l.fileName, confidence: l.confidence })),
       warnings: output.warnings,
       perParser: output.byParser,

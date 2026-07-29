@@ -10,8 +10,11 @@
 
 import type { ImportedItem, Parser, ParsedSong } from "./types";
 import { PARSERS } from "./registry";
+import AdmZip from "adm-zip";
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB per song file
+const MAX_BUNDLE_BYTES = 500 * 1024 * 1024; // 500 MB per .proBundle
+const MAX_BUNDLE_ENTRIES = 5000; // guard against zip bombs
 
 export type PipelineInput = { path: string; contents: Buffer }[];
 
@@ -55,6 +58,85 @@ function guessMime(name: string): string {
 function isImage(name: string): boolean { return /\.(png|jpe?g|svg|webp|gif)$/i.test(name); }
 function isVideo(name: string): boolean { return /\.(mp4|webm|mov)$/i.test(name); }
 
+/** ZIP magic bytes — every valid ZIP (including .proBundle) starts with these. */
+function isZipBuffer(buf: Buffer): boolean {
+  return buf.length >= 4 && buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04;
+}
+
+/** True if the file is a ProPresenter bundle we should try to unzip. */
+function isProBundleFile(path: string, buf: Buffer): boolean {
+  if (/\.proBundle$/i.test(path)) return isZipBuffer(buf);
+  // Also treat any generic .zip that contains .pro/.pro6 as a proBundle.
+  if (/\.zip$/i.test(path) && isZipBuffer(buf)) return true;
+  return false;
+}
+
+type BundleExpansionResult = {
+  files: { path: string; contents: Buffer }[];
+  warnings: { file: string; warnings: string[] }[];
+};
+
+/**
+ * Expand every .proBundle in the input to its member files. Non-bundle
+ * files pass through unchanged. Errors and oversize entries are logged
+ * as warnings instead of throwing — one bad bundle never fails the batch.
+ */
+export function expandProBundles(input: PipelineInput): BundleExpansionResult {
+  const files: { path: string; contents: Buffer }[] = [];
+  const warnings: { file: string; warnings: string[] }[] = [];
+
+  for (const f of input) {
+    if (!isProBundleFile(f.path, f.contents)) {
+      files.push(f);
+      continue;
+    }
+    if (f.contents.length > MAX_BUNDLE_BYTES) {
+      warnings.push({ file: f.path, warnings: [`Bundle exceeds ${MAX_BUNDLE_BYTES / 1024 / 1024} MB size cap`] });
+      continue;
+    }
+    try {
+      const zip = new AdmZip(f.contents);
+      const entries = zip.getEntries();
+      if (entries.length > MAX_BUNDLE_ENTRIES) {
+        warnings.push({ file: f.path, warnings: [`Bundle contains ${entries.length} entries (max ${MAX_BUNDLE_ENTRIES}) — skipped`] });
+        continue;
+      }
+      const bundleName = (f.path.split(/[/\\]/).pop() || f.path).replace(/\.(proBundle|zip)$/i, "");
+      let added = 0;
+      for (const e of entries) {
+        if (e.isDirectory) continue;
+        // Skip Apple resource forks + hidden metadata files.
+        if (/(^|\/)\._/.test(e.entryName) || /__MACOSX/.test(e.entryName) || /\.DS_Store$/.test(e.entryName)) continue;
+        try {
+          const data = e.getData();
+          if (!data || data.length === 0) continue;
+          if (data.length > MAX_FILE_BYTES && !/\.(mp4|mov|webm|jpe?g|png|gif|webp)$/i.test(e.entryName)) {
+            // Non-media entries over 10MB are almost certainly not lyric docs.
+            warnings.push({ file: `${bundleName}/${e.entryName}`, warnings: [`Entry too large — skipped`] });
+            continue;
+          }
+          files.push({ path: `${bundleName}/${e.entryName}`, contents: data });
+          added++;
+        } catch (entryErr) {
+          warnings.push({
+            file: `${bundleName}/${e.entryName}`,
+            warnings: [`Could not extract entry: ${entryErr instanceof Error ? entryErr.message : "unknown error"}`],
+          });
+        }
+      }
+      if (added === 0) {
+        warnings.push({ file: f.path, warnings: ["Bundle contained no usable entries"] });
+      }
+    } catch (err) {
+      warnings.push({
+        file: f.path,
+        warnings: [`Bundle appears damaged — try re-exporting from ProPresenter (${err instanceof Error ? err.message : "unknown error"})`],
+      });
+    }
+  }
+  return { files, warnings };
+}
+
 export function runImportPipeline(input: PipelineInput): PipelineOutput {
   const output: PipelineOutput = {
     songs: [],
@@ -65,7 +147,14 @@ export function runImportPipeline(input: PipelineInput): PipelineOutput {
   };
   const seenTitles = new Map<string, ParsedSong>(); // dedupe by title within batch
 
-  for (const file of input) {
+  // Expand .proBundle ZIPs into their member files first. Non-bundle files
+  // pass through unchanged. Bundle-level warnings (corrupt zip, oversize)
+  // are attached to the aggregate output.
+  const expansion = expandProBundles(input);
+  if (expansion.warnings.length) output.warnings.push(...expansion.warnings);
+  const files = expansion.files;
+
+  for (const file of files) {
     if (file.contents.length > MAX_FILE_BYTES) {
       output.warnings.push({ file: file.path, warnings: [`Skipped: file exceeds ${MAX_FILE_BYTES / 1024 / 1024} MB size cap`] });
       continue;

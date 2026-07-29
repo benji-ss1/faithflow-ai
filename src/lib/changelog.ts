@@ -15,6 +15,23 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.103",
+    date: "2026-07-29",
+    headline: "One-click ProPresenter migration — songs and backgrounds, .proBundle + Pro7",
+    highlights: [
+      {
+        text: "Import from ProPresenter is now a real 4-step flow: drop your .proBundle, scan → preview every song with an expandable lyric preview and duplicate badges, select what to bring in, watch it land. Available from the Songs library toolbar (top right of /library/songs).",
+        tryItHref: "/library/songs",
+        tryItLabel: "Try it",
+      },
+      "Pro7 (.pro / .pro7 / .pro7x) files are supported for the first time. Uses a pragmatic RTF+string-extraction parser that always produces something usable rather than the previous 'export as Pro6' skip — no more failed imports because a church is on the current version of ProPresenter.",
+      ".proBundle ZIPs are unzipped in the pipeline: every .pro/.pro6 inside is parsed as a song, every image/video is uploaded to your Media library, and songs are linked to their matching background automatically (matched by filename hints inside the source file).",
+      "Images now ship with a 320x180 JPEG thumbnail generated server-side, so the Media browser and per-song preview don't fetch full-res backgrounds. Requires the schema migration in docs/migrations/2026-07-29-add-song-background-and-media-thumb.sql — run it in Supabase before deploying.",
+      "songs.default_background_asset_id column added — each song can now point to a media asset as its default projected background. Wired up during ProPresenter import; will be surfaced in the slide editor as a 'Change background' picker in a follow-up.",
+      "Web-only deploy — Cmd+R gets everything.",
+    ],
+  },
+  {
     version: "0.1.102",
     date: "2026-07-29",
     headline: "Quote a verse and PresentFlow finds it — plus a new native audio engine for rock-solid mixer capture (NEW DMG)",

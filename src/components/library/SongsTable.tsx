@@ -2,8 +2,9 @@
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Music, Plus, Search, Trash2 } from "lucide-react";
+import { Music, Plus, Search, Trash2, Download } from "lucide-react";
 import { deleteSong } from "@/lib/actions";
+import { ProPresenterImportDialog } from "./ProPresenterImportDialog";
 
 type Song = {
   id: string;
@@ -21,6 +22,7 @@ export function SongsTable({ songs: initial }: { songs: Song[] }) {
   const [sortKey, setSortKey] = useState<SortKey>("title");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [pending, startTransition] = useTransition();
+  const [ppOpen, setPpOpen] = useState(false);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -72,13 +74,21 @@ export function SongsTable({ songs: initial }: { songs: Song[] }) {
           >
             <Plus className="h-4 w-4" /> Add a song
           </Link>
+          <button
+            type="button"
+            onClick={() => setPpOpen(true)}
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-border px-4 text-sm font-medium text-foreground hover:bg-accent"
+          >
+            <Download className="h-4 w-4" /> Import from ProPresenter
+          </button>
           <Link
             href="/library/imports/wizard"
             className="inline-flex h-10 items-center gap-2 rounded-xl border border-border px-4 text-sm font-medium text-foreground hover:bg-white/[0.04]"
           >
-            Import library
+            Other formats
           </Link>
         </div>
+        <ProPresenterImportDialog open={ppOpen} onClose={() => setPpOpen(false)} />
       </div>
     );
   }
@@ -95,12 +105,22 @@ export function SongsTable({ songs: initial }: { songs: Song[] }) {
             className="h-10 w-full rounded-xl border border-border bg-background pl-9 pr-3 text-sm outline-none focus:border-[var(--color-primary)]/70"
           />
         </div>
-        <div className="text-xs text-muted-foreground">
-          {filtered.length === songs.length
-            ? `${songs.length} song${songs.length === 1 ? "" : "s"}`
-            : `${filtered.length} of ${songs.length}`}
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setPpOpen(true)}
+            className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-border px-3 text-xs font-semibold text-foreground hover:bg-accent"
+          >
+            <Download className="h-3.5 w-3.5" /> Import from ProPresenter
+          </button>
+          <div className="text-xs text-muted-foreground">
+            {filtered.length === songs.length
+              ? `${songs.length} song${songs.length === 1 ? "" : "s"}`
+              : `${filtered.length} of ${songs.length}`}
+          </div>
         </div>
       </div>
+      <ProPresenterImportDialog open={ppOpen} onClose={() => setPpOpen(false)} />
       <div className="overflow-hidden rounded-2xl border border-border">
         <table className="w-full text-sm">
           <thead className="bg-white/[0.02] text-[11px] uppercase tracking-[0.12em] text-muted-foreground">

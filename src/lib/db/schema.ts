@@ -157,6 +157,11 @@ export const songs = pgTable("songs", {
   source: songSourceEnum("source").notNull().default("church"),
   // Phase 5D-2: per-song settings (default transition, applied theme id, etc)
   settings: jsonb("settings").notNull().default({}),
+  // ProPresenter migration (2026-07-29): default background rendered behind
+  // every slide unless a per-slide media override is set. FK targets
+  // mediaAssets.id; nullable + ON DELETE SET NULL so removing a media asset
+  // never orphans a song.
+  defaultBackgroundAssetId: uuid("default_background_asset_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   // Serves every dup-check (WHERE church_id = ? AND title = ?, used by all
@@ -183,6 +188,9 @@ export const mediaAssets = pgTable("media_assets", {
   kind: mediaKindEnum("kind").notNull(),
   fileName: text("file_name").notNull(),
   s3Key: text("s3_key").notNull(),
+  // 320x180 JPEG thumbnail rendered at upload time so browsers/grids don't
+  // pay the full-image cost. Nullable — pre-migration media has none.
+  thumbS3Key: text("thumb_s3_key"),
   mimeType: text("mime_type").notNull(),
   sizeBytes: integer("size_bytes").notNull(),
   widthPx: integer("width_px"),
