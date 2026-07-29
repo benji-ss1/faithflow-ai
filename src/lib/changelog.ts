@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.97",
+    date: "2026-07-29",
+    headline: "Billing goes premium — Pro tier now visibly stands out",
+    highlights: [
+      "Billing page is now full-width — the three pricing cards span the whole content area instead of being squeezed into a max-w-2xl column",
+      "Pro tier gets Apple-style differentiation: taller card (extends above and below the other two via negative-margin/deeper padding), gradient border (terracotta → gold → terracotta), warmer glow shadow, larger price (5xl vs 3xl), and a bolder Recommended badge in filled terracotta",
+      "PowerPoint (.pptx) import now works from the web too — /api/pptx/convert was on the desktop-only allowlist by accident; unblocked and still auth-gated + church-scoped",
+      "Web-only deploy — Cmd+R gets everything",
+    ],
+  },
+  {
     version: "0.1.96",
     date: "2026-07-29",
     headline: "Collapsible sidebar sections + honest dashboard status",

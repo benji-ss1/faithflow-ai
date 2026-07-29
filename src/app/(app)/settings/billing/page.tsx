@@ -11,7 +11,7 @@ export default async function BillingPage() {
   const [sub] = await db.select().from(subscriptions).where(eq(subscriptions.churchId, admin.churchId)).limit(1);
 
   return (
-    <div className="max-w-2xl">
+    <div>
       <PageHeader
         eyebrow="Billing"
         title="Billing"

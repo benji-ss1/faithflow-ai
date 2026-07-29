@@ -340,23 +340,36 @@ function PlanCard({
 
   return (
     <div
-      className={cn("relative flex flex-col rounded-xl p-6 transition-transform hover:-translate-y-1")}
+      className={cn(
+        "relative flex flex-col rounded-xl transition-transform hover:-translate-y-1",
+        // Featured tier extends visually taller (more vertical padding both
+        // top + bottom) so it stands out architecturally, like Apple's
+        // recommended MacBook Pro column vs. Air/base MacBook.
+        featured ? "p-8 md:-my-6 md:py-14" : "p-6",
+      )}
       style={{
         background: featured ? "#141418" : "#111115",
-        border: featured ? "1px solid rgba(232,168,56,0.35)" : "1px solid #2A2A2E",
-        boxShadow: featured ? "0 0 40px rgba(232,168,56,0.15)" : "none",
+        border: featured ? "2px solid transparent" : "1px solid #2A2A2E",
+        // Gradient border for the featured card — brand terracotta → gold
+        // → back. Achieved via background-clip: padding-box, border-box.
+        backgroundImage: featured
+          ? "linear-gradient(#141418, #141418), linear-gradient(135deg, #9C481B 0%, #E8A838 50%, #9C481B 100%)"
+          : undefined,
+        backgroundOrigin: featured ? "border-box" : undefined,
+        backgroundClip: featured ? "padding-box, border-box" : undefined,
+        boxShadow: featured ? "0 24px 60px -15px rgba(156,72,27,0.4), 0 0 60px rgba(232,168,56,0.12)" : "none",
       }}
     >
       {featured && (
         <span
-          className="absolute -top-2.5 left-1/2 -translate-x-1/2 rounded-full px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em]"
-          style={{ background: "#E8A838", color: "#08080C" }}
+          className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] shadow-md"
+          style={{ background: "#9C481B", color: "#FFFFFF" }}
         >
           Recommended
         </span>
       )}
 
-      <div className="mb-2 text-lg font-semibold" style={{ color: "#FFFFFF" }}>
+      <div className={cn("mb-2 font-semibold", featured ? "text-xl" : "text-lg")} style={{ color: "#FFFFFF" }}>
         {plan.label}
       </div>
       <p className="mb-5 text-xs leading-5" style={{ color: "#8B8B92" }}>
@@ -364,7 +377,7 @@ function PlanCard({
       </p>
 
       <div className="mb-1 flex items-baseline gap-1">
-        <span className="text-4xl font-semibold" style={{ color: "#FFFFFF" }}>
+        <span className={cn("font-semibold", featured ? "text-5xl" : "text-3xl")} style={{ color: "#FFFFFF" }}>
           ${price}
         </span>
         <span className="text-xs" style={{ color: "#8B8B92" }}>
