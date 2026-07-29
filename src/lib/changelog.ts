@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.105",
+    date: "2026-07-29",
+    headline: "Desktop shell can see its own songs, media, and imports again — the 'not available in desktop shell' toast fixed",
+    highlights: [
+      "Root cause: v0.1.99 removed /api/songs/list, /api/songs/library, /api/media/list, /api/imports/list, /api/media/presign, /api/audio/session-metrics, /api/bible/translations/status, and /api/bible/chapters from the desktop-only forced list (so admin web could use them too), but forgot to add them to the DESKTOP allowlist. Result: every operator component that fetched a song, a media asset, or a pptx import list got a silent 403 with a toast saying 'not available in desktop shell'. Songs library showed 0 songs. Media library was empty. Imports panel was empty. Now fixed by adding those paths back to the desktop allowlist — they were always meant to work on both surfaces.",
+      "This unblocks the new ProPresenter 4-step import dialog end-to-end in the desktop shell — files can be uploaded via presign, songs land in the library, and the library refresh actually shows them.",
+    ],
+  },
+  {
     version: "0.1.104",
     date: "2026-07-29",
     headline: "ProPresenter import in the desktop operator too — no more 'nothing works' on Pro7 drops",

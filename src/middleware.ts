@@ -83,6 +83,18 @@ const DESKTOP_ALLOWED_API_EXACT = new Set<string>([
   // library, and top-bar search. All stay auth-gated at the server-action
   // level, so exposing them to web doesn't widen the security surface.
   "/api/sermon/match",
+  // 2026-07-29 — operator surfaces that were silently 403ing on desktop
+  // because these paths were removed from the desktop-only forced list in
+  // v0.1.99 but never added to the desktop allowlist. Every one is used
+  // by an operator component that MUST work on desktop.
+  "/api/songs/list",             // SongsBrowser, SearchPalette, LeftColumn
+  "/api/songs/library",          // OperatorConsole, InternetSongDetectionPanel
+  "/api/media/list",             // media panel in operator
+  "/api/media/presign",          // uploads from within operator surfaces
+  "/api/imports/list",           // pptx imports list in operator
+  "/api/audio/session-metrics",  // audio diagnostics tab
+  "/api/bible/translations/status",
+  "/api/bible/chapters",
 ]);
 
 // Narrow prefixes for dynamic-segment routes that the operator legitimately
