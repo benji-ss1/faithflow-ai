@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { Toaster } from "sonner";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
@@ -15,15 +15,23 @@ export const metadata: Metadata = {
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  // Light is now DEFAULT for the web admin surface. Users opt-in to dark
-  // via ff_theme=dark cookie (or the legacy ff_dark=1 cookie). Reason:
-  // admins spend most of their time in the admin panel during daylight
-  // planning, not stage-side; the warm ivory palette reads better as the
-  // first-visit surface than the dark stage look.
+  // Theme defaults are surface-dependent:
+  //   Web admin shell  → LIGHT default (warm ivory reads better for daylight
+  //                      admin/planning work; user opts INTO dark).
+  //   Desktop shell    → DARK default (stage/booth environments, low ambient
+  //                      light, projector confidence; user opts INTO light).
+  // In both cases an explicit ff_theme cookie wins over the surface default.
   const cookieStore = await cookies();
+  const hdrs = await headers();
   const theme = cookieStore.get("ff_theme")?.value;
   const legacyDark = cookieStore.get("ff_dark")?.value === "1";
-  const isDark = theme === "dark" || (!theme && legacyDark);
+  const isDesktopShell =
+    hdrs.get("x-pf-shell") === "desktop" ||
+    cookieStore.get("pf_shell")?.value === "desktop";
+  const isDark =
+    theme === "dark" ||
+    (!theme && legacyDark) ||
+    (!theme && isDesktopShell);
   const htmlClass = isDark ? "" : "light";
 
   // Vercel Analytics + Speed Insights: only mount when running on the

@@ -15,6 +15,18 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.100",
+    date: "2026-07-29",
+    headline: "Desktop defaults dark, real brand mark in sidebar, layout fixes",
+    highlights: [
+      "Desktop shell now defaults to dark mode (booth / stage environments favour it), while the web admin keeps light as its default. Users can still opt out either way — the theme toggle stores their choice and the ff_theme cookie wins over the surface default",
+      "Sidebar now uses the real PresentFlow brand mark (/brand/pf-logo-mark.png) in place of the generic sparkle. Wordmark stays visually consistent whether the panel is ivory or charcoal — 'Present' picks up the header text token, 'Flow' stays terracotta",
+      "Settings page (web) layout fix — the 'Get the desktop app' card was rendering as two narrow vertical bars because the Link element was inline; added block class so the rounded border wraps the whole tile properly",
+      "Subscriptions page (Billing in the sidebar) is now full-width. The BillingPanel had a max-w-3xl wrapper making the pricing cards look cramped on wider screens",
+      "Web-only deploy — Cmd+R gets everything",
+    ],
+  },
+  {
     version: "0.1.99",
     date: "2026-07-29",
     headline: "Edit & delete on Media and PPTX imports, editable worship defaults",

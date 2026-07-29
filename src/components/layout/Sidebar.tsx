@@ -8,7 +8,6 @@ import {
   ChevronLeft,
   ChevronRight,
   LockKeyhole,
-  Sparkles,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -349,13 +348,24 @@ export function Sidebar({ mobileOpen, onMobileOpenChange, churchLogoUrl, churchN
         />
         <div className={cn("relative flex min-h-[80px] min-w-0 items-center gap-3 pt-4", collapsed && "justify-center")}>
           <div
-            className="flex size-9 shrink-0 items-center justify-center rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.15)] backdrop-blur"
+            className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.15)] backdrop-blur"
             style={{ background: "var(--pf-sidebar-header-tile-bg)", border: "1px solid var(--pf-sidebar-header-tile-border)" }}
           >
-            <Sparkles className="h-4 w-4 text-[#9C481B]" strokeWidth={2} />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/brand/pf-logo-mark.png"
+              alt="PresentFlow"
+              width={22}
+              height={22}
+              className="h-[22px] w-[22px] object-contain"
+            />
           </div>
           {!collapsed ? (
             <div className="min-w-0">
+              {/* Wordmark stays identical across themes — "Present" uses the
+                  scope's header text token (which flips per mode), "Flow" is
+                  hardcoded terracotta so the brand accent reads the same
+                  whether the panel is ivory or charcoal. */}
               <div className="truncate text-[15px] font-semibold leading-tight">
                 <span style={{ color: "var(--pf-sidebar-header-text)" }}>Present</span>
                 <span className="text-[#9C481B]">Flow</span>

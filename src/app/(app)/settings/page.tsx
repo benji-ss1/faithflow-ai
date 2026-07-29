@@ -87,10 +87,13 @@ export default async function SettingsPage() {
 }
 
 function AdminLink({ href, icon, title, hint }: { href: string; icon: React.ReactNode; title: string; hint: string }) {
+  // `block` is essential — <Link> renders as an inline <a>, so without it the
+  // rounded border only wraps the text bounding boxes (produced the
+  // "two narrow vertical bars" artefact reviewers spotted 2026-07-29).
   return (
     <Link
       href={href}
-      className="rounded-md border border-border bg-card p-4 transition hover:border-foreground/30 hover:bg-accent"
+      className="block rounded-md border border-border bg-card p-4 transition hover:border-foreground/30 hover:bg-accent"
     >
       <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
         {icon} {title}

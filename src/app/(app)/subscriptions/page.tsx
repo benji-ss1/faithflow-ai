@@ -33,7 +33,7 @@ export default async function SubscriptionsPage() {
           <div className="mt-2 text-sm text-muted-foreground">registered media assets in this workspace</div>
         </AccountCard>
       </div>
-      <div className="max-w-3xl">
+      <div>
         <BillingPanel
           tier={sub?.tier || "pilot"}
           status={sub?.status || "pilot"}
