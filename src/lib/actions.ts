@@ -695,6 +695,20 @@ export async function renameMediaAsset(id: string, newName: string): Promise<Res
     .set({ fileName: trimmed })
     .where(and(eq(mediaAssets.id, id), eq(mediaAssets.churchId, user.churchId)));
   if ((upd as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Not found" };
+
+  // Propagate the new name to any service items in this church's plans that
+  // reference this asset via payload.mediaAssetId. Keeps the playlist sidebar
+  // title in sync without a separate refetch by the caller.
+  await db.execute(sql`
+    UPDATE service_items si
+    SET title = ${trimmed}
+    FROM service_plans sp
+    WHERE si.service_plan_id = sp.id
+      AND sp.church_id = ${user.churchId}
+      AND si.type = 'media'
+      AND si.payload->>'mediaAssetId' = ${id}
+  `);
+
   revalidatePath("/library/media");
   return { ok: true };
 }

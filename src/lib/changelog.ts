@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.113",
+    date: "2026-07-30",
+    headline: "Media Import Wizard · smarter rename · rename-to-playlist sync",
+    highlights: [
+      "Import button now opens a full 4-step wizard (Select → Preview → Upload → Done) instead of a bare file picker. Drag-drop files into the zone, review thumbnails before committing, watch per-file upload progress, and see the final count. Matches the song import wizard style.",
+      "Rename is now much easier — a pencil icon appears on the right of the filename bar whenever you hover a media card. One click opens the inline rename input. The old double-click-on-10px-text flow is gone.",
+      "When you rename a media file, the new name instantly appears everywhere — the media grid AND any playlist items that were already added from that file update in one server call.",
+    ],
+  },
+  {
     version: "0.1.112",
     date: "2026-07-30",
     headline: "Media: one-click project + import button + rename · Playlist drag-to-reorder · AI provider resilience",
