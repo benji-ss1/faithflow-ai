@@ -28,6 +28,11 @@ const GITHUB_LATEST_URL = "https://api.github.com/repos/benji-ss1/faithflow-ai/r
 const GITHUB_RELEASE_PAGE = "https://github.com/benji-ss1/faithflow-ai/releases/latest";
 const MANUAL_POLL_INTERVAL_MS = 30 * 60 * 1000; // 30 min
 const MANUAL_POLL_INITIAL_DELAY_MS = 15 * 1000; // 15s after mount
+// Per-version dismissal — once the user X's the banner for 0.1.102, don't
+// re-show it until 0.1.103+ ships as a tagged DMG release. Avoids the
+// old-and-stale banner spam when the web app has moved past the last
+// tagged DMG but no new DMG has actually been cut.
+const DISMISSED_MANUAL_KEY = "presentflow.updateBanner.dismissedVersion";
 
 // Compare two semver-ish strings ("0.1.71" vs "0.1.36"). Returns >0 if a>b.
 // Ignores pre-release tags. Missing components treated as 0.
@@ -109,21 +114,30 @@ export function UpdateBanner({ liveSlide, listening }: { liveSlide?: SlidePayloa
         const latest = (data.tag_name || "").replace(/^v/, "");
         if (!latest) return;
         if (compareSemver(latest, current) > 0) {
-          // Newer release available. Keep whatever downloading/ready/error the
-          // auto-updater path may have set; only claim the banner from idle
-          // OR overwrite a stale manual-available with the fresh version.
+          // Respect a prior dismissal for this exact tag — user X'd it out,
+          // don't nag until a NEWER DMG tag actually ships.
+          let dismissed: string | null = null;
+          try { dismissed = window.localStorage.getItem(DISMISSED_MANUAL_KEY); } catch { /* noop */ }
+          if (dismissed && compareSemver(dismissed, latest) >= 0) {
+            // Also clear any stale banner state so a re-poll after dismissal
+            // doesn't leave the banner up.
+            setState((prev) => (prev.kind === "manual-available" ? { kind: "idle" } : prev));
+            return;
+          }
+          // Newer release available AND not dismissed. Keep any downloading/
+          // ready/error state the auto-updater path may have set; only claim
+          // the banner from idle OR refresh a stale manual-available with
+          // the new version.
           setState((prev) => {
             if (prev.kind === "idle") return { kind: "manual-available", version: latest, url: data.html_url || GITHUB_RELEASE_PAGE };
             if (prev.kind === "manual-available" && prev.version !== latest) return { kind: "manual-available", version: latest, url: data.html_url || GITHUB_RELEASE_PAGE };
             return prev;
           });
         } else {
-          // 2026-07-30 fix — shell has caught up to (or passed) the latest
-          // release. Clear a stale manual-available banner that was set
-          // during an earlier poll when the shell was behind. Without this
-          // clear, the banner claimed "Update 0.1.102 available" long after
-          // the user had installed 0.1.102 — the state never re-evaluated.
-          // Don't clobber downloading/ready/error (auto-updater path).
+          // Shell has caught up to (or passed) the latest release. Clear a
+          // stale manual-available banner that was set during an earlier
+          // poll when the shell was behind. Don't clobber downloading/ready/
+          // error (auto-updater path).
           setState((prev) => (prev.kind === "manual-available" ? { kind: "idle" } : prev));
         }
       } catch { /* silent — offline / rate-limited / network flap */ }
@@ -144,50 +158,62 @@ export function UpdateBanner({ liveSlide, listening }: { liveSlide?: SlidePayloa
   if (state.kind === "idle") return null;
 
   if (state.kind === "manual-available") {
+    const openDownload = async () => {
+      // 2026-07-30 field-fix — three-tier open ladder. The IPC path
+      // (shell:openExternal) has a strict hostname allowlist that excludes
+      // github.com, so on shells older than the fix that adds it, the click
+      // was silently a no-op. Fallbacks:
+      //   1. IPC → shell.openExternal (works on future shells that allowlist
+      //      github.com; may return {ok:false} today).
+      //   2. window.open → main's setWindowOpenHandler routes to
+      //      shell.openExternal DIRECTLY, bypassing the allowlist (works on
+      //      current v0.1.102 shell). This is the primary path today.
+      //   3. Clipboard + toast fallback — if both above fail, copy the URL
+      //      so the operator can paste it into a browser manually.
+      let opened = false;
+      try {
+        const res = await window.electronAPI?.shell?.openExternal(state.url);
+        if (res && typeof res === "object" && "ok" in res && res.ok === true) opened = true;
+      } catch { /* fall through */ }
+      if (!opened) {
+        try {
+          const w = window.open(state.url, "_blank", "noopener,noreferrer");
+          if (w) opened = true;
+        } catch { /* fall through */ }
+      }
+      if (!opened) {
+        try {
+          await navigator.clipboard?.writeText(state.url);
+          const { toast } = await import("sonner");
+          toast.info(`Download URL copied — paste into your browser: ${state.url}`, { duration: 20_000, id: "update-url-copy" });
+        } catch {
+          console.error("[UpdateBanner] failed to open or copy URL", state.url);
+        }
+      }
+    };
     return (
-      <button
-        onClick={async () => {
-          // 2026-07-30 field-fix — three-tier open ladder. The IPC path
-          // (shell:openExternal) has a strict hostname allowlist that
-          // excludes github.com, so on shells older than the fix that adds
-          // it, the click was silently a no-op. Fallbacks:
-          //   1. IPC → shell.openExternal (works on future shells that
-          //      allowlist github.com; may return {ok:false} today).
-          //   2. window.open → main's setWindowOpenHandler routes to
-          //      shell.openExternal DIRECTLY, bypassing the allowlist
-          //      (works on current v0.1.102 shell). This is the primary
-          //      path today.
-          //   3. Clipboard + toast fallback — if both above fail (rare;
-          //      e.g. window.open blocked by popup policy), copy the URL
-          //      so the operator can paste it into a browser manually.
-          let opened = false;
-          try {
-            const res = await window.electronAPI?.shell?.openExternal(state.url);
-            if (res && typeof res === "object" && "ok" in res && res.ok === true) opened = true;
-          } catch { /* fall through */ }
-          if (!opened) {
-            try {
-              const w = window.open(state.url, "_blank", "noopener,noreferrer");
-              if (w) opened = true;
-            } catch { /* fall through */ }
-          }
-          if (!opened) {
-            try {
-              await navigator.clipboard?.writeText(state.url);
-              const { toast } = await import("sonner");
-              toast.info(`Download URL copied — paste into your browser: ${state.url}`, { duration: 20_000, id: "update-url-copy" });
-            } catch {
-              console.error("[UpdateBanner] failed to open or copy URL", state.url);
-            }
-          }
-        }}
-        className="w-full px-4 py-2 text-sm font-medium text-white flex items-center justify-center gap-2 cursor-pointer bg-violet-600 hover:bg-violet-500"
+      <div
+        className="w-full px-4 py-2 text-sm font-medium text-white flex items-center justify-center gap-2 bg-violet-600"
         title="Open the release page in your browser to download the latest DMG"
       >
-        <span>
+        <button
+          onClick={openDownload}
+          className="flex-1 text-center hover:underline cursor-pointer"
+        >
           ⬇ Update {state.version} available — click to download the new DMG (right-click → Open on first launch)
-        </span>
-      </button>
+        </button>
+        <button
+          onClick={() => {
+            try { window.localStorage.setItem(DISMISSED_MANUAL_KEY, state.version); } catch { /* noop */ }
+            setState({ kind: "idle" });
+          }}
+          aria-label="Dismiss this update notice"
+          title="Dismiss — banner will not reappear until a newer DMG is tagged"
+          className="w-6 h-6 flex items-center justify-center rounded hover:bg-violet-700/60 text-white/80 hover:text-white text-lg leading-none"
+        >
+          ×
+        </button>
+      </div>
     );
   }
 

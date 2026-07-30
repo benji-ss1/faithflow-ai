@@ -50,25 +50,30 @@ export function WhatsNewModal() {
         try { window.localStorage.setItem(LAST_SEEN_KEY, currentVersion); } catch { /* noop */ }
         return;
       }
-      // R1: this used to also require cmpVersion(entry, currentVersion) <= 0
-      // — fine for entries about the shell binary itself (auto-updater,
-      // signing), but wrong for this app's thin-client architecture: the
-      // web bundle a tester's browser/Electron shell loads is ALWAYS the
-      // latest deploy regardless of the installed shell version, since the
-      // shell has no code of its own beyond a thin loader. That upper-bound
-      // cap meant any purely web/backend changelog entry silently never
-      // showed for testers already on the current shell build (i.e. most
-      // testers, most of the time) — under-notifying, which is worse than
-      // occasionally over-notifying. Dropped; only the lower bound (newer
-      // than last-seen) still applies.
       const newer = CHANGELOG.filter((e) => cmpVersion(e.version, lastSeen!) > 0);
       if (newer.length === 0) {
         try { window.localStorage.setItem(LAST_SEEN_KEY, currentVersion); } catch { /* noop */ }
         return;
       }
+
+      // 2026-07-30 — do NOT auto-pop for patch-only diffs. Shipping half a
+      // dozen 0.1.x patches in an hour was throwing the modal over the
+      // sidebar every reload. Only auto-pop when a minor version rolls
+      // (0.1.x → 0.2.x, or major bump). Patches silently mark as seen so
+      // the backlog doesn't accumulate; the user can still open the
+      // changelog manually from the Help menu.
+      const parseMinor = (v: string) => {
+        const [maj, min] = v.split(".").map((n) => parseInt(n, 10) || 0);
+        return maj * 1000 + min;
+      };
+      const hasMinorBump = newer.some((e) => parseMinor(e.version) > parseMinor(lastSeen!));
+      if (!hasMinorBump) {
+        // Silent update — record the highest version so we don't keep re-evaluating.
+        try { window.localStorage.setItem(LAST_SEEN_KEY, newer[0].version); } catch { /* noop */ }
+        return;
+      }
+
       setNewEntries(newer);
-      // Small delay so the modal doesn't fight the guided-tour effect on
-      // mount and doesn't feel like a startup blocker.
       popTimer = setTimeout(() => { if (!cancelled) setOpen(true); }, 600);
     };
 

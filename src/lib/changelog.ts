@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.110",
+    date: "2026-07-30",
+    headline: "What's New modal + update banner: stop nagging on every patch, add dismiss ×",
+    highlights: [
+      "What's New modal no longer auto-pops on patch bumps (0.1.109 → 0.1.110 etc). Only minor rolls (0.1.x → 0.2.x) auto-open it now — shipping many patches per hour was throwing the modal over the sidebar on every reload. Patches are still recorded silently; open Help → What's New to view them any time.",
+      "Update banner now has an × button — click to dismiss for the current tag. Dismissal persists in localStorage; the banner stays hidden until a genuinely NEWER DMG tag lands on GitHub. Combines with the 0.1.108 shell-caught-up clear and the 0.1.109 three-tier open ladder into one banner that's actively useful when there IS an update and silent when there isn't.",
+    ],
+  },
+  {
     version: "0.1.109",
     date: "2026-07-30",
     headline: "Update banner click now ACTUALLY opens the download page (was a silent no-op)",
