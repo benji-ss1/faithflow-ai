@@ -294,12 +294,22 @@ export function SongsBrowser({
             <li className="p-3 text-[12px] text-[var(--color-muted-foreground)]">No songs found.</li>
           )}
           {filtered.map((s) => (
-            <li key={s.id}>
+            <li
+              key={s.id}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.effectAllowed = "copy";
+                e.dataTransfer.setData(
+                  "application/x-pf-library-item",
+                  JSON.stringify({ pfType: "song", id: s.id, title: s.title }),
+                );
+              }}
+            >
               <button
                 onClick={() => setSelected(s)}
                 onDoubleClick={() => void addToPlaylist(s)}
                 className={cn(
-                  "w-full text-left px-3 py-2 border-b border-[var(--color-border)] hover:bg-[var(--color-elevated)]",
+                  "w-full text-left px-3 py-2 border-b border-[var(--color-border)] hover:bg-[var(--color-elevated)] cursor-grab active:cursor-grabbing",
                   selected?.id === s.id && "bg-[var(--color-elevated)]",
                 )}
               >

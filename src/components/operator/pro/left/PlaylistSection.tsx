@@ -173,6 +173,7 @@ export function PlaylistSection({
   onCenterMode?: (m: "slides" | "bible" | "songs" | "media") => void;
 }) {
   const [open, setOpen] = useState(true);
+  const [dropOver, setDropOver] = useState(false);
   const router = useRouter();
   const items = ctx.plan.items;
 
@@ -256,11 +257,35 @@ export function PlaylistSection({
     }
   };
 
+  // ── Cross-panel drop (native HTML5 drag from SongsBrowser / MediaBrowser) ──
+  // dnd-kit handles internal sort reorder via its own events; these native
+  // handlers handle drops originating from outside the playlist panel.
+  const handleExternalDrop = async (e: React.DragEvent<HTMLElement>) => {
+    e.preventDefault();
+    setDropOver(false);
+    const raw = e.dataTransfer.getData("application/x-pf-library-item");
+    if (!raw) return;
+    let data: { pfType?: string; id?: string; title?: string };
+    try { data = JSON.parse(raw); } catch { return; }
+    if (!data.id || !data.title || !data.pfType) return;
+    if (!ctx.onAddLibraryItem) { toast.info("Open a service plan first to add items"); return; }
+    const kind = data.pfType === "song" ? "song" : "media";
+    await ctx.onAddLibraryItem(kind, { id: data.id, title: data.title });
+  };
+
   // ── Render ─────────────────────────────────────────────────────────────────
   const itemIds = items.map((it, i) => it.id ?? `item-${i}`);
 
   return (
-    <section className="border-b border-[var(--color-border)] flex-1 min-h-0 flex flex-col">
+    <section
+      className="border-b border-[var(--color-border)] flex-1 min-h-0 flex flex-col relative"
+      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; setDropOver(true); }}
+      onDragLeave={(e) => {
+        // Only clear when leaving the section entirely (not just moving over a child)
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropOver(false);
+      }}
+      onDrop={handleExternalDrop}
+    >
       <header className="flex items-center h-7 px-2 gap-1">
         <button
           type="button"
@@ -298,6 +323,15 @@ export function PlaylistSection({
         </Popover.Root>
       </header>
 
+      {/* Drop overlay — shown when dragging a song/media card over the sidebar */}
+      {dropOver && (
+        <div className="absolute inset-0 z-20 pointer-events-none rounded border-2 border-dashed border-[var(--color-brand)] bg-[var(--color-brand)]/10 flex items-center justify-center">
+          <span className="text-[11px] font-semibold text-[var(--color-brand)] bg-[var(--color-panel)]/90 px-2 py-1 rounded">
+            Drop to add to playlist
+          </span>
+        </div>
+      )}
+
       {open && (
         <DndContext
           sensors={sensors}
@@ -308,7 +342,7 @@ export function PlaylistSection({
             <ol className="flex-1 min-h-0 overflow-y-auto pb-1">
               {items.length === 0 && (
                 <li className="px-3 py-2 text-[11px] text-[var(--color-muted-foreground)]">
-                  No items yet. Press + to add.
+                  No items yet — drag a song or media here, or press +.
                 </li>
               )}
               {items.map((it, idx) => (

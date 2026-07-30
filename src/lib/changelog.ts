@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.114",
+    date: "2026-07-30",
+    headline: "Drag songs/media → playlist · .pro6/.pro7 in media wizard",
+    highlights: [
+      "Drag any song from the Songs panel directly onto the Playlist sidebar — a blue drop zone appears when you hover. Release to add. No more needing to right-click → Add to Playlist.",
+      "Drag any media card from the Media Library directly onto the Playlist sidebar the same way.",
+      "The Media Import wizard now also accepts ProPresenter files (.pro6, .pro7, .pro7x, .pro5) — drop them alongside images and videos. ProPresenter files run through the full parse pipeline and their songs are imported to your library. The Done step shows separate counts for media files and songs.",
+    ],
+  },
+  {
     version: "0.1.113",
     date: "2026-07-30",
     headline: "Media Import Wizard · smarter rename · rename-to-playlist sync",

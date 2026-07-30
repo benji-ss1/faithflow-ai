@@ -182,11 +182,19 @@ export function MediaBrowser({
             {filtered.map((a) => (
               <ContextMenu.Root key={a.id}>
                 <ContextMenu.Trigger asChild>
-                  {/* Single click = send live immediately */}
+                  {/* Single click = send live · drag to playlist sidebar */}
                   <button
                     type="button"
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.effectAllowed = "copy";
+                      e.dataTransfer.setData(
+                        "application/x-pf-library-item",
+                        JSON.stringify({ pfType: "media", id: a.id, title: a.fileName }),
+                      );
+                    }}
                     onClick={() => sendLive(a)}
-                    title="Click to project · right-click for options"
+                    title="Click to project · drag to playlist · right-click for options"
                     className={cn(
                       "relative aspect-video rounded-md overflow-hidden border-2 transition-all bg-black text-left group",
                       selectedId === a.id
