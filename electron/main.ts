@@ -29,6 +29,13 @@ const EXTERNAL_URL_ALLOWED_HOSTS = new Set<string>([
   "presentflow.app",
   "app.presentflow.com",
   "faithflow-ai.vercel.app",
+  // 2026-07-30 — GitHub Releases hosts for the UpdateBanner "Download the
+  // new DMG" click. github.com serves the release page HTML; objects.
+  // githubusercontent.com serves the DMG binary (the release download
+  // links redirect there). Without these, the openExternal IPC silently
+  // returned {ok:false} and the click did nothing on the operator side.
+  "github.com",
+  "objects.githubusercontent.com",
   // localhost/127.0.0.1 only trusted in dev; in a packaged app there's no
   // first-party local service and allowing them lets an XSS pivot into
   // whatever the tester happens to run locally.

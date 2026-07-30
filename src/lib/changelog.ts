@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.109",
+    date: "2026-07-30",
+    headline: "Update banner click now ACTUALLY opens the download page (was a silent no-op)",
+    highlights: [
+      "Clicking the violet 'Update available' banner did nothing on the current shell. Root cause: the IPC that opens external URLs has a hostname allowlist that didn't include github.com, so the call was silently rejected. Three-tier fix: (1) try the IPC path (works on future shells that include github.com in the allowlist — added), (2) fall back to window.open which routes through main's window-open handler and bypasses the allowlist (works on the current v0.1.102 shell TODAY), (3) if both fail, the URL is copied to your clipboard with a toast telling you to paste it in your browser",
+      "Also added github.com + objects.githubusercontent.com (the release-asset CDN) to the Electron shell's URL allowlist for future DMG installs — same click, same result, but via the primary IPC path once you're on a newer shell",
+      "Cmd+R gets the fix on your current shell — no DMG needed. Once you install the next DMG the IPC path just works without the fallback",
+    ],
+  },
+  {
     version: "0.1.108",
     date: "2026-07-30",
     headline: "Two field bugs squashed: search palette falling off-screen + stale 'Update 0.1.102 available' banner that never cleared",

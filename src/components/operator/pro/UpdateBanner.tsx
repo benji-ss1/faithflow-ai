@@ -147,9 +147,39 @@ export function UpdateBanner({ liveSlide, listening }: { liveSlide?: SlidePayloa
     return (
       <button
         onClick={async () => {
+          // 2026-07-30 field-fix — three-tier open ladder. The IPC path
+          // (shell:openExternal) has a strict hostname allowlist that
+          // excludes github.com, so on shells older than the fix that adds
+          // it, the click was silently a no-op. Fallbacks:
+          //   1. IPC → shell.openExternal (works on future shells that
+          //      allowlist github.com; may return {ok:false} today).
+          //   2. window.open → main's setWindowOpenHandler routes to
+          //      shell.openExternal DIRECTLY, bypassing the allowlist
+          //      (works on current v0.1.102 shell). This is the primary
+          //      path today.
+          //   3. Clipboard + toast fallback — if both above fail (rare;
+          //      e.g. window.open blocked by popup policy), copy the URL
+          //      so the operator can paste it into a browser manually.
+          let opened = false;
           try {
-            await window.electronAPI?.shell?.openExternal(state.url);
-          } catch { /* noop — worst case operator uses the About dialog */ }
+            const res = await window.electronAPI?.shell?.openExternal(state.url);
+            if (res && typeof res === "object" && "ok" in res && res.ok === true) opened = true;
+          } catch { /* fall through */ }
+          if (!opened) {
+            try {
+              const w = window.open(state.url, "_blank", "noopener,noreferrer");
+              if (w) opened = true;
+            } catch { /* fall through */ }
+          }
+          if (!opened) {
+            try {
+              await navigator.clipboard?.writeText(state.url);
+              const { toast } = await import("sonner");
+              toast.info(`Download URL copied — paste into your browser: ${state.url}`, { duration: 20_000, id: "update-url-copy" });
+            } catch {
+              console.error("[UpdateBanner] failed to open or copy URL", state.url);
+            }
+          }
         }}
         className="w-full px-4 py-2 text-sm font-medium text-white flex items-center justify-center gap-2 cursor-pointer bg-violet-600 hover:bg-violet-500"
         title="Open the release page in your browser to download the latest DMG"
