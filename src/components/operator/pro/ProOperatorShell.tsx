@@ -93,9 +93,27 @@ function pfTraceOn(): boolean {
  */
 export type CenterMode = "slides" | "bible" | "songs" | "media";
 
-const MEDIA_STRIP_KEY = "presentflow.pro.mediaStripOpen";
-const SLIDE_SIZE_KEY = "presentflow.pro.slideSize";
-const SAFE_MODE_KEY = "presentflow.operator.safeMode";
+// Policy constants live in operatorConstants.ts so they are searchable
+// without reading this entire file. All sign-off history is documented there.
+import {
+  MEDIA_STRIP_KEY,
+  SLIDE_SIZE_KEY,
+  SAFE_MODE_KEY,
+  LEFT_PANEL_WIDTH_KEY,
+  LEFT_PANEL_MIN_WIDTH,
+  LEFT_PANEL_DEFAULT_WIDTH,
+  SONG_AUTOSTAGE_CONFIRM_KEY,
+  SONG_STAGE_CONFIDENCE,
+  SONG_AUTOLIVE_CONFIDENCE,
+  SONG_AUTO_FIRED_SESSION_KEY,
+  SONG_AUTO_LIVE_MIN_GAP_MS,
+  AUTO_FIRED_SESSION_KEY,
+  AUTO_APPROVE_KEY_INSTANT,
+  AUTO_ADVANCE_KEY,
+  AUTO_FIRE_MIN_GAP_KEY,
+  HOLD_DURING_SONG_KEY,
+  DEFAULT_MIN_GAP_MS,
+} from "./operatorConstants";
 
 /**
  * Compact transcript + AI detection strip pinned above BottomBar.
@@ -395,19 +413,9 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
 // OperatorConsole's gate — neither is touched here.
 // ---------------------------------------------------------------------------
 
-const SONG_AUTOSTAGE_CONFIRM_KEY = "KeyG"; // "G" for "Go live" — Space is
-// already bound to next-slide navigation (useOperatorHotkeys), so we
-// deliberately picked a different key to avoid a silent collision.
-
-const SONG_STAGE_CONFIDENCE = 60; // stage for human "G" confirm
-const SONG_AUTOLIVE_CONFIDENCE = 70; // zero-click auto-live — lowered 85→70 on 2026-07-26 with user sign-off; see policy note above
-const SONG_AUTO_FIRED_SESSION_KEY = "presentflow.pro.songAutoFired.v1"; // 5min replay suppression, mirrors AUTO_FIRED_SESSION_KEY
-// 2026-07-24 nudge to 800 ms after false-trigger report at 700 ms. Per
-// tuning heuristic: if false triggers climb at any step, +100 ms until
-// they stop — that's the real floor for THIS congregation / mic / room.
-// Still ~5× tighter than the original 4000 ms wall.
-// Bible mirrors via DEFAULT_MIN_GAP_MS below.
-const SONG_AUTO_LIVE_MIN_GAP_MS = 800;
+// SONG_AUTOSTAGE_CONFIRM_KEY, SONG_STAGE_CONFIDENCE, SONG_AUTOLIVE_CONFIDENCE,
+// SONG_AUTO_FIRED_SESSION_KEY, SONG_AUTO_LIVE_MIN_GAP_MS — imported above from
+// operatorConstants.ts. Sign-off history + tuning notes are documented there.
 
 type StagedSongSlides = { songId: string; title: string; slides: string[]; currentIdx: number; confidence: number; source: "detection" | "progression" };
 type LiveSongTrack = { songId: string; title: string; slides: string[]; currentIdx: number; confirmedAt: number };
@@ -1055,13 +1063,9 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   );
 }
 
-// Change 4 (2026-07-27) — LEFT panel resizable. Default is the MIN width (250px)
-// so a fresh install renders at or above the enforced minimum. Persisted
-// per-machine in localStorage; SSR-safe read runs post-mount to avoid hydration
-// mismatch. Bounded [MIN, 50vw] at all times.
-const LEFT_PANEL_WIDTH_KEY = "presentflow.pro.leftPanelWidth.v1";
-const LEFT_PANEL_MIN_WIDTH = 250;
-const LEFT_PANEL_DEFAULT_WIDTH = LEFT_PANEL_MIN_WIDTH;
+// LEFT_PANEL_WIDTH_KEY, LEFT_PANEL_MIN_WIDTH, LEFT_PANEL_DEFAULT_WIDTH —
+// imported above from operatorConstants.ts (Change 4, 2026-07-27).
+// Bounded [MIN, 50vw] at all times; SSR-safe read post-mount.
 
 export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const [centerMode, setCenterMode] = useState<CenterMode>("slides");
@@ -1714,14 +1718,9 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // R9: unconditionally clear prior interval at the top of the effect body.
   // Y4: useEvent-like ref pattern for ctx.onSendSlideToLive.
   // Y8: "Hold Bible auto-approve during active song" (default OFF) setting.
-  const AUTO_APPROVE_KEY_INSTANT = "presentflow.pro.autoApprove.v1";
-  const AUTO_ADVANCE_KEY = "presentflow.pro.autoAdvanceSec.v1";
-  const AUTO_FIRE_MIN_GAP_KEY = "presentflow.pro.autoFireMinGap.v1"; // R3
-  const AUTO_FIRED_SESSION_KEY = "presentflow.pro.autoFired.v1"; // R5
-  const HOLD_DURING_SONG_KEY = "presentflow.pro.holdAutoApproveDuringSong.v1"; // Y8
-  // 2026-07-24 nudge to 800 ms (same as SONG_AUTO_LIVE_MIN_GAP_MS)
-  // after false-trigger report at 700. Operator override respected.
-  const DEFAULT_MIN_GAP_MS = 800;
+  // AUTO_APPROVE_KEY_INSTANT, AUTO_ADVANCE_KEY, AUTO_FIRE_MIN_GAP_KEY,
+  // AUTO_FIRED_SESSION_KEY, HOLD_DURING_SONG_KEY, DEFAULT_MIN_GAP_MS —
+  // imported at module top from operatorConstants.ts.
 
   // Y4: latest send/kill callbacks captured in refs so stale closures in the
   // interval / queued timer don't fire against a dead callback.

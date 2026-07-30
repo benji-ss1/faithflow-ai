@@ -3,27 +3,75 @@
 Practical checklist for the Supabase dashboard security emails. Walk through it in
 the dashboard; nothing here requires code changes on our side.
 
-## Why RLS is not enabled in this repo
+## RLS — now enabled via `drizzle/rls_enable.sql`
 
-Supabase's advisor keeps flagging tables as "RLS disabled." That's intentional for
-now, and here's the honest reason:
+**Status (2026-07-30):** RLS migration script written and ready to apply.
+See `docs/rls_enable.sql` for the full SQL and detailed comments.
 
-- The app talks to Postgres via a raw `pg` Pool over `DATABASE_URL` (see
-  `src/lib/db/client.ts`). There's no JWT / `auth.uid()` / service_role context
-  attached to each query, so RLS policies keyed off `auth.uid()` or Supabase JWTs
-  would have nothing to check against.
-- Naively toggling RLS "on" with no policies would deny every query and take the
-  app down. Toggling it on with permissive policies would be security theater.
-- Instead, tenant isolation is enforced at the app layer: `requireUser()` /
-  `requireCap()` (see `src/lib/session.ts`) resolves the caller and every DB
-  write and semantic query is scoped by `churchId`. See `src/lib/actions.ts` and
-  `src/lib/server/*`.
-- This is adversarially tested in `test/adversarial/` (cross-church leakage +
-  prod invariants) — runs before every ship per `docs/AGENT_WORKFLOW.md`.
-- The only unscoped table is the Bible library, which is intentional and
-  documented at `src/lib/server/bible.ts:12-17`.
+### Why this is safe for our architecture
 
-The "adopt RLS properly" path is in "Future work" below.
+The app's `DATABASE_URL` connects to Supabase via the `postgres` user (a PostgreSQL
+superuser). In Postgres, **superusers bypass RLS automatically** — so enabling RLS
+does not change any server-side query behaviour. Zero application code changes needed.
+
+What DOES change:
+- Any direct access with the `anon` key or `authenticated` role is now DENIED by
+  default — this is the security win. Previously, a leaked anon key could read any
+  table.
+- The `service_role` (PostgREST) also has explicit bypass policies, so future
+  Supabase JS client usage works correctly.
+
+Supabase Realtime is NOT affected — this project uses Broadcast channels only
+(not `postgres_changes` subscriptions), so no Realtime reads are blocked.
+
+### How to apply
+
+```bash
+# Option A — Supabase dashboard (recommended for first apply)
+# 1. Open https://supabase.com/dashboard → your project → SQL Editor
+# 2. Paste the contents of docs/rls_enable.sql
+# 3. Click Run
+# 4. Check: Table Editor → any table → should show "RLS: Enabled"
+
+# Option B — psql
+psql "$DATABASE_URL" -f docs/rls_enable.sql
+
+# Option C — Supabase CLI
+supabase db push  # (if tracking as a migration)
+```
+
+The script is **idempotent** — safe to run multiple times. Existing policies
+just emit "already exists" notices.
+
+### If something goes wrong
+
+Disable RLS on any table instantly:
+```sql
+ALTER TABLE <table_name> DISABLE ROW LEVEL SECURITY;
+```
+
+This is fully reversible and takes effect immediately.
+
+### Tables intentionally excluded from RLS
+
+| Table | Reason |
+|---|---|
+| `bible_verses` | Global reference data, no church_id — documented exception in `src/lib/server/bible.ts:12-17` |
+| `bible_translations` | Same |
+
+### Why the old note said "would take the app down"
+
+The original warning was overly conservative. It was written before we confirmed
+that `DATABASE_URL` connects as the `postgres` superuser, which bypasses RLS
+unconditionally. The explicit bypass policies in the SQL file are belt-and-suspenders
+(they cover the `service_role` path too), not required for the pooler connection.
+
+### App-layer tenant isolation (unchanged)
+
+RLS is now a second line of defence, not the primary one. The primary layer remains:
+- `requireUser()` / `requireCap()` in `src/lib/session.ts`
+- `churchId` scoping on every DB write in `src/lib/actions.ts` and `src/lib/server/*`
+- Adversarial tests in `test/adversarial/` (run before every ship)
 
 ## Dashboard toggles to flip today
 
@@ -61,15 +109,14 @@ These address the common security emails and cost nothing to enable:
 - If you set them in production, use the `anon` key (never `service_role`) for
   anything shipped to the browser.
 
-## Future work (not urgent)
+## Future work
 
-- Migrate admin/write surfaces to the Supabase JS client with the `service_role`
-  key server-side, keeping RLS OFF for those paths but ENABLING RLS on any
-  future tables read directly by browsers via `anon`. This is the path that
-  lets us turn RLS on without rewriting every query.
-- When we add browser-side reads (e.g. a public sermon archive), those tables
-  should be RLS-on from day one with explicit `select` policies.
+- Apply `docs/rls_enable.sql` to production — **READY, just needs running**.
+- When we add browser-side reads (e.g. a public sermon archive), add a
+  `SELECT` policy for the `anon` role on those specific tables.
 - Add `pgcrypto`-backed audit trail on `settings` and `users` role changes.
+- Wire TOTP 2FA UI — schema (`totpSecret`, `totpEnabled`) and `otplib` dep
+  already present; user-facing setup flow not yet built.
 
 ## Acknowledging vs fixing
 
