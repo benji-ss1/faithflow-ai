@@ -1,6 +1,20 @@
 // Phase 5D-3 — server-only AI helpers, exposed via /api/ai/helpers/[action].
 //
-// Groq is the ONLY provider (per user global CLAUDE.md). No other providers.
+// Provider ladder (2026-07-30 user sign-off — fixes the HIGH Groq outage risk):
+//
+//   Tier 1 — Groq primary   : llama-3.3-70b-versatile   (quality)
+//   Tier 2 — Groq fallback  : llama-3.1-8b-instant      (rate-limit relief)
+//   Tier 3 — xAI emergency  : grok-2-latest              (Groq completely down)
+//
+// Tier 3 only activates when:
+//   (a) GROQ_XAI_FALLBACK=true is set in the environment, AND
+//   (b) XAI_API_KEY is present, AND
+//   (c) Groq threw a non-rate-limit error (5xx / network / timeout).
+//
+// Rate-limit errors (GroqRateLimitedError) still degrade gracefully without
+// trying xAI — that path already has a UI message and the system is designed
+// for graceful absence of AI features, not mandatory fallback.
+//
 // Every helper:
 //   • throws MissingApiKeyError if GROQ_API_KEY is not set,
 //   • uses a 6s AbortController timeout,
@@ -9,6 +23,7 @@
 //   • on 429 falls back to llama-3.1-8b-instant (see groq-fallback.ts);
 //     if the fallback ALSO 429s it throws GroqRateLimitedError so callers
 //     degrade like the missing-key path.
+//   • on hard failure (5xx / network down) tries xAI if GROQ_XAI_FALLBACK=true.
 //
 // This module must be imported ONLY from server code (API routes / server
 // actions). It must never be bundled into a client component.
@@ -35,6 +50,45 @@ export class MissingApiKeyError extends Error {
 
 type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
+// ── xAI emergency fallback (Tier 3) ──────────────────────────────────────────
+// Only called when Groq is unreachable/5xx AND GROQ_XAI_FALLBACK=true.
+// Uses the same OpenAI-compatible API shape, so the response parsing is shared.
+async function xaiJson<T>(messages: ChatMessage[], temperature: number): Promise<T> {
+  const key = process.env.XAI_API_KEY;
+  const baseUrl = process.env.XAI_BASE_URL ?? "https://api.x.ai/v1";
+  const model = process.env.XAI_MODEL ?? "grok-2-latest";
+  if (!key) throw new Error("xAI fallback: XAI_API_KEY not set");
+
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS + 2000); // slightly longer for xAI
+  try {
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature,
+        max_tokens: 800,
+        response_format: { type: "json_object" as const },
+      }),
+      signal: ctl.signal,
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      throw new Error(`xAI ${res.status}: ${errText.slice(0, 200)}`);
+    }
+    const data = await res.json() as { choices?: { message?: { content?: string } }[] };
+    const raw = data.choices?.[0]?.message?.content;
+    if (!raw) throw new Error("xAI returned empty response");
+    try { return JSON.parse(raw) as T; }
+    catch { throw new Error("xAI returned invalid JSON"); }
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ── Groq with model ladder + xAI emergency fallback ─────────────────────────
 async function groqJson<T>(messages: ChatMessage[], temperature = 0.2): Promise<T> {
   const key = process.env.GROQ_API_KEY;
   if (!key) throw new MissingApiKeyError();
@@ -62,7 +116,7 @@ async function groqJson<T>(messages: ChatMessage[], temperature = 0.2): Promise<
   let model = getGroqActiveModel();
   let res = await attempt(model);
   if (res.status >= 500) {
-    res = await attempt(model);
+    res = await attempt(model); // one retry on 5xx
   }
   if (res.status === 429) {
     if (model !== GROQ_FALLBACK_MODEL) {
@@ -73,14 +127,33 @@ async function groqJson<T>(messages: ChatMessage[], temperature = 0.2): Promise<
       res = await attempt(model);
     }
     if (res.status === 429) {
-      // Both models limited — degrade like the missing-key path.
+      // Both models rate-limited — degrade gracefully; do NOT try xAI for
+      // rate-limit conditions (the rate is shared; xAI is for outage only).
       throw new GroqRateLimitedError(getGroqLimitStatus().resetAt);
     }
   }
+
+  // Hard failure path (5xx persistent, network down, timeout)
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
-    throw new Error(`Groq ${res.status}: ${errText.slice(0, 200)}`);
+    const groqError = new Error(`Groq ${res.status}: ${errText.slice(0, 200)}`);
+
+    // Tier 3: xAI emergency fallback — only when explicitly enabled and key present
+    if (process.env.GROQ_XAI_FALLBACK === "true" && process.env.XAI_API_KEY) {
+      console.warn("[ai-helpers] Groq hard failure — attempting xAI emergency fallback", groqError.message);
+      try {
+        const result = await xaiJson<T>(messages, temperature);
+        console.log("[ai-helpers] xAI fallback succeeded");
+        return result;
+      } catch (xaiErr) {
+        // Both providers failed — surface the original Groq error, log xAI's
+        console.error("[ai-helpers] xAI fallback also failed:", xaiErr);
+      }
+    }
+
+    throw groqError;
   }
+
   const data = await res.json() as { choices?: { message?: { content?: string } }[] };
   const raw = data.choices?.[0]?.message?.content;
   if (!raw) throw new Error("Groq returned empty response");

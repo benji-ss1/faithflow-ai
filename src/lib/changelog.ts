@@ -15,6 +15,19 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.112",
+    date: "2026-07-30",
+    headline: "Media: one-click project + import button + rename · Playlist drag-to-reorder · AI provider resilience",
+    highlights: [
+      "Media library now projects in ONE CLICK — click any thumbnail to send it live immediately. Right-click for options (Send to Live / Add to Playlist / Rename). Previously required a double-click which operators kept missing during live services.",
+      "Import button is now in the Media browser itself — no need to leave the operator console and go to the library page. Click 'Import', pick a file (JPG, PNG, WebP, GIF, AVIF, MP4, WebM, MOV), and it uploads and appears in the grid immediately.",
+      "Rename any media file inline — right-click → Rename, or double-click the filename label at the bottom of the thumbnail. Press Enter to save, Escape to cancel. Works directly in the operator panel.",
+      "Playlist items can now be dragged to any position — grab the grip handle on the left of each item and drag it where you want. The order is saved to the server immediately. Right-click still works for Move Up/Down, Remove, and Duplicate.",
+      "Groq AI outage resilience: when Groq is fully down (not just rate-limited), the system can now fall back to xAI as an emergency provider. Enable by setting GROQ_XAI_FALLBACK=true in your environment — rate-limit degradation is unchanged.",
+      "PPTX conversion now shows a clear message on the cloud version ('not available here — use the desktop app') instead of a confusing LibreOffice spawn error. Nothing changed for desktop users.",
+    ],
+  },
+  {
     version: "0.1.111",
     date: "2026-07-30",
     headline: "That empty black column with an X on the left of the sidebar — fixed",

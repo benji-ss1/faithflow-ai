@@ -18,6 +18,28 @@ export const maxDuration = 300;
 const CONVERSION_TIMEOUT_MS = 4 * 60 * 1000; // 4 minutes
 
 export async function POST(req: Request) {
+  // PPTX conversion requires LibreOffice (a native binary). Vercel's
+  // serverless runtime does not include it. Detect early and return a
+  // clear, actionable error rather than a confusing LibreOffice spawn failure.
+  //
+  // On Fly.io or a self-hosted runner the env var LIBREOFFICE_AVAILABLE=true
+  // must be set explicitly to signal that the binary is present.
+  // Locally (development machines with LibreOffice installed) the check is
+  // skipped so the dev workflow is unaffected.
+  const isVercel = !!process.env.VERCEL;
+  const libreOfficeAvailable = process.env.LIBREOFFICE_AVAILABLE === "true";
+  if (isVercel && !libreOfficeAvailable) {
+    return NextResponse.json(
+      {
+        error:
+          "PPTX conversion is not available on the cloud server — it requires LibreOffice. " +
+          "Use the PresentFlow desktop app to convert your sermon deck, or run a self-hosted instance with LibreOffice installed.",
+        code: "LIBREOFFICE_NOT_AVAILABLE",
+      },
+      { status: 503 },
+    );
+  }
+
   const user = await apiUser();
   if (!user) return NextResponse.json({ error: "Session expired — please sign in again" }, { status: 401 });
   const ent = await getEntitlement(user.churchId);

@@ -4,7 +4,33 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as Popover from "@radix-ui/react-popover";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import { ChevronDown, ChevronRight, Plus, Music, BookOpen, Image as ImageIcon, Square } from "lucide-react";
+import {
+  DndContext,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  sortableKeyboardCoordinates,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
+  ChevronDown,
+  ChevronRight,
+  Plus,
+  Music,
+  BookOpen,
+  Image as ImageIcon,
+  Square,
+  GripVertical,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import { addServiceItem, removeServiceItem, reorderServiceItems } from "@/lib/actions";
@@ -16,8 +42,132 @@ function itemIcon(type: string) {
   return Square;
 }
 
+// ── Sortable row ────────────────────────────────────────────────────────────
+// Extracted so it can call useSortable at the top level of a component.
+function SortablePlaylistItem({
+  item,
+  idx,
+  totalItems,
+  isActive,
+  onItemClick,
+  onRemove,
+  onMove,
+  onDuplicate,
+}: {
+  item: OperatorShellCtx["plan"]["items"][number];
+  idx: number;
+  totalItems: number;
+  isActive: boolean;
+  onItemClick: () => void;
+  onRemove: () => void;
+  onMove: (dir: -1 | 1) => void;
+  onDuplicate: () => void;
+}) {
+  const id = item.id ?? `item-${idx}`;
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+
+  const Icon = itemIcon(item.type ?? "blank");
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.4 : 1,
+        position: "relative",
+        zIndex: isDragging ? 10 : undefined,
+      }}
+      data-playlist-item-idx={idx}
+      data-item-song-id={item.songId ?? undefined}
+    >
+      <ContextMenu.Root>
+        <ContextMenu.Trigger asChild>
+          <div
+            className={cn(
+              "flex items-center gap-1 border-l-2 transition-colors",
+              isActive
+                ? "border-[var(--color-brand)] bg-[var(--color-elevated)]"
+                : "border-transparent hover:bg-white/5",
+            )}
+          >
+            {/* Drag handle — only this area initiates a drag */}
+            <button
+              type="button"
+              {...attributes}
+              {...listeners}
+              tabIndex={-1}
+              aria-label="Drag to reorder"
+              className="flex items-center justify-center w-5 h-full py-1 cursor-grab active:cursor-grabbing text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] shrink-0 transition-colors"
+              onClick={(e) => e.stopPropagation()} // don't trigger item click
+            >
+              <GripVertical className="w-3 h-3" />
+            </button>
+
+            {/* Item button */}
+            <button
+              type="button"
+              onClick={onItemClick}
+              className={cn(
+                "flex-1 flex items-center gap-2 pr-2 py-1 text-[12px] text-left",
+                isActive
+                  ? "text-[var(--color-foreground)]"
+                  : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",
+              )}
+            >
+              <Icon className="w-4 h-4 shrink-0" />
+              <span className="truncate">{item.title}</span>
+              <span className="ml-auto text-[10px] opacity-60 shrink-0">{item.slides.length}</span>
+            </button>
+          </div>
+        </ContextMenu.Trigger>
+
+        <ContextMenu.Portal>
+          <ContextMenu.Content className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[140px]">
+            <ContextMenu.Item
+              onSelect={onRemove}
+              className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer text-[var(--color-destructive)]"
+            >
+              Remove
+            </ContextMenu.Item>
+            <ContextMenu.Item
+              onSelect={() => onMove(-1)}
+              disabled={idx === 0}
+              className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer data-[disabled]:opacity-50"
+            >
+              Move Up
+            </ContextMenu.Item>
+            <ContextMenu.Item
+              onSelect={() => onMove(1)}
+              disabled={idx === totalItems - 1}
+              className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer data-[disabled]:opacity-50"
+            >
+              Move Down
+            </ContextMenu.Item>
+            <ContextMenu.Item
+              onSelect={onDuplicate}
+              className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer"
+            >
+              Duplicate
+            </ContextMenu.Item>
+          </ContextMenu.Content>
+        </ContextMenu.Portal>
+      </ContextMenu.Root>
+    </li>
+  );
+}
+
+// ── PlaylistSection ──────────────────────────────────────────────────────────
 export function PlaylistSection({
-  ctx, onCenterMode,
+  ctx,
+  onCenterMode,
 }: {
   ctx: OperatorShellCtx;
   onCenterMode?: (m: "slides" | "bible" | "songs" | "media") => void;
@@ -26,10 +176,13 @@ export function PlaylistSection({
   const router = useRouter();
   const items = ctx.plan.items;
 
-  // Every server action returns a `Result<T>` shape. Surface failures via
-  // toast and always refresh the server component so the sidebar's item
-  // count updates without a full page reload. Was silently swallowing
-  // errors + never refreshing → clicking + Blank looked broken.
+  // 8px activation distance prevents accidental drags on regular clicks.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  // ── Result handler ────────────────────────────────────────────────────────
   const handleResult = (res: { ok: boolean; error?: string } | void, successMsg?: string) => {
     if (!res) return;
     if (!res.ok) { toast.error(res.error ?? "Action failed"); return; }
@@ -37,6 +190,7 @@ export function PlaylistSection({
     router.refresh();
   };
 
+  // ── Actions ───────────────────────────────────────────────────────────────
   const addBlank = async () => {
     handleResult(await addServiceItem(ctx.planId, "blank", "Blank", {}));
   };
@@ -63,6 +217,48 @@ export function PlaylistSection({
     );
   };
 
+  // ── Drag end — optimistic reorder then persist ─────────────────────────────
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const ids = items.map((it, i) => it.id ?? `item-${i}`);
+    const oldIdx = ids.indexOf(String(active.id));
+    const newIdx = ids.indexOf(String(over.id));
+    if (oldIdx === -1 || newIdx === -1) return;
+
+    // Build the new order from item IDs for the server action.
+    const reordered = arrayMove(items, oldIdx, newIdx);
+    const newOrder = reordered.map((it) => it.id).filter(Boolean) as string[];
+    handleResult(await reorderServiceItems(ctx.planId, newOrder));
+  };
+
+  // ── Item click (unchanged behaviour from 2026-07-25 field fix) ────────────
+  const handleItemClick = (it: OperatorShellCtx["plan"]["items"][number], idx: number) => {
+    try {
+      console.log("[click] playlist item", { id: it.id, idx, type: it.type, title: it.title, slideCount: it.slides?.length ?? 0 });
+    } catch { /* ignore */ }
+    onCenterMode?.("slides");
+    ctx.onSetPreviewItem(idx);
+    if (it.type === "song") {
+      const first = it.slides?.[0];
+      if (first) {
+        try {
+          ctx.onSendSlideToLive(first);
+          toast.success(`Playing "${it.title}" — slide 1`);
+        } catch (e) {
+          console.warn("[playlist] song click send-live failed", e);
+          toast.error("Couldn't send slide live — check DevTools console.");
+        }
+      } else {
+        toast.info(`"${it.title}" has no slides yet — open the song to add lyrics.`);
+      }
+    }
+  };
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+  const itemIds = items.map((it, i) => it.id ?? `item-${i}`);
+
   return (
     <section className="border-b border-[var(--color-border)] flex-1 min-h-0 flex flex-col">
       <header className="flex items-center h-7 px-2 gap-1">
@@ -75,12 +271,14 @@ export function PlaylistSection({
           <span className="eyebrow">Playlist</span>
           <span className="eyebrow ml-1 text-[9px]">· {items.length} items</span>
         </button>
+
+        {/* Add popover */}
         <Popover.Root>
           <Popover.Trigger asChild>
             <button
               type="button"
               className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-muted-foreground)]"
-              title="Add"
+              title="Add item"
             >
               <Plus className="w-3 h-3" />
             </button>
@@ -99,104 +297,36 @@ export function PlaylistSection({
           </Popover.Portal>
         </Popover.Root>
       </header>
+
       {open && (
-        <ol className="flex-1 min-h-0 overflow-y-auto pb-1">
-          {items.length === 0 && (
-            <li className="px-3 py-2 text-[11px] text-[var(--color-muted-foreground)]">
-              No items yet.
-            </li>
-          )}
-          {items.map((it, idx) => {
-            const Icon = itemIcon(it.type);
-            const active = idx === ctx.previewItemIdx;
-            return (
-              <li key={it.id ?? idx} data-playlist-item-idx={idx} data-item-song-id={it.songId ?? undefined}>
-                <ContextMenu.Root>
-                  <ContextMenu.Trigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        // 2026-07-25 field bug fix: click did nothing visible.
-                        // setPreview alone was firing but if centerMode was on
-                        // "songs"/"bible"/"media" (the library browsers), the
-                        // preview change had no visible surface. Now:
-                        //   1. switch to "slides" so the SlideGrid mounts and
-                        //      shows this item's slides
-                        //   2. set preview item so it's the selected one
-                        //   3. for SONG items, always fire the first slide
-                        //      live (was AUTO-gated; operators clearly expect
-                        //      clicking a song in the playlist to actually
-                        //      SHOW the song — the alternative was staring at
-                        //      a preview change with nothing on the projector)
-                        //   4. Bible/media items still don't auto-fire because
-                        //      those are typically pre-loaded but the operator
-                        //      wants to pick WHICH verse — auto-firing the
-                        //      first would be wrong
-                        try { console.log("[click] playlist item", { id: it.id, idx, type: it.type, title: it.title, slideCount: it.slides?.length ?? 0 }); } catch { /* ignore */ }
-                        onCenterMode?.("slides");
-                        ctx.onSetPreviewItem(idx);
-                        if (it.type === "song") {
-                          const first = it.slides?.[0];
-                          if (first) {
-                            try {
-                              ctx.onSendSlideToLive(first);
-                              toast.success(`Playing "${it.title}" — slide 1`);
-                            } catch (e) {
-                              console.warn("[playlist] song click send-live failed", e);
-                              toast.error("Couldn't send slide live — check DevTools console.");
-                            }
-                          } else {
-                            toast.info(`"${it.title}" has no slides yet — open the song to add lyrics.`);
-                          }
-                        }
-                      }}
-                      className={cn(
-                        "w-full flex items-center gap-2 px-2 py-1 text-[12px] text-left transition-colors",
-                        active
-                          ? "border-l-2 border-[var(--color-brand)] bg-[var(--color-elevated)] text-[var(--color-foreground)]"
-                          : "border-l-2 border-transparent text-[var(--color-muted-foreground)] hover:bg-white/5 hover:text-[var(--color-foreground)]",
-                      )}
-                    >
-                      <Icon className="w-4 h-4 shrink-0" />
-                      <span className="truncate">{it.title}</span>
-                      <span className="ml-auto text-[10px] opacity-60">{it.slides.length}</span>
-                    </button>
-                  </ContextMenu.Trigger>
-                  <ContextMenu.Portal>
-                    <ContextMenu.Content className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[140px]">
-                      <ContextMenu.Item
-                        onSelect={() => it.id && remove(it.id)}
-                        className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer text-[var(--color-destructive)]"
-                      >
-                        Remove
-                      </ContextMenu.Item>
-                      <ContextMenu.Item
-                        onSelect={() => move(idx, -1)}
-                        disabled={idx === 0}
-                        className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer data-[disabled]:opacity-50"
-                      >
-                        Move Up
-                      </ContextMenu.Item>
-                      <ContextMenu.Item
-                        onSelect={() => move(idx, 1)}
-                        disabled={idx === items.length - 1}
-                        className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer data-[disabled]:opacity-50"
-                      >
-                        Move Down
-                      </ContextMenu.Item>
-                      <ContextMenu.Item
-                        onSelect={() => duplicate(idx)}
-                        className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer"
-                      >
-                        Duplicate
-                      </ContextMenu.Item>
-                    </ContextMenu.Content>
-                  </ContextMenu.Portal>
-                </ContextMenu.Root>
-              </li>
-            );
-          })}
-        </ol>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
+            <ol className="flex-1 min-h-0 overflow-y-auto pb-1">
+              {items.length === 0 && (
+                <li className="px-3 py-2 text-[11px] text-[var(--color-muted-foreground)]">
+                  No items yet. Press + to add.
+                </li>
+              )}
+              {items.map((it, idx) => (
+                <SortablePlaylistItem
+                  key={it.id ?? idx}
+                  item={it}
+                  idx={idx}
+                  totalItems={items.length}
+                  isActive={idx === ctx.previewItemIdx}
+                  onItemClick={() => handleItemClick(it, idx)}
+                  onRemove={() => it.id && void remove(it.id)}
+                  onMove={(dir) => void move(idx, dir)}
+                  onDuplicate={() => void duplicate(idx)}
+                />
+              ))}
+            </ol>
+          </SortableContext>
+        </DndContext>
       )}
     </section>
   );
