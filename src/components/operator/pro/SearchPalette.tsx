@@ -74,7 +74,12 @@ export function SearchPalette({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/60 z-50" />
-        <Dialog.Content className="fixed left-1/2 top-24 -translate-x-1/2 w-[560px] max-w-[92vw] bg-[var(--color-panel)] border border-[var(--color-border)] rounded-lg z-50 shadow-2xl overflow-hidden">
+        {/* 2026-07-30 fix — transform-based centering (`left-1/2 -translate-x-1/2`)
+            was being overridden by Radix Dialog's own data-state transform,
+            leaving the palette anchored at left:50% with no translateX and
+            falling off the right of the viewport. Switched to inset-x-0
+            + mx-auto: no transform involved, works with any ancestor. */}
+        <Dialog.Content className="fixed inset-x-0 mx-auto top-24 w-[560px] max-w-[92vw] bg-[var(--color-panel)] border border-[var(--color-border)] rounded-lg z-50 shadow-2xl overflow-hidden">
           <Dialog.Title className="sr-only">Search</Dialog.Title>
           <Command className="flex flex-col max-h-[420px]">
             <Command.Input

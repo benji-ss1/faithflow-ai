@@ -109,7 +109,22 @@ export function UpdateBanner({ liveSlide, listening }: { liveSlide?: SlidePayloa
         const latest = (data.tag_name || "").replace(/^v/, "");
         if (!latest) return;
         if (compareSemver(latest, current) > 0) {
-          setState((prev) => (prev.kind === "idle" ? { kind: "manual-available", version: latest, url: data.html_url || GITHUB_RELEASE_PAGE } : prev));
+          // Newer release available. Keep whatever downloading/ready/error the
+          // auto-updater path may have set; only claim the banner from idle
+          // OR overwrite a stale manual-available with the fresh version.
+          setState((prev) => {
+            if (prev.kind === "idle") return { kind: "manual-available", version: latest, url: data.html_url || GITHUB_RELEASE_PAGE };
+            if (prev.kind === "manual-available" && prev.version !== latest) return { kind: "manual-available", version: latest, url: data.html_url || GITHUB_RELEASE_PAGE };
+            return prev;
+          });
+        } else {
+          // 2026-07-30 fix — shell has caught up to (or passed) the latest
+          // release. Clear a stale manual-available banner that was set
+          // during an earlier poll when the shell was behind. Without this
+          // clear, the banner claimed "Update 0.1.102 available" long after
+          // the user had installed 0.1.102 — the state never re-evaluated.
+          // Don't clobber downloading/ready/error (auto-updater path).
+          setState((prev) => (prev.kind === "manual-available" ? { kind: "idle" } : prev));
         }
       } catch { /* silent — offline / rate-limited / network flap */ }
     };

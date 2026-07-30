@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.108",
+    date: "2026-07-30",
+    headline: "Two field bugs squashed: search palette falling off-screen + stale 'Update 0.1.102 available' banner that never cleared",
+    highlights: [
+      "Search palette (⌘K / the top-right search) was rendering off the right edge of the screen — the transform-based centering (`left: 50% + translateX(-50%)`) was being clobbered by Radix Dialog's own animation transform, leaving the palette anchored at 50% with no offset. Fixed by switching to margin-auto centering — no transform involved, works with any ancestor",
+      "The violet 'Update 0.1.102 available — click to download the new DMG' banner was persisting FOREVER after you'd already installed 0.1.102. Root cause: the update-check poll only ever SET the banner state; when the shell caught up to the latest release on a subsequent poll, nothing cleared it. Now the poll actively resets to idle when you're up-to-date, and refreshes to the true latest version if a new release has landed since the banner first showed",
+      "Both fixes are web-only — Cmd+R gets them",
+    ],
+  },
+  {
     version: "0.1.107",
     date: "2026-07-30",
     headline: "Bible sermon repeats + voice translation-switch + resizable left panel + fatter transcript panel with the rich highlights back",
