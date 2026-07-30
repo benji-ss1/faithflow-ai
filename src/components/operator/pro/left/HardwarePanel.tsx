@@ -105,18 +105,25 @@ export function HardwareSection() {
         </ul>
       )}
 
-      {typeof document !== "undefined" && anchor && createPortal(
+      {/* 2026-07-30 fix — was ALWAYS-mounted with a CSS transform hiding it
+          off-screen when closed. Any race between measure() and the transform
+          application (or a CSS specificity clash from a parent layout) let
+          the panel render VISIBLE without the user ever clicking Audio or
+          Screens. Result: an "empty black column with an X close button"
+          appeared over the center area, blocking the sidebar. Now the panel
+          only mounts when there IS a selected hardware key — no phantom
+          render, no timing race, and device-enumeration side-effects still
+          don't run in the background. */}
+      {panel !== null && typeof document !== "undefined" && anchor && createPortal(
         <div
           ref={panelRef}
           role="dialog"
           aria-label={panel === "audio" ? "Audio hardware" : "Screens hardware"}
-          className="fixed w-[360px] bg-[var(--color-elevated)] border-r border-[var(--color-border)] shadow-2xl flex flex-col transition-transform duration-200 ease-out z-40"
+          className="fixed w-[360px] bg-[var(--color-elevated)] border-r border-[var(--color-border)] shadow-2xl flex flex-col z-40"
           style={{
             top: anchor.top,
             bottom: 0,
             left: anchor.left,
-            transform: panel ? "translateX(0)" : "translateX(calc(-100% - 160px))",
-            pointerEvents: panel ? "auto" : "none",
           }}
         >
           <div className="flex items-center justify-between px-3 h-8 border-b border-[var(--color-border)] shrink-0">
@@ -133,8 +140,6 @@ export function HardwareSection() {
             </button>
           </div>
           <div className="flex-1 min-h-0 overflow-y-auto pf-transcript-scroll p-2 text-[12px]">
-            {/* Keep mounted only while a key is chosen so device enumeration
-                and audio hooks don't run in the background. */}
             {panel === "screens" && <ScreensPanel />}
             {panel === "audio" && <AudioTab />}
           </div>

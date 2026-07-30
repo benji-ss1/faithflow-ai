@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.111",
+    date: "2026-07-30",
+    headline: "That empty black column with an X on the left of the sidebar — fixed",
+    highlights: [
+      "HardwarePanel (Audio + Screens slide-out drawer) was ALWAYS mounted in the DOM with a CSS transform hiding it off-screen when closed. Under certain measurement timing / CSS specificity conditions the transform failed to apply on mount, leaving the panel visible over the center area with only an X close button showing — the 'empty black column blocking the sidebar'. Now the panel only mounts when you actually click Audio or Screens, so the phantom render is physically impossible.",
+    ],
+  },
+  {
     version: "0.1.110",
     date: "2026-07-30",
     headline: "What's New modal + update banner: stop nagging on every patch, add dismiss ×",
