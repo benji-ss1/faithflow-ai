@@ -292,10 +292,13 @@ export function TopBar({
       </div>
 
       <div className="mx-2 h-6 w-px bg-[var(--color-border)]" />
+      {/* Change 5B (2026-07-27) — Media button removed from topbar. Sidebar
+          MediaSection is now the sole entry point (click a Media category →
+          center switches to "media"). The `CenterMode` type still includes
+          "media" — sidebar click continues to use it, so don't drop the enum. */}
       <div className="flex items-center gap-1">
         <ModeBtn icon={Music} label="Songs" active={centerMode === "songs"} onClick={toggleMode("songs")} />
         <ModeBtn icon={BookOpen} label="Bible" active={centerMode === "bible"} onClick={toggleMode("bible")} emphasized />
-        <ModeBtn icon={ImageIcon} label="Media" active={centerMode === "media"} onClick={toggleMode("media")} />
       </div>
       <div className="mx-2 h-6 w-px bg-[var(--color-border)]" />
 

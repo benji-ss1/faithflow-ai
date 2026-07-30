@@ -31,7 +31,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { loadSessionState, updateSessionState } from "@/lib/operatorSessionState";
 import * as Popover from "@radix-ui/react-popover";
-import { BookOpen, Music, Link2, Settings as SettingsIcon, Monitor } from "lucide-react";
+import { BookOpen, Music, Link2, Settings as SettingsIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { TimerApi, MessagesApi } from "../hooks";
@@ -42,9 +42,12 @@ import { MessagesTab } from "./tabs/MessagesTab";
 import { TimersTab } from "./tabs/TimersTab";
 import { ThemesTab } from "./tabs/ThemesTab";
 import { MacrosTab } from "./tabs/MacrosTab";
-import { ScreensPanel } from "@/components/operator/screens/ScreensPanel";
+// Change 5C (2026-07-27) — right-icon Screens tab retired. Duplicated the
+// left-sidebar Hardware > Screens slide-out shipped in v0.1.91 (JPD Fix 7).
+// HardwarePanel still imports ScreensPanel directly; the component is
+// unchanged. Only the right-side entry point is removed.
 
-type PopoverKey = "bible" | "songs" | "xrefs" | "logs" | "settings" | "screens";
+type PopoverKey = "bible" | "songs" | "xrefs" | "logs" | "settings";
 
 export function RightIconBar({
   ctx, timer, messages,
@@ -64,7 +67,9 @@ export function RightIconBar({
   }, []);
   useEffect(() => {
     const saved = loadSessionState()?.sidebarTab;
-    if (saved === "bible" || saved === "songs" || saved === "xrefs" || saved === "settings" || saved === "screens") {
+    // Change 5C — "screens" removed from the valid-key list. A stale
+    // "screens" from a prior version silently no-ops here (bar stays clean).
+    if (saved === "bible" || saved === "songs" || saved === "xrefs" || saved === "settings") {
       setOpenKeyInner(saved);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -117,10 +122,8 @@ export function RightIconBar({
           k="settings" openKey={openKey} setOpen={setOpenKey}
           Icon={SettingsIcon} label="Settings"
         />
-        <IconTrigger
-          k="screens" openKey={openKey} setOpen={setOpenKey}
-          Icon={Monitor} label="Screens"
-        />
+        {/* Change 5C (2026-07-27) — Screens icon removed. Left sidebar
+            Hardware > Screens (HardwarePanel) is the sole entry point. */}
       </div>
 
       {/* Popovers ------------------------------------------------------- */}
@@ -147,11 +150,7 @@ export function RightIconBar({
           <SettingsPopoverBody key={settingsEpoch} timer={timer} messages={messages} />
         </PopoverShell>
       )}
-      {openKey === "screens" && (
-        <PopoverShell title="Screens" onClose={() => setOpenKey(null)}>
-          <ScreensPanel />
-        </PopoverShell>
-      )}
+      {/* Change 5C — Screens popover render block removed. */}
     </div>
   );
 }

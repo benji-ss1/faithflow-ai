@@ -14,6 +14,7 @@ next-env.d.ts
 .vercel
 .env*
 test/screenshots/
+screenshots/
 dist-electron/
 release/
 .claude/worktrees/

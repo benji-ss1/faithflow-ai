@@ -16,7 +16,17 @@ const CATEGORIES: Category[] = [
   { name: "Intro Videos", locked: true },
 ];
 
-export function MediaSection({ onCenterMode }: { onCenterMode?: (m: CenterMode) => void }) {
+// Change 5A (2026-07-27) — MediaSection is now the SOLE entry point to the
+// Media center panel (topbar Media button was retired in Change 5B). Click
+// behavior mirrors the topbar Songs/Bible pattern: clicking an unlocked
+// category while media is already the active center mode toggles back to
+// "slides", matching operator expectation of the toggle metaphor.
+export function MediaSection({
+  onCenterMode, centerMode,
+}: {
+  onCenterMode?: (m: CenterMode) => void;
+  centerMode?: CenterMode;
+}) {
   const [open, setOpen] = useState(true);
   const [showBanner, setShowBanner] = useState(false);
 
@@ -25,7 +35,8 @@ export function MediaSection({ onCenterMode }: { onCenterMode?: (m: CenterMode) 
       setShowBanner(true);
       return;
     }
-    onCenterMode?.("media");
+    // Toggle behavior — matches Songs/Bible topbar buttons.
+    onCenterMode?.(centerMode === "media" ? "slides" : "media");
   };
 
   return (

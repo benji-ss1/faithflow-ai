@@ -36,12 +36,14 @@ import { OutputRoutingRow } from "./right/OutputRoutingRow";
 // RightIconBar. AIDetectionsPanel still imported transitively (via
 // RightIconBar's popovers). Old RightTabs.tsx kept in tree, unused.
 import { RightIconBar } from "./right/RightIconBar";
+import { TranscriptDisplay } from "./TranscriptDisplay";
 import { BottomBar } from "./BottomBar";
 import { MediaStrip } from "./MediaStrip";
 import { useTimerSession, useMessagesSession, useBibleSession } from "./hooks";
 import { openLiveChannel, safePost } from "@/lib/broadcast";
 import { cachedLookup } from "@/lib/bible-client-cache";
-import { setAvailableTranslationCodes } from "@/lib/translation-commands";
+import { setAvailableTranslationCodes, getAvailableTranslationCodes } from "@/lib/translation-commands";
+import { BIBLE_MICRO_COOLDOWN_MS, decideBibleAutoFire } from "@/lib/bible-antireplay";
 import { fetchChapterCached, getCachedChapter, chapterKey, prefetchChapter } from "@/lib/bible-chapter-cache";
 import { cn } from "@/lib/utils";
 import { useOperatorHotkeys } from "@/hooks/useOperatorHotkeys";
@@ -49,7 +51,6 @@ import { ShortcutsHelpOverlay } from "./ShortcutsHelpOverlay";
 import { AICaptionsBanner } from "./AICaptionsBanner";
 import { UpdateBanner } from "./UpdateBanner";
 import { AudioDebugOverlay } from "../dev/AudioDebugOverlay";
-import { useDebouncedInterim } from "./useDebouncedInterim";
 import { CONFIDENCE_THRESHOLD } from "@/lib/audio-thresholds";
 import { OperatorTour, hasSeenTour } from "@/components/tutorial/OperatorTour";
 import { WhatsNewModal } from "../WhatsNewModal";
@@ -355,258 +356,12 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
 }
 
 /**
- * Live transcript panel — auto-scrolling feed of the last ~30s of transcript
- * (interim + final). Sits between LivePreviewPanel and RecentDetectionsPanel
- * in the right sidebar. Small monospace-adjacent font so the operator can
- * glance at what the mic is actually hearing without leaving the shell.
+ * Legacy LiveTranscriptPanel removed 2026-07-30 — its rich rendering
+ * (yellow correction spans, orange trigger highlights, mm:ss timestamps,
+ * 30s window, interim/final distinction, Clear button) now lives in
+ * `TranscriptDisplay.tsx` (Change 3 wrapper). Confine any further edits
+ * to that file.
  */
-function LiveTranscriptPanel({ ctx }: { ctx: OperatorShellCtx }) {
-  const audio = ctx.audio;
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  // 2026-07-25 — Clear button hides everything transcribed before `clearedAt`
-  // WITHOUT stopping the Deepgram pipeline. New utterances continue to land.
-  // Local-only state — the underlying `audio.transcript` array stays intact
-  // so a page reload restores the full history if we ever need it.
-  const [clearedAt, setClearedAt] = useState(0);
-  // 2026-07-25 Phase 2: bump visible-window from last 8 chunks to last 30
-  // — the panel is now much taller and users want to be able to scroll
-  // back and read earlier context without waiting for something to
-  // "cycle out". Still bounded by the 30s time filter below.
-  const recent = audio.transcript.slice(-30).filter((t) => t.ts > clearedAt);
-  const now = Date.now();
-  // Keep only the last 30s of finals for the visible window.
-  const windowed = recent.filter((t) => now - t.ts < 30_000);
-  // Task 8: debounce interim renders to ≥3 char OR ≥300ms delta.
-  // 2026-07-24 tighten to 90 ms after real-service report that 150 ms
-  // felt sluggish for interim (grey) text. Previous "dancing text" issue
-  // at 40 ms was likely aggravated by the endpointing fragmentation bug
-  // (fixed separately). 90 ms should be responsive without the earlier
-  // jitter. Detection unaffected — this only tunes visible interim
-  // render cadence.
-  const interim = useDebouncedInterim(audio.interim, 1, 90);
-  const hasContent = windowed.length > 0 || !!interim;
-
-  // 2026-07-25 Phase 2: scroll pause/resume. Auto-scroll is default ON,
-  // but if the operator scrolls up to re-read something, we pause auto-
-  // scroll so the panel doesn't rip them back to the bottom the moment
-  // new transcript lands. Resume auto-scroll the moment they scroll
-  // back to the bottom (within a 12px threshold to handle sub-pixel
-  // rounding). Ref (not state) so the scroll handler doesn't rebind on
-  // every re-render.
-  const autoScrollRef = useRef(true);
-  const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const el = e.currentTarget;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 12;
-    autoScrollRef.current = atBottom;
-  };
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    if (autoScrollRef.current) el.scrollTop = el.scrollHeight;
-  }, [audio.transcript, interim]);
-
-  // 2026-07-25 Phase 2: index detected trigger phrases by segmentId so
-  // we can highlight them inline in the transcript with the brand orange.
-  // Suggestions carry `segmentId` + `matchedText` — if a suggestion's
-  // segmentId matches a transcript chunk's id, we search for its
-  // matchedText inside the chunk and wrap it in an orange highlight so
-  // the operator can see WHICH words in the transcript triggered a
-  // detection. Falls back to plain text on any segment with no
-  // suggestions attached.
-  const triggersBySegment = new Map<string, string[]>();
-  for (const s of audio.suggestions) {
-    if (!s.segmentId || !s.matchedText) continue;
-    const existing = triggersBySegment.get(s.segmentId) ?? [];
-    existing.push(s.matchedText);
-    triggersBySegment.set(s.segmentId, existing);
-  }
-
-  // 2026-07-25 Phase 2: helper — mm:ss clock-time timestamp per chunk.
-  // Not elapsed-since-session-start (unclear during a break); clock time
-  // maps to "when did the preacher say that" in the operator's actual
-  // sense of time. Padded to always be 5 chars so the right-edge column
-  // aligns.
-  const mmss = (ts: number): string => {
-    const d = new Date(ts);
-    return `${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
-  };
-
-  // 2026-07-24 field bug fix: was `audio.listening && audio.ready` — the
-  // red dot vanished during any background reconnect (Fly machine bounce,
-  // WS blip) because `ready` flips off briefly even though the operator's
-  // intent (AI ON) hasn't changed. That read as "the AI stopped listening"
-  // when in fact reconnect is silent + automatic and detection state is
-  // preserved. Product rule: AI ON = red dot on, always. Only manual
-  // AI OFF removes it. Reconnect state is invisible everywhere else too
-  // (per the July binary-pill rule) — this brings the red dot into
-  // alignment with that rule.
-  const isRecording = audio.listening;
-
-  return (
-    <div className="border-t border-[var(--color-border)] px-2 py-2" data-testid="live-transcript-panel">
-      <div className="flex items-center gap-1.5 mb-1">
-        <span className="text-[9px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)]">
-          Live transcript
-        </span>
-        {isRecording && (
-          <span
-            aria-label="recording"
-            className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 pf-ai-live-dot"
-          />
-        )}
-        {/* 2026-07-25 — Clear button. Hides everything transcribed so far
-            from the visible panel without stopping the AI pipeline. */}
-        <button
-          type="button"
-          title="Clear visible transcript (does not stop AI listener)"
-          aria-label="Clear transcript"
-          onClick={() => setClearedAt(Date.now())}
-          className="ml-auto text-[9px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] px-1.5 py-0.5 rounded hover:bg-white/5"
-        >
-          Clear
-        </button>
-      </div>
-      <div
-        ref={scrollRef}
-        onScroll={onScroll}
-        className="min-h-[150px] max-h-[280px] overflow-y-auto rounded bg-[var(--color-elevated)] border border-[var(--color-border)] px-2 py-1 text-[12px] leading-snug pf-transcript-scroll"
-        style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
-      >
-        {!hasContent ? (
-          <div className="text-[11px] italic text-[var(--color-muted-foreground)] py-1">
-            {audio.listening ? "Listening…" : "Say something with AI Live on…"}
-          </div>
-        ) : (
-          <>
-            {windowed.map((t) => {
-              const triggers = triggersBySegment.get(t.id) ?? [];
-              return (
-              <div key={t.id} className="text-[var(--color-foreground)] break-words flex items-start gap-2">
-                {/* Roadmap #5 — word-level confidence heatmap. Deepgram
-                    already returns per-word confidence; render low-conf
-                    words (< 0.75) in amber and very-low (< 0.5) with a
-                    subtle underline so the operator can see WHERE the
-                    mic/audio is struggling instead of "the whole thing
-                    looks fine but a detection was wrong". Falls back to
-                    plain text if the words array isn't there. */}
-                {/* 2026-07-24 UX rewrite: yellow is now an AUTO-CORRECTION
-                    indicator, not a low-confidence one. When the parser
-                    fixed a mistranscription in context (e.g. "James
-                    Forrest four" → "James four four"), the corrected
-                    word renders yellow with a fade animation; hover
-                    shows the original. Same idea as ChatGPT/Claude voice
-                    self-correcting mid-sentence.
-                    No corrections on this segment → plain text, zero
-                    visual noise. (Corrections is empty/undefined for
-                    99% of segments — the highlight is genuinely rare
-                    and always means "the AI just fixed itself here".) */}
-                <span className="flex-1 min-w-0">
-                {t.corrections && t.corrections.length > 0 ? (
-                  (() => {
-                    let display = t.text;
-                    const parts: { key: number; text: string; original: string | null }[] = [];
-                    let keySeq = 0;
-                    // Naive word-boundary substitution of each original→corrected
-                    // pair. Works because the corrections list is deduped by
-                    // (original,corrected) and each pair is a single ASCII token.
-                    // Iterate through the string, matching any correction's
-                    // original with a case-insensitive \b regex, emitting
-                    // literal chunks + a highlighted "corrected" span at each hit.
-                    const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-                    const alternation = t.corrections
-                      .map((c) => escapeRe(c.original))
-                      .join("|");
-                    if (alternation.length === 0) {
-                      parts.push({ key: keySeq++, text: display, original: null });
-                    } else {
-                      const re = new RegExp(`\\b(${alternation})\\b`, "gi");
-                      let last = 0;
-                      let m: RegExpExecArray | null;
-                      while ((m = re.exec(display)) !== null) {
-                        if (m.index > last) {
-                          parts.push({ key: keySeq++, text: display.slice(last, m.index), original: null });
-                        }
-                        const hit = m[0];
-                        const rule = t.corrections!.find((c) => c.original.toLowerCase() === hit.toLowerCase());
-                        parts.push({ key: keySeq++, text: rule?.corrected ?? hit, original: hit });
-                        last = m.index + hit.length;
-                      }
-                      if (last < display.length) {
-                        parts.push({ key: keySeq++, text: display.slice(last), original: null });
-                      }
-                    }
-                    return parts.map((p) => p.original === null
-                      ? <span key={p.key}>{p.text}</span>
-                      : <span
-                          key={p.key}
-                          className="rounded-sm bg-yellow-400/30 text-yellow-100 px-0.5 pf-corrected-flash"
-                          title={`Heard "${p.original}" — corrected to "${p.text}"`}
-                        >{p.text}</span>
-                    );
-                  })()
-                ) : triggers.length > 0 ? (
-                  // 2026-07-25 Phase 2: orange highlight for detected
-                  // trigger phrases (matchedText from suggestions with
-                  // this segmentId). Case-insensitive substring match
-                  // wraps each hit in a brand-orange background span.
-                  // Only applies when the corrections branch above
-                  // hasn't already claimed rendering — corrections
-                  // convey more information (the actual fix) so they
-                  // win overlap arbitration.
-                  (() => {
-                    const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-                    const alternation = triggers.map(escapeRe).join("|");
-                    const parts: { key: number; text: string; matched: boolean }[] = [];
-                    let keySeq = 0;
-                    if (!alternation) return t.text;
-                    const re = new RegExp(`(${alternation})`, "gi");
-                    let last = 0;
-                    let m: RegExpExecArray | null;
-                    while ((m = re.exec(t.text)) !== null) {
-                      if (m.index > last) {
-                        parts.push({ key: keySeq++, text: t.text.slice(last, m.index), matched: false });
-                      }
-                      parts.push({ key: keySeq++, text: m[0], matched: true });
-                      last = m.index + m[0].length;
-                    }
-                    if (last < t.text.length) {
-                      parts.push({ key: keySeq++, text: t.text.slice(last), matched: false });
-                    }
-                    return parts.map((p) => p.matched
-                      ? <span
-                          key={p.key}
-                          className="rounded-sm px-0.5 font-semibold"
-                          style={{ backgroundColor: "rgba(240, 132, 46, 0.25)", color: "#F0842E" }}
-                          title="Detected trigger phrase"
-                        >{p.text}</span>
-                      : <span key={p.key}>{p.text}</span>
-                    );
-                  })()
-                ) : (
-                  t.text
-                )}
-                </span>
-                <span
-                  className="shrink-0 text-[10px] font-mono text-[var(--color-muted-foreground)] opacity-60 tabular-nums pt-0.5"
-                  title={new Date(t.ts).toLocaleTimeString()}
-                >
-                  {mmss(t.ts)}
-                </span>
-              </div>
-              );
-            })}
-            {interim && (
-              <div className="text-[var(--color-muted-foreground)] break-words opacity-70 flex items-start gap-2">
-                <span className="flex-1 min-w-0">{interim}</span>
-                <span className="shrink-0 text-[10px] font-mono opacity-40 tabular-nums pt-0.5">·</span>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Parts 6-8 — Song auto-stage/auto-live and word-timing slide auto-advance.
@@ -1300,12 +1055,75 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   );
 }
 
+// Change 4 (2026-07-27) — LEFT panel resizable. Default is the MIN width (250px)
+// so a fresh install renders at or above the enforced minimum. Persisted
+// per-machine in localStorage; SSR-safe read runs post-mount to avoid hydration
+// mismatch. Bounded [MIN, 50vw] at all times.
+const LEFT_PANEL_WIDTH_KEY = "presentflow.pro.leftPanelWidth.v1";
+const LEFT_PANEL_MIN_WIDTH = 250;
+const LEFT_PANEL_DEFAULT_WIDTH = LEFT_PANEL_MIN_WIDTH;
+
 export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const [centerMode, setCenterMode] = useState<CenterMode>("slides");
   const [mediaStripOpen, setMediaStripOpen] = useState(true);
   const [slideSize, setSlideSize] = useState(160);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
+  // Change 4 — Left panel width state. Starts at the persisted value (or the
+  // default), clamped once read is verified against window.innerWidth on mount.
+  const [leftPanelWidth, setLeftPanelWidth] = useState<number>(LEFT_PANEL_DEFAULT_WIDTH);
+  const leftResizingRef = useRef(false);
+  // Live ref of the current width. onMove writes both state + ref; onUp reads
+  // the ref so persist gets the FINAL width instead of a stale closure value.
+  // Also lets us drop the per-render persist useEffect that fired on every
+  // mousemove tick (60+ times/sec during a drag).
+  const leftPanelWidthRef = useRef<number>(LEFT_PANEL_DEFAULT_WIDTH);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(LEFT_PANEL_WIDTH_KEY);
+      if (raw) {
+        const parsed = parseInt(raw, 10);
+        if (Number.isFinite(parsed)) {
+          const max = Math.floor(window.innerWidth * 0.5);
+          const clamped = Math.min(max, Math.max(LEFT_PANEL_MIN_WIDTH, parsed));
+          setLeftPanelWidth(clamped);
+          leftPanelWidthRef.current = clamped;
+        }
+      }
+    } catch { /* noop */ }
+  }, []);
+  const startLeftResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    leftResizingRef.current = true;
+    // Track initial cursor + width so mid-drag math is stable even if the
+    // aside momentarily reflows during another render.
+    const startX = e.clientX;
+    const startWidth = leftPanelWidthRef.current;
+    const onMove = (ev: MouseEvent) => {
+      if (!leftResizingRef.current) return;
+      const maxW = Math.floor(window.innerWidth * 0.5);
+      const next = Math.min(maxW, Math.max(LEFT_PANEL_MIN_WIDTH, startWidth + (ev.clientX - startX)));
+      leftPanelWidthRef.current = next;
+      setLeftPanelWidth(next);
+    };
+    const onUp = () => {
+      if (!leftResizingRef.current) return;
+      leftResizingRef.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      // Persist final width once at pointerup — read from the live ref so we
+      // never write a stale closure value. Storage survives relaunch, matching
+      // the pattern used elsewhere (slideSize, etc).
+      try { window.localStorage.setItem(LEFT_PANEL_WIDTH_KEY, String(Math.round(leftPanelWidthRef.current))); } catch { /* noop */ }
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, []);
   // Y2: debounce Safe Mode "swallowed Enter" toast to once per 3s so a stuck
   // Enter key doesn't spam the operator.
   const lastSafeToastRef = useRef(0);
@@ -1918,6 +1736,13 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // 2026-07-29 crash fix: one auto-fire per detection event (see effect below).
   const lastHandledAutoFireSuggestionIdRef = useRef<string | null>(null);
   const lastLiveWasSongRef = useRef<boolean>(false); // Y8
+  // 2026-07-30 anti-replay race guard: synchronous in-memory mirror of the
+  // sessionStorage fired-map. Written BEFORE the projector fires so two
+  // Deepgram interims arriving in the same JS tick can't both slip past the
+  // 3s micro-cooldown. sessionStorage is still written (fire-and-forget)
+  // for cross-tab observability / analytics — this ref is the timing
+  // authority for the same-tab hot path.
+  const bibleFiredMapRef = useRef<Record<string, number>>({});
 
   // Part 2 (verse forward-continuation): word-timing tracking buffers, same
   // shape as the song version in SongAutopilotStaging but scoped to Bible
@@ -2117,79 +1942,60 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     if (!firstText || firstText === "Loading…" || firstText.startsWith("(no verse text") || firstText.startsWith("(lookup failed")) return;
 
     const key = first.id;
-    // R5: check sessionStorage for recent replays (5 min TTL). This is the
-    // SOLE timing authority — a preacher returning to the same verse later
-    // in the service must be able to trigger it again. `lastAutoLiveKeyRef`
-    // used to ALSO permanently block a repeat of whatever key fired last:
-    // since `first.id` is a stable per-reference key (not unique per
-    // detection event), if the same verse stayed the most recent detection
-    // with nothing else firing in between, that extra check would keep
-    // blocking it forever even after the 5-minute window had long expired.
-    // Removed — the sessionStorage map already does the real timing.
+    // Anti-replay (2026-07-30 policy — see CLAUDE.md rule 7):
+    //   Old policy: 5-minute session-persistent suppression per reference.
+    //   That blocked legitimate sermon-long repeats — a preacher citing
+    //   Psalm 23:4 three times over 20 minutes only got the first fire.
+    //   New policy: 3s micro-cooldown per reference — enough to absorb
+    //   Deepgram interim/final/whisper duplicate detections of a SINGLE
+    //   utterance, never enough to block a real restatement.
     //
-    // forceLive/voiceCommand bypass this window entirely: a preacher
-    // explicitly restating the same reference, or an explicit "verse N"/
-    // "from verse N" navigation phrase, IS the authorization to replay —
-    // the 5-minute guard exists to stop a STALE lingering high-confidence
-    // detection from re-firing on its own, not to block a deliberate repeat.
-    // Different-reference-live bypass: the 5-min replay guard exists to stop
-    // an echoing stale detection from re-firing the SAME slide that's already
-    // on screen. It should NOT block a legitimate switch back to a previous
-    // reference — that's the whole point of preacher-driven back-and-forth
-    // (Matt 5:5 → Gen 4:4 → back to Matt 5:5 within 5 min).
+    //   Delegated to a pure helper (`decideBibleAutoFire` in
+    //   `src/lib/bible-antireplay.ts`) so the decision is directly unit-
+    //   testable and the ordering (forceLive → voiceCommand → different
+    //   ref live → cooldown check) lives in one place. The sessionStorage
+    //   schema is preserved for observability / future analytics.
     //
-    // 2026-07-23 review fix: previously used `currentLiveText.endsWith(first.label)`
-    // which was doubly wrong. (a) The trailing label varies by code path — manual
-    // Lookup emits "Book C:Vs-Ve (TR)" ranges; goto emits per-verse "Book C:V (TR)".
-    // Same reference could look different. (b) An empty currentLiveText (fresh
-    // session, nothing live yet) also gave `endsWith === false`, which SKIPPED the
-    // guard entirely — reopening the very stale-echo case R5 was added to fix.
-    //
-    // Correct semantics: parse a canonical (book|ch|vs|ve) tuple from live text;
-    // skip the guard ONLY when a DIFFERENT parsed scripture is currently live
-    // (that's a legit swap-back). Same-ref-live OR nothing-scripture-live both
-    // keep the guard active.
-    // 2026-07-25 field bug fix — the differentRefLive bypass only kicked
-    // in when currentLive was a Bible-verse-shaped text. If currentLive
-    // was a song lyric, a message overlay, an image, or empty, the regex
-    // failed to match and differentRefLive stayed false → the 5-min replay
-    // guard blocked a re-detection of a previously-shown verse even though
-    // that verse is CLEARLY not what's currently on screen. Correct semantics:
-    // guard only blocks when the SAME Bible verse is already on screen
-    // (true stale-echo case). Every other currentLive state (song, empty,
-    // different verse, non-text kind) is a legitimate content switch.
+    //   Songs keep their 5-minute policy (SONG_AUTO_FIRED_SESSION_KEY).
+    //   Scope of this change is Bible only.
     const liveKind = ctx.liveSlide?.kind;
     const currentLiveText = liveKind === "text" ? ctx.liveSlide.text : "";
-    let differentRefLive = true; // permissive default: bypass unless proven same-ref
-    if (liveKind === "text" && currentLiveText) {
-      const liveScriptureMatch = currentLiveText.match(/(\d?\s*[A-Za-z]+)\s+(\d+):(\d+)(?:-(\d+))?\s*\([A-Z]+\)\s*$/);
-      if (liveScriptureMatch) {
-        // Live IS a Bible verse — compare canonically. Same ref = keep the
-        // guard so a stale detection echo doesn't re-fire an identical slide.
-        const liveBook = liveScriptureMatch[1].trim().toLowerCase().replace(/\s+/g, " ");
-        const liveCh = parseInt(liveScriptureMatch[2], 10);
-        const liveVs = parseInt(liveScriptureMatch[3], 10);
-        const liveVe = liveScriptureMatch[4] ? parseInt(liveScriptureMatch[4], 10) : liveVs;
-        const targetBook = scripture.ref.book.toLowerCase().replace(/\s+/g, " ");
-        differentRefLive = liveBook !== targetBook
-          || liveCh !== scripture.ref.chapter
-          || liveVs !== scripture.ref.verseStart
-          || liveVe !== scripture.ref.verseEnd;
-      }
-      // else: text kind but not a Bible verse (song lyric / message) →
-      // differentRefLive stays true (legit content swap).
-    }
-    // Non-text live (image / video / blank / empty) also stays true.
-    if (!scripture.forceLive && !scripture.voiceCommand && !differentRefLive) {
-      try {
-        const raw = window.sessionStorage.getItem(AUTO_FIRED_SESSION_KEY);
-        const map: Record<string, number> = raw ? JSON.parse(raw) : {};
-        const firedAt = map[key];
-        if (typeof firedAt === "number" && Date.now() - firedAt < 5 * 60 * 1000) {
-          return;
+    // Merge the sessionStorage snapshot into the synchronous in-memory ref.
+    // The ref wins on conflicts because it's always the more-recent value
+    // (any write we did this tick has already landed there but may not have
+    // flushed to sessionStorage yet). This closes the race where two
+    // Deepgram interims 200ms apart both read an empty sessionStorage before
+    // either write-back completed.
+    try {
+      const raw = window.sessionStorage.getItem(AUTO_FIRED_SESSION_KEY);
+      const stored: Record<string, number> = raw ? JSON.parse(raw) : {};
+      for (const k of Object.keys(stored)) {
+        const refVal = bibleFiredMapRef.current[k];
+        if (typeof refVal !== "number" || stored[k] > refVal) {
+          bibleFiredMapRef.current[k] = stored[k];
         }
-      } catch { /* noop */ }
+      }
+    } catch { /* noop */ }
+    const nowTs = Date.now();
+    const decision = decideBibleAutoFire({
+      key,
+      firedMap: bibleFiredMapRef.current,
+      now: nowTs,
+      liveText: currentLiveText,
+      target: scripture.ref,
+      forceLive: !!scripture.forceLive,
+      voiceCommand: !!scripture.voiceCommand,
+      cooldownMs: BIBLE_MICRO_COOLDOWN_MS,
+    });
+    if (decision.suppress) {
+      if (pfTraceOn()) console.log(`[auto-approve] suppressed same-ref within ${BIBLE_MICRO_COOLDOWN_MS}ms:`, key);
+      return;
     }
+    // Write to the ref SYNCHRONOUSLY, BEFORE any downstream call. Even if
+    // doAutoFire queues (min-gap not yet met) or the sessionStorage.setItem
+    // in doAutoFire is delayed by a tick, subsequent effect invocations
+    // reading the merged map above will see this entry and correctly suppress.
+    bibleFiredMapRef.current[key] = nowTs;
 
     const body = first.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
     const slide: import("@/lib/broadcast").SlidePayload = { kind: "text", text: `${body}\n\n${first.label}` };
@@ -2761,9 +2567,26 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // voice command uses), and — if a scripture verse is currently live —
   // re-fetch it in the new translation and re-send it to the live output.
   const applyTranslationSwitch = useCallback(async (code: string, spokenPhrase: string) => {
-    bibleSession.setTranslation(code);
+    // 2026-07-30 "not available" fallback (Change 1 to-100):
+    //   The recogniser now catches every mention of NIV/ESV/NLT/NASB/CSB/MSG
+    //   etc. The seeded DB only carries public-domain codes (KJV, WEB, ASV,
+    //   DRC, YLT, DARBY, GEN1599). When the preacher requests a licensed
+    //   code that isn't loaded, WARN the operator and do NOT mutate the
+    //   session translation — silently switching to something the user
+    //   didn't ask for would be worse than the current-translation output.
+    const upper = code.toUpperCase();
+    const available = getAvailableTranslationCodes().map((c) => c.toUpperCase());
+    if (!available.includes(upper)) {
+      const current = bibleSession.state.translation;
+      toast.warning(`${upper} not available — showing ${current} instead`, {
+        id: "translation-switch",
+        description: `Heard "${spokenPhrase}". Ask an admin to enable ${upper} — see docs/BIBLE_TRANSLATIONS.md for the ESV.org path.`,
+      });
+      return;
+    }
+    bibleSession.setTranslation(upper);
     try {
-      window.dispatchEvent(new CustomEvent("presentflow:switch-translation", { detail: { code } }));
+      window.dispatchEvent(new CustomEvent("presentflow:switch-translation", { detail: { code: upper } }));
     } catch { /* noop */ }
     // Live scripture re-render. Bible slides go live as
     // `${text}\n\n${Book C:V[-V] (CODE)}` — parse the label off the live
@@ -2779,14 +2602,14 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       const m = /^(.+?)\s+(\d+):(\d+)(?:-(\d+))?\s+\(([A-Za-z0-9]+)\)$/.exec(label);
       if (m) {
         const [, book, chapterStr, startStr, endStr, liveCode] = m;
-        if (liveCode.toUpperCase() === code.toUpperCase()) {
+        if (liveCode.toUpperCase() === upper) {
           liveUpdated = true; // already in target translation — live output is correct
         } else {
           const chapter = Number(chapterStr);
           const verseStart = Number(startStr);
           const verseEnd = endStr ? Number(endStr) : verseStart;
           try {
-            const res = await cachedLookup({ book, chapter, verseStart, verseEnd, translationCode: code, source: "ai" });
+            const res = await cachedLookup({ book, chapter, verseStart, verseEnd, translationCode: upper, source: "ai" });
             if (res.verses.length > 0) {
               // Honor the operator's Bible display prefs so the re-render
               // matches how BibleMode's cardToSlide would format the slide
@@ -2808,7 +2631,26 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
               const newText = res.verses
                 .map((v) => showVerseNumbers ? `${v.verse} ${v.text}` : v.text)
                 .join(breakOnNewVerse ? "\n" : " ");
-              sendLiveRef.current({ kind: "text", text: `${newText}\n\n${newLabel}` });
+              // 2026-07-30 fade-on-swap (Change 1 to-100): force a one-shot
+              // ~200ms cross-fade transition for the re-render so the swap
+              // is visibly a smooth text change, not a hard cut — regardless
+              // of the operator's default transition. Uses the existing
+              // TransitionSpec pathway (LiveMessage.transition), same
+              // mechanism the operator's fade dropdown uses. TransitionWrapper
+              // remounts on identityKey change and plays the specified fade.
+              // Also dispatches a CustomEvent for same-window diagnostics /
+              // future extension (transcript UI or badge fade hooks).
+              try {
+                window.dispatchEvent(new CustomEvent("presentflow:live-translation-swap", {
+                  detail: { code: upper, book, chapter, verseStart, verseEnd },
+                }));
+              } catch { /* noop */ }
+              const fadeSpec: import("@/lib/broadcast").TransitionSpec = {
+                effectId: "cross_fade",
+                durationMs: 200,
+                easing: "ease-in-out",
+              };
+              sendLiveRef.current({ kind: "text", text: `${newText}\n\n${newLabel}` }, fadeSpec);
               liveUpdated = true;
             }
           } catch (e) {
@@ -2819,8 +2661,8 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     }
     toast.success(
       liveUpdated
-        ? `Switched to ${code} — "${spokenPhrase}"`
-        : `Switched to ${code} — next verse will use it`,
+        ? `Switched to ${upper} — "${spokenPhrase}"`
+        : `Switched to ${upper} — next verse will use it`,
       { id: "translation-switch" },
     );
   }, [bibleSession, ctx.liveSlide]);
@@ -2973,12 +2815,29 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       </div>
 
       <div className="flex-1 min-h-0 flex">
-        {/* LEFT */}
-        <aside data-tour="left" className="w-40 shrink-0 border-r border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col overflow-y-auto">
+        {/* LEFT — resizable (Change 4, 2026-07-27). Fixed pixel width via
+            inline style; drag handle at the right edge updates state on
+            mousemove. Playlist + Bible-plan items (via BiblePlansSection
+            inside PlaylistSection) get more room when operators widen it. */}
+        <aside
+          data-tour="left"
+          className="relative shrink-0 border-r border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col overflow-y-auto"
+          style={{ width: leftPanelWidth }}
+        >
           <LibrarySection onCenterMode={setCenterMode} />
           <PlaylistSection ctx={ctx} onCenterMode={setCenterMode} />
-          <MediaSection onCenterMode={setCenterMode} />
+          <MediaSection onCenterMode={setCenterMode} centerMode={centerMode} />
           <HardwareSection />
+          {/* Drag handle — 4px hit target on the right edge. Visible on hover
+              via the brand tint. Absolutely positioned so it doesn't take
+              layout space (aside width is authoritative). */}
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize left panel"
+            onMouseDown={startLeftResize}
+            className="absolute top-0 right-0 h-full w-1 cursor-col-resize hover:bg-[var(--color-brand)]/60 active:bg-[var(--color-brand)] transition-colors z-10"
+          />
         </aside>
 
         {/* CENTER */}
@@ -3020,8 +2879,15 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           <OperatorErrorBoundary fallbackLabel="Live preview panel error">
             <LivePreviewPanel ctx={ctx} />
           </OperatorErrorBoundary>
+          {/* Change 3 (revised 2026-07-30) — transcript render block.
+              TranscriptDisplay wraps the RICH renderer (yellow
+              auto-correction spans + hover, orange trigger-phrase
+              highlights, mm:ss timestamps + hover, Clear button,
+              30s window, interim/final distinction) inside the fixed
+              height + drag-resize + minimizable chrome introduced in
+              Change 3. Minimizing does NOT stop capture. */}
           <OperatorErrorBoundary fallbackLabel="Live transcript panel error">
-            <LiveTranscriptPanel ctx={ctx} />
+            <TranscriptDisplay ctx={ctx} />
           </OperatorErrorBoundary>
           {/* 2026-07-25 Phase 3: RightIconBar replaces both
               AIDetectionsPanel (Bible/Songs/XRefs sections stacked

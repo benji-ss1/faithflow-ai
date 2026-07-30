@@ -55,6 +55,15 @@ function overlayPosClass(pos: OverlayPosition): string {
 
 export default function LivePage() {
   const [slide, setSlide] = useState<SlidePayload>({ kind: "empty" });
+  // 2026-07-30 translation-swap fade (Change 1 to-100). Belt-and-braces on
+  // top of the TransitionSpec-driven cross-fade already sent by the operator
+  // via BroadcastChannel — this listener only fires in same-window scenarios
+  // (Electron in-process dev, single-tab preview) where a window-scoped
+  // CustomEvent can reach the projector. Briefly dims the container so the
+  // text swap reads as a smooth fade even when the operator has "none" as
+  // their default transition (the one-shot TransitionSpec covers the
+  // separate-window case).
+  const [translationSwapFading, setTranslationSwapFading] = useState(false);
   const [announcement, setAnnouncement] = useState<AnnouncementPayload | null>(null);
   const [transition, setTransition] = useState<TransitionSpec | null>(null);
   const [aspectRatio, setAspectRatio] = useState<"16:9" | "4:3" | "custom">("16:9");
@@ -239,6 +248,25 @@ export default function LivePage() {
     return () => clearTimeout(t);
   }, []);
 
+  // 2026-07-30 translation-swap fade listener. Same-window only. Sets a
+  // brief opacity dim (200ms) around the moment the slide swaps to a new
+  // translation. Cross-window (normal projector-in-separate-window path)
+  // is handled by the one-shot fade TransitionSpec that the operator posts
+  // via BroadcastChannel — see applyTranslationSwitch in ProOperatorShell.
+  useEffect(() => {
+    let clearTimer: ReturnType<typeof setTimeout> | null = null;
+    function onSwap() {
+      setTranslationSwapFading(true);
+      if (clearTimer) clearTimeout(clearTimer);
+      clearTimer = setTimeout(() => setTranslationSwapFading(false), 220);
+    }
+    window.addEventListener("presentflow:live-translation-swap", onSwap);
+    return () => {
+      window.removeEventListener("presentflow:live-translation-swap", onSwap);
+      if (clearTimer) clearTimeout(clearTimer);
+    };
+  }, []);
+
   const goFullscreen = useCallback(async () => {
     // Fullscreen API rejects with DOMException. Wrap so nothing bubbles up
     // as an unhandled promise rejection (which some browsers stringify as
@@ -298,9 +326,18 @@ export default function LivePage() {
               : "relative w-full h-full"
           }
         >
-          <TransitionWrapper identityKey={slideIdentity(slide)} transition={transition}>
-            <SlideRenderer slide={slide} projectorFit />
-          </TransitionWrapper>
+          <div
+            style={{
+              opacity: translationSwapFading ? 0.2 : 1,
+              transition: "opacity 200ms ease-in-out",
+              width: "100%",
+              height: "100%",
+            }}
+          >
+            <TransitionWrapper identityKey={slideIdentity(slide)} transition={transition}>
+              <SlideRenderer slide={slide} projectorFit />
+            </TransitionWrapper>
+          </div>
           <AnnouncementLayer ann={announcement} />
           {/* z-order: slide < timer (z-20) < message (z-30). Corner/lower-third
               placement keeps overlays off the slide text unless the operator

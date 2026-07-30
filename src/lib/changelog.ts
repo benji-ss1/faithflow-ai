@@ -15,6 +15,20 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.107",
+    date: "2026-07-30",
+    headline: "Bible sermon repeats + voice translation-switch + resizable left panel + fatter transcript panel with the rich highlights back",
+    highlights: [
+      "Same verse re-cited later in the sermon now RE-PROJECTS reliably. Field report: preachers who kept saying 'Psalm 23:4' throughout a message only saw the first fire — the second, third, fourth citation silently dropped. Fixed: the anti-replay window is now a 3-second micro-cooldown per reference (was 5 minutes). 3s absorbs Deepgram's interim-then-final duplicate detections for a single utterance, but never blocks a real repeat 20 seconds or 20 minutes later. Bible only — songs keep the 5-minute policy since a worship set doesn't come back mid-service. Also hardened against two fast interims sneaking past the guard in the same tick — a synchronous in-memory ref now backs the sessionStorage map so the check is race-free",
+      "Voice-driven Bible translation switching goes to 100%: every recognisable translation now triggers a switch when mentioned. Full 25-code list is understood — KJV, NKJV, NIV, ESV, NLT, NASB, ASV, WEB, AMP, MSG, CSB, HCSB, RSV, NRSV, CEV, GNT, ISV, NET, NCV, YLT, DRA, WBS, BBE, DARBY (plus GEN1599 Geneva). Unambiguous names like 'Holman', 'Contemporary English', 'New International', 'King James' now fire on ANY mention — no need for switch-intent phrasing. New GNT gospel-phrase guard: 'good news of the gospel', 'the good news is coming', 'good news that Jesus saves' no longer false-fire a GNT switch (mirrors the existing 'back in King James' day' guard). Bare 'GNT' abbreviation and 'the Good News Translation' both still fire correctly. The 'caught in a web of sin' / 'the message of hope' false-positive protection still catches ambiguous names (WEB, AMP, MSG, ASV, NET, 'the message', 'amplified' — those still need clear switch phrasing)",
+      "Left panel is now resizable — drag the right edge to widen or narrow. Default width is now 250px (was landing at 160px on first launch which sat below the enforced minimum, so titles clipped). Width persists per machine. Fixed a drag-storm bug where the persist-on-change effect was writing to localStorage 60+ times per second while you dragged — now it writes ONCE at pointer-up",
+      "Media library moved to the left sidebar as a proper section (click to open the Media browser in the center; click again returns to slides). Removed the redundant Media button from the topbar and the redundant Screens tab from the right sidebar — Screens + Audio now live only in the left Hardware section where you already set them up",
+      "Live transcript panel: the fixed-height, resizable, minimize-to-a-bar chrome is back — and this time the RICH renderer is inside it. Yellow auto-correction highlights (with hover showing the original word), orange trigger-phrase highlights showing WHICH words fired a detection, mm:ss timestamps on every chunk, 30-second window, interim/final distinction, Clear button. Minimizing does NOT stop capture. Height persists per machine",
+      "When you ask for a translation your church doesn't have loaded, PresentFlow still says so out loud: 'NLT not available — showing KJV instead' instead of silently doing nothing. Session translation stays on whatever's currently working so the projector never lies about what it's showing",
+      "Cmd+R (web reload) picks up ALL of the above — no new DMG required. Electron shell code is unchanged in this release",
+    ],
+  },
+  {
     version: "0.1.106",
     date: "2026-07-29",
     headline: "Desktop shell allowlist: added /api/themes, /api/sermon/ask, /api/pptx/convert, /api/health/{ai,deepgram} — same class of bug as 0.1.105",

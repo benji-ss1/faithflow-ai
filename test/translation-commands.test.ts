@@ -1,14 +1,21 @@
 /**
- * Spoken translation-switch detector tests (JPD Fix 6).
+ * Spoken translation-switch detector tests (JPD Fix 6, expanded 2026-07-30).
  *
  * Run: npx tsx --env-file=.env.local test/translation-commands.test.ts
  *
  * Pure-detector tests for src/lib/translation-commands.ts:
- *   - bare abbreviations fire directly (NIV, KJV, NLT)
- *   - ambiguous abbreviations (WEB/AMP/MSG/ASV) + full names need a
- *     switch-intent verb in the ~10 words before the match
+ *   - bare abbreviations fire directly (NIV, KJV, NLT, and the expanded
+ *     unambiguous set: CSB, HCSB, NRSV, ISV, GNT, DRA, WBS, BBE, NCV, CEV, RSV)
+ *   - ambiguous abbreviations (WEB/AMP/MSG/ASV/NET) STILL need a switch-intent
+ *     verb in the ~10 words before the match — false-positive protection
+ *     ("caught in a web of sin") must survive
+ *   - UNAMBIGUOUS full names fire on ANY mention (2026-07-30 policy):
+ *     "King James", "New International", "Amplified"* (exception: AMBIGUOUS),
+ *     "Holman", "Contemporary English", "Bible in Basic English", etc.
+ *   - AMBIGUOUS full names ("the message", "amplified") still need intent
+ *   - "King James" special: monarch-tail guard suppresses ("King James' day",
+ *     "King James was a monarch")
  *   - Nigerian pidgin intents ("make we read am for ...")
- *   - negatives: "the message of hope", "King James was a monarch"
  *   - DB-availability gating (only available codes fire)
  *   - 10s cooldown + reset
  *
@@ -21,6 +28,7 @@ import {
   setAvailableTranslationCodes,
   getAvailableTranslationCodes,
   SEEDED_TRANSLATION_CODES,
+  RECOGNISED_TRANSLATION_CODES,
 } from "../src/lib/translation-commands";
 
 let pass = 0;
@@ -32,7 +40,9 @@ function check(name: string, fn: () => void | Promise<void>) {
 }
 
 // Full hosted-DB style list (what the shell hydrates from /api/bible/translations)
-const ALL = ["KJV", "NKJV", "NIV", "NLT", "ESV", "AMP", "MSG", "NASB", "WEB", "ASV", "YLT", "DRC", "DARBY", "GEN1599"];
+// 2026-07-30: expanded to the full 24-code recognition vocabulary + the
+// legacy NCV code (kept for backwards compatibility with earlier fixtures).
+const ALL = [...RECOGNISED_TRANSLATION_CODES, "NCV"];
 
 // Helper: run the detector with a fresh cooldown and a fixed clock.
 function detect(text: string, codes: string[] = ALL, now = 1_000_000) {
@@ -43,7 +53,7 @@ function detect(text: string, codes: string[] = ALL, now = 1_000_000) {
 async function main() {
   console.log("Translation-switch detector");
 
-  // ── Bare abbreviations ───────────────────────────────────────────────────
+  // ── Bare abbreviations (unambiguous) ─────────────────────────────────────
   await check("bare abbreviation NIV fires without intent context", () => {
     const hit = detect("give me NIV");
     assert.strictEqual(hit?.code, "NIV");
@@ -64,6 +74,71 @@ async function main() {
     assert.strictEqual(hit?.code, "NKJV");
   });
 
+  await check("bare CSB (expanded set) fires", () => {
+    const hit = detect("try CSB");
+    assert.strictEqual(hit?.code, "CSB");
+  });
+
+  await check("bare HCSB (expanded set) fires", () => {
+    const hit = detect("look at HCSB");
+    assert.strictEqual(hit?.code, "HCSB");
+  });
+
+  await check("bare NRSV (expanded set) fires", () => {
+    const hit = detect("we have NRSV here");
+    assert.strictEqual(hit?.code, "NRSV");
+  });
+
+  await check("bare ISV (expanded set) fires", () => {
+    const hit = detect("also ISV works");
+    assert.strictEqual(hit?.code, "ISV");
+  });
+
+  await check("bare GNT (expanded set) fires", () => {
+    const hit = detect("prefer GNT here");
+    assert.strictEqual(hit?.code, "GNT");
+  });
+
+  await check("bare DRA (expanded set) fires", () => {
+    const hit = detect("check DRA text");
+    assert.strictEqual(hit?.code, "DRA");
+  });
+
+  await check("bare WBS (expanded set) fires", () => {
+    const hit = detect("open WBS to genesis");
+    assert.strictEqual(hit?.code, "WBS");
+  });
+
+  await check("bare BBE (expanded set) fires", () => {
+    const hit = detect("we can see BBE says");
+    assert.strictEqual(hit?.code, "BBE");
+  });
+
+  await check("bare NCV fires (backward-compat)", () => {
+    const hit = detect("consider NCV");
+    assert.strictEqual(hit?.code, "NCV");
+  });
+
+  await check("bare CEV fires", () => {
+    const hit = detect("check CEV first");
+    assert.strictEqual(hit?.code, "CEV");
+  });
+
+  await check("bare RSV fires", () => {
+    const hit = detect("look at RSV");
+    assert.strictEqual(hit?.code, "RSV");
+  });
+
+  await check("bare YLT fires (unambiguous — no intent needed)", () => {
+    const hit = detect("consider YLT");
+    assert.strictEqual(hit?.code, "YLT");
+  });
+
+  await check("bare DARBY fires (unambiguous)", () => {
+    const hit = detect("try DARBY");
+    assert.strictEqual(hit?.code, "DARBY");
+  });
+
   // ── Ambiguous abbreviations need intent ──────────────────────────────────
   await check("bare 'web' (ordinary word) does NOT fire without intent", () => {
     // "web" alone with no switch verb anywhere before it
@@ -76,8 +151,6 @@ async function main() {
   });
 
   await check("'turn to AMP' does NOT fire — 'turn' dropped from strong-intent list", () => {
-    // Intentional change (Phase 3 review): weak intents (turn/go/in/for/...)
-    // caused false positives, so 'turn' no longer counts as switch intent.
     assert.strictEqual(detect("turn to AMP"), null);
   });
 
@@ -86,7 +159,16 @@ async function main() {
     assert.strictEqual(hit?.code, "AMP");
   });
 
-  // ── Adversarial false-positive cases (Phase 3 review) ────────────────────
+  await check("'safety NET result' does NOT fire — NET is ambiguous, no intent", () => {
+    assert.strictEqual(detect("that was the safety NET result"), null);
+  });
+
+  await check("'read from NET' fires (intent before NET)", () => {
+    const hit = detect("read from NET");
+    assert.strictEqual(hit?.code, "NET");
+  });
+
+  // ── Adversarial false-positive cases ─────────────────────────────────────
   await check("'caught in a web of sin' does NOT switch to WEB", () => {
     assert.strictEqual(detect("caught in a web of sin"), null);
   });
@@ -97,6 +179,10 @@ async function main() {
 
   await check("'back in King James' day, people were different' does NOT switch", () => {
     assert.strictEqual(detect("back in King James' day, people were different"), null);
+  });
+
+  await check("'King James was a monarch of england' does NOT switch (monarch-tail guard)", () => {
+    assert.strictEqual(detect("king james was a monarch of england"), null);
   });
 
   await check("'switch to the WEB version' (capitalized acronym) → WEB", () => {
@@ -113,14 +199,28 @@ async function main() {
     assert.strictEqual(detect("read from amp"), null);
   });
 
-  // ── Full names — intent-gated ────────────────────────────────────────────
+  await check("lowercase 'the message' + intent → MSG (full-name path is case-insensitive)", () => {
+    // Full names are matched against lowercase text, so lowercase MSG synonym works.
+    const hit = detect("read from the message");
+    assert.strictEqual(hit?.code, "MSG");
+  });
+
+  // ── Full names — unambiguous names fire on ANY mention (2026-07-30) ─────
   await check("'let's read King James' switches to KJV", () => {
     const hit = detect("let's read king james");
     assert.strictEqual(hit?.code, "KJV");
   });
 
-  await check("'King James was a monarch' does NOT switch", () => {
-    assert.strictEqual(detect("king james was a monarch of england"), null);
+  await check("'King James renders it this way' switches to KJV (no intent needed, unambiguous)", () => {
+    // 2026-07-30 broadening: unambiguous full names fire on ANY mention.
+    // "renders it this way" is not a monarch-tail, so it fires.
+    const hit = detect("king james renders it this way");
+    assert.strictEqual(hit?.code, "KJV");
+  });
+
+  await check("'the New International reads' switches to NIV (no intent)", () => {
+    const hit = detect("the new international reads it beautifully");
+    assert.strictEqual(hit?.code, "NIV");
   });
 
   await check("'switch to the New Living Translation' → NLT", () => {
@@ -138,21 +238,125 @@ async function main() {
     assert.strictEqual(hit?.code, "NASB");
   });
 
-  await check("full name without intent does NOT fire", () => {
-    assert.strictEqual(detect("the english standard version people did a study"), null);
+  await check("'new revised standard' → NRSV (longer wins over 'revised standard')", () => {
+    const hit = detect("open the new revised standard version");
+    assert.strictEqual(hit?.code, "NRSV");
   });
 
-  await check("intent must be within ~10 words before the name", () => {
-    // "read" is 14 words before "king james" — outside the window
-    assert.strictEqual(
-      detect("we read earlier and then one two three four five six seven eight nine ten eleven king james"),
-      null,
-    );
+  await check("'new english translation' → NET (longer wins over NET abbreviation gating)", () => {
+    const hit = detect("read from the new english translation");
+    assert.strictEqual(hit?.code, "NET");
+  });
+
+  await check("'the English Standard reads' → ESV (unambiguous, no intent)", () => {
+    // Previously required intent — 2026-07-30 broadening allows any mention.
+    const hit = detect("the english standard reads it differently");
+    assert.strictEqual(hit?.code, "ESV");
+  });
+
+  await check("'Holman' fires (HCSB, expanded)", () => {
+    const hit = detect("holman renders it this way");
+    assert.strictEqual(hit?.code, "HCSB");
+  });
+
+  await check("'Contemporary English' fires (CEV, expanded)", () => {
+    const hit = detect("contemporary english is simpler");
+    assert.strictEqual(hit?.code, "CEV");
+  });
+
+  await check("'International Standard' fires (ISV, expanded)", () => {
+    const hit = detect("international standard reads well");
+    assert.strictEqual(hit?.code, "ISV");
+  });
+
+  await check("'Christian Standard' fires (CSB, expanded)", () => {
+    const hit = detect("christian standard has this");
+    assert.strictEqual(hit?.code, "CSB");
+  });
+
+  await check("'Douay-Rheims' fires (DRC)", () => {
+    const hit = detect("douay-rheims uses this word");
+    assert.strictEqual(hit?.code, "DRC");
+  });
+
+  await check("'Douay Rheims' (space, no hyphen) fires", () => {
+    const hit = detect("douay rheims text");
+    assert.strictEqual(hit?.code, "DRC");
+  });
+
+  await check("'Bible in Basic English' fires (BBE, expanded)", () => {
+    const hit = detect("bible in basic english is simpler");
+    assert.strictEqual(hit?.code, "BBE");
+  });
+
+  await check("'Webster's' fires (WBS, expanded)", () => {
+    const hit = detect("webster's says");
+    assert.strictEqual(hit?.code, "WBS");
+  });
+
+  await check("'Good News' fires (GNT, expanded)", () => {
+    const hit = detect("good news paraphrases it");
+    assert.strictEqual(hit?.code, "GNT");
+  });
+
+  // ── GNT gospel-phrase false-positive guard (2026-07-30) ──────────────────
+  // "Good news" is one of the most common sermon phrases. The GNT_GOSPEL_TAIL_RE
+  // guard mirrors KJV_MONARCH_TAIL_RE — bare "good news" followed by a
+  // preposition/verb frames it as ordinary speech, not a translation switch.
+  await check("'good news of the gospel' does NOT fire GNT (gospel-phrase guard)", () => {
+    assert.strictEqual(detect("preach the good news of the gospel"), null);
+  });
+
+  await check("'good news that Jesus saves' does NOT fire GNT (gospel-phrase guard)", () => {
+    assert.strictEqual(detect("the good news that Jesus saves the world"), null);
+  });
+
+  await check("'the good news is coming' does NOT fire GNT (gospel-phrase guard)", () => {
+    assert.strictEqual(detect("the good news is coming to you"), null);
+  });
+
+  await check("'Good News Translation' bare full-name still fires (guard doesn't match 'translation')", () => {
+    const hit = detect("read from the good news translation please");
+    assert.strictEqual(hit?.code, "GNT");
+  });
+
+  await check("'young's literal' fires (YLT full-name)", () => {
+    const hit = detect("young's literal renders it more literally");
+    assert.strictEqual(hit?.code, "YLT");
+  });
+
+  await check("'Geneva Bible' fires (GEN1599)", () => {
+    const hit = detect("the geneva bible says");
+    assert.strictEqual(hit?.code, "GEN1599");
+  });
+
+  await check("'Darby' full-name fires", () => {
+    const hit = detect("darby version has this");
+    assert.strictEqual(hit?.code, "DARBY");
+  });
+
+  await check("'Revised Standard' fires (RSV) — longer 'new revised standard' still wins when present", () => {
+    const hit = detect("revised standard renders it");
+    assert.strictEqual(hit?.code, "RSV");
+  });
+
+  // ── AMBIGUOUS full names STILL need intent ──────────────────────────────
+  await check("'the amplified sound rang out' does NOT fire (no intent, ambiguous)", () => {
+    assert.strictEqual(detect("the amplified sound rang out through the sanctuary"), null);
+  });
+
+  await check("'read from the Amplified' fires (intent before ambiguous full name)", () => {
+    const hit = detect("read from the amplified");
+    assert.strictEqual(hit?.code, "AMP");
   });
 
   // ── MSG / "the message" ──────────────────────────────────────────────────
   await check("'the message of hope' does NOT trigger MSG", () => {
     assert.strictEqual(detect("let us receive the message of hope today"), null);
+  });
+
+  await check("'the message today is' does NOT fire (no intent)", () => {
+    assert.strictEqual(detect("the message today is powerful"), null);
   });
 
   await check("'read it from The Message' triggers MSG", () => {
@@ -197,6 +401,28 @@ async function main() {
     assert.strictEqual(detectTranslationSwitch("give me KJV", undefined, { now: 1_000_000 }), null);
   });
 
+  await check("RECOGNISED_TRANSLATION_CODES contains all 24 codes from user's list", () => {
+    for (const expected of ["KJV", "NKJV", "NIV", "ESV", "NLT", "NASB", "ASV", "WEB", "AMP", "MSG",
+                            "CSB", "HCSB", "RSV", "NRSV", "CEV", "GNT", "ISV", "NET", "YLT", "DRA",
+                            "WBS", "BBE", "DARBY"]) {
+      assert.ok(
+        (RECOGNISED_TRANSLATION_CODES as readonly string[]).includes(expected),
+        `missing ${expected} from RECOGNISED_TRANSLATION_CODES`,
+      );
+    }
+  });
+
+  // ── "Not available" behaviour: detector returns the code even if not in DB —
+  //     the UI-side "not available" toast is handled in ProOperatorShell's
+  //     applyTranslationSwitch (see fallback UX added 2026-07-30). Detector
+  //     only fires when the code IS available; otherwise silent.
+  await check("NIV requested with only KJV+WEB available → silent (UI never sees the switch attempt)", () => {
+    assert.strictEqual(detect("give me NIV", ["KJV", "WEB"]), null);
+    // Rationale: the UI can't show "NIV not available" if the detector
+    // never surfaces it. Trade-off documented — see BIBLE_TRANSLATIONS.md
+    // for the licensed-provider fetch path (ESV.org) that expands coverage.
+  });
+
   // ── Cooldown ─────────────────────────────────────────────────────────────
   await check("10s cooldown blocks an immediate repeat", () => {
     resetTranslationSwitchCooldown();
@@ -226,14 +452,30 @@ async function main() {
     assert.strictEqual(detectTranslationSwitch("give me NIV", ALL, { now: 100_100 })?.code, "NIV");
   });
 
+  // ── Intent-window bound (still applies to ambiguous names) ──────────────
+  await check("intent must be within ~10 words before ambiguous full name (the message)", () => {
+    // "read" is way too far back
+    assert.strictEqual(
+      detect("we read earlier and then one two three four five six seven eight nine ten eleven the message"),
+      null,
+    );
+  });
+
   // ── Misc negatives ───────────────────────────────────────────────────────
   await check("empty / plain speech returns null", () => {
     assert.strictEqual(detect(""), null);
     assert.strictEqual(detect("God is good all the time"), null);
   });
 
+  await check("plain sermon paragraph with no translation mention returns null", () => {
+    assert.strictEqual(
+      detect("today I want to talk about faith hope and love the greatest of these is love"),
+      null,
+    );
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
 }
 
-main();
+main().catch((e) => { console.error(e); process.exit(1); });

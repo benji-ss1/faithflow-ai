@@ -13,17 +13,27 @@
  *     pass the available codes (from GET /api/bible/translations); the
  *     module also keeps a shared store the shell hydrates at mount so
  *     useAudioStream doesn't need its own fetch.
- *   - Bare abbreviations ("NLT", "KJV") match directly — they're
- *     unambiguous speech. EXCEPT ambiguous English words (WEB, AMP, MSG)
- *     which need switch-intent context like full names do.
- *   - Full names ("king james", "new living translation") require a
- *     switch-intent verb within the ~10 words before the name — "King
- *     James was a monarch" must NOT switch, "let's read King James" must.
- *     Nigerian pidgin intents included ("make we read am for King James").
+ *   - UNAMBIGUOUS names/abbreviations (NIV, KJV, King James, Amplified, ...)
+ *     fire on ANY mention — no switch-intent verb required. Rationale (2026-
+ *     07-30): the preacher's goal is that any translation MENTION becomes a
+ *     switch. Only unambiguous vocabulary is safe for zero-context firing.
+ *   - AMBIGUOUS names/abbreviations (WEB, AMP, MSG, ASV, "the message")
+ *     STILL require strong switch-intent verbs. This is the false-positive
+ *     protection ("caught in a web of sin", "the message of hope",
+ *     "back in King James' day" for KJV-adjacent — actually KJV isn't in
+ *     this list because it's unambiguous, King James was a monarch phrasing
+ *     is caught by the "was a" adversarial test — see below).
  *   - "the message" additionally must not be followed by "of" ("the
  *     message of hope" is everyday sermon language, not the MSG Bible).
  *   - 10s module-level cooldown (same pattern as voice-commands DEBOUNCE)
  *     so a re-heard phrase can't flip translations repeatedly.
+ *   - Availability gating: switching to a code the DB doesn't have does not
+ *     fire the detector at all — the shell UI shows a "not available" toast
+ *     when a licensed-only code is spoken (that flow is caller-owned; the
+ *     detector's job is just to return the requested code).
+ *
+ * See docs/BIBLE_TRANSLATIONS.md for the full 24-code list, public-domain
+ * vs licensed split, and the ESV.org API scaffold.
  */
 
 export type TranslationSwitchMatch = { code: string; matchedPhrase: string };
@@ -33,6 +43,22 @@ export type TranslationSwitchMatch = { code: string; matchedPhrase: string };
 export const SEEDED_TRANSLATION_CODES = [
   "KJV", "WEB", "ASV", "DRC", "YLT", "DARBY", "GEN1599",
 ];
+
+/** Full 24 English translation codes recognised by the detector. Whether a
+ * given code actually FIRES depends on availableCodes (the DB's list) —
+ * this is just the vocabulary. Add here when a new translation ships in
+ * the seeded DB or via a licensed provider path. */
+export const RECOGNISED_TRANSLATION_CODES = [
+  "KJV", "NKJV", "NIV", "ESV", "NLT", "NASB", "ASV", "WEB", "AMP", "MSG",
+  "CSB", "HCSB", "RSV", "NRSV", "CEV", "GNT", "ISV", "NET", "NCV", "YLT",
+  "DRA", "WBS", "BBE", "DARBY", "GEN1599",
+  // Legacy code kept for backwards compatibility with the seeded DB — the
+  // Douay-Rheims Challoner revision is stored under DRC in scripts/seed-bible.ts
+  // while the user's expanded list uses DRA (a distinct edition of the same
+  // translation family). Both spoken names route via FULL_NAMES→DRC below;
+  // DRA is a separate bare-abbreviation path.
+  "DRC",
+] as const;
 
 // ── Shared available-codes store ──────────────────────────────────────────
 let availableStore: string[] = [...SEEDED_TRANSLATION_CODES];
@@ -57,38 +83,68 @@ export function resetTranslationSwitchCooldown(): void {
 
 // ── Vocabulary ────────────────────────────────────────────────────────────
 
-// Abbreviations that are ordinary English words / too collision-prone to
-// fire without switch-intent context nearby. These ALSO match
-// case-sensitively only ("WEB" not "web") — Deepgram capitalizes true
-// acronyms, and lowercase "web"/"amp"/"msg" in a transcript is almost
-// always the ordinary English word ("caught in a web of sin").
-// Unambiguous abbreviations — never ordinary words, safe case-insensitive.
-const UNAMBIGUOUS_ABBR_RE = /\b(NKJV|KJV|NIV|NLT|ESV|NASB|CSB|NCV|CEV|GNT|RSV|YLT|DRC|DARBY)\b/i;
-// Ambiguous abbreviations — CASE-SENSITIVE (no /i), uppercase only.
-const AMBIGUOUS_ABBR_RE = /\b(WEB|AMP|MSG|ASV)\b/;
+// Unambiguous abbreviations — never ordinary English words, safe case-insensitive.
+// 2026-07-30 expansion: added CSB, HCSB, NRSV, GNT, ISV, NET, DRA, WBS, BBE, NCV.
+//   - HCSB, NRSV, ISV, NET, DRA, WBS, BBE — never ordinary words in sermon
+//     transcripts (Deepgram either capitalises them or writes them as
+//     initialisms; none collide with English vocabulary).
+//   - NET is common in secular speech ("the net result") but Deepgram would
+//     lowercase it there; we match case-insensitively via /i because Deepgram
+//     capitalises when it hears an acronym. To keep NET safe we ALSO require
+//     switch intent for it — moved to AMBIGUOUS_ABBR_RE below.
+//   - GNT is unambiguous (never an English word).
+const UNAMBIGUOUS_ABBR_RE = /\b(NKJV|KJV|NIV|NLT|ESV|NASB|CSB|HCSB|NRSV|NCV|CEV|GNT|RSV|YLT|DRC|DRA|WBS|BBE|ISV|DARBY)\b/i;
+
+// Ambiguous abbreviations — CASE-SENSITIVE (no /i), uppercase only, AND require
+// strong switch-intent context. The false-positive protection the "caught in a
+// web of sin" / "back in King James' day" tests exercise MUST survive.
+//   - WEB, AMP, MSG, ASV: ordinary English words (web/amplifier/message/as)
+//   - NET: "the net result", "safety net" — common secular speech
+const AMBIGUOUS_ABBR_RE = /\b(WEB|AMP|MSG|ASV|NET)\b/;
 
 // Longest-first so "new king james" wins over "king james", and
 // "new american standard" (NASB) wins over "american standard" (ASV).
-const FULL_NAMES: Array<{ phrase: RegExp; code: string }> = [
-  { phrase: /\bnew king james\b/, code: "NKJV" },
-  { phrase: /\bnew american standard\b/, code: "NASB" },
-  { phrase: /\bnew international\b/, code: "NIV" },
-  { phrase: /\bnew living\b/, code: "NLT" },
-  { phrase: /\benglish standard\b/, code: "ESV" },
-  { phrase: /\bking james\b/, code: "KJV" },
-  { phrase: /\bamerican standard\b/, code: "ASV" },
-  { phrase: /\bworld english\b/, code: "WEB" },
-  { phrase: /\byoung'?s literal\b/, code: "YLT" },
-  { phrase: /\bdouay(?:[ -]rheims)?\b/, code: "DRC" },
-  { phrase: /\bdarby\b/, code: "DARBY" },
-  { phrase: /\bgeneva bible\b/, code: "GEN1599" },
-  { phrase: /\bamplified\b/, code: "AMP" },
-  // "the message" is common sermon language ("the message of hope") —
-  // never match when followed by "of", and still require intent context.
-  { phrase: /\bthe message\b(?!\s+of\b)/, code: "MSG" },
+// 2026-07-30 expansion: added full-name patterns for the remaining 24 codes
+// listed by the user (Holman, Contemporary English, International Standard,
+// New English Translation, Douay-Rheims, Webster's, Bible in Basic English,
+// New Revised Standard, Christian Standard, Good News, Revised Standard).
+//
+// UNAMBIGUOUS full names are marked ambiguous: false → no intent verb required.
+// AMBIGUOUS full names (short generic phrases that collide with English) stay
+// intent-gated ("the message", "amplified", etc.).
+const FULL_NAMES: Array<{ phrase: RegExp; code: string; ambiguous: boolean }> = [
+  // Most specific / longest first.
+  { phrase: /\bnew revised standard\b/, code: "NRSV", ambiguous: false },
+  { phrase: /\bnew english translation\b/, code: "NET", ambiguous: false },
+  { phrase: /\bnew king james\b/, code: "NKJV", ambiguous: false },
+  { phrase: /\bnew american standard\b/, code: "NASB", ambiguous: false },
+  { phrase: /\bnew international\b/, code: "NIV", ambiguous: false },
+  { phrase: /\bnew living\b/, code: "NLT", ambiguous: false },
+  { phrase: /\bbible in basic english\b/, code: "BBE", ambiguous: false },
+  { phrase: /\bcontemporary english\b/, code: "CEV", ambiguous: false },
+  { phrase: /\binternational standard\b/, code: "ISV", ambiguous: false },
+  { phrase: /\bchristian standard\b/, code: "CSB", ambiguous: false },
+  { phrase: /\benglish standard\b/, code: "ESV", ambiguous: false },
+  { phrase: /\brevised standard\b/, code: "RSV", ambiguous: false },
+  { phrase: /\bamerican standard\b/, code: "ASV", ambiguous: false },
+  { phrase: /\bworld english\b/, code: "WEB", ambiguous: false },
+  { phrase: /\byoung'?s literal\b/, code: "YLT", ambiguous: false },
+  { phrase: /\bdouay(?:[ -]rheims)?\b/, code: "DRC", ambiguous: false },
+  { phrase: /\bgood news\b/, code: "GNT", ambiguous: false },
+  { phrase: /\bgeneva bible\b/, code: "GEN1599", ambiguous: false },
+  { phrase: /\bholman\b/, code: "HCSB", ambiguous: false },
+  { phrase: /\bking james\b/, code: "KJV", ambiguous: false },
+  { phrase: /\bwebster'?s\b/, code: "WBS", ambiguous: false },
+  { phrase: /\bdarby\b/, code: "DARBY", ambiguous: false },
+  // AMBIGUOUS — require switch intent:
+  //   "amplified" is a common English word ("amplified the sound").
+  { phrase: /\bamplified\b/, code: "AMP", ambiguous: true },
+  //   "the message" is common sermon language ("the message of hope") — never
+  //   match when followed by "of", and require intent context.
+  { phrase: /\bthe message\b(?!\s+of\b)/, code: "MSG", ambiguous: true },
 ];
 
-// STRONG switch-intent phrases for full names and ambiguous abbreviations.
+// STRONG switch-intent phrases for ambiguous full names and ambiguous abbrs.
 // Deliberately excludes near-universal words (in, for, from, the, go, turn,
 // put, show) that made "caught in a web of sin" / "back in King James' day"
 // fire. Includes Nigerian pidgin ("make we read", "read am").
@@ -101,6 +157,26 @@ function hasIntentBefore(text: string, matchIndex: number): boolean {
   const window = words.slice(-10).join(" ");
   return INTENT_RE.test(window);
 }
+
+// A KJV false-positive we cannot fix by intent alone: "back in King James'
+// day" has no intent verb before it, so intent-gating already suppresses
+// it. The user's directive is that unambiguous names fire on ANY mention,
+// but "king james" collides with the monarch. Belt-and-braces guard: skip
+// KJV matches when followed by descriptors that unambiguously mean the
+// person (was/is/became/reigned/ruled/etc.).
+const KJV_MONARCH_TAIL_RE = /\b(king james)(['’]?s?)\s+(day|days|reign|reigned|time|era|was|is|became|court|throne|england)\b/i;
+
+// GNT "good news" false-positive guard — "good news" is one of the most
+// common sermon phrases ("good news of the gospel", "the good news is",
+// "good news that Jesus saves"). Mirrors KJV_MONARCH_TAIL_RE: when a
+// preposition/verb clearly frames "good news" as ordinary speech, do NOT
+// fire GNT via the full-name path. The bare "GNT" abbreviation still fires
+// unambiguously; "the Good News Translation" still fires because the
+// "translation" suffix flags intent contextually (INTENT_RE handles that
+// via ambiguous-path if we ever move it, but here the guard just spares
+// the bare-phrase case). Sermon phrases like "the good news of the gospel"
+// should never switch translations.
+const GNT_GOSPEL_TAIL_RE = /\bgood news\b\s+(of|about|is|for|that|to|from)\b/i;
 
 /**
  * Detect a spoken translation-switch request in a final transcript.
@@ -122,18 +198,27 @@ export function detectTranslationSwitch(
 
   // 1) Full names first (more specific than abbreviations; also avoids
   //    e.g. transcript "King James Version KJV" double-reads).
-  for (const { phrase, code } of FULL_NAMES) {
+  //    Unambiguous names fire on any mention; ambiguous ones need intent.
+  for (const { phrase, code, ambiguous } of FULL_NAMES) {
     if (!available.has(code)) continue;
     const m = phrase.exec(text);
     if (!m) continue;
-    if (!hasIntentBefore(text, m.index)) continue;
+    // KJV monarch guard — "King James was a monarch" / "back in King James' day"
+    // etc. shouldn't switch. Only applied to the KJV / king-james entry.
+    if (code === "KJV" && KJV_MONARCH_TAIL_RE.test(text)) continue;
+    // GNT gospel-phrase guard — "good news of the gospel", "good news that
+    // Jesus saves", "the good news is" are all common sermon speech, not
+    // translation switches. Bare "GNT" abbreviation still fires via the
+    // UNAMBIGUOUS_ABBR_RE path below.
+    if (code === "GNT" && GNT_GOSPEL_TAIL_RE.test(text)) continue;
+    if (ambiguous && !hasIntentBefore(text, m.index)) continue;
     hit = { code, matchedPhrase: m[0] };
     break;
   }
 
   // 2) Bare abbreviations. Unambiguous ones (NIV, KJV, ...) fire without
-  //    intent context, any casing. Ambiguous ones (WEB, AMP, MSG, ASV) are
-  //    matched CASE-SENSITIVELY against the raw transcript (Deepgram
+  //    intent context, any casing. Ambiguous ones (WEB, AMP, MSG, ASV, NET)
+  //    are matched CASE-SENSITIVELY against the raw transcript (Deepgram
   //    capitalizes true acronyms) AND still require strong intent before.
   if (!hit) {
     const m = UNAMBIGUOUS_ABBR_RE.exec(transcript);
