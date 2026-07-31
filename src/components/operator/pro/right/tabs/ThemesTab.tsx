@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { ExternalLink, Palette, X, Plus, Upload, ChevronDown, ChevronRight, Check } from "lucide-react";
+import { Palette, X, Plus, Upload, ChevronDown, ChevronRight, Check } from "lucide-react";
 import { useTier } from "@/hooks/useTier";
 import { canAccess } from "@/lib/tier";
 import { useCustomThemes, useBlankSlides } from "@/hooks/useCustomThemes";
@@ -81,14 +81,6 @@ export function ThemesTab() {
           >
             <Upload className="w-2.5 h-2.5" /> Import
           </button>
-          <button
-            type="button"
-            onClick={() => { window.open("/library/themes?new=1", "_blank"); }}
-            title="Create new theme"
-            className="flex items-center gap-1 h-6 px-2 rounded border border-[var(--color-border)] text-[10px] text-[var(--color-muted-foreground)] hover:bg-[var(--color-elevated)] transition-colors"
-          >
-            <Plus className="w-2.5 h-2.5" /> New
-          </button>
         </div>
       </div>
 
@@ -97,18 +89,13 @@ export function ThemesTab() {
         <div className="text-[10px] text-[var(--color-muted-foreground)]">Loading themes…</div>
       ) : dbError ? (
         <div className="text-[10px] text-[var(--color-destructive)]">
-          Could not load.{" "}
-          <a href="/library/themes" target="_blank" rel="noopener noreferrer" className="underline">Open editor</a>
+          Could not load themes — check your connection and try again.
         </div>
       ) : dbThemes.length === 0 ? (
-        <button
-          type="button"
-          onClick={() => window.open("/library/themes", "_blank")}
-          className="flex items-center justify-center gap-1.5 h-20 rounded border border-dashed border-[var(--color-border)] text-[11px] text-[var(--color-muted-foreground)] hover:bg-[var(--color-elevated)] hover:border-[var(--color-brand)]/50 transition-colors w-full"
-        >
+        <div className="flex flex-col items-center justify-center gap-2 h-20 rounded border border-dashed border-[var(--color-border)] text-[11px] text-[var(--color-muted-foreground)]">
           <Palette className="w-4 h-4" />
-          Create your first theme
-        </button>
+          Use + Create Quick Swatch below
+        </div>
       ) : (
         <div className="grid grid-cols-2 gap-2">
           {dbThemes.map((t) => {
@@ -147,13 +134,6 @@ export function ThemesTab() {
                   >
                     {applying === t.id ? "…" : <><Check className="w-2.5 h-2.5" /> Apply</>}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => window.open(`/library/themes#${t.id}`, "_blank")}
-                    className="w-full h-5 rounded border border-white/30 text-white text-[9px] flex items-center justify-center gap-1"
-                  >
-                    <ExternalLink className="w-2.5 h-2.5" /> Edit
-                  </button>
                 </div>
               </div>
             );
@@ -161,17 +141,6 @@ export function ThemesTab() {
         </div>
       )}
 
-      {/* Open full editor link */}
-      {dbThemes.length > 0 && (
-        <button
-          type="button"
-          onClick={() => window.open("/library/themes", "_blank")}
-          className="flex items-center gap-1.5 text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] transition-colors"
-        >
-          <ExternalLink className="w-3 h-3" />
-          Open full theme editor
-        </button>
-      )}
 
       {/* Quick swatches + extras (collapsible) */}
       {(customThemes.length > 0) && (
@@ -294,8 +263,7 @@ function CreateSwatchDialog({ onAdd }: { onAdd: (t: { name: string; textColor: s
           <div className="flex-1 flex flex-col gap-3">
             <Dialog.Title className="text-sm font-semibold">Quick Swatch</Dialog.Title>
             <p className="text-[10px] text-[var(--color-muted-foreground)]">
-              For logo, transitions, and scripture layouts use{" "}
-              <a href="/library/themes" target="_blank" rel="noopener noreferrer" className="underline">Library → Themes</a>.
+              Quick color + font swatch. Apply it from the Themes panel.
             </p>
             <label className="text-[11px] flex flex-col gap-1">Name
               <input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} className="h-8 px-2 rounded border border-[var(--color-border)] bg-[var(--color-elevated)]" />

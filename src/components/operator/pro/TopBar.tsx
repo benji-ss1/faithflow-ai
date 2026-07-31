@@ -289,6 +289,7 @@ export function TopBar({
       <div className="flex items-center gap-1">
         <ModeBtn icon={Music} label="Songs" active={centerMode === "songs"} onClick={toggleMode("songs")} />
         <ModeBtn icon={BookOpen} label="Bible" active={centerMode === "bible"} onClick={toggleMode("bible")} emphasized />
+        <ModeBtn icon={ImageIcon} label="Media" active={centerMode === "media"} onClick={toggleMode("media")} />
         <ModeBtn
           icon={Palette}
           label="Themes"
@@ -412,13 +413,6 @@ export function TopBar({
             </div>
           </div>
         )}
-        <IconBtn
-          icon={ImageIcon}
-          label="Media browser"
-          active={mediaStripOpen}
-          onClick={onToggleMediaStrip}
-        />
-        <div className="mx-1 h-5 w-px bg-[var(--color-border)]" />
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
             <button

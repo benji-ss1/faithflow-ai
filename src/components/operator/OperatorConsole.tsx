@@ -540,7 +540,10 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
   const goBlank = useCallback(() => send({ kind: "blank", bgColor: plan.blankBgColor }), [plan.blankBgColor, send]);
   const goLogo = useCallback(() => send({ kind: "logo", url: plan.logoUrl }), [plan.logoUrl, send]);
 
-  const sendPreview = useCallback(() => send(previewSlide), [previewSlide, send]);
+  // Use sendSlideToLive with instant:true so the LIVE button is always zero-latency.
+  // The fade/dissolve transition is intentional for playlist slides, but when an
+  // operator explicitly presses LIVE they want it NOW — no 1-2 s animation delay.
+  const sendPreview = useCallback(() => sendSlideToLive(previewSlide, undefined, { instant: true }), [previewSlide, sendSlideToLive]);
 
   const move = useCallback((dir: 1 | -1) => {
     setPreview((cur) => {

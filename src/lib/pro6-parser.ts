@@ -150,6 +150,10 @@ export function stripRtf(rtf: string): string {
  */
 export function sanitizeLyrics(text: string): string {
   return text
+    // Strip literal backslashes — RTF/ProPresenter export artifacts that land
+    // at the end of lines (e.g. "Amazing grace\"). Must run before chord/pipe
+    // rules so "Am\|G" becomes "Am|G" → newline, not "Am\nG" → two newlines.
+    .replace(/\\/g, "")
     // ProPresenter double-bracket chord annotations: [[Am]] [[G/B]] [[]] etc.
     .replace(/\[\[[^\]]*\]\]/g, "")
     // ChordPro single-bracket chord markers: [Am] [G] [C#m7] [G/B] [Csus4] [Cadd9]

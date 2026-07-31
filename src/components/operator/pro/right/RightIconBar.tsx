@@ -37,7 +37,6 @@ import type { OperatorShellCtx } from "../../shell/types";
 import type { TimerApi, MessagesApi } from "../hooks";
 import type { UnifiedSuggestion } from "../../useAudioStream";
 import { AIDetectionsPanel } from "./AIDetectionsPanel";
-import { AudioTab } from "./tabs/AudioTab";
 import { MessagesTab } from "./tabs/MessagesTab";
 import { TimersTab } from "./tabs/TimersTab";
 import { ThemesTab } from "./tabs/ThemesTab";
@@ -48,7 +47,7 @@ import { BibleLicensingTab } from "./tabs/BibleLicensingTab";
 // HardwarePanel still imports ScreensPanel directly; the component is
 // unchanged. Only the right-side entry point is removed.
 
-type PopoverKey = "bible" | "songs" | "xrefs" | "logs" | "settings";
+type PopoverKey = "bible" | "songs" | "xrefs" | "logs" | "settings" | "themes";
 
 export function RightIconBar({
   ctx, timer, messages,
@@ -81,17 +80,16 @@ export function RightIconBar({
   // guardian-triggered open remounts it on its default sub-tab ("audio")
   // even if the popover was already open on Messages/Timers/etc.
   const [settingsEpoch, setSettingsEpoch] = useState(0);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<"audio" | "messages" | "timers" | "themes" | "macros" | "bible">("audio");
+  const [settingsInitialTab, setSettingsInitialTab] = useState<"messages" | "timers" | "macros" | "bible">("messages");
   useEffect(() => {
+    // Audio tab removed from Settings — the AUDIO guardian chip already surfaces
+    // the issue inline; operators can check hardware settings in the left sidebar.
     const onOpenAudioSettings = () => {
-      setSettingsInitialTab("audio");
-      setSettingsEpoch((n) => n + 1);
-      setOpenKey("settings");
+      // No-op: Audio removed from settings panel.
     };
+    // Themes now has its own dedicated panel (not embedded in Settings).
     const onOpenThemesSettings = () => {
-      setSettingsInitialTab("themes");
-      setSettingsEpoch((n) => n + 1);
-      setOpenKey("settings");
+      setOpenKey("themes");
     };
     window.addEventListener("presentflow:open-audio-settings", onOpenAudioSettings);
     window.addEventListener("presentflow:open-themes-settings", onOpenThemesSettings);
@@ -99,7 +97,7 @@ export function RightIconBar({
       window.removeEventListener("presentflow:open-audio-settings", onOpenAudioSettings);
       window.removeEventListener("presentflow:open-themes-settings", onOpenThemesSettings);
     };
-  }, []);
+  }, [setOpenKey]);
 
   // Badge counts derived directly from live suggestion state — updates
   // reactively as detections land, no separate subscription needed.
@@ -160,6 +158,13 @@ export function RightIconBar({
       {openKey === "settings" && (
         <PopoverShell title="Settings" onClose={() => setOpenKey(null)}>
           <SettingsPopoverBody key={settingsEpoch} initialTab={settingsInitialTab} timer={timer} messages={messages} />
+        </PopoverShell>
+      )}
+      {openKey === "themes" && (
+        <PopoverShell title="Themes" onClose={() => setOpenKey(null)}>
+          <div className="p-2">
+            <ThemesTab />
+          </div>
         </PopoverShell>
       )}
       {/* Change 5C — Screens popover render block removed. */}
@@ -248,18 +253,16 @@ function PopoverShell({
 }
 
 function SettingsPopoverBody({
-  timer, messages, initialTab = "audio",
+  timer, messages, initialTab = "messages",
 }: {
   timer: TimerApi;
   messages: MessagesApi;
-  initialTab?: "audio" | "messages" | "timers" | "themes" | "macros" | "bible";
+  initialTab?: "messages" | "timers" | "macros" | "bible";
 }) {
-  const [subTab, setSubTab] = useState<"audio" | "messages" | "timers" | "themes" | "macros" | "bible">(initialTab);
+  const [subTab, setSubTab] = useState<"messages" | "timers" | "macros" | "bible">(initialTab);
   const tabs: { k: typeof subTab; label: string }[] = [
-    { k: "audio", label: "Audio" },
     { k: "messages", label: "Messages" },
     { k: "timers", label: "Timers" },
-    { k: "themes", label: "Themes" },
     { k: "macros", label: "Macros" },
     { k: "bible", label: "Bible" },
   ];
@@ -289,10 +292,8 @@ function SettingsPopoverBody({
         ))}
       </div>
       <div className="p-2 text-[12px]">
-        {subTab === "audio" && <AudioTab />}
         {subTab === "messages" && <MessagesTab api={messages} />}
         {subTab === "timers" && <TimersTab api={timer} />}
-        {subTab === "themes" && <ThemesTab />}
         {subTab === "macros" && <MacrosTab />}
         {subTab === "bible" && <BibleLicensingTab />}
       </div>
