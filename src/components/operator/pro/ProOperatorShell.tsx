@@ -2753,7 +2753,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("presentflow:hotkey-prev"));
           break;
         case "give_me_niv":
-          if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("presentflow:switch-translation", { detail: { code: "NIV" } }));
+          // Route through applyTranslationSwitch (same as switch_translation:NIV)
+          // so the live-slide re-render fires. The old dispatchEvent path skipped
+          // the re-render — security review 🟡 2026-07-31.
+          void applyTranslationSwitchRef.current("NIV", "give me NIV");
           break;
         case "blank_screen":
           ctx.onBlank();
