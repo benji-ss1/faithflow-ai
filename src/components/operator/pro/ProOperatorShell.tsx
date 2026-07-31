@@ -2089,8 +2089,36 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // but auto-fire must not project until the confirmed "final" transcript
     // arrives, which corrects partial verse numbers ("John 3:1" interim→"John
     // 3:16" final). forceLive/voiceCommand also always come from finals.
-    const scripture = suggestions.find((s) => s.type === "scripture" && !s.isPhraseMatch && !s.fromInterim && (s.confidence >= 85 || s.forceLive) && !lowConfBlockedSpans.has(s.id));
-    if (!scripture || scripture.type !== "scripture") return;
+    // Two tiers: ≥70% auto-fires immediately (preacher clearly spoke a ref);
+    // <70% shows a confirmation toast so the operator can approve/dismiss.
+    // isPhraseMatch and whisper corrections are excluded from both paths.
+    const scripture = suggestions.find((s) => s.type === "scripture" && !s.isPhraseMatch && !s.fromInterim && (s.confidence >= 70 || s.forceLive) && !lowConfBlockedSpans.has(s.id));
+    // Low-confidence prompt path: find the best <70% suggestion that hasn't
+    // been handled yet. Fires a toast with an "Approve" button.
+    if (!scripture || scripture.type !== "scripture") {
+      const lowConf = suggestions.find((s) => s.type === "scripture" && !s.isPhraseMatch && !s.fromInterim && s.confidence >= 50 && s.confidence < 70 && !lowConfBlockedSpans.has(s.id));
+      if (lowConf && lowConf.type === "scripture" && lastHandledAutoFireSuggestionIdRef.current !== lowConf.id) {
+        lastHandledAutoFireSuggestionIdRef.current = lowConf.id;
+        const lowCards = autoFireCardsRef.current;
+        const lowFirst = lowCards[0];
+        if (lowFirst && !lowFirst.placeholder && lowFirst.verses?.length) {
+          const lowBody = lowFirst.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
+          const lowSlide: import("@/lib/broadcast").SlidePayload = { kind: "text", text: `${lowBody}\n\n${lowFirst.label}` };
+          const lowRef = `${lowConf.ref.book} ${lowConf.ref.chapter}:${lowConf.ref.verseStart}${lowConf.ref.verseEnd !== lowConf.ref.verseStart ? `-${lowConf.ref.verseEnd}` : ""}`;
+          toast(`${lowRef} detected (${lowConf.confidence}%) — push to LIVE?`, {
+            duration: 8000,
+            action: {
+              label: "Push LIVE",
+              onClick: () => {
+                safeSendLive(lowSlide);
+                lastLiveWasSongRef.current = false;
+              },
+            },
+          });
+        }
+      }
+      return;
+    }
     // 2026-07-29 crash fix (Maximum update depth exceeded): this effect depends
     // on ctx.liveSlide, so a fire re-runs it. forceLive/voiceCommand suggestions
     // bypass BOTH the min-gap and the 5-min replay guard, so the SAME suggestion
@@ -2180,13 +2208,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       (slide as unknown as { __detToFireMs: number }).__detToFireMs = detToFireMs;
     }
     lastHandledAutoFireSuggestionIdRef.current = scripture.id;
-    // 2026-07-31 — AUTO-fire to LIVE disabled for speech-detected ("whisper")
-    // verses. Detection still runs → chips show in the AI bar → operator clicks
-    // a chip to send to LIVE. This prevents casual/background speech verse
-    // mentions from hijacking the projector. The verse data is cached in
-    // autoFireCardsRef so clicking the chip can send it instantly.
-    //
-    // doAutoFire(slide, key, ref, scripture.confidence, !!(scripture.forceLive || scripture.voiceCommand));
+    doAutoFire(slide, key, ref, scripture.confidence, !!(scripture.forceLive || scripture.voiceCommand));
     lastLiveWasSongRef.current = false;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx.audio.suggestions, ctx.liveSlide, doAutoFire, safeSendLive]);
