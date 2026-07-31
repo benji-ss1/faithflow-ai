@@ -539,7 +539,14 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       const textNorm = text.toLowerCase().replace(/\s+/g, " ").trim();
       const isAtEndOfTranscript = !span || span.end >= text.length - 3;
       const wasConfirmedByFinal = (confirmedInterimTextsRef.current.get(textNorm) ?? 0) > Date.now() - 2000;
-      const shouldMarkFromInterim = opts?.fromInterim && r.verseStart <= 9 && isAtEndOfTranscript && !wasConfirmedByFinal;
+      // Auto-fire latency (2026-07-31): removed the verse ≤ 9 interim guard.
+      // Previously: waited for Deepgram final when verse number was 1-9 at end
+      // of transcript (e.g. "1 Corinthians 4:4" blocked for 15s while preacher
+      // kept talking). The 3s micro-cooldown in decideBibleAutoFire absorbs
+      // same-utterance duplicates; any brief wrong-verse flash from ASR
+      // correction (e.g. "verse 4" → "verse 9") is ~100ms — acceptable.
+      const shouldMarkFromInterim = false;
+      // OLD: opts?.fromInterim && r.verseStart <= 9 && isAtEndOfTranscript && !wasConfirmedByFinal
       const suggestion: UnifiedSuggestion = { id, type: "scripture", segmentId, ts, confidence: conf, matchedText: r.matchedText, matchedSpan: span, ref: { book: r.book, chapter: r.chapter, verseStart: r.verseStart, verseEnd: r.verseEnd }, ...(forceLive ? { forceLive: true } : {}), ...(r.isNavigationCommand ? { voiceCommand: true } : {}), ...(isPhrase ? { isPhraseMatch: true } : {}), ...(shouldMarkFromInterim ? { fromInterim: true } : {}) };
       if (forceLive || r.isNavigationCommand) {
         // Bypass the normal 30s dedupe cooldown for this one signal — the

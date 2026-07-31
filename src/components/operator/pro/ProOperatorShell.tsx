@@ -1793,14 +1793,16 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // selectedIdx is only set AFTER the operator or auto-fire explicitly sends
     // a verse to live (see the auto-approve effect below at line 2174/2197).
     const label = `${refText} (${bibleSession.state.translation})`;
-    bibleSession.setRef(refText);
-    bibleSession.setCards([{
+    // Reset to placeholder so auto-approve sees a loading state (never fires placeholder).
+    // Do NOT call bibleSession.setRef / bibleSession.setCards — those hijack the center
+    // Bible panel, switching the operator's view away from whatever they had loaded.
+    // Instead, write to autoFireCardsRef so only the LIVE output path is affected.
+    autoFireCardsRef.current = [{
       id: `ai-placeholder-${key}`,
       label,
       verses: [{ verse: scripture.ref.verseStart, text: "Loading…" }],
-      placeholder: true, // R8: never auto-fire the loading card
-    }]);
-    // NOTE: intentionally NOT calling setSelectedIdx(0) here.
+      placeholder: true,
+    }];
     (async () => {
       try {
         const res = await cachedLookup({
@@ -1819,25 +1821,22 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           verses: [{ verse: v.verse, text: v.text }],
         }));
         if (cards.length === 0) {
-          // lookup came back empty — replace placeholder with error card.
-          // R8: mark as placeholder so auto-fire skips.
-          bibleSession.setCards([{
+          autoFireCardsRef.current = [{
             id: `ai-error-${key}`,
             label,
             verses: [{ verse: scripture.ref.verseStart, text: "(no verse text available)" }],
             placeholder: true,
-          }]);
+          }];
           return;
         }
-        bibleSession.setCards(cards);
-        // NOTE: intentionally NOT calling setSelectedIdx(0) here — see above.
+        autoFireCardsRef.current = cards;
       } catch (e) {
-        bibleSession.setCards([{
+        autoFireCardsRef.current = [{
           id: `ai-error-${key}`,
           label,
           verses: [{ verse: scripture.ref.verseStart, text: e instanceof Error ? e.message : "(lookup failed)" }],
           placeholder: true,
-        }]);
+        }];
       }
     })();
   }, [ctx.audio.suggestions, ctx.confidenceThreshold, bibleSession]);
@@ -1894,6 +1893,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // Initialized with safe stubs; updated via keep-current effects defined
   // after safeSendLive and bibleSession are in scope.
   const bibleCardsRef = useRef(bibleSession.state.cards);
+  // Stores the most recently AI-detected verse cards for the auto-fire path.
+  // Kept separate from bibleSession so auto-detections never hijack the center
+  // Bible panel — that only updates on explicit operator lookups or chip clicks.
+  const autoFireCardsRef = useRef<import("./hooks").VerseCard[]>([]);
   const bibleSelectedIdxRef = useRef<number | null>(bibleSession.state.selectedIdx ?? null);
   const bibleLiveSlideRef = useRef(ctx.liveSlide ?? null);
   // Stubs — overwritten by keep-current effects after first render.
@@ -1940,7 +1943,11 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   useEffect(() => { safeSendLiveRef.current = safeSendLive; });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { bibleSetSelectedIdxRef.current = bibleSession.setSelectedIdx; });
-  useEffect(() => { bibleCardsRef.current = bibleSession.state.cards; }, [bibleSession.state.cards]);
+  useEffect(() => {
+    // bibleCardsRef mirrors the auto-fire cards (not bibleSession) so the
+    // Part 2c silence-advance and voice-nav effects read the right data.
+    bibleCardsRef.current = autoFireCardsRef.current;
+  });
   useEffect(() => { bibleSelectedIdxRef.current = bibleSession.state.selectedIdx ?? null; }, [bibleSession.state.selectedIdx]);
   useEffect(() => { bibleLiveSlideRef.current = ctx.liveSlide ?? null; }, [ctx.liveSlide]);
 
@@ -2036,7 +2043,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       autoAdvanceIntervalRef.current = null;
     }
 
-    const cards = bibleSession.state.cards;
+    const cards = autoFireCardsRef.current;
     if (cards.length === 0) return;
     // Y3: auto-approve now in sessionStorage; fall back to localStorage for
     // migration so existing operators aren't dropped mid-service.
@@ -2174,7 +2181,8 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     }
     lastHandledAutoFireSuggestionIdRef.current = scripture.id;
     doAutoFire(slide, key, ref, scripture.confidence, !!(scripture.forceLive || scripture.voiceCommand));
-    bibleSession.setSelectedIdx(0);
+    // Do NOT call bibleSession.setSelectedIdx(0) — that hijacks the center Bible panel.
+    // The LIVE projector updates; the operator's center panel stays unchanged.
     lastLiveWasSongRef.current = false;
 
     // Optional auto-advance
@@ -2206,8 +2214,8 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         if (autoAdvanceIntervalRef.current === iv) autoAdvanceIntervalRef.current = null;
       };
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bibleSession.state.cards, ctx.audio.suggestions, ctx.liveSlide, doAutoFire, safeSendLive]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx.audio.suggestions, ctx.liveSlide, doAutoFire, safeSendLive]);
 
   // ── Part 2: transcript-aware verse forward-continuation ─────────────────
   // Unlike the fixed-interval AUTO_ADVANCE_KEY timer above (dumb, time-based,
