@@ -65,7 +65,10 @@ const RAW_BOOKS: [string, string[]][] = [
   ["Zechariah", ["zechariah", "zech", "zec"]],
   ["Malachi", ["malachi", "mal"]],
   ["Matthew", ["matthew", "matt", "mt"]],
-  ["Mark", ["mark", "mk", "mr"]],
+  // "mac" / "mak" — Nigerian/African-English ASR renderings of "mark"
+  // (the "rk" cluster softens to a hard "c"/"k"). fuzzyBookMatch won't
+  // catch 3-char inputs (threshold < 4), so explicit variants are needed.
+  ["Mark", ["mark", "mk", "mr", "mac", "mak"]],
   ["Luke", ["luke", "lk", "lu"]],
   ["John", ["john", "jn", "jhn"]],
   ["Acts", ["acts", "act", "acts of the apostles", "acts of the apostle", "the acts of the apostles", "acts of apostle", "acts of apostles"]],

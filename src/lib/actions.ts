@@ -678,8 +678,24 @@ export async function deleteMediaAsset(id: string): Promise<Result> {
   const db = getDb();
   const [row] = await db.select().from(mediaAssets).where(and(eq(mediaAssets.id, id), eq(mediaAssets.churchId, user.churchId))).limit(1);
   if (!row) return { ok: false, error: "Not found" };
-  try { await deleteObject(row.s3Key); } catch { /* ignore */ }
+  // DB-first: delete the authoritative record before touching S3.
+  // If S3 cleanup subsequently fails the objects become orphaned storage
+  // (recoverable — keys logged above). The reverse order (S3 first) risks
+  // permanent unrecoverable media loss if the DB write then fails.
   await db.delete(mediaAssets).where(eq(mediaAssets.id, id));
+  // Remove any serviceItems in this church's plans that reference this asset
+  // via payload.mediaAssetId. Mirrors the renameMediaAsset cleanup; without
+  // this, deleted assets leave ghost items in plans that show 0 slides.
+  await db.execute(sql`
+    DELETE FROM service_items si
+    USING service_plans sp
+    WHERE si.service_plan_id = sp.id
+      AND sp.church_id = ${user.churchId}
+      AND si.type = 'media'
+      AND si.payload->>'mediaAssetId' = ${id}
+  `);
+  try { await deleteObject(row.s3Key); } catch { /* orphan — recoverable */ }
+  if (row.thumbS3Key) try { await deleteObject(row.thumbS3Key); } catch { /* orphan — recoverable */ }
   revalidatePath("/library/media");
   return { ok: true };
 }

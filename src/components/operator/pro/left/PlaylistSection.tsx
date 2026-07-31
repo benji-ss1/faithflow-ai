@@ -33,7 +33,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
-import { addServiceItem, removeServiceItem, reorderServiceItems } from "@/lib/actions";
+import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong } from "@/lib/actions";
 
 function itemIcon(type: string) {
   if (type === "song") return Music;
@@ -53,6 +53,7 @@ function SortablePlaylistItem({
   onRemove,
   onMove,
   onDuplicate,
+  onDeleteSong,
 }: {
   item: OperatorShellCtx["plan"]["items"][number];
   idx: number;
@@ -62,6 +63,7 @@ function SortablePlaylistItem({
   onRemove: () => void;
   onMove: (dir: -1 | 1) => void;
   onDuplicate: () => void;
+  onDeleteSong?: () => void;
 }) {
   const id = item.id ?? `item-${idx}`;
   const {
@@ -157,6 +159,17 @@ function SortablePlaylistItem({
             >
               Duplicate
             </ContextMenu.Item>
+            {onDeleteSong && (
+              <>
+                <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
+                <ContextMenu.Item
+                  onSelect={onDeleteSong}
+                  className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer text-[var(--color-destructive)]"
+                >
+                  Delete Song
+                </ContextMenu.Item>
+              </>
+            )}
           </ContextMenu.Content>
         </ContextMenu.Portal>
       </ContextMenu.Root>
@@ -206,6 +219,25 @@ export function PlaylistSection({
     if (to < 0 || to >= newOrder.length) return;
     [newOrder[idx], newOrder[to]] = [newOrder[to], newOrder[idx]];
     handleResult(await reorderServiceItems(ctx.planId, newOrder));
+  };
+
+  const deleteFromLibrary = async (it: OperatorShellCtx["plan"]["items"][number]) => {
+    if (!it.songId) return;
+    if (!window.confirm(`Permanently delete "${it.title}" from your song library? This cannot be undone.`)) return;
+    // Library-first: if the library delete fails, nothing is removed from the
+    // plan either — clean abort. If plan remove fails after library delete,
+    // the plan item becomes an orphaned ref (shows 0 slides) that the operator
+    // can clear with "Remove". This is less bad than the reverse order where a
+    // failed library delete leaves the song absent from the plan but still in
+    // the library.
+    const libResult = await deleteSong(it.songId);
+    if (!libResult?.ok) {
+      toast.error((libResult as { error?: string } | undefined)?.error ?? "Delete failed");
+      return;
+    }
+    if (it.id) await removeServiceItem(it.id).catch(() => { /* non-fatal */ });
+    toast.success(`"${it.title}" deleted`);
+    router.refresh();
   };
 
   const duplicate = async (idx: number) => {
@@ -356,6 +388,7 @@ export function PlaylistSection({
                   onRemove={() => it.id && void remove(it.id)}
                   onMove={(dir) => void move(idx, dir)}
                   onDuplicate={() => void duplicate(idx)}
+                  onDeleteSong={it.type === "song" && it.songId ? () => void deleteFromLibrary(it) : undefined}
                 />
               ))}
             </ol>

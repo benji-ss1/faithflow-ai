@@ -193,6 +193,13 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
         ctx.onSendSlideToLive({ kind: "text", text: firstLyric });
         songClickFiredAtRef.current.set(songId, Date.now());
         toast.success(`"${songTitle}" → LIVE (slide 1)`);
+        // Navigate the center panel to slides so the operator sees the song
+        // grid immediately after clicking the chip — mirrors how Bible chips
+        // dispatch presentflow:bible-goto to switch to Bible mode. The existing
+        // show-slides handler has an AUTO-mode guard that prevents the mode-
+        // switch live-follow effect from overwriting the song that just went
+        // live with a stale previewItem.
+        dispatchInternal("presentflow:show-slides", {});
       } else {
         toast.info(`"${songTitle}" has no lyric slides yet — open the song in the library to add lyrics.`);
       }
@@ -786,6 +793,22 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       matchStreakRef.current = 0;
       console.log(`[song-autoprogression] human-confirmed LIVE: "${stagedSong.title}" (${stagedSong.songId}) slide ${stagedSong.currentIdx + 1}/${stagedSong.slides.length}`, { ts: Date.now() });
       toast.success(`"${stagedSong.title}" → LIVE`);
+      // Switch center panel to slides so the operator can navigate between
+      // song slides after confirming. AUTO-mode guard in the show-slides
+      // handler prevents the live-follow effect from re-sending the wrong slide.
+      dispatchInternal("presentflow:show-slides", {});
+      // Add to playlist if not already there so the center slides panel shows
+      // this song's grid rather than the previous playlist item's slides.
+      // Fire-and-forget: if it fails, the song is still live; the operator
+      // will just see the prior item's slides in the center panel.
+      const capturedSong = stagedSong;
+      const inPlaylist = ctx.plan.items.some(
+        (it) => it.type === "song" && it.songId === capturedSong.songId,
+      );
+      if (!inPlaylist && ctx.onAddLibraryItem) {
+        const addResult = ctx.onAddLibraryItem("song", { id: capturedSong.songId, title: capturedSong.title });
+        if (addResult instanceof Promise) addResult.catch(() => { /* non-fatal */ });
+      }
       setStagedSong(null);
       forceRender((n) => n + 1);
     } finally {
@@ -2631,6 +2654,37 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     try {
       window.dispatchEvent(new CustomEvent("presentflow:switch-translation", { detail: { code: upper } }));
     } catch { /* noop */ }
+    // Re-fetch the Bible panel cards in the new translation so the center
+    // preview updates immediately (not just the live projector). Parse each
+    // card's label to get the reference, fetch in new code, rebuild cards.
+    const existingCards = bibleSession.state.cards;
+    if (existingCards.length > 0 && !existingCards[0]?.placeholder) {
+      const cardLabelRe = /^(.+?)\s+(\d+):(\d+)(?:-(\d+))?\s+\([A-Za-z0-9]+\)$/;
+      void (async () => {
+        try {
+          const newCards = await Promise.all(
+            existingCards.map(async (card) => {
+              const m = cardLabelRe.exec((card.label ?? "").trim());
+              if (!m) return card;
+              const [, book, chStr, vsStr, veStr] = m;
+              const chapter = Number(chStr);
+              const verseStart = Number(vsStr);
+              const verseEnd = veStr ? Number(veStr) : verseStart;
+              const res = await cachedLookup({ book, chapter, verseStart, verseEnd, translationCode: upper, source: "ai" });
+              if (!res.verses.length) return card;
+              const newLabel = `${book} ${chapter}:${verseStart}${verseEnd !== verseStart ? `-${verseEnd}` : ""} (${res.translation})`;
+              return {
+                ...card,
+                id: `ai-${newLabel}`,
+                label: newLabel,
+                verses: res.verses.map((v) => ({ verse: v.verse, text: v.text })),
+              };
+            }),
+          );
+          bibleSession.setCards(newCards);
+        } catch { /* non-fatal — preview re-fetch is best-effort */ }
+      })();
+    }
     // Live scripture re-render. Bible slides go live as
     // `${text}\n\n${Book C:V[-V] (CODE)}` — parse the label off the live
     // slide; anything that doesn't match that shape (songs, plain slides)

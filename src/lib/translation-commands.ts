@@ -136,6 +136,9 @@ const FULL_NAMES: Array<{ phrase: RegExp; code: string; ambiguous: boolean }> = 
   { phrase: /\bgood news\b/, code: "GNT", ambiguous: false },
   { phrase: /\bgeneva bible\b/, code: "GEN1599", ambiguous: false },
   { phrase: /\bholman\b/, code: "HCSB", ambiguous: false },
+  // "KJB" = King James Bible — common ASR rendering of the same name.
+  // Must appear before "king james" so the abbreviation is caught first.
+  { phrase: /\bkjb\b/, code: "KJV", ambiguous: false },
   { phrase: /\bking james\b/, code: "KJV", ambiguous: false },
   { phrase: /\bwebster'?s\b/, code: "WBS", ambiguous: false },
   { phrase: /\bdarby\b/, code: "DARBY", ambiguous: false },

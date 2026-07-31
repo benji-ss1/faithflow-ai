@@ -87,6 +87,7 @@ export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize
   const [qeSaving, setQeSaving] = useState(false);
   // App-level clipboard for cut/copy/paste within the grid
   const slideClipboardRef = useRef<SlidePayload | null>(null);
+  const [clipboardHasSlide, setClipboardHasSlide] = useState(false);
 
   const handleQuickEditSave = async (newText: string) => {
     if (!quickEdit) return;
@@ -244,6 +245,35 @@ export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize
                     });
                   }
                 }}
+                onCopySlide={() => {
+                  slideClipboardRef.current = s;
+                  setClipboardHasSlide(true);
+                  void import("sonner").then(({ toast }) => toast.success("Slide copied"));
+                }}
+                canPaste={clipboardHasSlide && item?.type === "song" && !!(item as { songId?: string }).songId}
+                onPasteSlide={() => {
+                  const copied = slideClipboardRef.current;
+                  if (!copied) {
+                    void import("sonner").then(({ toast }) => toast.error("Nothing to paste"));
+                    return;
+                  }
+                  void (async () => {
+                    if (item?.type === "song" && (item as { songId?: string }).songId) {
+                      const songId = (item as { songId?: string }).songId!;
+                      const newSlides = [...slides];
+                      newSlides.splice(idx + 1, 0, copied);
+                      const updatedSlides = newSlides.map((sl) => ({
+                        lyrics: sl.kind === "text" ? ((sl as { text?: string }).text ?? "") : "",
+                      }));
+                      const res = await updateSongSlides(songId, updatedSlides);
+                      if (!res.ok) {
+                        void import("sonner").then(({ toast }) => toast.error(res.error ?? "Paste failed"));
+                      } else {
+                        void import("sonner").then(({ toast }) => toast.success("Slide pasted"));
+                      }
+                    }
+                  })();
+                }}
               />
             ))}
           </div>
@@ -351,12 +381,15 @@ function SortableSlideCard(props: {
   index: number;
   selected: boolean;
   canQuickEdit: boolean;
+  canPaste: boolean;
   onSelect: () => void;
   onDouble: () => void;
   onDelete: () => void;
   onQuickEdit: () => void;
   onDuplicate: () => void;
   onCopyText: () => void;
+  onCopySlide: () => void;
+  onPasteSlide: () => void;
   onSendLive: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -373,12 +406,15 @@ function SortableSlideCard(props: {
         index={props.index}
         selected={props.selected}
         canQuickEdit={props.canQuickEdit}
+        canPaste={props.canPaste}
         onSelect={props.onSelect}
         onDouble={props.onDouble}
         onDelete={props.onDelete}
         onQuickEdit={props.onQuickEdit}
         onDuplicate={props.onDuplicate}
         onCopyText={props.onCopyText}
+        onCopySlide={props.onCopySlide}
+        onPasteSlide={props.onPasteSlide}
         onSendLive={props.onSendLive}
       />
     </div>
@@ -386,18 +422,21 @@ function SortableSlideCard(props: {
 }
 
 function SlideCard({
-  slide, index, selected, canQuickEdit, onSelect, onDouble, onDelete, onQuickEdit, onDuplicate, onCopyText, onSendLive,
+  slide, index, selected, canQuickEdit, canPaste, onSelect, onDouble, onDelete, onQuickEdit, onDuplicate, onCopyText, onCopySlide, onPasteSlide, onSendLive,
 }: {
   slide: SlidePayload;
   index: number;
   selected: boolean;
   canQuickEdit: boolean;
+  canPaste: boolean;
   onSelect: () => void;
   onDouble: () => void;
   onDelete: () => void;
   onQuickEdit: () => void;
   onDuplicate: () => void;
   onCopyText: () => void;
+  onCopySlide: () => void;
+  onPasteSlide: () => void;
   onSendLive: () => void;
 }) {
   return (
@@ -464,6 +503,20 @@ function SlideCard({
           >
             Copy Text
           </ContextMenu.Item>
+          <ContextMenu.Item
+            onSelect={onCopySlide}
+            className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)] data-[highlighted]:text-[var(--color-foreground)]"
+          >
+            Copy Slide
+          </ContextMenu.Item>
+          {canPaste && (
+            <ContextMenu.Item
+              onSelect={onPasteSlide}
+              className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)] data-[highlighted]:text-[var(--color-foreground)]"
+            >
+              Paste Slide
+            </ContextMenu.Item>
+          )}
           {canQuickEdit && (
             <ContextMenu.Item
               onSelect={onDuplicate}

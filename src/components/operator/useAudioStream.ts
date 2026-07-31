@@ -509,13 +509,26 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       // Auto-fire's other guards (AUTO toggle, min-gap, different-live-ref
       // check) keep this from spamming.
       const forceLive = occurrenceCount >= 2 && trustworthyForContext;
-      // fromInterim: true marks suggestions generated from interim_final_candidate
-      // (predictive early-fire before Deepgram finalizes the utterance).
-      // The Bible panel pre-loads the card immediately (good operator UX), but
-      // auto-fire MUST skip these — the verse number could be a partial digit
-      // ("John 3:1" interim before "John 3:16" final). Auto-fire runs only on
-      // the confirmed final suggestion which arrives ~200-500ms later.
-      const suggestion: UnifiedSuggestion = { id, type: "scripture", segmentId, ts, confidence: conf, matchedText: r.matchedText, matchedSpan: spanFor(r.matchedText), ref: { book: r.book, chapter: r.chapter, verseStart: r.verseStart, verseEnd: r.verseEnd }, ...(forceLive ? { forceLive: true } : {}), ...(r.isNavigationCommand ? { voiceCommand: true } : {}), ...(isPhrase ? { isPhraseMatch: true } : {}), ...(opts?.fromInterim ? { fromInterim: true } : {}) };
+      // fromInterim: only delay auto-fire when the verse number could be a
+      // partial digit that Deepgram hasn't finished transcribing yet.
+      // Verse ≥ 10: two digits already spoken — safe to fire from interim
+      // immediately (restores pre-fix latency for "John 3:16", "Psalm 23:4" etc).
+      // Verse ≤ 9 at end of transcript: "John 3:1" could be a truncated
+      // "John 3:16" — wait for the confirmed final.
+      // Race-fix: if a final already arrived and confirmed this text via the
+      // confirmedInterimTextsRef while this async detection was still in flight,
+      // treat the suggestion as confirmed (no fromInterim delay needed).
+      const span = spanFor(r.matchedText);
+      // span.end is an offset into the original `text` string (spanFor uses
+      // text.toLowerCase() which is same length). Compare against text.length,
+      // NOT textNorm.length — textNorm collapses spaces so its length could
+      // differ, causing incorrect isAtEndOfTranscript results on double-space
+      // transcripts (rare but possible).
+      const textNorm = text.toLowerCase().replace(/\s+/g, " ").trim();
+      const isAtEndOfTranscript = !span || span.end >= text.length - 3;
+      const wasConfirmedByFinal = (confirmedInterimTextsRef.current.get(textNorm) ?? 0) > Date.now() - 2000;
+      const shouldMarkFromInterim = opts?.fromInterim && r.verseStart <= 9 && isAtEndOfTranscript && !wasConfirmedByFinal;
+      const suggestion: UnifiedSuggestion = { id, type: "scripture", segmentId, ts, confidence: conf, matchedText: r.matchedText, matchedSpan: span, ref: { book: r.book, chapter: r.chapter, verseStart: r.verseStart, verseEnd: r.verseEnd }, ...(forceLive ? { forceLive: true } : {}), ...(r.isNavigationCommand ? { voiceCommand: true } : {}), ...(isPhrase ? { isPhraseMatch: true } : {}), ...(shouldMarkFromInterim ? { fromInterim: true } : {}) };
       if (forceLive || r.isNavigationCommand) {
         // Bypass the normal 30s dedupe cooldown for this one signal — the
         // repeat is very often said within that same window (that's the
@@ -741,6 +754,10 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   }, []);
   // R11: recent detection-text dedupe. Map<normalizedText, tsMs>. 800ms window.
   const recentDetectionTextsRef = useRef<Map<string, number>>(new Map());
+  // Tracks texts confirmed by a final transcript so in-flight async
+  // interim detections can see whether to clear fromInterim (race-fix).
+  // Written in the shouldSkipRedetect else-branch; read in runDetectAll.
+  const confirmedInterimTextsRef = useRef<Map<string, number>>(new Map());
   const RECENT_DETECT_WINDOW_MS = 800;
   const shouldSkipRedetect = (text: string): boolean => {
     const now = Date.now();
@@ -1380,10 +1397,25 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           if (!shouldSkipRedetect(msg.text)) {
             runDetectAll(msg.segmentId, msg.text, { dgConfidence: msg.confidence });
           } else {
-            // The final text matches a recent interim_final_candidate — the
-            // suggestions are already in state but carry `fromInterim: true`
-            // which blocks auto-fire. The final transcript CONFIRMS the text is
-            // correct, so lift the flag now so auto-fire can proceed.
+            // The final text matches a recent interim_final_candidate.
+            // 1) Mark the normalized text as confirmed so any still-in-flight
+            //    async detection (race: detectAll not yet resolved) knows to
+            //    skip the fromInterim flag when it eventually settles.
+            const norm = msg.text.toLowerCase().replace(/\s+/g, " ").trim();
+            if (norm) {
+              confirmedInterimTextsRef.current.set(norm, Date.now());
+              // Prune stale entries (> 2s) and cap size to 50.
+              const now2 = Date.now();
+              for (const [k, ts2] of confirmedInterimTextsRef.current) {
+                if (now2 - ts2 > 2000) confirmedInterimTextsRef.current.delete(k);
+              }
+              if (confirmedInterimTextsRef.current.size > 50) {
+                const oldest = confirmedInterimTextsRef.current.keys().next().value;
+                if (oldest !== undefined) confirmedInterimTextsRef.current.delete(oldest);
+              }
+            }
+            // 2) Also clear fromInterim from any already-resolved suggestions
+            //    so auto-fire can proceed immediately on the same render cycle.
             setState((prev) => {
               let changed = false;
               const updated = prev.suggestions.map((s) => {
@@ -2589,6 +2621,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     // inherit suppressed keys from the previous one.
     dedupeRef.current = new SuggestionDedupe(30_000);
     recentDetectionTextsRef.current.clear();
+    confirmedInterimTextsRef.current.clear();
     // R6: bump generation so any inflight callback from the prior pipeline aborts.
     pipelineGenerationRef.current += 1;
     teardown();

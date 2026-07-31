@@ -22,7 +22,7 @@ import { Upload, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload } from "@/lib/broadcast";
-import { registerMediaAsset, renameMediaAsset } from "@/lib/actions";
+import { registerMediaAsset, renameMediaAsset, deleteMediaAsset } from "@/lib/actions";
 import { MediaImportWizard } from "./MediaImportWizard";
 
 type Asset = {
@@ -102,6 +102,19 @@ export function MediaBrowser({
     // to any service item that references this asset.
     await ctx.onAddLibraryItem("media", { id: a.id, title: a.fileName });
     onExitToSlides();
+  };
+
+  // ── Delete ────────────────────────────────────────────────────────────────
+  const deleteAsset = async (a: Asset) => {
+    if (!window.confirm(`Permanently delete "${a.fileName}"? This cannot be undone.`)) return;
+    const result = await deleteMediaAsset(a.id);
+    if (!result?.ok) {
+      toast.error((result as { error?: string } | undefined)?.error ?? "Delete failed");
+    } else {
+      toast.success(`"${a.fileName}" deleted`);
+      setAssets((prev) => prev.filter((x) => x.id !== a.id));
+      if (selectedId === a.id) setSelectedId(null);
+    }
   };
 
   // ── Rename ────────────────────────────────────────────────────────────────
@@ -280,6 +293,13 @@ export function MediaBrowser({
                       className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer"
                     >
                       Rename
+                    </ContextMenu.Item>
+                    <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
+                    <ContextMenu.Item
+                      onSelect={() => void deleteAsset(a)}
+                      className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer text-[var(--color-destructive)]"
+                    >
+                      Delete
                     </ContextMenu.Item>
                   </ContextMenu.Content>
                 </ContextMenu.Portal>
