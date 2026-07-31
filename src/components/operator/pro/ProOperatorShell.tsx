@@ -2180,40 +2180,14 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       (slide as unknown as { __detToFireMs: number }).__detToFireMs = detToFireMs;
     }
     lastHandledAutoFireSuggestionIdRef.current = scripture.id;
-    doAutoFire(slide, key, ref, scripture.confidence, !!(scripture.forceLive || scripture.voiceCommand));
-    // Do NOT call bibleSession.setSelectedIdx(0) — that hijacks the center Bible panel.
-    // The LIVE projector updates; the operator's center panel stays unchanged.
+    // 2026-07-31 — AUTO-fire to LIVE disabled for speech-detected ("whisper")
+    // verses. Detection still runs → chips show in the AI bar → operator clicks
+    // a chip to send to LIVE. This prevents casual/background speech verse
+    // mentions from hijacking the projector. The verse data is cached in
+    // autoFireCardsRef so clicking the chip can send it instantly.
+    //
+    // doAutoFire(slide, key, ref, scripture.confidence, !!(scripture.forceLive || scripture.voiceCommand));
     lastLiveWasSongRef.current = false;
-
-    // Optional auto-advance
-    let intervalSec = 0;
-    try { intervalSec = Math.max(0, parseInt(window.localStorage.getItem(AUTO_ADVANCE_KEY) || "0", 10) || 0); } catch { /* noop */ }
-    if (intervalSec > 0 && cards.length > 1) {
-      let i = 1;
-      const iv = window.setInterval(() => {
-        // R4 belt-and-braces: if operator flipped AutoApprove OFF, stop.
-        try {
-          // 2026-07-25 security fix (review 🔴): sessionStorage ONLY.
-          if (window.sessionStorage.getItem(AUTO_APPROVE_KEY_INSTANT) !== "1") {
-            window.clearInterval(iv);
-            autoAdvanceIntervalRef.current = null;
-            return;
-          }
-        } catch { /* noop */ }
-        if (i >= cards.length) { window.clearInterval(iv); autoAdvanceIntervalRef.current = null; return; }
-        const c = cards[i];
-        if (c.placeholder) { i += 1; return; } // R8
-        const b = c.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
-        safeSendLive({ kind: "text", text: `${b}\n\n${c.label}` });
-        bibleSession.setSelectedIdx(i);
-        i += 1;
-      }, intervalSec * 1000);
-      autoAdvanceIntervalRef.current = iv;
-      return () => {
-        window.clearInterval(iv);
-        if (autoAdvanceIntervalRef.current === iv) autoAdvanceIntervalRef.current = null;
-      };
-    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx.audio.suggestions, ctx.liveSlide, doAutoFire, safeSendLive]);
 
@@ -2496,7 +2470,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           if (live) {
             const first = cards[0];
             const body = first.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
-            ctx.onSendSlideToLive({ kind: "text", text: `${body}\n\n${first.label}` });
+            ctx.onSendSlideToLive({ kind: "text", text: `${body}\n\n${first.label}` }, undefined, { instant: true });
           }
         } catch {
           toast.error("Verse lookup failed");
