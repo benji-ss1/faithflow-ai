@@ -122,18 +122,49 @@ export function stripRtf(rtf: string): string {
   // Normalise line endings + collapse excess whitespace
   s = s
     .replace(/\r\n?/g, "\n")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    // ProPresenter sometimes emits " / " or " | " as visual line separators
-    // inside RTF text elements. After control-word stripping these survive as
-    // literal characters. Normalise them to newlines so each segment projects
-    // on its own line rather than appearing as a slash/pipe in the lyrics.
+    .replace(/[ \t]+\n/g, "\n");
+  return sanitizeLyrics(s);
+}
+
+/**
+ * Strip lyric artifact patterns that appear in both freshly-imported RTF
+ * AND in lyrics already stored in the DB (from imports before this fix).
+ *
+ * Apply at import time (end of stripRtf) AND at DB-read time
+ * (getExpandedServicePlan) so existing data is fixed without a migration.
+ *
+ * Patterns stripped:
+ *   [[Am]]  [[G/B]]  [[]]  — ProPresenter chord annotations (double bracket).
+ *                            ProPresenter stores chord markers as [[chord]]
+ *                            literal text inside RTF; they survive stripRtf
+ *                            because square brackets are not RTF syntax.
+ *   [Am]  [G]  [C#m7]     — ChordPro single-bracket chord markers.
+ *                            Matches only musically-shaped tokens (A–G root,
+ *                            optional accidental/quality suffix ≤6 chars) to
+ *                            avoid stripping legitimate `[Bridge]` section
+ *                            labels that some formats embed in lyric text.
+ *    /     |               — Visual line-separator characters that ProPresenter
+ *                            (and some other export tools) emit between lyric
+ *                            segments. Converted to newlines rather than deleted
+ *                            so line breaks are preserved.
+ */
+export function sanitizeLyrics(text: string): string {
+  return text
+    // ProPresenter double-bracket chord annotations: [[Am]] [[G/B]] [[]] etc.
+    .replace(/\[\[[^\]]*\]\]/g, "")
+    // ChordPro single-bracket chord markers: [Am] [G] [C#m7] [G/B]
+    // Pattern: [ + A-G root + optional accidental/quality (≤ 6 chars) + ]
+    .replace(/\[[A-G][a-z0-9#b/]{0,6}\]/g, "")
+    // " / " visual line separator (ProPresenter, various exports)
     .replace(/ \/ /g, "\n")
+    // " | " visual line separator
     .replace(/ \| /g, "\n")
-    // Pipe immediately adjacent to word (e.g. "worthy?|") — also a separator
+    // Pipe adjacent to word, with or without trailing space
     .replace(/([^\s])\|([^\s])/g, "$1\n$2")
-    .replace(/([^\s])\|(\s)/g, "$1\n");
-  return s.trim();
+    .replace(/([^\s])\|(\s)/g, "$1\n")
+    // Collapse runs of 3+ blank lines down to a single blank line
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 /** Remove every balanced {...} group whose opening matches `openRx`. */

@@ -1,6 +1,7 @@
 // Server-only. Do not import from client components.
 import { eq, asc, and } from "drizzle-orm";
 import { getDb } from "../db/client";
+import { sanitizeLyrics } from "../pro6-parser";
 import { desc } from "drizzle-orm";
 import { servicePlans, serviceItems, songs, songSlides, mediaAssets, pptxImports, pptxSlides, settings, aiSuggestions, themes } from "../db/schema";
 import { presignGet } from "../s3";
@@ -77,8 +78,8 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
           const tail = rows.filter((r) => !seen.has(r.id));
           orderedRows = [...front, ...tail];
         }
-        songSlideRows = orderedRows.map((r) => ({ id: r.id, lyrics: r.lyrics, objectsJson: r.objectsJson }));
-        slides = orderedRows.map((r) => ({ kind: "text" as const, text: r.lyrics }));
+        songSlideRows = orderedRows.map((r) => ({ id: r.id, lyrics: sanitizeLyrics(r.lyrics), objectsJson: r.objectsJson }));
+        slides = orderedRows.map((r) => ({ kind: "text" as const, text: sanitizeLyrics(r.lyrics) }));
       }
     } else if (it.type === "scripture") {
       // 2026-07-25 field bug fix — the client (BibleMode.addVerseToPlaylist)
