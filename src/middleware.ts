@@ -96,6 +96,8 @@ const DESKTOP_ALLOWED_API_EXACT = new Set<string>([
   "/api/bible/translations/status",
   "/api/bible/chapters",
   "/api/themes",                 // RightInspector theme picker
+  "/api/settings/ccli",          // BibleLicensingTab — CCLI number
+  "/api/settings/bible-api-key", // BibleLicensingTab — API.Bible key unlock
   "/api/sermon/ask",             // sermon Q&A panel in operator
   "/api/pptx/convert",           // pptx upload in operator library
   "/api/health/ai",              // diagnostics panel
@@ -117,6 +119,7 @@ const DESKTOP_ALLOWED_API_PREFIXES: string[] = [
 // (e.g. dynamic segment mid-path). Each pattern is anchored to full pathname.
 const DESKTOP_ALLOWED_API_REGEX: RegExp[] = [
   /^\/api\/songs\/[^/]+\/slides$/,
+  /^\/api\/themes\/[^/]+\/apply$/,   // ThemesTab Apply button — dynamic [id] segment
 ];
 
 // Operator "live plan" routes we want to preserve across session expiry so

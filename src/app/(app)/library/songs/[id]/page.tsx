@@ -6,6 +6,7 @@ import { songs, songSlides } from "@/lib/db/schema";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { SongSlideEditor } from "@/components/library/SongSlideEditor";
 import { SongLicensingPanel } from "@/components/library/SongLicensingPanel";
+import { sanitizeLyrics } from "@/lib/pro6-parser";
 
 export default async function SongDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
@@ -22,7 +23,7 @@ export default async function SongDetailPage({ params }: { params: Promise<{ id:
         description={`${song.artist ? `${song.artist} · ` : ""}${song.source === "public_domain" ? "Public-domain song" : song.source === "imported" ? "Imported church-owned content" : "Church-owned lyric entry"}`}
       />
       <SongLicensingPanel songCount={1} importedCount={song.source === "imported" ? 1 : 0} />
-      <SongSlideEditor songId={song.id} initialSlides={slides.map((s) => ({ lyrics: s.lyrics }))} />
+      <SongSlideEditor songId={song.id} initialSlides={slides.map((s) => ({ lyrics: sanitizeLyrics(s.lyrics) }))} />
     </div>
   );
 }

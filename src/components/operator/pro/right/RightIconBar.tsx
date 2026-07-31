@@ -42,6 +42,7 @@ import { MessagesTab } from "./tabs/MessagesTab";
 import { TimersTab } from "./tabs/TimersTab";
 import { ThemesTab } from "./tabs/ThemesTab";
 import { MacrosTab } from "./tabs/MacrosTab";
+import { BibleLicensingTab } from "./tabs/BibleLicensingTab";
 // Change 5C (2026-07-27) — right-icon Screens tab retired. Duplicated the
 // left-sidebar Hardware > Screens slide-out shipped in v0.1.91 (JPD Fix 7).
 // HardwarePanel still imports ScreensPanel directly; the component is
@@ -80,13 +81,24 @@ export function RightIconBar({
   // guardian-triggered open remounts it on its default sub-tab ("audio")
   // even if the popover was already open on Messages/Timers/etc.
   const [settingsEpoch, setSettingsEpoch] = useState(0);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<"audio" | "messages" | "timers" | "themes" | "macros" | "bible">("audio");
   useEffect(() => {
     const onOpenAudioSettings = () => {
+      setSettingsInitialTab("audio");
+      setSettingsEpoch((n) => n + 1);
+      setOpenKey("settings");
+    };
+    const onOpenThemesSettings = () => {
+      setSettingsInitialTab("themes");
       setSettingsEpoch((n) => n + 1);
       setOpenKey("settings");
     };
     window.addEventListener("presentflow:open-audio-settings", onOpenAudioSettings);
-    return () => window.removeEventListener("presentflow:open-audio-settings", onOpenAudioSettings);
+    window.addEventListener("presentflow:open-themes-settings", onOpenThemesSettings);
+    return () => {
+      window.removeEventListener("presentflow:open-audio-settings", onOpenAudioSettings);
+      window.removeEventListener("presentflow:open-themes-settings", onOpenThemesSettings);
+    };
   }, []);
 
   // Badge counts derived directly from live suggestion state — updates
@@ -147,7 +159,7 @@ export function RightIconBar({
           renders and the icon-bar row is clean. */}
       {openKey === "settings" && (
         <PopoverShell title="Settings" onClose={() => setOpenKey(null)}>
-          <SettingsPopoverBody key={settingsEpoch} timer={timer} messages={messages} />
+          <SettingsPopoverBody key={settingsEpoch} initialTab={settingsInitialTab} timer={timer} messages={messages} />
         </PopoverShell>
       )}
       {/* Change 5C — Screens popover render block removed. */}
@@ -236,18 +248,20 @@ function PopoverShell({
 }
 
 function SettingsPopoverBody({
-  timer, messages,
+  timer, messages, initialTab = "audio",
 }: {
   timer: TimerApi;
   messages: MessagesApi;
+  initialTab?: "audio" | "messages" | "timers" | "themes" | "macros" | "bible";
 }) {
-  const [subTab, setSubTab] = useState<"audio" | "messages" | "timers" | "themes" | "macros">("audio");
+  const [subTab, setSubTab] = useState<"audio" | "messages" | "timers" | "themes" | "macros" | "bible">(initialTab);
   const tabs: { k: typeof subTab; label: string }[] = [
     { k: "audio", label: "Audio" },
     { k: "messages", label: "Messages" },
     { k: "timers", label: "Timers" },
     { k: "themes", label: "Themes" },
     { k: "macros", label: "Macros" },
+    { k: "bible", label: "Bible" },
   ];
   return (
     <div className="flex flex-col">
@@ -280,6 +294,7 @@ function SettingsPopoverBody({
         {subTab === "timers" && <TimersTab api={timer} />}
         {subTab === "themes" && <ThemesTab />}
         {subTab === "macros" && <MacrosTab />}
+        {subTab === "bible" && <BibleLicensingTab />}
       </div>
     </div>
   );

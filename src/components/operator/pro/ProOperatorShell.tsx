@@ -55,7 +55,7 @@ import { CONFIDENCE_THRESHOLD } from "@/lib/audio-thresholds";
 import { OperatorTour, hasSeenTour } from "@/components/tutorial/OperatorTour";
 import { WhatsNewModal } from "../WhatsNewModal";
 import { dispatchInternal, isInternalEvent, internalPayload } from "@/lib/internal-events";
-import { matchNextSlide, isLikelyEndOfSong } from "@/lib/ai-detection/lyric-position";
+import { matchNextSlide, isLikelyEndOfSong, scoreCoverage, slideWords } from "@/lib/ai-detection/lyric-position";
 import { parseContextCommand } from "@/lib/context-parser";
 // Audio Guardian (2026-07-27) — native-capture self-healing watchdog.
 // The shell only CONSUMES its state events (toasts + red chip); the state
@@ -113,6 +113,13 @@ import {
   AUTO_FIRE_MIN_GAP_KEY,
   HOLD_DURING_SONG_KEY,
   DEFAULT_MIN_GAP_MS,
+  SONG_SLIDE_FLOOR_MS,
+  SONG_SHORT_SLIDE_FLOOR_MS,
+  SONG_SILENCE_ADVANCE_MS,
+  SONG_COVERAGE_THRESHOLD,
+  BIBLE_SLIDE_FLOOR_MS,
+  BIBLE_SILENCE_ADVANCE_MS,
+  BIBLE_COVERAGE_THRESHOLD,
 } from "./operatorConstants";
 
 /**
@@ -498,9 +505,18 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   const lastWordTsRef = useRef<number>(Date.now());
   const matchStreakRef = useRef(0);
   const interimMatchStreakRef = useRef(0); // predictive interim-based advance streak
+  const bounceBackStreakRef = useRef(0); // Part 7d: backward detection
+  // Stable ref to ctx.onSendSlideToLive for use inside setInterval callbacks
+  // where stale closures would otherwise capture an old ctx.
+  const sendLiveStableRef = useRef(ctx.onSendSlideToLive);
   const cooldownUntilRef = useRef(0);
   const lastAdvanceTsRef = useRef(0);
   const progressionHandledForRef = useRef<Set<string>>(new Set());
+
+  // Keep sendLiveStableRef current every render so the setInterval-based
+  // Part 7c (silence ticker) never holds a stale closure.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { sendLiveStableRef.current = ctx.onSendSlideToLive; });
 
   const autoApprove = !!ctx.autoApproveOn;
 
@@ -890,13 +906,17 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     if (!last) return;
     const words = (last.words?.map((w) => w.w) ?? last.text.split(/\s+/)).filter(Boolean);
     if (words.length === 0) return;
-    recentWordsRef.current = [...recentWordsRef.current, ...words].slice(-16);
+    recentWordsRef.current = [...recentWordsRef.current, ...words].slice(-24);
     lastWordTsRef.current = Date.now();
 
     const live = liveSongRef.current;
     if (!live) return;
     if (Date.now() < cooldownUntilRef.current) return;
-    if (Date.now() - lastAdvanceTsRef.current < 3000) return; // min time-on-slide floor
+    // Dynamic floor: short slides (<5 content words) need more time to avoid
+    // double-advancing on a single sung phrase.
+    const slideContentWords = slideWords(live.slides[live.currentIdx]);
+    const minFloor = slideContentWords.length < 5 ? SONG_SHORT_SLIDE_FLOOR_MS : SONG_SLIDE_FLOOR_MS;
+    if (Date.now() - lastAdvanceTsRef.current < minFloor) return;
     const nextIdx = live.currentIdx + 1;
     if (nextIdx >= live.slides.length) return; // last slide — see Part 8 below
 
@@ -906,18 +926,21 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     } else {
       matchStreakRef.current = 0;
     }
-    // Require the match to hold for two consecutive transcript segments —
-    // not a single one-off — before advancing, per the "sustained match"
-    // guardrail.
-    if (matchStreakRef.current >= 2) {
+    // Coverage bypass: if 80%+ of the current slide has been spoken, a single
+    // transcript match against the next slide is trustworthy enough — no need
+    // to wait for a second segment (streak=1 instead of 2).
+    const currCoverage = scoreCoverage(recentWordsRef.current, live.slides[live.currentIdx]);
+    const requiredStreak = currCoverage >= 0.80 ? 1 : 2;
+    if (matchStreakRef.current >= requiredStreak) {
       const text = live.slides[nextIdx];
       ctx.onSendSlideToLive({ kind: "text", text });
       liveSongRef.current = { ...live, currentIdx: nextIdx };
       lastAdvanceTsRef.current = Date.now();
       matchStreakRef.current = 0;
+      bounceBackStreakRef.current = 0;
       forceRender((n) => n + 1);
       setAutoAdvanceFlash(true);
-      console.log(`[song-autoprogression] auto-advanced "${live.title}" to slide ${nextIdx + 1}/${live.slides.length} (word-match confidence ${result.confidence}%)`, { ts: Date.now() });
+      console.log(`[song-autoprogression] auto-advanced "${live.title}" to slide ${nextIdx + 1}/${live.slides.length} (word-match confidence ${result.confidence}%, coverage ${Math.round(currCoverage * 100)}%, streak=${requiredStreak})`, { ts: Date.now() });
       window.setTimeout(() => setAutoAdvanceFlash(false), 2500);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -943,7 +966,9 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     const live = liveSongRef.current;
     if (!live) return;
     if (Date.now() < cooldownUntilRef.current) return;
-    if (Date.now() - lastAdvanceTsRef.current < 3000) return; // same min time-on-slide floor
+    const slideContentWordsInterim = slideWords(live.slides[live.currentIdx]);
+    const minFloorInterim = slideContentWordsInterim.length < 5 ? SONG_SHORT_SLIDE_FLOOR_MS : SONG_SLIDE_FLOOR_MS;
+    if (Date.now() - lastAdvanceTsRef.current < minFloorInterim) return;
     const nextIdx = live.currentIdx + 1;
     if (nextIdx >= live.slides.length) return;
 
@@ -951,7 +976,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     // spanning a segment boundary (e.g. "...loved the" final + "world" interim)
     // still registers, without permanently committing unconfirmed interim
     // words into recentWordsRef (that stays final-only).
-    const combined = [...recentWordsRef.current, ...words].slice(-16);
+    const combined = [...recentWordsRef.current, ...words].slice(-24);
     const result = matchNextSlide(combined, live.slides[nextIdx], 4);
     if (result.consecutiveMatches >= 4) {
       interimMatchStreakRef.current += 1;
@@ -965,6 +990,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       lastAdvanceTsRef.current = Date.now();
       matchStreakRef.current = 0;
       interimMatchStreakRef.current = 0;
+      bounceBackStreakRef.current = 0;
       forceRender((n) => n + 1);
       setAutoAdvanceFlash(true);
       console.log(`[song-autoprogression] predictive interim advance "${live.title}" to slide ${nextIdx + 1}/${live.slides.length} (confidence ${result.confidence}%)`, { ts: Date.now() });
@@ -972,6 +998,83 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx.audio.interim]);
+
+  // ---- Part 7c: silence + coverage advance (500ms ticker) ------------------
+  // When a slide has been substantially covered in speech (≥ SONG_COVERAGE_THRESHOLD)
+  // AND there has been sustained silence (≥ SONG_SILENCE_ADVANCE_MS), the
+  // singer/speaker is done with this slide and has paused — advance.
+  // Handles the "reads verse, pauses to explain" pattern where the word-match
+  // path (Part 7/7b) never fires because the NEXT slide's words haven't been
+  // spoken yet.
+  // Uses a setInterval so it can fire during silence when no transcript arrives.
+  // All state is accessed via refs to avoid stale closures.
+  useEffect(() => {
+    const iv = window.setInterval(() => {
+      const live = liveSongRef.current;
+      if (!live) return;
+      if (Date.now() < cooldownUntilRef.current) return;
+      const contentWords = slideWords(live.slides[live.currentIdx]);
+      const minFloor = contentWords.length < 5 ? SONG_SHORT_SLIDE_FLOOR_MS : SONG_SLIDE_FLOOR_MS;
+      if (Date.now() - lastAdvanceTsRef.current < minFloor) return;
+      const silenceMs = Date.now() - lastWordTsRef.current;
+      if (silenceMs < SONG_SILENCE_ADVANCE_MS) return; // not silent enough yet
+      const nextIdx = live.currentIdx + 1;
+      if (nextIdx >= live.slides.length) return;
+      const cov = scoreCoverage(recentWordsRef.current, live.slides[live.currentIdx]);
+      if (cov < SONG_COVERAGE_THRESHOLD) return; // haven't heard enough of this slide
+      // Silence after ≥ 65% of slide spoken → done, advance
+      const text = live.slides[nextIdx];
+      sendLiveStableRef.current({ kind: "text", text });
+      liveSongRef.current = { ...live, currentIdx: nextIdx };
+      lastAdvanceTsRef.current = Date.now();
+      matchStreakRef.current = 0;
+      interimMatchStreakRef.current = 0;
+      bounceBackStreakRef.current = 0;
+      forceRender((n) => n + 1);
+      setAutoAdvanceFlash(true);
+      console.log(`[song-autoprogression] silence+coverage advance "${live.title}" to slide ${nextIdx + 1}/${live.slides.length} (coverage ${Math.round(cov * 100)}%, silence ${Math.round(silenceMs)}ms)`, { ts: Date.now() });
+      window.setTimeout(() => setAutoAdvanceFlash(false), 2500);
+    }, 500);
+    return () => window.clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ---- Part 7d: transcript-based bounce-back --------------------------------
+  // If recent transcript words strongly match the PREVIOUS slide's opening
+  // AND we advanced within the last 6s, we moved too early — reverse.
+  // Symmetric speed with forward advance (single streak, minConsecutive=4
+  // for higher bar): "bounce back just as quickly."
+  useEffect(() => {
+    const last = ctx.audio.transcript[ctx.audio.transcript.length - 1];
+    if (!last) return;
+    const live = liveSongRef.current;
+    if (!live || live.currentIdx === 0) return;
+    if (Date.now() < cooldownUntilRef.current) return;
+    const msSinceAdvance = Date.now() - lastAdvanceTsRef.current;
+    // Only valid within a 0.8–6s window after advancing: too soon = just advanced,
+    // too late = operator would have noticed and acted manually.
+    if (msSinceAdvance < 800 || msSinceAdvance > 6000) return;
+    const words = (last.words?.map((w) => w.w) ?? last.text.split(/\s+/)).filter(Boolean);
+    const combined = [...recentWordsRef.current, ...words].slice(-24);
+    const prevResult = matchNextSlide(combined, live.slides[live.currentIdx - 1], 4);
+    if (prevResult.consecutiveMatches >= 4) {
+      bounceBackStreakRef.current += 1;
+    } else {
+      bounceBackStreakRef.current = 0;
+    }
+    if (bounceBackStreakRef.current >= 1) {
+      const text = live.slides[live.currentIdx - 1];
+      ctx.onSendSlideToLive({ kind: "text", text });
+      liveSongRef.current = { ...live, currentIdx: live.currentIdx - 1 };
+      lastAdvanceTsRef.current = Date.now();
+      matchStreakRef.current = 0;
+      interimMatchStreakRef.current = 0;
+      bounceBackStreakRef.current = 0;
+      forceRender((n) => n + 1);
+      console.log(`[song-autoprogression] bounce-back "${live.title}" to slide ${live.currentIdx}/${live.slides.length} (prev match=${prevResult.consecutiveMatches} words)`, { ts: Date.now() });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx.audio.transcript]);
 
   // ---- Part 8: song-to-song auto-progression -------------------------------
   // Detect "current live song ending" and, if the NEXT playlist item is
@@ -1683,9 +1786,12 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     if (lastRoutedScriptureRef.current === scripture.id) return;
     lastRoutedScriptureRef.current = scripture.id;
     const refText = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}${scripture.ref.verseStart !== scripture.ref.verseEnd ? `-${scripture.ref.verseEnd}` : ""}`;
-    // Optimistic render: show a placeholder card immediately so operator sees
-    // detection landed before the DB roundtrip completes. Cache-hit path
-    // resolves synchronously below and overwrites — no visible flicker.
+    // Populate cards for auto-fire + AI-chip display only.
+    // DO NOT call setSelectedIdx here — that would hijack the center Bible
+    // panel to show the detected verse even in MANUAL mode, which the operator
+    // sees as a glitch ("verses appearing in preview when not mentioned").
+    // selectedIdx is only set AFTER the operator or auto-fire explicitly sends
+    // a verse to live (see the auto-approve effect below at line 2174/2197).
     const label = `${refText} (${bibleSession.state.translation})`;
     bibleSession.setRef(refText);
     bibleSession.setCards([{
@@ -1694,7 +1800,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       verses: [{ verse: scripture.ref.verseStart, text: "Loading…" }],
       placeholder: true, // R8: never auto-fire the loading card
     }]);
-    bibleSession.setSelectedIdx(0);
+    // NOTE: intentionally NOT calling setSelectedIdx(0) here.
     (async () => {
       try {
         const res = await cachedLookup({
@@ -1724,7 +1830,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           return;
         }
         bibleSession.setCards(cards);
-        bibleSession.setSelectedIdx(0);
+        // NOTE: intentionally NOT calling setSelectedIdx(0) here — see above.
       } catch (e) {
         bibleSession.setCards([{
           id: `ai-error-${key}`,
@@ -1779,8 +1885,20 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // push, mirroring the song invariant.
   const bibleRecentWordsRef = useRef<string[]>([]);
   const bibleMatchStreakRef = useRef(0);
+  const bibleInterimMatchStreakRef = useRef(0); // Part 2b: interim-based advance
   const bibleCooldownUntilRef = useRef(0);
   const bibleLastAdvanceTsRef = useRef(0);
+  const bibleLastWordTsRef = useRef<number>(Date.now()); // for silence detection
+  // Refs that mirror state/props for the setInterval-based Part 2c ticker
+  // (stale-closure prevention — same pattern as the song silence ticker).
+  // Initialized with safe stubs; updated via keep-current effects defined
+  // after safeSendLive and bibleSession are in scope.
+  const bibleCardsRef = useRef(bibleSession.state.cards);
+  const bibleSelectedIdxRef = useRef<number | null>(bibleSession.state.selectedIdx ?? null);
+  const bibleLiveSlideRef = useRef(ctx.liveSlide ?? null);
+  // Stubs — overwritten by keep-current effects after first render.
+  const safeSendLiveRef = useRef<((s: import("@/lib/broadcast").SlidePayload) => boolean)>(() => false);
+  const bibleSetSelectedIdxRef = useRef<(idx: number) => void>(() => {});
 
   // Y8: track whether the last live slide came from a song so we can hold
   // Bible auto-fires during song playback if the operator has opted in.
@@ -1815,6 +1933,16 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       return false;
     }
   }, []);
+
+  // Keep-current effects for Bible Part 2c ticker refs (stale-closure prevention).
+  // These run after every render, keeping the setInterval callback fresh.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { safeSendLiveRef.current = safeSendLive; });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { bibleSetSelectedIdxRef.current = bibleSession.setSelectedIdx; });
+  useEffect(() => { bibleCardsRef.current = bibleSession.state.cards; }, [bibleSession.state.cards]);
+  useEffect(() => { bibleSelectedIdxRef.current = bibleSession.state.selectedIdx ?? null; }, [bibleSession.state.selectedIdx]);
+  useEffect(() => { bibleLiveSlideRef.current = ctx.liveSlide ?? null; }, [ctx.liveSlide]);
 
   // R3: fire helper — enforces min-gap, queues newer detections. `skipMinGap`
   // is set for forceLive/voiceCommand detections — a deliberate repeat or an
@@ -2096,10 +2224,11 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     if (!last) return;
     const words = (last.words?.map((w) => w.w) ?? last.text.split(/\s+/)).filter(Boolean);
     if (words.length === 0) return;
-    bibleRecentWordsRef.current = [...bibleRecentWordsRef.current, ...words].slice(-16);
+    bibleRecentWordsRef.current = [...bibleRecentWordsRef.current, ...words].slice(-24);
+    bibleLastWordTsRef.current = Date.now(); // for silence-based advance (Part 2c)
 
     if (Date.now() < bibleCooldownUntilRef.current) return;
-    if (Date.now() - bibleLastAdvanceTsRef.current < 3000) return; // min time-on-slide floor
+    if (Date.now() - bibleLastAdvanceTsRef.current < BIBLE_SLIDE_FLOOR_MS) return;
 
     const cards = bibleSession.state.cards;
     const idx = bibleSession.state.selectedIdx;
@@ -2121,12 +2250,16 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     } else {
       bibleMatchStreakRef.current = 0;
     }
-    if (bibleMatchStreakRef.current >= 2) {
-      ctx.onSendSlideToLive({ kind: "text", text: `${nextBody}\n\n${nextCard.label}` });
+    // Coverage bypass: if ≥ 80% of current verse spoken, single segment suffices.
+    const currCovBible = scoreCoverage(bibleRecentWordsRef.current, currentBody);
+    const bibleRequiredStreak = currCovBible >= 0.80 ? 1 : 2;
+    if (bibleMatchStreakRef.current >= bibleRequiredStreak) {
+      safeSendLive({ kind: "text", text: `${nextBody}\n\n${nextCard.label}` });
       bibleSession.setSelectedIdx(nextIdx);
       bibleLastAdvanceTsRef.current = Date.now();
       bibleMatchStreakRef.current = 0;
-      console.log(`[bible-autoprogression] word-match auto-advance to card ${nextIdx + 1}/${cards.length} (${nextCard.label}, confidence ${result.confidence}%)`, { ts: Date.now() });
+      bibleInterimMatchStreakRef.current = 0;
+      console.log(`[bible-autoprogression] word-match advance to card ${nextIdx + 1}/${cards.length} (${nextCard.label}, confidence ${result.confidence}%, coverage ${Math.round(currCovBible * 100)}%, streak=${bibleRequiredStreak})`, { ts: Date.now() });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx.audio.transcript]);
@@ -2137,6 +2270,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     const cancel = () => {
       bibleCooldownUntilRef.current = Date.now() + 4000;
       bibleMatchStreakRef.current = 0;
+      bibleInterimMatchStreakRef.current = 0;
     };
     window.addEventListener("click", cancel, true);
     window.addEventListener("keydown", cancel, true);
@@ -2144,6 +2278,87 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       window.removeEventListener("click", cancel, true);
       window.removeEventListener("keydown", cancel, true);
     };
+  }, []);
+
+  // ── Part 2b: predictive interim-based Bible verse advance ───────────────
+  // Mirrors the song's interim path (ProOperatorShell.tsx lines ~937-974) but
+  // for Bible verse cards. Fires from `ctx.audio.interim` (continuous Deepgram
+  // interim messages arriving before finalization) for ~300-500ms latency gain.
+  // Stricter bar than final: minConsecutive=4 (songs use 4, Bible uses 4) and
+  // streak=2 so a single interim revision doesn't cause a false advance.
+  useEffect(() => {
+    const interimText = ctx.audio.interim;
+    if (!interimText) return;
+    const words = interimText.split(/\s+/).filter(Boolean);
+    if (words.length === 0) return;
+    if (Date.now() < bibleCooldownUntilRef.current) return;
+    if (Date.now() - bibleLastAdvanceTsRef.current < BIBLE_SLIDE_FLOOR_MS) return;
+    const cards = bibleSession.state.cards;
+    const idx = bibleSession.state.selectedIdx;
+    if (idx == null || !cards[idx] || cards[idx].placeholder) return;
+    const nextIdx = idx + 1;
+    const nextCard = cards[nextIdx];
+    if (!nextCard || nextCard.placeholder || !nextCard.verses?.length) return;
+    // Confirm current card is actually live before advancing past it.
+    const current = cards[idx];
+    const currentBody = current.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
+    const currentText = `${currentBody}\n\n${current.label}`;
+    if (!(ctx.liveSlide?.kind === "text" && ctx.liveSlide.text === currentText)) return;
+    const combined = [...bibleRecentWordsRef.current, ...words].slice(-24);
+    const nextBody = nextCard.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
+    const result = matchNextSlide(combined, nextBody, 4); // stricter than final=3
+    if (result.consecutiveMatches >= 4) {
+      bibleInterimMatchStreakRef.current += 1;
+    } else {
+      bibleInterimMatchStreakRef.current = 0;
+    }
+    if (bibleInterimMatchStreakRef.current >= 2) {
+      safeSendLive({ kind: "text", text: `${nextBody}\n\n${nextCard.label}` });
+      bibleSession.setSelectedIdx(nextIdx);
+      bibleLastAdvanceTsRef.current = Date.now();
+      bibleMatchStreakRef.current = 0;
+      bibleInterimMatchStreakRef.current = 0;
+      console.log(`[bible-autoprogression] predictive interim advance to card ${nextIdx + 1}/${cards.length} (${nextCard.label}, confidence ${result.confidence}%)`, { ts: Date.now() });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx.audio.interim]);
+
+  // ── Part 2c: silence + coverage advance for Bible (500ms ticker) ─────────
+  // Same philosophy as song Part 7c: if the preacher has spoken ≥ 60% of the
+  // current verse's non-stopword words AND there's been ≥ 2.5s of silence,
+  // they've finished reading and paused — advance to the next verse.
+  // Uses refs-only in the setInterval callback to avoid stale closures.
+  useEffect(() => {
+    const iv = window.setInterval(() => {
+      if (Date.now() < bibleCooldownUntilRef.current) return;
+      if (Date.now() - bibleLastAdvanceTsRef.current < BIBLE_SLIDE_FLOOR_MS) return;
+      const cards = bibleCardsRef.current;
+      const idx = bibleSelectedIdxRef.current;
+      if (idx == null || !cards[idx] || cards[idx].placeholder) return;
+      const nextIdx = idx + 1;
+      const nextCard = cards[nextIdx];
+      if (!nextCard || nextCard.placeholder || !nextCard.verses?.length) return;
+      // Only advance the verse that's currently confirmed live.
+      const current = cards[idx];
+      const currentBody = current.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
+      const currentText = `${currentBody}\n\n${current.label}`;
+      if (!(bibleLiveSlideRef.current?.kind === "text" && bibleLiveSlideRef.current.text === currentText)) return;
+      const silenceMs = Date.now() - bibleLastWordTsRef.current;
+      if (silenceMs < BIBLE_SILENCE_ADVANCE_MS) return; // not silent enough
+      const cov = scoreCoverage(bibleRecentWordsRef.current, currentBody);
+      if (cov < BIBLE_COVERAGE_THRESHOLD) return; // verse not sufficiently covered
+      // Verse covered + silence = preacher finished reading → advance
+      const nextBody = nextCard.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
+      safeSendLiveRef.current({ kind: "text", text: `${nextBody}\n\n${nextCard.label}` });
+      bibleSetSelectedIdxRef.current(nextIdx);
+      bibleLastAdvanceTsRef.current = Date.now();
+      bibleMatchStreakRef.current = 0;
+      bibleInterimMatchStreakRef.current = 0;
+      bibleRecentWordsRef.current = []; // reset so we don't chain-advance immediately
+      console.log(`[bible-autoprogression] silence+coverage advance to ${nextCard.label} (cov=${Math.round(cov * 100)}%, silence=${Math.round(silenceMs)}ms)`, { ts: Date.now() });
+    }, 500);
+    return () => window.clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Voice verse-navigation commands ("next verse", "continue", "go back",
@@ -2185,7 +2400,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // a sustained lyric/verse word-match can't both advance the same verse
     // in the same transcript update.
     if (Date.now() < bibleCooldownUntilRef.current) return;
-    if (Date.now() - bibleLastAdvanceTsRef.current < 3000) return;
+    if (Date.now() - bibleLastAdvanceTsRef.current < BIBLE_SLIDE_FLOOR_MS) return;
     if (cmd.verb === "next_verse" || cmd.verb === "continue") {
       dispatchInternal("presentflow:bible-next");
       bibleLastAdvanceTsRef.current = Date.now();

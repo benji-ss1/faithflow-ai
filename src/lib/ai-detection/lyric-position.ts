@@ -103,6 +103,26 @@ export function matchNextSlide(
 }
 
 /**
+ * Score what fraction of a slide's meaningful (non-stopword) words appear
+ * anywhere in recent speech, regardless of order.
+ *
+ * Used by the silence-based advance path: if the preacher/singer has spoken
+ * ≥ THRESHOLD% of the current slide's content words AND there has been a
+ * sustained pause, it's safe to infer they finished that slide and advance.
+ *
+ * @param recentWords  most recent spoken words (oldest→newest)
+ * @param slideText    full text of the currently-live slide/verse
+ * @returns 0–1 coverage score (0 = nothing spoken, 1 = fully covered)
+ */
+export function scoreCoverage(recentWords: string[], slideText: string): number {
+  const spoken = new Set(recentWords.map(normWord).filter((w) => w.length > 0));
+  const target = slideWords(slideText).filter((w) => !STOPWORDS.has(w));
+  if (target.length === 0) return 0;
+  const hits = target.filter((w) => spoken.has(w)).length;
+  return hits / target.length;
+}
+
+/**
  * Detect "song appears to be ending": the live song is on its last slide
  * AND there's no further matching signal against that last slide's
  * remaining/trailing lyrics (i.e. transcript has moved past it or gone

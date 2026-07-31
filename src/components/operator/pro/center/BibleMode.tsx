@@ -733,7 +733,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
             const parts = h.matched ? h.text.split(new RegExp(`(${h.matched.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "i")) : [h.text];
             return (
               <div key={`${label}-${i}`} className="p-3 rounded border border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col gap-1 cursor-pointer"
-                onClick={() => ctx.onSendSlideToLive(slide)}
+                onClick={() => ctx.onSendSlideToLive(slide, undefined, { instant: true })}
                 title="Click to send verse to live"
               >
                 <div className="text-[10px] font-mono text-[var(--color-muted-foreground)]">{label}</div>
@@ -797,7 +797,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
                 return (
                   <li key={c.id}>
                     <button
-                      onClick={() => { setSelectedIdx(idx); ctx.onSendSlideToLive(cardToSlide(c, idx, cards.length)); }}
+                      onClick={() => { setSelectedIdx(idx); ctx.onSendSlideToLive(cardToSlide(c, idx, cards.length), undefined, { instant: true }); }}
                       title="Click to send verse to live"
                       className={cn(
                         "w-full text-left px-3 py-2 border-b border-[var(--color-border)] hover:bg-[var(--color-elevated)]",
@@ -837,13 +837,13 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
               title={selectedIdx != null && cards[selectedIdx] ? "Click to send verse to live" : undefined}
               onClick={() => {
                 if (selectedIdx == null || !cards[selectedIdx]) return;
-                ctx.onSendSlideToLive(cardToSlide(cards[selectedIdx], selectedIdx, cards.length));
+                ctx.onSendSlideToLive(cardToSlide(cards[selectedIdx], selectedIdx, cards.length), undefined, { instant: true });
               }}
               onKeyDown={(e) => {
                 if (e.key !== "Enter") return;
                 if (selectedIdx == null || !cards[selectedIdx]) return;
                 e.stopPropagation();
-                ctx.onSendSlideToLive(cardToSlide(cards[selectedIdx], selectedIdx, cards.length));
+                ctx.onSendSlideToLive(cardToSlide(cards[selectedIdx], selectedIdx, cards.length), undefined, { instant: true });
               }}
             >
               {selectedIdx != null && cards[selectedIdx] ? (

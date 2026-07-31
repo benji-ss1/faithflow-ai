@@ -438,7 +438,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
   const sendSlideToLive = useCallback((
     slide: SlidePayload,
     spec?: import("@/lib/broadcast").TransitionSpec | null,
-    options?: { preserveConfiguredTransition?: boolean },
+    options?: { preserveConfiguredTransition?: boolean; instant?: boolean },
   ) => {
     // 2026-07-25 — added tracing + defensive guards after a field report
     // that "clicking a song slide does nothing" (v0.1.42 hunt). The pipeline
@@ -448,6 +448,19 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     try { console.log("[live] sendSlideToLive fired", { kind: slide?.kind, textLen: slide && "text" in slide ? slide.text?.length : undefined, hasChannel: !!chRef.current }); } catch { /* ignore */ }
     if (!slide || typeof slide !== "object" || !("kind" in slide)) {
       console.warn("[live] sendSlideToLive got invalid slide payload — no-op", slide);
+      return;
+    }
+    if (options?.instant) {
+      // instant: true — bypass all transition animation for this slide.
+      // Sends transition:null in the "set" message so the projector clears its
+      // cached transition immediately (before the output-effect fires), and also
+      // marks fastTransitionSlideRef so the subsequent "output" message also
+      // carries transition:null. Used for Bible verse card clicks where a 1-2 s
+      // theme fade is user-visible latency.
+      fastTransitionSlideRef.current = slide;
+      setLive(slide);
+      setLiveBroadcastRevision((revision) => revision + 1);
+      chRef.current?.postMessage({ type: "set", slide, transition: null } as LiveMessage);
       return;
     }
     if (options?.preserveConfiguredTransition) {

@@ -43,6 +43,7 @@ export async function POST(req: Request) {
   if (withWindow) {
     const { primary, before, after } = await lookupReferenceWithWindow(
       t.id, book, Number(chapter), Number(verseStart), Number(verseEnd), 5,
+      t.code, user.churchId,
     );
     return NextResponse.json({ translation: t.code, primary, before, after, verses: primary });
   }
@@ -53,7 +54,7 @@ export async function POST(req: Request) {
   const hit = getCached(key);
   if (hit) return NextResponse.json({ translation: t.code, verses: hit, cached: true });
 
-  const verses = await lookupReference(t.id, book, Number(chapter), Number(verseStart), Number(verseEnd), chEnd);
+  const verses = await lookupReference(t.id, book, Number(chapter), Number(verseStart), Number(verseEnd), chEnd, t.code, user.churchId);
   if (verses.length > 0) setCached(key, verses);
   return NextResponse.json({ translation: t.code, verses });
 }

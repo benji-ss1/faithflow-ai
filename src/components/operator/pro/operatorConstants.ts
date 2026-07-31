@@ -85,3 +85,43 @@ export const LEFT_PANEL_DEFAULT_WIDTH = LEFT_PANEL_MIN_WIDTH;
 
 /** Default min-gap (ms) between Bible auto-fires (mirrors SONG_AUTO_LIVE_MIN_GAP_MS) */
 export const DEFAULT_MIN_GAP_MS = 800;
+
+// ── Auto-advance timing (2026-07-31 field-test tuning — user sign-off) ────
+// Target: ≤ 1.6s gap between verse/slide shown and next advance once the
+// preacher has moved on. These replace the previous hardcoded 3000ms floors.
+
+/**
+ * Minimum time (ms) a song slide must be live before the word-match path
+ * can advance. Dynamic: short slides (<5 content words) use SONG_SHORT_SLIDE_FLOOR_MS.
+ */
+export const SONG_SLIDE_FLOOR_MS = 1200;
+
+/** Floor for short song slides (< 5 non-stopword words) — extra guard. */
+export const SONG_SHORT_SLIDE_FLOOR_MS = 2000;
+
+/**
+ * Silence duration (ms) after which the silence+coverage path fires if
+ * enough of the current slide's words have been spoken.
+ * 1800ms > any natural reading pause; well below typical explanation pause (5s+).
+ */
+export const SONG_SILENCE_ADVANCE_MS = 1800;
+
+/** Coverage fraction (0–1) of current slide words needed to silence-advance. */
+export const SONG_COVERAGE_THRESHOLD = 0.65;
+
+/**
+ * Minimum time (ms) a Bible verse card must be live before any advance path
+ * can fire. Lower than song because verses are read verbatim and preacher
+ * cadence is more predictable; 1.6s target is achievable with 1s floor.
+ */
+export const BIBLE_SLIDE_FLOOR_MS = 1000;
+
+/**
+ * Silence duration (ms) for the Bible silence+coverage advance.
+ * Longer than song (2500ms) because preachers naturally pause between
+ * verses for commentary/explanation.
+ */
+export const BIBLE_SILENCE_ADVANCE_MS = 2500;
+
+/** Coverage fraction (0–1) of current verse words needed to silence-advance. */
+export const BIBLE_COVERAGE_THRESHOLD = 0.60;

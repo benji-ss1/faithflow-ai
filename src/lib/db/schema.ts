@@ -247,6 +247,7 @@ export const settings = pgTable("settings", {
   logoS3Key: text("logo_s3_key"),
   blankBgColor: text("blank_bg_color").notNull().default("#000000"),
   fontFamily: text("font_family").notNull().default("Helvetica Neue"),
+  ccliNumber: text("ccli_number"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 

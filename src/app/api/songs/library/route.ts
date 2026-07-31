@@ -9,6 +9,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { apiUser } from "@/lib/session";
 import { getDb } from "@/lib/db/client";
 import { songs, songSlides } from "@/lib/db/schema";
+import { sanitizeLyrics } from "@/lib/pro6-parser";
 
 export const runtime = "nodejs";
 
@@ -28,7 +29,7 @@ export async function GET() {
   const bySong = new Map<string, { order: number; lyrics: string }[]>();
   for (const s of slides) {
     const list = bySong.get(s.songId) || [];
-    list.push({ order: s.order, lyrics: s.lyrics });
+    list.push({ order: s.order, lyrics: sanitizeLyrics(s.lyrics) });
     bySong.set(s.songId, list);
   }
 

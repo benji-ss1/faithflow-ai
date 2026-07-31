@@ -139,10 +139,10 @@ export function stripRtf(rtf: string): string {
  *                            literal text inside RTF; they survive stripRtf
  *                            because square brackets are not RTF syntax.
  *   [Am]  [G]  [C#m7]     — ChordPro single-bracket chord markers.
- *                            Matches only musically-shaped tokens (A–G root,
- *                            optional accidental/quality suffix ≤6 chars) to
- *                            avoid stripping legitimate `[Bridge]` section
- *                            labels that some formats embed in lyric text.
+ *                            Uses an explicit chord grammar (root[#b][quality][ext][/bass])
+ *                            so section labels like `[Bridge]`, `[Chorus]`, `[Bass]`,
+ *                            `[Break]`, `[Ending]`, `[Coda]` are NOT stripped — they
+ *                            don't match any valid chord quality sequence.
  *    /     |               — Visual line-separator characters that ProPresenter
  *                            (and some other export tools) emit between lyric
  *                            segments. Converted to newlines rather than deleted
@@ -152,9 +152,11 @@ export function sanitizeLyrics(text: string): string {
   return text
     // ProPresenter double-bracket chord annotations: [[Am]] [[G/B]] [[]] etc.
     .replace(/\[\[[^\]]*\]\]/g, "")
-    // ChordPro single-bracket chord markers: [Am] [G] [C#m7] [G/B]
-    // Pattern: [ + A-G root + optional accidental/quality (≤ 6 chars) + ]
-    .replace(/\[[A-G][a-z0-9#b/]{0,6}\]/g, "")
+    // ChordPro single-bracket chord markers: [Am] [G] [C#m7] [G/B] [Csus4] [Cadd9]
+    // Explicit chord grammar: root[#b]?[quality]?[0-9]{0,2}[/bass]?
+    // Qualities: maj min dim aug sus add m  — no other letter sequences allowed,
+    // so [Bridge] [Chorus] [Bass] [Break] [Ending] [Coda] are never matched.
+    .replace(/\[[A-G][#b]?(?:maj|min|dim|aug|sus|add|m)?[0-9]{0,2}(?:\/[A-G][#b]?)?\]/g, "")
     // " / " visual line separator (ProPresenter, various exports)
     .replace(/ \/ /g, "\n")
     // " | " visual line separator

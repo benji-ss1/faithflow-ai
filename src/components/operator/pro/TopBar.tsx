@@ -9,8 +9,8 @@ import { canAccess } from "@/lib/tier";
 import { MaxUpgradePrompt } from "@/components/tier/MaxUpgradePrompt";
 import {
   Search, Play, BookOpen,
-  MoreHorizontal, Sparkles, Image as ImageIcon, MonitorSpeaker, Circle, ScreenShare,
-  Music, Printer, ChevronDown,
+  Sparkles, Image as ImageIcon, MonitorSpeaker, Circle, ScreenShare,
+  Music, ChevronDown, Palette,
 } from "lucide-react";
 import Image from "next/image";
 import type { OperatorShellCtx } from "../shell/types";
@@ -288,48 +288,13 @@ export function TopBar({
       <div className="mx-2 h-6 w-px bg-[var(--color-border)]" />
       <div className="flex items-center gap-1">
         <ModeBtn icon={Music} label="Songs" active={centerMode === "songs"} onClick={toggleMode("songs")} />
-        <ModeBtn icon={ImageIcon} label="Media" active={centerMode === "media"} onClick={toggleMode("media")} />
         <ModeBtn icon={BookOpen} label="Bible" active={centerMode === "bible"} onClick={toggleMode("bible")} emphasized />
-      </div>
-      <div className="mx-2 h-6 w-px bg-[var(--color-border)]" />
-
-      <div className="flex items-center gap-0.5">
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger asChild>
-            <button
-              type="button"
-              title="More"
-              className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
-              aria-label="More actions"
-            >
-              <MoreHorizontal className="w-4 h-4" />
-            </button>
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content
-              align="start"
-              sideOffset={4}
-              className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[180px]"
-            >
-              <DropdownMenu.Item
-                onSelect={() => window.print()}
-                className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none flex items-center gap-2 cursor-pointer"
-              >
-                <Printer className="w-3.5 h-3.5" /> Print
-              </DropdownMenu.Item>
-              <DropdownMenu.Item
-                onSelect={() => {
-                  const info = `Center: ${centerMode} · Live: ${isLive ? "on" : "off"} · Displays: ${displays.length} · AI: ${listening ? "listening" : "idle"}`;
-                  try { navigator.clipboard.writeText(info).catch(() => { /* noop */ }); } catch { /* noop */ }
-                  toast.success("Diagnostics copied", { description: info });
-                }}
-                className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer"
-              >
-                Show diagnostics
-              </DropdownMenu.Item>
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
+        <ModeBtn
+          icon={Palette}
+          label="Themes"
+          active={false}
+          onClick={() => window.dispatchEvent(new CustomEvent("presentflow:open-themes-settings"))}
+        />
       </div>
 
       <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-muted-foreground)] truncate px-4">

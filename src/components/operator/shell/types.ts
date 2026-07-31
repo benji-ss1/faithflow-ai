@@ -119,7 +119,7 @@ export type OperatorShellCtx = {
   onSendSlideToLive: (
     slide: SlidePayload,
     transition?: import("@/lib/broadcast").TransitionSpec | null,
-    options?: { preserveConfiguredTransition?: boolean },
+    options?: { preserveConfiguredTransition?: boolean; instant?: boolean },
   ) => void;
   onStageSlide: (slide: SlidePayload) => void;
   onBankAddReference: (ref: { book: string; chapter: number; verseStart: number; verseEnd: number }) => Promise<BankedVerse | null>;
