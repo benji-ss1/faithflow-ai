@@ -1830,6 +1830,9 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           return;
         }
         autoFireCardsRef.current = cards;
+        // Bump tick so the auto-approve effect re-runs immediately with real
+        // cards, instead of waiting for the next Deepgram transcript message.
+        setAutoFireCardsTick((t) => t + 1);
       } catch (e) {
         autoFireCardsRef.current = [{
           id: `ai-error-${key}`,
@@ -1897,6 +1900,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // Kept separate from bibleSession so auto-detections never hijack the center
   // Bible panel — that only updates on explicit operator lookups or chip clicks.
   const autoFireCardsRef = useRef<import("./hooks").VerseCard[]>([]);
+  // Tick counter: bumped when autoFireCardsRef is populated with real (non-placeholder)
+  // cards after an async lookup. The auto-approve effect depends on this so it re-runs
+  // immediately when cards are ready, instead of waiting for the next Deepgram message.
+  const [autoFireCardsTick, setAutoFireCardsTick] = useState(0);
   const bibleSelectedIdxRef = useRef<number | null>(bibleSession.state.selectedIdx ?? null);
   const bibleLiveSlideRef = useRef(ctx.liveSlide ?? null);
   // Stubs — overwritten by keep-current effects after first render.
@@ -2216,7 +2223,8 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     bibleSession.setSelectedIdx(0);
     lastLiveWasSongRef.current = false;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ctx.audio.suggestions, ctx.liveSlide, doAutoFire, safeSendLive]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx.audio.suggestions, ctx.liveSlide, doAutoFire, safeSendLive, autoFireCardsTick]);
 
   // ── Part 2: transcript-aware verse forward-continuation ─────────────────
   // Unlike the fixed-interval AUTO_ADVANCE_KEY timer above (dumb, time-based,
