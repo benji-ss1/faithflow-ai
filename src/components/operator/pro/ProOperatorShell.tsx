@@ -2209,6 +2209,11 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     }
     lastHandledAutoFireSuggestionIdRef.current = scripture.id;
     doAutoFire(slide, key, ref, scripture.confidence, !!(scripture.forceLive || scripture.voiceCommand));
+    // Update the center Bible panel so the operator sees the auto-projected
+    // verse in the preview — keeps preview and LIVE in sync.
+    bibleSession.setRef(ref);
+    bibleSession.setCards(cards);
+    bibleSession.setSelectedIdx(0);
     lastLiveWasSongRef.current = false;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx.audio.suggestions, ctx.liveSlide, doAutoFire, safeSendLive]);
