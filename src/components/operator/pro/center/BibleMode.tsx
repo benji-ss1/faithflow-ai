@@ -404,7 +404,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
         return;
       }
       try { console.log("[bible-play-current] firing", { idx, label: card.label }); } catch { /* ignore */ }
-      ctx.onSendSlideToLive(cardToSlideRef.current(card, idx, cards.length));
+      ctx.onSendSlideToLive(cardToSlideRef.current(card, idx, cards.length), undefined, { instant: true });
       toast.success(`${card.label} → LIVE`, { duration: 1500 });
     };
     window.addEventListener("presentflow:bible-play-current", handler);
@@ -886,7 +886,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
               key={c.id}
               role="button"
               tabIndex={0}
-              onClick={() => { setSelectedIdx(idx); ctx.onSendSlideToLive(slide); }}
+              onClick={() => { setSelectedIdx(idx); ctx.onSendSlideToLive(slide, undefined, { instant: true }); }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   // stopPropagation prevents useOperatorHotkeys from ALSO
@@ -894,7 +894,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
                   // (slides-mode) preview slide live instead of this verse.
                   e.stopPropagation();
                   setSelectedIdx(idx);
-                  ctx.onSendSlideToLive(slide);
+                  ctx.onSendSlideToLive(slide, undefined, { instant: true });
                 }
               }}
               // 2026-07-25 field fix — long verses were clipping at the

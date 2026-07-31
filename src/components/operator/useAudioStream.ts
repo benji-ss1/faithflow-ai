@@ -453,7 +453,18 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     const blendScripture = (r: { confidence: number; matchedText: string; verseStart: number; verseEnd: number }): number => {
       const dg = opts?.dgConfidence;
       const parserConf = r.confidence;
-      const dgConf = typeof dg === "number" && dg > 0 && dg <= 1 ? dg : 1;
+      // Auto-fire latency fix (2026-07-31): for interim transcripts with
+      // adequate audio quality (dg >= CONFIDENCE_THRESHOLD), skip the
+      // utterance-confidence multiplier entirely. Deepgram's interim utterance
+      // confidence reflects the whole sentence (typically 0.70-0.85 mid-speech),
+      // NOT just the verse reference — multiplying a 95-point parser score by
+      // 0.75 dropped the blended confidence to ~81%, just below the 85% auto-fire
+      // floor, causing 10-15s delays while the preacher kept talking (Deepgram
+      // only finalizes on a pause). The fromInterim flag + verseStart <= 9 guard
+      // already blocks ambiguous single-digit verse numbers from auto-firing;
+      // the utterance-confidence penalty adds no additional safety here.
+      const isAdequateInterim = opts?.fromInterim && (typeof dg !== "number" || dg >= CONFIDENCE_THRESHOLD);
+      const dgConf = isAdequateInterim ? 1.0 : (typeof dg === "number" && dg > 0 && dg <= 1 ? dg : 1);
       const wellFormed = /\d+\s*:\s*\d+/.test(r.matchedText);
       // Y2: cap the boost so a garbage range ("John 3:16-99") can never leap
       // past parserConf by more than 10. Combined with Y6 chapter validation
@@ -461,14 +472,15 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       // Confidence floor: if Deepgram utterance confidence is below the
       // canonical CONFIDENCE_THRESHOLD, drop the boost entirely — a shaky
       // transcript shouldn't ride the well-formed pattern into auto-approve.
-      const belowFloor = typeof dg === "number" && dg < CONFIDENCE_THRESHOLD;
+      // (For adequate interims dgConf=1.0, so belowFloor is always false there.)
+      const belowFloor = !isAdequateInterim && typeof dg === "number" && dg < CONFIDENCE_THRESHOLD;
       const rawBoost = belowFloor ? 0 : ((wellFormed ? 10 : 0) + (r.verseEnd > r.verseStart ? 5 : 0));
       const boost = Math.min(rawBoost, 10);
       const base = Math.round(parserConf * dgConf);
       const final = Math.max(1, Math.min(100, Math.min(base + boost, parserConf + 10)));
       // R1: gate behind PF_AI_TRACE — leaks pastoral content in prod otherwise.
       if (isDevOrTraceOn()) {
-        console.log("[detection-confidence]", r.matchedText, { parserConf, dgConf, boost, final });
+        console.log("[detection-confidence]", r.matchedText, { parserConf, dgConf, boost, final, isAdequateInterim });
       }
       return final;
     };
