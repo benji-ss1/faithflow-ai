@@ -1927,7 +1927,11 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // isPhraseMatch exclusion — phrase-quote matches are capped at 74 and
     // never carry forceLive, so this filter is belt-and-braces on top of
     // those source guards (2026-07-28 sign-off: phrase matches NEVER auto-fire).
-    const scripture = suggestions.find((s) => s.type === "scripture" && !s.isPhraseMatch && (s.confidence >= 85 || s.forceLive) && !lowConfBlockedSpans.has(s.id));
+    // fromInterim suggestions are pre-load-only: the Bible panel shows the card
+    // but auto-fire must not project until the confirmed "final" transcript
+    // arrives, which corrects partial verse numbers ("John 3:1" interim→"John
+    // 3:16" final). forceLive/voiceCommand also always come from finals.
+    const scripture = suggestions.find((s) => s.type === "scripture" && !s.isPhraseMatch && !s.fromInterim && (s.confidence >= 85 || s.forceLive) && !lowConfBlockedSpans.has(s.id));
     if (!scripture || scripture.type !== "scripture") return;
     // 2026-07-29 crash fix (Maximum update depth exceeded): this effect depends
     // on ctx.liveSlide, so a fire re-runs it. forceLive/voiceCommand suggestions

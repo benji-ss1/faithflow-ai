@@ -117,7 +117,7 @@ export type TranscriptChunk = { id: string; text: string; final: boolean; ts: nu
  *  by (segmentId, [start,end]) instead of naive substring includes(). */
 export type MatchedSpan = { start: number; end: number };
 export type UnifiedSuggestion =
-  | { id: string; type: "scripture"; segmentId: string; ts: number; confidence: number; matchedText: string; matchedSpan?: MatchedSpan; ref: { book: string; chapter: number; verseStart: number; verseEnd: number }; forceLive?: boolean; voiceCommand?: boolean; isPhraseMatch?: boolean }
+  | { id: string; type: "scripture"; segmentId: string; ts: number; confidence: number; matchedText: string; matchedSpan?: MatchedSpan; ref: { book: string; chapter: number; verseStart: number; verseEnd: number }; forceLive?: boolean; voiceCommand?: boolean; isPhraseMatch?: boolean; fromInterim?: boolean }
   | { id: string; type: "song"; segmentId: string; ts: number; confidence: number; matchedText: string; matchedSpan?: MatchedSpan; match: SongMatchResult }
   | { id: string; type: "lyric"; segmentId: string; ts: number; confidence: number; matchedText: string; matchedSpan?: MatchedSpan; match: SongMatchResult }
   | { id: string; type: "section"; segmentId: string; ts: number; confidence: number; matchedText: string; matchedSpan?: MatchedSpan; section: "chorus" | "verse" | "bridge" | "outro" | "tag"; index?: number };
@@ -349,7 +349,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       .finally(() => { inFlightSlideFetchRef.current.delete(songId); });
   }, []);
 
-  const runDetectAll = useCallback(async (segmentId: string, text: string, opts?: { dgConfidence?: number }) => {
+  const runDetectAll = useCallback(async (segmentId: string, text: string, opts?: { dgConfidence?: number; fromInterim?: boolean }) => {
     const provider = getCtxRef.current;
     const base = provider ? provider() : { churchId: "", hasVerseContext: false, hasSlideContext: false, hasSongContext: false };
     // Cross-church leak defense: if the churchId has changed since the last
@@ -509,7 +509,13 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       // Auto-fire's other guards (AUTO toggle, min-gap, different-live-ref
       // check) keep this from spamming.
       const forceLive = occurrenceCount >= 2 && trustworthyForContext;
-      const suggestion: UnifiedSuggestion = { id, type: "scripture", segmentId, ts, confidence: conf, matchedText: r.matchedText, matchedSpan: spanFor(r.matchedText), ref: { book: r.book, chapter: r.chapter, verseStart: r.verseStart, verseEnd: r.verseEnd }, ...(forceLive ? { forceLive: true } : {}), ...(r.isNavigationCommand ? { voiceCommand: true } : {}), ...(isPhrase ? { isPhraseMatch: true } : {}) };
+      // fromInterim: true marks suggestions generated from interim_final_candidate
+      // (predictive early-fire before Deepgram finalizes the utterance).
+      // The Bible panel pre-loads the card immediately (good operator UX), but
+      // auto-fire MUST skip these — the verse number could be a partial digit
+      // ("John 3:1" interim before "John 3:16" final). Auto-fire runs only on
+      // the confirmed final suggestion which arrives ~200-500ms later.
+      const suggestion: UnifiedSuggestion = { id, type: "scripture", segmentId, ts, confidence: conf, matchedText: r.matchedText, matchedSpan: spanFor(r.matchedText), ref: { book: r.book, chapter: r.chapter, verseStart: r.verseStart, verseEnd: r.verseEnd }, ...(forceLive ? { forceLive: true } : {}), ...(r.isNavigationCommand ? { voiceCommand: true } : {}), ...(isPhrase ? { isPhraseMatch: true } : {}), ...(opts?.fromInterim ? { fromInterim: true } : {}) };
       if (forceLive || r.isNavigationCommand) {
         // Bypass the normal 30s dedupe cooldown for this one signal — the
         // repeat is very often said within that same window (that's the
@@ -1345,7 +1351,11 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           const dgConfidence = msg.confidence;
           // R11: dedupe candidate-vs-final within 800ms.
           if (!shouldSkipRedetect(text)) {
-            queueMicrotask(() => { runDetectAll(segmentId, text, { dgConfidence }); });
+            // fromInterim: true → suggestions are created for Bible-panel
+            // pre-load only. Auto-fire skips them; projection waits for the
+            // confirmed "final" transcript which corrects partial verse numbers
+            // ("John 3:1" interim → "John 3:16" final).
+            queueMicrotask(() => { runDetectAll(segmentId, text, { dgConfidence, fromInterim: true }); });
           }
         }
         else if (msg.type === "final") {
@@ -1369,6 +1379,22 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           // (e.g. from a preceding interim_final_candidate).
           if (!shouldSkipRedetect(msg.text)) {
             runDetectAll(msg.segmentId, msg.text, { dgConfidence: msg.confidence });
+          } else {
+            // The final text matches a recent interim_final_candidate — the
+            // suggestions are already in state but carry `fromInterim: true`
+            // which blocks auto-fire. The final transcript CONFIRMS the text is
+            // correct, so lift the flag now so auto-fire can proceed.
+            setState((prev) => {
+              let changed = false;
+              const updated = prev.suggestions.map((s) => {
+                if (s.type === "scripture" && s.fromInterim) {
+                  changed = true;
+                  return { ...s, fromInterim: false };
+                }
+                return s;
+              });
+              return changed ? { ...prev, suggestions: updated } : prev;
+            });
           }
           // Runtime hook — check user-added custom voice commands and, on
           // match, dispatch a `presentflow:voice-command` event. Shell owns

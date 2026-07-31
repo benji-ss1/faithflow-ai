@@ -93,7 +93,10 @@ export function resetTranslationSwitchCooldown(): void {
 //     capitalises when it hears an acronym. To keep NET safe we ALSO require
 //     switch intent for it — moved to AMBIGUOUS_ABBR_RE below.
 //   - GNT is unambiguous (never an English word).
-const UNAMBIGUOUS_ABBR_RE = /\b(NKJV|KJV|NIV|NLT|ESV|NASB|CSB|HCSB|NRSV|NCV|CEV|GNT|RSV|YLT|DRC|DRA|WBS|BBE|ISV|DARBY)\b/i;
+// 2026-07-31: global flag added so we can scan ALL occurrences and return
+// the first that is actually available — prevents "NKJV, NIV" from failing
+// because NKJV (not in seeded DB) is found first but NIV (in DB) is ignored.
+const UNAMBIGUOUS_ABBR_RE = /\b(NKJV|KJV|NIV|NLT|ESV|NASB|CSB|HCSB|NRSV|NCV|CEV|GNT|RSV|YLT|DRC|DRA|WBS|BBE|ISV|DARBY)\b/ig;
 
 // Ambiguous abbreviations — CASE-SENSITIVE (no /i), uppercase only, AND require
 // strong switch-intent context. The false-positive protection the "caught in a
@@ -148,7 +151,11 @@ const FULL_NAMES: Array<{ phrase: RegExp; code: string; ambiguous: boolean }> = 
 // Deliberately excludes near-universal words (in, for, from, the, go, turn,
 // put, show) that made "caught in a web of sin" / "back in King James' day"
 // fire. Includes Nigerian pidgin ("make we read", "read am").
-const INTENT_RE = /\b(read|switch|use|open|version|translation|bible|give me|let'?s have|make we read|read am)\b/i;
+// 2026-07-31: added "have", "want", "need", "can we", "can I", "let us"
+// so "can we have ASV" / "I want NLT" / "let us use the WEB" are recognised.
+// "have" alone in "caught in a web of sin" is never adjacent to an ambiguous
+// abbreviation in that phrasing so the false-positive risk is minimal.
+const INTENT_RE = /\b(read|switch|use|open|version|translation|bible|give me|let'?s have|make we read|read am|have|want|need|can we|can i|let us|try|go with|go to)\b/i;
 
 function hasIntentBefore(text: string, matchIndex: number): boolean {
   const before = text.slice(0, matchIndex);
@@ -168,15 +175,14 @@ const KJV_MONARCH_TAIL_RE = /\b(king james)(['’]?s?)\s+(day|days|reign|reigned
 
 // GNT "good news" false-positive guard — "good news" is one of the most
 // common sermon phrases ("good news of the gospel", "the good news is",
-// "good news that Jesus saves"). Mirrors KJV_MONARCH_TAIL_RE: when a
-// preposition/verb clearly frames "good news" as ordinary speech, do NOT
-// fire GNT via the full-name path. The bare "GNT" abbreviation still fires
-// unambiguously; "the Good News Translation" still fires because the
-// "translation" suffix flags intent contextually (INTENT_RE handles that
-// via ambiguous-path if we ever move it, but here the guard just spares
-// the bare-phrase case). Sermon phrases like "the good news of the gospel"
-// should never switch translations.
-const GNT_GOSPEL_TAIL_RE = /\bgood news\b\s+(of|about|is|for|that|to|from)\b/i;
+// "good news that Jesus saves", "good news for all", "good news we preach").
+// Mirrors KJV_MONARCH_TAIL_RE: when a preposition/verb/pronoun clearly
+// frames "good news" as ordinary speech, do NOT fire GNT via the full-name
+// path. The bare "GNT" abbreviation still fires unambiguously. Sermon phrases
+// like "the good news of the gospel" should never switch translations.
+// 2026-07-31: extended to catch "good news we/they/I/he/she preach/bring/
+// brought/came/proclaimed" and "good news for all/everyone/us/the world".
+const GNT_GOSPEL_TAIL_RE = /\bgood news\b\s+(of|about|is|for|that|to|from|we|they|i|he|she|all|everyone|us|the world|brought|brings|we preach|proclaimed)\b/i;
 
 /**
  * Detect a spoken translation-switch request in a final transcript.
@@ -220,11 +226,17 @@ export function detectTranslationSwitch(
   //    intent context, any casing. Ambiguous ones (WEB, AMP, MSG, ASV, NET)
   //    are matched CASE-SENSITIVELY against the raw transcript (Deepgram
   //    capitalizes true acronyms) AND still require strong intent before.
+  //
+  //    2026-07-31: scan ALL unambiguous matches (UNAMBIGUOUS_ABBR_RE now has
+  //    /g flag) so "NKJV, NIV" finds NIV even though NKJV is encountered
+  //    first but is not in the seeded/available DB. Return the first hit that
+  //    is actually available.
   if (!hit) {
-    const m = UNAMBIGUOUS_ABBR_RE.exec(transcript);
-    if (m) {
+    UNAMBIGUOUS_ABBR_RE.lastIndex = 0; // reset /g state before scanning
+    let m: RegExpExecArray | null;
+    while ((m = UNAMBIGUOUS_ABBR_RE.exec(transcript)) !== null) {
       const code = m[1].toUpperCase();
-      if (available.has(code)) hit = { code, matchedPhrase: m[0] };
+      if (available.has(code)) { hit = { code, matchedPhrase: m[0] }; break; }
     }
   }
   if (!hit) {
