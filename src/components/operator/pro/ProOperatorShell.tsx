@@ -1651,8 +1651,14 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // reusing this same string via setRef(key), which put a bogus "-1" on
     // every single-verse detection ("Philippians 4:1-1" instead of "Philippians 4:1").
     const key = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}-${scripture.ref.verseEnd}`;
-    if (lastRoutedScriptureRef.current === key) return;
-    lastRoutedScriptureRef.current = key;
+    // Dedup by suggestion ID (not reference key) so the same verse spoken
+    // again later — a new Deepgram detection with a new ID — routes through
+    // and re-populates the Bible panel fresh each time. The 3 s micro-cooldown
+    // in decideBibleAutoFire absorbs interim→final→whisper duplicate firings of
+    // a single utterance; here we only prevent the same suggestion object from
+    // triggering a redundant setCards call on every React re-render.
+    if (lastRoutedScriptureRef.current === scripture.id) return;
+    lastRoutedScriptureRef.current = scripture.id;
     const refText = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}${scripture.ref.verseStart !== scripture.ref.verseEnd ? `-${scripture.ref.verseEnd}` : ""}`;
     // Optimistic render: show a placeholder card immediately so operator sees
     // detection landed before the DB roundtrip completes. Cache-hit path
@@ -2251,6 +2257,40 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     return () => window.removeEventListener("presentflow:bible-goto", handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bibleSession, ctx]);
+
+  // ── Song chip → switch center to slides so operator sees it land ──────────
+  // AIDetectionsPanel dispatches this after a song-chip click goes live.
+  // Without this the projector updates but the operator's center panel stays
+  // wherever it was (songs browser, bible, media…) and nothing looks like it
+  // changed. Mirrors the setCenterMode("bible") call in the bible-goto handler.
+  //
+  // AUTO-mode guard: the mode-switch live follow effect (below) re-sends
+  // items[previewItemIdx].slides[0] whenever centerMode changes to "slides"
+  // while AUTO is on. At the time this event fires, onAddLibraryItem's async
+  // setPreview hasn't completed yet, so previewItemIdx still points to the OLD
+  // item — that would overwrite the song that just went live. Skip the mode
+  // switch in AUTO mode; the "→ LIVE" toast is sufficient confirmation there.
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      // isInternalEvent() checks a module-local JS Symbol nonce attached by
+      // dispatchInternal(). Symbols are non-serializable and non-enumerable —
+      // a frame dispatching a synthetic CustomEvent cannot forge the nonce even
+      // with same-origin access. ev.isTrusted is intentionally NOT checked
+      // because dispatchInternal() uses window.dispatchEvent(), which always
+      // produces isTrusted=false by spec for programmatic events.
+      if (!isInternalEvent(ev)) return;
+      let autoOn = false;
+      try { autoOn = window.sessionStorage.getItem(AUTO_APPROVE_KEY_INSTANT) === "1"; } catch { /* noop */ }
+      // Skip in AUTO mode: setCenterMode("slides") would trigger the mode-switch
+      // live follow effect (~line 2293) which re-sends items[previewItemIdx].slides[0]
+      // — but previewItemIdx hasn't updated yet (onAddLibraryItem is async),
+      // overwriting the song that just went live with the previous item's slide.
+      if (autoOn) return;
+      setCenterMode("slides");
+    };
+    window.addEventListener("presentflow:show-slides", handler);
+    return () => window.removeEventListener("presentflow:show-slides", handler);
+  }, []);
 
   // ── Mode-switch live follow ──────────────────────────────────────────────
   // When operator switches centerMode AND auto-approve is ON, auto-send the

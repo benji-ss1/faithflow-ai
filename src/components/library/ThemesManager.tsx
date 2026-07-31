@@ -37,8 +37,11 @@ const DEFAULT_CONFIG: ThemeConfig = {
   bgColor: "#0B0B0B",
   bgColor2: "#1A0A14",
   bgOpacity: 1,
+  bgImageUrl: "",
+  bgVideoUrl: "",
   logoPosition: "none",
   logoSizePx: 48,
+  logoUrl: "", // church uploads their own logo; falls back to church branding if empty
   churchNameVisible: false,
   churchNamePosition: "bottom",
   lowerThirdEnabled: false,
@@ -56,7 +59,7 @@ function get<T>(cfg: ThemeConfig, key: string, fallback: T): T {
   return (v === undefined || v === null ? fallback : v) as T;
 }
 
-export function ThemesManager({ themes: initial }: { themes: ThemeRow[] }) {
+export function ThemesManager({ themes: initial, churchLogoUrl }: { themes: ThemeRow[]; churchLogoUrl?: string | null }) {
   const [themes, setThemes] = useState(initial);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
@@ -220,6 +223,7 @@ export function ThemesManager({ themes: initial }: { themes: ThemeRow[] }) {
                   key={t.id}
                   theme={t}
                   pending={pending}
+                  churchLogoUrl={churchLogoUrl}
                   onEdit={() => setEditing(t)}
                   onSetDefault={() => onSetDefault(t.id)}
                   onDuplicate={() => onDuplicate(t.id)}
@@ -235,6 +239,7 @@ export function ThemesManager({ themes: initial }: { themes: ThemeRow[] }) {
         <ThemeEditor
           theme={editing}
           pending={pending}
+          churchLogoUrl={churchLogoUrl}
           onCancel={() => setEditing(null)}
           onChange={(next) => setEditing(next)}
           onSave={onSaveEdit}
@@ -250,10 +255,11 @@ export function ThemesManager({ themes: initial }: { themes: ThemeRow[] }) {
 // ThemeConfig flows through here so the preview genuinely reflects the
 // operator projector's output. Mode controls what sample content shows.
 // ---------------------------------------------------------------------------
-function SlidePreview({ config, mode = "lyrics", churchName = "Grace Community" }: {
+function SlidePreview({ config, mode = "lyrics", churchName = "Grace Community", churchLogoUrl }: {
   config: ThemeConfig;
   mode?: PreviewMode;
   churchName?: string;
+  churchLogoUrl?: string | null;
 }) {
   const bgType = get(config, "bgType", "solid") as "solid" | "gradient" | "image" | "video";
   const bg1 = get(config, "bgColor", "#0B0B0B") as string;
@@ -271,6 +277,8 @@ function SlidePreview({ config, mode = "lyrics", churchName = "Grace Community" 
 
   const logoPosition = get(config, "logoPosition", "none") as string;
   const logoSize = get(config, "logoSizePx", 48) as number;
+  // Use theme-specific logo first, then church logo, then PF placeholder
+  const logoUrl = (get(config, "logoUrl", "") as string) || churchLogoUrl || "/brand/pf-logo-mark.png";
   const churchNameVisible = get(config, "churchNameVisible", false) as boolean;
   const churchNamePos = get(config, "churchNamePosition", "bottom") as "top" | "bottom";
 
@@ -336,7 +344,7 @@ function SlidePreview({ config, mode = "lyrics", churchName = "Grace Community" 
           }}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand/pf-logo-mark.png" alt="" style={{ height: `${logoSize * previewScale}px`, width: "auto", opacity: 0.9 }} />
+          <img src={logoUrl} alt="" style={{ height: `${logoSize * previewScale}px`, width: "auto", opacity: 0.9 }} />
         </div>
       ) : null}
 
@@ -433,10 +441,11 @@ function SlidePreview({ config, mode = "lyrics", churchName = "Grace Community" 
 // editing theme immediately so the preview reflects the intended output.
 // ---------------------------------------------------------------------------
 function ThemeEditor({
-  theme, pending, onCancel, onChange, onSave,
+  theme, pending, churchLogoUrl, onCancel, onChange, onSave,
 }: {
   theme: ThemeRow;
   pending: boolean;
+  churchLogoUrl?: string | null;
   onCancel: () => void;
   onChange: (next: ThemeRow) => void;
   onSave: () => void;
@@ -573,6 +582,14 @@ function ThemeEditor({
             <Row label={`Logo size — ${get(cfg, "logoSizePx", 48) as number}px`}>
               <input type="range" min={24} max={200} value={get(cfg, "logoSizePx", 48) as number} onChange={(e) => set({ logoSizePx: Number(e.target.value) })} className="w-full" />
             </Row>
+            <BgAssetPicker
+              kind="image"
+              url={get(cfg, "logoUrl", "") as string}
+              onUrl={(url) => set({ logoUrl: url })}
+              label="Logo image"
+              hint="Upload your church logo (PNG with transparent background works best). Displayed at the position above."
+              maxMBOverride={5}
+            />
             <Row label="Church name">
               <Toggle value={get(cfg, "churchNameVisible", false)} onChange={(v) => set({ churchNameVisible: v })} />
             </Row>
@@ -685,7 +702,7 @@ function ThemeEditor({
         </div>
         <div className="flex flex-1 items-center justify-center">
           <div className="w-full max-w-3xl overflow-hidden rounded-lg shadow-2xl ring-1 ring-white/10">
-            <SlidePreview config={cfg} mode={mode} />
+            <SlidePreview config={cfg} mode={mode} churchLogoUrl={churchLogoUrl} />
           </div>
         </div>
         <p className="mt-4 text-center text-xs text-white/50">
@@ -702,10 +719,11 @@ function ThemeEditor({
 // handle so admins can reorder cards; the parent's onDragEnd (which
 // calls the reorderThemes server action) persists the order.
 function SortableThemeCard({
-  theme, pending, onEdit, onSetDefault, onDuplicate, onDelete,
+  theme, pending, churchLogoUrl, onEdit, onSetDefault, onDuplicate, onDelete,
 }: {
   theme: ThemeRow;
   pending: boolean;
+  churchLogoUrl?: string | null;
   onEdit: () => void;
   onSetDefault: () => void;
   onDuplicate: () => void;
@@ -734,7 +752,7 @@ function SortableThemeCard({
         onClick={onEdit}
         className="block w-full text-left focus:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--pf-admin-accent-ring)]"
       >
-        <SlidePreview config={theme.config} mode="lyrics" />
+        <SlidePreview config={theme.config} mode="lyrics" churchLogoUrl={churchLogoUrl} />
       </button>
       <div className="flex items-center justify-between p-4">
         <div className="flex min-w-0 items-center gap-1.5">
@@ -804,34 +822,49 @@ function SortableThemeCard({
 // (getExpandedServicePlan etc.) also reads. So a theme background upload
 // becomes a real Media entry, browsable + reusable elsewhere.
 function BgAssetPicker({
-  kind, url, onUrl,
+  kind, url, onUrl, label, hint, maxMBOverride,
 }: {
   kind: "image" | "video";
   url: string;
   onUrl: (nextUrl: string) => void;
+  label?: string;
+  hint?: string;
+  maxMBOverride?: number;
 }) {
   const [uploading, setUploading] = useState(false);
   const accept = kind === "image"
     ? "image/png,image/jpeg,image/webp,image/gif,image/avif"
     : "video/mp4,video/webm,video/quicktime";
-  const maxMB = kind === "image" ? 10 : 100; // client-side hint; server enforces per-purpose cap
+  const maxMB = maxMBOverride ?? (kind === "image" ? 10 : 100); // client-side hint; server enforces per-purpose cap
 
   async function pickFile(file: File) {
     setUploading(true);
     try {
+      // Step 1: get a presigned PUT URL + the S3 key.
       const presign = await fetch("/api/media/presign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fileName: file.name, contentType: file.type, size: file.size, purpose: "media" }),
-      }).then((r) => r.json());
+      }).then((r) => r.json()) as { url?: string; key?: string; error?: string };
       if (presign.error) throw new Error(presign.error);
+      if (!presign.url || !presign.key) throw new Error("Presign response missing url or key");
+
+      // Step 2: PUT the file to S3.
       const put = await fetch(presign.url, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
       if (!put.ok) throw new Error("Upload failed");
-      // Return a client-viewable URL from the same presigned PUT origin. The
-      // preview renders it inline; the operator projector will re-presign
-      // via presignGet at render time using the stored S3 key path.
-      const objectUrl = URL.createObjectURL(file);
-      onUrl(objectUrl);
+
+      // Step 3: get a 6-hour presigned GET URL to store in the theme config.
+      // Blob URLs (URL.createObjectURL) are transient and die on page reload;
+      // a presigned GET URL survives the working session.
+      const getResult = await fetch("/api/media/url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: presign.key }),
+      }).then((r) => r.json()) as { url?: string; error?: string };
+      if (getResult.error) throw new Error(getResult.error);
+      if (!getResult.url) throw new Error("Could not get download URL");
+
+      onUrl(getResult.url);
       toast.success(`${kind === "image" ? "Image" : "Video"} uploaded`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Upload failed");
@@ -842,7 +875,7 @@ function BgAssetPicker({
 
   return (
     <div className="space-y-2">
-      <Row label={`${kind === "image" ? "Image" : "Video"} URL`} hint={`Paste a presigned URL, or upload a new file below (max ${maxMB} MB).`}>
+      <Row label={label ?? `${kind === "image" ? "Image" : "Video"} URL`} hint={hint ?? `Paste a presigned URL, or upload a new file below (max ${maxMB} MB).`}>
         <input
           type="url"
           value={url}

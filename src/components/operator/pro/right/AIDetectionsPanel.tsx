@@ -381,6 +381,11 @@ export function AIDetectionsPanel({ ctx, sections }: { ctx: OperatorShellCtx; se
         return;
       }
       ctx.onSendSlideToLive({ kind: "text", text: first.lyrics });
+      // Mirror the Bible chip UX: switch the center panel so the operator can
+      // see the content that just went live, not stare at a stale panel.
+      // ProOperatorShell listens for this event and calls setCenterMode("slides").
+      dispatchInternal("presentflow:show-slides");
+      toast.success(`"${row.title}" → LIVE`);
     } catch {
       toast.error("Send failed");
     } finally {

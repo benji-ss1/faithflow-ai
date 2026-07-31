@@ -5,6 +5,10 @@
 //
 // The web-shell page still uses the standalone route; this component is the
 // shared core of both. Renders nothing when not in the Electron shell.
+//
+// 2026-07-31 layout change: replaced the wide 6-column table (which required
+// horizontal scrolling to see the Spawn button) with a compact card-per-display
+// layout. All information is now visible without scrolling.
 
 import { useEffect, useState, useCallback } from "react";
 import type { DisplayInfo } from "@/types/electron";
@@ -62,11 +66,14 @@ export function parseStoredAssignments(raw: string | null): Record<number, Assig
   return out;
 }
 
+const selectCls = "rounded border border-[#2a3232] bg-[#1a2020] text-zinc-100 px-2 py-1 text-xs";
+
 export function ScreensPanel() {
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
   const [assignments, setAssignments] = useState<Record<number, Assignment>>({});
   const [autoRestore, setAutoRestore] = useState(false);
   const [inElectron, setInElectron] = useState<boolean | null>(null);
+  const [spawning, setSpawning] = useState<number | null>(null); // display ID currently being spawned/closed
 
   useEffect(() => {
     // 2026-07-25 field bug fix: on the desktop Electron shell the preload
@@ -133,24 +140,40 @@ export function ScreensPanel() {
 
   const handleSpawn = async (dispId: number) => {
     const a = assignments[dispId];
-    if (!a || a.role === "None") return;
-    // P5: pass obsMode through to the main process so Livestream can pick
-    // up the OBS-friendly lower-third capture surface.
-    await window.electronAPI!.screens.assign(dispId, a.role, a.preset, a.obsMode);
-    await window.electronAPI!.screens.spawn(a.role);
-    updateAssignment(dispId, { spawned: true });
+    if (!a || a.role === "None" || spawning !== null) return;
+    setSpawning(dispId);
+    try {
+      // P5: pass obsMode through to the main process so Livestream can pick
+      // up the OBS-friendly lower-third capture surface.
+      await window.electronAPI!.screens.assign(dispId, a.role, a.preset, a.obsMode);
+      await window.electronAPI!.screens.spawn(a.role);
+      updateAssignment(dispId, { spawned: true });
+    } catch (e) {
+      const { toast } = await import("sonner");
+      toast.error(e instanceof Error ? e.message : "Could not spawn window");
+    } finally {
+      setSpawning(null);
+    }
   };
 
   const handleClose = async (dispId: number) => {
     const a = assignments[dispId];
-    if (!a || a.role === "None") return;
-    await window.electronAPI!.screens.close(a.role);
-    updateAssignment(dispId, { spawned: false });
+    if (!a || a.role === "None" || spawning !== null) return;
+    setSpawning(dispId);
+    try {
+      await window.electronAPI!.screens.close(a.role);
+      updateAssignment(dispId, { spawned: false });
+    } catch (e) {
+      const { toast } = await import("sonner");
+      toast.error(e instanceof Error ? e.message : "Could not close window");
+    } finally {
+      setSpawning(null);
+    }
   };
 
   return (
-    <div className="p-4">
-      <label className="flex items-center gap-2 mb-4 text-sm text-zinc-200">
+    <div className="p-4 space-y-4">
+      <label className="flex items-center gap-2 text-sm text-zinc-200">
         <input
           type="checkbox"
           checked={autoRestore}
@@ -162,81 +185,98 @@ export function ScreensPanel() {
         Auto-restore last session on launch
       </label>
 
-      <div className="overflow-x-auto rounded-md border border-[#2a3232]">
-        <table className="w-full text-xs">
-          <thead className="bg-[#1a2020] text-zinc-400 uppercase tracking-wider">
-            <tr>
-              <th className="px-3 py-2 text-left">Display</th>
-              <th className="px-3 py-2 text-left">Resolution</th>
-              <th className="px-3 py-2 text-left">Role</th>
-              <th className="px-3 py-2 text-left">Preset</th>
-              <th className="px-3 py-2 text-left">OBS mode</th>
-              <th className="px-3 py-2 text-left">Action</th>
-            </tr>
-          </thead>
-          <tbody className="text-zinc-200">
-            {displays.map((d) => {
-              const a = assignments[d.id] ?? { role: "None" as Role, preset: "1080p30" as Preset, spawned: false };
-              return (
-                <tr key={d.id} className="border-t border-[#2a3232]">
-                  <td className="px-3 py-2">{d.label} {d.isPrimary && <span className="text-[10px] text-zinc-500">(Primary)</span>}</td>
-                  <td className="px-3 py-2">{d.size.width} × {d.size.height} @ {d.scaleFactor}x</td>
-                  <td className="px-3 py-2">
+      {displays.length === 0 && (
+        <div className="text-xs text-zinc-500 py-4 text-center">No displays detected.</div>
+      )}
+
+      <div className="space-y-3">
+        {displays.map((d) => {
+          const a = assignments[d.id] ?? { role: "None" as Role, preset: "1080p30" as Preset, spawned: false };
+          const isSpawned = a.spawned;
+          return (
+            <div key={d.id} className="rounded-lg border border-[#2a3232] bg-[#1a2020] overflow-hidden">
+              {/* Card header: label + spawn/close */}
+              <div className="flex items-center justify-between px-3 py-2 border-b border-[#2a3232] bg-[#141c1c]">
+                <div>
+                  <span className="text-sm font-medium text-zinc-100">{d.label}</span>
+                  {d.isPrimary && <span className="ml-2 text-[10px] text-zinc-500">(Primary)</span>}
+                  <div className="text-[11px] text-zinc-500 mt-0.5">
+                    {d.size.width} × {d.size.height} @ {d.scaleFactor}x
+                  </div>
+                </div>
+                {isSpawned ? (
+                  <button
+                    className="rounded bg-red-600/80 hover:bg-red-600 text-white px-4 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={spawning !== null}
+                    onClick={() => handleClose(d.id)}
+                  >
+                    {spawning === d.id ? "Closing…" : "Close"}
+                  </button>
+                ) : (
+                  <button
+                    className="rounded bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/60 text-teal-200 px-4 py-1.5 text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    disabled={a.role === "None" || spawning !== null}
+                    onClick={() => handleSpawn(d.id)}
+                  >
+                    {spawning === d.id ? "Spawning…" : "Spawn"}
+                  </button>
+                )}
+              </div>
+
+              {/* Card body: role + preset + obs mode */}
+              <div className="flex items-end gap-4 px-3 py-3 flex-wrap">
+                <div>
+                  <div className="text-[10px] text-zinc-500 mb-1 uppercase tracking-wider">Role</div>
+                  <select
+                    value={a.role}
+                    onChange={(e) => updateAssignment(d.id, { role: e.target.value as Role })}
+                    className={selectCls}
+                  >
+                    <option>None</option>
+                    <option>Projector</option>
+                    <option>Stage</option>
+                    <option>Livestream</option>
+                  </select>
+                </div>
+                <div>
+                  <div className="text-[10px] text-zinc-500 mb-1 uppercase tracking-wider">Preset</div>
+                  <select
+                    value={a.preset}
+                    onChange={(e) => updateAssignment(d.id, { preset: e.target.value as Preset })}
+                    className={selectCls}
+                  >
+                    <option value="720p">720p</option>
+                    <option value="1080p30">1080p30</option>
+                    <option value="1080p60">1080p60</option>
+                    <option value="4K">4K</option>
+                  </select>
+                </div>
+                {a.role === "Livestream" && (
+                  <div>
+                    <div className="text-[10px] text-zinc-500 mb-1 uppercase tracking-wider">OBS mode</div>
                     <select
-                      value={a.role}
-                      onChange={(e) => updateAssignment(d.id, { role: e.target.value as Role })}
-                      className="rounded border border-[#2a3232] bg-[#1a2020] text-zinc-100 px-2 py-1"
+                      value={a.obsMode ?? "full"}
+                      onChange={(e) => updateAssignment(d.id, { obsMode: e.target.value as ObsMode })}
+                      className={selectCls}
                     >
-                      <option>None</option>
-                      <option>Projector</option>
-                      <option>Stage</option>
-                      <option>Livestream</option>
+                      <option value="full">Full slide</option>
+                      <option value="lowerthird">Lower-third (OBS key)</option>
                     </select>
-                  </td>
-                  <td className="px-3 py-2">
-                    <select
-                      value={a.preset}
-                      onChange={(e) => updateAssignment(d.id, { preset: e.target.value as Preset })}
-                      className="rounded border border-[#2a3232] bg-[#1a2020] text-zinc-100 px-2 py-1"
-                    >
-                      <option value="720p">720p</option>
-                      <option value="1080p30">1080p30</option>
-                      <option value="1080p60">1080p60</option>
-                      <option value="4K">4K</option>
-                    </select>
-                  </td>
-                  <td className="px-3 py-2">
-                    {a.role === "Livestream" ? (
-                      <select
-                        value={a.obsMode ?? "full"}
-                        onChange={(e) => updateAssignment(d.id, { obsMode: e.target.value as ObsMode })}
-                        className="rounded border border-[#2a3232] bg-[#1a2020] text-zinc-100 px-2 py-1"
-                      >
-                        <option value="full">Full slide</option>
-                        <option value="lowerthird">Lower-third (OBS key)</option>
-                      </select>
-                    ) : (
-                      <span className="text-zinc-600">—</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {a.spawned ? (
-                      <button className="rounded bg-red-600 text-white px-3 py-1 text-xs" onClick={() => handleClose(d.id)}>Close</button>
-                    ) : (
-                      <button
-                        className="rounded bg-teal-500/20 border border-teal-500/60 text-teal-200 px-3 py-1 text-xs disabled:opacity-40"
-                        disabled={a.role === "None"}
-                        onClick={() => handleSpawn(d.id)}
-                      >Spawn</button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                  </div>
+                )}
+                {isSpawned && (
+                  <div className="ml-auto flex items-center gap-1.5 text-[11px] text-teal-400">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse" />
+                    Live
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
-      <p className="mt-3 text-[11px] text-zinc-500">
+
+      <p className="text-[11px] text-zinc-500">
         Assignments are stored locally and restored on the next launch when auto-restore is enabled.
       </p>
     </div>

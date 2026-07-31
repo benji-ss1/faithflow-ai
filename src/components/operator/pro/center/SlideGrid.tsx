@@ -1,10 +1,13 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
+import * as Dialog from "@radix-ui/react-dialog";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload } from "@/lib/broadcast";
+import { updateSongSlides } from "@/lib/actions";
+import { X, Pencil } from "lucide-react";
 
 type ViewMode = "grid" | "list" | "text";
 const VIEW_MODE_KEY = "presentflow.operator.slideViewMode";
@@ -79,6 +82,41 @@ export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize
     return () => window.removeEventListener("presentflow:slide-view-mode", handler);
   }, []);
 
+  // Quick Edit — floating panel for inline slide text editing
+  const [quickEdit, setQuickEdit] = useState<{ slideIdx: number; text: string } | null>(null);
+  const [qeSaving, setQeSaving] = useState(false);
+  // App-level clipboard for cut/copy/paste within the grid
+  const slideClipboardRef = useRef<SlidePayload | null>(null);
+
+  const handleQuickEditSave = async (newText: string) => {
+    if (!quickEdit) return;
+    const trimmed = newText.trim();
+    if (!trimmed) return;
+    setQeSaving(true);
+    try {
+      if (item?.type === "song" && (item as { songId?: string }).songId) {
+        const songId = (item as { songId?: string }).songId!;
+        // Build the updated slides array: replace the text at quickEdit.slideIdx
+        const updatedSlides = slides.map((s, i) => ({
+          lyrics: i === quickEdit.slideIdx
+            ? trimmed
+            : (s.kind === "text" ? (s as { text?: string }).text ?? "" : ""),
+        }));
+        const res = await updateSongSlides(songId, updatedSlides);
+        if (!res.ok) {
+          const { toast } = await import("sonner");
+          toast.error(res.error ?? "Save failed");
+          return;
+        }
+        const { toast } = await import("sonner");
+        toast.success("Slide updated");
+      }
+      setQuickEdit(null);
+    } finally {
+      setQeSaving(false);
+    }
+  };
+
   // Task C: derive stable per-slide IDs for dnd + server call. For song
   // items we have real songSlide IDs on songSlideRows; for other item
   // types the reorder validator accepts stringified indices.
@@ -144,6 +182,7 @@ export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize
                 slide={s}
                 index={idx + 1}
                 selected={idx === ctx.previewSlideIdx}
+                canQuickEdit={item?.type === "song" && !!(item as { songId?: string }).songId}
                 onSelect={() => {
                   console.log("[click] slide", { id: slideIds[idx], idx, safeMode: safeMode() });
                   // Ignore the ghost click dnd-kit lets through right after a
@@ -168,6 +207,40 @@ export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize
                   if (safeMode()) fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => ctx.onSendSlideToLive(s));
                 }}
                 onDelete={() => ctx.onDeleteSlide?.(ctx.previewItemIdx, idx)}
+                onQuickEdit={() => {
+                  const text = s.kind === "text" ? ((s as { text?: string }).text ?? "") : "";
+                  setQuickEdit({ slideIdx: idx, text });
+                }}
+                onDuplicate={() => {
+                  void (async () => {
+                    if (item?.type === "song" && (item as { songId?: string }).songId) {
+                      const songId = (item as { songId?: string }).songId!;
+                      const newSlides = [...slides];
+                      newSlides.splice(idx + 1, 0, s);
+                      const updatedSlides = newSlides.map((sl) => ({
+                        lyrics: sl.kind === "text" ? ((sl as { text?: string }).text ?? "") : "",
+                      }));
+                      const res = await updateSongSlides(songId, updatedSlides);
+                      if (!res.ok) {
+                        const { toast } = await import("sonner");
+                        toast.error(res.error ?? "Duplicate failed");
+                      } else {
+                        const { toast } = await import("sonner");
+                        toast.success("Slide duplicated");
+                      }
+                    }
+                  })();
+                }}
+                onCopyText={() => {
+                  const text = s.kind === "text" ? ((s as { text?: string }).text ?? "") : "";
+                  if (text) {
+                    navigator.clipboard.writeText(text).then(() => {
+                      void import("sonner").then(({ toast }) => toast.success("Copied to clipboard"));
+                    }).catch(() => {
+                      void import("sonner").then(({ toast }) => toast.error("Copy failed"));
+                    });
+                  }
+                }}
               />
             ))}
           </div>
@@ -199,6 +272,72 @@ export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize
           </div>
         </div>
       )}
+
+      {/* Quick Edit Dialog — ProPresenter-style inline slide text editor */}
+      <Dialog.Root open={quickEdit !== null} onOpenChange={(o) => { if (!o) setQuickEdit(null); }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px]" />
+          <Dialog.Content
+            className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[480px] max-w-[90vw] rounded-xl bg-[var(--color-panel)] border border-[var(--color-border)] shadow-2xl flex flex-col"
+          >
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--color-border)]">
+              <Pencil className="w-4 h-4 text-[var(--color-muted-foreground)]" />
+              <span className="text-[13px] font-semibold">Quick Edit — Slide {(quickEdit?.slideIdx ?? 0) + 1}</span>
+              <Dialog.Close asChild>
+                <button type="button" className="ml-auto w-6 h-6 flex items-center justify-center rounded hover:bg-white/10 text-[var(--color-muted-foreground)]">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </Dialog.Close>
+            </div>
+            <div className="p-4">
+              <textarea
+                autoFocus
+                value={quickEdit?.text ?? ""}
+                onChange={(e) => setQuickEdit((prev) => prev ? { ...prev, text: e.target.value } : null)}
+                rows={6}
+                className="w-full resize-y bg-[var(--color-elevated)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-[13px] leading-relaxed outline-none focus:border-[var(--color-brand)] text-[var(--color-foreground)] placeholder-[var(--color-muted-foreground)]"
+                placeholder="Slide text…"
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") { setQuickEdit(null); }
+                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { void handleQuickEditSave(quickEdit?.text ?? ""); }
+                }}
+              />
+              <div className="text-[11px] text-[var(--color-muted-foreground)] mt-1">
+                ⌘↵ Save · Esc Cancel
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-[var(--color-border)]">
+              <button
+                type="button"
+                onClick={() => {
+                  if (quickEdit?.text.trim()) ctx.onSendSlideToLive({ kind: "text", text: quickEdit.text });
+                }}
+                disabled={!quickEdit?.text.trim()}
+                className="h-8 px-3 rounded-md text-[12px] font-medium bg-[var(--color-elevated)] border border-[var(--color-border)] hover:bg-white/10 text-[var(--color-foreground)] disabled:opacity-40"
+              >
+                Send Live
+              </button>
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  className="h-8 px-3 rounded-md text-[12px] font-medium bg-transparent border border-[var(--color-border)] hover:bg-white/5 text-[var(--color-muted-foreground)]"
+                  disabled={qeSaving}
+                >
+                  Cancel
+                </button>
+              </Dialog.Close>
+              <button
+                type="button"
+                onClick={() => void handleQuickEditSave(quickEdit?.text ?? "")}
+                disabled={qeSaving || !item?.type || item.type !== "song"}
+                className="h-8 px-4 rounded-md text-[12px] font-semibold bg-[var(--color-brand)] text-black hover:opacity-90 disabled:opacity-50"
+              >
+                {qeSaving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }
@@ -208,9 +347,13 @@ function SortableSlideCard(props: {
   slide: SlidePayload;
   index: number;
   selected: boolean;
+  canQuickEdit: boolean;
   onSelect: () => void;
   onDouble: () => void;
   onDelete: () => void;
+  onQuickEdit: () => void;
+  onDuplicate: () => void;
+  onCopyText: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: props.id });
@@ -225,23 +368,31 @@ function SortableSlideCard(props: {
         slide={props.slide}
         index={props.index}
         selected={props.selected}
+        canQuickEdit={props.canQuickEdit}
         onSelect={props.onSelect}
         onDouble={props.onDouble}
         onDelete={props.onDelete}
+        onQuickEdit={props.onQuickEdit}
+        onDuplicate={props.onDuplicate}
+        onCopyText={props.onCopyText}
       />
     </div>
   );
 }
 
 function SlideCard({
-  slide, index, selected, onSelect, onDouble, onDelete,
+  slide, index, selected, canQuickEdit, onSelect, onDouble, onDelete, onQuickEdit, onDuplicate, onCopyText,
 }: {
   slide: SlidePayload;
   index: number;
   selected: boolean;
+  canQuickEdit: boolean;
   onSelect: () => void;
   onDouble: () => void;
   onDelete: () => void;
+  onQuickEdit: () => void;
+  onDuplicate: () => void;
+  onCopyText: () => void;
 }) {
   return (
     <ContextMenu.Root>
@@ -278,39 +429,44 @@ function SlideCard({
         </button>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
-        <ContextMenu.Content className="min-w-[220px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl">
-          {[
-            "Quick Edit", "Edit Slide", "Disable", "Themes ▶", "Transitions…",
-            "Hot Key…", "Go to Next Timer", "Add Action ▶", "Add Media Action…",
-            "Edit Action: Timer ▶", "Remove Action: Timer", "Group ▶", "Label ▶",
-          ].map((label) => (
-            <ContextMenu.Item
-              key={label}
-              className="px-3 py-1.5 rounded outline-none text-[var(--color-muted-foreground)] data-[highlighted]:bg-[var(--color-panel)] data-[highlighted]:text-[var(--color-foreground)]"
-              onSelect={(e) => e.preventDefault()}
-            >
-              {label}
-            </ContextMenu.Item>
-          ))}
-          <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
-          <ContextMenu.Item className="px-3 py-1.5 rounded outline-none data-[highlighted]:bg-[var(--color-panel)]" onSelect={(e) => e.preventDefault()}>
-            Copy Text Style
-          </ContextMenu.Item>
-          <ContextMenu.Item className="px-3 py-1.5 rounded outline-none data-[highlighted]:bg-[var(--color-panel)]" onSelect={(e) => e.preventDefault()}>
-            Paste Text Style
-          </ContextMenu.Item>
-          <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
-          <ContextMenu.Item className="px-3 py-1.5 rounded outline-none data-[highlighted]:bg-[var(--color-panel)]" onSelect={(e) => e.preventDefault()}>Cut</ContextMenu.Item>
-          <ContextMenu.Item className="px-3 py-1.5 rounded outline-none data-[highlighted]:bg-[var(--color-panel)]" onSelect={(e) => e.preventDefault()}>Copy</ContextMenu.Item>
+        <ContextMenu.Content className="min-w-[200px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
+          {/* Quick Edit — only for song slides (non-song items have no editable text stored in DB) */}
+          {canQuickEdit && (
+            <>
+              <ContextMenu.Item
+                onSelect={onQuickEdit}
+                className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)] data-[highlighted]:text-[var(--color-foreground)]"
+              >
+                <Pencil className="w-3.5 h-3.5 text-[var(--color-muted-foreground)]" />
+                Quick Edit
+              </ContextMenu.Item>
+              <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
+            </>
+          )}
+
+          {/* Clipboard */}
           <ContextMenu.Item
-            className="px-3 py-1.5 rounded outline-none text-[var(--color-destructive)] data-[highlighted]:bg-[var(--color-panel)]"
-            onSelect={() => {
-              // R2: direct call with explicit indices (was: synthetic
-              // keydown → wrong slide by cursor).
-              onDelete();
-            }}
+            onSelect={onCopyText}
+            className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)] data-[highlighted]:text-[var(--color-foreground)]"
           >
-            Delete
+            Copy Text
+          </ContextMenu.Item>
+          {canQuickEdit && (
+            <ContextMenu.Item
+              onSelect={onDuplicate}
+              className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)] data-[highlighted]:text-[var(--color-foreground)]"
+            >
+              Duplicate Slide
+            </ContextMenu.Item>
+          )}
+          <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
+
+          {/* Destructive */}
+          <ContextMenu.Item
+            onSelect={onDelete}
+            className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer text-[var(--color-destructive)] data-[highlighted]:bg-[var(--color-panel)]"
+          >
+            Delete Slide
           </ContextMenu.Item>
         </ContextMenu.Content>
       </ContextMenu.Portal>

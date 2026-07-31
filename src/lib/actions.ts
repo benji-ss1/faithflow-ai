@@ -1112,6 +1112,7 @@ type ThemeConfig = {
     | "bottom-left" | "bottom-center" | "bottom-right"
     | "none";
   logoSizePx?: number;
+  logoUrl?: string;                        // church-uploaded logo image (presigned GET URL)
   churchNameVisible?: boolean;
   churchNamePosition?: "top" | "bottom";
   // Lower third
@@ -1135,7 +1136,7 @@ const THEME_ALLOWED_KEYS: (keyof ThemeConfig)[] = [
   "fontFamily", "fontBodyFamily", "fontSizePx", "fontSizeScripturePx",
   "fontWeight", "textColor", "textShadow", "align",
   "bgType", "bgColor", "bgColor2", "bgImageUrl", "bgVideoUrl", "bgOpacity",
-  "logoPosition", "logoSizePx", "churchNameVisible", "churchNamePosition",
+  "logoPosition", "logoSizePx", "logoUrl", "churchNameVisible", "churchNamePosition",
   "lowerThirdEnabled", "lowerThirdStyle", "lowerThirdColor",
   "scriptureShowReference", "scriptureReferencePosition", "scriptureTranslationVisible",
   "transition", "transitionType", "transitionDurationMs",

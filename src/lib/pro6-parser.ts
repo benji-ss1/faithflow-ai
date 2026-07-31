@@ -123,7 +123,12 @@ export function stripRtf(rtf: string): string {
   s = s
     .replace(/\r\n?/g, "\n")
     .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n");
+    .replace(/\n{3,}/g, "\n\n")
+    // ProPresenter sometimes emits " / " as a visual line separator inside
+    // RTF text elements. After control-word stripping these survive as literal
+    // " / " in the output. Normalise them to newlines so each segment
+    // projects on its own line rather than appearing as a slash in the lyrics.
+    .replace(/ \/ /g, "\n");
   return s.trim();
 }
 
