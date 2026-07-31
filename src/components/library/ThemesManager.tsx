@@ -7,6 +7,7 @@ import { SortableContext, useSortable, arrayMove, rectSortingStrategy } from "@d
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
 import { createTheme, updateTheme, duplicateTheme, deleteTheme, setDefaultTheme, reorderThemes } from "@/lib/actions";
+import { ThemeImportDialog } from "@/components/library/ThemeImportDialog";
 
 // Kept minimal + additive — see `type ThemeConfig` in src/lib/actions.ts for
 // the full sanitised shape. Everything below is optional; the preview + the
@@ -61,26 +62,17 @@ function get<T>(cfg: ThemeConfig, key: string, fallback: T): T {
 
 export function ThemesManager({ themes: initial, churchLogoUrl }: { themes: ThemeRow[]; churchLogoUrl?: string | null }) {
   const [themes, setThemes] = useState(initial);
-  const [creating, setCreating] = useState(false);
-  const [newName, setNewName] = useState("");
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState<ThemeRow | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   function refresh(next: ThemeRow[]) {
     setThemes(next.slice().sort((a, b) => a.name.localeCompare(b.name)));
   }
 
-  function onCreate() {
-    const name = newName.trim();
-    if (!name) return;
-    startTransition(async () => {
-      const res = await createTheme(name, DEFAULT_CONFIG);
-      if (!res.ok) { toast.error(res.error || "Could not create theme"); return; }
-      if (!res.data) { toast.error("Server returned no id"); return; }
-      refresh([...themes, { id: res.data.id, name, config: DEFAULT_CONFIG }]);
-      setNewName(""); setCreating(false);
-      toast.success(`Created "${name}"`);
-    });
+  function onNewTheme() {
+    // Open the editor immediately with a placeholder — name is set inside the editor.
+    setEditing({ id: "", name: "Untitled Theme", config: DEFAULT_CONFIG });
   }
 
   function onDuplicate(id: string) {
@@ -141,63 +133,52 @@ export function ThemesManager({ themes: initial, churchLogoUrl }: { themes: Them
   function onSaveEdit() {
     if (!editing) return;
     const target = editing;
+    const name = target.name.trim() || "Untitled Theme";
     startTransition(async () => {
-      const res = await updateTheme(target.id, { name: target.name, config: target.config });
-      if (!res.ok) { toast.error(res.error || "Could not save"); return; }
-      refresh(themes.map((t) => (t.id === target.id ? target : t)));
-      setEditing(null);
-      toast.success("Saved");
+      if (!target.id) {
+        // Brand-new theme — create it on the server.
+        const res = await createTheme(name, target.config);
+        if (!res.ok) { toast.error(res.error || "Could not create theme"); return; }
+        if (!res.data) { toast.error("Server returned no id"); return; }
+        refresh([...themes, { id: res.data.id, name, config: target.config }]);
+        setEditing(null);
+        toast.success(`Created "${name}"`);
+      } else {
+        const res = await updateTheme(target.id, { name, config: target.config });
+        if (!res.ok) { toast.error(res.error || "Could not save"); return; }
+        refresh(themes.map((t) => (t.id === target.id ? { ...target, name } : t)));
+        setEditing(null);
+        toast.success("Saved");
+      }
     });
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div className="text-sm text-muted-foreground">
           {themes.length} theme{themes.length === 1 ? "" : "s"}
         </div>
-        {creating ? (
-          <div className="flex items-center gap-2">
-            <input
-              autoFocus
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") onCreate();
-                if (e.key === "Escape") { setCreating(false); setNewName(""); }
-              }}
-              placeholder="Theme name"
-              maxLength={80}
-              className="h-10 w-56 rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-[var(--color-primary)]/70"
-            />
-            <button
-              type="button"
-              onClick={onCreate}
-              disabled={!newName.trim() || pending}
-              className="h-10 rounded-xl bg-[var(--color-primary)] px-3 text-sm font-semibold text-[var(--color-primary-foreground)] disabled:opacity-50"
-            >
-              {pending ? "…" : "Create"}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setCreating(false); setNewName(""); }}
-              className="h-10 rounded-xl border border-border px-3 text-sm text-muted-foreground hover:text-foreground"
-            >
-              Cancel
-            </button>
-          </div>
-        ) : (
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => setCreating(true)}
+            onClick={() => setImportOpen(true)}
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-border px-4 text-sm font-medium text-foreground hover:bg-accent"
+          >
+            Import from ProPresenter
+          </button>
+          <button
+            type="button"
+            onClick={onNewTheme}
             className="inline-flex h-10 items-center gap-2 rounded-xl bg-[var(--color-primary)] px-4 text-sm font-semibold text-[var(--color-primary-foreground)]"
           >
             <Plus className="h-4 w-4" /> New theme
           </button>
-        )}
+        </div>
       </div>
+      <ThemeImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
 
-      {themes.length === 0 && !creating ? (
+      {themes.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border bg-white/[0.02] p-12 text-center">
           <div className="grid h-12 w-12 place-items-center rounded-full bg-[var(--color-primary)]/10 text-[var(--color-primary)]">
             <Palette className="h-5 w-5" />
@@ -208,7 +189,7 @@ export function ThemesManager({ themes: initial, churchLogoUrl }: { themes: Them
           </p>
           <button
             type="button"
-            onClick={() => setCreating(true)}
+            onClick={onNewTheme}
             className="mt-2 inline-flex h-10 items-center gap-2 rounded-xl bg-[var(--color-primary)] px-4 text-sm font-semibold text-[var(--color-primary-foreground)]"
           >
             <Plus className="h-4 w-4" /> Create your first theme
@@ -466,12 +447,16 @@ function ThemeEditor({
       >
         <header className="flex items-center justify-between border-b border-border p-4">
           <div className="min-w-0 flex-1">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Edit theme</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              {theme.id ? "Edit theme" : "New theme"}
+            </div>
             <input
               value={theme.name}
               maxLength={80}
+              autoFocus={!theme.id}
+              placeholder="Theme name…"
               onChange={(e) => onChange({ ...theme, name: e.target.value })}
-              className="mt-0.5 w-full truncate bg-transparent text-lg font-semibold outline-none"
+              className="mt-0.5 w-full truncate bg-transparent text-lg font-semibold outline-none placeholder:text-muted-foreground/50"
             />
           </div>
           <button
@@ -832,15 +817,15 @@ function BgAssetPicker({
   maxMBOverride?: number;
 }) {
   const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const accept = kind === "image"
     ? "image/png,image/jpeg,image/webp,image/gif,image/avif"
     : "video/mp4,video/webm,video/quicktime";
-  const maxMB = maxMBOverride ?? (kind === "image" ? 10 : 100); // client-side hint; server enforces per-purpose cap
+  const maxMB = maxMBOverride ?? (kind === "image" ? 10 : 100);
 
   async function pickFile(file: File) {
     setUploading(true);
     try {
-      // Step 1: get a presigned PUT URL + the S3 key.
       const presign = await fetch("/api/media/presign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -848,14 +833,8 @@ function BgAssetPicker({
       }).then((r) => r.json()) as { url?: string; key?: string; error?: string };
       if (presign.error) throw new Error(presign.error);
       if (!presign.url || !presign.key) throw new Error("Presign response missing url or key");
-
-      // Step 2: PUT the file to S3.
       const put = await fetch(presign.url, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
       if (!put.ok) throw new Error("Upload failed");
-
-      // Step 3: get a 6-hour presigned GET URL to store in the theme config.
-      // Blob URLs (URL.createObjectURL) are transient and die on page reload;
-      // a presigned GET URL survives the working session.
       const getResult = await fetch("/api/media/url", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -863,7 +842,6 @@ function BgAssetPicker({
       }).then((r) => r.json()) as { url?: string; error?: string };
       if (getResult.error) throw new Error(getResult.error);
       if (!getResult.url) throw new Error("Could not get download URL");
-
       onUrl(getResult.url);
       toast.success(`${kind === "image" ? "Image" : "Video"} uploaded`);
     } catch (e) {
@@ -873,9 +851,33 @@ function BgAssetPicker({
     }
   }
 
+  // Use native Electron file dialog when available (desktop app); fall back
+  // to the hidden <input type="file"> otherwise.
+  async function openNativePicker() {
+    const api = typeof window !== "undefined" && (window as any).electronAPI;
+    if (api?.dialog?.openFile) {
+      const extFilters = kind === "image"
+        ? [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif", "avif"] }]
+        : [{ name: "Videos", extensions: ["mp4", "webm", "mov"] }];
+      const result = await api.dialog.openFile({ filters: extFilters, properties: ["openFile"] });
+      if (result?.canceled || !result?.filePaths?.length) return;
+      // In Electron the path is a local filesystem path — fetch as a blob.
+      try {
+        const blob = await fetch(`file://${result.filePaths[0]}`).then((r) => r.blob());
+        const fileName = result.filePaths[0].split(/[/\\]/).pop() ?? "upload";
+        await pickFile(new File([blob], fileName, { type: blob.type || "application/octet-stream" }));
+      } catch {
+        toast.error("Could not read file");
+      }
+      return;
+    }
+    // Web fallback handled by the hidden <input> click below.
+    document.getElementById(`bg-picker-${kind}-${Math.random()}`)?.click();
+  }
+
   return (
     <div className="space-y-2">
-      <Row label={label ?? `${kind === "image" ? "Image" : "Video"} URL`} hint={hint ?? `Paste a presigned URL, or upload a new file below (max ${maxMB} MB).`}>
+      <Row label={label ?? `${kind === "image" ? "Image" : "Video"} URL`} hint={hint ?? `Paste a URL or drag a file here (max ${maxMB} MB).`}>
         <input
           type="url"
           value={url}
@@ -884,19 +886,56 @@ function BgAssetPicker({
           className={inputCls}
         />
       </Row>
-      <label className={cn("flex h-10 cursor-pointer items-center justify-center rounded-md border border-dashed border-border bg-[var(--pf-admin-bg-subtle,rgba(255,255,255,0.02))] px-3 text-xs font-medium text-muted-foreground transition-colors hover:border-[var(--color-primary)]/50 hover:text-foreground", uploading && "pointer-events-none cursor-wait opacity-60")}>
-        {uploading ? "Uploading…" : `Or upload a new ${kind}…`}
+      {/* Drag-and-drop zone — works in both Electron (Finder drag) and web (file drag) */}
+      <div
+        className={cn(
+          "relative flex h-16 cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed text-xs font-medium transition-colors",
+          dragOver
+            ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
+            : "border-border bg-[var(--pf-admin-bg-subtle,rgba(255,255,255,0.02))] text-muted-foreground hover:border-[var(--color-primary)]/50 hover:text-foreground",
+          uploading && "pointer-events-none cursor-wait opacity-60",
+        )}
+        onClick={() => void openNativePicker()}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragEnter={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          const f = e.dataTransfer.files?.[0];
+          if (f) void pickFile(f);
+        }}
+      >
+        {uploading ? (
+          <span>Uploading…</span>
+        ) : (
+          <>
+            <span>{dragOver ? `Drop ${kind} here` : `Drag & drop or click to browse`}</span>
+            <span className="text-[10px] opacity-60">{kind === "image" ? "PNG, JPG, WEBP, GIF" : "MP4, WEBM, MOV"} · max {maxMB} MB</span>
+          </>
+        )}
+        {/* Hidden fallback for non-Electron / older browsers */}
         <input
           type="file"
           accept={accept}
           className="sr-only"
+          tabIndex={-1}
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) void pickFile(f);
             e.target.value = "";
           }}
         />
-      </label>
+      </div>
+      {url && (
+        <button
+          type="button"
+          onClick={() => onUrl("")}
+          className="text-[11px] text-destructive hover:opacity-80"
+        >
+          Remove {kind}
+        </button>
+      )}
     </div>
   );
 }

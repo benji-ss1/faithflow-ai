@@ -355,3 +355,69 @@ export async function finalizeImport(migrationJobId: string): Promise<Result<{
   revalidatePath("/library/media");
   return { ok: true, data: { added: { songs: songsAdded, media: mediaAdded }, skipped: songsSkipped } };
 }
+
+/**
+ * Extract background images/videos from ProPresenter files and upload them
+ * to S3. Returns presigned GET URLs for each background so the caller can
+ * create themes from them without a second round-trip.
+ *
+ * This is the server-side half of the "Import from ProPresenter" flow in the
+ * ThemeImportDialog — it intentionally SKIPS song insertion so the dialog is
+ * purely about backgrounds/themes, not lyrics.
+ */
+export async function extractThemeBackgrounds(input: { drop: FileDrop[] }): Promise<Result<{
+  backgrounds: {
+    fileName: string;
+    kind: "image" | "video";
+    url: string;       // 6-hour presigned GET URL ready to use in a theme config
+    sizeBytes: number;
+  }[];
+  warnings: { file: string; warnings: string[] }[];
+}>> {
+  const user = await requireUser();
+
+  const total = input.drop.reduce((sum, f) => sum + Math.ceil(f.b64.length * 0.75), 0);
+  if (total > MAX_TOTAL_BYTES) {
+    return { ok: false, error: `Drop too large (${Math.round(total / 1024 / 1024)} MB). Use smaller batches.` };
+  }
+  if (input.drop.length === 0) return { ok: false, error: "No files provided" };
+
+  const buffers = input.drop.map((f) => ({ path: f.path, contents: Buffer.from(f.b64, "base64") }));
+  const output: PipelineOutput = runImportPipeline(buffers);
+
+  if (output.mediaAssets.length === 0) {
+    return {
+      ok: true,
+      data: {
+        backgrounds: [],
+        warnings: [
+          ...output.warnings,
+          { file: "*", warnings: ["No background images or videos were found in the provided file(s)."] },
+        ],
+      },
+    };
+  }
+
+  if (!isS3Configured()) {
+    return { ok: false, error: "S3 is not configured on this deployment — background upload is unavailable." };
+  }
+
+  const { presignGet } = await import("./s3");
+  const backgrounds: { fileName: string; kind: "image" | "video"; url: string; sizeBytes: number }[] = [];
+
+  for (const m of output.mediaAssets.slice(0, 50)) { // cap at 50 per batch
+    try {
+      const ext = m.fileName.split(".").pop() || "bin";
+      const uuid = randomUUID();
+      const key = `${user.churchId}/media/${uuid}.${ext}`;
+      await putBuffer(key, m.contents, m.mimeType);
+      const url = await presignGet(key, 6 * 3600);
+      const kind = m.mimeType.startsWith("video/") ? "video" as const : "image" as const;
+      backgrounds.push({ fileName: m.fileName, kind, url, sizeBytes: m.contents.length });
+    } catch (e) {
+      output.warnings.push({ file: m.fileName, warnings: [e instanceof Error ? e.message : "Upload failed"] });
+    }
+  }
+
+  return { ok: true, data: { backgrounds, warnings: output.warnings } };
+}

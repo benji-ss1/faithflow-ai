@@ -124,11 +124,15 @@ export function stripRtf(rtf: string): string {
     .replace(/\r\n?/g, "\n")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
-    // ProPresenter sometimes emits " / " as a visual line separator inside
-    // RTF text elements. After control-word stripping these survive as literal
-    // " / " in the output. Normalise them to newlines so each segment
-    // projects on its own line rather than appearing as a slash in the lyrics.
-    .replace(/ \/ /g, "\n");
+    // ProPresenter sometimes emits " / " or " | " as visual line separators
+    // inside RTF text elements. After control-word stripping these survive as
+    // literal characters. Normalise them to newlines so each segment projects
+    // on its own line rather than appearing as a slash/pipe in the lyrics.
+    .replace(/ \/ /g, "\n")
+    .replace(/ \| /g, "\n")
+    // Pipe immediately adjacent to word (e.g. "worthy?|") — also a separator
+    .replace(/([^\s])\|([^\s])/g, "$1\n$2")
+    .replace(/([^\s])\|(\s)/g, "$1\n");
   return s.trim();
 }
 

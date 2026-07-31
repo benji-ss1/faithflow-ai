@@ -183,6 +183,9 @@ export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize
                 index={idx + 1}
                 selected={idx === ctx.previewSlideIdx}
                 canQuickEdit={item?.type === "song" && !!(item as { songId?: string }).songId}
+                onSendLive={() => {
+                  fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => ctx.onSendSlideToLive(s));
+                }}
                 onSelect={() => {
                   console.log("[click] slide", { id: slideIds[idx], idx, safeMode: safeMode() });
                   // Ignore the ghost click dnd-kit lets through right after a
@@ -354,6 +357,7 @@ function SortableSlideCard(props: {
   onQuickEdit: () => void;
   onDuplicate: () => void;
   onCopyText: () => void;
+  onSendLive: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: props.id });
@@ -375,13 +379,14 @@ function SortableSlideCard(props: {
         onQuickEdit={props.onQuickEdit}
         onDuplicate={props.onDuplicate}
         onCopyText={props.onCopyText}
+        onSendLive={props.onSendLive}
       />
     </div>
   );
 }
 
 function SlideCard({
-  slide, index, selected, canQuickEdit, onSelect, onDouble, onDelete, onQuickEdit, onDuplicate, onCopyText,
+  slide, index, selected, canQuickEdit, onSelect, onDouble, onDelete, onQuickEdit, onDuplicate, onCopyText, onSendLive,
 }: {
   slide: SlidePayload;
   index: number;
@@ -393,6 +398,7 @@ function SlideCard({
   onQuickEdit: () => void;
   onDuplicate: () => void;
   onCopyText: () => void;
+  onSendLive: () => void;
 }) {
   return (
     <ContextMenu.Root>
@@ -429,19 +435,26 @@ function SlideCard({
         </button>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
-        <ContextMenu.Content className="min-w-[200px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
+        <ContextMenu.Content className="min-w-[220px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
+          {/* Send to output — available for every slide type */}
+          <ContextMenu.Item
+            onSelect={onSendLive}
+            className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)] data-[highlighted]:text-[var(--color-foreground)] font-medium"
+          >
+            <span className="w-3.5 h-3.5 rounded-full bg-[var(--color-brand)] inline-block shrink-0" />
+            Send to Live
+          </ContextMenu.Item>
+          <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
+
           {/* Quick Edit — only for song slides (non-song items have no editable text stored in DB) */}
           {canQuickEdit && (
-            <>
-              <ContextMenu.Item
-                onSelect={onQuickEdit}
-                className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)] data-[highlighted]:text-[var(--color-foreground)]"
-              >
-                <Pencil className="w-3.5 h-3.5 text-[var(--color-muted-foreground)]" />
-                Quick Edit
-              </ContextMenu.Item>
-              <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
-            </>
+            <ContextMenu.Item
+              onSelect={onQuickEdit}
+              className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)] data-[highlighted]:text-[var(--color-foreground)]"
+            >
+              <Pencil className="w-3.5 h-3.5 text-[var(--color-muted-foreground)]" />
+              Quick Edit
+            </ContextMenu.Item>
           )}
 
           {/* Clipboard */}

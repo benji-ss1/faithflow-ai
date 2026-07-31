@@ -1,12 +1,13 @@
 "use client";
 import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { ExternalLink, Palette, X, Plus } from "lucide-react";
+import { ExternalLink, Palette, X, Plus, Upload } from "lucide-react";
 import { useTier } from "@/hooks/useTier";
 import { canAccess } from "@/lib/tier";
 import { LockedTile } from "@/components/tier/MaxUpgradePrompt";
 import { useCustomThemes, useBlankSlides } from "@/hooks/useCustomThemes";
 import { cn } from "@/lib/utils";
+import { ThemeImportDialog } from "@/components/library/ThemeImportDialog";
 
 // P10: Mock premium theme thumbnails. Locked behind Max.
 const PREMIUM_THEMES: Array<{ label: string; gradient: string }> = [
@@ -41,6 +42,7 @@ export function ThemesTab() {
   const canPremiumThemes = tier !== null && canAccess(tier, "premium-themes");
   const { themes: customThemes, add: addCustomTheme, remove: removeCustomTheme } = useCustomThemes();
   const { slides: blankSlides, add: addBlankSlide, remove: removeBlankSlide } = useBlankSlides();
+  const [importOpen, setImportOpen] = useState(false);
 
   // Fetch real DB themes from the API
   const [dbThemes, setDbThemes] = useState<DbTheme[]>([]);
@@ -58,7 +60,18 @@ export function ThemesTab() {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="eyebrow">Themes</div>
+      <ThemeImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
+      <div className="flex items-center justify-between">
+        <div className="eyebrow">Themes</div>
+        <button
+          type="button"
+          onClick={() => setImportOpen(true)}
+          title="Import backgrounds from ProPresenter"
+          className="flex items-center gap-1 h-6 px-2 rounded border border-[var(--color-border)] text-[10px] text-[var(--color-muted-foreground)] hover:bg-[var(--color-elevated)] transition-colors"
+        >
+          <Upload className="w-2.5 h-2.5" /> Import
+        </button>
+      </div>
 
       {/* DB themes from /library/themes — real, editable, church-owned */}
       {dbLoading ? (
@@ -113,30 +126,37 @@ export function ThemesTab() {
               );
             })}
           </div>
-          <a
-            href="/library/themes"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] transition-colors"
-          >
-            <ExternalLink className="w-3 h-3" />
-            Edit themes in full editor
-          </a>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => { window.location.href = "/library/themes"; }}
+              className="flex items-center gap-1.5 text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] transition-colors"
+            >
+              <ExternalLink className="w-3 h-3" />
+              Edit themes in full editor
+            </button>
+            <button
+              type="button"
+              onClick={() => { window.location.href = "/library/themes"; }}
+              className="ml-auto flex items-center gap-1 h-6 px-2 rounded border border-[var(--color-border)] text-[10px] text-[var(--color-muted-foreground)] hover:bg-[var(--color-elevated)] transition-colors"
+            >
+              <Plus className="w-2.5 h-2.5" /> New
+            </button>
+          </div>
         </>
       ) : (
         <>
           <div className="text-[10px] text-[var(--color-muted-foreground)] leading-relaxed">
             No saved themes yet. Create one to set colours, fonts, backgrounds, and logo placement.
           </div>
-          <a
-            href="/library/themes"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-center gap-1.5 h-8 rounded border border-[var(--color-border)] text-[11px] text-[var(--color-muted-foreground)] hover:bg-[var(--color-elevated)] transition-colors"
+          <button
+            type="button"
+            onClick={() => { window.location.href = "/library/themes"; }}
+            className="flex items-center justify-center gap-1.5 h-8 rounded border border-[var(--color-border)] text-[11px] text-[var(--color-muted-foreground)] hover:bg-[var(--color-elevated)] transition-colors w-full"
           >
             <Palette className="w-3 h-3" />
             Create your first theme
-          </a>
+          </button>
         </>
       )}
 

@@ -1,0 +1,4 @@
+# Output directory for the Tier 3 Swift audio helper binary.
+# Build it with: bash native/macos/build.sh
+# When PresentFlowAudioHelper is absent here, the Electron main process
+# falls back to the ffmpeg capture tier automatically (captureTier.ts).
