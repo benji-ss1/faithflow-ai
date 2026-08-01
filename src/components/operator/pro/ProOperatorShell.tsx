@@ -31,6 +31,7 @@ import { BibleMode } from "./center/BibleMode";
 import { SongsBrowser } from "./center/SongsBrowser";
 import { MediaBrowser } from "./center/MediaBrowser";
 import { LivePreviewPanel } from "./right/LivePreviewPanel";
+import { VideoControlBar } from "../VideoControlBar";
 import { OutputRoutingRow } from "./right/OutputRoutingRow";
 // 2026-07-25 Phase 3: RightTabs + AIDetectionsPanel replaced by
 // RightIconBar. AIDetectionsPanel still imported transitively (via
@@ -3250,6 +3251,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           <OperatorErrorBoundary fallbackLabel="Live preview panel error">
             <LivePreviewPanel ctx={ctx} />
           </OperatorErrorBoundary>
+          {ctx.liveSlide?.kind === "video" && <VideoControlBar />}
           {/* Change 3 (revised 2026-07-30) — transcript render block.
               TranscriptDisplay wraps the RICH renderer (yellow
               auto-correction spans + hover, orange trigger-phrase

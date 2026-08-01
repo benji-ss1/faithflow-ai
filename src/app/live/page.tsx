@@ -85,6 +85,8 @@ export default function LivePage() {
   const [warning, setWarning] = useState<string | null>(null);
   const [pairBadge, setPairBadge] = useState<string | null>(null);
   const lastMsgAt = useRef<number>(Date.now());
+  const videoElRef = useRef<HTMLVideoElement | null>(null);
+  const broadcastChRef = useRef<BroadcastChannel | null>(null);
 
   useEffect(() => {
     try {
@@ -103,6 +105,7 @@ export default function LivePage() {
     // re-open. Uses a local mutable holder so both the message handler and
     // the reconnect timer see the current instance.
     let ch: BroadcastChannel | null = openLiveChannel();
+    broadcastChRef.current = ch;
     let reopenCount = 0;
     if (!ch) {
       setWarning("This browser doesn't support BroadcastChannel — projector cannot sync with the operator window.");
@@ -157,6 +160,20 @@ export default function LivePage() {
         } else if (msg.type === "timer") {
           if ("clear" in msg.overlay && msg.overlay.clear) setTimerOverlay(null);
           else { setTimerOverlay(msg.overlay); lastTimerMsgAt.current = Date.now(); }
+        } else if (msg.type === "media-control") {
+          const el = videoElRef.current;
+          if (!el) return;
+          switch (msg.command) {
+            case "play": el.play().catch(() => {}); break;
+            case "pause": el.pause(); break;
+            case "seek": if (typeof msg.value === "number") el.currentTime = msg.value; break;
+            case "volume": if (typeof msg.value === "number") el.volume = Math.max(0, Math.min(1, msg.value)); break;
+            case "mute": el.muted = true; break;
+            case "unmute": el.muted = false; break;
+            case "restart": el.currentTime = 0; el.play().catch(() => {}); break;
+            case "loop": el.loop = true; break;
+            case "unloop": el.loop = false; break;
+          }
         }
       } catch (err) {
         console.warn("[live] message handler error:", err instanceof Error ? err.message : String(err));
@@ -193,6 +210,7 @@ export default function LivePage() {
       if (stale > 5000 && reopenCount < 20) {
         try { ch?.close(); } catch { /* ignore */ }
         ch = openLiveChannel();
+        broadcastChRef.current = ch;
         if (ch) {
           reopenCount += 1;
           attachHandlers(ch);
@@ -267,6 +285,34 @@ export default function LivePage() {
     };
   }, []);
 
+  // Media-status reporting: when a video is live, report playback state
+  // back to the operator console at ~2Hz so the VideoControlBar stays in sync.
+  useEffect(() => {
+    if (slide.kind !== "video") return;
+    const iv = setInterval(() => {
+      const el = videoElRef.current;
+      const ch = broadcastChRef.current;
+      if (!el || !ch) return;
+      try {
+        ch.postMessage({
+          type: "media-status",
+          currentTime: el.currentTime,
+          duration: Number.isFinite(el.duration) ? el.duration : 0,
+          paused: el.paused,
+          volume: el.volume,
+          muted: el.muted,
+          loop: el.loop,
+        } as LiveMessage);
+      } catch {}
+    }, 500);
+    return () => clearInterval(iv);
+  }, [slide.kind]);
+
+  // Callback to capture the video element ref from SlideRenderer
+  const handleVideoRef = useCallback((el: HTMLVideoElement | null) => {
+    videoElRef.current = el;
+  }, []);
+
   const goFullscreen = useCallback(async () => {
     // Fullscreen API rejects with DOMException. Wrap so nothing bubbles up
     // as an unhandled promise rejection (which some browsers stringify as
@@ -335,7 +381,7 @@ export default function LivePage() {
             }}
           >
             <TransitionWrapper identityKey={slideIdentity(slide)} transition={transition}>
-              <SlideRenderer slide={slide} projectorFit videoMuted={false} />
+              <SlideRenderer slide={slide} projectorFit videoMuted={false} onVideoRef={handleVideoRef} />
             </TransitionWrapper>
           </div>
           <AnnouncementLayer ann={announcement} />

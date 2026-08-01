@@ -3,7 +3,7 @@
 export type SlidePayload =
   | { kind: "text"; text: string; bgColor?: string }
   | { kind: "image"; url: string; fit?: "contain" | "cover" }
-  | { kind: "video"; url: string; fit?: "contain" | "cover" }
+  | { kind: "video"; url: string; fit?: "contain" | "cover"; loop?: boolean; volume?: number }
   | { kind: "blank"; bgColor?: string }
   | { kind: "logo"; url?: string }
   | { kind: "empty" };
@@ -117,7 +117,9 @@ export type LiveMessage =
   | { type: "pong"; slide: SlidePayload }
   | { type: "output"; state: OutputState }             // new: full multi-surface state
   | { type: "message"; overlay: MessageOverlay }       // P2: transient message overlay
-  | { type: "timer"; overlay: TimerOverlay };          // F1: timer overlay on outputs
+  | { type: "timer"; overlay: TimerOverlay }            // F1: timer overlay on outputs
+  | { type: "media-control"; command: "play" | "pause" | "seek" | "volume" | "mute" | "unmute" | "restart" | "loop" | "unloop"; value?: number }
+  | { type: "media-status"; currentTime: number; duration: number; paused: boolean; volume: number; muted: boolean; loop: boolean };
 
 /**
  * Runtime validator for LiveMessage. Renderer pages should NEVER trust an
@@ -159,6 +161,10 @@ export function isValidLiveMessage(m: unknown): m is LiveMessage {
       return isValidMessageOverlay((m as { overlay?: unknown }).overlay);
     case "timer":
       return isValidTimerOverlay((m as { overlay?: unknown }).overlay);
+    case "media-control":
+      return isValidMediaControl(m);
+    case "media-status":
+      return isValidMediaStatus(m);
     default:
       return false;
   }
@@ -178,6 +184,27 @@ export function isValidTimerOverlay(overlay: unknown): overlay is TimerOverlay {
   if (o.kind !== "countdown" && o.kind !== "elapsed") return false;
   if (o.name != null && (typeof o.name !== "string" || o.name.length > 120)) return false;
   if (!isValidOverlayPosition(o.position)) return false;
+  return true;
+}
+
+const MEDIA_COMMANDS = new Set(["play", "pause", "seek", "volume", "mute", "unmute", "restart", "loop", "unloop"]);
+function isValidMediaControl(m: unknown): boolean {
+  if (!m || typeof m !== "object") return false;
+  const o = m as Record<string, unknown>;
+  if (typeof o.command !== "string" || !MEDIA_COMMANDS.has(o.command)) return false;
+  if (o.value !== undefined && (typeof o.value !== "number" || !Number.isFinite(o.value))) return false;
+  return true;
+}
+
+function isValidMediaStatus(m: unknown): boolean {
+  if (!m || typeof m !== "object") return false;
+  const o = m as Record<string, unknown>;
+  if (typeof o.currentTime !== "number" || !Number.isFinite(o.currentTime)) return false;
+  if (typeof o.duration !== "number" || !Number.isFinite(o.duration)) return false;
+  if (typeof o.paused !== "boolean") return false;
+  if (typeof o.volume !== "number" || !Number.isFinite(o.volume)) return false;
+  if (typeof o.muted !== "boolean") return false;
+  if (typeof o.loop !== "boolean") return false;
   return true;
 }
 

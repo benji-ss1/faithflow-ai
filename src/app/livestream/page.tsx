@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefCallback } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, isValidLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec } from "@/lib/broadcast";
@@ -49,6 +49,8 @@ export default function LivestreamPage() {
   const [pairBadge, setPairBadge] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(true);
   const lastMsgAt = useRef<number>(Date.now());
+  const videoElRef = useRef<HTMLVideoElement | null>(null);
+  const broadcastChRef = useRef<BroadcastChannel | null>(null);
 
   // ?bg=transparent → strip our own bg so OBS chroma / alpha keys directly
   const [transparent, setTransparent] = useState(false);
@@ -74,6 +76,7 @@ export default function LivestreamPage() {
 
   useEffect(() => {
     let ch: BroadcastChannel | null = openLiveChannel();
+    broadcastChRef.current = ch;
     let reopenCount = 0;
     if (!ch) return;
     const onMessage = (e: MessageEvent) => {
@@ -111,6 +114,20 @@ export default function LivestreamPage() {
         } else if (msg.type === "timer") {
           if ("clear" in msg.overlay && msg.overlay.clear) setTimerOverlay(null);
           else setTimerOverlay(msg.overlay);
+        } else if (msg.type === "media-control") {
+          const el = videoElRef.current;
+          if (!el) return;
+          switch (msg.command) {
+            case "play": el.play().catch(() => {}); break;
+            case "pause": el.pause(); break;
+            case "seek": if (typeof msg.value === "number") el.currentTime = msg.value; break;
+            case "volume": if (typeof msg.value === "number") el.volume = Math.max(0, Math.min(1, msg.value)); break;
+            case "mute": el.muted = true; break;
+            case "unmute": el.muted = false; break;
+            case "restart": el.currentTime = 0; el.play().catch(() => {}); break;
+            case "loop": el.loop = true; break;
+            case "unloop": el.loop = false; break;
+          }
         }
       } catch (err) {
         console.warn("[livestream] message handler error:", err instanceof Error ? err.message : String(err));
@@ -181,6 +198,10 @@ export default function LivestreamPage() {
     return () => clearTimeout(t);
   }, []);
 
+  const handleVideoRef = useCallback((el: HTMLVideoElement | null) => {
+    videoElRef.current = el;
+  }, []);
+
   const goFullscreen = useCallback(async () => {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
@@ -219,10 +240,10 @@ export default function LivestreamPage() {
         <>
           {transitionsEnabled ? (
             <TransitionWrapper identityKey={liveIdentity(slide)} transition={transition}>
-              <SlideRenderer slide={slide} videoMuted={false} />
+              <SlideRenderer slide={slide} videoMuted={false} onVideoRef={handleVideoRef} />
             </TransitionWrapper>
           ) : (
-            <SlideRenderer slide={slide} videoMuted={false} />
+            <SlideRenderer slide={slide} videoMuted={false} onVideoRef={handleVideoRef} />
           )}
           <AnnouncementLayer ann={announcement} />
           {lowerThird && (

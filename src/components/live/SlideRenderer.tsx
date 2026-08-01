@@ -1,8 +1,9 @@
 "use client";
+import { useEffect, useRef, useCallback } from "react";
 import type { SlidePayload } from "@/lib/broadcast";
 import { AutoFitText } from "./AutoFitText";
 
-export function SlideRenderer({ slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true }: {
+export function SlideRenderer({ slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef }: {
   slide: SlidePayload;
   className?: string;
   // 2026-07-25: pass-through to AutoFitText for text slides. Grid cards
@@ -18,6 +19,9 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
   // and thumbnails. The /live and /livestream routes pass false to enable audio.
   // Electron's autoplay policy allows unmuted autoplay without user gesture.
   videoMuted?: boolean;
+  // 2026-08-01: expose the <video> element to the parent (e.g. /live page)
+  // so it can apply media-control commands and report media-status.
+  onVideoRef?: (el: HTMLVideoElement | null) => void;
 }) {
   const base = "w-full h-full flex items-center justify-center overflow-hidden";
 
@@ -91,9 +95,12 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
   if (slide.kind === "video") {
     return (
       <div className={`${base} bg-black ${className || ""}`}>
-        <video src={slide.url} autoPlay loop muted={videoMuted} playsInline
+        <video src={slide.url} autoPlay loop={slide.loop !== false} muted={videoMuted} playsInline
                onError={(e) => console.warn("[slide] video error:", (e.currentTarget as HTMLVideoElement).error?.message || "unknown")}
-               ref={(el) => { if (el) el.play().catch((err) => console.warn("[slide] video play blocked:", err instanceof Error ? err.message : String(err))); }}
+               ref={(el) => {
+                 if (el) el.play().catch((err) => console.warn("[slide] video play blocked:", err instanceof Error ? err.message : String(err)));
+                 onVideoRef?.(el);
+               }}
                style={{
                  maxWidth: "100%",
                  maxHeight: "100%",

@@ -332,7 +332,7 @@ export function AIDetectionsPanel({ ctx, sections }: { ctx: OperatorShellCtx; se
         return;
       }
       dispatchInternal("presentflow:bible-goto", {
-        book: row.book, chapter: row.chapter, verseStart: row.verseStart, verseEnd: row.verseEnd, live: false,
+        book: row.book, chapter: row.chapter, verseStart: row.verseStart, verseEnd: row.verseEnd, live: true,
       });
       toast.success(`Loaded ${row.key}`);
     } catch {
