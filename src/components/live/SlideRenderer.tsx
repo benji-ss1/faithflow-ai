@@ -93,27 +93,59 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
   }
 
   if (slide.kind === "video") {
-    return (
-      <div className={`${base} bg-black ${className || ""}`}>
-        <video src={slide.url} autoPlay loop={slide.loop !== false} muted={videoMuted} playsInline
-               onError={(e) => console.warn("[slide] video error:", (e.currentTarget as HTMLVideoElement).error?.message || "unknown")}
-               ref={(el) => {
-                 if (el) el.play().catch((err) => console.warn("[slide] video play blocked:", err instanceof Error ? err.message : String(err)));
-                 onVideoRef?.(el);
-               }}
-               style={{
-                 maxWidth: "100%",
-                 maxHeight: "100%",
-                 width: "auto",
-                 height: "auto",
-                 objectFit: slide.fit === "cover" ? "cover" : "contain",
-                 objectPosition: "center",
-                 display: "block",
-                 margin: "auto",
-               }} />
-      </div>
-    );
+    return <VideoSlide slide={slide} base={base} className={className} videoMuted={videoMuted} onVideoRef={onVideoRef} />;
   }
 
   return null;
+}
+
+/** Extracted so we can use hooks (useRef/useCallback) for stable ref handling.
+ *  The inline ref callback in the parent was calling el.play() on every render,
+ *  which auto-unpaused the video whenever React re-rendered. */
+function VideoSlide({ slide, base, className, videoMuted, onVideoRef }: {
+  slide: Extract<SlidePayload, { kind: "video" }>;
+  base: string;
+  className?: string;
+  videoMuted: boolean;
+  onVideoRef?: (el: HTMLVideoElement | null) => void;
+}) {
+  const hasAutoPlayed = useRef(false);
+  const lastUrl = useRef(slide.url);
+
+  // Reset auto-play flag when the video URL changes (new video should auto-play)
+  if (slide.url !== lastUrl.current) {
+    lastUrl.current = slide.url;
+    hasAutoPlayed.current = false;
+  }
+
+  const setRef = useCallback((el: HTMLVideoElement | null) => {
+    if (el && !hasAutoPlayed.current) {
+      hasAutoPlayed.current = true;
+      el.play().catch((err) => console.warn("[slide] video play blocked:", err instanceof Error ? err.message : String(err)));
+    }
+    onVideoRef?.(el);
+  }, [onVideoRef]);
+
+  return (
+    <div className={`${base} bg-black ${className || ""}`}>
+      <video
+        src={slide.url}
+        loop={slide.loop !== false}
+        muted={videoMuted}
+        playsInline
+        onError={(e) => console.warn("[slide] video error:", (e.currentTarget as HTMLVideoElement).error?.message || "unknown")}
+        ref={setRef}
+        style={{
+          maxWidth: "100%",
+          maxHeight: "100%",
+          width: "auto",
+          height: "auto",
+          objectFit: slide.fit === "cover" ? "cover" : "contain",
+          objectPosition: "center",
+          display: "block",
+          margin: "auto",
+        }}
+      />
+    </div>
+  );
 }

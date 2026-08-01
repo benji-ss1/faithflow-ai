@@ -117,9 +117,9 @@ export async function openMultiChannelCapture(
     audio: {
       deviceId: { exact: deviceId },
       channelCount: { ideal: requestedChannels },
-      echoCancellation: false,
-      noiseSuppression: false,
-      autoGainControl: false,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
     },
   });
 

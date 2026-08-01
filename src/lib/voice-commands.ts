@@ -152,11 +152,11 @@ export function audioConstraintsFor(
   sourceType?: AudioSourceType,
 ): MediaStreamConstraints {
   const type = sourceType ?? readAudioSourceType();
-  const dspOn = type === "microphone";
+  void type; // retained for future per-source tuning
   const base: MediaTrackConstraints = {
-    echoCancellation: dspOn,
-    noiseSuppression: dspOn,
-    autoGainControl: dspOn,
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
     sampleRate: 16000,
   };
   // 2026-07-26 mixer-USB fix — professional digital mixers (Allen & Heath
