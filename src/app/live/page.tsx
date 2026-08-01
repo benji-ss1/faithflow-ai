@@ -335,7 +335,7 @@ export default function LivePage() {
             }}
           >
             <TransitionWrapper identityKey={slideIdentity(slide)} transition={transition}>
-              <SlideRenderer slide={slide} projectorFit />
+              <SlideRenderer slide={slide} projectorFit videoMuted={false} />
             </TransitionWrapper>
           </div>
           <AnnouncementLayer ann={announcement} />

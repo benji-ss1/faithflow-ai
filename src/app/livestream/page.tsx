@@ -219,10 +219,10 @@ export default function LivestreamPage() {
         <>
           {transitionsEnabled ? (
             <TransitionWrapper identityKey={liveIdentity(slide)} transition={transition}>
-              <SlideRenderer slide={slide} />
+              <SlideRenderer slide={slide} videoMuted={false} />
             </TransitionWrapper>
           ) : (
-            <SlideRenderer slide={slide} />
+            <SlideRenderer slide={slide} videoMuted={false} />
           )}
           <AnnouncementLayer ann={announcement} />
           {lowerThird && (
