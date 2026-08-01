@@ -80,6 +80,13 @@ export interface MultiChannelCapture {
    * The returned stream is owned by this capture and is torn down on close().
    */
   extractChannelStream(channels: number[]): MediaStream;
+  /**
+   * Hot-swap the active channel routing without restarting the capture.
+   * Disconnects previously extracted gain/merger nodes, creates new ones
+   * for the requested channels, and returns the new MediaStream.
+   * The AudioContext, splitter, and analysers stay connected — zero gap.
+   */
+  switchChannel(channels: number[]): MediaStream;
   /** Fully tear down: disconnect nodes, close context, stop tracks. */
   close(): void;
 }
@@ -264,6 +271,21 @@ export async function openMultiChannelCapture(
     return dest.stream;
   };
 
+  const switchChannel = (channels: number[]): MediaStream => {
+    // Tear down all previously extracted nodes (but NOT the splitter/analysers).
+    for (const node of extractedNodes) {
+      try { node.disconnect(); } catch { /* noop */ }
+    }
+    for (const dest of extractedDestinations) {
+      try { dest.disconnect(); } catch { /* noop */ }
+      try { dest.stream.getTracks().forEach((t) => t.stop()); } catch { /* noop */ }
+    }
+    extractedNodes.length = 0;
+    extractedDestinations.length = 0;
+    // Create new extraction for the requested channels.
+    return extractChannelStream(channels);
+  };
+
   const close = (): void => {
     for (const node of extractedNodes) {
       try {
@@ -318,6 +340,7 @@ export async function openMultiChannelCapture(
     audioContext,
     readLevels,
     extractChannelStream,
+    switchChannel,
     close,
   };
 }

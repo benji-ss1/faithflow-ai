@@ -28,6 +28,10 @@ export interface DeviceChannelPref {
   autoDetected: boolean;
   /** Date.now() at last write; enables future TTL or ordering. */
   updatedAt: number;
+  /** Operator-assigned labels for channels, e.g. { 0: "Pastor", 2: "Lectern" }. */
+  channelLabels?: Record<number, string>;
+  /** When true, auto-follow the loudest vocal channel. */
+  autoFollow?: boolean;
 }
 
 export const DEVICE_CHANNEL_PREFS_KEY =

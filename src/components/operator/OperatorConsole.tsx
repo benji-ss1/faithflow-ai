@@ -361,7 +361,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     hasSongContext: false, // updated below via ref
   }), [plan.id, planSongIds, plan]);
 
-  const { state: audio, start: startAudio, stop: stopAudio, resume: resumeAudio, restart: restartAudio, warmStart: warmStartAudio, dismissDetection, dismissSong, dismissCommand, dismissSuggestion, simulateTranscript } = useAudioStream(plan.id, {
+  const { state: audio, start: startAudio, stop: stopAudio, resume: resumeAudio, restart: restartAudio, warmStart: warmStartAudio, dismissDetection, dismissSong, dismissCommand, dismissSuggestion, simulateTranscript, multiChannelCapture, currentDeviceId } = useAudioStream(plan.id, {
     library: songLibrary,
     getDetectContext,
   });
@@ -1214,6 +1214,8 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     autoApproveOn: autoApprove.enabled,
     autoSendToLive: autoApprove.autoSendToLive,
     audio,
+    multiChannelCapture: multiChannelCapture ?? null,
+    currentDeviceId: currentDeviceId ?? null,
     onListenToggle: () => {
       // Persist the operator's ON/OFF intent so the next app load resumes
       // listening automatically (2026-07-25 Bug-3 auto-start above).

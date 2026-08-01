@@ -619,6 +619,9 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const audioCtxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
+  // Source node feeding the worklet — kept in a ref so hot-swap channel
+  // switching can disconnect it and create a new source without restarting.
+  const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
   // 2026-07-27 per-channel routing — when the operator picks a specific
   // channel or stereo pair in the mixer picker, we open a
   // MultiChannelCapture instead of the raw sum-all getUserMedia stream.
@@ -862,6 +865,8 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     try { workletNodeRef.current?.port?.close?.(); } catch { /* ignore */ }
     try { workletNodeRef.current?.disconnect(); } catch { /* ignore */ }
     workletNodeRef.current = null;
+    try { sourceNodeRef.current?.disconnect(); } catch { /* ignore */ }
+    sourceNodeRef.current = null;
     try { streamRef.current?.getTracks().forEach((t) => { t.stop(); t.enabled = false; }); } catch { /* ignore */ }
     streamRef.current = null;
     try { wsRef.current?.send(JSON.stringify({ type: "stop" })); } catch { /* ignore */ }
@@ -2077,6 +2082,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       if (audioCtx.state === "suspended") await audioCtx.resume();
       setStage("audioctx_ready"); log("4c audioctx", { state: audioCtx.state, sampleRate: audioCtx.sampleRate });
       const source = audioCtx.createMediaStreamSource(stream);
+      sourceNodeRef.current = source;
 
       // Load inline worklet: downsamples to Int16 at 16 kHz and posts to main
       // thread. If the AudioContext is not natively 16 kHz (Bluetooth path),
@@ -2573,6 +2579,33 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       if (!detail || typeof detail.deviceId !== "string") return;
       const currentId = currentDeviceIdRef.current;
       if (!currentId || detail.deviceId !== currentId) return;
+      // Hot-swap: if we have an active MultiChannelCapture, swap the channel
+      // routing without restarting the entire pipeline (zero audio gap).
+      const capture = multiChannelCaptureRef.current;
+      const audioCtx = audioCtxRef.current;
+      const workletNode = workletNodeRef.current;
+      const oldSource = sourceNodeRef.current;
+      if (capture && audioCtx && workletNode && oldSource) {
+        const pref = readDeviceChannelPref(detail.deviceId);
+        if (pref && pref.mode !== "sum-all" && pref.selectedChannels.length > 0) {
+          try {
+            const channels = pref.mode === "mono"
+              ? [pref.selectedChannels[0]!]
+              : pref.selectedChannels.slice(0, 2);
+            const newStream = capture.switchChannel(channels);
+            // Disconnect old source → create new source → connect to worklet
+            try { oldSource.disconnect(); } catch { /* noop */ }
+            const newSource = audioCtx.createMediaStreamSource(newStream);
+            newSource.connect(workletNode);
+            sourceNodeRef.current = newSource;
+            streamRef.current = newStream;
+            console.log("[ai-pipeline] hot-swap channel", { channels, mode: pref.mode });
+            return; // Skip full restart
+          } catch (e) {
+            console.warn("[ai-pipeline] hot-swap failed, falling back to restart", e);
+          }
+        }
+      }
       scheduleRestart("channel-pref-changed", 300);
     };
     window.addEventListener("presentflow:audio-input-changed", handler);
@@ -2700,5 +2733,12 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     runDetectAll(segmentId, text);
   }, [runDetectAll]);
 
-  return { state, start, stop, resume, restart, warmStart, dismissDetection, dismissSong, dismissCommand, dismissSuggestion, simulateTranscript };
+  return {
+    state, start, stop, resume, restart, warmStart,
+    dismissDetection, dismissSong, dismissCommand, dismissSuggestion, simulateTranscript,
+    /** Active multi-channel capture instance (null when not multi-channel). */
+    multiChannelCapture: multiChannelCaptureRef.current,
+    /** deviceId of the currently active audio device. */
+    currentDeviceId: currentDeviceIdRef.current,
+  };
 }

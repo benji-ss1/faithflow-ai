@@ -50,9 +50,11 @@ export const MIXER_SETUP_GUIDES: MixerSetupGuide[] = [
     tips: [
       "A fresh SQ has NOTHING patched on USB sends by default — you must explicitly route the vocal channel or PresentFlow will see silence.",
       "For redundancy, patch both the vocal mic and the LR mix (usually USB 31/32) so you can switch inside PresentFlow if the mic channel goes down.",
+      "RECOMMENDED (Direct Out for cleanest AI detection): Route the pastor's mic as a DIRECT OUTPUT (post-EQ, pre-fader) to USB Send 1. This gives PresentFlow a clean vocal signal with no instruments, background noise, or reverb — dramatically improving verse detection accuracy. Setup: I/O -> USB -> USB Sends -> Source = Direct Out of the pastor's input channel. Takes 2 minutes to configure.",
+      "If multiple speakers use different mics (e.g. pastor on Ch 1, guest on Ch 3), route each as a separate USB Send (e.g. Send 1 = pastor, Send 3 = guest). PresentFlow's channel strip lets the operator switch between them with one click during the service.",
     ],
     vocalChannelHint:
-      "Route the pastor's mic to USB Send 1 for consistency, or send the LR mix stereo pair (typically 31/32) to capture the full FOH mix.",
+      "Route the pastor's mic as a Direct Out to USB Send 1. For multiple speakers, route each mic to its own USB Send so the operator can switch channels mid-service.",
   },
   {
     id: "behringer-x32-midas-m32",

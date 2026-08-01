@@ -42,6 +42,7 @@ import { TimersTab } from "./tabs/TimersTab";
 import { ThemesTab } from "./tabs/ThemesTab";
 import { MacrosTab } from "./tabs/MacrosTab";
 import { BibleLicensingTab } from "./tabs/BibleLicensingTab";
+import { ChannelStrip } from "../../ChannelStrip";
 // Change 5C (2026-07-27) — right-icon Screens tab retired. Duplicated the
 // left-sidebar Hardware > Screens slide-out shipped in v0.1.91 (JPD Fix 7).
 // HardwarePanel still imports ScreensPanel directly; the component is
@@ -107,6 +108,8 @@ export function RightIconBar({
 
   return (
     <div className="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-panel)]">
+      {/* Multi-channel strip: shows per-channel meters when a mixer is active */}
+      <ChannelStrip capture={ctx.multiChannelCapture} deviceId={ctx.currentDeviceId} />
       <div className="flex items-stretch h-11 px-1">
         <IconTrigger
           k="bible" openKey={openKey} setOpen={setOpenKey}

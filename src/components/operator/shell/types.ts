@@ -7,6 +7,7 @@
 import type { ExpandedPlan } from "@/lib/server/services";
 import type { SlidePayload } from "@/lib/broadcast";
 import type { AudioStreamState, Detection, SongSuggestion, CommandSuggestion, UnifiedSuggestion } from "../useAudioStream";
+import type { MultiChannelCapture } from "@/lib/audio/multiChannelCapture";
 import type { BankedVerse } from "../useVerseBank";
 import type { InternetMetadataCard } from "../AIAssistantPanel";
 import type { AutopilotMode } from "../OperatorConsole";
@@ -32,6 +33,10 @@ export type OperatorShellCtx = {
   autoSendToLive: boolean;
 
   audio: AudioStreamState;
+  /** Active multi-channel capture instance (null when not multi-channel). */
+  multiChannelCapture: MultiChannelCapture | null;
+  /** deviceId of the currently active audio device. */
+  currentDeviceId: string | null;
   onListenToggle: () => void;
   onResumeAudio?: () => void;
   // Task 6 — manual "Restart listening": full teardown + fresh ticket + start.
