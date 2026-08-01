@@ -1195,6 +1195,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
 // Bounded [MIN, 50vw] at all times; SSR-safe read post-mount.
 
 export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
+  const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const [centerMode, setCenterMode] = useState<CenterMode>("slides");
   const [mediaStripOpen, setMediaStripOpen] = useState(true);
   const [slideSize, setSlideSize] = useState(160);
@@ -3249,9 +3250,9 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
             <OutputRoutingRow ctx={ctx} />
           )}
           <OperatorErrorBoundary fallbackLabel="Live preview panel error">
-            <LivePreviewPanel ctx={ctx} />
+            <LivePreviewPanel ctx={ctx} onVideoRef={(el) => { previewVideoRef.current = el; }} />
           </OperatorErrorBoundary>
-          {ctx.liveSlide?.kind === "video" && <VideoControlBar />}
+          {ctx.liveSlide?.kind === "video" && <VideoControlBar videoRef={previewVideoRef} />}
           {/* Change 3 (revised 2026-07-30) — transcript render block.
               TranscriptDisplay wraps the RICH renderer (yellow
               auto-correction spans + hover, orange trigger-phrase

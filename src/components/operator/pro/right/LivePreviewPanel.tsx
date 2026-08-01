@@ -21,7 +21,7 @@ function splitBodyAndReference(text: string): { body: string; reference: string 
   return { body: text.slice(0, idx), reference };
 }
 
-export function LivePreviewPanel({ ctx }: { ctx: OperatorShellCtx }) {
+export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; onVideoRef?: (el: HTMLVideoElement | null) => void }) {
   const isLive = ctx.liveSlide.kind !== "empty";
   const { reference } = ctx.liveSlide.kind === "text" ? splitBodyAndReference(ctx.liveSlide.text) : { reference: null };
   return (
@@ -65,7 +65,7 @@ export function LivePreviewPanel({ ctx }: { ctx: OperatorShellCtx }) {
             LIVE
           </div>
         )}
-        <SlideRenderer slide={ctx.liveSlide} />
+        <SlideRenderer slide={ctx.liveSlide} onVideoRef={onVideoRef} />
         {ctx.liveSlide.kind !== "empty" && (
           <button
             onClick={ctx.onKill}

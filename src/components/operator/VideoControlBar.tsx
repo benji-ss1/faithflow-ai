@@ -1,14 +1,14 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { Play, Pause, RotateCcw, Volume2, VolumeX, Repeat } from "lucide-react";
-import { openLiveChannel, isValidLiveMessage, type LiveMessage } from "@/lib/broadcast";
+import { openLiveChannel, type LiveMessage } from "@/lib/broadcast";
 
 /**
- * Compact video control bar for the operator console. Shown when a video
- * slide is live. Sends media-control commands via BroadcastChannel and
- * receives media-status updates from the projector to keep UI in sync.
+ * Compact video control bar for the operator console. Controls the local
+ * preview video element directly AND broadcasts media-control commands
+ * via BroadcastChannel so the projector stays in sync.
  */
-export function VideoControlBar() {
+export function VideoControlBar({ videoRef }: { videoRef: RefObject<HTMLVideoElement | null> }) {
   const [paused, setPaused] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -17,30 +17,54 @@ export function VideoControlBar() {
   const [loop, setLoop] = useState(true);
   const chRef = useRef<BroadcastChannel | null>(null);
   const seekingRef = useRef(false);
+  const rafRef = useRef<number>(0);
 
+  // Open a BroadcastChannel to relay commands to projector
   useEffect(() => {
     const ch = openLiveChannel();
     chRef.current = ch;
-    if (!ch) return;
-    const onMsg = (e: MessageEvent) => {
-      if (!isValidLiveMessage(e.data)) return;
-      const msg = e.data as LiveMessage;
-      if (msg.type !== "media-status") return;
-      setPaused(msg.paused);
-      if (!seekingRef.current) setCurrentTime(msg.currentTime);
-      setDuration(msg.duration);
-      setVolume(msg.volume);
-      setMuted(msg.muted);
-      setLoop(msg.loop);
-    };
-    ch.onmessage = onMsg;
-    return () => { try { ch.close(); } catch {} };
+    return () => { try { ch?.close(); } catch {} };
   }, []);
 
-  const send = (command: string, value?: number) => {
+  // Poll the video element for playback state at ~15fps
+  useEffect(() => {
+    const tick = () => {
+      const el = videoRef.current;
+      if (el) {
+        setPaused(el.paused);
+        if (!seekingRef.current) setCurrentTime(el.currentTime);
+        setDuration(Number.isFinite(el.duration) ? el.duration : 0);
+        setVolume(el.volume);
+        setMuted(el.muted);
+        setLoop(el.loop);
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [videoRef]);
+
+  // Apply command to local video AND broadcast to projector
+  const exec = (command: string, value?: number) => {
+    const el = videoRef.current;
+    if (el) {
+      switch (command) {
+        case "play": el.play().catch(() => {}); break;
+        case "pause": el.pause(); break;
+        case "seek": if (typeof value === "number") el.currentTime = value; break;
+        case "volume": if (typeof value === "number") el.volume = Math.max(0, Math.min(1, value)); break;
+        case "mute": el.muted = true; break;
+        case "unmute": el.muted = false; break;
+        case "restart": el.currentTime = 0; el.play().catch(() => {}); break;
+        case "loop": el.loop = true; break;
+        case "unloop": el.loop = false; break;
+      }
+    }
+    // Also broadcast to projector/livestream windows
     const ch = chRef.current;
-    if (!ch) return;
-    try { ch.postMessage({ type: "media-control", command, value } as LiveMessage); } catch {}
+    if (ch) {
+      try { ch.postMessage({ type: "media-control", command, value } as LiveMessage); } catch {}
+    }
   };
 
   const fmt = (s: number) => {
@@ -50,18 +74,18 @@ export function VideoControlBar() {
   };
 
   return (
-    <div className="flex items-center gap-2 px-3 py-2 bg-[var(--color-elevated)] border-t border-[var(--color-border)] text-[var(--color-foreground)]">
+    <div className="flex items-center gap-1.5 px-2 py-1.5 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded-md mx-2 text-[var(--color-foreground)]">
       {/* Play / Pause */}
-      <button type="button" onClick={() => send(paused ? "play" : "pause")} className="p-1 hover:text-[var(--color-brand)] transition-colors" title={paused ? "Play" : "Pause"}>
-        {paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+      <button type="button" onClick={() => exec(paused ? "play" : "pause")} className="p-1 hover:text-[var(--color-brand)] transition-colors shrink-0" title={paused ? "Play" : "Pause"}>
+        {paused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
       </button>
       {/* Restart */}
-      <button type="button" onClick={() => send("restart")} className="p-1 hover:text-[var(--color-brand)] transition-colors" title="Restart">
-        <RotateCcw className="w-3.5 h-3.5" />
+      <button type="button" onClick={() => exec("restart")} className="p-1 hover:text-[var(--color-brand)] transition-colors shrink-0" title="Restart">
+        <RotateCcw className="w-3 h-3" />
       </button>
 
       {/* Time + Seek */}
-      <span className="text-[10px] font-mono tabular-nums text-[var(--color-muted-foreground)] min-w-[40px]">{fmt(currentTime)}</span>
+      <span className="text-[9px] font-mono tabular-nums text-[var(--color-muted-foreground)] shrink-0">{fmt(currentTime)}</span>
       <input
         type="range" min={0} max={duration || 1} step={0.1} value={currentTime}
         onPointerDown={() => { seekingRef.current = true; }}
@@ -69,40 +93,36 @@ export function VideoControlBar() {
         onChange={(e) => {
           const v = parseFloat(e.target.value);
           setCurrentTime(v);
-          send("seek", v);
+          exec("seek", v);
         }}
-        className="flex-1 h-1 accent-[var(--color-brand)] cursor-pointer"
+        className="flex-1 min-w-0 h-1 accent-[var(--color-brand)] cursor-pointer"
         title="Seek"
       />
-      <span className="text-[10px] font-mono tabular-nums text-[var(--color-muted-foreground)] min-w-[40px]">{fmt(duration)}</span>
+      <span className="text-[9px] font-mono tabular-nums text-[var(--color-muted-foreground)] shrink-0">{fmt(duration)}</span>
 
       {/* Volume */}
-      <button type="button" onClick={() => send(muted ? "unmute" : "mute")} className="p-1 hover:text-[var(--color-brand)] transition-colors" title={muted ? "Unmute" : "Mute"}>
-        {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+      <button type="button" onClick={() => exec(muted ? "unmute" : "mute")} className="p-1 hover:text-[var(--color-brand)] transition-colors shrink-0" title={muted ? "Unmute" : "Mute"}>
+        {muted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
       </button>
       <input
         type="range" min={0} max={1} step={0.01} value={muted ? 0 : volume}
         onChange={(e) => {
           const v = parseFloat(e.target.value);
-          setVolume(v);
-          send("volume", v);
-          if (muted && v > 0) send("unmute");
+          exec("volume", v);
+          if (muted && v > 0) exec("unmute");
         }}
-        className="w-16 h-1 accent-[var(--color-brand)] cursor-pointer"
+        className="w-12 h-1 accent-[var(--color-brand)] cursor-pointer shrink-0"
         title="Volume"
       />
 
       {/* Loop */}
       <button
         type="button"
-        onClick={() => {
-          send(loop ? "unloop" : "loop");
-          setLoop(!loop);
-        }}
-        className={`p-1 transition-colors ${loop ? "text-[var(--color-brand)]" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"}`}
+        onClick={() => exec(loop ? "unloop" : "loop")}
+        className={`p-1 transition-colors shrink-0 ${loop ? "text-[var(--color-brand)]" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"}`}
         title={loop ? "Loop on" : "Loop off"}
       >
-        <Repeat className="w-3.5 h-3.5" />
+        <Repeat className="w-3 h-3" />
       </button>
     </div>
   );
