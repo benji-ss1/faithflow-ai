@@ -1793,16 +1793,41 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // selectedIdx is only set AFTER the operator or auto-fire explicitly sends
     // a verse to live (see the auto-approve effect below at line 2174/2197).
     const label = `${refText} (${bibleSession.state.translation})`;
-    // Reset to placeholder so auto-approve sees a loading state (never fires placeholder).
-    // Do NOT call bibleSession.setRef / bibleSession.setCards — those hijack the center
-    // Bible panel, switching the operator's view away from whatever they had loaded.
-    // Instead, write to autoFireCardsRef so only the LIVE output path is affected.
+    // ProPresenter-style instant-fire: project the reference label immediately,
+    // then update with full verse text once the async lookup completes. This
+    // eliminates the 5-15s cachedLookup network round-trip from the critical path.
+    //
+    // Step 1: Instant-fire a label-only slide if AUTO is on and confidence qualifies.
+    // Uses sendLiveRef directly (doAutoFire isn't defined yet in hook order).
+    const isHighConf = scripture.confidence >= 70 || scripture.forceLive;
+    let autoOn = false;
+    try { autoOn = window.sessionStorage.getItem(AUTO_APPROVE_KEY_INSTANT) === "1"; } catch { /* noop */ }
+    if (autoOn && isHighConf) {
+      const labelSlide: import("@/lib/broadcast").SlidePayload = { kind: "text", text: `\n\n${label}` };
+      const fireKey = `ai-instant-${key}`;
+      // Anti-replay check before instant-fire (same 3s cooldown as the full path).
+      const nowInstant = Date.now();
+      const lastFired = bibleFiredMapRef.current[fireKey];
+      if (typeof lastFired !== "number" || nowInstant - lastFired >= BIBLE_MICRO_COOLDOWN_MS) {
+        bibleFiredMapRef.current[fireKey] = nowInstant;
+        lastHandledAutoFireSuggestionIdRef.current = scripture.id;
+        try {
+          sendLiveRef.current(labelSlide, null, { preserveConfiguredTransition: true });
+        } catch { /* safeSendLive wrapper handles errors in the full path */ }
+        // Sync preview
+        bibleSession.setRef(refText);
+        lastLiveWasSongRef.current = false;
+        console.log(`[latency] instant-fire ref="${refText}" conf=${scripture.confidence} (label-only, lookup pending)`);
+      }
+    }
+    // Step 2: Populate placeholder cards for auto-approve fallback.
     autoFireCardsRef.current = [{
       id: `ai-placeholder-${key}`,
       label,
       verses: [{ verse: scripture.ref.verseStart, text: "Loading…" }],
       placeholder: true,
     }];
+    // Step 3: Async lookup — update projector with full verse text when ready.
     (async () => {
       try {
         const res = await cachedLookup({
@@ -1830,8 +1855,21 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           return;
         }
         autoFireCardsRef.current = cards;
-        // Bump tick so the auto-approve effect re-runs immediately with real
-        // cards, instead of waiting for the next Deepgram transcript message.
+        // Update projector with full verse text if we already instant-fired the label.
+        if (autoOn && isHighConf) {
+          const first = cards[0];
+          const body = first.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
+          const fullSlide: import("@/lib/broadcast").SlidePayload = { kind: "text", text: `${body}\n\n${first.label}` };
+          try {
+            sendLiveRef.current(fullSlide, null, { preserveConfiguredTransition: true });
+          } catch { /* noop */ }
+          // Sync preview with full cards
+          bibleSession.setCards(cards);
+          bibleSession.setSelectedIdx(0);
+          console.log(`[latency] verse-text-update ref="${refText}" (full text now on projector)`);
+        }
+        // Bump tick so the auto-approve effect re-runs for non-instant-fire cases
+        // (e.g., AUTO was off when detected, operator toggles it on later).
         setAutoFireCardsTick((t) => t + 1);
       } catch (e) {
         autoFireCardsRef.current = [{
@@ -1842,6 +1880,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         }];
       }
     })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx.audio.suggestions, ctx.confidenceThreshold, bibleSession]);
 
   // ── Auto-approve → INSTANT LIVE for scripture ─────────────────────────────
@@ -2092,18 +2131,18 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // isPhraseMatch exclusion — phrase-quote matches are capped at 74 and
     // never carry forceLive, so this filter is belt-and-braces on top of
     // those source guards (2026-07-28 sign-off: phrase matches NEVER auto-fire).
-    // fromInterim suggestions are pre-load-only: the Bible panel shows the card
-    // but auto-fire must not project until the confirmed "final" transcript
-    // arrives, which corrects partial verse numbers ("John 3:1" interim→"John
-    // 3:16" final). forceLive/voiceCommand also always come from finals.
+    // 2026-08-01: fromInterim gate REMOVED — interims now fire immediately
+    // (200-400ms earlier than finals). The 3s micro-cooldown in decideBibleAutoFire
+    // absorbs interim→final duplicate detections. The routing effect's instant-fire
+    // handles the primary path; this effect is the fallback.
     // Two tiers: ≥70% auto-fires immediately (preacher clearly spoke a ref);
     // <70% shows a confirmation toast so the operator can approve/dismiss.
     // isPhraseMatch and whisper corrections are excluded from both paths.
-    const scripture = suggestions.find((s) => s.type === "scripture" && !s.isPhraseMatch && !s.fromInterim && (s.confidence >= 70 || s.forceLive) && !lowConfBlockedSpans.has(s.id));
+    const scripture = suggestions.find((s) => s.type === "scripture" && !s.isPhraseMatch && (s.confidence >= 70 || s.forceLive) && !lowConfBlockedSpans.has(s.id));
     // Low-confidence prompt path: find the best <70% suggestion that hasn't
     // been handled yet. Fires a toast with an "Approve" button.
     if (!scripture || scripture.type !== "scripture") {
-      const lowConf = suggestions.find((s) => s.type === "scripture" && !s.isPhraseMatch && !s.fromInterim && s.confidence >= 50 && s.confidence < 70 && !lowConfBlockedSpans.has(s.id));
+      const lowConf = suggestions.find((s) => s.type === "scripture" && !s.isPhraseMatch && s.confidence >= 50 && s.confidence < 70 && !lowConfBlockedSpans.has(s.id));
       if (lowConf && lowConf.type === "scripture" && lastHandledAutoFireSuggestionIdRef.current !== lowConf.id) {
         lastHandledAutoFireSuggestionIdRef.current = lowConf.id;
         const lowCards = autoFireCardsRef.current;

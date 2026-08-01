@@ -1362,6 +1362,9 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           if (readyDowngradeTimerRef.current) { clearTimeout(readyDowngradeTimerRef.current); readyDowngradeTimerRef.current = null; }
           setStage("deepgram_ready"); log("5 deepgram ready");
           setState((s) => ({ ...s, ready: true, error: null, reconnectFailed: false, reconnectAttempts: 0 }));
+          // Pre-warm client Bible cache with common references so auto-fire
+          // lookups are instant (cache hit) for the most-preached verses.
+          import("@/lib/bible-client-cache").then((m) => m.prewarmClientBibleCache()).catch(() => {});
           return;
         }
         if (msg.type === "interim") { setStage("receiving_interim"); log("7 interim", msg.text); }
