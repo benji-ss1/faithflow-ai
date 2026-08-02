@@ -117,9 +117,6 @@ function LoginForm() {
           </Link>
         </div>
 
-        <div className="text-center mt-6 text-xs" style={{ color: "#6f685e" }}>
-          Demo login: demo@presentflow.app / PFDemo2026!
-        </div>
       </form>
     </>
   );
