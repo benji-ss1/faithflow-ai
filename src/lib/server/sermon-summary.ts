@@ -145,7 +145,7 @@ export async function upsertSermonSummary(planId: string, data: SermonSummaryDat
   }
 
   if (vec) {
-    await db.execute(sql.raw(`UPDATE sermon_summaries SET embedding = '${toVectorLiteral(vec)}'::vector WHERE id = '${id}'`));
+    await db.execute(sql`UPDATE sermon_summaries SET embedding = ${toVectorLiteral(vec)}::vector WHERE id = ${id}`);
   }
   return { id };
 }
