@@ -110,12 +110,6 @@ function LoginForm() {
           {loading ? "Signing in…" : "Sign in"}
         </button>
 
-        <div className="text-center mt-6 text-sm" style={{ color: "#9c958b" }}>
-          New to PresentFlow?{" "}
-          <Link href="/signup" className="font-semibold" style={{ color: "#ff9048" }}>
-            Create an account
-          </Link>
-        </div>
 
       </form>
     </>
