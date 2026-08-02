@@ -6,13 +6,13 @@ import { inArray } from "drizzle-orm";
 
 async function main() {
   const db = getDb();
-  const emails = ["operator@demo.church", "demo@jpd.faithflow.ai"];
+  const emails = ["demo@presentflow.app", "demo@jpd.presentflow.app"];
   const rows = await db.select().from(users).where(inArray(users.email, emails));
   console.log(`Found ${rows.length} user(s):`);
   for (const u of rows) {
-    const okOp = await bcrypt.compare("operator123", u.passwordHash).catch(() => false);
-    const okJpd = await bcrypt.compare("JpdReview2026!", u.passwordHash).catch(() => false);
-    console.log(`  - ${u.email} | church=${u.churchId} | role=${u.role} | pwdOk(operator123)=${okOp} | pwdOk(JpdReview2026!)=${okJpd}`);
+    const okDemo = await bcrypt.compare("PFDemo2026!", u.passwordHash).catch(() => false);
+    const okJpd = await bcrypt.compare("JpdDemo2026$ecure", u.passwordHash).catch(() => false);
+    console.log(`  - ${u.email} | church=${u.churchId} | role=${u.role} | pwdOk(PFDemo2026!)=${okDemo} | pwdOk(JpdDemo2026$ecure)=${okJpd}`);
   }
   const all = await db.select({ email: users.email }).from(users).limit(20);
   console.log(`\nAll users (up to 20):`);

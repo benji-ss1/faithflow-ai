@@ -17,8 +17,8 @@ redistribute publicly.
    - (Alternatively: System Settings → Privacy & Security → scroll to
      the blocked-app notice → **Open Anyway**.)
 4. Sign in with the demo credentials:
-   - Email: `demo@jpd.faithflow.ai`
-   - Password: `JpdReview2026!`
+   - Email: `demo@jpd.presentflow.app`
+   - Password: `JpdDemo2026$ecure`
 
 Demo credentials are for review only. Do **not** post them in public
 channels or reuse them for production data.

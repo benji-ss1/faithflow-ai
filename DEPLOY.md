@@ -89,8 +89,8 @@ DATABASE_URL="postgres://...prod" npx tsx --env-file=.env.production.local scrip
 ```
 
 You get:
-- **Email:** `demo@jpd.presentflow.ai`
-- **Password:** `JpdReview2026!`
+- **Email:** `demo@jpd.presentflow.app`
+- **Password:** `JpdDemo2026$ecure`
 - **Church:** JPD Demo Church (London, non-denominational, 220 seats)
 - **Service plan:** "Sunday Morning · March 15 2026" — 6 items covering logo/song/scripture/prayer
 - **4 songs** (Amazing Grace, How Great Thou Art, Holy Holy Holy, Great Is Thy Faithfulness — all public domain)
@@ -167,8 +167,8 @@ After steps 1–3 (Next.js only — AI Listening will be disabled), you can shar
 
 ```
 URL:      https://YOUR-VERCEL-DEPLOYMENT.vercel.app
-Email:    demo@jpd.presentflow.ai
-Password: JpdReview2026!
+Email:    demo@jpd.presentflow.app
+Password: JpdDemo2026$ecure
 ```
 
 What Victor can do without the audio bridge:

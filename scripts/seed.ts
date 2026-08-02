@@ -7,12 +7,12 @@ async function main() {
   const db = getDb();
   const [church] = await db.insert(churches).values({ name: "Demo Church" }).returning();
   await db.insert(settings).values({ churchId: church.id });
-  const passwordHash = await bcrypt.hash("operator123", 12);
+  const passwordHash = await bcrypt.hash("PFDemo2026!", 12);
   await db.insert(users).values({
     churchId: church.id,
-    email: "operator@demo.church",
+    email: "demo@presentflow.app",
     passwordHash,
-    name: "Sunday Operator",
+    name: "Demo Operator",
     role: "operator",
   });
 
@@ -31,7 +31,7 @@ async function main() {
     { servicePlanId: plan.id, order: 3, type: "blank", title: "Prayer", payload: {} },
   ]);
 
-  console.log("✓ Seeded. Login: operator@demo.church / operator123");
+  console.log("✓ Seeded. Login: demo@presentflow.app / PFDemo2026!");
   process.exit(0);
 }
 

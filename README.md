@@ -42,8 +42,8 @@ npm run dev
 ```
 
 Open http://localhost:3000. Log in:
-- Email: `operator@demo.church`
-- Password: `operator123`
+- Email: `demo@presentflow.app`
+- Password: `PFDemo2026!`
 
 ## How to run a service
 

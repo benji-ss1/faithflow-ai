@@ -19,8 +19,8 @@ import {
   aiSuggestions, churchPreferences,
 } from "../src/lib/db/schema";
 
-const DEMO_EMAIL = "demo@jpd.faithflow.ai";
-const DEMO_PASSWORD = "JpdReview2026!";
+const DEMO_EMAIL = "demo@jpd.presentflow.app";
+const DEMO_PASSWORD = "JpdDemo2026$ecure";
 const DEMO_CHURCH_NAME = "JPD Demo Church";
 
 async function main() {
