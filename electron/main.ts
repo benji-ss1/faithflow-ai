@@ -11,7 +11,7 @@ const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
 // Hosted Next.js app URL. Override with PF_APP_URL for staging/local testing.
 // The desktop shell is a thin client — all auth/DB/API stays on Vercel and
 // no secrets ship inside the .app bundle.
-const DEFAULT_HOSTED_URL = "https://faithflow-ai.vercel.app";
+const DEFAULT_HOSTED_URL = "http://localhost:3000";
 let mainWindow: BrowserWindow | null = null;
 // Set when a presentflow://auth?token=... deep link arrives before the main
 // window exists yet (cold launch via the link). Consumed once by

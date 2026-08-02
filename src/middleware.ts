@@ -155,6 +155,7 @@ function desktopPathAllowed(pathname: string): boolean {
 // logged in. Verify the request originated from a first-party origin before
 // any DB-writing / spend-inducing route runs.
 const CSRF_ALLOWED_ORIGINS = [
+  "http://localhost:3000",
   "https://faithflow-ai.vercel.app",
   "https://presentflow.app",
   "https://app.presentflow.com",
