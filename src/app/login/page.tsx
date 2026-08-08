@@ -118,7 +118,7 @@ function LoginForm() {
         </div>
 
         <div className="text-center mt-6 text-xs" style={{ color: "#6f685e" }}>
-          Demo login: operator@demo.church / operator123
+          Demo login: demo@jpd.presentflow.app / JpdDemo2026$ecure
         </div>
       </form>
     </>
