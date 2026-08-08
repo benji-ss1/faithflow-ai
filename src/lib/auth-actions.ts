@@ -43,10 +43,6 @@ async function checkPasswordResetRateLimit(email: string): Promise<boolean> {
 }
 
 export async function signUp(input: { email: string; password: string; name: string }): Promise<Result> {
-  // Registration is closed — only pre-provisioned accounts can sign in.
-  return { ok: false, error: "Registration is currently closed. Contact your administrator for access." };
-
-  // eslint-disable-next-line no-unreachable
   if (!(await checkSignUpRateLimit())) {
     return { ok: false, error: "Too many sign-up attempts from this network. Please wait an hour and try again." };
   }

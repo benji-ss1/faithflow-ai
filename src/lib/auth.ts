@@ -12,8 +12,8 @@ import { createLimiter, createPeeker } from "./rate-limit";
 // nor grind many accounts from one IP. Fail-only counting: successful
 // logins do NOT consume the budget, so a legitimate user is never locked
 // out by their own successful sessions.
-const LOGIN_LIMIT = 3;
-const LOGIN_WINDOW_MS = 10 * 60 * 1000;
+const LOGIN_LIMIT = 5;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const chargeLoginIp = createLimiter("login-ip", LOGIN_LIMIT, LOGIN_WINDOW_MS);
 const chargeLoginEmail = createLimiter("login-email", LOGIN_LIMIT, LOGIN_WINDOW_MS);
 const peekLoginIp = createPeeker("login-ip", LOGIN_LIMIT);
