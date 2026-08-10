@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { ArrowLeft, ChevronLeft, ChevronRight, Monitor, Radio, Square, Sun, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, safePost, isValidMessageOverlay, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
+import { readFontScale } from "./pro/operatorConstants";
 import { openOutputChannel } from "@/lib/realtime";
 import { SyncControl } from "./SyncControl";
 import type { ExpandedPlan, ExpandedItem } from "@/lib/server/services";
@@ -212,6 +213,21 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     return nextItem?.slides[0] ?? null;
   })();
 
+  // B3 — operator manual text-size multiplier, synced to all output surfaces
+  // via OutputState. Read from localStorage on mount; TopBar A−/AUTO/A+ writes
+  // the pref and fires `presentflow:font-scale-changed` which we listen for.
+  const [fontScale, setFontScale] = useState(1);
+  useEffect(() => {
+    setFontScale(readFontScale());
+    const onChange = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const v = typeof detail?.scale === "number" ? detail.scale : readFontScale();
+      setFontScale(v);
+    };
+    window.addEventListener("presentflow:font-scale-changed", onChange);
+    return () => window.removeEventListener("presentflow:font-scale-changed", onChange);
+  }, []);
+
   // Push extended OutputState on every relevant change so /stage and
   // /livestream get item labels + next-slide + lower-third data without
   // rewriting them. Piggybacks on the existing BroadcastChannel — /live
@@ -248,6 +264,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
       announcement,
       transition: useFastTransition ? null : transitionSpec,
       nextItem: nextItemForStage,
+      fontScale,
     };
     // Shallow signature — good enough for the fields we actually emit.
     let key: string;
@@ -259,7 +276,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     if (rtRef.current) { void rtRef.current.publish(state); }
     if (useFastTransition) fastTransitionSlideRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec]);
+  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale]);
   const chRef = useRef<BroadcastChannel | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;

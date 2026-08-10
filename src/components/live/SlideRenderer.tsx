@@ -3,9 +3,12 @@ import { useEffect, useRef, useCallback } from "react";
 import type { SlidePayload } from "@/lib/broadcast";
 import { AutoFitText } from "./AutoFitText";
 
-export function SlideRenderer({ slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef }: {
+export function SlideRenderer({ slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef, fontScale }: {
   slide: SlidePayload;
   className?: string;
+  // B3 (2026-08-11): operator manual text-size multiplier (AUTO = 1.0),
+  // threaded to AutoFitText for text slides. Undefined ⇒ AUTO.
+  fontScale?: number;
   // 2026-07-25: pass-through to AutoFitText for text slides. Grid cards
   // use small values to fit whole verses at a glance; live projector uses
   // the sanctuary-readability default.
@@ -52,6 +55,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
           minPx={textMinPx}
           disablePagination={disablePagination}
           projectorFit={projectorFit}
+          fontScale={fontScale}
           className="text-white font-display font-semibold"
         />
       </div>

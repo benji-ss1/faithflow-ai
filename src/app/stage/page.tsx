@@ -33,6 +33,7 @@ if (typeof window !== "undefined" && !(window as unknown as { __ffStageGuarded?:
 export default function StagePage() {
   const [current, setCurrent] = useState<SlidePayload>({ kind: "empty" });
   const [next, setNext] = useState<SlidePayload | null>(null);
+  const [fontScale, setFontScale] = useState(1); // B3 operator manual text size
   const [nextItem, setNextItem] = useState<{ title: string; type: string } | null>(null);
   const [operatorMessage, setOperatorMessage] = useState<string | null>(null);
   const [countdownEndsAt, setCountdownEndsAt] = useState<number | null>(null);
@@ -84,6 +85,7 @@ export default function StagePage() {
         else if (msg.type === "output") {
           setCurrent(msg.state.live);
           setNext(msg.state.next);
+          setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);
           setNextItem(msg.state.nextItem ?? null);
           setOperatorMessage(msg.state.operatorMessage);
           setCountdownEndsAt(msg.state.countdownEndsAt);
@@ -277,7 +279,7 @@ export default function StagePage() {
         <div className="border-r border-white/10 relative">
           <div className="absolute top-3 left-4 text-[10px] font-mono uppercase tracking-widest text-white/60 z-10">Current</div>
           <TransitionWrapper identityKey={stageIdentity(current)} transition={transition}>
-            <SlideRenderer slide={current} projectorFit />
+            <SlideRenderer slide={current} projectorFit fontScale={fontScale} />
           </TransitionWrapper>
           <AnnouncementLayer ann={announcement} />
         </div>

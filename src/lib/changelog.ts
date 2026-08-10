@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.129",
+    date: "2026-08-11",
+    headline: "Manual projector text-size control (A− / AUTO / A+)",
+    highlights: [
+      "New text-size control in the top bar: AUTO keeps the automatic best-fit sizing, while A− and A+ let you make the projected text a notch smaller or larger to taste. It shows the current size (e.g. 120%) and one click on AUTO snaps back to automatic.",
+      "Your choice applies instantly to the projector, stage, and livestream outputs together, and text still can never run off the screen — A+ grows it as large as still fits cleanly, A− makes everything smaller.",
+    ],
+  },
+  {
     version: "0.1.128",
     date: "2026-08-11",
     headline: "ALL-CAPS projected lyrics + ProPresenter 7 imports in correct order",

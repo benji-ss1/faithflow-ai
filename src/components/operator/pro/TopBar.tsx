@@ -21,6 +21,7 @@ import { AIDiagnosticModal, type LiveAudioStats } from "../AIDiagnosticModal";
 import { readNativeDevicePref } from "@/lib/audio/nativeDeviceStore";
 import type { DisplayInfo } from "@/types/electron";
 import { dispatchInternal } from "@/lib/internal-events";
+import { FONT_SCALE_KEY, readFontScale, FONT_SCALE_MIN, FONT_SCALE_MAX, FONT_SCALE_STEP } from "./operatorConstants";
 
 function IconBtn({
   icon: Icon, label, active, onClick,
@@ -172,6 +173,19 @@ export function TopBar({
   // confirm() ceremony is preserved when toggling ON.
   const autoApproveOn = ctx.autopilotMode === "active";
   const AUTO_APPROVE_KEY = "presentflow.pro.autoApprove.v1";
+
+  // B3 — manual projector text-size. Persisted to localStorage; the change
+  // event is picked up by OperatorConsole, which syncs it to all output
+  // surfaces via OutputState.
+  const [fontScale, setFontScaleState] = useState(1);
+  useEffect(() => { setFontScaleState(readFontScale()); }, []);
+  const changeFontScale = (next: number) => {
+    const clamped = Math.max(FONT_SCALE_MIN, Math.min(FONT_SCALE_MAX, Math.round(next * 100) / 100));
+    setFontScaleState(clamped);
+    try { localStorage.setItem(FONT_SCALE_KEY, String(clamped)); } catch { /* noop */ }
+    try { window.dispatchEvent(new CustomEvent("presentflow:font-scale-changed", { detail: { scale: clamped } })); } catch { /* noop */ }
+  };
+  const fontIsAuto = Math.abs(fontScale - 1) < 1e-6;
   useEffect(() => {
     // Y3: sessionStorage instead of localStorage. Cleared on tab close;
     // operator must re-arm each session — XSS-flipping the flag no longer
@@ -740,6 +754,42 @@ export function TopBar({
               />
               <span className="truncate">{autoApproveOn ? "AUTO" : "Manual"}</span>
             </button>
+            {/* B3 — projector text-size control. AUTO = auto-fit; A−/A+ bias the
+                fitted size (clamped so text never runs off-screen). */}
+            <div
+              className="flex items-center gap-0.5 h-[28px] rounded-full border border-[var(--color-border)] bg-[var(--color-panel)] px-1"
+              title="Projector text size — AUTO fits automatically; A− / A+ make it smaller / larger"
+            >
+              <button
+                type="button"
+                onClick={() => changeFontScale(fontScale - FONT_SCALE_STEP)}
+                disabled={fontScale <= FONT_SCALE_MIN + 1e-6}
+                aria-label="Smaller projected text"
+                className="w-6 h-6 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-brand)] disabled:opacity-40 text-[13px] font-bold leading-none"
+              >
+                A−
+              </button>
+              <button
+                type="button"
+                onClick={() => changeFontScale(1)}
+                title="Reset to AUTO (auto-fit)"
+                className={cn(
+                  "h-6 min-w-[42px] px-1 rounded text-[9px] font-bold uppercase tracking-wider leading-none",
+                  fontIsAuto ? "text-[var(--color-brand)]" : "text-[var(--color-muted-foreground)] hover:bg-white/5",
+                )}
+              >
+                {fontIsAuto ? "AUTO" : `${Math.round(fontScale * 100)}%`}
+              </button>
+              <button
+                type="button"
+                onClick={() => changeFontScale(fontScale + FONT_SCALE_STEP)}
+                disabled={fontScale >= FONT_SCALE_MAX - 1e-6}
+                aria-label="Larger projected text"
+                className="w-6 h-6 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-brand)] disabled:opacity-40 text-[13px] font-bold leading-none"
+              >
+                A+
+              </button>
+            </div>
             {aiHardFailed && (
               <>
                 <button

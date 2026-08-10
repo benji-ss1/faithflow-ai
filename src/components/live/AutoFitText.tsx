@@ -57,12 +57,18 @@ function warnOverflowOnce(text: string, floorPx: number) {
   );
 }
 
-export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06, minPx, disablePagination, projectorFit }:
+export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06, minPx, disablePagination, projectorFit, fontScale = 1 }:
   {
     text: string;
     className?: string;
     maxPx?: number;
     paddingRatio?: number;
+    // B3 (2026-08-11): operator manual size. AUTO = 1.0 (pure largest-fit).
+    // A−/A+ nudge this multiplier; it scales the fitted size, clamped to the
+    // readable floor/ceiling so the operator can bias smaller/bigger without
+    // ever driving text off-screen. Applied AFTER the fit (so the fit cache
+    // stays scale-independent).
+    fontScale?: number;
     // 2026-07-25: `minPx` — override the readable floor. Live-projector
     // context passes the default (24 px, sanctuary readability). Grid
     // thumbnails pass a much smaller value (e.g. 8 px) so a whole verse
@@ -87,6 +93,12 @@ export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06,
   }) {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
+  // Read fontScale through a ref so the ResizeObserver's `fit` closure (which
+  // is captured once, deps []) always sees the CURRENT scale on a resize, not
+  // a stale value. A scale CHANGE separately triggers a refit via the
+  // useLayoutEffect dep below. `|| 1` also coerces NaN/0/undefined → AUTO.
+  const fontScaleRef = useRef(fontScale);
+  fontScaleRef.current = Number.isFinite(fontScale) && fontScale! > 0 ? fontScale! : 1;
   // 2026-07-24 T3 fix — initial size = last fitted size (from ref) rather
   // than MIN_READABLE_PX. Previously every new slide painted for one frame
   // at 24 px before the binary search corrected it, producing a visible
@@ -142,7 +154,12 @@ export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06,
     if (projectorFit) {
       const containerH = box.clientHeight;
       const floorPx = projectorFloorPx(containerH);
-      const ceilPx = projectorCeilingPx(containerH);
+      // B3 manual scale, projector: A+ RAISES the fit ceiling so short text can
+      // grow bigger while STILL fitting (never clipped); A− is applied as a
+      // post-fit shrink below (always fits). This makes A+/A− both effective
+      // and clip-free — vs a naive post-scale where A+ would just crop.
+      const scale = fontScaleRef.current;
+      const ceilPx = Math.round(projectorCeilingPx(containerH) * Math.max(1, scale));
       t.style.lineHeight = "1.15";
       const fitsAt = (px: number) => {
         t.style.fontSize = `${px}px`;
@@ -178,13 +195,17 @@ export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06,
       // below the readability floor).
       const overflowAtFloor = best <= floorPx && !fitsAt(best);
       if (overflowAtFloor) warnOverflowOnce(currentText, floorPx);
-      // Pin the DOM to the winning size + line-height (the search's last probe
+      // A+ already grew via the raised ceiling (best fits at the bigger size);
+      // A− shrinks post-fit (min(1,scale)). Either way `shown` is a size that
+      // FITS — no clipping. AUTO (1.0) → shown === best (byte-identical).
+      const shown = Math.max(floorPx, Math.min(ceilPx, Math.round(best * Math.min(1, scale))));
+      lastFittedRef.current = best; // seed off the UNSCALED fit
+      // Pin the DOM to the shown size + line-height (the search's last probe
       // may have been a failing value, and a no-op setState wouldn't re-render).
-      t.style.fontSize = `${best}px`;
+      t.style.fontSize = `${shown}px`;
       t.style.lineHeight = overflowAtFloor ? "1.05" : "1.15";
-      lastFittedRef.current = best;
       setTightLine(overflowAtFloor);
-      setSize(best);
+      setSize(shown);
       return;
     }
     setTightLine(false);
@@ -197,7 +218,7 @@ export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06,
     const cached = fitCacheGet(cacheKey);
     if (cached !== undefined) {
       lastFittedRef.current = cached;
-      setSize(cached);
+      setSize(Math.max(effectiveMinPx, Math.min(maxPx, Math.round(cached * fontScaleRef.current))));
       return;
     }
 
@@ -226,16 +247,18 @@ export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06,
         hi = mid - 1;
       }
     }
-    // Fix-loop 2026-07-27: pin the DOM to the winning size — the loop's last
+    // B3 manual scale (see projector path). Clamp to [effectiveMinPx, maxPx].
+    const shown = Math.max(effectiveMinPx, Math.min(maxPx, Math.round(best * fontScaleRef.current)));
+    // Fix-loop 2026-07-27: pin the DOM to the shown size — the loop's last
     // probe may have been a failing value, and a no-op setState (resize with
     // unchanged best) would otherwise leave it on screen.
-    t.style.fontSize = `${best}px`;
-    lastFittedRef.current = best;
+    t.style.fontSize = `${shown}px`;
+    lastFittedRef.current = best; // seed off the UNSCALED fit
     fitCacheSet(cacheKey, best);
-    setSize(best);
+    setSize(shown);
   };
 
-  useLayoutEffect(() => { fit(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [currentText]);
+  useLayoutEffect(() => { fit(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [currentText, fontScale]);
 
   useEffect(() => {
     const box = boxRef.current;

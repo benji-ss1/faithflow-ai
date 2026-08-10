@@ -47,6 +47,21 @@ export const AUTO_FIRE_MIN_GAP_KEY = "presentflow.pro.autoFireMinGap.v1";
 /** Hold auto-approve while a song is live */
 export const HOLD_DURING_SONG_KEY = "presentflow.pro.holdAutoApproveDuringSong.v1";
 
+/** B3 manual projector text-size multiplier (1.0 = AUTO). A−/A+ nudge it. */
+export const FONT_SCALE_KEY = "presentflow.pro.fontScale.v1";
+export const FONT_SCALE_MIN = 0.6;
+export const FONT_SCALE_MAX = 1.6;
+export const FONT_SCALE_STEP = 0.1;
+/** Read the persisted font-scale (clamped), defaulting to 1.0 (AUTO). */
+export function readFontScale(): number {
+  try {
+    const raw = localStorage.getItem(FONT_SCALE_KEY);
+    const n = raw == null ? 1 : parseFloat(raw);
+    if (!Number.isFinite(n)) return 1;
+    return Math.max(FONT_SCALE_MIN, Math.min(FONT_SCALE_MAX, n));
+  } catch { return 1; }
+}
+
 // ── Song detection policy (CLAUDE.md rule 7 — signed-off values) ──────────
 // DO NOT lower these without a fresh field-test + user sign-off.
 

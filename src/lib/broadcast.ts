@@ -78,6 +78,9 @@ export type OutputState = {
   transition?: TransitionSpec | null;
   // P5 additions — stage "NEXT" preview metadata (playlist item title + type)
   nextItem?: { title: string; type: string } | null;
+  // B3 (2026-08-11): operator manual text-size multiplier for projected slide
+  // text (AUTO = 1.0 / undefined). Synced same-machine to all output surfaces.
+  fontScale?: number;
 };
 
 /**
@@ -330,6 +333,12 @@ export function isValidOutputState(s: unknown): s is OutputState {
   }
   if (st.nextItem !== undefined && !isValidNextItem(st.nextItem)) return false;
   if (st.transition !== undefined && !isValidTransitionSpec(st.transition)) return false;
+  // B3 font scale — bounded, finite, positive (consumers also clamp, but keep
+  // this file's hardening posture consistent).
+  if (st.fontScale !== undefined) {
+    const f = st.fontScale;
+    if (typeof f !== "number" || !Number.isFinite(f) || f <= 0 || f > 4) return false;
+  }
   return true;
 }
 

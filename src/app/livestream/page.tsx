@@ -31,6 +31,7 @@ if (typeof window !== "undefined" && !(window as unknown as { __ffLivestreamGuar
  */
 export default function LivestreamPage() {
   const [slide, setSlide] = useState<SlidePayload>({ kind: "empty" });
+  const [fontScale, setFontScale] = useState(1); // B3 operator manual text size
   const [lowerThird, setLowerThird] = useState<{ line1: string; line2: string } | null>(null);
   const [announcement, setAnnouncement] = useState<AnnouncementPayload | null>(null);
   const [transition, setTransition] = useState<TransitionSpec | null>(null);
@@ -90,6 +91,7 @@ export default function LivestreamPage() {
         else if (msg.type === "pong") setSlide(msg.slide);
         else if (msg.type === "output") {
           setSlide(msg.state.live);
+          setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);
           setLowerThird(msg.state.lowerThird);
           setAnnouncement(msg.state.announcement ?? null);
           setTransition(msg.state.transition ?? null);
@@ -240,10 +242,10 @@ export default function LivestreamPage() {
         <>
           {transitionsEnabled ? (
             <TransitionWrapper identityKey={liveIdentity(slide)} transition={transition}>
-              <SlideRenderer slide={slide} videoMuted={false} onVideoRef={handleVideoRef} />
+              <SlideRenderer slide={slide} fontScale={fontScale} videoMuted={false} onVideoRef={handleVideoRef} />
             </TransitionWrapper>
           ) : (
-            <SlideRenderer slide={slide} videoMuted={false} onVideoRef={handleVideoRef} />
+            <SlideRenderer slide={slide} fontScale={fontScale} videoMuted={false} onVideoRef={handleVideoRef} />
           )}
           <AnnouncementLayer ann={announcement} />
           {lowerThird && (
