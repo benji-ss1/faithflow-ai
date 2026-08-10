@@ -1,0 +1,15 @@
+// CNDI — a thin Clang module exposing the NDI SDK C API to Swift.
+//
+// The single header "CNDI.h" pulls in the official NDI SDK umbrella
+// ("Processing.NDI.Lib.h"). Those SDK headers are NOT committed to the repo
+// (they are license-gated). native/macos/build.sh copies them from the
+// installed "NDI SDK for Apple" (/Library/NDI SDK for Apple/include) into
+// this directory before building. See build.sh for details.
+//
+// We DYNAMICALLY LOAD the runtime (dlopen + NDIlib_v5_load) at runtime — we
+// do NOT link against libndi here — so this module only needs the type
+// declarations, never the dylib at build time.
+module CNDI {
+    header "CNDI.h"
+    export *
+}

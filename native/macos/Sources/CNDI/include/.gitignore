@@ -1,0 +1,6 @@
+# NDI SDK headers are license-gated and copied in by ../../build.sh from the
+# installed "NDI SDK for Apple". Do not commit them. Keep only our wrappers.
+*
+!.gitignore
+!module.modulemap
+!CNDI.h

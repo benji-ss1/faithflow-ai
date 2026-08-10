@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.122",
+    date: "2026-08-08",
+    headline: "Receive service audio over the network with NDI",
+    highlights: [
+      "PresentFlow can now receive your mixer audio over the network via NDI — no more needing a USB cable from the desk into the PresentFlow computer. That frees the USB audio interface for your broadcast/livestream machine while PresentFlow listens to the same feed over the LAN.",
+      "NDI sources on your network are discovered automatically and appear right in the audio picker (Settings › Audio), badged \"NDI\", exactly like a USB input. They pop in and out of the list live as senders come online — just like OBS. Pick one and the AI listener starts transcribing it immediately.",
+      "Works with any NDI sender — a mixer with NDI output, an NDI-enabled console, ProPresenter, OBS/DistroAV, or the free NDI Tools test patterns. Channel selection and gain work the same as for USB devices.",
+    ],
+  },
+  {
     version: "0.1.114",
     date: "2026-07-30",
     headline: "Drag songs/media → playlist · .pro6/.pro7 in media wizard",

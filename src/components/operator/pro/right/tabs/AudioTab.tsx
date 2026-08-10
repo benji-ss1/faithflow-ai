@@ -85,6 +85,11 @@ type NativeDeviceInfo = {
   platform: "darwin" | "win32" | "linux";
   channelCount?: number;
   sampleRate?: number;
+  // "ndi" for network sources received via the Swift helper's NDI receiver;
+  // "usb"/"builtin"/… for CoreAudio devices. NDI sources are also named
+  // "NDI: <source>", so the existing name-based categorization already badges
+  // them; this field is carried through for future transport-authoritative use.
+  transport?: string;
 };
 
 const AUDIO_INPUT_KEY = "presentflow.pro.audioInput.v1";
@@ -967,6 +972,14 @@ export function AudioTab() {
                   </button>
                 );
               })}
+            </div>
+          )}
+          {/* NDI® trademark attribution — required by the NDI SDK license
+              whenever NDI is offered. Shown when a network (NDI) source is
+              present in the list. */}
+          {nativeDevices.some((d) => d.transport === "ndi" || /ndi/i.test(d.name)) && (
+            <div className="text-[9px] text-[var(--color-muted-foreground)] px-1 pt-1">
+              NDI® is a registered trademark of Vizrt NDI AB.
             </div>
           )}
           {nativeSelected && (nativeSelected.channelCount ?? 0) === 2 && (

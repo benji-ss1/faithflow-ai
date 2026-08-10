@@ -57,6 +57,18 @@ Before running the release script, verify:
   toolchain; with bare Command Line Tools it uses the `--triple` + `lipo` path.
   When Apple Developer signing lands, the helper needs its own codesign entry
   (currently ad-hoc signed, which is sufficient for the unsigned .app).
+- **NDI runtime (since v0.1.122):** `build.sh` also copies the license-gated NDI
+  SDK headers + `resources/native/macos/libndi.dylib` (universal, ad-hoc signed)
+  from the installed **NDI SDK for Apple** (`/Library/NDI SDK for Apple`). Verify
+  `libndi.dylib` exists in `resources/native/macos/` before cutting — it ships via
+  the existing `mac.extraResources` glob so no builder config change is needed.
+  If the SDK isn't installed, `build.sh` hard-fails with a download link. When
+  Apple Developer signing lands, **team-sign `libndi.dylib` with the same
+  identity** so the hardened, notarized helper can dlopen it under library
+  validation. Do NOT reach for `com.apple.security.cs.disable-library-validation`
+  — it turns OFF library validation process-wide and re-opens the dylib-hijack
+  vector the loader now guards against (the loader fails closed to the bundled
+  path only). Full guide: `docs/NDI_AUDIO.md`.
 
 ---
 

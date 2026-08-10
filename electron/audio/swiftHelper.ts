@@ -93,9 +93,12 @@ export function parseHelperEventLine(line: string): HelperEvent | null {
       if (!Array.isArray(devices)) return null;
       const clean: HelperDevice[] = [];
       for (const d of devices) {
-        if (!d || typeof d !== "object") return null;
+        // Skip a malformed entry rather than discarding the WHOLE list — one
+        // bad (e.g. untrusted NDI) device must never blank the operator's real
+        // CoreAudio mic from the picker.
+        if (!d || typeof d !== "object") continue;
         const dd = d as Record<string, unknown>;
-        if (typeof dd.uid !== "string" || typeof dd.name !== "string") return null;
+        if (typeof dd.uid !== "string" || typeof dd.name !== "string") continue;
         clean.push({
           index: typeof dd.index === "number" ? dd.index : clean.length,
           uid: dd.uid,
@@ -239,6 +242,22 @@ export function getSwiftHelperPath(): string {
   return path.join(__dirname, "..", "..", "resources", "native", "macos", "PresentFlowAudioHelper");
 }
 
+/**
+ * Absolute path to the bundled NDI runtime dylib (universal libndi.dylib,
+ * copied from the license-gated "NDI SDK for Apple" — see native/macos/build.sh).
+ * Passed to the helper via `--ndi-runtime` so it dlopen()s our bundled copy
+ * FIRST, before falling back to NDI_RUNTIME_DIR_V5 / /usr/local/lib. Mirrors
+ * getSwiftHelperPath()'s packaged-vs-dev resolution. The file may be absent
+ * (e.g. dev machine without the SDK yet) — the helper degrades gracefully and
+ * simply serves CoreAudio devices with no NDI sources.
+ */
+export function getBundledNdiRuntimePath(): string {
+  if (app && app.isPackaged) {
+    return path.join(process.resourcesPath, "native", "macos", "libndi.dylib");
+  }
+  return path.join(__dirname, "..", "..", "resources", "native", "macos", "libndi.dylib");
+}
+
 export function swiftHelperBinaryExists(): boolean {
   if (process.platform !== "darwin") return false;
   try {
@@ -341,7 +360,19 @@ class SwiftHelperManager {
 
   private spawnProc() {
     const bin = getSwiftHelperPath();
-    const proc = spawn(bin, [], { stdio: ["pipe", "pipe", "pipe"] });
+    // Point the helper at our bundled NDI runtime. The helper treats a
+    // missing/unloadable dylib as "no NDI" (never fatal), so we always pass
+    // the path even when the file isn't present yet.
+    const args = ["--ndi-runtime", getBundledNdiRuntimePath()];
+    // Optional discovery targeting for segmented church networks where mDNS
+    // can't cross subnets/VLANs: set PRESENTFLOW_NDI_EXTRA_IPS (comma/space
+    // list of sender IPs) and/or PRESENTFLOW_NDI_GROUPS. No rebuild needed —
+    // set the env var and relaunch to make a stubborn source discoverable.
+    const extraIps = process.env.PRESENTFLOW_NDI_EXTRA_IPS?.trim();
+    if (extraIps) args.push("--ndi-extra-ips", extraIps);
+    const groups = process.env.PRESENTFLOW_NDI_GROUPS?.trim();
+    if (groups) args.push("--ndi-groups", groups);
+    const proc = spawn(bin, args, { stdio: ["pipe", "pipe", "pipe"] });
     this.proc = proc;
     this.ready = false;
     this.splitter = new LineSplitter();
@@ -435,8 +466,11 @@ class SwiftHelperManager {
         break;
       case "device-change":
         // Additive channel — renderer's navigator devicechange still fires
-        // independently; this covers HAL-only devices Chromium can't see.
-        send("audio:nativeDeviceChange", { source: "coreaudio" });
+        // independently; this covers HAL-only devices Chromium can't see AND
+        // NDI network sources appearing/disappearing on the LAN (the helper
+        // emits the same event from its NDI discovery poll), giving the picker
+        // OBS/DistroAV-style live source updates.
+        send("audio:nativeDeviceChange", { source: "native" });
         break;
       case "log":
         console.log(`[swiftHelper] ${ev.message}`);
@@ -660,8 +694,15 @@ class SwiftHelperManager {
 
 export const swiftHelper = new SwiftHelperManager();
 
-/** Map helper devices to the ffmpeg-tier NativeDevice shape (+ uid). */
-export function toNativeDevices(devices: HelperDevice[]): Array<NativeDevice & { uid: string }> {
+/**
+ * Map helper devices to the ffmpeg-tier NativeDevice shape (+ uid + transport).
+ * `transport` is preserved so the renderer can badge network (NDI) sources
+ * distinctly — an NDI source arrives here exactly like any CoreAudio device,
+ * only its uid (`ndi://<name>`) and transport (`"ndi"`) differ.
+ */
+export function toNativeDevices(
+  devices: HelperDevice[]
+): Array<NativeDevice & { uid: string; transport?: string }> {
   return devices.map((d) => ({
     index: d.index,
     name: d.name,
@@ -669,5 +710,6 @@ export function toNativeDevices(devices: HelperDevice[]): Array<NativeDevice & {
     channelCount: d.input_channels,
     sampleRate: d.sample_rate,
     uid: d.uid,
+    transport: d.transport,
   }));
 }

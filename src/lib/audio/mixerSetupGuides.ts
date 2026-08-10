@@ -271,8 +271,31 @@ export const MIXER_SETUP_GUIDES: MixerSetupGuide[] = [
       "Whatever is routed into BlackHole comes through as stereo. Ensure the vocal is loud enough in that source mix.",
   },
   {
+    // Native NDI receive (v0.1.122+): sources named "NDI: <source>" that
+    // PresentFlow receives directly over the network — NO NDI Tools / virtual
+    // driver needed. Listed before the legacy NDI-Virtual-Input guide; its
+    // "NDI: " prefix won't match the virtual-input patterns and vice-versa.
+    id: "ndi-native",
+    displayName: "NDI network audio",
+    matchPatterns: [/^NDI:/i],
+    channelCount: 2,
+    steps: [
+      "This is a live audio feed received straight over your network via NDI — no cable to this computer, and no NDI Tools or virtual drivers to install.",
+      "1. Make sure the device sending NDI (your mixer's NDI output, an NDI-enabled console, ProPresenter, or an NDI encoder) is on and connected to the same network as this computer.",
+      "2. Select this 'NDI: …' source. PresentFlow connects to it automatically.",
+      "3. Speak into the mic that feeds the mix and watch the level meter move to confirm the feed is live.",
+    ],
+    tips: [
+      "NDI sources appear and disappear here automatically as senders come online — just like OBS.",
+      "Not seeing your source? It's almost always the network: confirm both machines are on the same subnet/Wi-Fi/VLAN. On segmented church networks, discovery may need the sender's IP added — ask whoever set up PresentFlow (it's a one-line setting, no reinstall).",
+      "Once selected, the real channel count is detected automatically; for a multi-channel feed the channel grid appears so you can pick the vocal channel.",
+    ],
+    vocalChannelHint:
+      "The NDI sender decides what audio arrives. For a multi-channel feed, use the channel grid to select the channel carrying the pastor's mic; confirm that mix carries the mic before troubleshooting in PresentFlow.",
+  },
+  {
     id: "ndi-virtual-input",
-    displayName: "NDI Virtual Input",
+    displayName: "NDI Virtual Input (legacy)",
     matchPatterns: [
       /\bndi\b.*virtual/i,
       /ndi.*scan.*converter/i,

@@ -1832,11 +1832,17 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       }
       // ---------------- end native branch ---------------------------------------
 
-      // Honour user's Audio Input picker preference. NDI is not yet wired
-      // to a real capture path — log and fall back to default device.
+      // Honour user's Audio Input picker preference. Live NDI network audio
+      // is now captured via the NATIVE tier (the Swift helper receives NDI
+      // sources directly — they appear in the native device picker in
+      // Settings › Audio, badged "NDI", and are selected like any input).
+      // This legacy browser-mode `kind:"ndi"` pref referred to the old
+      // "NDI Virtual Input" virtual-device approach; if we reach here in
+      // browser mode we can't open a network receiver, so fall back to the
+      // default device and point the operator at the native NDI picker.
       const inputPref = readAudioInputPref();
       if (inputPref?.kind === "ndi") {
-        console.log("[ai-pipeline:1] NDI source selected — falling back to default device (NDI capture not yet implemented)");
+        console.log("[ai-pipeline:1] Legacy NDI virtual-device pref in browser mode — use the native audio picker (Settings › Audio) to receive NDI over the network; falling back to default device for now.");
       }
       const constraints = audioConstraintsFor(inputPref);
       // Inner helper — the classic v0.1.77 sum-all getUserMedia call with
