@@ -120,6 +120,91 @@ function classifySectionLabel(s: string): string | null {
 /** File extension check for media hint candidates. */
 const MEDIA_RX = /[\w\-. ]+\.(jpe?g|png|gif|webp|mp4|mov|m4v|webm)$/i;
 
+// --- Minimal protobuf reader — just enough to recover the song ARRANGEMENT
+// (performance order incl. repeated choruses) from the .pro. Field numbers are
+// the stable ProPresenter `Presentation` schema, verified against real files:
+//   #12 = arrangement  → its repeated #2 = ordered group UUIDs
+//   #13 = cue          → #1 = uuid (== arrangement group id); body holds the RTF
+// Protobuf field numbers are contractually stable across versions, and every
+// step is defensive (any parse failure or unresolved id → null → file order).
+
+function pbVarint(b: Buffer, p: number): [number, number] {
+  let shift = 0, result = 0, pos = p;
+  while (pos < b.length) {
+    const byte = b[pos++];
+    result += (byte & 0x7f) * Math.pow(2, shift);
+    if ((byte & 0x80) === 0) break;
+    shift += 7;
+    if (shift > 63) break;
+  }
+  return [result, pos];
+}
+
+/** Length-delimited (wire-type 2) fields of a protobuf message, in order. */
+function pbFields(b: Buffer, start = 0, end = b.length): { field: number; buf: Buffer }[] {
+  const out: { field: number; buf: Buffer }[] = [];
+  let p = start;
+  while (p < end) {
+    const [tag, p1] = pbVarint(b, p); p = p1;
+    const field = tag >>> 3, wire = tag & 7;
+    if (wire === 0) { const [, p2] = pbVarint(b, p); p = p2; }
+    else if (wire === 2) { const [len, p2] = pbVarint(b, p); p = p2; if (p + len > b.length) break; out.push({ field, buf: b.subarray(p, p + len) }); p += len; }
+    else if (wire === 5) { p += 4; }
+    else if (wire === 1) { p += 8; }
+    else break; // unknown wire type — stop defensively
+  }
+  return out;
+}
+
+const PB_UUID_RE = /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/;
+function firstUuid(b: Buffer | undefined): string | null {
+  if (!b) return null;
+  const m = PB_UUID_RE.exec(b.toString("latin1"));
+  return m ? m[0].toUpperCase() : null;
+}
+
+/**
+ * Recover the true slide order from a Pro7 .pro via its song ARRANGEMENT, or
+ * null when the file has no usable arrangement (caller keeps file order).
+ * Defensive: returns a reorder ONLY when every arrangement group id resolves to
+ * a cue, and appends any un-referenced cues so content is never dropped —
+ * so it can never make an import worse than the file-order fallback.
+ */
+function reorderPro7ByArrangement(buf: Buffer): string[] | null {
+  let top: { field: number; buf: Buffer }[];
+  try { top = pbFields(buf); } catch { return null; }
+  const arr = top.find((f) => f.field === 12);
+  if (!arr) return null;
+  let order: string[];
+  try {
+    order = pbFields(arr.buf)
+      .filter((x) => x.field === 2)
+      .map((x) => firstUuid(x.buf))
+      .filter((u): u is string => !!u);
+  } catch { return null; }
+  if (order.length === 0) return null;
+
+  const cues: { uuid: string; text: string }[] = [];
+  for (const c of top.filter((f) => f.field === 13)) {
+    let uuid: string | null = null;
+    try { uuid = firstUuid(pbFields(c.buf).find((x) => x.field === 1)?.buf); } catch { /* skip */ }
+    if (!uuid) continue;
+    const blocks = findRtfBlocks(c.buf);
+    const text = blocks.length > 0 ? blocks[0].text.replace(/\s+/g, " ").trim() : "";
+    if (text) cues.push({ uuid, text });
+  }
+  if (cues.length === 0) return null;
+
+  const byUuid = new Map<string, string>();
+  for (const c of cues) if (!byUuid.has(c.uuid)) byUuid.set(c.uuid, c.text);
+  // Every arrangement id must resolve — otherwise fall back to file order.
+  if (!order.every((u) => byUuid.has(u))) return null;
+  const used = new Set(order);
+  const ordered = order.map((u) => byUuid.get(u)!);                       // arrangement order (repeats included)
+  const extras = cues.filter((c) => !used.has(c.uuid)).map((c) => c.text); // unreferenced cues → append, never drop
+  return [...ordered, ...extras];
+}
+
 /**
  * Parse a Pro7 .pro binary buffer. Never throws — returns a warnings list
  * for the caller to surface.
@@ -132,12 +217,19 @@ export function parsePro7(buf: Buffer, fileName: string): ParsedPro7Song {
     .replace(/\.(pro|pro7|pro7x)$/i, "")
     .trim();
 
-  // 1. RTF blocks — these are definitively slide lyrics, in file order.
+  // Preferred: recover the true slide order from the song ARRANGEMENT
+  // (performance order incl. repeated choruses). Null when there's no usable
+  // arrangement → we keep the file-order scrape below.
+  const arranged = reorderPro7ByArrangement(buf);
+
+  // 1. RTF blocks — slide lyrics in file order (the fallback + the source the
+  // section-label heuristic below still uses).
   const rtf = findRtfBlocks(buf);
-  const slides = rtf
+  const fileOrderSlides = rtf
     .map((b) => b.text)
     .map((t) => t.replace(/\s+/g, " ").trim())
     .filter((t) => t.length > 0);
+  const slides = arranged ?? fileOrderSlides;
 
   // 2. Printable runs — used for section labels + media hints + CCLI.
   const runs = extractPrintableRuns(buf, 3);
@@ -211,12 +303,10 @@ export function parsePro7(buf: Buffer, fileName: string): ParsedPro7Song {
     warnings.push(
       "No lyric slides found in this Pro7 file. Bundle may contain images/videos only, or a schema variant we don't yet recognize.",
     );
-  } else if (slides.length > 1) {
-    // Honest ordering caveat: Pro7 (.pro) is a binary protobuf and slides are
-    // recovered in the file's stored order, NOT the song ARRANGEMENT (which
-    // encodes the real play order + repeated choruses in protobuf references
-    // we don't decode). So the sequence may be wrong. Give the operator the
-    // heads-up + the reliable workaround. (.pro6 arrangement order IS honored.)
+  } else if (!arranged && slides.length > 1) {
+    // Only warn when we FELL BACK to file order (no usable arrangement found).
+    // When `arranged` succeeded, slides are in true performance order and no
+    // caveat is needed.
     warnings.push(
       "Heads up: Pro7 (.pro) slide order may not match the song's arrangement — please verify the sequence after import. For guaranteed order, export the song from ProPresenter as .pro6 (or use a text export) and import that instead.",
     );
@@ -227,7 +317,12 @@ export function parsePro7(buf: Buffer, fileName: string): ParsedPro7Song {
     artist,
     ccli,
     slides,
-    sections: sections.length > 0 ? sections : (slides.length > 0 ? [{ name: "Song", slides: [...slides] }] : []),
+    // When the arrangement drove the order, present one flat "Song" section in
+    // that order (the file-order section labels built below don't match the
+    // reordered slides). Otherwise use the detected sections as before.
+    sections: arranged
+      ? [{ name: "Song", slides: [...slides] }]
+      : (sections.length > 0 ? sections : (slides.length > 0 ? [{ name: "Song", slides: [...slides] }] : [])),
     mediaHints,
     warnings,
   };

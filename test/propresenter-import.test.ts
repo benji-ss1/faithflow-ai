@@ -17,6 +17,20 @@
  */
 import assert from "node:assert";
 import { parsePro6, stripRtf, isPro7Binary } from "../src/lib/pro6-parser";
+import { parsePro7 } from "../src/lib/pro7-parser";
+
+// --- minimal protobuf encoder (for synthetic .pro fixtures) -----------------
+function pbVarint(n: number): Buffer {
+  const out: number[] = [];
+  while (n > 0x7f) { out.push((n & 0x7f) | 0x80); n = Math.floor(n / 128); }
+  out.push(n);
+  return Buffer.from(out);
+}
+/** length-delimited (wire type 2) field */
+function pbLD(field: number, payload: Buffer): Buffer {
+  return Buffer.concat([pbVarint((field << 3) | 2), pbVarint(payload.length), payload]);
+}
+const proRtf = (t: string) => Buffer.from(`{\\rtf1\\ansi ${t}}`, "utf8");
 
 let pass = 0;
 let fail = 0;
@@ -154,6 +168,38 @@ async function main() {
     // Verse 1 (2 slides) then Chorus (1 slide) — document order preserved.
     assert.ok(p.slides[0].startsWith("Amazing grace"));
     assert.ok(p.slides[2].startsWith("My chains are gone"));
+  });
+
+  await check("pro7: slides follow the ARRANGEMENT (protobuf), not file/authored order", () => {
+    const uuidA = "AAAAAAAA-1111-2222-3333-444444444444";
+    const uuidB = "BBBBBBBB-1111-2222-3333-444444444444";
+    // Cues authored A then B; arrangement plays B then A (+ B repeated).
+    const cueA = Buffer.concat([pbLD(1, Buffer.from(uuidA)), pbLD(5, proRtf("Alpha authored first"))]);
+    const cueB = Buffer.concat([pbLD(1, Buffer.from(uuidB)), pbLD(5, proRtf("Beta authored second"))]);
+    const arrangement = Buffer.concat([pbLD(2, Buffer.from(uuidB)), pbLD(2, Buffer.from(uuidA)), pbLD(2, Buffer.from(uuidB))]);
+    // Presentation: #12 arrangement, #13 cues (file order A, B).
+    const pro = Buffer.concat([pbLD(12, arrangement), pbLD(13, cueA), pbLD(13, cueB)]);
+    const r = parsePro7(pro, "synthetic.pro");
+    assert.deepStrictEqual(r.slides, ["Beta authored second", "Alpha authored first", "Beta authored second"], JSON.stringify(r.slides));
+    assert.strictEqual(r.warnings.length, 0, "no order warning when arrangement resolves");
+  });
+
+  await check("pro7: NO arrangement → file order + honest warning (safe fallback)", () => {
+    const cueA = Buffer.concat([pbLD(1, Buffer.from("11111111-1111-1111-1111-111111111111")), pbLD(5, proRtf("first"))]);
+    const cueB = Buffer.concat([pbLD(1, Buffer.from("22222222-2222-2222-2222-222222222222")), pbLD(5, proRtf("second"))]);
+    const pro = Buffer.concat([pbLD(13, cueA), pbLD(13, cueB)]); // no #12
+    const r = parsePro7(pro, "noarr.pro");
+    assert.deepStrictEqual(r.slides, ["first", "second"], JSON.stringify(r.slides));
+    assert.ok(r.warnings.some((w) => /order may not match/i.test(w)), "expected the fallback warning");
+  });
+
+  await check("pro7: arrangement id that doesn't resolve → safe fallback to file order", () => {
+    const cueA = Buffer.concat([pbLD(1, Buffer.from("AAAAAAAA-1111-2222-3333-444444444444")), pbLD(5, proRtf("only cue"))]);
+    // Arrangement references a group uuid we don't have → must NOT reorder/drop.
+    const arrangement = pbLD(2, Buffer.from("ZZZZZZZZ-9999-9999-9999-999999999999".replace(/Z/g, "9")));
+    const pro = Buffer.concat([pbLD(12, arrangement), pbLD(13, cueA)]);
+    const r = parsePro7(pro, "unresolved.pro");
+    assert.deepStrictEqual(r.slides, ["only cue"], JSON.stringify(r.slides));
   });
 
   // 2. RTF stripper unit-level
