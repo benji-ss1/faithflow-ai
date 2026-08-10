@@ -103,8 +103,17 @@ export function stripRtf(rtf: string): string {
     })
     // Line-break control words BEFORE the generic control-word strip.
     .replace(/\\(?:par|line|sect|page)d?\b\s?/g, "\n")
-    // \'xx hex escapes (latin-1 byte)
-    .replace(/\\'([0-9a-fA-F]{2})/g, (_m, h) => String.fromCharCode(parseInt(h, 16)))
+    // \'xx hex escapes — decode consecutive byte RUNS through the document
+    // codepage (windows-1252 default) instead of per-byte latin-1. Latin-1
+    // maps bytes 0x80-0x9F to control chars, so smart quotes (\'92), em-dashes
+    // (\'97) and accented letters came through as mojibake. Grouping the run
+    // also lets a multi-byte sequence decode as one glyph. Unicode (\uN) is
+    // already handled above.
+    .replace(/(?:\\'[0-9a-fA-F]{2})+/g, (run) => {
+      const bytes = [...run.matchAll(/\\'([0-9a-fA-F]{2})/g)].map((m) => parseInt(m[1], 16));
+      try { return new TextDecoder("windows-1252").decode(Uint8Array.from(bytes)); }
+      catch { return bytes.map((b) => String.fromCharCode(b)).join(""); }
+    })
     // Non-breaking space control symbol
     .replace(/\\~/g, " ")
     // Remaining control words: \word, \word-12, \word12, optional space
@@ -303,6 +312,64 @@ function slideText(slide: XmlNode): string {
   return parts.join("\n").trim();
 }
 
+/** Collect every node with the given tag name, anywhere under `node`. */
+function collectByTag(node: unknown, tag: string, out: XmlNode[]) {
+  if (!node || typeof node !== "object") return;
+  const obj = node as XmlNode;
+  if (tag in obj) {
+    for (const n of asArray(obj[tag] as XmlNode | XmlNode[])) {
+      if (n && typeof n === "object") out.push(n);
+    }
+  }
+  for (const key of Object.keys(obj)) {
+    if (key === tag || key.startsWith("@_")) continue;
+    const child = obj[key];
+    if (Array.isArray(child)) child.forEach((c) => collectByTag(c, tag, out));
+    else if (child && typeof child === "object") collectByTag(child, tag, out);
+  }
+}
+
+/** Text content of an NSMutableString/NSString node (or a bare string). */
+function nsText(v: unknown): string {
+  if (typeof v === "string") return v.trim();
+  if (v && typeof v === "object") {
+    const t = (v as XmlNode)["#text"];
+    if (typeof t === "string") return t.trim();
+  }
+  return "";
+}
+
+/**
+ * The play order of group UUIDs from the FIRST song arrangement, or null if
+ * the document has no usable arrangement. ProPresenter stores slide GROUPS
+ * once each (in edit order) plus a separate ARRANGEMENT that lists group UUIDs
+ * in performance order WITH REPEATS (Verse1 → Chorus → Verse2 → Chorus …).
+ * Ignoring it is why imported songs came in scrambled. Defensive: returns null
+ * on anything unexpected so the caller falls back to document order.
+ */
+function readArrangementGroupOrder(root: XmlNode): string[] | null {
+  const arrangements: XmlNode[] = [];
+  collectByTag(root, "RVSongArrangement", arrangements);
+  if (arrangements.length === 0) return null;
+  const arr = arrangements[0];
+  // The groupIDs live in a child <array rvXMLIvarName="groupIDs"> of NSString/
+  // NSMutableString elements (in order). Find that array within the arrangement.
+  const arrays = asArray(arr.array as XmlNode | XmlNode[] | undefined);
+  const groupIdsArr = arrays.find(
+    (a) => a && typeof a === "object" && /groupIDs/i.test(String((a as XmlNode)["@_rvXMLIvarName"] || ""))
+  );
+  if (!groupIdsArr || typeof groupIdsArr !== "object") return null;
+  const ga = groupIdsArr as XmlNode;
+  const ids: string[] = [];
+  for (const key of ["NSMutableString", "NSString"]) {
+    for (const s of asArray(ga[key] as XmlNode | XmlNode[] | string | undefined)) {
+      const t = nsText(s);
+      if (t) ids.push(t);
+    }
+  }
+  return ids.length > 0 ? ids : null;
+}
+
 /**
  * Parse a .pro6 / .pro5 XML string. Never throws on malformed content —
  * returns an empty song with warnings instead. Callers should check
@@ -342,7 +409,27 @@ export function parsePro6(xml: string): ParsedProSong {
   collectGroupings(root, groupings);
 
   if (groupings.length > 0) {
-    groupings.forEach((g, gi) => {
+    // Reorder groups by the song ARRANGEMENT (performance order, with repeated
+    // choruses) instead of document/edit order — the fix for "imported songs
+    // are out of order". Defensive: only reorder when an arrangement exists AND
+    // every one of its group UUIDs resolves to a real grouping; otherwise fall
+    // back to document order so a partial/odd arrangement can't drop content.
+    const groupOrder = readArrangementGroupOrder(root);
+    let orderedGroups = groupings;
+    if (groupOrder && groupOrder.length > 0) {
+      const byUuid = new Map<string, XmlNode>();
+      for (const g of groupings) {
+        const uuid = ((g["@_uuid"] as string) || (g["@_UUID"] as string) || "").trim();
+        if (uuid) byUuid.set(uuid, g);
+      }
+      const resolved = groupOrder.map((id) => byUuid.get(id)).filter((g): g is XmlNode => !!g);
+      // Require the arrangement to reference groups we actually have (every id
+      // resolves) before trusting it — otherwise document order is safer.
+      if (resolved.length === groupOrder.length && byUuid.size === groupings.length) {
+        orderedGroups = resolved;
+      }
+    }
+    orderedGroups.forEach((g, gi) => {
       const name = ((g["@_name"] as string) || "").trim() || `Section ${gi + 1}`;
       const groupSlides: XmlNode[] = [];
       collectDisplaySlides(g, groupSlides);

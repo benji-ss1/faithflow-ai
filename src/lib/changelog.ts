@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.126",
+    date: "2026-08-10",
+    headline: "ProPresenter imports: correct song order + no garbled characters",
+    highlights: [
+      "Songs imported from ProPresenter (.pro6) now come in the order they're actually meant to be sung — following the song's arrangement, including repeated choruses (Verse 1 → Chorus → Verse 2 → Chorus…), instead of the scrambled editing order.",
+      "Fixed garbled characters on import — smart quotes, dashes, and accented letters (é, ', —) now come through correctly instead of as odd symbols.",
+      "Note: this applies to newly imported songs. Anything imported before this update can be re-imported to pick up the corrected order and characters. (Pro7 .pro files still import approximately — that format needs a separate fix, coming soon.)",
+    ],
+  },
+  {
     version: "0.1.125",
     date: "2026-08-10",
     headline: "Much bigger, crowd-readable slide text — auto-sized to each slide",

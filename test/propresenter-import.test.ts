@@ -118,7 +118,41 @@ async function main() {
     const p = parsePro6(VALID_PRO6);
     // \x92 (latin-1 passthrough of the cp1252 byte) — the apostrophe byte is
     // preserved, and the surrounding words survive intact.
-    assert.ok(/I?ve been set free|I've been set free/.test(p.slides[2]), p.slides[2]);
+    // 2026-08-10 codepage fix: \'92 = Windows-1252 RIGHT SINGLE QUOTE (U+2019), not latin-1.
+    assert.ok(p.slides[2].includes("I\u2019ve been set free"), JSON.stringify(p.slides[2]));
+    assert.ok(p.slides[2].startsWith("My chains are gone"));
+  });
+
+  await check("pro6: slides follow the ARRANGEMENT order (repeated chorus), not doc order", () => {
+    const grp = (name: string, uuid: string, text: string) =>
+      `<RVSlideGrouping name="${name}" uuid="${uuid}"><array rvXMLIvarName="slides">${slide(text)}</array></RVSlideGrouping>`;
+    // Document order: Verse 1, Chorus, Verse 2. Arrangement: V1 → C → V2 → C.
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+<RVPresentationDocument CCLISongTitle="Arranged" versionNumber="600">
+  <array rvXMLIvarName="groups">
+    ${grp("Verse 1", "v1", "verse one")}
+    ${grp("Chorus", "c1", "the chorus")}
+    ${grp("Verse 2", "v2", "verse two")}
+  </array>
+  <array rvXMLIvarName="arrangements">
+    <RVSongArrangement name="Default" uuid="arr1">
+      <array rvXMLIvarName="groupIDs">
+        <NSMutableString>v1</NSMutableString>
+        <NSMutableString>c1</NSMutableString>
+        <NSMutableString>v2</NSMutableString>
+        <NSMutableString>c1</NSMutableString>
+      </array>
+    </RVSongArrangement>
+  </array>
+</RVPresentationDocument>`;
+    const p = parsePro6(xml);
+    assert.deepStrictEqual(p.slides, ["verse one", "the chorus", "verse two", "the chorus"], JSON.stringify(p.slides));
+  });
+
+  await check("pro6: NO arrangement → falls back to document order (safe)", () => {
+    const p = parsePro6(VALID_PRO6); // has groups, no <arrangements>
+    // Verse 1 (2 slides) then Chorus (1 slide) — document order preserved.
+    assert.ok(p.slides[0].startsWith("Amazing grace"));
     assert.ok(p.slides[2].startsWith("My chains are gone"));
   });
 
