@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.125",
+    date: "2026-08-10",
+    headline: "Much bigger, crowd-readable slide text — auto-sized to each slide",
+    highlights: [
+      "Projected text is now dramatically larger and sized for the back of the room. Every slide automatically uses the biggest font that cleanly fits — a short line like \"Jesus Saves\" fills the wall, while a long passage shrinks only as much as it needs to, then splits across pages rather than ever becoming tiny.",
+      "Bible verses now show the verse itself at full size with the reference (e.g. \"John 3:16\") in a smaller secondary size beneath — so the words people are reading stay as large as possible.",
+      "This adapts to any screen — projector, stage display, livestream, 720p/1080p/4K — using the actual output size, so it always looks right.",
+    ],
+  },
+  {
     version: "0.1.124",
     date: "2026-08-10",
     headline: "Projector never blanks — auto-recovers from glitches & network drops",

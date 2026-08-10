@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { calculateProjectorFontSize, projectorFloorPx } from "@/lib/projectorFontSize";
+import { calculateProjectorFontSize, projectorFloorPx, projectorCeilingPx } from "@/lib/projectorFontSize";
 
 // Congregation-readability floor per operator spec: 24px absolute minimum.
 // Below this on a 1080p projector at sanctuary distance verses become
@@ -113,6 +113,13 @@ export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06,
   const pages = useMemo(() => disablePagination ? [text] : paginateForFit(text), [text, disablePagination]);
   const currentText = pages[Math.min(pageIdx, pages.length - 1)] || text;
 
+  // B2 hierarchy (2026-08-10): a Bible slide ends with "\n\n<Book ch:verse (VER)>".
+  // The VERSE is the primary readable content; render the reference at a
+  // SECONDARY size (0.5em, relative to the auto-fit size so it scales with it)
+  // so the reference never steals space from the verse. Song/announcement text
+  // has no trailing scripture ref → renders whole, unchanged.
+  const refSplit = useMemo(() => splitTrailingRef(currentText), [currentText]);
+
   // Reset page when text prop changes
   useEffect(() => { setPageIdx(0); }, [text]);
 
@@ -135,36 +142,44 @@ export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06,
     if (projectorFit) {
       const containerH = box.clientHeight;
       const floorPx = projectorFloorPx(containerH);
-      const targetPx = Math.max(floorPx, calculateProjectorFontSize(currentText, containerH));
+      const ceilPx = projectorCeilingPx(containerH);
       t.style.lineHeight = "1.15";
       const fitsAt = (px: number) => {
         t.style.fontSize = `${px}px`;
         return t.scrollWidth <= bw + 1 && t.scrollHeight <= bh + 1;
       };
-      let best = floorPx;
-      let overflowAtFloor = false;
-      if (fitsAt(targetPx)) {
-        best = targetPx;
+
+      // "Aggressive largest-fit" (2026-08-10): find the TRUE largest size in
+      // [floor, ceil] that fits the safe area — no longer capped at the
+      // word-count band. Short text grows to the ceiling; long text shrinks
+      // only as far as needed, then paginates at the floor. Cached by
+      // text+box+floor/ceil so repeat slides skip the search entirely.
+      const projKey = `proj|${Math.round(bw / 4) * 4}|${Math.round(bh / 4) * 4}|${floorPx}|${ceilPx}|${currentText}`;
+      let best: number;
+      const cachedProj = fitCacheGet(projKey);
+      if (cachedProj !== undefined) {
+        best = cachedProj;
       } else {
-        // Binary search downward between floor and target.
-        let lo = floorPx, hi = targetPx - 1, found = -1;
+        // Seed from the word-count band (a good first guess for fast
+        // convergence), then binary-search UP toward the ceiling.
+        const seedBand = calculateProjectorFontSize(currentText, containerH);
+        const seed = Math.min(ceilPx, Math.max(floorPx, Math.max(seedBand, Math.round(lastFittedRef.current))));
+        let lo = floorPx, hi = ceilPx, found = -1;
+        if (fitsAt(seed)) { found = seed; lo = seed + 1; } else { hi = seed - 1; }
         while (lo <= hi) {
           const mid = Math.floor((lo + hi) / 2);
           if (fitsAt(mid)) { found = mid; lo = mid + 1; } else { hi = mid - 1; }
         }
-        if (found >= floorPx) {
-          best = found;
-        } else {
-          best = floorPx;
-          overflowAtFloor = true;
-          warnOverflowOnce(currentText, floorPx);
-        }
+        best = found >= floorPx ? found : floorPx;
+        fitCacheSet(projKey, best);
       }
-      // Fix-loop 2026-07-27: explicitly pin the DOM to the winning size and
-      // intended line-height. The search's last PROBE may have been a
-      // failing size; if setState is a no-op (size unchanged after a
-      // resize), React never re-renders and the failing probe value would
-      // stick on screen.
+      // At/under the floor a very long slide may still overflow — tighten the
+      // line-height and let the safe-area padding absorb it (never shrink
+      // below the readability floor).
+      const overflowAtFloor = best <= floorPx && !fitsAt(best);
+      if (overflowAtFloor) warnOverflowOnce(currentText, floorPx);
+      // Pin the DOM to the winning size + line-height (the search's last probe
+      // may have been a failing value, and a no-op setState wouldn't re-render).
       t.style.fontSize = `${best}px`;
       t.style.lineHeight = overflowAtFloor ? "1.05" : "1.15";
       lastFittedRef.current = best;
@@ -264,7 +279,11 @@ export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06,
           textShadow: "0 2px 8px rgba(0,0,0,0.55)", // slight halo so the text pops on busy backgrounds
         }}
       >
-        {currentText}
+        {refSplit.body}
+        {refSplit.ref && (
+          // Secondary reference — em-relative so it tracks the verse size.
+          <span style={{ fontSize: "0.5em", fontWeight: 600, opacity: 0.82 }}>{"\n\n" + refSplit.ref}</span>
+        )}
       </div>
       {pages.length > 1 && (
         <div className="absolute bottom-2 right-3 text-white/60 text-[10px] font-mono flex items-center gap-1.5">
@@ -291,6 +310,27 @@ export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06,
  *   4. Preserve any trailing "\n\n<reference>" attribution intact on
  *      the LAST page only.
  */
+// Matches a trailing scripture reference like "\n\n John 3:16 (KJV)" or
+// "\n\n 1 Corinthians 13:4-7". Shared shape with paginateForFit's detector.
+const TRAILING_REF_RE = /\n\n([1-3]?\s?[A-Za-z ]+ \d+:\d+(?:-\d+)?\s*(?:\([A-Z0-9]+\))?)\s*$/;
+
+/**
+ * Split a slide's text into { body, ref } where `ref` is a trailing scripture
+ * reference (rendered smaller for hierarchy). Returns ref="" when there's no
+ * trailing reference (songs, announcements, plain text) so the whole string
+ * renders at the primary size.
+ */
+export function splitTrailingRef(text: string): { body: string; ref: string } {
+  if (!text) return { body: "", ref: "" };
+  const m = TRAILING_REF_RE.exec(text);
+  if (!m) return { body: text, ref: "" };
+  const body = text.slice(0, m.index);
+  // Degenerate "reference only, no verse" slide — render the whole thing at the
+  // primary size rather than shrinking the sole content to 0.5em.
+  if (!body.trim()) return { body: text, ref: "" };
+  return { body, ref: m[1].trim() };
+}
+
 export function paginateForFit(text: string, targetChars = 350): string[] {
   if (!text) return [""];
 

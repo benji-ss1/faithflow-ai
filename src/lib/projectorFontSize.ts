@@ -21,8 +21,16 @@
 /** Absolute floor for projected body text, as a fraction of display height. */
 export const PROJECTOR_MIN_BODY_FRACTION = 0.03;
 
-/** Ceiling so short lines don't become absurdly huge. */
-export const PROJECTOR_MAX_BODY_FRACTION = 0.12;
+/**
+ * Ceiling so a very short line doesn't become cartoonishly huge, but still
+ * large enough for real crowd readability. Raised 0.12 → 0.24 (2026-08-10,
+ * "aggressive largest-fit" upgrade): the old 0.12 cap combined with word-count
+ * banding kept short text far smaller than the available space allowed. Now
+ * `AutoFitText` binary-searches UP to this ceiling for the TRUE largest size
+ * that fits the safe area, so "Jesus Saves" fills the wall while long passages
+ * shrink only as needed (then paginate at the floor). 0.24 of 1080p ≈ 259px.
+ */
+export const PROJECTOR_MAX_BODY_FRACTION = 0.24;
 
 /** Floor for reference/label text (e.g. "John 3:16 (KJV)"), fraction of height. */
 export const PROJECTOR_MIN_REF_SIZE = 0.02;
@@ -62,4 +70,16 @@ export function calculateProjectorFontSize(text: string, displayHeightPx: number
 export function projectorFloorPx(displayHeightPx: number): number {
   const h = Number.isFinite(displayHeightPx) && displayHeightPx > 0 ? displayHeightPx : 1080;
   return Math.max(16, Math.round(PROJECTOR_MIN_BODY_FRACTION * h));
+}
+
+/**
+ * The hard readability CEILING in px for a given display height — the largest
+ * a projected line may render (PROJECTOR_MAX_BODY_FRACTION of height). The
+ * largest-fit search in AutoFitText never exceeds this, so short text is big
+ * but never absurd. Also enforces a small absolute minimum ceiling so tiny
+ * surfaces (stage "next" pane) still allow a sensible max.
+ */
+export function projectorCeilingPx(displayHeightPx: number): number {
+  const h = Number.isFinite(displayHeightPx) && displayHeightPx > 0 ? displayHeightPx : 1080;
+  return Math.max(48, Math.round(PROJECTOR_MAX_BODY_FRACTION * h));
 }
