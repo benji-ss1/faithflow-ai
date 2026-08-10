@@ -175,6 +175,7 @@ export default function LivestreamPage() {
         realtime = openOutputChannel(code, church);
         let firstMsg = true;
         realtime.subscribe((state) => {
+          setFontScale(typeof state.fontScale === "number" ? state.fontScale : 1);
           lastMsgAt.current = Date.now();
           setConnected(true);
           setSlide(state.live);

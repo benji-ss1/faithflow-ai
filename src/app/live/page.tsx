@@ -242,6 +242,7 @@ export default function LivePage() {
           setSlide(state.live);
           setAnnouncement(state.announcement ?? null);
           setTransition(state.transition ?? null);
+          setFontScale(typeof state.fontScale === "number" ? state.fontScale : 1);
           if (firstMsg) {
             firstMsg = false;
             setPairBadge(code);

@@ -120,10 +120,45 @@ export const proclaimParser: Parser = {
             skipped.push({ file: f.name, reason: inspect.reason });
             continue;
           }
+          // Order entries by the service manifest (`manifest.json` → `items[]`,
+          // the declared play order) instead of ZIP-directory (usually
+          // alphabetical) order — the fix for "Proclaim service imported out of
+          // order". Defensive: entries not listed in the manifest are appended
+          // (never dropped), and a missing/odd manifest falls back to directory
+          // order.
+          const basename = (s: string) => (s.split(/[/\\]/).pop() || s);
+          let manifestOrder: string[] | null = null;
+          try {
+            const mEntry = inspect.entries.find(
+              (e) => !e.isDirectory && /(^|[/\\])manifest\.json$/i.test(e.entryName),
+            );
+            if (mEntry) {
+              const mj = safeJsonParse(decodeUtf8Strict(mEntry.getData()));
+              const items = mj.ok && mj.value && typeof mj.value === "object"
+                ? (mj.value as { items?: unknown }).items
+                : undefined;
+              if (Array.isArray(items)) {
+                manifestOrder = items.filter((x): x is string => typeof x === "string");
+              }
+            }
+          } catch { /* ignore — fall back to entry order */ }
+
+          const jsonEntries = inspect.entries.filter(
+            (e) => !e.isDirectory && /\.json$/i.test(e.entryName) && !/(^|[/\\])manifest\.json$/i.test(e.entryName),
+          );
+          const matches = (e: { entryName: string }, item: string) =>
+            e.entryName === item || basename(e.entryName) === basename(item);
+          const ordered = manifestOrder
+            ? [
+                ...manifestOrder
+                  .map((item) => jsonEntries.find((e) => matches(e, item)))
+                  .filter((e): e is (typeof jsonEntries)[number] => !!e),
+                ...jsonEntries.filter((e) => !manifestOrder!.some((item) => matches(e, item))),
+              ]
+            : jsonEntries;
+
           let parsedAny = false;
-          for (const e of inspect.entries) {
-            if (e.isDirectory) continue;
-            if (!/\.json$/i.test(e.entryName)) continue;
+          for (const e of ordered) {
             let text: string;
             try {
               text = decodeUtf8Strict(e.getData());

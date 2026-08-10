@@ -162,6 +162,7 @@ export default function StagePage() {
         realtime = openOutputChannel(code, church);
         let firstMsg = true;
         realtime.subscribe((state) => {
+          setFontScale(typeof state.fontScale === "number" ? state.fontScale : 1);
           lastMsgAt.current = Date.now();
           setConnected(true);
           setCurrent(state.live);

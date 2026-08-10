@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.130",
+    date: "2026-08-11",
+    headline: "Proclaim & PowerPoint import order · text-size syncs to paired screens",
+    highlights: [
+      "Proclaim service exports now import their songs in the order the service was arranged, not alphabetical file order.",
+      "PowerPoint (.pptx) imports now attach each slide's text to the correct slide, improving AI detection and search on imported decks (the visible slides were already in order).",
+      "The manual text-size setting (A− / AUTO / A+) now also carries to a paired second screen over the network, so a separately-connected projector matches your chosen size too.",
+    ],
+  },
+  {
     version: "0.1.129",
     date: "2026-08-11",
     headline: "Manual projector text-size control (A− / AUTO / A+)",

@@ -116,6 +116,37 @@ export function extractPptxTextPerSlide(pptxBuf: Buffer): Map<number, ExtractedS
         map.set(idx, existing);
       }
     }
+    // Remap slideN.xml FILENAME numbers → DISPLAY position using
+    // ppt/presentation.xml <p:sldIdLst> + presentation.xml.rels. PPTX file
+    // numbering is NOT the slide show order, but the consumer merges this text
+    // onto PDF pages (which ARE in show order, from LibreOffice) — so without
+    // this remap the text can attach to the wrong slide (wrong AI/search
+    // matches). Defensive: falls back to filename order if the ordering XML is
+    // missing/unreadable or any r:id doesn't resolve.
+    try {
+      const presEntry = zip.getEntry("ppt/presentation.xml");
+      const relsEntry = zip.getEntry("ppt/_rels/presentation.xml.rels");
+      if (presEntry && relsEntry) {
+        const presXml = presEntry.getData().toString("utf8");
+        const relsXml = relsEntry.getData().toString("utf8");
+        const rIds = [...presXml.matchAll(/<p:sldId\b[^>]*\br:id="([^"]+)"/g)].map((mm) => mm[1]);
+        const ridToFile = new Map<string, number>();
+        for (const rel of relsXml.matchAll(/<Relationship\b[^>]*>/g)) {
+          const tag = rel[0];
+          const id = /\bId="([^"]+)"/.exec(tag)?.[1];
+          const target = /\bTarget="([^"]+)"/.exec(tag)?.[1];
+          const fn = target ? /slide(\d+)\.xml$/.exec(target) : null;
+          if (id && fn) ridToFile.set(id, parseInt(fn[1], 10));
+        }
+        if (rIds.length > 0 && rIds.every((r) => ridToFile.has(r))) {
+          const displayMap = new Map<number, ExtractedSlide>();
+          rIds.forEach((rid, i) => {
+            displayMap.set(i + 1, map.get(ridToFile.get(rid)!) || { slideText: null, notesText: null });
+          });
+          return displayMap;
+        }
+      }
+    } catch { /* fall back to filename order below */ }
   } catch (e) {
     console.warn("[pptx] text extraction failed:", e instanceof Error ? e.message : String(e));
   }
