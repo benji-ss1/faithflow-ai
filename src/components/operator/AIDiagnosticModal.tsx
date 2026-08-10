@@ -26,7 +26,47 @@ const INITIAL: Step[] = [
  * reports each one. Testers who can't get AI to work run this once, screenshot
  * it, and support has actionable info — no DevTools required.
  */
-export function AIDiagnosticModal({ planId, open, onOpenChange }: { planId?: string; open: boolean; onOpenChange: (v: boolean) => void }) {
+// WS6 — live audio readout. A snapshot of the current session's audio/transcription
+// state so an operator (or Victor) can screenshot ONE panel that explains what the
+// app is actually receiving, instead of "it didn't pick up". All fields optional so
+// the modal still works when no session is active.
+export type LiveAudioStats = {
+  inputName?: string | null;      // e.g. "NDI: FOH Mix" / "Scarlett 2i2" / "MacBook Mic"
+  transport?: string | null;       // "ndi" | "usb" | "builtin" | "browser" | ...
+  listening?: boolean;
+  ready?: boolean;
+  stage?: string;
+  sampleRate?: number | null;
+  channels?: number | null;
+  level?: number;                   // 0..1
+  quality?: "ok" | "low" | null;
+  qualityAvg?: number;              // 0..1
+  avgConfidence?: number;           // 0..1
+  musicSuspected?: boolean;
+  clipping?: boolean;
+  noAudioSignal?: boolean;
+  reconnectAttempts?: number;
+  msgsPerSec?: number;
+  lastLatencyMs?: number | null;
+  error?: string | null;
+};
+
+function Stat({ label, value, tone }: { label: string; value: string; tone?: "ok" | "warn" | "bad" | "muted" }) {
+  const color =
+    tone === "ok" ? "text-emerald-400" :
+    tone === "warn" ? "text-amber-300" :
+    tone === "bad" ? "text-red-400" :
+    tone === "muted" ? "text-[var(--color-muted-foreground)]" :
+    "text-[var(--color-foreground)]";
+  return (
+    <div className="flex flex-col gap-0.5 min-w-0">
+      <div className="text-[9px] uppercase tracking-wider text-[var(--color-muted-foreground)]">{label}</div>
+      <div className={`text-[12px] font-mono truncate ${color}`}>{value}</div>
+    </div>
+  );
+}
+
+export function AIDiagnosticModal({ planId, open, onOpenChange, live }: { planId?: string; open: boolean; onOpenChange: (v: boolean) => void; live?: LiveAudioStats }) {
   const [steps, setSteps] = useState<Step[]>(INITIAL);
   const [running, setRunning] = useState(false);
 
@@ -198,6 +238,30 @@ export function AIDiagnosticModal({ planId, open, onOpenChange }: { planId?: str
             <button onClick={() => onOpenChange(false)} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] text-lg leading-none">×</button>
           </div>
           <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2">
+            {/* WS6 — live audio readout. Present whenever the modal is opened
+                from an active operator console. One screenshot = full picture. */}
+            {live && (
+              <div className="mb-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-elevated)]/40 p-3">
+                <div className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)] mb-2">Live audio (right now)</div>
+                <div className="grid grid-cols-3 gap-x-3 gap-y-2">
+                  <Stat label="Input" value={live.inputName || "—"} tone={live.inputName ? undefined : "muted"} />
+                  <Stat label="Type" value={(live.transport || "—").toUpperCase()} tone={live.transport === "ndi" ? "ok" : "muted"} />
+                  <Stat label="State" value={live.listening ? (live.ready ? "listening" : (live.stage || "connecting")) : "off"} tone={live.listening && live.ready ? "ok" : live.listening ? "warn" : "muted"} />
+                  <Stat label="Sample rate" value={live.sampleRate ? `${live.sampleRate} Hz` : "—"} />
+                  <Stat label="Channels" value={live.channels != null ? String(live.channels) : "—"} />
+                  <Stat label="Level" value={live.noAudioSignal ? "NO SIGNAL" : `${Math.round((live.level ?? 0) * 100)}%`} tone={live.noAudioSignal ? "bad" : (live.level ?? 0) > 0.02 ? "ok" : "warn"} />
+                  <Stat label="Confidence" value={`${Math.round((live.avgConfidence ?? 0) * 100)}%`} tone={(live.avgConfidence ?? 0) >= 0.75 ? "ok" : (live.avgConfidence ?? 0) >= 0.6 ? "warn" : "bad"} />
+                  <Stat label="Quality" value={live.quality ? `${live.quality} ${Math.round((live.qualityAvg ?? 0) * 100)}%` : "—"} tone={live.quality === "ok" ? "ok" : live.quality === "low" ? "warn" : "muted"} />
+                  <Stat label="Latency" value={live.lastLatencyMs != null ? `${live.lastLatencyMs} ms` : "—"} tone={live.lastLatencyMs != null && live.lastLatencyMs > 1500 ? "warn" : undefined} />
+                  <Stat label="Music" value={live.musicSuspected ? "SUSPECTED" : "no"} tone={live.musicSuspected ? "warn" : "muted"} />
+                  <Stat label="Clipping" value={live.clipping ? "TOO HOT" : "no"} tone={live.clipping ? "bad" : "muted"} />
+                  <Stat label="Reconnects" value={String(live.reconnectAttempts ?? 0)} tone={(live.reconnectAttempts ?? 0) > 0 ? "warn" : "muted"} />
+                </div>
+                {live.error && (
+                  <div className="mt-2 text-[11px] text-red-300 break-words">Last error: {live.error}</div>
+                )}
+              </div>
+            )}
             {steps.map((s) => {
               const Icon = s.status === "ok" ? Check : s.status === "fail" ? X : s.status === "running" ? Loader2 : Activity;
               const color =

@@ -196,6 +196,19 @@ export type AudioStreamState = {
   // silent misfires is a mic / room / signal problem, not an AI bug.
   audioQuality: "ok" | "low" | null;
   audioQualityAvg: number; // 0..1 rolling avg of last N final-segment confidences
+  // WS1 — music/choir gate. True when the input carries a strong, clearly
+  // audible signal BUT the transcription confidence stays persistently low —
+  // the signature of choir/instrumental/worship audio (the ASR hears sound but
+  // can't make faithful words of it), as distinct from LOW AUDIO (a weak/distant
+  // signal). While true, auto-ACTIONS (zero-click song auto-live, Bible
+  // auto-approve) are held back to a human-confirm keypress so the app doesn't
+  // mis-fire on singing. The raw transcript is still captured — words are never
+  // dropped. Clears the moment clean, confident speech returns.
+  musicSuspected: boolean;
+  // WS2 — clipping / over-drive. True when the input peaks at/near 0 dBFS for a
+  // sustained window (an over-hot feed from the desk). Surfaces an "AUDIO TOO
+  // HOT" chip; a clipped feed transcribes badly, so this is an accuracy signal.
+  clipping: boolean;
   // Heartbeat (2026-07-25 Bug-3): wall-clock ms of the last transcript-bearing
   // Deepgram message (interim / final / interim_final_candidate). Committed at
   // most ~1Hz alongside dgMessagesReceived so the TopBar heartbeat dot can
@@ -249,7 +262,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     stage: "idle", stageHistory: [], chunksSent: 0, dgMessagesReceived: 0,
     reconnectFailed: false, reconnectAttempts: 0, warmStarted: false,
     silenceGateClosed: false, noAudioSignal: false, audioLevel: 0, streamChannelCount: null, streamSampleRate: null, msgsPerSec: 0, lastLatencyMs: null, avgConfidence: 0,
-    audioQuality: null, audioQualityAvg: 0,
+    audioQuality: null, audioQualityAvg: 0, musicSuspected: false, clipping: false,
     lastTranscriptAt: null,
     canonicalCorrections: [],
   });
@@ -724,6 +737,49 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   // the same edge repeatedly.
   const rollingConfRef = useRef<number[]>([]);
   const audioQualityStateRef = useRef<"ok" | "low" | null>(null);
+  // WS1 music/choir gate. Discriminator = persistently low rolling confidence
+  // WHILE the signal is clearly audible (not the weak-signal LOW AUDIO case).
+  // `audioDbfsRef` holds the latest input level (updated on every level tick in
+  // both native and browser paths) so the quality block can tell "loud but
+  // unintelligible" (music) from "quiet + unintelligible" (distant mic).
+  const audioDbfsRef = useRef<number>(-Infinity);
+  const musicSuspectedRef = useRef<boolean>(false);
+  const MUSIC_CONF_ENTER = 0.55; // rolling avg below this + audible ⇒ music
+  const MUSIC_CONF_EXIT = 0.68;  // rises above ⇒ clean speech, clear the gate
+  const MUSIC_LEVEL_FLOOR_DBFS = -40; // must be clearly audible to count as music
+  const MUSIC_DECAY_MS = 8_000; // clear a latched music gate if no transcript for this long
+  // WS2 clipping / over-drive. Tracks true sample peak (linear 0..1) with
+  // hysteresis + a sustain hold so a single transient doesn't warn.
+  const clipStartRef = useRef<number | null>(null);
+  const clipClearStartRef = useRef<number | null>(null);
+  const clippingRef = useRef<boolean>(false);
+  const CLIP_ENTER = 0.985;   // ≈ -0.13 dBFS — at/into the rail
+  const CLIP_EXIT = 0.9;      // ≈ -0.9 dBFS — comfortably below
+  const CLIP_HOLD_MS = 400;   // sustained clipping before we warn
+  const CLIP_CLEAR_MS = 1500; // sustained headroom before we clear
+  // Shared by both the native and browser level paths. `peakLinear` is the
+  // true sample peak (0..1). Hysteresis + hold so a single transient never
+  // warns and a brief dip never clears. Only flips state on a real crossing.
+  const noteClipPeak = useCallback((peakLinear: number, nowMs: number) => {
+    if (peakLinear >= CLIP_ENTER) {
+      clipClearStartRef.current = null;
+      if (clipStartRef.current === null) clipStartRef.current = nowMs;
+      if (!clippingRef.current && nowMs - clipStartRef.current >= CLIP_HOLD_MS) {
+        clippingRef.current = true;
+        setState((s) => (s.clipping ? s : { ...s, clipping: true }));
+      }
+    } else if (peakLinear < CLIP_EXIT) {
+      clipStartRef.current = null;
+      if (clippingRef.current) {
+        if (clipClearStartRef.current === null) clipClearStartRef.current = nowMs;
+        if (nowMs - clipClearStartRef.current >= CLIP_CLEAR_MS) {
+          clippingRef.current = false;
+          setState((s) => (s.clipping ? { ...s, clipping: false } : s));
+        }
+      }
+    }
+    // between EXIT and ENTER: hold current state (hysteresis band)
+  }, []);
   // Roadmap #4 — per-preacher/per-church learned keyterms miner. During a
   // service, accumulate tokens with consistently LOW Deepgram confidence
   // (a proxy for "the model doesn't know this word for this preacher").
@@ -984,6 +1040,12 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     primarySpeakerRef.current = null;
     rollingConfRef.current = [];
     audioQualityStateRef.current = null;
+    // WS1/WS2 — reset music + clip state so a new session starts clean.
+    audioDbfsRef.current = -Infinity;
+    musicSuspectedRef.current = false;
+    clipStartRef.current = null;
+    clipClearStartRef.current = null;
+    clippingRef.current = false;
   }, [planId]);
 
   const stop = useCallback(() => {
@@ -1012,7 +1074,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     ringBufferBytesRef.current = 0;
     flushSessionMetrics();
     teardown();
-    setState((s) => ({ ...s, listening: false, ready: false, interim: "", stage: "idle", reconnectFailed: false, reconnectAttempts: 0, warmStarted: false, silenceGateClosed: false, noAudioSignal: false, audioLevel: 0 }));
+    setState((s) => ({ ...s, listening: false, ready: false, interim: "", stage: "idle", reconnectFailed: false, reconnectAttempts: 0, warmStarted: false, silenceGateClosed: false, noAudioSignal: false, audioLevel: 0, musicSuspected: false, clipping: false }));
   }, [teardown, flushSessionMetrics]);
 
   const scheduleReconnect = useCallback(() => {
@@ -1349,11 +1411,37 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
               } catch { /* noop */ }
             }
           }
+          // WS1 — music/choir gate. Persistently low confidence WHILE the
+          // signal is clearly audible = the ASR is hearing sound it can't turn
+          // into faithful words (singing/instrumental), distinct from LOW AUDIO
+          // (weak signal). Only ever RAISES the bar for auto-actions downstream
+          // (conservative — CLAUDE.md rule 7). Hysteresis mirrors the quality
+          // gate so it doesn't flap between segments.
+          let nextMusic = musicSuspectedRef.current;
+          if (w.length >= AUDIO_QUALITY_MIN_SAMPLES) {
+            const dbfs = audioDbfsRef.current;
+            const audible = Number.isFinite(dbfs) && dbfs > MUSIC_LEVEL_FLOOR_DBFS;
+            nextMusic = musicSuspectedRef.current
+              ? (rollAvg < MUSIC_CONF_EXIT && audible)
+              : (rollAvg < MUSIC_CONF_ENTER && audible);
+            if (nextMusic !== musicSuspectedRef.current) {
+              musicSuspectedRef.current = nextMusic;
+              try {
+                if (typeof window !== "undefined") {
+                  window.dispatchEvent(new CustomEvent(
+                    nextMusic ? "presentflow:music-suspected" : "presentflow:music-cleared",
+                    { detail: { avg: rollAvg, dbfs } },
+                  ));
+                }
+              } catch { /* noop */ }
+            }
+          }
           setState((s) => ({
             ...s,
             avgConfidence: Math.round(avg * 100) / 100,
             audioQuality: nextQuality,
             audioQualityAvg: Math.round(rollAvg * 100) / 100,
+            musicSuspected: nextMusic,
           }));
         }
         if (msg.type === "ready") {
@@ -1766,9 +1854,18 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
               // levels arrive pre-computed (RMS 0..1, dbfs float) so we
               // can skip the sumSq loop.
               const nowMs = Date.now();
-              const rms = Math.max(0, Math.min(1, level.rms));
+              const rms = Number.isFinite(level.rms) ? Math.max(0, Math.min(1, level.rms)) : 0;
               guardianOnLevel(rms);
               const dbfs = typeof level.db === "number" && Number.isFinite(level.db) ? level.db : (rms > 0 ? 20 * Math.log10(rms) : -Infinity);
+              audioDbfsRef.current = dbfs; // WS1 music discriminator
+              // WS2 clipping — Swift reports the TRUE per-channel sample peak
+              // (linear 0..1), so native/NDI clip detection is accurate. (The
+              // browser worklet path below derives peak from the summed mono
+              // mix, so its clip/music signals are best-effort on big multi-
+              // channel mixers — those normally run on the native tier anyway.)
+              if (typeof level.peak === "number" && Number.isFinite(level.peak)) {
+                noteClipPeak(Math.max(0, Math.min(1, level.peak)), nowMs);
+              }
               const normalized = dbfs === -Infinity ? 0 : Math.max(0, Math.min(1, (dbfs + 60) / 60));
               if (normalized > levelPeakRef.current) levelPeakRef.current = normalized;
               if (nowMs - levelLastPushRef.current >= LEVEL_TICK_MS) {
@@ -2194,10 +2291,18 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         // Task 13: RMS silence gate. Compute RMS over PCM16 samples.
         const i16 = new Int16Array(raw);
         let sumSq = 0;
-        for (let i = 0; i < i16.length; i++) { const v = i16[i] / 0x8000; sumSq += v * v; }
+        let maxAbs = 0; // WS2 — true sample peak (linear) for clip detection
+        for (let i = 0; i < i16.length; i++) {
+          const v = i16[i] / 0x8000;
+          sumSq += v * v;
+          const a = v < 0 ? -v : v;
+          if (a > maxAbs) maxAbs = a;
+        }
         const rms = Math.sqrt(sumSq / Math.max(1, i16.length));
         const dbfs = rms > 0 ? 20 * Math.log10(rms) : -Infinity;
         const nowMs = Date.now();
+        audioDbfsRef.current = dbfs; // WS1 music discriminator
+        noteClipPeak(maxAbs, nowMs); // WS2 clipping
         const alwaysOn = aiAlwaysOnRef.current;
         // R8: hysteresis. Close only after HOLD_MS below -60 dBFS; reopen
         // when audio climbs back above -55 dBFS.
@@ -2412,6 +2517,14 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       if (wedged && reconnectTimerRef.current === null && !intentionalStopRef.current) {
         console.warn("[presentflow-audio] watchdog: socket wedged with no reconnect pending — kicking reconnect");
         scheduleReconnect();
+      }
+      // WS1 fix (review 🟡2) — the music gate is recomputed only on Deepgram
+      // `final` messages. Pure instrumental worship produces no finals, so the
+      // gate could latch ON indefinitely. Decay it if no transcript has landed
+      // for a while so it can't persist into the next spoken section.
+      if (musicSuspectedRef.current && Date.now() - lastTranscriptAtRef.current > MUSIC_DECAY_MS) {
+        musicSuspectedRef.current = false;
+        setState((s) => (s.musicSuspected ? { ...s, musicSuspected: false } : s));
       }
     }, 1_000);
     return () => clearInterval(id);
@@ -2686,7 +2799,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     // R6: bump generation so any inflight callback from the prior pipeline aborts.
     pipelineGenerationRef.current += 1;
     teardown();
-    setState((s) => ({ ...s, reconnectFailed: false, reconnectAttempts: 0, error: null, listening: false, ready: false, interim: "", stage: "idle", silenceGateClosed: false, noAudioSignal: false, audioLevel: 0 }));
+    setState((s) => ({ ...s, reconnectFailed: false, reconnectAttempts: 0, error: null, listening: false, ready: false, interim: "", stage: "idle", silenceGateClosed: false, noAudioSignal: false, audioLevel: 0, musicSuspected: false, clipping: false }));
     // Small tick so React commits stop-state before starting fresh.
     setTimeout(() => { startRef.current().catch(() => { /* ignore */ }); }, 50);
   }, [teardown, isDevOrTraceOn, flushSessionMetrics]);

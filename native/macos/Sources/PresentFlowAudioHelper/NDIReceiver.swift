@@ -386,6 +386,11 @@ final class NDIReceiver {
                 sampleRate: Self.outputSampleRate, channels: 1, interleaved: true),
             let conv = AVAudioConverter(from: mono, to: out)
         else { return false }
+        // Kept at .medium to match the field-proven USB path (AudioCapture.swift).
+        // For 48k→16k mono speech, medium is transparent to the ASR; NDI's real
+        // latency is dominated by LAN + the SDK's own receive buffering, not the
+        // sample-rate converter, so lowering quality would trade accuracy risk
+        // for no measurable latency win. Do not diverge without a measured test.
         conv.sampleRateConverterQuality = AVAudioQuality.medium.rawValue
         monoFormat = mono
         outFormat = out

@@ -690,7 +690,9 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     // shouldn't permanently exempt a song from the zero-click tier once the
     // AI is actually confident about it. Check this before the normal
     // stagedOrHandledRef skip below.
-    if (stagedSong) {
+    if (stagedSong && !ctx.audio.musicSuspected) {
+      // WS1 — while music is suspected, a staged song must NOT auto-promote to
+      // live on a confidence rise; it waits for the operator's G confirm.
       const risen = candidates.find((c) => c.songId === stagedSong.songId && c.confidence >= SONG_AUTOLIVE_CONFIDENCE);
       // Synchronous dedupe BEFORE the async autoLiveSong call, using a
       // DIFFERENT ref than autoLiveSong's own stagingInFlightRef (which it
@@ -760,7 +762,15 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
         if (sameSongAlreadyLive && gap < SONG_REDETECT_COOLDOWN_MS) continue;
         if (!sameSongAlreadyLive && gap < SONG_QUICK_REFIRE_MS) continue;
       }
-      if (c.confidence >= SONG_AUTOLIVE_CONFIDENCE) {
+      // WS1 — music/choir gate. When the input looks like worship/choir/music
+      // (strong signal but persistently low ASR confidence), do NOT zero-click
+      // auto-project — a "song" detected off singing is exactly the false
+      // trigger we want to avoid. Downgrade to STAGE so the operator confirms
+      // with the G key. This only RAISES the bar during music (conservative —
+      // CLAUDE.md rule 7); clean confident speech clears musicSuspected and
+      // auto-live resumes normally.
+      const musicHold = !!ctx.audio.musicSuspected;
+      if (c.confidence >= SONG_AUTOLIVE_CONFIDENCE && !musicHold) {
         stagedOrHandledRef.current.set(c.songId, now);
         firedSuggestionIdsRef.current.add(c.suggestionId);
         // Prune fired-id set to last 200 entries (LRU-ish via clear+re-add
@@ -2220,6 +2230,15 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       }
     } catch { /* noop */ }
     const nowTs = Date.now();
+    // WS1 — music/choir gate is INTENTIONALLY NOT applied to Bible auto-approve.
+    // Review (2026-08-10): RCCG/Pentecostal services frequently preach OVER a
+    // music bed ("ministration") — loud + lower ASR confidence — which is
+    // exactly when the music heuristic engages. Holding legitimate preached
+    // scripture there would be a worse failure than the rare mis-heard verse.
+    // The music gate is scoped to SONG auto-live only (a wrong song popping up
+    // off the choir is the canonical worship false-trigger; a spurious well-
+    // formed Book chapter:verse from singing is far rarer). If field data shows
+    // spurious Bible fires during worship, add a tuned Bible hold then.
     const decision = decideBibleAutoFire({
       key,
       firedMap: bibleFiredMapRef.current,

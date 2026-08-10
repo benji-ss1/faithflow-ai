@@ -982,9 +982,23 @@ export function AudioTab() {
               NDI® is a registered trademark of Vizrt NDI AB.
             </div>
           )}
-          {nativeSelected && (nativeSelected.channelCount ?? 0) === 2 && (
+          {nativeSelected && (nativeSelected.channelCount ?? 0) === 2
+            && !(nativeSelected.transport === "ndi" || /^NDI:/i.test(nativeSelected.name)) && (
             <div className="text-[10px] text-[var(--color-muted-foreground)] px-1">
               Stereo input — ffmpeg downmixes both channels to mono for the AI listener.
+            </div>
+          )}
+          {/* WS4 — NDI channel-count is unknown until the receiver connects and
+              sees the first audio frame (then the helper re-lists with the real
+              count). Show a gentle "detecting" hint for a freshly-selected NDI
+              source still on its provisional 2ch, so a multi-channel choir/music
+              feed doesn't look like a plain stereo input before the grid fills in. */}
+          {nativeSelected
+            && (nativeSelected.transport === "ndi" || /^NDI:/i.test(nativeSelected.name))
+            && (nativeSelected.channelCount ?? 0) <= 2 && (
+            <div className="text-[10px] text-[var(--color-muted-foreground)] px-1 flex items-center gap-1.5">
+              <span className="inline-block w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
+              Detecting channels from the NDI feed… the full channel grid appears automatically once audio is flowing (multi-channel feeds only).
             </div>
           )}
           {/* Channel auto-detect — multi-channel native devices (>2ch) */}

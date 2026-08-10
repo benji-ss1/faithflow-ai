@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.123",
+    date: "2026-08-10",
+    headline: "Smarter during worship · warns on hot audio · cleaner mixer sound",
+    highlights: [
+      "PresentFlow now recognises when it's hearing worship/choir/music rather than speech, and pauses zero-click song auto-projection during those stretches so it won't push a song off the choir singing. Detected songs still show — press your confirm key to project. A subtle \"MUSIC\" chip appears while this is active, and it clears itself the moment clear speech returns.",
+      "New \"AUDIO TOO HOT\" warning: if the feed coming in is clipping (peaking at maximum), a red chip tells you to turn the send level down from the desk. A clipped feed transcribes badly, so this helps catch a common cause of missed/garbled words.",
+      "NDI multi-channel feeds now show a \"detecting channels\" note while connecting, then reveal the full channel grid automatically so you can pick the vocal channel.",
+      "The AI Listening diagnostic now shows a live one-screen readout — input, type (incl. NDI), sample rate, channels, level, confidence, music/clipping/latency — so a screenshot tells the whole story if something's off.",
+    ],
+  },
+  {
     version: "0.1.122",
     date: "2026-08-08",
     headline: "Receive service audio over the network with NDI",

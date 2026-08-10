@@ -17,7 +17,8 @@ import type { OperatorShellCtx } from "../shell/types";
 import type { CenterMode } from "./ProOperatorShell";
 import { cn } from "@/lib/utils";
 import { SearchPalette } from "./SearchPalette";
-import { AIDiagnosticModal } from "../AIDiagnosticModal";
+import { AIDiagnosticModal, type LiveAudioStats } from "../AIDiagnosticModal";
+import { readNativeDevicePref } from "@/lib/audio/nativeDeviceStore";
 import type { DisplayInfo } from "@/types/electron";
 import { dispatchInternal } from "@/lib/internal-events";
 
@@ -664,6 +665,57 @@ export function TopBar({
                 </Tooltip.Portal>
               </Tooltip.Root>
             )}
+            {/* WS1 — music/choir chip. Auto-projection is HELD (stage+confirm)
+                while the feed looks like worship/music, so the app doesn't
+                mis-fire on singing. Distinct amber-violet from LOW AUDIO. */}
+            {listening && ctx.audio.musicSuspected && (
+              <Tooltip.Root>
+                <Tooltip.Trigger asChild>
+                  <span
+                    role="status"
+                    aria-live="polite"
+                    className="flex items-center gap-1 h-[24px] px-2 rounded-full border text-[10px] font-semibold uppercase tracking-wider bg-violet-500/15 text-violet-200 border-violet-500/50"
+                    data-testid="audio-music-suspected"
+                  >
+                    <span aria-hidden className="inline-block w-2 h-2 rounded-full bg-violet-400" />
+                    <span>MUSIC</span>
+                  </span>
+                </Tooltip.Trigger>
+                <Tooltip.Portal>
+                  <Tooltip.Content
+                    sideOffset={6}
+                    className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] px-2 py-1 text-[11px] z-50 font-mono max-w-[280px]"
+                  >
+                    Worship / music detected (strong signal, low speech confidence). Auto-projection is paused so the app won&apos;t mis-fire on singing — detections still show, press the confirm key to project. Clears automatically when clear speech returns.
+                  </Tooltip.Content>
+                </Tooltip.Portal>
+              </Tooltip.Root>
+            )}
+            {/* WS2 — clipping / over-drive chip. The feed is too hot (peaking at
+                0 dBFS); ASR garbles clipped audio. Red = act now. */}
+            {listening && ctx.audio.clipping && (
+              <Tooltip.Root>
+                <Tooltip.Trigger asChild>
+                  <span
+                    role="status"
+                    aria-live="polite"
+                    className="flex items-center gap-1 h-[24px] px-2 rounded-full border text-[10px] font-semibold uppercase tracking-wider bg-red-500/15 text-red-200 border-red-500/50"
+                    data-testid="audio-clipping"
+                  >
+                    <span aria-hidden className="inline-block w-2 h-2 rounded-full bg-red-400" />
+                    <span>AUDIO TOO HOT</span>
+                  </span>
+                </Tooltip.Trigger>
+                <Tooltip.Portal>
+                  <Tooltip.Content
+                    sideOffset={6}
+                    className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] px-2 py-1 text-[11px] z-50 font-mono max-w-[280px]"
+                  >
+                    The incoming audio is clipping (peaking at maximum). A clipped feed transcribes badly. Lower the send level to PresentFlow from the mixer/desk (or the input gain) until this clears.
+                  </Tooltip.Content>
+                </Tooltip.Portal>
+              </Tooltip.Root>
+            )}
             {/* #4 — Big Auto-approve toggle. Sits next to the AI Live pill so
                 operators can spot the mode at a glance. */}
             <button
@@ -831,7 +883,46 @@ export function TopBar({
       </div>
 
       <SearchPalette open={searchOpen} onOpenChange={setSearchOpen} ctx={ctx} onCenterMode={onCenterMode} />
-      <AIDiagnosticModal planId={ctx.planId} open={diagOpen} onOpenChange={setDiagOpen} />
+      <AIDiagnosticModal
+        planId={ctx.planId}
+        open={diagOpen}
+        onOpenChange={setDiagOpen}
+        live={!diagOpen ? undefined : ((): LiveAudioStats => {
+          // Best-effort input name from the persisted native-device pref; NDI
+          // sources are named "NDI: <source>" so we can label the transport.
+          // Only computed while the modal is open (avoids a per-render
+          // localStorage read/parse — review G5).
+          let inputName: string | null = null;
+          let transport: string | null = null;
+          try {
+            const np = readNativeDevicePref();
+            if (np?.name) {
+              inputName = np.name;
+              transport = /^NDI:/i.test(np.name) ? "ndi" : "native";
+            }
+          } catch { /* noop */ }
+          return {
+            inputName,
+            transport,
+            listening: ctx.audio.listening,
+            ready: ctx.audio.ready,
+            stage: ctx.audio.stage,
+            sampleRate: ctx.audio.streamSampleRate,
+            channels: ctx.audio.streamChannelCount,
+            level: ctx.audio.audioLevel,
+            quality: ctx.audio.audioQuality,
+            qualityAvg: ctx.audio.audioQualityAvg,
+            avgConfidence: ctx.audio.avgConfidence,
+            musicSuspected: ctx.audio.musicSuspected,
+            clipping: ctx.audio.clipping,
+            noAudioSignal: ctx.audio.noAudioSignal,
+            reconnectAttempts: ctx.audio.reconnectAttempts,
+            msgsPerSec: ctx.audio.msgsPerSec,
+            lastLatencyMs: ctx.audio.lastLatencyMs,
+            error: ctx.audio.error,
+          };
+        })()}
+      />
     </div>
   );
 }

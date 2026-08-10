@@ -153,6 +153,12 @@ export function audioConstraintsFor(
 ): MediaStreamConstraints {
   const type = sourceType ?? readAudioSourceType();
   void type; // retained for future per-source tuning
+  // NOTE (2026-08-10): a source-aware DSP-off-for-mixer variant was trialled
+  // and reverted — it silently reversed the deliberate `d357516` fix ("enable
+  // DSP for all audio sources") for every default-mixer church at once, risking
+  // an under-driven feed dropping below Deepgram's floor mid-service. DSP stays
+  // ON for all browser sources until a per-church toggle + field A/B exists.
+  // NDI/native audio never reaches this path — it bypasses browser DSP entirely.
   const base: MediaTrackConstraints = {
     echoCancellation: true,
     noiseSuppression: true,
