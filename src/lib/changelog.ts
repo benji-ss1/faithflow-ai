@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.124",
+    date: "2026-08-10",
+    headline: "Projector never blanks — auto-recovers from glitches & network drops",
+    highlights: [
+      "The projector, stage, and livestream output screens now heal themselves. If the network hiccups, a screen reloads, or its display process ever crashes mid-service, the output falls back to a clean black screen (never a browser error page in front of the congregation) and automatically reconnects the moment it can — then your current slide snaps right back.",
+      "The operator window recovers the same way: if it loses the connection it shows a calm \"reconnecting…\" screen and keeps retrying on its own until it's back, instead of getting stuck. No more needing to quit and reopen after a blip.",
+      "This is the first of several reliability upgrades aimed at making PresentFlow rock-solid on unreliable church wifi.",
+    ],
+  },
+  {
     version: "0.1.123",
     date: "2026-08-10",
     headline: "Smarter during worship · warns on hot audio · cleaner mixer sound",

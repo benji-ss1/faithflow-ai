@@ -1,4 +1,17 @@
 import { BrowserWindow, Display, app, screen } from "electron";
+import * as path from "node:path";
+
+// A congregation-safe BLACK page shown when an output window can't load / has
+// crashed / is reloading, instead of a Chromium error page or a stuck-hidden
+// window. Bundled + loaded via loadFile so it paints with zero network.
+// OutputWindow.js compiles to dist-electron/windows/, so two ".." reach the
+// repo root's electron/ dir (mirrors main.ts's splash.html resolution).
+const OUTPUT_FALLBACK_PATH = path.join(__dirname, "..", "..", "electron", "output-fallback.html");
+
+// Retry backoff for reloading the real output URL after a failure/crash.
+// Caps at 8s and repeats indefinitely — a projector must keep trying to
+// recover for the whole service, not give up.
+const OUTPUT_RETRY_BACKOFF_MS = [1000, 2000, 4000, 8000];
 
 export type OutputRole = "Projector" | "Stage" | "Livestream";
 export type Preset = "720p" | "1080p30" | "1080p60" | "4K";
@@ -101,7 +114,11 @@ export function createOutputWindow(
   win.webContents.on("will-navigate", (e, urlStr) => {
     try {
       const target = new URL(urlStr);
-      if (appOrigin && target.origin !== appOrigin) {
+      // Fail CLOSED: block if we can't establish the trusted origin (appOrigin
+      // null) or the target isn't exactly it. (loadFile/loadURL recovery loads
+      // are programmatic and never emit will-navigate, so the black fallback is
+      // unaffected by this guard.)
+      if (!appOrigin || target.origin !== appOrigin) {
         e.preventDefault();
         console.warn(`[OutputWindow ${role}] blocked navigation to ${target.origin}`);
       }
@@ -126,14 +143,116 @@ export function createOutputWindow(
   // reads `bg=transparent` for that.
   const livestreamBgParam = isLivestream ? "&bg=transparent" : "";
   const url = `${appUrl}${ROLE_TO_PATH[role]}?preset=${encodeURIComponent(preset)}&role=${encodeURIComponent(role)}${singleDisplay ? "&windowed=1" : ""}${livestreamObsParam}${livestreamBgParam}`;
-  win.loadURL(url).catch((e) => console.error(`[OutputWindow ${role}]`, e));
-  win.once("ready-to-show", () => {
-    win.show();
+
+  // ---- Self-recovery: a projector must NEVER show a blank/error/crashed page
+  // to a congregation. On any load failure or renderer crash we show the
+  // bundled BLACK fallback and keep retrying the real URL on backoff so it
+  // self-heals when the network returns. On a successful (re)load, the operator
+  // console re-pushes full output state over BroadcastChannel, so the current
+  // slide re-syncs automatically.
+  let retryTimer: NodeJS.Timeout | null = null;
+  // PER-LOAD hung watchdog. A stalled load (TCP connects but the server never
+  // responds — captive portals / half-open flaky wifi) fires NEITHER
+  // did-finish-load NOR did-fail-load, so without a fresh watchdog per attempt
+  // the projector could sit black forever with no retry. Re-armed on every
+  // loadReal(), cleared on finish/fail.
+  let loadWatchdog: NodeJS.Timeout | null = null;
+  let retryIdx = 0;
+  let shown = false;
+  let disposed = false;
+
+  const clearLoadWatchdog = () => {
+    if (loadWatchdog) { clearTimeout(loadWatchdog); loadWatchdog = null; }
+  };
+
+  const showWindow = () => {
+    if (shown || disposed || win.isDestroyed()) return;
+    shown = true;
+    try { win.show(); } catch { /* noop */ }
     if (!singleDisplay) {
       try { win.setFullScreen(true); } catch { /* noop */ }
     }
+  };
+
+  const showFallback = () => {
+    if (disposed || win.isDestroyed()) return;
+    // loadFile respawns a renderer even after render-process-gone; black is
+    // shown while we keep retrying the real URL underneath.
+    win.loadFile(OUTPUT_FALLBACK_PATH).catch((e) =>
+      console.error(`[OutputWindow ${role}] fallback load failed`, e)
+    );
+    showWindow(); // black beats a stuck-hidden window
+  };
+
+  const loadReal = () => {
+    if (disposed || win.isDestroyed()) return;
+    // Arm a fresh 15s stall watchdog for THIS attempt (a stalled load emits
+    // neither finish nor fail). On stall: fall back to black + schedule retry.
+    clearLoadWatchdog();
+    loadWatchdog = setTimeout(() => {
+      loadWatchdog = null;
+      if (disposed || win.isDestroyed()) return;
+      console.warn(`[OutputWindow ${role}] load stalled >15s — falling back + retrying`);
+      showFallback();
+      scheduleRetry();
+    }, 15000);
+    // did-fail-load drives the fallback + retry on failure, so just log here.
+    win.loadURL(url).catch((e) => console.error(`[OutputWindow ${role}] loadURL`, e));
+  };
+
+  const scheduleRetry = () => {
+    if (disposed || win.isDestroyed() || retryTimer) return; // one pending retry
+    const delay = OUTPUT_RETRY_BACKOFF_MS[Math.min(retryIdx, OUTPUT_RETRY_BACKOFF_MS.length - 1)];
+    retryIdx += 1;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      loadReal();
+    }, delay);
+  };
+
+  win.webContents.on("did-finish-load", () => {
+    // Only the REAL output page (strict app origin) counts as recovered — the
+    // black fallback is a file:// load and must not reset the backoff.
+    let cur = "";
+    try { cur = win.webContents.getURL(); } catch { /* noop */ }
+    const isAppOrigin = (() => {
+      try { return !!appOrigin && new URL(cur).origin === appOrigin; } catch { return false; }
+    })();
+    if (isAppOrigin) {
+      retryIdx = 0;
+      clearLoadWatchdog();
+      if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+      showWindow();
+    }
   });
+
+  win.webContents.on("did-fail-load", (_e, errorCode, errorDescription, _validatedURL, isMainFrame) => {
+    if (!isMainFrame) return;          // sub-resource failure — ignore
+    if (errorCode === -3) return;      // ERR_ABORTED (superseded nav) — not a real failure
+    clearLoadWatchdog();
+    console.warn(`[OutputWindow ${role}] did-fail-load ${errorCode} ${errorDescription} — falling back + retrying`);
+    showFallback();
+    scheduleRetry();
+  });
+
+  win.webContents.on("render-process-gone", (_e, details) => {
+    console.warn(`[OutputWindow ${role}] render-process-gone: ${details.reason} — recovering`);
+    clearLoadWatchdog();
+    showFallback();
+    scheduleRetry();
+  });
+
+  win.on("unresponsive", () => {
+    console.warn(`[OutputWindow ${role}] unresponsive — reloading`);
+    scheduleRetry();
+  });
+
+  loadReal();
+  win.once("ready-to-show", showWindow);
   win.on("closed", () => {
+    disposed = true;
+    if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+    clearLoadWatchdog();
     if (outputWindows.get(role) === win) outputWindows.delete(role);
   });
 

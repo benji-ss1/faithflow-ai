@@ -1,0 +1,30 @@
+<!doctype html>
+<!--
+  output-fallback.html — the safe screen a PresentFlow output/projector window
+  shows when it can't load (or has just reloaded/crashed) instead of a Chromium
+  error page. It is PURE BLACK on purpose: on a projector in front of a
+  congregation, black reads as "intentionally off", whereas a browser error
+  page or a stuck white/blank window reads as "it broke". Zero network, zero
+  script — loaded via loadFile() so it always paints even with no internet.
+  The Electron main process keeps retrying the real output URL in the
+  background and swaps back the moment it loads; the operator sees the real
+  connection status on their own console.
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PresentFlow Output</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: #000000;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body></body>
+</html>

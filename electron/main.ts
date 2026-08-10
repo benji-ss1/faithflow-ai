@@ -362,38 +362,70 @@ async function createMainWindow() {
     initialUrl = appUrl + (appUrl.includes("?") ? "&" : "?") + "ff_shell=desktop";
   }
 
-  // Load a bundled local splash immediately (zero network dependency, so it
-  // paints instantly even on a bad connection) instead of leaving the window
-  // showing nothing while loadURL is in flight. `ready-to-show` above fires
-  // on the splash's own paint, so testers see something right away rather
-  // than a window that never appears until the remote app is fully loaded —
-  // this was very likely the "clunky/blank" first impression a tester on an
-  // imperfect connection would get without this.
-  await mainWindow.loadFile(path.join(__dirname, "..", "electron", "splash.html"));
+  const splashPath = path.join(__dirname, "..", "electron", "splash.html");
 
   const setSplashStatus = (text: string) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     mainWindow.webContents.executeJavaScript(`window.pfSetStatus && window.pfSetStatus(${JSON.stringify(text)})`).catch(() => { /* noop */ });
   };
 
-  // Up to 3 attempts with backoff, each failure updating the splash so the
-  // tester sees real feedback instead of an indefinite blank/frozen window.
-  const MAX_ATTEMPTS = 3;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+  // The URL to recover to after a LATER failure/crash. Never the one-time
+  // device-exchange URL (its token is single-use) — the session cookie is set
+  // after the first successful load, so the base app URL reloads cleanly.
+  const recoveryUrl = appUrl + (appUrl.includes("?") ? "&" : "?") + "ff_shell=desktop";
+
+  // Load the real app with self-recovery. A bundled splash paints instantly
+  // (zero network) so the window is never blank; on failure we keep retrying
+  // with backoff INDEFINITELY (capped at 8s) rather than dead-ending on a
+  // "quit and reopen" message — a live service must self-heal the moment the
+  // connection returns. Re-entrancy-guarded so overlapping triggers (a
+  // did-fail-load firing during an in-flight retry) don't stack.
+  let recovering = false;
+  // `firstTarget` may be the single-use device-exchange URL (cold deep-link
+  // launch); every RETRY uses `retryTarget` (the base URL) so a blip after the
+  // token was consumed can't re-request a spent token and clear the session
+  // (which would drop the operator to /login mid-setup).
+  const loadWithRecovery = async (firstTarget: string, retryTarget: string) => {
+    if (recovering || !mainWindow || mainWindow.isDestroyed()) return;
+    recovering = true;
     try {
-      if (attempt > 1) setSplashStatus(`Retrying connection… (${attempt}/${MAX_ATTEMPTS})`);
-      await mainWindow.loadURL(initialUrl);
-      return; // success — real app is now loaded, splash is gone
-    } catch (err) {
-      console.error(`[main] loadURL attempt ${attempt} failed:`, err instanceof Error ? err.message : err);
-      if (attempt === MAX_ATTEMPTS) {
-        setSplashStatus("Can't reach Present Flow — check your internet connection, then quit and reopen the app.");
-        return;
+      try { await mainWindow.loadFile(splashPath); } catch { /* noop */ }
+      let attempt = 0;
+      while (mainWindow && !mainWindow.isDestroyed()) {
+        attempt += 1;
+        const target = attempt === 1 ? firstTarget : retryTarget;
+        try {
+          if (attempt > 1) setSplashStatus(`Reconnecting… (attempt ${attempt})`);
+          await mainWindow.loadURL(target);
+          return; // success — real app is now loaded, splash is gone
+        } catch (err) {
+          console.error(`[main] load attempt ${attempt} failed:`, err instanceof Error ? err.message : err);
+          // A failed loadURL leaves Chromium's error page up — restore our
+          // splash so the operator sees a branded "reconnecting" state, not a
+          // browser error, and keep retrying.
+          try { await mainWindow.loadFile(splashPath); } catch { /* noop */ }
+          setSplashStatus("Can't reach Present Flow — reconnecting automatically when your connection returns…");
+          await new Promise((r) => setTimeout(r, Math.min(1500 * attempt, 8000)));
+        }
       }
-      setSplashStatus("Connection issue — retrying…");
-      await new Promise((r) => setTimeout(r, 1500 * attempt));
+    } finally {
+      recovering = false;
     }
-  }
+  };
+
+  // Mid-session recovery: a network drop or a renderer crash after the app has
+  // loaded must re-show the splash and reload, never a dead Chromium page.
+  mainWindow.webContents.on("did-fail-load", (_e, errorCode, _desc, _url, isMainFrame) => {
+    if (!isMainFrame || errorCode === -3) return; // sub-resource / ERR_ABORTED — not a real failure
+    void loadWithRecovery(recoveryUrl, recoveryUrl);
+  });
+  mainWindow.webContents.on("render-process-gone", (_e, details) => {
+    if (details.reason === "clean-exit") return; // orderly teardown, not a crash
+    console.warn(`[main] render-process-gone: ${details.reason} — recovering`);
+    void loadWithRecovery(recoveryUrl, recoveryUrl);
+  });
+
+  await loadWithRecovery(initialUrl, recoveryUrl);
 }
 
 // Web-to-desktop auto-login: the website's download page mints a one-time

@@ -1,6 +1,6 @@
 {
   "name": "presentflow",
-  "version": "0.1.123",
+  "version": "0.1.124",
   "private": true,
   "description": "PresentFlow — AI-native church presentation software.",
   "author": "PresentFlow",
@@ -128,6 +128,7 @@
     "files": [
       "dist-electron/**",
       "electron/splash.html",
+      "electron/output-fallback.html",
       "config/**",
       "package.json",
       "!node_modules/**/*",
