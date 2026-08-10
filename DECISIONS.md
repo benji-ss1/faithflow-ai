@@ -6,14 +6,61 @@ list disagree, code wins and this note is stale — please update.
 | Stage | Current | Location | Notes |
 |---|---|---|---|
 | Audio capture quantum | ~8 ms (128 samples @ 16 kHz) | `useAudioStream.ts:1349` | Set by browser AudioWorklet; not tunable in code |
-| Client interim debounce (transcript display) | 90 ms | `ProOperatorShell.tsx:310` | 300 → 80 → 40 → 150 → 90 (real-service felt sluggish at 150ms) |
+| Client interim debounce (transcript display) | 90 ms | `TranscriptDisplay.tsx:108` (`useDebouncedInterim`) | 300 → 80 → 40 → 150 → 90 (real-service felt sluggish at 150ms). Moved out of `ProOperatorShell.tsx` into `pro/useDebouncedInterim.ts`; value unchanged. |
 | Deepgram `endpointing` | 100 ms | `audio-server.ts:141` | 200 → 100 → 75 → 50 → 150 → 100 (real-service felt slow at 150ms; 100ms fine — fragment issue was specifically at 50ms) |
-| Auto-fire min-gap (scripture + song) | 700 ms | `ProOperatorShell.tsx:1325`, `:460` | 4000 → 400 → 200 → 100 → 700 (pulled back — 100ms flickered on rapid stretches) |
+| Auto-fire min-gap (scripture + song) | 800 ms | `operatorConstants.ts:74` (`SONG_AUTO_LIVE_MIN_GAP_MS`), `:87` (`DEFAULT_MIN_GAP_MS`) | 4000 → 400 → 200 → 100 → 700 → 800 (700→800 on 2026-07-24 after a false-trigger report). Constants extracted from `ProOperatorShell.tsx` into `operatorConstants.ts`. |
 | Whisper canonical pass min-gap | 750 ms | `audio-server.ts:498` | 3000 → 1500 → 750 on 2026-07-24 |
 | Whisper 429 backoff | 30000 ms | `audio-server.ts:499` | Fine — off critical path |
 | RMS silence gate close/open | −60/−55 dBFS, 4 s hold | `useAudioStream.ts:484-486` | Opt-out; default OFF per always-on preference |
 | Slide transition (AI-fired) | 0 ms | `TransitionWrapper.tsx:32` | AI fires with `transition=undefined` → no animation |
 | Slide transition (manual pick) | 400-500 ms | `AIHelpersPanel.tsx`, `RightInspector.tsx` | Operator-selected only, not on AI hot path |
+| WS3 uplink-backpressure valve high/low water | 96000 / 48000 bytes | `useAudioStream.ts` (`sendAudioChunk`) | ≈3s / ≈1.5s of 16kHz mono PCM buffered. Sheds audio only when the WS to the Deepgram bridge stays saturated past ~3s (bounds live latency under sustained uplink congestion); transient wifi jitter (TCP retransmit, AP roam) absorbs as recoverable lag below the trip point. Inert on a healthy uplink (~256 kbps stream drains near-instantly). Set to 3s (not 1.5s) after stress review flagged that a low trip sheds words on ordinary flaky-wifi hiccups. |
+
+## WS3 uplink-backpressure valve (2026-08-10)
+
+Field report: on a clean mixer-board feed delivered via NDI (broadcast PC →
+presenting PC → Deepgram), transcription was slow/laggy, missing words, and
+degraded as the service went on. A board feed is the best possible ASR source,
+so the audio was being degraded IN TRANSIT, not at the source — the signature
+of send-buffer backpressure on a saturated uplink (commonly the presenting PC's
+internet contending with a simultaneous livestream upload).
+
+Root cause: both audio send sites (`useAudioStream.ts` native `onPcmChunk` and
+the browser worklet `onmessage`) called `ws.send(bytes)` with no
+`bufferedAmount` check. When the uplink can't drain ~256 kbps of PCM in
+real-time, bytes pile into the WebSocket's in-memory send buffer, so audio
+reaches Deepgram progressively later — transcription falls seconds, then
+minutes, behind speech.
+
+Fix: a shared `sendAudioChunk(ws, bytes)` valve. When `ws.bufferedAmount`
+climbs above HIGH_WATER (≈3s buffered) it sheds new chunks until the backlog
+drains below LOW_WATER (≈1.5s), so lag stays BOUNDED (≤~3s, with brief gaps)
+instead of compounding into minutes. A WebSocket send buffer can't be cleared
+once queued, so shedding new audio is the only way to stop the lag compounding;
+freshness beats completeness for live captioning and Deepgram tolerates gaps.
+Hysteresis avoids frame-by-frame flapping. Exposes `ctx.audio.uplinkCongested`
+(+ trace log) so the hop can be diagnosed live. Inert on a healthy uplink —
+bufferedAmount normally sits near zero. Did NOT touch any field-signed-off
+value (endpointing=100, min-gaps, confidence floors, music/silence-gate
+thresholds).
+
+Reviewed by 3 parallel agents (reviewer/security/stress), no 🔴:
+- Stall-watchdog interaction is safe by construction — shedding lowers
+  server-received voiced audio AND DG Results in lockstep, so it can never
+  manufacture the (voiced-fresh + results-stale) divergence the watchdog keys
+  on; it flips the watchdog OFF, not on. No DG churn / reconnect loop / idle
+  close (server keepalive holds DG open). NOTE: this safety depends on the
+  watchdog keying off SERVER-received voiced audio — do not change it to key
+  off client-reported chunk counts without revisiting this.
+- Trip point raised 1.5s→3s (stress 🟡) so transient wifi jitter doesn't shed
+  words the old unbounded-buffer path would have delivered late-but-whole.
+- F2: post-reconnect ring flush (raw `ws.send`, up to 5s/160KB) gets a 2s
+  "settle window" (`ringFlushSettleUntilRef`) so the valve doesn't read our own
+  recovery burst as live congestion.
+- Valve state cleared on stop / terminal give-up / restart so no stale
+  "UPLINK BUSY" flag lingers.
+- `uplinkCongested` chip in TopBar is deferred (that session's lane); the data
+  is exposed on `ctx.audio` ready for a one-line add.
 
 ## electron-updater wiring (2026-07-12)
 

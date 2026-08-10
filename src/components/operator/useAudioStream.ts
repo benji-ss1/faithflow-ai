@@ -209,6 +209,21 @@ export type AudioStreamState = {
   // sustained window (an over-hot feed from the desk). Surfaces an "AUDIO TOO
   // HOT" chip; a clipped feed transcribes badly, so this is an accuracy signal.
   clipping: boolean;
+  // WS3 — uplink congestion. True when the WebSocket to the Deepgram bridge
+  // can't drain audio as fast as we produce it (bufferedAmount piling past the
+  // high-water mark), i.e. the presenting PC's internet uplink is saturated
+  // (commonly by a simultaneous livestream upload). While true, the
+  // backpressure valve is shedding new audio to keep transcription's lag
+  // BOUNDED (≤~3s, with brief gaps) instead of letting it fall progressively
+  // further behind — minutes late — over the service. A church-board feed via
+  // NDI is a clean source, so sustained congestion here is the single most
+  // likely cause of "words come slow and get worse over the service". Inert on
+  // a healthy uplink (audio is only ~256 kbps, so bufferedAmount normally sits
+  // near zero). Exposed on ctx.audio (+ a trace log) so the hop can be
+  // diagnosed live and so an "UPLINK BUSY" chip can distinguish a network
+  // problem from an AI one — the chip itself lives in TopBar (another session's
+  // lane); the data is ready here for a one-line add there.
+  uplinkCongested: boolean;
   // Heartbeat (2026-07-25 Bug-3): wall-clock ms of the last transcript-bearing
   // Deepgram message (interim / final / interim_final_candidate). Committed at
   // most ~1Hz alongside dgMessagesReceived so the TopBar heartbeat dot can
@@ -263,6 +278,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     reconnectFailed: false, reconnectAttempts: 0, warmStarted: false,
     silenceGateClosed: false, noAudioSignal: false, audioLevel: 0, streamChannelCount: null, streamSampleRate: null, msgsPerSec: 0, lastLatencyMs: null, avgConfidence: 0,
     audioQuality: null, audioQualityAvg: 0, musicSuspected: false, clipping: false,
+    uplinkCongested: false,
     lastTranscriptAt: null,
     canonicalCorrections: [],
   });
@@ -780,6 +796,93 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     }
     // between EXIT and ENTER: hold current state (hysteresis band)
   }, []);
+
+  // WS3 — uplink-backpressure valve. The raw PCM stream is only ~256 kbps
+  // (16kHz × 16-bit mono = 32,000 B/s), so on any healthy uplink the socket
+  // drains instantly and `bufferedAmount` sits near zero — this valve never
+  // engages. When the presenting PC's uplink is saturated (classically a
+  // simultaneous livestream upload competing for bandwidth), `ws.send()` keeps
+  // accepting bytes into an in-memory buffer that the OS can't flush, so audio
+  // reaches Deepgram progressively LATER — transcription falls seconds, then
+  // minutes, behind speech and words arrive in laggy bursts (exactly the
+  // "sluggish, gets worse over the service" field report). A WebSocket buffer
+  // can't be cleared once queued, so the only way to keep transcription near
+  // real-time is to stop feeding it while it's oversized and resume once it
+  // drains — i.e. shed a little audio under saturation rather than let ALL of
+  // it lag. Freshness beats completeness for live captioning, and Deepgram
+  // tolerates gaps. Hysteresis (high/low water) drains the backlog fully
+  // before resuming so we don't flap frame-by-frame.
+  // Trip point deliberately set high (≈3s) so ONLY sustained saturation sheds.
+  // Transient jitter on flaky church wifi — a single TCP retransmit (200ms+,
+  // backs off to seconds) or a 1–2s AP roam — stalls send() while audio keeps
+  // being produced at 32 KB/s; a low trip point (e.g. 1.5s/48KB) would shed
+  // words on every such hiccup even without real bandwidth saturation. At 3s,
+  // those brief stalls absorb as recoverable lag (every word still arrives, in
+  // order) and drain when the stall clears; only a genuinely saturated uplink
+  // (a livestream upload eating the pipe for the whole service) keeps climbing
+  // past 3s and trips the valve. The 1.5s hysteresis band keeps shed cycles
+  // long enough to avoid frame-by-frame flapping.
+  const WS_BACKPRESSURE_HIGH_WATER = 96_000; // ≈3s of audio buffered ⇒ start shedding
+  const WS_BACKPRESSURE_LOW_WATER = 48_000;  // ≈1.5s ⇒ backlog drained, resume sending
+  const wsSheddingRef = useRef<boolean>(false);
+  const uplinkCongestedRef = useRef<boolean>(false);
+  const shedBytesRef = useRef<number>(0);
+  const lastCongestionLogAtRef = useRef<number>(0);
+  // F2 — post-reconnect ring-flush settle window. On WS re-open the reconnect
+  // ring is flushed FIFO in one synchronous burst (up to RING_CAP_BYTES ≈5s),
+  // which momentarily fills `bufferedAmount` well past the high-water even on a
+  // perfectly healthy uplink. Without this, the valve would immediately shed
+  // the first live chunks (and flash congestion) after every reconnect. During
+  // this brief window we let that self-inflicted backfill drain naturally
+  // instead of ENTERING the shed state; genuine congestion that persists past
+  // the window still trips normally.
+  const RING_FLUSH_SETTLE_MS = 2000;
+  const ringFlushSettleUntilRef = useRef<number>(0);
+  // Returns true if the chunk was sent, false if it was shed under backpressure.
+  // Shared by the native (onPcmChunk) and browser (worklet) send sites. Reads
+  // refs + setState + isDevOrTraceOn (itself a stable useCallback([])), so its
+  // identity is stable and the closures captured at start() never go stale.
+  const sendAudioChunk = useCallback((ws: WebSocket, bytes: Uint8Array): boolean => {
+    if (ws.readyState !== WebSocket.OPEN) return false;
+    const buffered = ws.bufferedAmount;
+    // Enter/exit the shedding state with hysteresis. F2: don't ENTER shedding
+    // during the post-reconnect ring-flush settle window — the buffer is high
+    // from our own backfill burst, not live over-production; let it drain. An
+    // already-shedding session still honors its normal low-water exit.
+    const inFlushSettle = Date.now() < ringFlushSettleUntilRef.current;
+    if (wsSheddingRef.current) {
+      if (buffered <= WS_BACKPRESSURE_LOW_WATER) {
+        wsSheddingRef.current = false;
+      }
+    } else if (!inFlushSettle && buffered >= WS_BACKPRESSURE_HIGH_WATER) {
+      wsSheddingRef.current = true;
+    }
+    if (wsSheddingRef.current) {
+      // Shed this chunk to let the socket drain toward real-time.
+      shedBytesRef.current += bytes.length;
+      if (!uplinkCongestedRef.current) {
+        uplinkCongestedRef.current = true;
+        setState((s) => (s.uplinkCongested ? s : { ...s, uplinkCongested: true }));
+      }
+      const nowMs = Date.now();
+      if (isDevOrTraceOn() && nowMs - lastCongestionLogAtRef.current >= 2000) {
+        lastCongestionLogAtRef.current = nowMs;
+        console.warn(`[audio-uplink] congested — bufferedAmount=${buffered}B, shedding audio to stay real-time (total shed ${Math.round(shedBytesRef.current / 1000)}KB)`);
+      }
+      return false;
+    }
+    if (uplinkCongestedRef.current) {
+      uplinkCongestedRef.current = false;
+      setState((s) => (s.uplinkCongested ? { ...s, uplinkCongested: false } : s));
+    }
+    try {
+      ws.send(bytes);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [isDevOrTraceOn]);
+
   // Roadmap #4 — per-preacher/per-church learned keyterms miner. During a
   // service, accumulate tokens with consistently LOW Deepgram confidence
   // (a proxy for "the model doesn't know this word for this preacher").
@@ -1046,6 +1149,12 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     clipStartRef.current = null;
     clipClearStartRef.current = null;
     clippingRef.current = false;
+    // WS3 — reset uplink-backpressure state so a new session starts clean.
+    wsSheddingRef.current = false;
+    uplinkCongestedRef.current = false;
+    shedBytesRef.current = 0;
+    ringFlushSettleUntilRef.current = 0;
+    setState((s) => (s.uplinkCongested ? { ...s, uplinkCongested: false } : s));
   }, [planId]);
 
   const stop = useCallback(() => {
@@ -1074,7 +1183,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     ringBufferBytesRef.current = 0;
     flushSessionMetrics();
     teardown();
-    setState((s) => ({ ...s, listening: false, ready: false, interim: "", stage: "idle", reconnectFailed: false, reconnectAttempts: 0, warmStarted: false, silenceGateClosed: false, noAudioSignal: false, audioLevel: 0, musicSuspected: false, clipping: false }));
+    setState((s) => ({ ...s, listening: false, ready: false, interim: "", stage: "idle", reconnectFailed: false, reconnectAttempts: 0, warmStarted: false, silenceGateClosed: false, noAudioSignal: false, audioLevel: 0, musicSuspected: false, clipping: false, uplinkCongested: false }));
   }, [teardown, flushSessionMetrics]);
 
   const scheduleReconnect = useCallback(() => {
@@ -1102,7 +1211,12 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       // stayed at 9, so re-clicking the pill skipped the instant-ON path and
       // reintroduced the "connecting gap" + lingering Retry/Diagnose buttons.
       reconnectAttemptsRef.current = 0;
-      setState((s) => ({ ...s, reconnectFailed: true, listening: false, ready: false, error: null }));
+      // WS3: clear any in-progress backpressure state so a terminal give-up
+      // while shedding doesn't leave a stale "UPLINK BUSY" flag beside Retry.
+      wsSheddingRef.current = false;
+      uplinkCongestedRef.current = false;
+      ringFlushSettleUntilRef.current = 0;
+      setState((s) => ({ ...s, reconnectFailed: true, listening: false, ready: false, error: null, uplinkCongested: false }));
       return;
     }
     // Fast bounded backoff: 500ms, 1s, 2s, 4s, then 5s max including
@@ -1293,6 +1407,10 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           }
           ringBufferRef.current = [];
           ringBufferBytesRef.current = 0;
+          // F2: this synchronous backfill can spike bufferedAmount past the
+          // valve's high-water; give it a settle window so the valve doesn't
+          // read our own recovery burst as live uplink congestion.
+          ringFlushSettleUntilRef.current = Date.now() + RING_FLUSH_SETTLE_MS;
         }
       };
 
@@ -1835,9 +1953,12 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
                 }
                 return;
               }
-              try {
-                wsRef.current.send(bytes);
-              } catch { /* ignore transient send errors */ }
+              // WS3 backpressure valve — sheds audio only when the uplink to
+              // the Deepgram bridge is saturated (keeps transcription near
+              // real-time instead of falling progressively behind). No-op on a
+              // healthy uplink. Count only chunks actually delivered so
+              // `chunksSent` stays honest during congestion.
+              if (!sendAudioChunk(wsRef.current, bytes)) return;
               sentChunks++;
               if (firstChunkAtRef.current === null) firstChunkAtRef.current = Date.now();
               // Throttle chunksSent commits at ~1Hz (native chunks land
@@ -2391,7 +2512,10 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         }
         if (firstChunkAtRef.current === null) firstChunkAtRef.current = nowMs;
         // Binary PCM avoids base64 expansion and JSON work on the UI thread.
-        ws.send(bytes);
+        // WS3 backpressure valve — sheds audio only under uplink saturation so
+        // transcription stays near real-time. No-op on a healthy uplink. Count
+        // only chunks actually delivered so `chunksSent` stays honest.
+        if (!sendAudioChunk(ws, bytes)) return;
         sentChunks++;
         // Throttle chunksSent state to ~1Hz. Was firing on every worklet
         // message (~50Hz) → ~180K React commits/hour × 3h = ~540K commits
@@ -2799,7 +2923,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     // R6: bump generation so any inflight callback from the prior pipeline aborts.
     pipelineGenerationRef.current += 1;
     teardown();
-    setState((s) => ({ ...s, reconnectFailed: false, reconnectAttempts: 0, error: null, listening: false, ready: false, interim: "", stage: "idle", silenceGateClosed: false, noAudioSignal: false, audioLevel: 0, musicSuspected: false, clipping: false }));
+    setState((s) => ({ ...s, reconnectFailed: false, reconnectAttempts: 0, error: null, listening: false, ready: false, interim: "", stage: "idle", silenceGateClosed: false, noAudioSignal: false, audioLevel: 0, musicSuspected: false, clipping: false, uplinkCongested: false }));
     // Small tick so React commits stop-state before starting fresh.
     setTimeout(() => { startRef.current().catch(() => { /* ignore */ }); }, 50);
   }, [teardown, isDevOrTraceOn, flushSessionMetrics]);

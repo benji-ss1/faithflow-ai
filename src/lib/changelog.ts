@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.127",
+    date: "2026-08-10",
+    headline: "Transcription stays in real-time on busy church wifi",
+    highlights: [
+      "Fixed the biggest cause of slow, laggy, or missing captions during a service: when your internet uplink gets saturated (very common when the same PC is also pushing a livestream), the live audio to our transcription engine used to pile up and fall further and further behind — so words arrived late, in bursts, and got dropped, and it got worse the longer the service ran.",
+      "PresentFlow now keeps the transcription close to real-time: if the uplink genuinely can't keep up, it holds the delay to a few seconds instead of drifting minutes behind and getting worse all service. On a healthy connection nothing changes — this only kicks in when the network is the bottleneck.",
+      "This is especially important on a clean board/NDI feed, where the audio itself is perfect — the lag was purely the network, and now it's handled.",
+    ],
+  },
+  {
     version: "0.1.126",
     date: "2026-08-10",
     headline: "ProPresenter imports: correct song order + no garbled characters",
