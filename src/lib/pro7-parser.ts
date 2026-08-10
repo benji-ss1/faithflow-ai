@@ -211,6 +211,15 @@ export function parsePro7(buf: Buffer, fileName: string): ParsedPro7Song {
     warnings.push(
       "No lyric slides found in this Pro7 file. Bundle may contain images/videos only, or a schema variant we don't yet recognize.",
     );
+  } else if (slides.length > 1) {
+    // Honest ordering caveat: Pro7 (.pro) is a binary protobuf and slides are
+    // recovered in the file's stored order, NOT the song ARRANGEMENT (which
+    // encodes the real play order + repeated choruses in protobuf references
+    // we don't decode). So the sequence may be wrong. Give the operator the
+    // heads-up + the reliable workaround. (.pro6 arrangement order IS honored.)
+    warnings.push(
+      "Heads up: Pro7 (.pro) slide order may not match the song's arrangement — please verify the sequence after import. For guaranteed order, export the song from ProPresenter as .pro6 (or use a text export) and import that instead.",
+    );
   }
 
   return {
