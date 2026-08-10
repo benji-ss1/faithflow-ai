@@ -31,6 +31,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "Fixed the biggest cause of slow, laggy, or missing captions during a service: when your internet uplink gets saturated (very common when the same PC is also pushing a livestream), the live audio to our transcription engine used to pile up and fall further and further behind — so words arrived late, in bursts, and got dropped, and it got worse the longer the service ran.",
       "PresentFlow now keeps the transcription close to real-time: if the uplink genuinely can't keep up, it holds the delay to a few seconds instead of drifting minutes behind and getting worse all service. On a healthy connection nothing changes — this only kicks in when the network is the bottleneck.",
       "This is especially important on a clean board/NDI feed, where the audio itself is perfect — the lag was purely the network, and now it's handled.",
+      "You'll now also get a clear on-screen warning if this computer's uplink is the bottleneck, so you instantly know the lag is a network issue (not the AI) — with the fix: wire this PC to Ethernet and keep the livestream upload off its connection.",
     ],
   },
   {

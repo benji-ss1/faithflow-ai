@@ -1450,6 +1450,33 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     }
   }, [noAudioSignal, streamChannelCount, streamSampleRate]);
 
+  // WS3 uplink-congestion warning — mirrors the no-signal toast. When the WS3
+  // backpressure valve (useAudioStream) starts shedding audio because the
+  // internet uplink to the transcription bridge is saturated, tell the operator
+  // — in plain language — that the lag is a NETWORK problem, not the AI, with
+  // the concrete fix. This is the operator-visible half of `uplinkCongested`;
+  // the compact "UPLINK BUSY" chip in TopBar is a separate (other-lane) surface.
+  // The valve only trips on a sustained ~3s stall, so a flip here is already a
+  // real event; we still throttle re-shows to once per 30s and let the toast
+  // auto-expire so brief stalls don't flash it repeatedly during a service.
+  const lastUplinkCongestedRef = useRef(false);
+  const lastUplinkToastAtRef = useRef(0);
+  const uplinkCongested = ctx.audio.uplinkCongested;
+  useEffect(() => {
+    if (uplinkCongested && !lastUplinkCongestedRef.current) {
+      lastUplinkCongestedRef.current = true;
+      const now = Date.now();
+      if (now - lastUplinkToastAtRef.current < 30_000) return; // throttle re-shows
+      lastUplinkToastAtRef.current = now;
+      toast.warning(
+        "AI is still ON — but this computer's internet uplink is busy, so the transcription is holding a few seconds behind to stay caught up (words may lag or drop briefly). This is a NETWORK issue, not the AI. If it keeps happening during services: put this PC on wired Ethernet and keep the livestream upload off this machine's connection.",
+        { duration: 15_000, id: "presentflow-uplink-congested" },
+      );
+    } else if (!uplinkCongested && lastUplinkCongestedRef.current) {
+      lastUplinkCongestedRef.current = false;
+    }
+  }, [uplinkCongested]);
+
   // Audio Guardian (2026-07-27) — consume the watchdog's state events.
   //   "switched"    → success toast (guardian auto-swapped to a live input)
   //   "recovering"  → subtle deduped info toast while the ladder runs
