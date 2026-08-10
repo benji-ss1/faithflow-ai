@@ -276,6 +276,7 @@ export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06,
           maxWidth: "100%",
           maxHeight: "100%",
           fontWeight: 700, // bold — pastor projection readability floor
+          textTransform: "uppercase", // ProPresenter-style crowd readability (2026-08-11, user: always-on). The fit measures the transformed (wider) glyphs, so sizing stays correct.
           textShadow: "0 2px 8px rgba(0,0,0,0.55)", // slight halo so the text pops on busy backgrounds
         }}
       >

@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.128",
+    date: "2026-08-11",
+    headline: "ALL-CAPS projected lyrics + ProPresenter 7 imports in correct order",
+    highlights: [
+      "Projected lyrics and verses now display in bold ALL-CAPS for maximum crowd readability at a distance, matching the ProPresenter look. The auto-sizing accounts for it, so text stays as large as it can while fitting cleanly.",
+      "ProPresenter 7 songs (.pro files and .probundle) now import in the exact order they're arranged to be sung — reading the real arrangement (including repeated choruses) straight from the file, verified against real ProPresenter files. Re-import any Pro7 songs added before this update to fix their order.",
+    ],
+  },
+  {
     version: "0.1.127",
     date: "2026-08-10",
     headline: "Transcription stays in real-time on busy church wifi",
