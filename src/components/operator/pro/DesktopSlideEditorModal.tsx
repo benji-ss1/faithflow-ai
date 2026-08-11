@@ -11,6 +11,7 @@ import { CenterWorkspace } from "../shell/CenterWorkspace";
 import { MediaLibraryPicker } from "@/components/library/MediaLibraryPicker";
 import { saveSlideObjects, createSongSlide, deleteSongSlide, reorderSongSlides } from "@/lib/actions";
 import type { SlideObject, TextObject, ShapeObject, ImageObject, VideoObject } from "@/lib/slide-objects";
+import { CANVAS_W, CANVAS_H } from "@/lib/slide-objects";
 
 /**
  * Desktop full-screen slide editor (Phase 2 of the ProPresenter-style editor).
@@ -223,6 +224,25 @@ function ObjectInspector() {
               <ZBtn icon={ChevronsUp} title="Bring to front" onClick={() => editor.reorderObject(selected.id, "front")} />
             </div>
           </div>
+          {/* Align to slide */}
+          <div className="grid grid-cols-2 gap-1.5">
+            <div>
+              <span className={rowCls}>Align X</span>
+              <div className="flex gap-0.5">
+                <AlignBtn label="L" onClick={() => upd({ x: 0 })} />
+                <AlignBtn label="C" onClick={() => upd({ x: Math.round((CANVAS_W - selected.w) / 2) })} />
+                <AlignBtn label="R" onClick={() => upd({ x: CANVAS_W - selected.w })} />
+              </div>
+            </div>
+            <div>
+              <span className={rowCls}>Align Y</span>
+              <div className="flex gap-0.5">
+                <AlignBtn label="T" onClick={() => upd({ y: 0 })} />
+                <AlignBtn label="M" onClick={() => upd({ y: Math.round((CANVAS_H - selected.h) / 2) })} />
+                <AlignBtn label="B" onClick={() => upd({ y: CANVAS_H - selected.h })} />
+              </div>
+            </div>
+          </div>
           {selected.kind === "text" && <TextProps o={selected} upd={upd} />}
           {selected.kind === "shape" && <ShapeProps o={selected} upd={upd} />}
           {selected.kind === "image" && <ImageProps o={selected} upd={upd} />}
@@ -248,6 +268,16 @@ function ZBtn({ icon: Icon, title, onClick }: { icon: typeof Type; title: string
       className="flex-1 h-7 rounded border inline-flex items-center justify-center text-zinc-300 hover:bg-white/[0.04]"
       style={{ borderColor: "#2a3232", background: "#1e2525" }}>
       <Icon className="w-3 h-3" />
+    </button>
+  );
+}
+
+function AlignBtn({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button onClick={onClick} title={`Align ${label}`}
+      className="flex-1 h-7 rounded border text-[10px] font-bold text-zinc-300 hover:bg-white/[0.04]"
+      style={{ borderColor: "#2a3232", background: "#1e2525" }}>
+      {label}
     </button>
   );
 }

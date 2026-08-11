@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.155",
+    date: "2026-08-12",
+    headline: "Slide editor: nudge with arrows + one-click align",
+    highlights: [
+      "Select an object and use the arrow keys to nudge it into place — hold Shift for pixel-precise moves.",
+      "New Align controls: snap the selected object to the left / centre / right and top / middle / bottom of the slide with one click.",
+    ],
+  },
+  {
     version: "0.1.154",
     date: "2026-08-12",
     headline: "Slide editor: duplicate objects + snap-to-centre",

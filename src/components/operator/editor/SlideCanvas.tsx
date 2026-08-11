@@ -40,11 +40,20 @@ export function SlideCanvas({
         onRemoveObject(selectedObjectId);
       } else if (e.key === "Escape") {
         onSelectObject(null);
+      } else if (e.key.startsWith("Arrow")) {
+        // Nudge the selected object. Shift = 1px fine, otherwise 10px (canvas units).
+        const obj = slide?.objects.find((o) => o.id === selectedObjectId);
+        if (!obj) return;
+        e.preventDefault();
+        const step = e.shiftKey ? 1 : 10;
+        const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
+        const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
+        onUpdateObject(selectedObjectId, { x: obj.x + dx, y: obj.y + dy } as Partial<SlideObject>);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedObjectId, onRemoveObject, onSelectObject, readOnly]);
+  }, [selectedObjectId, onRemoveObject, onSelectObject, onUpdateObject, slide, readOnly]);
 
   const getCanvasRect = useCallback(() => {
     const el = wrapRef.current?.querySelector<HTMLDivElement>("[data-canvas-inner]");
