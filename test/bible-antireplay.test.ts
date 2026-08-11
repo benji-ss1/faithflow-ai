@@ -241,7 +241,11 @@ async function main() {
   });
 
   // ── Bypass ordering ──────────────────────────────────────────────────────
-  await check("forceLive always fires (even inside cooldown with same-ref live)", () => {
+  await check("forceLive INSIDE cooldown with SAME-ref live → suppressed (same-utterance dup, not a restatement)", () => {
+    // forceLive is set for the FINAL of a first-time utterance too (occ>=2),
+    // so it must not bypass the 3s micro-window when the same ref is already
+    // live — else one spoken verse double-projects. Genuine restatements are
+    // >3s apart (stale) or land while a different ref is live (bypass).
     const firedMap: Record<string, number> = { [mattKey]: 1_000_000 };
     const d = decideBibleAutoFire({
       key: mattKey,
@@ -251,8 +255,38 @@ async function main() {
       target: matt5_5,
       forceLive: true,
     });
+    assert.strictEqual(d.suppress, true);
+    assert.strictEqual(d.reason, "suppress:within-cooldown");
+  });
+
+  await check("forceLive PAST cooldown with same-ref live → fires (genuine restatement)", () => {
+    const firedMap: Record<string, number> = { [mattKey]: 1_000_000 };
+    const d = decideBibleAutoFire({
+      key: mattKey,
+      firedMap,
+      now: 1_004_000, // 4s later — outside the 3s window
+      liveText: liveScripture("Matthew", 5, 5),
+      target: matt5_5,
+      forceLive: true,
+    });
+    // Fires; reason is force-live-bypass (forceLive is checked before the
+    // stale-entry path once past the micro-window). The point is it FIRES.
     assert.strictEqual(d.suppress, false);
     assert.strictEqual(d.reason, "fire:force-live-bypass");
+  });
+
+  await check("forceLive with DIFFERENT ref live inside cooldown → fires (swap-back)", () => {
+    const firedMap: Record<string, number> = { [mattKey]: 1_000_000 };
+    const d = decideBibleAutoFire({
+      key: mattKey,
+      firedMap,
+      now: 1_000_500, // inside cooldown, but a different ref is live
+      liveText: liveScripture("Genesis", 4, 4),
+      target: matt5_5,
+      forceLive: true,
+    });
+    assert.strictEqual(d.suppress, false);
+    assert.strictEqual(d.reason, "fire:different-ref-live");
   });
 
   await check("voiceCommand always fires (even inside cooldown with same-ref live)", () => {

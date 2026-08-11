@@ -107,20 +107,33 @@ export type BibleAntiReplayDecision = {
  * the same reference already fired within the last 3s (same-utterance dup)?
  *
  * Ordering matters:
- *   1. forceLive/voiceCommand — always fires (explicit intent).
+ *   1. voiceCommand — always fires (explicit operator/preacher navigation).
  *   2. Different reference currently live — always fires (legit swap-back).
- *   3. No prior entry OR entry older than cooldown — fires.
- *   4. Otherwise — suppress.
+ *   3. Same ref fired within the micro-window (and same ref still live) —
+ *      SUPPRESS, even under forceLive. This is the key correctness point:
+ *      `forceLive` (occurrenceCount >= 2) is ALSO set for the FINAL of a
+ *      first-time utterance (interim = occ 1, final = occ 2), and for a verse
+ *      that Deepgram fragments into two finals — neither is a genuine
+ *      restatement. A real restatement is seconds-to-minutes apart (→ stale
+ *      entry, fires) or lands while a DIFFERENT ref is live (→ bypassed at
+ *      step 2). So forceLive must NOT short-circuit the same-utterance 3s
+ *      micro-window, or one spoken verse double-projects to the projector/NDI.
+ *   4. forceLive past the micro-window — fires (real repeat / low-conf boost).
+ *   5. No prior entry OR entry older than cooldown — fires.
  */
 export function decideBibleAutoFire(input: BibleAntiReplayInput): BibleAntiReplayDecision {
   const cooldown = input.cooldownMs ?? BIBLE_MICRO_COOLDOWN_MS;
-  if (input.forceLive) return { suppress: false, reason: "fire:force-live-bypass" };
   if (input.voiceCommand) return { suppress: false, reason: "fire:voice-command-bypass" };
   if (isDifferentRefLive(input.liveText, input.target)) {
     return { suppress: false, reason: "fire:different-ref-live" };
   }
   const firedAt = input.firedMap[input.key];
+  if (typeof firedAt === "number" && input.now - firedAt < cooldown) {
+    // Same reference, still live, within the micro-window → same-utterance
+    // duplicate. Suppress regardless of forceLive.
+    return { suppress: true, reason: "suppress:within-cooldown" };
+  }
+  if (input.forceLive) return { suppress: false, reason: "fire:force-live-bypass" };
   if (typeof firedAt !== "number") return { suppress: false, reason: "fire:no-prior-entry" };
-  if (input.now - firedAt >= cooldown) return { suppress: false, reason: "fire:stale-entry" };
-  return { suppress: true, reason: "suppress:within-cooldown" };
+  return { suppress: false, reason: "fire:stale-entry" };
 }
