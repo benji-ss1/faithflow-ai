@@ -297,4 +297,7 @@ export async function middleware(req: NextRequest) {
   return res;
 }
 
-export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|svg|webp|gif|mp4)$).*)"] };
+// sw.js excluded: the service-worker kill-switch (2026-08-11) must be fetchable
+// even without a session cookie — an auth 307 here would leave a stale SW
+// permanently un-updatable on a logged-out client.
+export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico|sw\\.js|.*\\.(?:png|jpg|jpeg|svg|webp|gif|mp4)$).*)"] };
