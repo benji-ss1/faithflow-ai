@@ -13,14 +13,15 @@ import { useEffect } from "react";
 export function ServiceWorkerRegister() {
   useEffect(() => {
     if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
-    if (process.env.NODE_ENV !== "production") return;
-    const isElectron =
-      !!(window as { electronAPI?: unknown }).electronAPI ||
-      (typeof navigator !== "undefined" && navigator.userAgent.includes("Electron"));
-    if (!isElectron) return;
-    navigator.serviceWorker
-      .register("/sw.js", { scope: "/" })
-      .catch(() => { /* offline shell unavailable — app works normally online */ });
+    // DISABLED 2026-08-11: the Phase-0 offline SW pinned the desktop to a stale
+    // build and (via the kill-switch's forced navigate) caused an audio-killing
+    // reload loop. We no longer register a service worker. Instead, actively
+    // unregister any worker still installed on this client so it can never
+    // control the page again. The app runs online-only (its pre-Phase-0
+    // behavior). A corrected offline SW can be reintroduced later behind tests.
+    navigator.serviceWorker.getRegistrations()
+      .then((regs) => regs.forEach((r) => { void r.unregister(); }))
+      .catch(() => { /* nothing to clean up */ });
   }, []);
   return null;
 }

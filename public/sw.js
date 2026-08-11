@@ -1,14 +1,12 @@
-/* PresentFlow service worker — DISABLED (kill-switch).
+/* PresentFlow service worker — DISABLED (kill-switch, non-looping).
  *
- * The previous offline-shell SW (Phase 0) could pin the desktop app to a
- * stale cached version, which hid renderer updates AND left the desktop on an
- * old audio client that no longer matched the updated audio bridge. This
- * replacement UNREGISTERS itself and purges every cache on the next load, then
- * force-reloads each client so the desktop returns to always-fresh, network-only
- * behavior (identical to pre-Phase-0). Deploy this and every desktop client
- * self-heals on its next navigation — no operator DevTools needed.
- *
- * A corrected offline SW can be re-introduced later behind proper testing.
+ * The Phase-0 offline SW could pin the desktop app to a stale cached build.
+ * This replacement unregisters itself and purges every cache, then passes all
+ * requests straight through. It does NOT force-navigate clients (an earlier
+ * version did, which — combined with the client re-registering the worker on
+ * every load — caused a reload loop that made the audio WebSocket reconnect
+ * every 1-2s). Recovery is a single manual reload by the operator; no auto
+ * navigation, so there is no loop.
  */
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -20,15 +18,12 @@ self.addEventListener("activate", (event) => {
       const keys = await caches.keys();
       await Promise.all(keys.map((k) => caches.delete(k)));
     } catch { /* ignore */ }
+    // Take control so this pass-through worker (not the old caching one) handles
+    // the current page's requests, then unregister so future loads have no SW.
+    try { await self.clients.claim(); } catch { /* ignore */ }
     try { await self.registration.unregister(); } catch { /* ignore */ }
-    try {
-      const clients = await self.clients.matchAll({ type: "window" });
-      for (const c of clients) {
-        // Force each open window to reload WITHOUT the SW controlling it, so it
-        // fetches the current app straight from the network.
-        try { c.navigate(c.url); } catch { /* ignore */ }
-      }
-    } catch { /* ignore */ }
+    // Deliberately NO client.navigate() here — see header. The operator reloads
+    // once, manually, to pick up the fresh build.
   })());
 });
 
