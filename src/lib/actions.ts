@@ -1394,6 +1394,78 @@ export async function applyThemeToSong(themeId: string, songId: string): Promise
   return { ok: true, data: { slidesUpdated: updated } };
 }
 
+// Themes 4 — extract a dominant-colour palette from a theme's logo so the editor
+// can suggest a colourway. Done SERVER-SIDE (a browser can't read pixels from a
+// cross-origin S3 logo). SSRF-guarded: only fetches https URLs from our own
+// media store, never an arbitrary host.
+function isAllowedMediaHost(host: string): boolean {
+  const ep = process.env.S3_ENDPOINT;
+  if (ep) { try { return new URL(ep).host === host; } catch { return false; } }
+  // Real-AWS fallback: pin to THIS bucket, not any *.amazonaws.com host.
+  const bucket = process.env.S3_BUCKET;
+  return !!bucket && host.endsWith(".amazonaws.com") && host.includes(bucket);
+}
+const rgbToHex = (r: number, g: number, b: number) =>
+  "#" + [r, g, b].map((c) => Math.max(0, Math.min(255, c)).toString(16).padStart(2, "0")).join("");
+
+export async function extractLogoPalette(logoUrl: string): Promise<Result<{ colors: string[] }>> {
+  await requireCap("edit_library");
+  let u: URL;
+  try { u = new URL(logoUrl); } catch { return { ok: false, error: "Invalid image URL" }; }
+  if (u.protocol !== "https:") return { ok: false, error: "Image URL must be https" };
+  if (!isAllowedMediaHost(u.host)) return { ok: false, error: "Image must be from your media library" };
+
+  let buf: Buffer;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10_000); // no slow-loris on the function
+  try {
+    // redirect:"error" closes the SSRF-via-redirect vector — an allow-listed
+    // host must not be able to bounce us to an internal address.
+    const res = await fetch(logoUrl, { redirect: "error", signal: ctrl.signal });
+    if (!res.ok) return { ok: false, error: "Could not load the logo" };
+    buf = Buffer.from(await res.arrayBuffer());
+    // A logo is small; 8MB caps a decompression-bomb's compressed size.
+    if (buf.length > 8 * 1024 * 1024) return { ok: false, error: "Logo image too large (max 8MB)" };
+  } catch {
+    return { ok: false, error: "Could not load the logo" };
+  } finally {
+    clearTimeout(timer);
+  }
+
+  try {
+    const { createCanvas, loadImage } = await import("@napi-rs/canvas");
+    const img = await loadImage(buf);
+    // Guard against absurd dimensions before allocating the sample canvas.
+    if (!img.width || !img.height || img.width * img.height > 40_000_000) {
+      return { ok: false, error: "Logo image dimensions unsupported" };
+    }
+    const W = 48, H = 48;
+    const canvas = createCanvas(W, H);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0, W, H);
+    const { data } = ctx.getImageData(0, 0, W, H);
+    const counts = new Map<string, number>();
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] < 200) continue; // skip transparent
+      let r = data[i], g = data[i + 1], b = data[i + 2];
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+      if (mx > 240 && mn > 236) continue; // skip near-white (logo bg)
+      if (mx < 22) continue;              // skip near-black
+      r &= 0xE0; g &= 0xE0; b &= 0xE0;    // quantise to reduce buckets
+      const key = `${r},${g},${b}`;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    const colors = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([k]) => { const [r, g, b] = k.split(",").map(Number); return rgbToHex(r, g, b); });
+    if (colors.length === 0) return { ok: false, error: "No dominant colours found in the logo" };
+    return { ok: true, data: { colors } };
+  } catch {
+    return { ok: false, error: "Could not read the logo image" };
+  }
+}
+
 export async function updateSongSettings(songId: string, patch: Record<string, unknown>): Promise<Result> {
   const user = await requireCap("edit_library");
   const db = getDb();

@@ -6,7 +6,8 @@ import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type D
 import { SortableContext, useSortable, arrayMove, rectSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
-import { createTheme, updateTheme, duplicateTheme, deleteTheme, setDefaultTheme, reorderThemes } from "@/lib/actions";
+import { createTheme, updateTheme, duplicateTheme, deleteTheme, setDefaultTheme, reorderThemes, extractLogoPalette } from "@/lib/actions";
+import { buildColorwayFromPalette } from "@/lib/colorway";
 import { ThemeImportDialog } from "@/components/library/ThemeImportDialog";
 
 // Kept minimal + additive — see `type ThemeConfig` in src/lib/actions.ts for
@@ -438,10 +439,29 @@ function ThemeEditor({
   onSave: () => void;
 }) {
   const [mode, setMode] = useState<PreviewMode>("lyrics");
+  const [paletteBusy, setPaletteBusy] = useState(false);
   const cfg = theme.config;
 
   function set(patch: Partial<Record<string, unknown>>) {
     onChange({ ...theme, config: { ...cfg, ...patch } });
+  }
+
+  async function autoColorway() {
+    const logo = (get(cfg, "logoUrl", "") as string) || churchLogoUrl || "";
+    if (!logo) { toast.error("Add a logo image first"); return; }
+    setPaletteBusy(true);
+    try {
+      const res = await extractLogoPalette(logo);
+      if (!res.ok || !res.data) { toast.error((!res.ok && res.error) || "Couldn't read the logo"); return; }
+      const cw = buildColorwayFromPalette(res.data.colors);
+      if (!cw) { toast.error("No usable colours found in the logo"); return; }
+      set(cw); // gradient bg from the brand hue + auto-contrast text
+      toast.success("Colourway generated from your logo");
+    } catch {
+      toast.error("Couldn't generate a colourway");
+    } finally {
+      setPaletteBusy(false);
+    }
   }
 
   return (
@@ -581,6 +601,15 @@ function ThemeEditor({
               hint="Upload your church logo (PNG with transparent background works best). Displayed at the position above."
               maxMBOverride={5}
             />
+            <button
+              type="button"
+              onClick={autoColorway}
+              disabled={paletteBusy || !((get(cfg, "logoUrl", "") as string) || churchLogoUrl)}
+              title="Generate a matching gradient + readable text colour from your logo"
+              className="mt-1 w-full h-8 rounded-md border border-border text-xs font-semibold hover:bg-accent disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
+            >
+              {paletteBusy ? "Reading logo…" : "✨ Auto-colourway from logo"}
+            </button>
             <Row label="Church name">
               <Toggle value={get(cfg, "churchNameVisible", false)} onChange={(v) => set({ churchNameVisible: v })} />
             </Row>

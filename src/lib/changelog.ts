@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.141",
+    date: "2026-08-11",
+    headline: "One-click theme colours from your logo",
+    highlights: [
+      "In the theme editor, once you've added a logo, hit “Auto-colourway from logo” — PresentFlow reads your logo's main colour and builds a matching gradient background with automatically readable text, so a new church theme takes seconds.",
+      "The text colour is always picked for contrast (dark text on light, white on dark), so your scripture and lyrics stay legible.",
+    ],
+  },
+  {
     version: "0.1.140",
     date: "2026-08-11",
     headline: "Run a whole service offline",
