@@ -38,8 +38,14 @@ const KNOWN_SERIFS = new Set(["georgia", "times new roman", "times", "garamond",
 function withGenericFallback(family: string): string {
   const f = family.trim();
   if (f.includes(",")) return f; // already a stack
-  const generic = KNOWN_SERIFS.has(f.toLowerCase()) ? "serif" : "sans-serif";
-  return `${f}, ${generic}`;
+  // Strip CSS quotes before classifying ('"Times New Roman"' must map to serif).
+  const bare = f.replace(/^['"]|['"]$/g, "").toLowerCase();
+  const generic = KNOWN_SERIFS.has(bare) ? "serif" : "sans-serif";
+  const out = `${f}, ${generic}`;
+  // The wire validator caps fontFamily at 120 chars — if appending the generic
+  // would overflow (only for absurdly long names), keep the original rather
+  // than have the receiving validator silently drop the font entirely.
+  return out.length <= 120 ? out : f;
 }
 
 const LOGO_POSITIONS = new Set([

@@ -1990,9 +1990,11 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     const now = Date.now();
     const prev = lastAiFadeRef.current;
     if (prev.fam === fam && now - prev.at < AI_FADE_WINDOW_MS) {
-      // Same family re-fired inside the window: refresh the timestamp so a
-      // long cascade stays suppressed end-to-end, but do NOT fade again.
-      prev.at = now;
+      // Same family re-fired inside the window: suppress the fade. The window
+      // is deliberately measured from the FADE (not refreshed here) so the
+      // forward-continuation verse advance (v16 → v17, the 0.1.131 feature)
+      // regains its fade once 8s have passed — refreshing on every suppressed
+      // re-fire would chain-suppress fades for an entire fast reading.
       return false;
     }
     lastAiFadeRef.current = { fam, at: now };
