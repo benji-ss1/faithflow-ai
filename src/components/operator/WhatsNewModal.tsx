@@ -56,23 +56,12 @@ export function WhatsNewModal() {
         return;
       }
 
-      // 2026-07-30 — do NOT auto-pop for patch-only diffs. Shipping half a
-      // dozen 0.1.x patches in an hour was throwing the modal over the
-      // sidebar every reload. Only auto-pop when a minor version rolls
-      // (0.1.x → 0.2.x, or major bump). Patches silently mark as seen so
-      // the backlog doesn't accumulate; the user can still open the
-      // changelog manually from the Help menu.
-      const parseMinor = (v: string) => {
-        const [maj, min] = v.split(".").map((n) => parseInt(n, 10) || 0);
-        return maj * 1000 + min;
-      };
-      const hasMinorBump = newer.some((e) => parseMinor(e.version) > parseMinor(lastSeen!));
-      if (!hasMinorBump) {
-        // Silent update — record the highest version so we don't keep re-evaluating.
-        try { window.localStorage.setItem(LAST_SEEN_KEY, newer[0].version); } catch { /* noop */ }
-        return;
-      }
-
+      // Auto-pop for ANY newer release, patches included — testers want to see
+      // what changed each time something ships (2026-08-11, restored by request;
+      // a 2026-07-30 change had suppressed patch-only diffs, which silently hid
+      // every 0.1.x release). Re-pop noise is bounded: dismissing records the
+      // top version as seen, so it only shows again when a genuinely newer entry
+      // ships — not on every reload of the same version.
       setNewEntries(newer);
       popTimer = setTimeout(() => { if (!cancelled) setOpen(true); }, 600);
     };

@@ -33,7 +33,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
-import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong, createSongSlide, deleteSongSlide, setServiceItemTheme } from "@/lib/actions";
+import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong, createSongSlide, deleteSongSlide, setServiceItemTheme, renameSong } from "@/lib/actions";
 
 function itemIcon(type: string) {
   if (type === "song") return Music;
@@ -55,6 +55,7 @@ function SortablePlaylistItem({
   onDuplicate,
   onAddSlide,
   onDeleteSong,
+  onRename,
   themes = [],
   currentThemeId = null,
   onSetTheme,
@@ -69,11 +70,20 @@ function SortablePlaylistItem({
   onDuplicate: () => void;
   onAddSlide?: () => void;
   onDeleteSong?: () => void;
+  onRename?: (newTitle: string) => void;
   themes?: { id: string; name: string }[];
   currentThemeId?: string | null;
   onSetTheme?: (themeId: string | null) => void;
 }) {
   const id = item.id ?? `item-${idx}`;
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState(item.title);
+  const commitRename = () => {
+    setRenaming(false);
+    const next = draft.trim();
+    if (next && next !== item.title) onRename?.(next);
+    else setDraft(item.title);
+  };
   const {
     attributes,
     listeners,
@@ -121,21 +131,44 @@ function SortablePlaylistItem({
               <GripVertical className="w-3 h-3" />
             </button>
 
-            {/* Item button */}
-            <button
-              type="button"
-              onClick={onItemClick}
-              className={cn(
-                "flex-1 flex items-center gap-2 pr-2 py-1 text-[12px] text-left",
-                isActive
-                  ? "text-[var(--color-foreground)]"
-                  : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",
-              )}
-            >
-              <Icon className="w-4 h-4 shrink-0" />
-              <span className="truncate">{item.title}</span>
-              <span className="ml-auto text-[10px] opacity-60 shrink-0">{item.slides.length}</span>
-            </button>
+            {/* Item button (double-click the title to rename song items) */}
+            {renaming ? (
+              <input
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={commitRename}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); commitRename(); }
+                  else if (e.key === "Escape") { e.preventDefault(); setRenaming(false); setDraft(item.title); }
+                }}
+                onClick={(e) => e.stopPropagation()}
+                maxLength={120}
+                className="flex-1 mr-2 my-0.5 px-1.5 py-0.5 text-[12px] rounded bg-[var(--color-panel)] border border-[var(--color-brand)] text-[var(--color-foreground)] outline-none"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={onItemClick}
+                onDoubleClick={(e) => {
+                  if (!onRename) return;
+                  e.stopPropagation();
+                  setDraft(item.title);
+                  setRenaming(true);
+                }}
+                title={onRename ? "Double-click to rename" : undefined}
+                className={cn(
+                  "flex-1 flex items-center gap-2 pr-2 py-1 text-[12px] text-left",
+                  isActive
+                    ? "text-[var(--color-foreground)]"
+                    : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",
+                )}
+              >
+                <Icon className="w-4 h-4 shrink-0" />
+                <span className="truncate">{item.title}</span>
+                <span className="ml-auto text-[10px] opacity-60 shrink-0">{item.slides.length}</span>
+              </button>
+            )}
           </div>
         </ContextMenu.Trigger>
 
@@ -167,6 +200,14 @@ function SortablePlaylistItem({
             >
               Duplicate
             </ContextMenu.Item>
+            {onRename && (
+              <ContextMenu.Item
+                onSelect={() => { setDraft(item.title); setRenaming(true); }}
+                className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer"
+              >
+                Rename
+              </ContextMenu.Item>
+            )}
             {onAddSlide && (
               <ContextMenu.Item
                 onSelect={onAddSlide}
@@ -300,6 +341,12 @@ export function PlaylistSection({
     if (!res.ok) { toast.error(res.error ?? "Action failed"); return; }
     router.refresh();
     if (res.data) undoToast("Blank slide added", () => removeServiceItem(res.data!.id));
+  };
+
+  const renameItem = async (it: OperatorShellCtx["plan"]["items"][number], newTitle: string) => {
+    if (it.type !== "song" || !it.songId) return;
+    if (blockedIfOffline()) return;
+    handleResult(await renameSong(it.songId, newTitle), "Renamed");
   };
 
   const remove = async (it: OperatorShellCtx["plan"]["items"][number]) => {
@@ -524,6 +571,7 @@ export function PlaylistSection({
                   onDuplicate={() => void duplicate(idx)}
                   onAddSlide={it.type === "song" && it.songId ? () => void addSlideToItem(it) : undefined}
                   onDeleteSong={it.type === "song" && it.songId ? () => void deleteFromLibrary(it) : undefined}
+                  onRename={it.type === "song" && it.songId ? (newTitle) => void renameItem(it, newTitle) : undefined}
                   themes={themes}
                   currentThemeId={(it as { themeId?: string }).themeId ?? null}
                   onSetTheme={it.id ? (themeId) => void setTheme(it.id!, themeId) : undefined}

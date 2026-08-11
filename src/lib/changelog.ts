@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.145",
+    date: "2026-08-11",
+    headline: "Edit slides the obvious way + What's New is back",
+    highlights: [
+      "Double-click any lyric slide to edit its text right there — no more hunting through the right-click menu.",
+      "The slide Delete option now actually deletes the slide (it was doing nothing before).",
+      "Rename a song from the playlist: double-click its name, or right-click → Rename.",
+      "This “What's New” screen now shows up for every update again — it had been silently hidden on smaller releases.",
+    ],
+  },
+  {
     version: "0.1.144",
     date: "2026-08-11",
     headline: "Animated theme backgrounds for verses & lyrics",

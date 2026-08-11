@@ -208,9 +208,37 @@ export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize
                 }}
                 onDouble={() => {
                   console.log("[click] slide double", { id: slideIds[idx], idx });
+                  // Double-click is the natural "edit" gesture. For editable song
+                  // slides, open Quick Edit inline. (Fall back to fire-to-live in
+                  // safe mode for non-editable slides so that path isn't lost.)
+                  const editable = item?.type === "song" && !!(item as { songId?: string }).songId && s.kind === "text";
+                  if (editable) {
+                    const text = s.kind === "text" ? ((s as { text?: string }).text ?? "") : "";
+                    setQuickEdit({ slideIdx: idx, text });
+                    return;
+                  }
                   if (safeMode()) fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => ctx.onSendSlideToLive(s));
                 }}
-                onDelete={() => ctx.onDeleteSlide?.(ctx.previewItemIdx, idx)}
+                onDelete={() => {
+                  void (async () => {
+                    const { toast } = await import("sonner");
+                    if (item?.type !== "song" || !(item as { songId?: string }).songId) {
+                      toast.error("Only song slides can be deleted here");
+                      return;
+                    }
+                    if (slides.length <= 1) {
+                      toast.error("A song needs at least one slide");
+                      return;
+                    }
+                    const songId = (item as { songId?: string }).songId!;
+                    const remaining = slides
+                      .filter((_, i) => i !== idx)
+                      .map((sl) => ({ lyrics: sl.kind === "text" ? ((sl as { text?: string }).text ?? "") : "" }));
+                    const res = await updateSongSlides(songId, remaining);
+                    if (!res.ok) { toast.error(res.error ?? "Delete failed"); return; }
+                    toast.success("Slide deleted");
+                  })();
+                }}
                 onQuickEdit={() => {
                   const text = s.kind === "text" ? ((s as { text?: string }).text ?? "") : "";
                   setQuickEdit({ slideIdx: idx, text });
