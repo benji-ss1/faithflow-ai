@@ -3,6 +3,7 @@ import { cookies, headers } from "next/headers";
 import { Toaster } from "sonner";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+import { ServiceWorkerRegister } from "@/components/system/ServiceWorkerRegister";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -44,6 +45,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="en" className={htmlClass} suppressHydrationWarning>
       <body suppressHydrationWarning>
         {children}
+        <ServiceWorkerRegister />
         <Toaster position="top-right" theme={isDark ? "dark" : "light"} richColors closeButton />
         {isVercelProd ? <Analytics /> : null}
         {isVercelProd ? <SpeedInsights /> : null}

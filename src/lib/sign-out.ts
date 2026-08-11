@@ -8,6 +8,10 @@ import { _resetTierCache } from "@/hooks/useTier";
  */
 export async function signOutFully(callbackUrl = "/login") {
   try { _resetTierCache(); } catch { /* noop */ }
+  // Hybrid: purge offline caches (SW page cache + IndexedDB service snapshot) so
+  // a different account on the same machine can't surface the previous
+  // operator's cached pages/plan offline.
+  try { (await import("@/lib/offline/serviceCache")).clearOfflineCaches(); } catch { /* best-effort */ }
   try {
     const api = (typeof window !== "undefined")
       ? (window as unknown as { electronAPI?: { license?: { clear: () => Promise<unknown> } } }).electronAPI?.license

@@ -47,6 +47,9 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       { source: "/(.*)", headers: SECURITY_HEADERS },
+      // The service worker script must always revalidate so a new SW deploy is
+      // picked up promptly (defense-in-depth beyond the browser's updateViaCache).
+      { source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }] },
     ];
   },
   // Keep native / heavy Node-only modules out of the webpack graph entirely.

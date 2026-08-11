@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.139",
+    date: "2026-08-11",
+    headline: "Offline resilience — the app opens even if wifi drops",
+    highlights: [
+      "The desktop app now caches its interface, so it opens and keeps running even if the internet or our servers are briefly unreachable — pages you've already visited load from the local cache.",
+      "Your current service plan is also saved locally as you work, as a safety net against a mid-service outage. (Live AI listening still needs internet; the present-and-project loop keeps working offline.)",
+      "First step of a larger reliability upgrade — full offline presenting of media and Bible verses is coming next.",
+    ],
+  },
+  {
     version: "0.1.138",
     date: "2026-08-11",
     headline: "Section themes — a different look per service part",

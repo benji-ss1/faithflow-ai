@@ -97,6 +97,17 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
   // BroadcastChannel output state (CLAUDE.md rule 8).
   const [plan, setPlan] = useState<ExpandedPlan>(planProp);
   useEffect(() => { setPlan(planProp); }, [planProp]);
+  // Hybrid Phase 1 — durably snapshot the current service plan (church-scoped)
+  // for offline fallback. Best-effort + dynamically imported so it can never
+  // affect the online path. Snapshots the server-rendered plan, so it stays a
+  // clean copy even as the operator makes optimistic edits.
+  useEffect(() => {
+    const churchId = (planProp as unknown as { churchId?: string }).churchId ?? "";
+    if (!churchId || !planProp?.id) return;
+    void import("@/lib/offline/serviceCache").then(({ saveServiceSnapshot }) =>
+      saveServiceSnapshot(churchId, planProp.id, planProp),
+    ).catch(() => { /* best-effort */ });
+  }, [planProp]);
   // --- Four-mode autopilot (Phase 5) ---------------------------------------
   // On page load we ALWAYS downgrade "active" to "armed" as a safety
   // measure — the operator must consciously re-arm live-firing every session.
