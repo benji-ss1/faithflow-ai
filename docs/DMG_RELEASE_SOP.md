@@ -213,6 +213,10 @@ Because parallel agents ship changelog entries constantly, `git pull --rebase` o
 | `.claude/worktrees/agent-*` in commit | You used `git add -A` | `git rm --cached` + `git commit --amend` (or a follow-up cleanup commit if already pushed) |
 | Wrong version in DMG filename | You built for one version but the tag is another | Delete the release, `git tag -d vA.B.C`, `git push origin :refs/tags/vA.B.C`, restart at 3a |
 | `fly` CLI not found | Not installed | It's at `~/.fly/bin/fly` on this machine — check there first before trying `brew install flyctl` |
+| **DUPLICATE release created** (two `v0.1.XX` releases, one with fewer assets) | electron-builder runs a GitHub publisher per-arch, both create the release | Delete the incomplete one by id: `gh api "repos/benji-ss1/faithflow-ai/releases?per_page=10"` to find the two ids, then `gh api -X DELETE repos/benji-ss1/faithflow-ai/releases/<id>` for the one with fewer assets. Then re-run §3b/gh upload on the survivor. |
+| **Wrong release marked "Latest"** (e.g. an older tag shows Latest → auto-update offers the old version or 404s) | GitHub `releases/latest` picks by created_at, and the double-publish/partial-upload can leave the newest tag un-flagged | Force it: `gh api -X PATCH repos/benji-ss1/faithflow-ai/releases/<id-of-9-asset-release> -F make_latest=true`, then verify `gh api repos/benji-ss1/faithflow-ai/releases/latest` returns the right tag + 9 assets incl `latest-mac.yml`. **Always verify `releases/latest` at the end — a green-looking release page can still have the wrong Latest flag.** |
+| `gh release edit` → 422 "tag_name already exists" | A duplicate release with the same tag exists (see above) | Delete the dupe first, then the edit works |
+| electron-builder built BOTH arches despite `--arm64` | The `mac.target` config lists arm64+x64, so it builds both regardless of the CLI flag | Expected now — you get 9 assets (both arches), not the old arm64-only 5. Verify all 9. |
 | Fly bridge running old parser | Bridge wasn't redeployed after `bible-parser.ts` changed | `~/.fly/bin/fly deploy -a faithflow-audio --dockerfile Dockerfile.audio` |
 
 ---
