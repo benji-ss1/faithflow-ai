@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.146",
+    date: "2026-08-11",
+    headline: "Put your church logo on announcements",
+    highlights: [
+      "The announcement composer now has a “Church logo” section — paste a logo image URL and place it anywhere on the announcement: any of the nine corners/edges, dead center, or an upper-third / lower-third band.",
+      "Set the logo's size and opacity, preview it live, and save it into your announcement presets so it comes back next time.",
+    ],
+  },
+  {
     version: "0.1.145",
     date: "2026-08-11",
     headline: "Edit slides the obvious way + What's New is back",

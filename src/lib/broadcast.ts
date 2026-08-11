@@ -28,11 +28,34 @@ export type AnnouncementStyle = {
   align: AnnouncementAlign;
 };
 
+// Church logo overlay on an announcement — placed independently of the text.
+// Covers the 9-grid plus upper/lower third bands (what operators asked for).
+export type AnnouncementLogoPosition =
+  | "top-left" | "top-center" | "top-right"
+  | "middle-left" | "center" | "middle-right"
+  | "bottom-left" | "bottom-center" | "bottom-right"
+  | "upper-third" | "lower-third";
+
+export const ANNOUNCEMENT_LOGO_POSITIONS = new Set<string>([
+  "top-left", "top-center", "top-right",
+  "middle-left", "center", "middle-right",
+  "bottom-left", "bottom-center", "bottom-right",
+  "upper-third", "lower-third",
+]);
+
+export type AnnouncementLogo = {
+  url: string;                        // https / presigned S3 URL
+  position: AnnouncementLogoPosition;
+  sizePct: number;                    // logo width as % of output width (2..50)
+  opacity: number;                    // 0..1
+};
+
 export type AnnouncementPayload = {
   line1: string;
   line2?: string;
   position: AnnouncementPosition;
   style: AnnouncementStyle;
+  logo?: AnnouncementLogo | null;     // optional church-logo overlay
 };
 
 export type TransitionSpec = {
@@ -420,6 +443,14 @@ function isValidAnnouncement(a: unknown): a is AnnouncementPayload {
   const p = a as Record<string, unknown>;
   if (typeof p.line1 !== "string" || p.line1.length > 500) return false;
   if (p.line2 !== undefined && (typeof p.line2 !== "string" || p.line2.length > 500)) return false;
+  if (p.logo !== undefined && p.logo !== null) {
+    if (typeof p.logo !== "object" || hasPollutionKey(p.logo)) return false;
+    const lg = p.logo as Record<string, unknown>;
+    if (!isValidRenderUrl(lg.url)) return false;
+    if (!ANNOUNCEMENT_LOGO_POSITIONS.has(lg.position as string)) return false;
+    if (typeof lg.sizePct !== "number" || !Number.isFinite(lg.sizePct) || lg.sizePct < 2 || lg.sizePct > 50) return false;
+    if (typeof lg.opacity !== "number" || !Number.isFinite(lg.opacity) || lg.opacity < 0 || lg.opacity > 1) return false;
+  }
   return true;
 }
 

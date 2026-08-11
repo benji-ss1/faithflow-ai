@@ -15,7 +15,7 @@ import type { OperatorShellCtx, InspectorTab } from "./types";
 import { useSlideEditorCtx } from "../editor/SlideEditorContext";
 import type { SlideObject, TextObject, ShapeObject } from "@/lib/slide-objects";
 import { EFFECTS, ensureEffectKeyframes, getEffect, type EffectId, type Effect } from "@/lib/effects";
-import type { AnnouncementPayload, AnnouncementPosition, AnnouncementStyle, TransitionSpec } from "@/lib/broadcast";
+import type { AnnouncementPayload, AnnouncementPosition, AnnouncementStyle, AnnouncementLogoPosition, TransitionSpec } from "@/lib/broadcast";
 import {
   createAnnouncement, saveAnnouncementPreset, deleteAnnouncementPreset,
   createTheme, updateTheme, duplicateTheme, deleteTheme, exportTheme, importTheme, applyThemeToSong,
@@ -827,6 +827,11 @@ function AnnounceTab({ ctx }: { ctx: OperatorShellCtx }) {
   const [line2, setLine2] = useState("");
   const [position, setPosition] = useState<AnnouncementPosition>("lower_third");
   const [style, setStyle] = useState<AnnouncementStyle>(DEFAULT_ANN_STYLE);
+  // Optional church-logo overlay (independent of the text position).
+  const [logoUrl, setLogoUrl] = useState("");
+  const [logoPosition, setLogoPosition] = useState<AnnouncementLogoPosition>("top-right");
+  const [logoSizePct, setLogoSizePct] = useState(12);
+  const [logoOpacity, setLogoOpacity] = useState(1);
   const [presets, setPresets] = useState<PresetRow[] | null>(null);
   const [presetId, setPresetId] = useState("");
   const [saving, setSaving] = useState(false);
@@ -842,7 +847,10 @@ function AnnounceTab({ ctx }: { ctx: OperatorShellCtx }) {
     return () => { cancelled = true; };
   }, [churchId]);
 
-  const payload: AnnouncementPayload = { line1, line2: line2 || undefined, position, style };
+  const logo = logoUrl.trim()
+    ? { url: logoUrl.trim(), position: logoPosition, sizePct: logoSizePct, opacity: logoOpacity }
+    : null;
+  const payload: AnnouncementPayload = { line1, line2: line2 || undefined, position, style, logo };
 
   const patchStyle = (p: Partial<AnnouncementStyle>) => setStyle((s) => ({ ...s, ...p }));
 
@@ -854,7 +862,7 @@ function AnnounceTab({ ctx }: { ctx: OperatorShellCtx }) {
     if (!name.trim()) { toast.error("Give the preset a name"); return; }
     setSaving(true);
     try {
-      const res = await saveAnnouncementPreset(name.trim(), { line1, line2, position, style });
+      const res = await saveAnnouncementPreset(name.trim(), { line1, line2, position, style, logo });
       if (res.ok) {
         toast.success("Preset saved");
         const r = await fetch(`/api/announcements/presets?churchId=${encodeURIComponent(churchId)}`).then((r) => r.json());
@@ -867,11 +875,19 @@ function AnnounceTab({ ctx }: { ctx: OperatorShellCtx }) {
     setPresetId(id);
     const p = presets?.find((x) => x.id === id);
     if (!p) return;
-    const c = (p.config as Partial<{ line1: string; line2: string; position: AnnouncementPosition; style: AnnouncementStyle }>) ?? {};
+    const c = (p.config as Partial<{ line1: string; line2: string; position: AnnouncementPosition; style: AnnouncementStyle; logo: AnnouncementPayload["logo"] }>) ?? {};
     if (c.line1 !== undefined) setLine1(c.line1);
     if (c.line2 !== undefined) setLine2(c.line2);
     if (c.position) setPosition(c.position);
     if (c.style) setStyle({ ...DEFAULT_ANN_STYLE, ...c.style });
+    if (c.logo) {
+      setLogoUrl(c.logo.url ?? "");
+      if (c.logo.position) setLogoPosition(c.logo.position);
+      if (typeof c.logo.sizePct === "number") setLogoSizePct(c.logo.sizePct);
+      if (typeof c.logo.opacity === "number") setLogoOpacity(c.logo.opacity);
+    } else {
+      setLogoUrl("");
+    }
   };
 
   const delPreset = async () => {
@@ -1009,6 +1025,40 @@ function AnnounceTab({ ctx }: { ctx: OperatorShellCtx }) {
       <Section label="Align">
         <SegPill<AnnouncementStyle["align"]> value={style.align} onChange={(a) => patchStyle({ align: a })}
           options={[{ key: "left", label: "Left" }, { key: "center", label: "Center" }, { key: "right", label: "Right" }]} />
+      </Section>
+
+      <Section label="Church logo">
+        <input
+          type="url"
+          value={logoUrl}
+          onChange={(e) => setLogoUrl(e.target.value)}
+          placeholder="Paste logo image URL (or a media-library URL)…"
+          className="w-full h-7 px-2 rounded-md border text-[11px] text-zinc-200 bg-[#1a2020] outline-none focus:border-teal-500/60"
+          style={{ borderColor: "#2a3232" }}
+        />
+        {logoUrl.trim() && (
+          <>
+            <div className="mt-2 grid grid-cols-3 gap-1">
+              {(["top-left", "top-center", "top-right", "middle-left", "center", "middle-right", "bottom-left", "bottom-center", "bottom-right"] as AnnouncementLogoPosition[]).map((p) => (
+                <button key={p} type="button" onClick={() => setLogoPosition(p)}
+                  title={p}
+                  className={`h-6 rounded ${logoPosition === p ? "bg-teal-500/40 border border-teal-400/70" : "border border-[#2a3232] bg-white/[0.02] hover:bg-white/[0.06]"}`} />
+              ))}
+            </div>
+            <div className="mt-1 flex gap-1">
+              {(["upper-third", "lower-third"] as AnnouncementLogoPosition[]).map((p) => (
+                <button key={p} type="button" onClick={() => setLogoPosition(p)}
+                  className={`flex-1 h-6 rounded text-[9px] font-bold uppercase ${logoPosition === p ? "bg-teal-500/40 border border-teal-400/70 text-teal-100" : "border border-[#2a3232] bg-white/[0.02] text-zinc-400 hover:bg-white/[0.06]"}`}>
+                  {p === "upper-third" ? "Upper 3rd" : "Lower 3rd"}
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 text-[9px] uppercase tracking-wide text-zinc-500">Size — {logoSizePct}%</div>
+            <input type="range" min={2} max={50} value={logoSizePct} onChange={(e) => setLogoSizePct(Number(e.target.value))} className="w-full" />
+            <div className="mt-1 text-[9px] uppercase tracking-wide text-zinc-500">Opacity — {Math.round(logoOpacity * 100)}%</div>
+            <input type="range" min={0} max={100} value={logoOpacity * 100} onChange={(e) => setLogoOpacity(Number(e.target.value) / 100)} className="w-full" />
+          </>
+        )}
       </Section>
 
       <Section label="Actions">

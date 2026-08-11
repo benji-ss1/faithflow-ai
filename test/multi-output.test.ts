@@ -57,6 +57,42 @@ async function main() {
     assert.strictEqual(isValidOutputState(s), false);
   });
 
+  // --- 1b. announcement logo validation -----------------------------------
+  const annBase = { line1: "Welcome", position: "center_card" as const,
+    style: { fontFamily: "Inter", fontSizePx: 32, fontWeight: 600, textColor: "#fff", bgColor: "#000", bgOpacity: 70, padding: 20, borderRadius: 8, align: "center" as const } };
+
+  await check("accepts announcement with valid logo", () => {
+    const s = { ...validBase, announcement: { ...annBase, logo: { url: "https://s3.example.com/logo.png", position: "top-right", sizePct: 12, opacity: 1 } } };
+    assert.strictEqual(isValidOutputState(s), true);
+  });
+
+  await check("accepts announcement with logo === null", () => {
+    const s = { ...validBase, announcement: { ...annBase, logo: null } };
+    assert.strictEqual(isValidOutputState(s), true);
+  });
+
+  await check("rejects announcement logo with non-https url", () => {
+    const s = { ...validBase, announcement: { ...annBase, logo: { url: "http://x/logo.png", position: "top-right", sizePct: 12, opacity: 1 } } };
+    assert.strictEqual(isValidOutputState(s), false);
+  });
+
+  await check("rejects announcement logo with bad position", () => {
+    const s = { ...validBase, announcement: { ...annBase, logo: { url: "https://s3.example.com/logo.png", position: "diagonal", sizePct: 12, opacity: 1 } } };
+    assert.strictEqual(isValidOutputState(s), false);
+  });
+
+  await check("rejects announcement logo with out-of-range sizePct", () => {
+    const s = { ...validBase, announcement: { ...annBase, logo: { url: "https://s3.example.com/logo.png", position: "center", sizePct: 500, opacity: 1 } } };
+    assert.strictEqual(isValidOutputState(s), false);
+  });
+
+  await check("accepts upper-third / lower-third logo positions", () => {
+    for (const position of ["upper-third", "lower-third"]) {
+      const s = { ...validBase, announcement: { ...annBase, logo: { url: "https://s3.example.com/logo.png", position, sizePct: 12, opacity: 0.8 } } };
+      assert.strictEqual(isValidOutputState(s), true, position);
+    }
+  });
+
   // --- 2. countdownEndsAt validation --------------------------------------
   await check("accepts countdownEndsAt in near future", () => {
     const s = { ...validBase, countdownEndsAt: Date.now() + 60_000 };
