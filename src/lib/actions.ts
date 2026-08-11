@@ -125,7 +125,7 @@ async function validateAddServiceItemPayload(
   }
 }
 
-export async function addServiceItem(planId: string, type: "song" | "scripture" | "media" | "sermon" | "blank" | "logo", title: string, payload: Record<string, unknown>): Promise<Result> {
+export async function addServiceItem(planId: string, type: "song" | "scripture" | "media" | "sermon" | "blank" | "logo", title: string, payload: Record<string, unknown>): Promise<Result<{ id: string }>> {
   const user = await requireCap("operate_services");
   const db = getDb();
   const [plan] = await db.select().from(servicePlans).where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, user.churchId))).limit(1);
@@ -156,9 +156,9 @@ export async function addServiceItem(planId: string, type: "song" | "scripture" 
     }
   }
   const nextOrder = existing.length > 0 ? Math.max(...existing.map((e) => e.order)) + 1 : 0;
-  await db.insert(serviceItems).values({ servicePlanId: planId, order: nextOrder, type, title, payload });
+  const [row] = await db.insert(serviceItems).values({ servicePlanId: planId, order: nextOrder, type, title, payload }).returning({ id: serviceItems.id });
   revalidatePath(`/services/${planId}`);
-  return { ok: true };
+  return { ok: true, data: { id: row.id } };
 }
 
 /**

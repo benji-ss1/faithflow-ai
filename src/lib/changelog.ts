@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.133",
+    date: "2026-08-11",
+    headline: "Undo for adding & deleting songs and slides",
+    highlights: [
+      "Removing a song from the service plan, or deleting a slide in the editor, now shows an “Undo” — one click puts it back (a removed song returns to its original position).",
+      "Adding a song, a blank item, or a slide from the playlist is also one-click undoable.",
+      "Deletes no longer feel risky: everything you add or remove in the plan is recoverable, so you can work faster during setup.",
+    ],
+  },
+  {
     version: "0.1.132",
     date: "2026-08-11",
     headline: "Slide delete fixed · add slides & rename songs from anywhere",

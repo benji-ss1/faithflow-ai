@@ -1,13 +1,32 @@
 "use client";
 import { useState } from "react";
+import { toast } from "sonner";
 import { Plus, Copy, Trash2, ChevronRight, Save, Play, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { EditableSlide } from "../editor/useSlideEditor";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import type { OperatorShellCtx } from "./types";
 import { useSlideEditorCtx } from "../editor/SlideEditorContext";
 import { SlideCanvas, SlideThumb } from "../editor/SlideCanvas";
 import { CanvasWarnings } from "../editor/CanvasWarnings";
 import { SlideContextMenu } from "../SlideContextMenu";
+
+// Delete a slide with a toast Undo (re-inserts the exact slide at its index).
+// Local-only edit — persistence still happens on Save, but the operator can
+// recover an accidental delete instantly.
+function deleteSlideWithUndo(
+  editor: NonNullable<ReturnType<typeof useSlideEditorCtx>>,
+  index: number,
+) {
+  const removed: EditableSlide | undefined = editor.slides[index];
+  if (!removed) return;
+  const itemId = editor.itemId; // guard: only restore if still on this item
+  const didDelete = editor.deleteSlide(index);
+  if (!didDelete) return; // confirm cancelled — don't offer a bogus undo
+  toast(`Slide ${index + 1} deleted`, {
+    action: { label: "Undo", onClick: () => editor.restoreSlide(index, removed, itemId) },
+  });
+}
 
 export function CenterWorkspace({ ctx }: { ctx: OperatorShellCtx }) {
   const editor = useSlideEditorCtx();
@@ -127,7 +146,7 @@ function SlideListRail({ item }: { item: OperatorShellCtx["plan"]["items"][numbe
           <Copy className="w-3 h-3" />
         </button>
         <button
-          onClick={() => editor.deleteSlide()}
+          onClick={() => deleteSlideWithUndo(editor, editor.currentIndex)}
           disabled={!isSong || !editor.currentSlide}
           title={isSong ? "Delete selected slide" : "Editing is available for songs in this run"}
           className="h-6 w-6 rounded-md border inline-flex items-center justify-center text-red-300 disabled:opacity-40"
@@ -148,7 +167,7 @@ function SlideListRail({ item }: { item: OperatorShellCtx["plan"]["items"][numbe
             <SlideContextMenu
               key={s.id}
               onEdit={() => editor.setCurrentIndex(i)}
-              onDelete={() => editor.deleteSlide(i)}
+              onDelete={() => deleteSlideWithUndo(editor, i)}
             >
             <div
               draggable={isSong}

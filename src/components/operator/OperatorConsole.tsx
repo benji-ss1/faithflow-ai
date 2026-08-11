@@ -1319,7 +1319,26 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
       const { addServiceItem } = await import("@/lib/actions");
       const res = await addServiceItem(plan.id, kind, ref.title, payload);
       if (res.ok) {
-        toast.success(`Added: ${ref.title}`);
+        // Offer an Undo when a new row was actually created (res.data present;
+        // absent when the server dedup no-ops on an item already in the plan).
+        if (res.data) {
+          const newItemId = res.data.id;
+          toast(`Added: ${ref.title}`, {
+            action: {
+              label: "Undo",
+              onClick: () => {
+                void (async () => {
+                  const { removeServiceItem } = await import("@/lib/actions");
+                  const r = await removeServiceItem(newItemId);
+                  if (!r.ok) { toast.error(r.error ?? "Undo failed"); return; }
+                  router.refresh();
+                })();
+              },
+            },
+          });
+        } else {
+          toast.success(`Added: ${ref.title}`);
+        }
         // R2 (P6): optimistic append + router.refresh instead of full page
         // reload. Full reload broke interim transcript state, forced a mic
         // re-prompt, and dropped BroadcastChannel state (CLAUDE.md rule 8).

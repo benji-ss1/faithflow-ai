@@ -38,7 +38,8 @@ export type UseSlideEditorReturn = {
   moveObject: (id: string, dx: number, dy: number) => void;
   addSlide: () => void;
   duplicateSlide: () => void;
-  deleteSlide: (index?: number) => void;
+  deleteSlide: (index?: number) => boolean;
+  restoreSlide: (index: number, slide: EditableSlide, expectedItemId?: string | null) => void;
   reorderSlide: (from: number, to: number) => void;
   setBg: (patch: { bgColor?: string; bgImageUrl?: string }) => void;
   updateSlideDirect: (patch: Partial<EditableSlide>) => void;
@@ -69,6 +70,11 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
   slidesRef.current = slides;
   const currentIndexRef = useRef(currentIndex);
   currentIndexRef.current = currentIndex;
+  // Tracks the item currently loaded in the editor so a deferred action (a
+  // slide-delete Undo fired after the operator switched items) can refuse to
+  // mutate the wrong song.
+  const itemIdRef = useRef(itemId);
+  itemIdRef.current = itemId;
 
   // Reset editor state when the underlying item changes.
   const lastItemIdRef = useRef<string | null>(itemId);
@@ -188,15 +194,15 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
   // selected slide when no index is given. Reads slides/currentIndex from refs
   // so a right-click delete (which never selects the slide first) removes the
   // correct one, and keeps the selection stable afterward.
-  const deleteSlide = useCallback((index?: number) => {
-    if (!isEditable) return;
+  const deleteSlide = useCallback((index?: number): boolean => {
+    if (!isEditable) return false;
     const prev = slidesRef.current;
     const cur = currentIndexRef.current;
     const target = typeof index === "number" ? index : cur;
-    if (target < 0 || target >= prev.length) return;
+    if (target < 0 || target >= prev.length) return false;
     if (prev.length <= 1) {
       if (typeof window !== "undefined" && !window.confirm("Delete the only slide? The item will have no slides.")) {
-        return;
+        return false;
       }
     }
     const copy = prev.slice();
@@ -206,6 +212,26 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     const nextIndex = Math.max(0, Math.min(target <= cur ? cur - 1 : cur, copy.length - 1));
     setSlides(copy);
     setCurrentIndex(nextIndex);
+    setSelectedObjectId(null);
+    setDirty(true);
+    return true;
+  }, [isEditable]);
+
+  // Re-insert a previously-deleted slide at `index` (undo for deleteSlide).
+  // Clamps the index into range and selects the restored slide.
+  const restoreSlide = useCallback((index: number, slide: EditableSlide, expectedItemId?: string | null) => {
+    if (!isEditable) return;
+    // Refuse to inject the slide if the editor has since switched to another
+    // item — otherwise an Undo clicked after an item switch would corrupt a
+    // different song.
+    if (expectedItemId !== undefined && expectedItemId !== itemIdRef.current) return;
+    setSlides((prev) => {
+      const at = Math.max(0, Math.min(index, prev.length));
+      const copy = prev.slice();
+      copy.splice(at, 0, slide);
+      return copy;
+    });
+    setCurrentIndex(Math.max(0, Math.min(index, slidesRef.current.length)));
     setSelectedObjectId(null);
     setDirty(true);
   }, [isEditable]);
@@ -252,6 +278,7 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     addSlide,
     duplicateSlide,
     deleteSlide,
+    restoreSlide,
     reorderSlide,
     setBg,
     updateSlideDirect,

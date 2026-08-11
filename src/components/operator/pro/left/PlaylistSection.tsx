@@ -33,7 +33,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
-import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong, createSongSlide } from "@/lib/actions";
+import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong, createSongSlide, deleteSongSlide } from "@/lib/actions";
 
 function itemIcon(type: string) {
   if (type === "song") return Music;
@@ -214,13 +214,57 @@ export function PlaylistSection({
     router.refresh();
   };
 
-  // ── Actions ───────────────────────────────────────────────────────────────
-  const addBlank = async () => {
-    handleResult(await addServiceItem(ctx.planId, "blank", "Blank", {}));
+  // Toast with an Undo action that runs the inverse (server) operation, then
+  // refreshes. Used for add/remove of songs and slides so a mistake — even a
+  // deletion — is one click to recover, matching the "Delete → Undo" pattern.
+  const undoToast = (message: string, undo: () => Promise<{ ok: boolean; error?: string } | void>) => {
+    toast(message, {
+      action: {
+        label: "Undo",
+        onClick: () => {
+          void (async () => {
+            const r = await undo();
+            if (r && !r.ok) { toast.error(r.error ?? "Undo failed"); return; }
+            router.refresh();
+          })();
+        },
+      },
+    });
   };
 
-  const remove = async (id: string) => {
-    handleResult(await removeServiceItem(id));
+  // ── Actions ───────────────────────────────────────────────────────────────
+  const addBlank = async () => {
+    const res = await addServiceItem(ctx.planId, "blank", "Blank", {});
+    if (!res.ok) { toast.error(res.error ?? "Action failed"); return; }
+    router.refresh();
+    if (res.data) undoToast("Blank slide added", () => removeServiceItem(res.data!.id));
+  };
+
+  const remove = async (it: OperatorShellCtx["plan"]["items"][number]) => {
+    if (!it.id) return;
+    // Snapshot the item + full order BEFORE removal so Undo can re-create it in
+    // its original position.
+    const beforeIds = items.map((i) => i.id).filter(Boolean) as string[];
+    const removedId = it.id;
+    const type = (it.type ?? "blank") as "song" | "scripture" | "media" | "sermon" | "blank" | "logo";
+    const title = it.title;
+    const payload = (it as unknown as { payload?: Record<string, unknown> }).payload ?? {};
+    const res = await removeServiceItem(removedId);
+    if (!res.ok) { toast.error(res.error ?? "Action failed"); return; }
+    router.refresh();
+    undoToast(`Removed "${title}"`, async () => {
+      const add = await addServiceItem(ctx.planId, type, title, payload);
+      if (!add.ok) return add; // couldn't restore the item — surface the error
+      // Best-effort position restore. If the plan changed since removal (another
+      // item removed/reordered), `beforeIds` may contain a now-dead id and
+      // reorderServiceItems will safely reject — the item stays restored at the
+      // end rather than the undo reporting failure. Recovery always wins.
+      if (add.data) {
+        const targetOrder = beforeIds.map((x) => (x === removedId ? add.data!.id : x));
+        await reorderServiceItems(ctx.planId, targetOrder);
+      }
+      return { ok: true };
+    });
   };
 
   const move = async (idx: number, dir: -1 | 1) => {
@@ -256,20 +300,23 @@ export function PlaylistSection({
   // plan so the new slide is available live. Only offered for song items.
   const addSlideToItem = async (it: OperatorShellCtx["plan"]["items"][number]) => {
     if (it.type !== "song" || !it.songId) return;
-    handleResult(
-      await createSongSlide(it.songId, undefined, { objects: [], lyrics: "" }),
-      "Slide added",
-    );
+    const res = await createSongSlide(it.songId, undefined, { objects: [], lyrics: "" });
+    if (!res.ok) { toast.error(res.error ?? "Add slide failed"); return; }
+    router.refresh();
+    if (res.data) undoToast("Slide added", () => deleteSongSlide(res.data!.id));
   };
 
   const duplicate = async (idx: number) => {
     const it = items[idx];
     if (!it) return;
     const t = (it.type ?? "blank") as "song" | "scripture" | "media" | "sermon" | "blank" | "logo";
-    handleResult(
-      await addServiceItem(ctx.planId, t, `${it.title} (copy)`, (it as unknown as { payload?: Record<string, unknown> }).payload ?? {}),
-      "Duplicated",
-    );
+    const res = await addServiceItem(ctx.planId, t, `${it.title} (copy)`, (it as unknown as { payload?: Record<string, unknown> }).payload ?? {});
+    if (!res.ok) { toast.error(res.error ?? "Action failed"); return; }
+    router.refresh();
+    // res.data absent when the dedup guard no-ops (e.g. duplicating a song
+    // already in the plan) — nothing was created, so no Undo is offered.
+    if (res.data) undoToast(`Duplicated "${it.title}"`, () => removeServiceItem(res.data!.id));
+    else toast.success("Duplicated");
   };
 
   // ── Drag end — optimistic reorder then persist ─────────────────────────────
@@ -407,7 +454,7 @@ export function PlaylistSection({
                   totalItems={items.length}
                   isActive={idx === ctx.previewItemIdx}
                   onItemClick={() => handleItemClick(it, idx)}
-                  onRemove={() => it.id && void remove(it.id)}
+                  onRemove={() => void remove(it)}
                   onMove={(dir) => void move(idx, dir)}
                   onDuplicate={() => void duplicate(idx)}
                   onAddSlide={it.type === "song" && it.songId ? () => void addSlideToItem(it) : undefined}
