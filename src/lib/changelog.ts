@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.136",
+    date: "2026-08-11",
+    headline: "Theme video backgrounds + church logo overlay",
+    highlights: [
+      "Themes can now use a looping video background behind your lyrics and scripture — it keeps playing smoothly as you change slides, with a dimming control for readability.",
+      "Themes can also place your church logo on the output (any corner or centred, with size and opacity), shown across the projector, stage, and livestream.",
+      "Both apply live the moment you Apply the theme — part of the ongoing themes overhaul. Per-section themes (a different look for worship vs sermon) are coming next.",
+    ],
+  },
+  {
     version: "0.1.135",
     date: "2026-08-11",
     headline: "Live Video Input — camera behind your lyrics & scripture",

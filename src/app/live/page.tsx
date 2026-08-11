@@ -3,7 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, safePost, isValidLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
-import { OutputSlide } from "@/components/live/OutputSlide";
+import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
+import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
 import { TransitionWrapper } from "@/components/live/TransitionWrapper";
@@ -390,15 +391,17 @@ export default function LivePage() {
               height: "100%",
             }}
           >
-            {videoInput ? (
-              // Video active: no slide-keyed transition wrapper (keeps the camera
-              // stream persistent across slide changes — only the overlay updates).
+            {hasVideoBackground(videoInput, appearance) ? (
+              // Video behind the slide (camera or theme video bg): no slide-keyed
+              // transition wrapper, so the video stays playing across slide
+              // changes — only the overlay updates.
               <OutputSlide slide={slide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} projectorFit />
             ) : (
               <TransitionWrapper identityKey={slideIdentity(slide)} transition={transition}>
                 <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} videoMuted={false} onVideoRef={handleVideoRef} />
               </TransitionWrapper>
             )}
+            <ThemeLogoLayer appearance={appearance} />
           </div>
           <AnnouncementLayer ann={announcement} />
           {/* z-order: slide < timer (z-20) < message (z-30). Corner/lower-third

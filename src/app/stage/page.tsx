@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
+import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
 import { openLiveChannel, isValidLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance } from "@/lib/broadcast";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
@@ -285,6 +286,7 @@ export default function StagePage() {
           <TransitionWrapper identityKey={stageIdentity(current)} transition={transition}>
             <SlideRenderer slide={current} projectorFit fontScale={fontScale} appearance={appearance} />
           </TransitionWrapper>
+          <ThemeLogoLayer appearance={appearance} />
           <AnnouncementLayer ann={announcement} />
         </div>
         <div className="relative">

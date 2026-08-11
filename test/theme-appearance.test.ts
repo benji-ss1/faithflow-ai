@@ -56,6 +56,36 @@ check("rejects non-boolean textShadow", () => assert.strictEqual(isValidThemeApp
 check("rejects prototype pollution", () =>
   assert.strictEqual(isValidThemeAppearance(JSON.parse('{"__proto__":{"x":1}}')), false));
 
+// ── Phase 2: video background + logo overlay ────────────────────────────
+check("video bg with https url accepted", () =>
+  assert.strictEqual(isValidThemeAppearance({ bgType: "video", bgVideoUrl: "https://s3.example.com/bg.mp4", dim: 0.4 }), true));
+check("full logo config accepted", () =>
+  assert.strictEqual(isValidThemeAppearance({ logoUrl: "https://s3.example.com/logo.png", logoPosition: "bottom-right", logoSizePct: 14, logoOpacity: 0.85 }), true));
+check("rejects non-https bgVideoUrl", () =>
+  assert.strictEqual(isValidThemeAppearance({ bgType: "video", bgVideoUrl: "http://x/v.mp4" }), false));
+check("rejects url() breakout in logoUrl", () =>
+  assert.strictEqual(isValidThemeAppearance({ logoUrl: 'https://x/a")body{}' }), false));
+check("rejects unknown logoPosition", () =>
+  assert.strictEqual(isValidThemeAppearance({ logoUrl: "https://x/l.png", logoPosition: "floating" }), false));
+check("rejects out-of-range logoSizePct / logoOpacity", () => {
+  assert.strictEqual(isValidThemeAppearance({ logoSizePct: 90 }), false);
+  assert.strictEqual(isValidThemeAppearance({ logoSizePct: 1 }), false);
+  assert.strictEqual(isValidThemeAppearance({ logoOpacity: 2 }), false);
+});
+check("mapper: video + logo config → valid appearance", () => {
+  const a = themeConfigToAppearance({ bgType: "video", bgVideoUrl: "https://x/v.mp4", logoUrl: "https://x/l.png", logoPosition: "top-left", logoSizePx: 240, logoOpacity: 0.9 });
+  assert.ok(a && isValidThemeAppearance(a), "mapped appearance must validate");
+  assert.strictEqual(a!.bgType, "video");
+  assert.strictEqual(a!.logoPosition, "top-left");
+  assert.ok(a!.logoSizePct! > 2 && a!.logoSizePct! < 50, "logoSizePct in range");
+});
+check("mapper: non-https video/logo urls dropped (never freeze projector)", () => {
+  const a = themeConfigToAppearance({ bgType: "video", bgVideoUrl: "http://x/v.mp4", logoUrl: "http://x/l.png" });
+  // video url dropped → bgType falls back to solid; logo dropped
+  assert.ok(a === null || (a.bgType !== "video" && !a.logoUrl), JSON.stringify(a));
+  if (a) assert.ok(isValidThemeAppearance(a));
+});
+
 // ── OutputState carries appearance across the wire ──────────────────────
 check("OutputState with valid appearance passes isValidOutputState", () => {
   const st = { ...EMPTY_OUTPUT, appearance: { bgType: "solid" as const, bgColor: "#101010", textColor: "#ffcc00" } };

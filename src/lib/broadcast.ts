@@ -92,18 +92,30 @@ export function isValidTransitionSpec(t: unknown): t is TransitionSpec {
 // exactly as before. One wire contract keeps same-machine (BroadcastChannel),
 // cross-device (Realtime), and a future hybrid/local renderer in sync from a
 // single source of truth (CLAUDE.md rule 8).
+export type LogoPosition =
+  | "top-left" | "top-center" | "top-right"
+  | "middle-left" | "center" | "middle-right"
+  | "bottom-left" | "bottom-center" | "bottom-right"
+  | "none";
+
 export type ThemeAppearance = {
-  bgType?: "solid" | "gradient" | "image"; // video/camera land in a later phase
+  bgType?: "solid" | "gradient" | "image" | "video"; // Phase 2 adds "video"
   bgColor?: string;    // solid fill / gradient stop 1
   bgColor2?: string;   // gradient stop 2
   bgAngle?: number;    // gradient angle, degrees 0..360
   bgImageUrl?: string; // when bgType === "image" (https / presigned S3 URL)
+  bgVideoUrl?: string; // when bgType === "video" — looping muted background (Phase 2)
   dim?: number;        // 0..1 dark overlay over the background for readability
   textColor?: string;
   fontFamily?: string;
   fontWeight?: number; // 100..900
   textShadow?: boolean;
   align?: "left" | "center" | "right";
+  // Phase 2 — persistent church logo overlay on every output surface.
+  logoUrl?: string;        // https / presigned S3 URL
+  logoPosition?: LogoPosition;
+  logoSizePct?: number;    // logo width as % of the output width (2..50)
+  logoOpacity?: number;    // 0..1
 };
 
 // ── Live video input (Phase 2a) ───────────────────────────────────────────
@@ -318,28 +330,44 @@ function isValidMediaUrl(u: unknown): boolean {
 // not be able to inject CSS through it.
 const FONT_FAMILY_RE = /^[a-zA-Z0-9 ,._'"-]{1,120}$/;
 
+// A media URL interpolated into a CSS url("...") or an <img>/<video> src on the
+// projector. Requires https (media must load on the https output page — and it
+// matches the mapper, so a mapped appearance always passes) AND rejects the raw
+// quote/whitespace chars that could break out of url("...") (legit https/S3
+// URLs percent-encode those).
+function isValidRenderUrl(u: unknown): boolean {
+  if (typeof u !== "string" || u.length === 0 || u.length > 2048) return false;
+  if (/["'\s<>\\]/.test(u)) return false;
+  try { return new URL(u).protocol === "https:"; } catch { return false; }
+}
+const LOGO_POSITIONS = new Set([
+  "top-left", "top-center", "top-right",
+  "middle-left", "center", "middle-right",
+  "bottom-left", "bottom-center", "bottom-right", "none",
+]);
+
 export function isValidThemeAppearance(a: unknown): a is ThemeAppearance {
   if (a === null) return true;
   if (!a || typeof a !== "object") return false;
   if (hasPollutionKey(a)) return false;
   const p = a as Record<string, unknown>;
-  if (p.bgType !== undefined && !["solid", "gradient", "image"].includes(p.bgType as string)) return false;
+  if (p.bgType !== undefined && !["solid", "gradient", "image", "video"].includes(p.bgType as string)) return false;
   if (p.bgColor !== undefined && !isValidColor(p.bgColor)) return false;
   if (p.bgColor2 !== undefined && !isValidColor(p.bgColor2)) return false;
   if (p.textColor !== undefined && !isValidColor(p.textColor)) return false;
-  if (p.bgImageUrl !== undefined) {
-    if (!isValidMediaUrl(p.bgImageUrl)) return false;
-    // Extra: this URL is interpolated into a CSS url("...") on the projector.
-    // A legit https/S3 URL never contains a raw quote or whitespace (those are
-    // percent-encoded), so rejecting them removes any url() breakout vector.
-    if (/["'\s<>\\]/.test(p.bgImageUrl as string)) return false;
-  }
+  if (p.bgImageUrl !== undefined && !isValidRenderUrl(p.bgImageUrl)) return false;
   if (p.bgAngle !== undefined && (typeof p.bgAngle !== "number" || !Number.isFinite(p.bgAngle) || p.bgAngle < 0 || p.bgAngle > 360)) return false;
   if (p.dim !== undefined && (typeof p.dim !== "number" || !Number.isFinite(p.dim) || p.dim < 0 || p.dim > 1)) return false;
   if (p.fontWeight !== undefined && (typeof p.fontWeight !== "number" || !Number.isFinite(p.fontWeight) || p.fontWeight < 100 || p.fontWeight > 900)) return false;
   if (p.textShadow !== undefined && typeof p.textShadow !== "boolean") return false;
   if (p.align !== undefined && !["left", "center", "right"].includes(p.align as string)) return false;
   if (p.fontFamily !== undefined && (typeof p.fontFamily !== "string" || !FONT_FAMILY_RE.test(p.fontFamily))) return false;
+  // Phase 2 — video background + logo overlay.
+  if (p.bgVideoUrl !== undefined && !isValidRenderUrl(p.bgVideoUrl)) return false;
+  if (p.logoUrl !== undefined && !isValidRenderUrl(p.logoUrl)) return false;
+  if (p.logoPosition !== undefined && !LOGO_POSITIONS.has(p.logoPosition as string)) return false;
+  if (p.logoSizePct !== undefined && (typeof p.logoSizePct !== "number" || !Number.isFinite(p.logoSizePct) || p.logoSizePct < 2 || p.logoSizePct > 50)) return false;
+  if (p.logoOpacity !== undefined && (typeof p.logoOpacity !== "number" || !Number.isFinite(p.logoOpacity) || p.logoOpacity < 0 || p.logoOpacity > 1)) return false;
   return true;
 }
 

@@ -27,6 +27,12 @@ const isHttpsUrl = (v: unknown): v is string => {
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
+const LOGO_POSITIONS = new Set([
+  "top-left", "top-center", "top-right",
+  "middle-left", "center", "middle-right",
+  "bottom-left", "bottom-center", "bottom-right",
+]);
+
 /**
  * Returns a validated ThemeAppearance, or null if the config yields nothing
  * meaningful (so callers can emit `appearance: null` = built-in defaults).
@@ -37,7 +43,10 @@ export function themeConfigToAppearance(config: unknown): ThemeAppearance | null
   const a: ThemeAppearance = {};
 
   // ── Background ──
-  if (c.bgType === "image" && isHttpsUrl(c.bgImageUrl)) {
+  if (c.bgType === "video" && isHttpsUrl(c.bgVideoUrl)) {
+    a.bgType = "video";
+    a.bgVideoUrl = c.bgVideoUrl;
+  } else if (c.bgType === "image" && isHttpsUrl(c.bgImageUrl)) {
     a.bgType = "image";
     a.bgImageUrl = c.bgImageUrl;
   } else if (c.bgType === "gradient") {
@@ -45,13 +54,17 @@ export function themeConfigToAppearance(config: unknown): ThemeAppearance | null
   } else if (c.bgType === "solid" || c.bgType === undefined) {
     a.bgType = "solid";
   } else {
-    // video/camera etc. not yet rendered — fall back to a solid color
+    // camera / an unusable video URL etc. — fall back to a solid color
     a.bgType = "solid";
   }
   if (isColor(c.bgColor)) a.bgColor = c.bgColor.trim();
   if (isColor(c.bgColor2)) a.bgColor2 = c.bgColor2.trim();
   if (typeof c.bgAngle === "number" && Number.isFinite(c.bgAngle)) a.bgAngle = clamp(c.bgAngle, 0, 360);
   if (typeof c.dim === "number" && Number.isFinite(c.dim)) a.dim = clamp(c.dim, 0, 1);
+  // Video backgrounds are often bright/high-motion; give them a readability dim
+  // by default so lyrics never wash out. An explicit dim in the config (incl. 0)
+  // is honored above — this only fills the unset case.
+  if (a.bgType === "video" && a.dim === undefined) a.dim = 0.3;
 
   // ── Text ──
   if (isColor(c.textColor)) a.textColor = c.textColor.trim();
@@ -60,9 +73,20 @@ export function themeConfigToAppearance(config: unknown): ThemeAppearance | null
   if (typeof c.textShadow === "boolean") a.textShadow = c.textShadow;
   if (c.align === "left" || c.align === "center" || c.align === "right") a.align = c.align;
 
+  // ── Logo overlay (Phase 2) ──
+  if (isHttpsUrl(c.logoUrl) && c.logoPosition !== "none") {
+    a.logoUrl = c.logoUrl;
+    a.logoPosition = LOGO_POSITIONS.has(c.logoPosition as string) ? (c.logoPosition as NonNullable<ThemeAppearance["logoPosition"]>) : "bottom-right";
+    // ThemeConfig stores logoSizePx (against a ~1920 reference); the wire uses a
+    // resolution-independent % of output width.
+    const px = typeof c.logoSizePx === "number" && Number.isFinite(c.logoSizePx) ? c.logoSizePx : 0;
+    a.logoSizePct = px > 0 ? clamp((px / 1920) * 100, 2, 50) : 12;
+    if (typeof c.logoOpacity === "number" && Number.isFinite(c.logoOpacity)) a.logoOpacity = clamp(c.logoOpacity, 0, 1);
+  }
+
   // Nothing meaningful beyond the implicit bgType:"solid"? Treat as no theme.
   const meaningful =
-    a.bgColor || a.bgImageUrl || a.textColor || a.fontFamily ||
+    a.bgColor || a.bgImageUrl || a.bgVideoUrl || a.logoUrl || a.textColor || a.fontFamily ||
     a.fontWeight !== undefined || a.textShadow !== undefined || a.align || a.bgType === "gradient" || a.dim !== undefined;
   return meaningful ? a : null;
 }

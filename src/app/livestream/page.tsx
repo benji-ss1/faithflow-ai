@@ -3,7 +3,8 @@ import { useCallback, useEffect, useRef, useState, type RefCallback } from "reac
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, isValidLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
-import { OutputSlide } from "@/components/live/OutputSlide";
+import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
+import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
 import { TransitionWrapper } from "@/components/live/TransitionWrapper";
@@ -248,7 +249,7 @@ export default function LivestreamPage() {
     >
       {mode === "full" && (
         <>
-          {videoInput ? (
+          {hasVideoBackground(videoInput, appearance) ? (
             <OutputSlide slide={slide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} projectorFit={false} />
           ) : transitionsEnabled ? (
             <TransitionWrapper identityKey={liveIdentity(slide)} transition={transition}>
@@ -257,6 +258,7 @@ export default function LivestreamPage() {
           ) : (
             <SlideRenderer slide={slide} fontScale={fontScale} appearance={appearance} videoMuted={false} onVideoRef={handleVideoRef} />
           )}
+          <ThemeLogoLayer appearance={appearance} />
           <AnnouncementLayer ann={announcement} />
           {lowerThird && (
             <div className="absolute bottom-16 left-16 right-16 max-w-[70%]">
