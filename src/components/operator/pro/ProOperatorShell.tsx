@@ -1905,7 +1905,9 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           const body = first.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
           const fullSlide: import("@/lib/broadcast").SlidePayload = { kind: "text", text: `${body}\n\n${first.label}` };
           try {
-            sendLiveRef.current(fullSlide, null, { preserveConfiguredTransition: true });
+            // Transition-replay guard: fade only on the first projection of
+            // this reference family; cascade re-fires hard-cut (see aiShouldFade).
+            sendLiveRef.current(fullSlide, null, aiShouldFade(fullSlide.text) ? { preserveConfiguredTransition: true } : { instant: true });
           } catch { /* noop */ }
           // Sync preview with full cards
           bibleSession.setCards(cards);
@@ -1963,6 +1965,40 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // authority for the same-tab hot path.
   const bibleFiredMapRef = useRef<Record<string, number>>({});
 
+  // Bug-fix 2026-08-11 (transition replays 4-6×): 0.1.131 gave AI-fired slides
+  // a 150ms fade — which made the AI cascade's pre-existing multi-fire VISIBLE.
+  // One spoken verse legitimately projects several distinct content states in
+  // quick succession (label placeholder → evolving partial refs from streaming
+  // interims → corrected final → Whisper correction), and each used to be an
+  // invisible 0ms hard cut. Rule: only the FIRST projection of a reference
+  // family (book+chapter) inside a short window gets the fade; every re-fire
+  // of that family within the window is a hard cut (the legacy look), so the
+  // cascade collapses back to exactly one visible fade per spoken verse. The
+  // window (8s) comfortably covers the interim→final→whisper settle (~2-5s)
+  // while a genuinely new reading of the same chapter minutes later still
+  // fades. Manual sends and the operator's configured transition are untouched
+  // (this guards only the two AI fire chokepoints below).
+  const AI_FADE_WINDOW_MS = 8_000;
+  const lastAiFadeRef = useRef<{ fam: string; at: number }>({ fam: "", at: 0 });
+  // Family = "book chapter" parsed from the slide's trailing reference label
+  // ("...\n\nJohn 3:16 (KJV)"). Unparseable text → the text itself (unique →
+  // always fades), so non-scripture content is never wrongly suppressed.
+  const aiShouldFade = useCallback((slideText: string): boolean => {
+    const lastLine = slideText.trim().split("\n").pop() ?? "";
+    const m = /^(.+?)\s+(\d+):\d+/.exec(lastLine);
+    const fam = m ? `${m[1].toLowerCase()} ${m[2]}` : slideText;
+    const now = Date.now();
+    const prev = lastAiFadeRef.current;
+    if (prev.fam === fam && now - prev.at < AI_FADE_WINDOW_MS) {
+      // Same family re-fired inside the window: refresh the timestamp so a
+      // long cascade stays suppressed end-to-end, but do NOT fade again.
+      prev.at = now;
+      return false;
+    }
+    lastAiFadeRef.current = { fam, at: now };
+    return true;
+  }, []);
+
   // Part 2 (verse forward-continuation): word-timing tracking buffers, same
   // shape as the song version in SongAutopilotStaging but scoped to Bible
   // verse cards. Only advances a verse that is ALREADY live (manually
@@ -2008,7 +2044,12 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     try {
       // AI auto-fire uses an instant one-shot transition while preserving the
       // operator's configured transition for subsequent manual sends.
-      const res = sendLiveRef.current(slide, null, { preserveConfiguredTransition: true }) as unknown;
+      // Transition-replay guard: fade only on the first projection of this
+      // reference family; cascade re-fires hard-cut (see aiShouldFade).
+      const opts = slide.kind === "text" && !aiShouldFade(slide.text)
+        ? { instant: true as const }
+        : { preserveConfiguredTransition: true as const };
+      const res = sendLiveRef.current(slide, null, opts) as unknown;
       // Support async callbacks.
       if (res && typeof (res as { then?: unknown }).then === "function") {
         (res as Promise<unknown>).catch(() => {
@@ -2025,7 +2066,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       }
       return false;
     }
-  }, []);
+  }, [aiShouldFade]);
 
   // Keep-current effects for Bible Part 2c ticker refs (stale-closure prevention).
   // These run after every render, keeping the setInterval callback fresh.

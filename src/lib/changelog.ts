@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.147",
+    date: "2026-08-11",
+    headline: "Preview matches projector · one clean fade per verse · transcription recovery",
+    highlights: [
+      "The operator preview now renders with the exact same theme font as the projector — no more picking a font that looks right in the app but shows up as an unexpected serif on screen. Theme fonts also degrade safely: if a font isn't available on the output machine, it falls back to a clean font of the same style instead of old-fashioned serif.",
+      "Fixed verse slides fading in 4-6 times in a row: as the AI refines what it heard (partial → final → double-checked), those rapid updates now hard-cut invisibly and only the FIRST appearance of a verse gets the smooth fade. One verse, one fade.",
+      "If transcription stopped working after today's earlier update loop issue: fully quit and reopen Present Flow once — it self-heals on that restart. Also hardened the update mechanism so this can't recur on logged-out machines.",
+    ],
+  },
+  {
     version: "0.1.146",
     date: "2026-08-11",
     headline: "Put your church logo on announcements",
