@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.140",
+    date: "2026-08-11",
+    headline: "Run a whole service offline",
+    highlights: [
+      "Your themes now work offline too — colours, fonts, and gradients keep applying to the projector even without internet.",
+      "Theme background images/videos, logos, and media slides are cached as you use them, so they still show on screen if the connection drops mid-service.",
+      "A small “Offline — presenting from your saved service” badge appears when you lose connection, so you always know what's happening. (Live AI listening resumes automatically when you're back online.)",
+    ],
+  },
+  {
     version: "0.1.139",
     date: "2026-08-11",
     headline: "Offline resilience — the app opens even if wifi drops",

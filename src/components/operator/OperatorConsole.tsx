@@ -257,20 +257,36 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
   useEffect(() => {
     let cancelled = false;
     const userTouched = { current: false }; // an Apply during the in-flight fetch wins
+    type ThemeRow = { id?: string; config?: unknown; isDefault?: boolean };
+    const churchId = (planProp as unknown as { churchId?: string }).churchId ?? "";
+    const applyList = async (list: ThemeRow[]) => {
+      themesByIdRef.current = new Map(list.filter((t) => typeof t.id === "string").map((t) => [t.id as string, t.config]));
+      if (!cancelled) setThemesVersion((v) => v + 1);
+      const active = list.find((t) => t.isDefault) ?? null;
+      if (!cancelled && !userTouched.current && active) {
+        const { themeConfigToAppearance } = await import("@/lib/theme-appearance");
+        setAppearance(themeConfigToAppearance(active.config));
+      }
+    };
     const load = async () => {
       try {
         const res = await fetch("/api/themes");
-        if (!res.ok) return;
-        const data = (await res.json()) as { themes?: { id?: string; config?: unknown; isDefault?: boolean }[] };
+        if (!res.ok) throw new Error("themes fetch failed");
+        const data = (await res.json()) as { themes?: ThemeRow[] };
         const list = data.themes ?? [];
-        themesByIdRef.current = new Map(list.filter((t) => typeof t.id === "string").map((t) => [t.id as string, t.config]));
-        if (!cancelled) setThemesVersion((v) => v + 1);
-        const active = list.find((t) => t.isDefault) ?? null;
-        if (!cancelled && !userTouched.current && active) {
-          const { themeConfigToAppearance } = await import("@/lib/theme-appearance");
-          setAppearance(themeConfigToAppearance(active.config));
-        }
-      } catch { /* no theme → built-in defaults */ }
+        await applyList(list);
+        // Hybrid Phase 1 — cache the themes list so themed styling still works
+        // offline (colors/fonts/gradients; media backgrounds cache separately).
+        if (churchId) void import("@/lib/offline/serviceCache").then(({ saveKv }) => saveKv(churchId, "themes", list)).catch(() => {});
+      } catch {
+        // Offline / server unreachable → fall back to the cached themes list.
+        if (!churchId) return;
+        try {
+          const { loadKv } = await import("@/lib/offline/serviceCache");
+          const cached = await loadKv<ThemeRow[]>(churchId, "themes");
+          if (cached && !cancelled) await applyList(cached);
+        } catch { /* built-in defaults */ }
+      }
     };
     void load();
     const onChange = (e: Event) => {

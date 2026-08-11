@@ -7,7 +7,8 @@
 
 const DB_NAME = "presentflow-offline";
 const STORE = "serviceSnapshots";
-const DB_VERSION = 1;
+const KV_STORE = "kv"; // church-scoped key→blob (themes list, settings, …)
+const DB_VERSION = 2;
 
 function openDb(): Promise<IDBDatabase | null> {
   return new Promise((resolve) => {
@@ -17,12 +18,47 @@ function openDb(): Promise<IDBDatabase | null> {
       req.onupgradeneeded = () => {
         const db = req.result;
         if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "planId" });
+        if (!db.objectStoreNames.contains(KV_STORE)) db.createObjectStore(KV_STORE, { keyPath: "key" });
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => resolve(null);
       req.onblocked = () => resolve(null);
     } catch { resolve(null); }
   });
+}
+
+/** Store a church-scoped blob (e.g. the themes list) for offline fallback. */
+export async function saveKv<T>(churchId: string, key: string, value: T): Promise<void> {
+  if (!churchId || !key || value == null) return;
+  const db = await openDb();
+  if (!db) return;
+  try {
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction(KV_STORE, "readwrite");
+      tx.objectStore(KV_STORE).put({ key: `${churchId}|${key}`, churchId, savedAt: Date.now(), value });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
+    });
+  } catch { /* best-effort */ } finally { try { db.close(); } catch { /* ignore */ } }
+}
+
+/** Load a church-scoped blob; only returns THIS church's value. */
+export async function loadKv<T>(churchId: string, key: string): Promise<T | null> {
+  if (!churchId || !key) return null;
+  const db = await openDb();
+  if (!db) return null;
+  try {
+    return await new Promise((resolve) => {
+      const tx = db.transaction(KV_STORE, "readonly");
+      const req = tx.objectStore(KV_STORE).get(`${churchId}|${key}`);
+      req.onsuccess = () => {
+        const r = req.result as { churchId?: string; value?: T } | undefined;
+        resolve(r && r.churchId === churchId ? (r.value as T) : null);
+      };
+      req.onerror = () => resolve(null);
+    });
+  } catch { return null; } finally { try { db.close(); } catch { /* ignore */ } }
 }
 
 type Snapshot<T> = { planId: string; churchId: string; savedAt: number; plan: T };

@@ -20,6 +20,7 @@
 const VERSION = "pf-sw-v1";
 const STATIC_CACHE = `pf-static-${VERSION}`;
 const RUNTIME_CACHE = `pf-runtime-${VERSION}`;
+const MEDIA_CACHE = `pf-media-${VERSION}`; // cross-origin theme/media assets
 
 const STATIC_PREFIXES = ["/_next/static/", "/brand/", "/fonts/"];
 const STATIC_EXACT = new Set(["/favicon.ico"]);
@@ -47,7 +48,16 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;               // never touch mutations
   let url;
   try { url = new URL(req.url); } catch { return; }
-  if (url.origin !== self.location.origin) return;  // same-origin only
+  if (url.origin !== self.location.origin) {
+    // Cross-origin MEDIA ONLY (theme backgrounds, logo, media slides) → cache so
+    // it renders offline. Media bytes are not sensitive page/data (unlike the
+    // same-origin authed HTML), and they're isolated in their own capped cache.
+    // Everything else cross-origin (Stripe, APIs, etc.) is left untouched.
+    if (req.destination === "image" || req.destination === "video") {
+      event.respondWith(mediaCacheFirst(req));
+    }
+    return;
+  }
   if (url.pathname.startsWith("/api/")) return;      // never cache data/auth
 
   if (isStatic(url)) {
@@ -91,6 +101,25 @@ async function navHandler(req) {
   } catch (err) {
     const hit = await cache.match(req); // exact URL only
     if (hit) return hit;
+    throw err;
+  }
+}
+
+// Cross-origin media: cache-first so it renders offline. Caches opaque (no-cors)
+// responses too, since media elements request cross-origin assets no-cors.
+async function mediaCacheFirst(req) {
+  const cache = await caches.open(MEDIA_CACHE);
+  const hit = await cache.match(req);
+  if (hit) return hit;
+  try {
+    const res = await fetch(req);
+    if (res && (res.ok || res.type === "opaque")) {
+      try { await cache.put(req, res.clone()); await trimCache(MEDIA_CACHE, 60); } catch { /* quota */ }
+    }
+    return res;
+  } catch (err) {
+    const cached = await cache.match(req);
+    if (cached) return cached;
     throw err;
   }
 }
