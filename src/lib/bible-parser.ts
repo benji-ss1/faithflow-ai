@@ -244,16 +244,22 @@ function repairNumberHomophones(s: string): string {
 
 // English (non-TH) number homophones. Deepgram mishears spoken digits as
 // same-sounding ordinary words: "Judges eleven four" → "Judges eleven floor",
-// "John ten three" → "John ten tree", "Mark five nine" → "Mark five nein".
-// These are FAR too common as real English to remap globally (repairNumberHomophones
-// above deliberately refuses them) — "open the door", "Romans 8 for us". So this
-// pass is gated HARD: a homophone is only rewritten when it sits in a Bible-
-// reference SLOT — inside a short window after a recognized book name AND
-// adjacent to a genuine number. That context makes "floor"→4 safe while leaving
-// ordinary speech untouched. The bare prepositions "for"/"to" are riskier still
-// (they also connect ranges: "three to five") so they get a stricter rule:
-// rewritten only as a LEADING chapter slot (a number follows, none precedes),
-// never between two numbers and never mid-sentence.
+// "John ten three" → "John ten tree", "Mark five nine" → "Mark five nein",
+// "Romans eight twenty eight" → "...twenty ate". repairNumberHomophones above
+// deliberately refuses these globally because they're common English.
+//
+// This pass rewrites them ONLY with PROOF we're already inside a reference: the
+// token immediately before the homophone must be a GENUINE number, or an
+// explicit "verse"/"chapter" marker — AND we must be within a short window of a
+// recognized book name — AND the token after must not be a plain content word.
+// So a mangled number is only fixed once a clean number (or the word "verse")
+// pins us mid-reference. This is intentionally conservative: it will MISS the
+// rare case where the chapter number ITSELF is mangled ("Acts too thirty",
+// "Genesis won won") because there's no clean anchor — a safe no-detection the
+// operator resolves manually — but it never fabricates a verse from ordinary
+// speech ("Mark ate five apples", "Romans eight won by grace" → no reference).
+// Bare "for"/"to" are excluded entirely: as a chapter slot they're
+// indistinguishable from narration ("Luke, to ten of you…").
 const NUM_HOMOPHONES_SAFE: Record<string, string> = {
   won: "one", wan: "one", wun: "one",
   too: "two", tew: "two",
@@ -266,18 +272,23 @@ const NUM_HOMOPHONES_SAFE: Record<string, string> = {
   tin: "ten",
   leaven: "eleven",
 };
-const NUM_HOMOPHONES_RISKY: Record<string, string> = { for: "four", to: "two" };
 // Non-number tokens allowed to appear INSIDE a reference span without ending
 // the window (so "John chapter ten verse tree" still reaches "tree").
 const REF_CONNECTORS = new Set(["chapter", "verse", "verses", "the", "through", "thru", "dash", "colon", "and", "from"]);
+// Explicit number-slot markers: a homophone directly after one of these is
+// unambiguously the number ("chapter ate" → chapter 8, "verse ate" → verse 8).
+const SLOT_MARKERS = new Set(["verse", "verses", "chapter"]);
 function repairBibleContextHomophones(s: string): string {
   if (!/[a-z]/.test(s)) return s;
   const tokens = s.split(" ");
-  const isNum = (t: string | undefined): boolean =>
+  const isNumTok = (t: string | undefined): boolean =>
     t !== undefined && (/^\d+$/.test(t) || NUMBER_WORDS[t] !== undefined);
   const isHomophone = (t: string | undefined): boolean =>
-    t !== undefined && (Object.prototype.hasOwnProperty.call(NUM_HOMOPHONES_SAFE, t) ||
-                        Object.prototype.hasOwnProperty.call(NUM_HOMOPHONES_RISKY, t));
+    t !== undefined && Object.prototype.hasOwnProperty.call(NUM_HOMOPHONES_SAFE, t);
+  // Snapshot the ORIGINAL numeric classification so a rewrite (homophone→number)
+  // can never chain into fabricating the next slot (the review 🔴: "Mark ate too"
+  // → 8:2). Every decision below reads origIsNum, never the mutated array.
+  const origIsNum = tokens.map(isNumTok);
   // A book name ends at index i if tok[i], or the 2-/3-token join ending at i,
   // is a known variant (covers "1 corinthians", "song of solomon").
   const bookEndsAt = (i: number): boolean => {
@@ -291,30 +302,23 @@ function repairBibleContextHomophones(s: string): string {
   let changed = false;
   for (let i = 0; i < tokens.length; i++) {
     const tok = tokens[i];
-    const inWindow = sinceBook <= WINDOW;
-    if (inWindow) {
-      if (Object.prototype.hasOwnProperty.call(NUM_HOMOPHONES_SAFE, tok)) {
-        // Remap when adjacent to a real number, OR when this is the chapter slot
-        // immediately after a book AND the next token is also numeric-ish — the
-        // both-homophones case ("Genesis won won" → 1:1) with corroboration, so
-        // "Mark won the race" (next is a plain word) is left alone.
-        const chapterSlot = i >= 1 && bookEndsAt(i - 1) && (isNum(tokens[i + 1]) || isHomophone(tokens[i + 1]));
-        if (isNum(tokens[i - 1]) || isNum(tokens[i + 1]) || chapterSlot) { tokens[i] = NUM_HOMOPHONES_SAFE[tok]; changed = true; }
-      } else if (Object.prototype.hasOwnProperty.call(NUM_HOMOPHONES_RISKY, tok)) {
-        // Leading chapter slot only: a number follows and none precedes. This
-        // rejects ranges ("three to five": prev is a number) and prepositions
-        // ("eight for us": next is not a number).
-        if (isNum(tokens[i + 1]) && !isNum(tokens[i - 1])) { tokens[i] = NUM_HOMOPHONES_RISKY[tok]; changed = true; }
-      }
+    if (sinceBook <= WINDOW && Object.prototype.hasOwnProperty.call(NUM_HOMOPHONES_SAFE, tok)) {
+      const prev = tokens[i - 1];
+      const next = tokens[i + 1];
+      // PROOF we're in a reference: previous token is a genuine number or an
+      // explicit verse/chapter marker.
+      const anchoredLeft = origIsNum[i - 1] === true || (prev !== undefined && SLOT_MARKERS.has(prev));
+      // The token after must not be a plain content word — end, another number,
+      // a homophone, or a connector. Blocks "Mark five ate breakfast" and
+      // "Romans eight won by grace".
+      const rightOk = next === undefined || origIsNum[i + 1] === true || isHomophone(next) || REF_CONNECTORS.has(next);
+      if (anchoredLeft && rightOk) { tokens[i] = NUM_HOMOPHONES_SAFE[tok]; changed = true; }
     }
     // Update window AFTER processing this token so the token right after a book
     // (the chapter slot) is in-window.
     if (bookEndsAt(i)) sinceBook = 0;
-    else if (isNum(tokens[i]) || REF_CONNECTORS.has(tokens[i]) ||
-             Object.prototype.hasOwnProperty.call(NUM_HOMOPHONES_SAFE, tokens[i]) ||
-             Object.prototype.hasOwnProperty.call(NUM_HOMOPHONES_RISKY, tokens[i])) {
-      // Reference-ish token: keep the window alive (bounded by WINDOW).
-      sinceBook += 1;
+    else if (origIsNum[i] || REF_CONNECTORS.has(tokens[i]) || isHomophone(tokens[i])) {
+      sinceBook += 1; // reference-ish token: keep the window alive (bounded by WINDOW)
     } else {
       sinceBook = Infinity; // a clearly non-reference word closes the span
     }

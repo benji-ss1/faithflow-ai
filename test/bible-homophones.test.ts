@@ -30,10 +30,9 @@ test('"Judges eleven floor" → Judges 11:4', () => expectRef("Judges eleven flo
 test('"John ten tree" → John 10:3', () => expectRef("John ten tree", "John", 10, 3));
 test('"Mark five nein" → Mark 5:9', () => expectRef("Mark five nein", "Mark", 5, 9));
 test('"Romans eight twenty ate" → Romans 8:28', () => expectRef("Romans eight twenty ate", "Romans", 8, 28));
-test('"Genesis won won" → Genesis 1:1', () => expectRef("Genesis won won", "Genesis", 1, 1));
-test('"Acts too thirty ate" → Acts 2:38', () => expectRef("Acts too thirty ate", "Acts", 2, 38));
-test('"Luke to ten" → Luke 2:10 (leading chapter slot)', () => expectRef("Luke to ten", "Luke", 2, 10));
 test('"First Corinthians thirteen fore" → 1 Cor 13:4', () => expectRef("First Corinthians thirteen fore", "1 Corinthians", 13, 4));
+test('"Mark chapter five verse ate" → Mark 5:8 (explicit verse slot)', () => expectRef("Mark chapter five verse ate", "Mark", 5, 8));
+test('"Romans eight verse twenty ate" → Romans 8:28', () => expectRef("Romans eight verse twenty ate", "Romans", 8, 28));
 test('"Psalm twenty tree" → Psalm 23 (TH path, whole chapter)', () => {
   const r = parseReference("Psalm twenty tree");
   assert.ok(r); assert.equal(r!.book, "Psalms"); assert.equal(r!.chapter, 23); assert.equal(r!.verseEnd, null);
@@ -52,10 +51,19 @@ test('"Romans eight for us who can be against us" → Romans 8 (NOT 8:4)', () =>
 });
 test('"the truth shall set you free" → no reference', () => assert.equal(parseReference("the truth shall set you free"), null));
 test('"he ate the bread" → no reference', () => assert.equal(parseReference("he ate the bread"), null));
-test('"Mark the door was open" → Mark only, no verse (door not after a number)', () => {
-  // "Mark" is a book AND a name; "door" here has no numeric neighbour.
-  const r = parseReference("Mark the door was open");
-  assert.equal(r, null, "no chapter number present → not a reference");
+test('"Mark the door was open" → no reference', () => assert.equal(parseReference("Mark the door was open"), null));
+// The review-🔴 chaining class: book-that's-a-common-word + homophone + number.
+test('"Mark ate five apples" → no reference (ate not anchored by a real number)', () => assert.equal(parseReference("Mark ate five apples"), null));
+test('"Mark ate too much" → no reference', () => assert.equal(parseReference("Mark ate too much"), null));
+test('"John ate ten fish" → no reference', () => assert.equal(parseReference("John ate ten fish"), null));
+test('"Ruth won ten pounds" → no reference', () => assert.equal(parseReference("Ruth won ten pounds"), null));
+test('"Romans eight won by grace" → Romans 8 (won not verse 1; next is content)', () => {
+  const r = parseReference("Romans eight won by grace");
+  assert.ok(r); assert.equal(r!.book, "Romans"); assert.equal(r!.chapter, 8); assert.equal(r!.verseStart, 1); assert.equal(r!.verseEnd, null);
+});
+test('"Mark to ten people" → no false verse (for/to excluded)', () => {
+  const r = parseReference("Mark to ten people");
+  assert.equal(r, null);
 });
 
 console.log("\nRanges and connectors must survive (to/through between numbers):");
