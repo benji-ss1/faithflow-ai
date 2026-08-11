@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.137",
+    date: "2026-08-11",
+    headline: "Theme editor now matches the projector (opacity + gradients)",
+    highlights: [
+      "The theme editor's Opacity slider now actually affects the projector — it dims the background (not your text) for readability, and the editor preview shows the same result you'll get on screen.",
+      "Gradient theme backgrounds now render at the same angle in the editor and on the projector.",
+    ],
+  },
+  {
     version: "0.1.136",
     date: "2026-08-11",
     headline: "Theme video backgrounds + church logo overlay",

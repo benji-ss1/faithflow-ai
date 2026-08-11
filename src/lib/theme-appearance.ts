@@ -60,11 +60,18 @@ export function themeConfigToAppearance(config: unknown): ThemeAppearance | null
   if (isColor(c.bgColor)) a.bgColor = c.bgColor.trim();
   if (isColor(c.bgColor2)) a.bgColor2 = c.bgColor2.trim();
   if (typeof c.bgAngle === "number" && Number.isFinite(c.bgAngle)) a.bgAngle = clamp(c.bgAngle, 0, 360);
-  if (typeof c.dim === "number" && Number.isFinite(c.dim)) a.dim = clamp(c.dim, 0, 1);
-  // Video backgrounds are often bright/high-motion; give them a readability dim
-  // by default so lyrics never wash out. An explicit dim in the config (incl. 0)
-  // is honored above — this only fills the unset case.
-  if (a.bgType === "video" && a.dim === undefined) a.dim = 0.3;
+  // Match the theme editor's live preview, which draws gradients at 135°.
+  if (a.bgType === "gradient" && a.bgAngle === undefined) a.bgAngle = 135;
+  // Readability dim. The theme editor exposes an "Opacity" slider stored as
+  // `bgOpacity` (1 = none); reconcile it to a dark readability overlay so that
+  // control actually affects the projector (dim = 1 − bgOpacity). An explicit
+  // `dim` wins; video backgrounds get a default so they never wash out lyrics.
+  if (typeof c.dim === "number" && Number.isFinite(c.dim)) {
+    a.dim = clamp(c.dim, 0, 1);
+  } else if (typeof c.bgOpacity === "number" && Number.isFinite(c.bgOpacity) && c.bgOpacity < 1) {
+    a.dim = clamp(1 - c.bgOpacity, 0, 1);
+  }
+  if (a.bgType === "video" && (a.dim === undefined || a.dim === 0)) a.dim = 0.3;
 
   // ── Text ──
   if (isColor(c.textColor)) a.textColor = c.textColor.trim();

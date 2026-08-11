@@ -298,7 +298,7 @@ function SlidePreview({ config, mode = "lyrics", churchName = "Grace Community",
   return (
     <div
       className="relative w-full overflow-hidden"
-      style={{ aspectRatio: "16 / 9", ...backgroundStyle, opacity: bgOpacity }}
+      style={{ aspectRatio: "16 / 9", ...backgroundStyle }}
     >
       {/* Video background — muted autoplay loop. Rendered first so overlays
           (logo, text block, lower-third) sit on top. Silent by design; a
@@ -313,6 +313,12 @@ function SlidePreview({ config, mode = "lyrics", churchName = "Grace Community",
           playsInline
           className="absolute inset-0 h-full w-full object-cover"
         />
+      ) : null}
+
+      {/* Readability dim — matches the projector, which maps the Opacity slider
+          (bgOpacity) to a dark overlay over the background (NOT the text). */}
+      {bgOpacity < 1 ? (
+        <div className="pointer-events-none absolute inset-0" style={{ background: `rgba(0,0,0,${1 - bgOpacity})` }} />
       ) : null}
 
       {/* Logo placement — 3x3 positional grid */}
