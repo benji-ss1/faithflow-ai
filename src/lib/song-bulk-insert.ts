@@ -55,31 +55,45 @@ export async function bulkInsertSongs(
 
   if (toInsert.length === 0) return { added: 0, skipped: duplicateSkipped + limitSkipped, duplicateSkipped, limitSkipped };
 
-  // Match returned rows back up by TITLE, not array position. Postgres
-  // reliably returns RETURNING rows in VALUES order today for a plain,
-  // trigger-free, non-partitioned insert like this one — but that's an
-  // implementation detail, not a documented guarantee, so match on the
-  // (already-deduped-within-this-batch) title instead of trusting index
-  // alignment. Removes the risk entirely at negligible cost.
-  const rows = await db.insert(songs).values(
-    toInsert.map((c) => ({ churchId, title: c.title, artist: c.artist ?? null, source: c.source })),
-  ).returning({ id: songs.id, title: songs.title });
-  const idByTitle = new Map(rows.map((r) => [r.title, r.id]));
-
-  const slideRows: { songId: string; order: number; lyrics: string }[] = [];
-  toInsert.forEach((c) => {
-    const songId = idByTitle.get(c.title);
-    if (!songId) return; // shouldn't happen — every toInsert title was just inserted
-    c.slides.forEach((lyrics, order) => slideRows.push({ songId, order, lyrics }));
-  });
-  // Chunk the slide insert: a large library (e.g. a 559-song ProPresenter
-  // export averaging ~15 slides) produces tens of thousands of rows, and a
-  // single VALUES insert would blow Postgres's 65535 bound-parameter limit
-  // (3 params/row → ~21k rows). 5000 rows/chunk keeps every insert well clear.
+  // ALL-OR-NOTHING per import (review 🔴): the songs insert and the (chunked)
+  // slide inserts run in ONE transaction. Without this, a failure on a later
+  // slide chunk (timeout, dropped connection, param overflow) would leave
+  // songs already committed with missing/partial slides — and because those
+  // titles now "exist", a retry dup-skips them, stranding the church with
+  // broken half-songs. The transaction rolls the whole batch back so the user
+  // gets a clean failure and a clean retry.
+  //
+  // Chunking rationale: a large library produces tens of thousands of slide
+  // rows; a single VALUES insert would blow Postgres's 65535 bound-parameter
+  // limit (slides 3 params/row → ~21k rows; songs 4 params/row → ~16k rows).
+  // Both inserts are chunked so even a mega-library can't overflow.
+  const SONG_CHUNK = 5000;
   const SLIDE_CHUNK = 5000;
-  for (let i = 0; i < slideRows.length; i += SLIDE_CHUNK) {
-    await db.insert(songSlides).values(slideRows.slice(i, i + SLIDE_CHUNK));
-  }
+  const added = await db.transaction(async (tx) => {
+    const idByTitle = new Map<string, string>();
+    for (let i = 0; i < toInsert.length; i += SONG_CHUNK) {
+      const batch = toInsert.slice(i, i + SONG_CHUNK);
+      const rows = await tx.insert(songs).values(
+        batch.map((c) => ({ churchId, title: c.title, artist: c.artist ?? null, source: c.source })),
+      ).returning({ id: songs.id, title: songs.title });
+      // Match returned rows back up by TITLE, not array position — RETURNING
+      // order in VALUES order is an implementation detail, not a guarantee.
+      // Titles are already deduped within this batch, so the map is 1:1.
+      for (const r of rows) idByTitle.set(r.title, r.id);
+    }
+
+    const slideRows: { songId: string; order: number; lyrics: string }[] = [];
+    toInsert.forEach((c) => {
+      const songId = idByTitle.get(c.title);
+      if (!songId) return; // shouldn't happen — every toInsert title was just inserted
+      c.slides.forEach((lyrics, order) => slideRows.push({ songId, order, lyrics }));
+    });
+    for (let i = 0; i < slideRows.length; i += SLIDE_CHUNK) {
+      await tx.insert(songSlides).values(slideRows.slice(i, i + SLIDE_CHUNK));
+    }
+    return toInsert.length;
+  });
+  void added;
 
   return {
     added: toInsert.length,

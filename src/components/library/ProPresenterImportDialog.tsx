@@ -16,7 +16,7 @@
  * between them anyway.
  */
 
-import { useState, useTransition, useMemo, useCallback, useEffect } from "react";
+import { useState, useTransition, useMemo, useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import {
   Upload, X, FileText, ChevronDown, ChevronRight, CheckCircle2,
@@ -95,33 +95,74 @@ function bytesToBase64(bytes: Uint8Array): string {
 const MEDIA_EXT_RE = /\.(mp4|mov|m4v|webm|avi|mkv|jpe?g|png|gif|webp|heic|tiff?|bmp|svg|mp3|m4a|aac|wav|aiff?|caf|pdf|ttf|otf|woff2?)$/i;
 const JUNK_RE = /(^|\/)\._|__MACOSX|\.DS_Store$/;
 const ZIP_EXT_RE = /\.(probundle|pro7x|zip)$/i;
-const MAX_DOC_BYTES = 10 * 1024 * 1024; // a lyric doc over 10MB is not lyrics
-async function expandProBundleDrops(files: File[]): Promise<{ drops: FileDrop[]; expandedFrom: number; skippedMedia: number }> {
-  const { unzipSync } = await import("fflate");
+const MAX_DOC_BYTES = 10 * 1024 * 1024;          // a lyric doc over 10MB is not lyrics
+const MAX_RAW_INPUT_BYTES = 600 * 1024 * 1024;   // refuse to buffer an absurd file
+const MAX_KEPT_ENTRIES = 5000;                   // mirrors server MAX_BUNDLE_ENTRIES
+const MAX_TOTAL_DECOMP_BYTES = 60 * 1024 * 1024; // cap total lyrics decompression (zip-bomb guard)
+
+async function unzipFiltered(
+  bytes: Uint8Array,
+  filter: (f: { name: string; originalSize: number }) => boolean,
+): Promise<Record<string, Uint8Array>> {
+  // Async fflate → decompression runs OFF the renderer main thread (worker), so
+  // the UI/spinner stays live even on a large bundle.
+  const { unzip } = await import("fflate");
+  return new Promise((resolve, reject) => {
+    unzip(bytes, { filter }, (err, data) => (err ? reject(err) : resolve(data)));
+  });
+}
+
+// Post-strip payload guard, applied on BOTH scan and import paths. Kept under
+// the 50 MB server-action bodySizeLimit (next.config.ts) so an oversized library
+// gets this friendly message instead of a framework 413.
+function importDropsTooLarge(drops: FileDrop[]): string | null {
+  const b64Bytes = drops.reduce((s, d) => s + d.b64.length, 0);
+  if (b64Bytes > 45 * 1024 * 1024) {
+    return `This library's lyrics are ${Math.round(b64Bytes / 1024 / 1024)} MB after stripping media — over the 45 MB per-import limit. Split it into two exports and import each.`;
+  }
+  return null;
+}
+
+/** Returns FileDrops of lyrics-only docs, plus counters and a truncated flag. */
+async function expandProBundleDrops(files: File[]): Promise<{ drops: FileDrop[]; expandedFrom: number; skippedMedia: number; truncated: boolean; skippedFiles: string[] }> {
   const drops: FileDrop[] = [];
   let expandedFrom = 0;
   let skippedMedia = 0;
+  let truncated = false;
+  const skippedFiles: string[] = [];
   for (const f of files) {
     if (!ZIP_EXT_RE.test(f.name)) {
       // Bare .pro / .pro6 / .pro7 document — already just lyrics; send as-is.
+      if (f.size > MAX_DOC_BYTES) { skippedFiles.push(f.name); continue; }
       drops.push({ path: f.name, b64: await fileToBase64(f) });
       continue;
     }
+    // Fast-fail on absurd raw input BEFORE buffering the whole file into memory.
+    if (f.size > MAX_RAW_INPUT_BYTES) { skippedFiles.push(f.name); truncated = true; continue; }
     const bytes = new Uint8Array(await f.arrayBuffer());
+    // Bounded filter: mirrors the server's hardening. `originalSize` is the
+    // declared (attacker-controllable) uncompressed size — we use it to REFUSE
+    // work: skip media, skip oversized entries, cap entry count, and cap the
+    // running sum of admitted uncompressed bytes so a deflate zip-bomb can't
+    // fan out to gigabytes in the operator's renderer.
+    let admittedBytes = 0;
+    let admittedCount = 0;
     let entries: Record<string, Uint8Array>;
     try {
-      // filter runs BEFORE decompression — media entries are never materialized.
-      entries = unzipSync(bytes, {
-        filter: (file) => {
-          if (file.name.endsWith("/") || JUNK_RE.test(file.name)) return false;
-          if (MEDIA_EXT_RE.test(file.name)) { skippedMedia++; return false; }
-          if (file.originalSize > MAX_DOC_BYTES) { skippedMedia++; return false; }
-          return true;
-        },
+      entries = await unzipFiltered(bytes, (file) => {
+        if (file.name.endsWith("/") || JUNK_RE.test(file.name)) return false;
+        if (MEDIA_EXT_RE.test(file.name)) { skippedMedia++; return false; }
+        if (file.originalSize > MAX_DOC_BYTES) { skippedMedia++; return false; }
+        if (admittedCount >= MAX_KEPT_ENTRIES) { truncated = true; return false; }
+        if (admittedBytes + file.originalSize > MAX_TOTAL_DECOMP_BYTES) { truncated = true; return false; }
+        admittedBytes += file.originalSize;
+        admittedCount++;
+        return true;
       });
     } catch {
       // Not actually a zip (or corrupt) — fall back to sending the raw file.
-      drops.push({ path: f.name, b64: await fileToBase64(f) });
+      if (f.size <= MAX_DOC_BYTES) drops.push({ path: f.name, b64: await fileToBase64(f) });
+      else skippedFiles.push(f.name);
       continue;
     }
     const bundle = f.name.replace(ZIP_EXT_RE, "");
@@ -133,7 +174,7 @@ async function expandProBundleDrops(files: File[]): Promise<{ drops: FileDrop[];
     }
     if (kept > 0) expandedFrom++;
   }
-  return { drops, expandedFrom, skippedMedia };
+  return { drops, expandedFrom, skippedMedia, truncated, skippedFiles };
 }
 
 export function ProPresenterImportDialog({
@@ -163,6 +204,7 @@ export function ProPresenterImportDialog({
     setQuery("");
     setResult(null);
     setError(null);
+    scannedDropsRef.current = null;
   }, []);
 
   const handleClose = useCallback(() => {
@@ -180,6 +222,11 @@ export function ProPresenterImportDialog({
     }
   }, [open, initialFiles]);
 
+  // Cache of the media-stripped drops produced by scan(), so runImport() doesn't
+  // re-read + re-unzip the (possibly 171MB) bundle a second time. Invalidated
+  // whenever the file set changes.
+  const scannedDropsRef = useRef<FileDrop[] | null>(null);
+
   const handleFiles = useCallback((incoming: FileList | File[]) => {
     const arr = Array.from(incoming).filter((f) => fileMatchesAccept(f.name));
     if (arr.length === 0) {
@@ -190,6 +237,7 @@ export function ProPresenterImportDialog({
     // .probundle can be 559 songs + 158 MB of backgrounds); media is stripped
     // in the browser before upload (expandProBundleDrops), so what actually
     // matters is the post-strip lyrics size, checked at scan/import time.
+    scannedDropsRef.current = null;
     setFiles(arr);
   }, []);
 
@@ -199,16 +247,16 @@ export function ProPresenterImportDialog({
     setError(null);
     startTransition(async () => {
       try {
-        const { drops: drop, expandedFrom, skippedMedia } = await expandProBundleDrops(files);
+        const { drops: drop, expandedFrom, skippedMedia, truncated, skippedFiles } = await expandProBundleDrops(files);
         if (expandedFrom > 0) {
           toast.info(`Extracted ${drop.length} song document${drop.length === 1 ? "" : "s"} from ${expandedFrom} bundle${expandedFrom === 1 ? "" : "s"} (skipped ${skippedMedia} media file${skippedMedia === 1 ? "" : "s"} — lyrics only).`);
         }
-        const b64Bytes = drop.reduce((s, d) => s + d.b64.length, 0);
-        if (b64Bytes > 45 * 1024 * 1024) {
-          setError(`This library's lyrics are ${Math.round(b64Bytes / 1024 / 1024)} MB after stripping media — over the 45 MB per-import limit. Split it into two exports and import each.`);
-          setPhase("upload");
-          return;
+        if (truncated || skippedFiles.length > 0) {
+          toast.warning(`Some content was skipped (over safe size limits${skippedFiles.length ? `: ${skippedFiles.slice(0, 2).join(", ")}${skippedFiles.length > 2 ? "…" : ""}` : ""}). If songs are missing, split the export into smaller files.`);
         }
+        const oversize = importDropsTooLarge(drop);
+        if (oversize) { setError(oversize); setPhase("upload"); return; }
+        scannedDropsRef.current = drop; // reuse in runImport() — avoid re-unzipping
         const res = await previewImportDrop({ drop });
         if (!res.ok) {
           setError(res.error);
@@ -236,7 +284,11 @@ export function ProPresenterImportDialog({
     setError(null);
     startTransition(async () => {
       try {
-        const { drops: drop } = await expandProBundleDrops(files);
+        // Reuse the drops already produced by scan() — don't re-read + re-unzip
+        // the bundle. Fall back to expanding only if the cache was invalidated.
+        const drop = scannedDropsRef.current ?? (await expandProBundleDrops(files)).drops;
+        const oversize = importDropsTooLarge(drop);
+        if (oversize) { setError(oversize); setPhase("preview"); return; }
         const res = await importDrop({ drop, onlyTitles: Array.from(selected) });
         if (!res.ok) {
           setError(res.error);
