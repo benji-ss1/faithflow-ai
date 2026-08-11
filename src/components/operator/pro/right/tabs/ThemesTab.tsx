@@ -56,6 +56,13 @@ export function ThemesTab() {
       } else {
         // Refresh local isDefault flags so the badge updates without a page reload.
         setDbThemes((prev) => prev.map((th) => ({ ...th, isDefault: th.id === t.id })));
+        // Drive the live output immediately (same-machine, like font-scale) so
+        // the projector/stage/livestream reflect the applied theme without a
+        // refetch. OperatorConsole listens for this and emits it on OutputState.
+        const { themeConfigToAppearance } = await import("@/lib/theme-appearance");
+        window.dispatchEvent(new CustomEvent("presentflow:theme-changed", {
+          detail: { appearance: themeConfigToAppearance(t.config) },
+        }));
         toast.success(`Theme "${t.name}" applied`);
       }
     } catch {

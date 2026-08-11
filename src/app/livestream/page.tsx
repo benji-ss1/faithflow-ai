@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState, type RefCallback } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { openLiveChannel, isValidLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec } from "@/lib/broadcast";
+import { openLiveChannel, isValidLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance } from "@/lib/broadcast";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
 import { TransitionWrapper } from "@/components/live/TransitionWrapper";
@@ -32,6 +32,7 @@ if (typeof window !== "undefined" && !(window as unknown as { __ffLivestreamGuar
 export default function LivestreamPage() {
   const [slide, setSlide] = useState<SlidePayload>({ kind: "empty" });
   const [fontScale, setFontScale] = useState(1); // B3 operator manual text size
+  const [appearance, setAppearance] = useState<ThemeAppearance | null>(null); // Themes Phase 1
   const [lowerThird, setLowerThird] = useState<{ line1: string; line2: string } | null>(null);
   const [announcement, setAnnouncement] = useState<AnnouncementPayload | null>(null);
   const [transition, setTransition] = useState<TransitionSpec | null>(null);
@@ -92,6 +93,7 @@ export default function LivestreamPage() {
         else if (msg.type === "output") {
           setSlide(msg.state.live);
           setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);
+          setAppearance(msg.state.appearance ?? null);
           setLowerThird(msg.state.lowerThird);
           setAnnouncement(msg.state.announcement ?? null);
           setTransition(msg.state.transition ?? null);
@@ -176,6 +178,7 @@ export default function LivestreamPage() {
         let firstMsg = true;
         realtime.subscribe((state) => {
           setFontScale(typeof state.fontScale === "number" ? state.fontScale : 1);
+          setAppearance(state.appearance ?? null);
           lastMsgAt.current = Date.now();
           setConnected(true);
           setSlide(state.live);
@@ -243,10 +246,10 @@ export default function LivestreamPage() {
         <>
           {transitionsEnabled ? (
             <TransitionWrapper identityKey={liveIdentity(slide)} transition={transition}>
-              <SlideRenderer slide={slide} fontScale={fontScale} videoMuted={false} onVideoRef={handleVideoRef} />
+              <SlideRenderer slide={slide} fontScale={fontScale} appearance={appearance} videoMuted={false} onVideoRef={handleVideoRef} />
             </TransitionWrapper>
           ) : (
-            <SlideRenderer slide={slide} fontScale={fontScale} videoMuted={false} onVideoRef={handleVideoRef} />
+            <SlideRenderer slide={slide} fontScale={fontScale} appearance={appearance} videoMuted={false} onVideoRef={handleVideoRef} />
           )}
           <AnnouncementLayer ann={announcement} />
           {lowerThird && (

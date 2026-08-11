@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { openLiveChannel, safePost, isValidLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition } from "@/lib/broadcast";
+import { openLiveChannel, safePost, isValidLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance } from "@/lib/broadcast";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
 import { TransitionWrapper } from "@/components/live/TransitionWrapper";
@@ -68,6 +68,7 @@ export default function LivePage() {
   const [transition, setTransition] = useState<TransitionSpec | null>(null);
   const [aspectRatio, setAspectRatio] = useState<"16:9" | "4:3" | "custom">("16:9");
   const [fontScale, setFontScale] = useState(1); // B3 operator manual text size
+  const [appearance, setAppearance] = useState<ThemeAppearance | null>(null); // Themes Phase 1
   const [messageOverlay, setMessageOverlay] = useState<{ text: string; position: OverlayPosition } | null>(null);
   const messageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Content key (text|dismissAfterMs) of the currently shown message — the
@@ -134,6 +135,7 @@ export default function LivePage() {
           setTransition(msg.state.transition ?? null);
           setAspectRatio(msg.state.aspectRatio);
           setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);
+          setAppearance(msg.state.appearance ?? null);
         } else if (msg.type === "message") {
           // Auto-dismiss timer is client-side, so multiple output windows
           // stay in sync without needing a shared wall-clock deadline.
@@ -243,6 +245,7 @@ export default function LivePage() {
           setAnnouncement(state.announcement ?? null);
           setTransition(state.transition ?? null);
           setFontScale(typeof state.fontScale === "number" ? state.fontScale : 1);
+          setAppearance(state.appearance ?? null);
           if (firstMsg) {
             firstMsg = false;
             setPairBadge(code);
@@ -384,7 +387,7 @@ export default function LivePage() {
             }}
           >
             <TransitionWrapper identityKey={slideIdentity(slide)} transition={transition}>
-              <SlideRenderer slide={slide} projectorFit fontScale={fontScale} videoMuted={false} onVideoRef={handleVideoRef} />
+              <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} videoMuted={false} onVideoRef={handleVideoRef} />
             </TransitionWrapper>
           </div>
           <AnnouncementLayer ann={announcement} />

@@ -7,6 +7,7 @@
  */
 import assert from "node:assert";
 import { isValidThemeAppearance, isValidOutputState, EMPTY_OUTPUT } from "../src/lib/broadcast";
+import { themeConfigToAppearance } from "../src/lib/theme-appearance";
 
 let pass = 0, fail = 0;
 function check(name: string, fn: () => void) {
@@ -68,6 +69,32 @@ check("OutputState without appearance still valid (backward compat)", () => {
   const st = { ...EMPTY_OUTPUT };
   delete (st as Record<string, unknown>).appearance;
   assert.strictEqual(isValidOutputState(st), true);
+});
+
+// ── Invariant: mapper output ALWAYS passes the wire validator ───────────
+// If this ever fails, a stored theme config could produce an appearance that
+// the projector rejects → the whole OutputState (incl. plain slide advances)
+// is dropped → live output freezes. Keep the two rule sets in lockstep.
+check("themeConfigToAppearance output always passes isValidThemeAppearance", () => {
+  const configs: unknown[] = [
+    null, {}, "not an object", 42,
+    { bgType: "solid", bgColor: "#001a33", textColor: "#ffcc00", fontFamily: "Inter, sans-serif", fontWeight: 700, align: "center", textShadow: true },
+    { bgType: "gradient", bgColor: "#001a33", bgColor2: "#00335c", bgAngle: 135, dim: 0.3 },
+    { bgType: "image", bgImageUrl: "https://s3.example.com/church/bg.jpg?X-Amz-Signature=abc" },
+    { bgType: "image", bgImageUrl: "https://" },                       // unparseable-ish
+    { bgType: "image", bgImageUrl: "http://insecure/bg.jpg" },          // non-https
+    { bgType: "image", bgImageUrl: 'https://x/a")body{}' },             // breakout attempt
+    { bgType: "image", bgImageUrl: "https://my bucket.s3/x.png" },      // space
+    { bgType: "video", bgVideoUrl: "https://x/v.mp4", bgColor: "#111" },
+    { bgColor: "red;}body{}", textColor: "#fff" },                      // hostile color
+    { fontFamily: "Inter;}*{}", textColor: "#fff" },                    // hostile font
+    { fontWeight: 5000, bgAngle: 9999, dim: 42, bgColor: "#222" },      // out-of-range
+    { align: "justify", textShadow: "yes", bgColor: "#222" },          // bad enums
+  ];
+  for (const cfg of configs) {
+    const a = themeConfigToAppearance(cfg);
+    assert.ok(a === null || isValidThemeAppearance(a), `config ${JSON.stringify(cfg)} → ${JSON.stringify(a)} must pass validator`);
+  }
 });
 
 console.log(`\n=== theme-appearance: ${pass} passed, ${fail} failed ===`);

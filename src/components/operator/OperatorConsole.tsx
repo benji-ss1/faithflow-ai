@@ -233,6 +233,36 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     return () => window.removeEventListener("presentflow:font-scale-changed", onChange);
   }, []);
 
+  // Themes Phase 1 — active theme appearance emitted on OutputState so the
+  // projector/stage/livestream reflect the church's applied theme. Resolved
+  // from the default theme on mount; the Themes tab's Apply fires
+  // `presentflow:theme-changed` (same-machine, like font-scale) for instant
+  // live-apply without a refetch.
+  const [appearance, setAppearance] = useState<import("@/lib/broadcast").ThemeAppearance | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const userTouched = { current: false }; // an Apply during the in-flight fetch wins
+    (async () => {
+      try {
+        const res = await fetch("/api/themes");
+        if (!res.ok) return;
+        const data = (await res.json()) as { themes?: { config?: unknown; isDefault?: boolean }[] };
+        const active = (data.themes ?? []).find((t) => t.isDefault) ?? null;
+        if (!cancelled && !userTouched.current && active) {
+          const { themeConfigToAppearance } = await import("@/lib/theme-appearance");
+          setAppearance(themeConfigToAppearance(active.config));
+        }
+      } catch { /* no theme → built-in defaults */ }
+    })();
+    const onChange = (e: Event) => {
+      userTouched.current = true; // don't let the stale mount-fetch clobber this
+      const detail = (e as CustomEvent).detail;
+      setAppearance(detail?.appearance ?? null);
+    };
+    window.addEventListener("presentflow:theme-changed", onChange);
+    return () => { cancelled = true; window.removeEventListener("presentflow:theme-changed", onChange); };
+  }, []);
+
   // Push extended OutputState on every relevant change so /stage and
   // /livestream get item labels + next-slide + lower-third data without
   // rewriting them. Piggybacks on the existing BroadcastChannel — /live
@@ -271,6 +301,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
       transition: useFastTransition ? fastMarker!.transition : transitionSpec,
       nextItem: nextItemForStage,
       fontScale,
+      appearance,
     };
     // Shallow signature — good enough for the fields we actually emit.
     let key: string;
@@ -282,7 +313,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     if (rtRef.current) { void rtRef.current.publish(state); }
     if (useFastTransition) fastTransitionSlideRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale]);
+  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, appearance]);
   const chRef = useRef<BroadcastChannel | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;
@@ -1097,13 +1128,15 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
       announcement,
       transition: transitionSpec,
       nextItem: nextItemForStage,
+      fontScale,
+      appearance,
     };
     const state: OutputState = { ...base, lowerThird: (line1 || line2) ? { line1, line2 } : null };
     safePost(chRef.current, { type: "output", state });
     publishRealtime(state);
     lastOutputStateRef.current = state;
     toast.success(line1 || line2 ? "Lower third sent" : "Lower third cleared");
-  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, publishRealtime]);
+  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, publishRealtime, fontScale, appearance]);
 
   /**
    * P2 message overlay — a transient lower-third bubble that displays on

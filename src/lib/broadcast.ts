@@ -311,7 +311,13 @@ export function isValidThemeAppearance(a: unknown): a is ThemeAppearance {
   if (p.bgColor !== undefined && !isValidColor(p.bgColor)) return false;
   if (p.bgColor2 !== undefined && !isValidColor(p.bgColor2)) return false;
   if (p.textColor !== undefined && !isValidColor(p.textColor)) return false;
-  if (p.bgImageUrl !== undefined && !isValidMediaUrl(p.bgImageUrl)) return false;
+  if (p.bgImageUrl !== undefined) {
+    if (!isValidMediaUrl(p.bgImageUrl)) return false;
+    // Extra: this URL is interpolated into a CSS url("...") on the projector.
+    // A legit https/S3 URL never contains a raw quote or whitespace (those are
+    // percent-encoded), so rejecting them removes any url() breakout vector.
+    if (/["'\s<>\\]/.test(p.bgImageUrl as string)) return false;
+  }
   if (p.bgAngle !== undefined && (typeof p.bgAngle !== "number" || !Number.isFinite(p.bgAngle) || p.bgAngle < 0 || p.bgAngle > 360)) return false;
   if (p.dim !== undefined && (typeof p.dim !== "number" || !Number.isFinite(p.dim) || p.dim < 0 || p.dim > 1)) return false;
   if (p.fontWeight !== undefined && (typeof p.fontWeight !== "number" || !Number.isFinite(p.fontWeight) || p.fontWeight < 100 || p.fontWeight > 900)) return false;

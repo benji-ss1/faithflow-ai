@@ -31,10 +31,30 @@ function themeBackgroundStyle(appearance: ThemeAppearance | null | undefined, fa
   };
 }
 
+// Pick a readable text color for a background color when the theme didn't
+// specify one — prevents the "white text on a light theme = invisible verses"
+// failure. Only handles hex (the common case); rgb()/unknown default to white
+// (safe on the dark fallback). Perceptual luminance threshold.
+function readableTextColor(bg: string | undefined): string {
+  if (!bg) return "#ffffff";
+  const m = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.exec(bg.trim());
+  if (!m) return "#ffffff";
+  let h = m[1];
+  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return lum > 0.6 ? "#111111" : "#ffffff";
+}
+
 function themeTextStyle(appearance: ThemeAppearance | null | undefined): React.CSSProperties | undefined {
   if (!appearance) return undefined;
   const s: React.CSSProperties = {};
   if (appearance.textColor) s.color = appearance.textColor;
+  // No explicit text color but a solid/gradient background color is set →
+  // auto-pick black/white for contrast so scripture stays legible.
+  else if (appearance.bgColor && (appearance.bgType === "solid" || appearance.bgType === "gradient" || appearance.bgType === undefined)) {
+    s.color = readableTextColor(appearance.bgColor);
+  }
   if (appearance.fontFamily) s.fontFamily = appearance.fontFamily;
   if (typeof appearance.fontWeight === "number") s.fontWeight = appearance.fontWeight;
   if (appearance.align) s.textAlign = appearance.align;

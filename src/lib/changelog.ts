@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.134",
+    date: "2026-08-11",
+    headline: "Themes now change the projector",
+    highlights: [
+      "Applying a theme (Themes tab → Apply) now actually restyles the live output: background colour, gradient, or image, plus text colour, font, weight, and alignment — on the projector, stage, and livestream together, instantly.",
+      "Text auto-sizing and ALL-CAPS readability still apply on top of any theme, and text can never run off the screen.",
+      "This is the first step of the bigger themes overhaul — background video, logo, lower-thirds, per-section themes, and a full theme editor are coming next.",
+    ],
+  },
+  {
     version: "0.1.133",
     date: "2026-08-11",
     headline: "Undo for adding & deleting songs and slides",

@@ -99,6 +99,10 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
   }) {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
+  // Themes: fontFamily/fontWeight change glyph widths, so they must be part of
+  // the fit-cache key AND trigger a refit — otherwise a theme swap reuses the
+  // previous font's cached size and the verse overflows / undersizes.
+  const fontToken = `${(textStyle?.fontFamily as string) ?? ""}|${(textStyle?.fontWeight as string | number) ?? ""}`;
   // Read fontScale through a ref so the ResizeObserver's `fit` closure (which
   // is captured once, deps []) always sees the CURRENT scale on a resize, not
   // a stale value. A scale CHANGE separately triggers a refit via the
@@ -177,7 +181,7 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
       // word-count band. Short text grows to the ceiling; long text shrinks
       // only as far as needed, then paginates at the floor. Cached by
       // text+box+floor/ceil so repeat slides skip the search entirely.
-      const projKey = `proj|${Math.round(bw / 4) * 4}|${Math.round(bh / 4) * 4}|${floorPx}|${ceilPx}|${currentText}`;
+      const projKey = `proj|${Math.round(bw / 4) * 4}|${Math.round(bh / 4) * 4}|${floorPx}|${ceilPx}|${fontToken}|${currentText}`;
       let best: number;
       const cachedProj = fitCacheGet(projKey);
       if (cachedProj !== undefined) {
@@ -220,7 +224,7 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
     // Cache key includes effectiveMinPx so grid thumbnails don't share
     // cache entries with live-projector renders of the same text (different
     // valid font sizes for different min floors).
-    const cacheKey = fitCacheKey(currentText, bw, bh, maxPx) + `|${effectiveMinPx}`;
+    const cacheKey = fitCacheKey(currentText, bw, bh, maxPx) + `|${effectiveMinPx}|${fontToken}`;
     const cached = fitCacheGet(cacheKey);
     if (cached !== undefined) {
       lastFittedRef.current = cached;
@@ -264,7 +268,7 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
     setSize(shown);
   };
 
-  useLayoutEffect(() => { fit(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [currentText, fontScale]);
+  useLayoutEffect(() => { fit(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [currentText, fontScale, fontToken]);
 
   useEffect(() => {
     const box = boxRef.current;

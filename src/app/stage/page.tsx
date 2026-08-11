@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { openLiveChannel, isValidLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec } from "@/lib/broadcast";
+import { openLiveChannel, isValidLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance } from "@/lib/broadcast";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
 import { TransitionWrapper } from "@/components/live/TransitionWrapper";
@@ -34,6 +34,7 @@ export default function StagePage() {
   const [current, setCurrent] = useState<SlidePayload>({ kind: "empty" });
   const [next, setNext] = useState<SlidePayload | null>(null);
   const [fontScale, setFontScale] = useState(1); // B3 operator manual text size
+  const [appearance, setAppearance] = useState<ThemeAppearance | null>(null); // Themes Phase 1
   const [nextItem, setNextItem] = useState<{ title: string; type: string } | null>(null);
   const [operatorMessage, setOperatorMessage] = useState<string | null>(null);
   const [countdownEndsAt, setCountdownEndsAt] = useState<number | null>(null);
@@ -86,6 +87,7 @@ export default function StagePage() {
           setCurrent(msg.state.live);
           setNext(msg.state.next);
           setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);
+          setAppearance(msg.state.appearance ?? null);
           setNextItem(msg.state.nextItem ?? null);
           setOperatorMessage(msg.state.operatorMessage);
           setCountdownEndsAt(msg.state.countdownEndsAt);
@@ -163,6 +165,7 @@ export default function StagePage() {
         let firstMsg = true;
         realtime.subscribe((state) => {
           setFontScale(typeof state.fontScale === "number" ? state.fontScale : 1);
+          setAppearance(state.appearance ?? null);
           lastMsgAt.current = Date.now();
           setConnected(true);
           setCurrent(state.live);
@@ -280,7 +283,7 @@ export default function StagePage() {
         <div className="border-r border-white/10 relative">
           <div className="absolute top-3 left-4 text-[10px] font-mono uppercase tracking-widest text-white/60 z-10">Current</div>
           <TransitionWrapper identityKey={stageIdentity(current)} transition={transition}>
-            <SlideRenderer slide={current} projectorFit fontScale={fontScale} />
+            <SlideRenderer slide={current} projectorFit fontScale={fontScale} appearance={appearance} />
           </TransitionWrapper>
           <AnnouncementLayer ann={announcement} />
         </div>
@@ -295,7 +298,7 @@ export default function StagePage() {
             )}
           </div>
           {next && next.kind !== "empty" ? (
-            <div className="opacity-50 w-full h-full"><SlideRenderer slide={next} projectorFit /></div>
+            <div className="opacity-50 w-full h-full"><SlideRenderer slide={next} projectorFit appearance={appearance} /></div>
           ) : (
             <div className="w-full h-full flex items-center justify-center text-white/20 text-sm">— end of item —</div>
           )}
