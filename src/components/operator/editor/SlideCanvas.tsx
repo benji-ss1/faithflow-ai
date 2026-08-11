@@ -21,9 +21,12 @@ export function SlideCanvas({
   readOnly?: boolean;
 }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
-  // Snap guides — teal center lines shown while an object's center is snapped
-  // to the canvas centre during a move.
-  const [snap, setSnap] = useState<{ v: boolean; h: boolean }>({ v: false, h: false });
+  // Snap guides — teal alignment lines (in canvas units) shown while a moving
+  // object's edge/centre snaps to the canvas or another object's edge/centre.
+  const [guides, setGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
+  // Fresh slide ref so the drag's mousemove closure reads the latest objects.
+  const slideRef = useRef(slide);
+  slideRef.current = slide;
 
   // Keyboard: delete / escape. Don't hijack when a text input has focus.
   useEffect(() => {
@@ -80,15 +83,25 @@ export function SlideCanvas({
       let nx = start.x, ny = start.y, nw = start.w, nh = start.h;
       if (mode === "move") {
         nx = start.x + dx; ny = start.y + dy;
-        // Snap the object's centre to the canvas centre within a threshold, and
-        // flag the guide line so the operator sees the alignment.
-        const T = 26; // canvas units
-        const cx = nx + nw / 2, cy = ny + nh / 2;
-        const sv = Math.abs(cx - CANVAS_W / 2) < T;
-        const sh = Math.abs(cy - CANVAS_H / 2) < T;
-        if (sv) nx = CANVAS_W / 2 - nw / 2;
-        if (sh) ny = CANVAS_H / 2 - nh / 2;
-        setSnap({ v: sv, h: sh });
+        // Snap the moving object's left/centre/right (and top/mid/bottom) to the
+        // canvas edges/centre OR any other object's edges/centre, within a
+        // threshold — and remember the snapped line to draw a guide.
+        const T = 20; // canvas units
+        const others = (slideRef.current?.objects ?? []).filter((o) => o.id !== obj.id);
+        const xTargets = [0, CANVAS_W / 2, CANVAS_W, ...others.flatMap((o) => [o.x, o.x + o.w / 2, o.x + o.w])];
+        const yTargets = [0, CANVAS_H / 2, CANVAS_H, ...others.flatMap((o) => [o.y, o.y + o.h / 2, o.y + o.h])];
+        let gx: number | null = null, gy: number | null = null;
+        outerX: for (const t of xTargets) {
+          for (const a of [nx, nx + nw / 2, nx + nw]) {
+            if (Math.abs(a - t) < T) { nx += t - a; gx = t; break outerX; }
+          }
+        }
+        outerY: for (const t of yTargets) {
+          for (const a of [ny, ny + nh / 2, ny + nh]) {
+            if (Math.abs(a - t) < T) { ny += t - a; gy = t; break outerY; }
+          }
+        }
+        setGuides({ x: gx, y: gy });
       } else {
         if (mode.includes("e")) nw = Math.max(20, start.w + dx);
         if (mode.includes("s")) nh = Math.max(20, start.h + dy);
@@ -98,7 +111,7 @@ export function SlideCanvas({
       onUpdateObject(obj.id, { x: nx, y: ny, w: nw, h: nh } as Partial<SlideObject>);
     }
     function onUp() {
-      setSnap({ v: false, h: false });
+      setGuides({ x: null, y: null });
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     }
@@ -136,9 +149,9 @@ export function SlideCanvas({
             if (e.target === e.currentTarget) onSelectObject(null);
           }}
         >
-          {/* Centre snap guides */}
-          {snap.v && <div className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-teal-400/70 z-50" />}
-          {snap.h && <div className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-teal-400/70 z-50" />}
+          {/* Alignment snap guides (positioned at the snapped canvas coordinate) */}
+          {guides.x !== null && <div className="pointer-events-none absolute inset-y-0 w-px bg-teal-400/80 z-50" style={{ left: `${(guides.x / CANVAS_W) * 100}%` }} />}
+          {guides.y !== null && <div className="pointer-events-none absolute inset-x-0 h-px bg-teal-400/80 z-50" style={{ top: `${(guides.y / CANVAS_H) * 100}%` }} />}
           {slide.objects.map((o) => (
             <ObjectView
               key={o.id}

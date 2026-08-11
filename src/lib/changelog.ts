@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.157",
+    date: "2026-08-12",
+    headline: "Slide editor: smart alignment guides",
+    highlights: [
+      "As you drag an object, it now snaps to line up with the slide's edges and centre AND with your other objects' edges and centres — with a teal guide line showing the match. Building tidy, aligned layouts is now effortless.",
+    ],
+  },
+  {
     version: "0.1.156",
     date: "2026-08-12",
     headline: "Repeated verses project every time they're preached",
