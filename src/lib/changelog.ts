@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.151",
+    date: "2026-08-11",
+    headline: "Verses detected even when the AI mis-hears the numbers",
+    highlights: [
+      "The AI now corrects the number mistakes speech-to-text makes on verse references — \"Judges eleven floor\" becomes Judges 11:4, \"John ten tree\" becomes John 10:3, \"Mark five nine\" is heard even as \"nein\", \"Romans eight twenty ate\" becomes Romans 8:28. So verses fire correctly even when the transcription of the numbers isn't perfect.",
+      "This only kicks in right after you say a book name and a number — so it never changes ordinary speech. \"Open the door\" or \"Romans 8, for us who can be against us\" are left exactly as spoken; no false verses.",
+    ],
+  },
+  {
     version: "0.1.150",
     date: "2026-08-11",
     headline: "Add images from your media library, inside the slide editor",
