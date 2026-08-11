@@ -16,6 +16,40 @@ list disagree, code wins and this note is stale — please update.
 | Slide transition (manual pick) | 400-500 ms | `AIHelpersPanel.tsx`, `RightInspector.tsx` | Operator-selected only, not on AI hot path |
 | WS3 uplink-backpressure valve high/low water | 96000 / 48000 bytes | `useAudioStream.ts` (`sendAudioChunk`) | ≈3s / ≈1.5s of 16kHz mono PCM buffered. Sheds audio only when the WS to the Deepgram bridge stays saturated past ~3s (bounds live latency under sustained uplink congestion); transient wifi jitter (TCP retransmit, AP roam) absorbs as recoverable lag below the trip point. Inert on a healthy uplink (~256 kbps stream drains near-instantly). Set to 3s (not 1.5s) after stress review flagged that a low trip sheds words on ordinary flaky-wifi hiccups. |
 
+## Three-bug fix pass — font, transitions, sw.js (2026-08-11, 0.1.147)
+
+Diagnosed together, fixed surgically; 3-agent review (no 🔴, all 🟡 fixed or
+deferred-with-note). Bug 1 (garbage transcription) was the SW reload-loop /
+stale-pinned-build incident — code already fixed (f1e4381 + 1ec00ac); recovery
+is one full app restart on the church machine. Hardening here: `/sw.js`
+excluded (end-anchored) from the auth middleware matcher so the kill-switch is
+fetchable without a session cookie.
+
+- **Font (5a70fc6):** "medieval projector font" = bare unloaded theme family
+  ("Inter") falling back to the renderer's default Times-class serif ONLY on
+  output surfaces (preview never applied appearance). Fix: (1)
+  `withGenericFallback` in `themeConfigToAppearance` — single choke point, both
+  sides consume the same appearance object; quotes stripped before the serif
+  lookup; skip append past the 120-char wire cap. (2) `OperatorShellCtx.appearance`
+  threaded to LivePreviewPanel + LiveOutputThumb → preview === projector.
+  Deliberate: many-tile grids stay appearance-less (SlideRenderer GPU-layer perf
+  note); "Inter" defaults NOT renamed to Sora (DB column default → migration;
+  fallback already kills the symptom).
+- **Transitions (0aaf140 + 93db144):** 0.1.131's AI fade made the detection
+  cascade's multi-fire visible (label → partials → final → whisper = 4-6 fades).
+  `aiShouldFade` at BOTH AI chokepoints (instant-path verse update +
+  safeSendLive): one fade per reference family (book+chapter) per 8s window,
+  re-fires hard-cut. Window measured from the fade (no refresh on suppression —
+  else fast same-chapter reading chain-suppresses the v16→v17 advance fade).
+  Per-family Map (not a single slot — interleaved cross-family cascades thrash
+  a slot and re-fade). Manual sends / configured transitions / song path untouched.
+- **Deferred (pre-existing, found by stress review):** song auto-advance sends
+  `set` without a transition field and can inherit a stale AI fade once;
+  translation-swap's explicit cross_fade overwrites the operator's configured
+  transition (`OperatorConsole.tsx:623`); paired-same-machine BC+Realtime frames
+  have no receiver-side seq check → rare stale-fade flicker (fix = carry
+  liveBroadcastRevision on the wire and drop stale frames in live/page.tsx).
+
 ## WS3 uplink-backpressure valve (2026-08-10)
 
 Field report: on a clean mixer-board feed delivered via NDI (broadcast PC →
