@@ -40,12 +40,21 @@ Cache the **current plan's data** so the service runs fully offline.
 - **Bible:** the KJV/WEB local/public-domain verses are already DB-served; cache the verses referenced by the plan + a small hot set. Licensed translations (ESV via API) stay online-only with a clear "requires internet" state (see `docs/BIBLE_TRANSLATIONS.md`).
 - **Safety:** cache is read-only fallback; edits still go to Supabase when online and are **queued** (Phase 2) when offline. Church-scoped keys. Never serve another church's cache.
 
-### Phase 2 — Offline edit queue (sync-on-reconnect)
-Let the operator make changes offline that sync when back online.
-- Wrap mutations (add/remove/reorder items, slide edits, theme apply) in an outbox: apply optimistically to the local cache + enqueue the server action; drain the queue on reconnect with conflict handling (last-write-wins per item is acceptable for a single-operator church).
-- **Safety:** scope carefully; show a "N changes pending sync" indicator; never lose edits (persist the outbox).
+### Phase 2 — Offline plan-edit safety
+Two slices, in order of risk:
 
-### Phase 3 — Electron shell resilience (needs a DMG)
+**2a — Honest offline guard (SHIPPED, 0.1.142).** Every plan-mutating handler in `PlaylistSection.tsx` (add-item, remove, reorder, duplicate, add-slide, section-theme) is wrapped in `blockedIfOffline()`: when `navigator.onLine === false` it shows *"You're offline — reconnect to change the service plan"* and no-ops the write instead of firing a server action that would fail silently and desync the local cache from Supabase. The present→project loop is untouched — projecting cached slides keeps working. This is the safe, correct-by-construction behaviour for a **live single-operator service**: a dropped signal can never scramble the plan mid-service.
+
+**2b — Optimistic offline edit queue (DEFERRED, deliberately).** A full outbox that applies mutations to the local cache and drains on reconnect. Deferred because plan mutations are **order-dependent** (reorder + delete + add interleave), so a naive last-write-wins replay can corrupt a live plan — exactly the failure 2a exists to prevent. Only worth building if a church needs to *build* plans offline (not just *run* them), and then only with per-item version reconciliation, not blind replay. Not needed for JPD's live-service use case.
+
+### Phase 3 — Electron shell resilience (COMPLETE — no DMG needed)
+The **shell already boots offline and prefers local**, delivered by the existing `electron/main.ts` `loadWithRecovery()` (robust splash + infinite-retry offline boot, preserves BroadcastChannel/mic state) working together with the Phase 0 service worker (app-shell cache-first). Requirements below were satisfied without new native code:
+- Cache the last-known-good app bundle in the shell — the SW app-shell cache serves the cached app when `PF_APP_URL` is unreachable.
+- Electron-level offline boot + retry-with-backoff that swaps to the live app when it returns, **without reloading mid-service**.
+- `output-fallback.html` remains the ultimate native fallback.
+- **Result:** no new shell change → no DMG required for this phase. Any *future* shell change here would still follow `docs/DMG_RELEASE_SOP.md` and be version-gated so old shells are unaffected.
+
+### Phase 3 (historical target — Electron shell resilience, needs a DMG)
 Make the **shell itself** boot offline and prefer local.
 - Cache the last-known-good app bundle in the shell (Electron `session` cache is already there; make the SW + HTTP cache headers cooperate so the shell serves the cached app when `PF_APP_URL` is unreachable).
 - Add an Electron-level "offline mode" banner + a local health check; retry `PF_APP_URL` with backoff and swap to the live app when it returns — without reloading mid-service (preserve BroadcastChannel/mic state, per rule 8).
@@ -63,11 +72,11 @@ Make the **shell itself** boot offline and prefer local.
 
 - Every phase is **additive and inert when healthy** — online behavior is unchanged; the cache only kicks in on failure.
 - The **present→project loop is already local** (BroadcastChannel); this plan extends resilience to cold-start + data, the two remaining network dependencies.
-- Phases 0–2 ship via **Vercel** (no DMG); only Phase 3 needs a DMG.
+- Phases 0–2 ship via **Vercel** (no DMG). Phase 3 (shell resilience) turned out to be already satisfied by existing shell code — no DMG needed.
 - Nothing here self-hosts or forks the data model — Supabase stays the source of truth.
 
 ## Recommended execution order
-Phase 0 (SW app-shell) → Phase 1 (service cache) → Phase 4 (degradation UX) → Phase 2 (edit queue) → Phase 3 (shell/DMG). Phases 0–1 deliver ~90% of the "runs offline" value with zero DMG and near-zero risk.
+Phase 0 (SW app-shell) → Phase 1 (service cache) → Phase 4 (degradation UX) → Phase 2a (offline guard) → Phase 3 (shell resilience — already done). **Status as of 0.1.142: Phases 0, 1, 2a, 3, 4 all shipped.** Only Phase 2b (optimistic offline edit queue) remains, and it is deliberately deferred as unsafe/unnecessary for live single-operator services. Phases 0–1 deliver ~90% of the "runs offline" value with zero DMG and near-zero risk.
 
 ## Open decisions for the user
 - Confirm the outage scenarios to optimize for (wifi drop mid-service vs. no-internet-at-launch vs. Vercel outage) — all covered, but priority order affects sequencing.

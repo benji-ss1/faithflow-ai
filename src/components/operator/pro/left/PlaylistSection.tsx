@@ -257,7 +257,21 @@ export function PlaylistSection({
     router.refresh();
   };
 
+  // Hybrid Phase 2 (safe slice) — honest offline feedback so a plan edit made
+  // offline never fails silently or looks saved when it isn't. Deliberately NOT
+  // a replay queue: replaying order-dependent mutations against changed server
+  // state could corrupt the plan, so offline edits are declined cleanly and the
+  // operator retries on reconnect (the offline banner is already visible).
+  const blockedIfOffline = (): boolean => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      toast.error("You're offline — reconnect to change the service plan.");
+      return true;
+    }
+    return false;
+  };
+
   const setTheme = async (itemId: string, themeId: string | null) => {
+    if (blockedIfOffline()) return;
     handleResult(await setServiceItemTheme(ctx.planId, itemId, themeId), themeId ? "Section theme set" : "Reset to default theme");
   };
 
@@ -281,6 +295,7 @@ export function PlaylistSection({
 
   // ── Actions ───────────────────────────────────────────────────────────────
   const addBlank = async () => {
+    if (blockedIfOffline()) return;
     const res = await addServiceItem(ctx.planId, "blank", "Blank", {});
     if (!res.ok) { toast.error(res.error ?? "Action failed"); return; }
     router.refresh();
@@ -289,6 +304,7 @@ export function PlaylistSection({
 
   const remove = async (it: OperatorShellCtx["plan"]["items"][number]) => {
     if (!it.id) return;
+    if (blockedIfOffline()) return;
     // Snapshot the item + full order BEFORE removal so Undo can re-create it in
     // its original position.
     const beforeIds = items.map((i) => i.id).filter(Boolean) as string[];
@@ -347,6 +363,7 @@ export function PlaylistSection({
   // plan so the new slide is available live. Only offered for song items.
   const addSlideToItem = async (it: OperatorShellCtx["plan"]["items"][number]) => {
     if (it.type !== "song" || !it.songId) return;
+    if (blockedIfOffline()) return;
     const res = await createSongSlide(it.songId, undefined, { objects: [], lyrics: "" });
     if (!res.ok) { toast.error(res.error ?? "Add slide failed"); return; }
     router.refresh();
@@ -356,6 +373,7 @@ export function PlaylistSection({
   const duplicate = async (idx: number) => {
     const it = items[idx];
     if (!it) return;
+    if (blockedIfOffline()) return;
     const t = (it.type ?? "blank") as "song" | "scripture" | "media" | "sermon" | "blank" | "logo";
     const res = await addServiceItem(ctx.planId, t, `${it.title} (copy)`, (it as unknown as { payload?: Record<string, unknown> }).payload ?? {});
     if (!res.ok) { toast.error(res.error ?? "Action failed"); return; }

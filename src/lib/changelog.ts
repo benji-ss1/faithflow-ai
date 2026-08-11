@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.142",
+    date: "2026-08-11",
+    headline: "Safer editing when you're offline",
+    highlights: [
+      "If your connection drops mid-service, PresentFlow now stops you from re-ordering, adding, removing, duplicating, or re-theming service items until you're back online — so a dropped wifi signal can never quietly scramble your live plan.",
+      "You'll get a clear “You're offline — reconnect to change the service plan” message instead of a silent failure. Projecting slides you already have keeps working the whole time.",
+    ],
+  },
+  {
     version: "0.1.141",
     date: "2026-08-11",
     headline: "One-click theme colours from your logo",
