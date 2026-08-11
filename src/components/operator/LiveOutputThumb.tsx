@@ -11,9 +11,14 @@ import type { SlidePayload } from "@/lib/broadcast";
 export function LiveOutputThumb({
   liveSlide,
   outputStatus,
+  appearance,
 }: {
   liveSlide: SlidePayload;
   outputStatus?: string | null;
+  // Bug-fix 2026-08-11 (font mismatch): pass the active theme appearance so
+  // this "what the projector shows" thumb renders with the SAME font/theme as
+  // the real output, not the operator default.
+  appearance?: import("@/lib/broadcast").ThemeAppearance | null;
 }) {
   const isLive = liveSlide.kind !== "empty";
   const status = outputStatus ?? (isLive ? "Projector · 1920×1080" : "No output configured");
@@ -31,7 +36,7 @@ export function LiveOutputThumb({
         }}
       >
         {isLive ? (
-          <div className="absolute inset-0"><SlideRenderer slide={liveSlide} /></div>
+          <div className="absolute inset-0"><SlideRenderer slide={liveSlide} appearance={appearance ?? undefined} /></div>
         ) : (
           <div className="absolute inset-0 flex items-center justify-center text-[10px] uppercase tracking-[0.18em] text-zinc-600">
             Off-Air

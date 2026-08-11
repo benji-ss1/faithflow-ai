@@ -16,6 +16,11 @@ export type OperatorShellCtx = {
   plan: ExpandedPlan;
   previewSlide: SlidePayload;
   liveSlide: SlidePayload;
+  // Bug-fix 2026-08-11 (font mismatch): the ACTIVE theme appearance, same value
+  // OperatorConsole puts on the wire for /live. Preview surfaces must pass this
+  // to <SlideRenderer appearance={...}> so preview === projector (one source of
+  // truth). Null when no theme is active (both sides then use font-display).
+  appearance: import("@/lib/broadcast").ThemeAppearance | null;
   previewItemIdx: number;
   previewSlideIdx: number;
   liveItemIdx: number;

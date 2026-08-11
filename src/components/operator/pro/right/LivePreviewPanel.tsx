@@ -65,7 +65,7 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
             LIVE
           </div>
         )}
-        <SlideRenderer slide={ctx.liveSlide} onVideoRef={onVideoRef} />
+        <SlideRenderer slide={ctx.liveSlide} appearance={ctx.appearance ?? undefined} onVideoRef={onVideoRef} />
         {ctx.liveSlide.kind !== "empty" && (
           <button
             onClick={ctx.onKill}

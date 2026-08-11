@@ -27,6 +27,21 @@ const isHttpsUrl = (v: unknown): v is string => {
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
+// Bug-fix 2026-08-11 (font mismatch): theme fonts were stored as bare family
+// names ("Inter") with no generic fallback. On the projector, an unloaded
+// family falls back to the renderer's DEFAULT SERIF (Times) — which operators
+// read as a "medieval/old-English" font vs the clean sans preview. Append a
+// generic fallback so an unavailable family degrades to the right CLASS of
+// font. Known serifs get `serif`; everything else gets `sans-serif`. Families
+// already carrying a comma-separated stack pass through untouched.
+const KNOWN_SERIFS = new Set(["georgia", "times new roman", "times", "garamond", "palatino", "baskerville"]);
+function withGenericFallback(family: string): string {
+  const f = family.trim();
+  if (f.includes(",")) return f; // already a stack
+  const generic = KNOWN_SERIFS.has(f.toLowerCase()) ? "serif" : "sans-serif";
+  return `${f}, ${generic}`;
+}
+
 const LOGO_POSITIONS = new Set([
   "top-left", "top-center", "top-right",
   "middle-left", "center", "middle-right",
@@ -82,7 +97,7 @@ export function themeConfigToAppearance(config: unknown): ThemeAppearance | null
 
   // ── Text ──
   if (isColor(c.textColor)) a.textColor = c.textColor.trim();
-  if (typeof c.fontFamily === "string" && FONT_FAMILY_RE.test(c.fontFamily)) a.fontFamily = c.fontFamily;
+  if (typeof c.fontFamily === "string" && FONT_FAMILY_RE.test(c.fontFamily)) a.fontFamily = withGenericFallback(c.fontFamily);
   if (typeof c.fontWeight === "number" && Number.isFinite(c.fontWeight)) a.fontWeight = clamp(Math.round(c.fontWeight), 100, 900);
   if (typeof c.textShadow === "boolean") a.textShadow = c.textShadow;
   if (c.align === "left" || c.align === "center" || c.align === "right") a.align = c.align;

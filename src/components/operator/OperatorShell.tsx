@@ -136,7 +136,7 @@ export function OperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           <CenterWorkspace ctx={ctx} />
           <div className="flex flex-col min-h-0">
             <div className="shrink-0 p-2 border-b border-l" style={{ borderColor: "#2a3232", background: "#1a2020" }}>
-              <LiveOutputThumb liveSlide={ctx.liveSlide} />
+              <LiveOutputThumb liveSlide={ctx.liveSlide} appearance={ctx.appearance} />
             </div>
             <div className="flex-1 min-h-0 flex">
               <RightInspector ctx={ctx} tab={tab} onTabChange={setTab} />

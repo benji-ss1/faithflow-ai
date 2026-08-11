@@ -1360,6 +1360,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     plan,
     previewSlide,
     liveSlide: live,
+    appearance: effectiveAppearance,
     previewItemIdx: preview.itemIdx,
     previewSlideIdx: preview.slideIdx,
     liveItemIdx,
@@ -1536,7 +1537,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     internetImport, internetCreateDraft, internetReject, simulateTranscript,
     setAnnouncement, setTransitionSpec, sendSlideToLive, stageSlide,
     bankAdd, sendBankedToLive, removeBanked, onDeleteSlide, onReorderSlidesInItem,
-    startAudio, stopAudio,
+    startAudio, stopAudio, effectiveAppearance,
   ]);
 
   return (
