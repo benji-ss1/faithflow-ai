@@ -621,9 +621,28 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         };
         const nk = keyOf(n);
         const existingIdx = merged.findIndex((m) => keyOf(m) === nk);
-        if (refresh && existingIdx >= 0) merged[existingIdx] = n;
-        else if (existingIdx >= 0) merged[existingIdx] = n; // update in place
-        else merged.unshift(n);
+        if (existingIdx >= 0) {
+          // Repeated scripture is a NEW speech event (fresh id/segmentId, may
+          // carry forceLive) — the preacher genuinely said the reference again.
+          // The auto-fire effects only look at the FRONTMOST scripture
+          // suggestion (`.find()`), so a repeat MUST move to the front or it's
+          // structurally unreachable and never re-projects (the "John → Mark →
+          // John, 3rd doesn't fire" bug). Remove the stale occurrence and
+          // unshift the new one. Same-utterance interim→final→whisper cascades
+          // still collapse to a single projection downstream — decideBibleAutoFire's
+          // 3s micro-cooldown absorbs those. Songs/lyrics/sections keep the
+          // original in-place replace (their auto-fire has its own guards;
+          // scope this change to scripture to avoid touching song behaviour).
+          if (n.type === "scripture") {
+            merged.splice(existingIdx, 1);
+            merged.unshift(n);
+          } else {
+            merged[existingIdx] = n; // update in place (unchanged for non-scripture)
+          }
+        } else {
+          merged.unshift(n);
+        }
+        void refresh;
       }
       return { ...prev, suggestions: merged.slice(0, 40) };
     });

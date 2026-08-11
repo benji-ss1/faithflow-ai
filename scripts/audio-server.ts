@@ -1014,7 +1014,13 @@ wss.on("connection", async (ws: WebSocket, req) => {
       // human toggle; this server never sends anything live itself).
       const refKey = dedupeKey([book, String(chapter), String(vs), String(ve)]);
       const occurrenceCount = noteRefOccurrence(refKey);
-      const forceLive = occurrenceCount === 2;
+      // EVERY re-mention (2nd, 3rd, 4th…) within the repeat window carries
+      // forceLive, not just the 2nd — otherwise the 3rd+ rapid repeat of the
+      // same verse within the 30s recentRefs window is swallowed by the
+      // `wasDupe && !forceLive` guard below and never reaches the operator.
+      // Matches the client's own `occurrenceCount >= 2` policy
+      // (useAudioStream.ts). A verse can be projected unlimited times.
+      const forceLive = occurrenceCount >= 2;
 
       // Dedupe: same book+chapter+range within the window collapses — unless
       // this is the exact moment it becomes a repeat, in which case we still

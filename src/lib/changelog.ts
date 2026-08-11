@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.156",
+    date: "2026-08-12",
+    headline: "Repeated verses project every time they're preached",
+    highlights: [
+      "Fixed verses not re-projecting when the preacher comes back to one. Saying \"John 10:10\", then \"Mark 11:2\", then \"John 10:10\" again now projects John 10:10 the second time too — a verse can be shown as many times as it's spoken. The old behaviour treated a repeated reference as \"already used\" and buried it.",
+      "Same-utterance duplicates are still collapsed to one projection (a single \"John 10:10\" doesn't fire three times as the AI refines what it heard) — only genuine restatements re-project.",
+    ],
+  },
+  {
     version: "0.1.155",
     date: "2026-08-12",
     headline: "Slide editor: nudge with arrows + one-click align",
