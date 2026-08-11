@@ -1,4 +1,11 @@
-"use client";
+// NOTE: deliberately NOT "use client". This module is a shared wire-contract
+// library (pure types + validators + channel helpers). The /operator SERVER
+// page calls projectableTextSlide() via src/lib/server/services.ts — with a
+// "use client" directive here, that import became an uncallable client-
+// reference stub and every GET /operator 500'd in production (2026-08-11,
+// digest 2696263515). Browser APIs (BroadcastChannel) are only touched inside
+// functions that guard on `typeof window === "undefined"`, so server-side
+// evaluation is safe. Do not re-add the directive.
 
 // Rich slide objects for the projector (Phase 5D-2 → live). Coordinates are in
 // the 1920×1080 virtual canvas the editor uses; renderers scale by percentage.
