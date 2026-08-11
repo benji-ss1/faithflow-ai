@@ -152,6 +152,21 @@ async function main() {
     assert.strictEqual(isValidOutputState(s), false);
   });
 
+  await check("accepts objects with a valid entrance animation", () => {
+    const s = withLive({ kind: "text", text: "x", objects: [{ ...txtObj, anim: "slide-up", animDelayMs: 200 }] });
+    assert.strictEqual(isValidOutputState(s), true);
+  });
+
+  await check("rejects unknown entrance animation", () => {
+    const s = withLive({ kind: "text", text: "x", objects: [{ ...txtObj, anim: "explode" }] });
+    assert.strictEqual(isValidOutputState(s), false);
+  });
+
+  await check("rejects out-of-range animDelayMs", () => {
+    const s = withLive({ kind: "text", text: "x", objects: [{ ...txtObj, animDelayMs: 99999 }] });
+    assert.strictEqual(isValidOutputState(s), false);
+  });
+
   await check("rejects unknown object kind", () => {
     const s = withLive({ kind: "text", text: "x", objects: [{ kind: "video3d", x: 0, y: 0, w: 10, h: 10 }] });
     assert.strictEqual(isValidOutputState(s), false);

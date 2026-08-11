@@ -10,7 +10,7 @@ import { SlideEditorProvider, useSlideEditorCtx, type SlideEditorContextValue } 
 import { CenterWorkspace } from "../shell/CenterWorkspace";
 import { MediaLibraryPicker } from "@/components/library/MediaLibraryPicker";
 import { saveSlideObjects, createSongSlide, deleteSongSlide, reorderSongSlides } from "@/lib/actions";
-import type { SlideObject, TextObject, ShapeObject, ImageObject, VideoObject } from "@/lib/slide-objects";
+import type { SlideObject, TextObject, ShapeObject, ImageObject, VideoObject, ObjectAnim } from "@/lib/slide-objects";
 import { CANVAS_W, CANVAS_H } from "@/lib/slide-objects";
 
 /**
@@ -241,6 +241,21 @@ function ObjectInspector() {
                 <AlignBtn label="M" onClick={() => upd({ y: Math.round((CANVAS_H - selected.h) / 2) })} />
                 <AlignBtn label="B" onClick={() => upd({ y: CANVAS_H - selected.h })} />
               </div>
+            </div>
+          </div>
+          {/* Entrance animation (plays once when the slide goes live) */}
+          <div>
+            <span className={rowCls}>Entrance</span>
+            <div className="flex gap-1">
+              <select value={selected.anim ?? "none"} onChange={(e) => upd({ anim: e.target.value as ObjectAnim })}
+                className={inCls} style={{ borderColor: "#2a3232" }}>
+                {(["none", "fade", "slide-up", "slide-down", "slide-left", "slide-right", "zoom"] as const).map((a) => (
+                  <option key={a} value={a}>{a}</option>
+                ))}
+              </select>
+              <input type="number" min={0} max={10000} step={100} value={selected.animDelayMs ?? 0}
+                onChange={(e) => upd({ animDelayMs: Number(e.target.value) })} title="Delay before it appears (ms)"
+                className="w-14 h-7 px-1.5 rounded border text-[11px] text-zinc-200 bg-[#151a1a] outline-none" style={{ borderColor: "#2a3232" }} />
             </div>
           </div>
           {selected.kind === "text" && <TextProps o={selected} upd={upd} />}

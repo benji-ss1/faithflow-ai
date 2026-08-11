@@ -11,13 +11,13 @@
 // the 1920×1080 virtual canvas the editor uses; renderers scale by percentage.
 // A wire-validated subset of the editor's SlideObject (src/lib/slide-objects.ts).
 export type SlideObjectWire =
-  | { kind: "text"; x: number; y: number; w: number; h: number; text: string;
+  | { kind: "text"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; text: string;
       fontFamily?: string; fontSize?: number; fontWeight?: number; color?: string;
       align?: "left" | "center" | "right"; italic?: boolean; underline?: boolean }
-  | { kind: "shape"; x: number; y: number; w: number; h: number; shape: "rect" | "ellipse";
+  | { kind: "shape"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; shape: "rect" | "ellipse";
       fill?: string; stroke?: string; strokeWidth?: number; radius?: number; opacity?: number }
-  | { kind: "image"; x: number; y: number; w: number; h: number; url: string; fit?: "contain" | "cover" }
-  | { kind: "video"; x: number; y: number; w: number; h: number; url: string; fit?: "contain" | "cover"; loop?: boolean; muted?: boolean };
+  | { kind: "image"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; url: string; fit?: "contain" | "cover" }
+  | { kind: "video"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; url: string; fit?: "contain" | "cover"; loop?: boolean; muted?: boolean };
 
 export const SLIDE_CANVAS_W = 1920;
 export const SLIDE_CANVAS_H = 1080;
@@ -449,6 +449,9 @@ export function isValidSlideObject(o: unknown): o is SlideObjectWire {
   const p = o as Record<string, unknown>;
   if (!isCanvasCoord(p.x) || !isCanvasCoord(p.y) || !isCanvasCoord(p.w) || !isCanvasCoord(p.h)) return false;
   if ((p.w as number) < 0 || (p.h as number) < 0) return false;
+  // Entrance animation (common to all object kinds).
+  if (p.anim !== undefined && !["none", "fade", "slide-up", "slide-down", "slide-left", "slide-right", "zoom"].includes(p.anim as string)) return false;
+  if (p.animDelayMs !== undefined && (typeof p.animDelayMs !== "number" || !Number.isFinite(p.animDelayMs) || p.animDelayMs < 0 || p.animDelayMs > 10000)) return false;
   switch (p.kind) {
     case "text":
       if (typeof p.text !== "string" || p.text.length > 5000) return false;

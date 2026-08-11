@@ -216,6 +216,23 @@ html.light {
   .pf-anim-bg { animation: none !important; }
 }
 
+/*
+ * Themes 3 / editor — per-object ENTRANCE animations (play once on slide show).
+ * Every keyframe ENDS at the natural resting state (opacity 1, no transform), so
+ * an object's final position/size/font is exactly what was designed — the motion
+ * is purely a brief entrance. Transform/opacity only → GPU-composited, cheap for
+ * the projector + livestream. Disabled under prefers-reduced-motion.
+ */
+@keyframes pf-obj-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pf-obj-slide-up { from { opacity: 0; transform: translateY(7%); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pf-obj-slide-down { from { opacity: 0; transform: translateY(-7%); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pf-obj-slide-left { from { opacity: 0; transform: translateX(7%); } to { opacity: 1; transform: translateX(0); } }
+@keyframes pf-obj-slide-right { from { opacity: 0; transform: translateX(-7%); } to { opacity: 1; transform: translateX(0); } }
+@keyframes pf-obj-zoom { from { opacity: 0; transform: scale(0.86); } to { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .pf-obj-anim { animation: none !important; }
+}
+
 .pf-brand-text {
   background: linear-gradient(90deg, var(--color-brand-hi), var(--color-brand));
   -webkit-background-clip: text;

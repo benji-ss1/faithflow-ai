@@ -7,10 +7,14 @@ import type { SlidePayload } from "./broadcast";
 export const CANVAS_W = 1920;
 export const CANVAS_H = 1080;
 
+// Per-object entrance animation, played once when a slide goes live.
+export type ObjectAnim = "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom";
+
 export type TextObject = {
   id: string;
   kind: "text";
   x: number; y: number; w: number; h: number;
+  anim?: ObjectAnim; animDelayMs?: number;
   text: string;
   fontFamily?: string;
   fontSize?: number;
@@ -25,6 +29,7 @@ export type ShapeObject = {
   id: string;
   kind: "shape";
   x: number; y: number; w: number; h: number;
+  anim?: ObjectAnim; animDelayMs?: number;
   shape: "rect" | "ellipse";
   fill?: string;
   stroke?: string;
@@ -37,6 +42,7 @@ export type ImageObject = {
   id: string;
   kind: "image";
   x: number; y: number; w: number; h: number;
+  anim?: ObjectAnim; animDelayMs?: number;
   url: string;
   fit?: "contain" | "cover";
 };
@@ -45,6 +51,7 @@ export type VideoObject = {
   id: string;
   kind: "video";
   x: number; y: number; w: number; h: number;
+  anim?: ObjectAnim; animDelayMs?: number;
   url: string;
   fit?: "contain" | "cover";
   loop?: boolean;

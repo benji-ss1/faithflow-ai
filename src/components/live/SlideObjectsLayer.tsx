@@ -28,9 +28,18 @@ export function SlideObjectsLayer({ objects }: { objects: SlideObjectWire[] }) {
           height: `${(obj.h / SLIDE_CANVAS_H) * 100}%`,
         };
         const key = `${obj.kind}-${i}`;
+        // Entrance animation: applied to the positioned box only. `both` fill
+        // mode means it starts hidden/offset and RESTS at the natural state
+        // (identity transform, full opacity) — so it never permanently changes
+        // an object's position, size, or font; it only plays once on slide show.
+        const animName = obj.anim && obj.anim !== "none" ? `pf-obj-${obj.anim}` : null;
+        const boxStyle: React.CSSProperties = animName
+          ? { ...box, animation: `${animName} 550ms cubic-bezier(0.2,0.7,0.2,1) ${Math.min(Math.max(obj.animDelayMs ?? 0, 0), 10000)}ms both`, willChange: "transform, opacity" }
+          : box;
+        const animCls = animName ? "pf-obj-anim" : undefined;
         if (obj.kind === "text") {
           return (
-            <div key={key} style={box}>
+            <div key={key} className={animCls} style={boxStyle}>
               <div
                 className="w-full h-full flex whitespace-pre-wrap overflow-hidden"
                 style={{
@@ -55,7 +64,7 @@ export function SlideObjectsLayer({ objects }: { objects: SlideObjectWire[] }) {
         }
         if (obj.kind === "shape") {
           return (
-            <div key={key} style={box}>
+            <div key={key} className={animCls} style={boxStyle}>
               <div
                 className="w-full h-full"
                 style={{
@@ -70,7 +79,7 @@ export function SlideObjectsLayer({ objects }: { objects: SlideObjectWire[] }) {
         }
         if (obj.kind === "video") {
           return (
-            <div key={key} style={box}>
+            <div key={key} className={animCls} style={boxStyle}>
               <video
                 src={obj.url}
                 autoPlay
@@ -85,7 +94,7 @@ export function SlideObjectsLayer({ objects }: { objects: SlideObjectWire[] }) {
         }
         // image
         return (
-          <div key={key} style={box}>
+          <div key={key} className={animCls} style={boxStyle}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={obj.url}

@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.158",
+    date: "2026-08-12",
+    headline: "Slide editor: entrance animations for objects",
+    highlights: [
+      "Give any object an entrance — fade, slide in from any direction, or zoom — that plays once when the slide goes live, with an optional delay so elements can appear in sequence.",
+      "The motion is brief and settles exactly onto your design: it never changes an object's final position, size, or font, existing slides are unaffected, and it respects “reduce motion” accessibility settings.",
+    ],
+  },
+  {
     version: "0.1.157",
     date: "2026-08-12",
     headline: "Slide editor: smart alignment guides",
