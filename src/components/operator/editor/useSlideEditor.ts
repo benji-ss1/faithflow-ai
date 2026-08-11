@@ -38,7 +38,7 @@ export type UseSlideEditorReturn = {
   moveObject: (id: string, dx: number, dy: number) => void;
   addSlide: () => void;
   duplicateSlide: () => void;
-  deleteSlide: () => void;
+  deleteSlide: (index?: number) => void;
   reorderSlide: (from: number, to: number) => void;
   setBg: (patch: { bgColor?: string; bgImageUrl?: string }) => void;
   updateSlideDirect: (patch: Partial<EditableSlide>) => void;
@@ -59,6 +59,16 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+
+  // Refs mirror the latest state so imperative slide-management handlers
+  // (e.g. delete from a right-click, which does NOT first left-click-select the
+  // slide) act on fresh values instead of a stale render closure. Fixes the bug
+  // where right-click → Delete removed the previously-selected slide, not the
+  // one under the cursor.
+  const slidesRef = useRef(slides);
+  slidesRef.current = slides;
+  const currentIndexRef = useRef(currentIndex);
+  currentIndexRef.current = currentIndex;
 
   // Reset editor state when the underlying item changes.
   const lastItemIdRef = useRef<string | null>(itemId);
@@ -174,22 +184,31 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     setSelectedObjectId(null);
   }, [isEditable, currentIndex]);
 
-  const deleteSlide = useCallback(() => {
+  // deleteSlide(index?) — deletes the slide at `index`, or the currently
+  // selected slide when no index is given. Reads slides/currentIndex from refs
+  // so a right-click delete (which never selects the slide first) removes the
+  // correct one, and keeps the selection stable afterward.
+  const deleteSlide = useCallback((index?: number) => {
     if (!isEditable) return;
-    setSlides((prev) => {
-      if (prev.length <= 1) {
-        if (typeof window !== "undefined" && !window.confirm("Delete the only slide? The item will have no slides.")) {
-          return prev;
-        }
+    const prev = slidesRef.current;
+    const cur = currentIndexRef.current;
+    const target = typeof index === "number" ? index : cur;
+    if (target < 0 || target >= prev.length) return;
+    if (prev.length <= 1) {
+      if (typeof window !== "undefined" && !window.confirm("Delete the only slide? The item will have no slides.")) {
+        return;
       }
-      const copy = prev.slice();
-      copy.splice(currentIndex, 1);
-      return copy.length === 0 ? [] : copy;
-    });
-    setDirty(true);
-    setCurrentIndex((i) => Math.max(0, Math.min(i, slides.length - 2)));
+    }
+    const copy = prev.slice();
+    copy.splice(target, 1);
+    // Shift the selection left if we removed at/before it, then clamp to the
+    // shortened list so currentSlide never points past the end.
+    const nextIndex = Math.max(0, Math.min(target <= cur ? cur - 1 : cur, copy.length - 1));
+    setSlides(copy);
+    setCurrentIndex(nextIndex);
     setSelectedObjectId(null);
-  }, [isEditable, currentIndex, slides.length]);
+    setDirty(true);
+  }, [isEditable]);
 
   const reorderSlide = useCallback((from: number, to: number) => {
     if (!isEditable) return;

@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.132",
+    date: "2026-08-11",
+    headline: "Slide delete fixed · add slides & rename songs from anywhere",
+    highlights: [
+      "Fixed slide deletion in the editor: right-clicking a slide and choosing Delete now removes exactly that slide (it previously removed the wrong one). Click Save to keep the change.",
+      "You can now add a slide straight from the playlist — right-click a song in the service plan and choose “Add slide”.",
+      "Songs can now be renamed, including imported ones: click a song's title in the library (or in the operator's song preview) to edit it, and the new name updates everywhere it's used.",
+    ],
+  },
+  {
     version: "0.1.131",
     date: "2026-08-11",
     headline: "Smooth transitions on auto-advanced slides",

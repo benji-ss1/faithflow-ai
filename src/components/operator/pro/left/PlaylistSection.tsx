@@ -33,7 +33,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
-import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong } from "@/lib/actions";
+import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong, createSongSlide } from "@/lib/actions";
 
 function itemIcon(type: string) {
   if (type === "song") return Music;
@@ -53,6 +53,7 @@ function SortablePlaylistItem({
   onRemove,
   onMove,
   onDuplicate,
+  onAddSlide,
   onDeleteSong,
 }: {
   item: OperatorShellCtx["plan"]["items"][number];
@@ -63,6 +64,7 @@ function SortablePlaylistItem({
   onRemove: () => void;
   onMove: (dir: -1 | 1) => void;
   onDuplicate: () => void;
+  onAddSlide?: () => void;
   onDeleteSong?: () => void;
 }) {
   const id = item.id ?? `item-${idx}`;
@@ -159,6 +161,14 @@ function SortablePlaylistItem({
             >
               Duplicate
             </ContextMenu.Item>
+            {onAddSlide && (
+              <ContextMenu.Item
+                onSelect={onAddSlide}
+                className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer"
+              >
+                Add slide
+              </ContextMenu.Item>
+            )}
             {onDeleteSong && (
               <>
                 <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
@@ -238,6 +248,18 @@ export function PlaylistSection({
     if (it.id) await removeServiceItem(it.id).catch(() => { /* non-fatal */ });
     toast.success(`"${it.title}" deleted`);
     router.refresh();
+  };
+
+  // Add a blank lyric slide to a song item directly from the playlist. Slides
+  // for song items live on the underlying library song, so this appends via
+  // createSongSlide (the same path the Songs browser uses) then refreshes the
+  // plan so the new slide is available live. Only offered for song items.
+  const addSlideToItem = async (it: OperatorShellCtx["plan"]["items"][number]) => {
+    if (it.type !== "song" || !it.songId) return;
+    handleResult(
+      await createSongSlide(it.songId, undefined, { objects: [], lyrics: "" }),
+      "Slide added",
+    );
   };
 
   const duplicate = async (idx: number) => {
@@ -388,6 +410,7 @@ export function PlaylistSection({
                   onRemove={() => it.id && void remove(it.id)}
                   onMove={(dir) => void move(idx, dir)}
                   onDuplicate={() => void duplicate(idx)}
+                  onAddSlide={it.type === "song" && it.songId ? () => void addSlideToItem(it) : undefined}
                   onDeleteSong={it.type === "song" && it.songId ? () => void deleteFromLibrary(it) : undefined}
                 />
               ))}

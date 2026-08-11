@@ -3,7 +3,7 @@ import { and, eq, asc } from "drizzle-orm";
 import { requireUser } from "@/lib/session";
 import { getDb } from "@/lib/db/client";
 import { songs, songSlides } from "@/lib/db/schema";
-import { PageHeader } from "@/components/layout/PageHeader";
+import { SongTitleEditor } from "@/components/library/SongTitleEditor";
 import { SongSlideEditor } from "@/components/library/SongSlideEditor";
 import { SongLicensingPanel } from "@/components/library/SongLicensingPanel";
 import { sanitizeLyrics } from "@/lib/pro6-parser";
@@ -17,9 +17,9 @@ export default async function SongDetailPage({ params }: { params: Promise<{ id:
   const slides = await db.select().from(songSlides).where(eq(songSlides.songId, song.id)).orderBy(asc(songSlides.order));
   return (
     <div className="space-y-8">
-      <PageHeader
-        eyebrow="Song"
-        title={song.title}
+      <SongTitleEditor
+        songId={song.id}
+        initialTitle={song.title}
         description={`${song.artist ? `${song.artist} · ` : ""}${song.source === "public_domain" ? "Public-domain song" : song.source === "imported" ? "Imported church-owned content" : "Church-owned lyric entry"}`}
       />
       <SongLicensingPanel songCount={1} importedCount={song.source === "imported" ? 1 : 0} />

@@ -127,7 +127,7 @@ function SlideListRail({ item }: { item: OperatorShellCtx["plan"]["items"][numbe
           <Copy className="w-3 h-3" />
         </button>
         <button
-          onClick={editor.deleteSlide}
+          onClick={() => editor.deleteSlide()}
           disabled={!isSong || !editor.currentSlide}
           title={isSong ? "Delete selected slide" : "Editing is available for songs in this run"}
           className="h-6 w-6 rounded-md border inline-flex items-center justify-center text-red-300 disabled:opacity-40"
@@ -148,7 +148,7 @@ function SlideListRail({ item }: { item: OperatorShellCtx["plan"]["items"][numbe
             <SlideContextMenu
               key={s.id}
               onEdit={() => editor.setCurrentIndex(i)}
-              onDelete={() => { editor.setCurrentIndex(i); editor.deleteSlide(); }}
+              onDelete={() => editor.deleteSlide(i)}
             >
             <div
               draggable={isSong}

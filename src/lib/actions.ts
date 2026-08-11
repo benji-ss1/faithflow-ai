@@ -355,6 +355,34 @@ export async function createSong(formData: FormData): Promise<Result<{ id: strin
   return { ok: true, data: { id: row.id } };
 }
 
+// Rename a song (works for imported songs too — no `source` gate). Mirrors
+// renameMediaAsset: church-scoped UPDATE, then propagate the new title to any
+// service items that reference this song so the playlist sidebar stays in sync.
+export async function renameSong(songId: string, newTitle: string): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const trimmed = newTitle.trim().slice(0, 200);
+  if (!trimmed) return { ok: false, error: "Title required" };
+  const db = getDb();
+  const upd = await db.update(songs)
+    .set({ title: trimmed })
+    .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId)));
+  if ((upd as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Song not found" };
+
+  await db.execute(sql`
+    UPDATE service_items si
+    SET title = ${trimmed}
+    FROM service_plans sp
+    WHERE si.service_plan_id = sp.id
+      AND sp.church_id = ${user.churchId}
+      AND si.type = 'song'
+      AND si.payload->>'songId' = ${songId}
+  `);
+
+  revalidatePath("/library/songs");
+  revalidatePath(`/library/songs/${songId}`);
+  return { ok: true };
+}
+
 export async function updateSongSlides(songId: string, slides: { lyrics: string }[]): Promise<Result> {
   const user = await requireCap("edit_library");
   const db = getDb();

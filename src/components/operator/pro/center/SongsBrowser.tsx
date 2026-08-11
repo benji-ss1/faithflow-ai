@@ -7,14 +7,15 @@
  * onSendSlideToLive is the operator's opt-in.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Plus, Pencil, Upload } from "lucide-react";
+import { Plus, Pencil, Upload, Loader2 } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload } from "@/lib/broadcast";
-import { createSong, createSongSlide, importPro6Files, updateSongSlides } from "@/lib/actions";
+import { createSong, createSongSlide, importPro6Files, renameSong, updateSongSlides } from "@/lib/actions";
 import { isInternalEvent } from "@/lib/internal-events";
 import { ProPresenterImportDialog } from "@/components/library/ProPresenterImportDialog";
 
@@ -28,6 +29,7 @@ export function SongsBrowser({
   ctx: OperatorShellCtx;
   onExitToSlides: () => void;
 }) {
+  const router = useRouter();
   const [songs, setSongs] = useState<SongRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState("");
@@ -37,6 +39,38 @@ export function SongsBrowser({
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
+  // Inline song-title rename (works for imported songs too).
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [savingTitle, setSavingTitle] = useState(false);
+  const titleCommittedRef = useRef(false);
+  const commitTitleRename = useCallback(() => {
+    if (titleCommittedRef.current) return; // guard Enter + blur double-fire
+    titleCommittedRef.current = true;
+    setEditingTitle(false);
+    const cur = selected;
+    if (!cur) return;
+    const next = titleDraft.trim().slice(0, 200);
+    if (!next || next === cur.title) return;
+    setSavingTitle(true);
+    // Optimistic local update in both the list and the selected preview.
+    setSongs((list) => list.map((s) => (s.id === cur.id ? { ...s, title: next } : s)));
+    setSelected((s) => (s && s.id === cur.id ? { ...s, title: next } : s));
+    void renameSong(cur.id, next).then((res) => {
+      setSavingTitle(false);
+      if (!res.ok) {
+        setSongs((list) => list.map((s) => (s.id === cur.id ? { ...s, title: cur.title } : s)));
+        setSelected((s) => (s && s.id === cur.id ? { ...s, title: cur.title } : s));
+        toast.error(res.error || "Rename failed");
+      } else {
+        toast.success("Song renamed");
+        // Refresh the operator plan so the playlist sidebar label (a server
+        // snapshot on the service item, updated by renameSong) reflects the new
+        // name in-session. Safe: does not disturb the projector or unsaved edits.
+        router.refresh();
+      }
+    });
+  }, [selected, titleDraft, router]);
   // Shared slide-size preference — same event/localStorage key the CenterHeader
   // and BottomBar use so a single slider works everywhere.
   const [slideSize, setSlideSize] = useState(280);
@@ -324,9 +358,38 @@ export function SongsBrowser({
       {/* Preview column */}
       <div className="flex flex-col border border-[var(--color-border)] rounded-md overflow-hidden">
         <div className="p-2 border-b border-[var(--color-border)] flex items-center gap-2">
-          <div className="flex-1 text-[13px] font-medium truncate">
-            {selected ? selected.title : "Select a song to preview"}
-          </div>
+          {selected && editingTitle ? (
+            <input
+              autoFocus
+              value={titleDraft}
+              maxLength={200}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); commitTitleRename(); }
+                else if (e.key === "Escape") { e.preventDefault(); titleCommittedRef.current = true; setEditingTitle(false); }
+              }}
+              onBlur={commitTitleRename}
+              aria-label="Song title"
+              className="flex-1 text-[13px] font-medium bg-transparent border border-[var(--color-border)] rounded px-2 py-1 outline-none focus:border-[var(--color-brand)]"
+            />
+          ) : (
+            <button
+              type="button"
+              disabled={!selected || savingTitle}
+              onClick={() => {
+                if (!selected || savingTitle) return;
+                setTitleDraft(selected.title);
+                titleCommittedRef.current = false;
+                setEditingTitle(true);
+              }}
+              title={selected ? "Click to rename this song" : undefined}
+              className="flex-1 text-[13px] font-medium truncate text-left inline-flex items-center gap-1.5 hover:text-[var(--color-brand)] disabled:hover:text-inherit group"
+            >
+              <span className="truncate">{selected ? selected.title : "Select a song to preview"}</span>
+              {selected && !savingTitle && <Pencil className="w-3 h-3 shrink-0 opacity-0 group-hover:opacity-60" />}
+              {savingTitle && <Loader2 className="w-3 h-3 shrink-0 animate-spin opacity-60" />}
+            </button>
+          )}
           {selected && (
             <>
               <button
