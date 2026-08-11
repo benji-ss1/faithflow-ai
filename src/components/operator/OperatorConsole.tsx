@@ -269,21 +269,30 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
   // (same-machine, like theme/font-scale) on Activate/Clear/tweak.
   const [videoInput, setVideoInput] = useState<import("@/lib/broadcast").VideoInputState | null>(null);
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem("presentflow.videoInput.v1");
-      if (raw) {
+    let mounted = true;
+    (async () => {
+      // Only restore an active video input on a shell that actually supports the
+      // camera (0.1.135+). On an older shell the output window opening the camera
+      // would crash, so we never emit videoInput there.
+      const { shellSupportsCamera } = await import("@/lib/electron-version");
+      if (!(await shellSupportsCamera()) || !mounted) return;
+      try {
+        const raw = window.localStorage.getItem("presentflow.videoInput.v1");
+        if (!raw) return;
         const p = JSON.parse(raw) as import("@/lib/broadcast").VideoInputState & { active?: boolean };
         // Require a non-empty deviceId: an empty id (can be persisted pre-
         // permission) would emit an invalid videoInput and freeze the whole
         // OutputState on the projector.
-        if (p?.active && typeof p.deviceId === "string" && p.deviceId.length > 0) {
+        if (mounted && p?.active && typeof p.deviceId === "string" && p.deviceId.length > 0) {
           setVideoInput({ deviceId: p.deviceId, label: p.label, fit: p.fit, mirror: p.mirror, overlay: p.overlay });
         }
-      }
-    } catch { /* no persisted video input */ }
+      } catch { /* no persisted video input */ }
+    })();
+    // The panel only fires this on a supported shell (it's gated), so the event
+    // path needs no extra guard.
     const onChange = (e: Event) => setVideoInput((e as CustomEvent).detail?.videoInput ?? null);
     window.addEventListener("presentflow:video-input-changed", onChange);
-    return () => window.removeEventListener("presentflow:video-input-changed", onChange);
+    return () => { mounted = false; window.removeEventListener("presentflow:video-input-changed", onChange); };
   }, []);
 
   // Push extended OutputState on every relevant change so /stage and

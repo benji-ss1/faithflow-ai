@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Video, RefreshCw, Play, Square, FlipHorizontal2 } from "lucide-react";
 import type { VideoInputState } from "@/lib/broadcast";
+import { shellSupportsCamera } from "@/lib/electron-version";
 
 const LS_KEY = "presentflow.videoInput.v1";
 type Persisted = VideoInputState & { active?: boolean };
@@ -31,6 +32,12 @@ function emit(state: VideoInputState | null) {
 }
 
 export function VideoInputPanel() {
+  // Gate on shell support: on an older shell (no camera entitlement/usage
+  // string) calling getUserMedia would crash the app, so we never enumerate or
+  // preview there — show an update prompt instead. null = still checking.
+  const [supported, setSupported] = useState<boolean | null>(null);
+  useEffect(() => { let m = true; void shellSupportsCamera().then((s) => { if (m) setSupported(s); }); return () => { m = false; }; }, []);
+
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [needsPermission, setNeedsPermission] = useState(false);
   const [selectedId, setSelectedId] = useState<string>("");
@@ -80,6 +87,7 @@ export function VideoInputPanel() {
   useEffect(() => {
     let cancelled = false;
     const stop = () => { previewStreamRef.current?.getTracks().forEach((t) => t.stop()); previewStreamRef.current = null; };
+    if (supported !== true) { stop(); return; } // never touch the camera on an unsupported shell
     if (active) { stop(); setPreviewStatus("idle"); return; } // live → projector owns the device
     if (!selectedId) { stop(); setPreviewStatus("idle"); return; }
     setPreviewStatus("loading");
@@ -100,7 +108,7 @@ export function VideoInputPanel() {
       }
     })();
     return () => { cancelled = true; stop(); };
-  }, [selectedId, active, refresh]);
+  }, [selectedId, active, refresh, supported]);
 
   const selectedLabel = devices.find((d) => d.deviceId === selectedId)?.label || "Camera";
 
@@ -134,6 +142,19 @@ export function VideoInputPanel() {
     persistAndMaybeEmit(false);
     toast.success("Video input cleared");
   };
+
+  if (supported !== true) {
+    return (
+      <div className="flex flex-col gap-3">
+        <div className="eyebrow flex items-center gap-1.5"><Video className="w-3 h-3" /> Video Input</div>
+        <p className="text-[11px] text-[var(--color-muted-foreground)] leading-relaxed">
+          {supported === null
+            ? "Checking video support…"
+            : "Live Video Input needs the latest PresentFlow update. It'll install automatically the next time you relaunch the app — then reopen this panel to pick a camera."}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-3">
