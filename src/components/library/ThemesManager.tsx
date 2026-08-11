@@ -1,12 +1,12 @@
 "use client";
-import { useState, useTransition } from "react";
+import { useState, useEffect, useTransition } from "react";
 import { toast } from "sonner";
-import { ChevronDown, Copy, GripVertical, Palette, Plus, Star, Trash2, X } from "lucide-react";
+import { ChevronDown, Copy, Download, GripVertical, Image as ImageIcon, Palette, Plus, Star, Trash2, X } from "lucide-react";
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, useSortable, arrayMove, rectSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
-import { createTheme, updateTheme, duplicateTheme, deleteTheme, setDefaultTheme, reorderThemes, extractLogoPalette } from "@/lib/actions";
+import { createTheme, updateTheme, duplicateTheme, deleteTheme, setDefaultTheme, reorderThemes, extractLogoPalette, exportTheme, importTheme } from "@/lib/actions";
 import { buildColorwayFromPalette } from "@/lib/colorway";
 import { ThemeImportDialog } from "@/components/library/ThemeImportDialog";
 
@@ -89,6 +89,30 @@ export function ThemesManager({ themes: initial, churchLogoUrl }: { themes: Them
     });
   }
 
+  // Export a theme as a portable .json file the church can back up or share
+  // with another PresentFlow church. The shape ({ name, config }) is exactly
+  // what importTheme (via ThemeImportDialog) round-trips back in.
+  function onExport(id: string, name: string) {
+    startTransition(async () => {
+      const res = await exportTheme(id);
+      if (!res.ok || !res.data) { toast.error((!res.ok && res.error) || "Could not export"); return; }
+      try {
+        const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: "application/json" });
+        const href = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = href;
+        a.download = `${name.replace(/[^\w.-]+/g, "-").toLowerCase() || "theme"}.pftheme.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(href);
+        toast.success("Theme exported");
+      } catch {
+        toast.error("Could not save the file");
+      }
+    });
+  }
+
   function onDelete(id: string, name: string) {
     if (!confirm(`Delete "${name}"? This can't be undone.`)) return;
     startTransition(async () => {
@@ -154,6 +178,31 @@ export function ThemesManager({ themes: initial, churchLogoUrl }: { themes: Them
     });
   }
 
+  // Import a .pftheme.json produced by the per-card Export button (round-trip
+  // via the importTheme server action, which re-sanitises the config).
+  function onImportFile(file: File) {
+    startTransition(async () => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(await file.text());
+      } catch {
+        toast.error("That file isn't valid theme JSON");
+        return;
+      }
+      const res = await importTheme(parsed);
+      if (!res.ok || !res.data) { toast.error((!res.ok && res.error) || "Could not import theme"); return; }
+      const obj = parsed as { name?: unknown; config?: unknown };
+      const name = typeof obj?.name === "string" && obj.name.trim() ? obj.name.trim() : "Imported theme";
+      const config = (obj?.config && typeof obj.config === "object" ? obj.config : {}) as ThemeConfig;
+      refresh([...themes, { id: res.data.id, name, config }]);
+      toast.success(
+        res.data.rejectedFields.length
+          ? `Imported "${name}" (${res.data.rejectedFields.length} unsupported field${res.data.rejectedFields.length === 1 ? "" : "s"} skipped)`
+          : `Imported "${name}"`,
+      );
+    });
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
@@ -161,6 +210,19 @@ export function ThemesManager({ themes: initial, churchLogoUrl }: { themes: Them
           {themes.length} theme{themes.length === 1 ? "" : "s"}
         </div>
         <div className="flex items-center gap-2">
+          <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-border px-4 text-sm font-medium text-foreground hover:bg-accent">
+            <Download className="h-4 w-4 rotate-180" /> Import file
+            <input
+              type="file"
+              accept="application/json,.json"
+              className="sr-only"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) onImportFile(f);
+                e.target.value = "";
+              }}
+            />
+          </label>
           <button
             type="button"
             onClick={() => setImportOpen(true)}
@@ -209,6 +271,7 @@ export function ThemesManager({ themes: initial, churchLogoUrl }: { themes: Them
                   onEdit={() => setEditing(t)}
                   onSetDefault={() => onSetDefault(t.id)}
                   onDuplicate={() => onDuplicate(t.id)}
+                  onExport={() => onExport(t.id, t.name)}
                   onDelete={() => onDelete(t.id, t.name)}
                 />
               ))}
@@ -739,7 +802,7 @@ function ThemeEditor({
 // handle so admins can reorder cards; the parent's onDragEnd (which
 // calls the reorderThemes server action) persists the order.
 function SortableThemeCard({
-  theme, pending, churchLogoUrl, onEdit, onSetDefault, onDuplicate, onDelete,
+  theme, pending, churchLogoUrl, onEdit, onSetDefault, onDuplicate, onExport, onDelete,
 }: {
   theme: ThemeRow;
   pending: boolean;
@@ -747,6 +810,7 @@ function SortableThemeCard({
   onEdit: () => void;
   onSetDefault: () => void;
   onDuplicate: () => void;
+  onExport: () => void;
   onDelete: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: theme.id });
@@ -817,6 +881,15 @@ function SortableThemeCard({
           </button>
           <button
             type="button"
+            onClick={onExport}
+            title="Export theme (.json)"
+            disabled={pending}
+            className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-white/[0.04] hover:text-foreground disabled:opacity-50"
+          >
+            <Download className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
             onClick={onDelete}
             title="Delete"
             disabled={pending}
@@ -827,6 +900,96 @@ function SortableThemeCard({
         </div>
       </div>
     </li>
+  );
+}
+
+// -- media library picker (modal) --
+//
+// Opens the church's existing Media library (GET /api/media/list, already
+// auth-gated + church-scoped) filtered to the asset kind, so an operator can
+// re-use a video/image they've already uploaded instead of re-uploading. The
+// list route mints fresh presigned GET URLs, so clicking a tile hands back a
+// ready-to-use URL — exactly what the theme bg/logo fields store.
+type LibraryAsset = { id: string; fileName: string; kind: string; url: string };
+
+function MediaLibraryPicker({
+  kind, onPick, onClose,
+}: {
+  kind: "image" | "video";
+  onPick: (url: string) => void;
+  onClose: () => void;
+}) {
+  const [assets, setAssets] = useState<LibraryAsset[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/media/list").then((r) => r.json()) as { assets?: LibraryAsset[]; error?: string };
+        if (!alive) return;
+        if (res.error) { setError(res.error); return; }
+        // The library stores images and videos together; show only the kind
+        // this picker wants. `kind` on the media row is "image"/"video".
+        setAssets((res.assets ?? []).filter((a) => a.kind === kind));
+      } catch {
+        if (alive) setError("Couldn't load your media library");
+      }
+    })();
+    return () => { alive = false; };
+  }, [kind]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] grid place-items-center bg-black/70 p-6 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="flex max-h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-[var(--color-panel,#141818)] shadow-2xl"
+      >
+        <header className="flex items-center justify-between border-b border-border p-4">
+          <div className="text-sm font-semibold">Choose {kind === "image" ? "an image" : "a video"} from your library</div>
+          <button type="button" onClick={onClose} aria-label="Close" className="grid h-8 w-8 place-items-center rounded-md text-muted-foreground hover:bg-white/[0.05] hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </header>
+        <div className="flex-1 overflow-y-auto p-4">
+          {error ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">{error}</div>
+          ) : assets === null ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">Loading your library…</div>
+          ) : assets.length === 0 ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              No {kind}s in your library yet. Upload one below and it'll appear here next time.
+            </div>
+          ) : (
+            <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {assets.map((a) => (
+                <li key={a.id}>
+                  <button
+                    type="button"
+                    onClick={() => { onPick(a.url); onClose(); }}
+                    className="group block w-full overflow-hidden rounded-lg border border-border bg-black/40 text-left transition hover:border-[var(--color-primary)]"
+                    title={a.fileName}
+                  >
+                    <div className="aspect-video w-full overflow-hidden bg-black/60">
+                      {a.kind === "image" ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={a.url} alt={a.fileName} className="h-full w-full object-cover" loading="lazy" />
+                      ) : (
+                        <video src={a.url} className="h-full w-full object-cover" muted playsInline preload="metadata" />
+                      )}
+                    </div>
+                    <div className="truncate px-2 py-1.5 text-[11px] text-muted-foreground group-hover:text-foreground">{a.fileName}</div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -853,6 +1016,7 @@ function BgAssetPicker({
 }) {
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [libOpen, setLibOpen] = useState(false);
   const accept = kind === "image"
     ? "image/png,image/jpeg,image/webp,image/gif,image/avif"
     : "video/mp4,video/webm,video/quicktime";
@@ -912,7 +1076,7 @@ function BgAssetPicker({
 
   return (
     <div className="space-y-2">
-      <Row label={label ?? `${kind === "image" ? "Image" : "Video"} URL`} hint={hint ?? `Paste a URL or drag a file here (max ${maxMB} MB).`}>
+      <Row label={label ?? `${kind === "image" ? "Image" : "Video"} URL`} hint={hint ?? `Paste a URL, drag a file here, or pick from your library (max ${maxMB} MB).`}>
         <input
           type="url"
           value={url}
@@ -921,6 +1085,16 @@ function BgAssetPicker({
           className={inputCls}
         />
       </Row>
+      <button
+        type="button"
+        onClick={() => setLibOpen(true)}
+        className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md border border-border text-xs font-medium text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
+      >
+        <ImageIcon className="h-3.5 w-3.5" /> Choose from media library
+      </button>
+      {libOpen && (
+        <MediaLibraryPicker kind={kind} onPick={onUrl} onClose={() => setLibOpen(false)} />
+      )}
       {/* Drag-and-drop zone — works in both Electron (Finder drag) and web (file drag) */}
       <div
         className={cn(

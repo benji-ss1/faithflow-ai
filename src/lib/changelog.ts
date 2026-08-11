@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.143",
+    date: "2026-08-11",
+    headline: "Theme editor: reuse your media, export & share themes",
+    highlights: [
+      "In the theme editor, every background and logo picker now has a “Choose from media library” button — pick any image or video you've already uploaded, right inside the app, instead of re-uploading it.",
+      "Each theme card has a new download button that exports the theme as a file you can back up or hand to another PresentFlow church.",
+      "New “Import file” button at the top of Themes brings an exported theme back in — so you can copy a look between churches or restore one you saved.",
+    ],
+  },
+  {
     version: "0.1.142",
     date: "2026-08-11",
     headline: "Safer editing when you're offline",
