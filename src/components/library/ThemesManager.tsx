@@ -312,6 +312,8 @@ function SlidePreview({ config, mode = "lyrics", churchName = "Grace Community",
   const bgImageUrl = get(config, "bgImageUrl", "") as string;
   const bgVideoUrl = get(config, "bgVideoUrl", "") as string;
   const bgOpacity = get(config, "bgOpacity", 1) as number;
+  // Match the projector: it uses bgAngle (mapper defaults gradient to 135°).
+  const bgAngle = get(config, "bgAngle", 135) as number;
   const bgAnimation = get(config, "bgAnimation", "none") as string;
   // Same GPU-transform presets the projector uses (globals.css). Solid/gradient only.
   const animActive = (bgType === "solid" || bgType === "gradient") && ["drift", "aurora", "pulse"].includes(bgAnimation);
@@ -347,7 +349,7 @@ function SlidePreview({ config, mode = "lyrics", churchName = "Grace Community",
 
   const backgroundStyle: React.CSSProperties =
     bgType === "gradient"
-      ? { background: `linear-gradient(135deg, ${bg1}, ${bg2})` }
+      ? { background: `linear-gradient(${bgAngle}deg, ${bg1}, ${bg2})` }
       : bgType === "image" && bgImageUrl
         ? { background: `#000 url(${bgImageUrl}) center/cover no-repeat` }
         : bgType === "video"
@@ -394,7 +396,7 @@ function SlidePreview({ config, mode = "lyrics", churchName = "Grace Community",
           <div
             className="pf-anim-bg absolute inset-[-20%]"
             style={{
-              background: bgType === "gradient" ? `linear-gradient(135deg, ${bg1}, ${bg2})` : bg1,
+              background: bgType === "gradient" ? `linear-gradient(${bgAngle}deg, ${bg1}, ${bg2})` : bg1,
               animation: ANIM_CSS[bgAnimation],
               transform: bgAnimation === "aurora" ? "scale(1.6)" : bgAnimation === "drift" ? "scale(1.2)" : "scale(1.1)",
               willChange: "transform",
