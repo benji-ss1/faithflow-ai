@@ -57,10 +57,16 @@ function warnOverflowOnce(text: string, floorPx: number) {
   );
 }
 
-export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06, minPx, disablePagination, projectorFit, fontScale = 1 }:
+export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRatio = 0.06, minPx, disablePagination, projectorFit, fontScale = 1 }:
   {
     text: string;
     className?: string;
+    // Themes Phase 1: theme-driven text styling (color, fontFamily, fontWeight,
+    // textAlign, textShadow). Merged so it overrides the readability defaults
+    // but NOT the layout-critical props (fitted fontSize, wrapping, uppercase),
+    // which are re-asserted after it. Applied to the measured element so the
+    // fit stays correct for a different font/weight.
+    textStyle?: React.CSSProperties;
     maxPx?: number;
     paddingRatio?: number;
     // B3 (2026-08-11): operator manual size. AUTO = 1.0 (pure largest-fit).
@@ -289,18 +295,22 @@ export function AutoFitText({ text, className, maxPx = 220, paddingRatio = 0.06,
         ref={textRef}
         className={className}
         style={{
+          // Themeable defaults — overridable by the active theme's textStyle.
+          fontWeight: 700, // bold — pastor projection readability floor
+          textAlign: "center",
+          textShadow: "0 2px 8px rgba(0,0,0,0.55)", // slight halo so text pops on busy backgrounds
+          ...textStyle,
+          // Layout-critical — always win over the theme (never let a theme break
+          // the fit, wrapping, or the always-on ALL-CAPS crowd readability).
           fontSize: `${size}px`,
           lineHeight: tightLine ? 1.05 : 1.15,
           whiteSpace: "pre-wrap",
           overflowWrap: "break-word",
           wordBreak: "normal",
-          textAlign: "center",
           textWrap: "balance",
           maxWidth: "100%",
           maxHeight: "100%",
-          fontWeight: 700, // bold — pastor projection readability floor
           textTransform: "uppercase", // ProPresenter-style crowd readability (2026-08-11, user: always-on). The fit measures the transformed (wider) glyphs, so sizing stays correct.
-          textShadow: "0 2px 8px rgba(0,0,0,0.55)", // slight halo so the text pops on busy backgrounds
         }}
       >
         {refSplit.body}

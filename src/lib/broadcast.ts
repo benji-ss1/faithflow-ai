@@ -85,6 +85,27 @@ export function isValidTransitionSpec(t: unknown): t is TransitionSpec {
   return true;
 }
 
+// ── Theme appearance (Themes Phase 1) ─────────────────────────────────────
+// A render-focused subset of a church Theme, carried on OutputState so the
+// active theme actually drives the projector. Fully additive/optional: when
+// absent, output renders with the built-in defaults (dark bg, white text)
+// exactly as before. One wire contract keeps same-machine (BroadcastChannel),
+// cross-device (Realtime), and a future hybrid/local renderer in sync from a
+// single source of truth (CLAUDE.md rule 8).
+export type ThemeAppearance = {
+  bgType?: "solid" | "gradient" | "image"; // video/camera land in a later phase
+  bgColor?: string;    // solid fill / gradient stop 1
+  bgColor2?: string;   // gradient stop 2
+  bgAngle?: number;    // gradient angle, degrees 0..360
+  bgImageUrl?: string; // when bgType === "image" (https / presigned S3 URL)
+  dim?: number;        // 0..1 dark overlay over the background for readability
+  textColor?: string;
+  fontFamily?: string;
+  fontWeight?: number; // 100..900
+  textShadow?: boolean;
+  align?: "left" | "center" | "right";
+};
+
 export type OutputState = {
   live: SlidePayload;                // audience/projector output
   next: SlidePayload | null;         // for stage display "Next up"
@@ -104,6 +125,9 @@ export type OutputState = {
   // B3 (2026-08-11): operator manual text-size multiplier for projected slide
   // text (AUTO = 1.0 / undefined). Synced same-machine to all output surfaces.
   fontScale?: number;
+  // Themes Phase 1: active theme's render appearance (background/text styling).
+  // Undefined/null ⇒ built-in defaults. Applies to text/blank slides.
+  appearance?: ThemeAppearance | null;
 };
 
 /**
@@ -273,6 +297,30 @@ function isValidMediaUrl(u: unknown): boolean {
   }
 }
 
+// Font-family is interpolated into a CSS value, so bound it to a safe charset
+// (names, quotes, spaces, commas, dots, hyphens) — a cross-device payload must
+// not be able to inject CSS through it.
+const FONT_FAMILY_RE = /^[a-zA-Z0-9 ,._'"-]{1,120}$/;
+
+export function isValidThemeAppearance(a: unknown): a is ThemeAppearance {
+  if (a === null) return true;
+  if (!a || typeof a !== "object") return false;
+  if (hasPollutionKey(a)) return false;
+  const p = a as Record<string, unknown>;
+  if (p.bgType !== undefined && !["solid", "gradient", "image"].includes(p.bgType as string)) return false;
+  if (p.bgColor !== undefined && !isValidColor(p.bgColor)) return false;
+  if (p.bgColor2 !== undefined && !isValidColor(p.bgColor2)) return false;
+  if (p.textColor !== undefined && !isValidColor(p.textColor)) return false;
+  if (p.bgImageUrl !== undefined && !isValidMediaUrl(p.bgImageUrl)) return false;
+  if (p.bgAngle !== undefined && (typeof p.bgAngle !== "number" || !Number.isFinite(p.bgAngle) || p.bgAngle < 0 || p.bgAngle > 360)) return false;
+  if (p.dim !== undefined && (typeof p.dim !== "number" || !Number.isFinite(p.dim) || p.dim < 0 || p.dim > 1)) return false;
+  if (p.fontWeight !== undefined && (typeof p.fontWeight !== "number" || !Number.isFinite(p.fontWeight) || p.fontWeight < 100 || p.fontWeight > 900)) return false;
+  if (p.textShadow !== undefined && typeof p.textShadow !== "boolean") return false;
+  if (p.align !== undefined && !["left", "center", "right"].includes(p.align as string)) return false;
+  if (p.fontFamily !== undefined && (typeof p.fontFamily !== "string" || !FONT_FAMILY_RE.test(p.fontFamily))) return false;
+  return true;
+}
+
 function isValidSlide(s: unknown): s is SlidePayload {
   if (!s || typeof s !== "object") return false;
   if (hasPollutionKey(s)) return false;
@@ -362,6 +410,10 @@ export function isValidOutputState(s: unknown): s is OutputState {
     const f = st.fontScale;
     if (typeof f !== "number" || !Number.isFinite(f) || f <= 0 || f > 4) return false;
   }
+  // Themes Phase 1 — validate the theme appearance if present (rejects a
+  // malformed/hostile appearance on the cross-device path rather than letting
+  // it reach the renderer's style props).
+  if (st.appearance !== undefined && !isValidThemeAppearance(st.appearance)) return false;
   return true;
 }
 
@@ -422,4 +474,5 @@ export const EMPTY_OUTPUT: OutputState = {
   announcement: null,
   transition: null,
   nextItem: null,
+  appearance: null,
 };

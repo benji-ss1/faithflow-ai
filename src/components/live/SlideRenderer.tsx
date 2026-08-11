@@ -1,11 +1,55 @@
 "use client";
 import { useEffect, useRef, useCallback } from "react";
-import type { SlidePayload } from "@/lib/broadcast";
+import type { SlidePayload, ThemeAppearance } from "@/lib/broadcast";
 import { AutoFitText } from "./AutoFitText";
 
-export function SlideRenderer({ slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef, fontScale }: {
+// ── Themes Phase 1: compute CSS from the active theme appearance ───────────
+// Background supports solid / gradient / image, with an optional dark "dim"
+// overlay for text readability (a single `background` shorthand — image/gradient
+// layered under a dim gradient). Returns the built-in fallback when no theme is
+// active. The values are validated on the wire (isValidThemeAppearance), and a
+// hostile string can't break out of the single `background`/`color` CSS property
+// (CSSOM parses each property in isolation).
+function themeBackgroundStyle(appearance: ThemeAppearance | null | undefined, fallback: string): React.CSSProperties {
+  if (!appearance) return { background: fallback };
+  const dim = typeof appearance.dim === "number" && appearance.dim > 0 ? Math.min(1, appearance.dim) : 0;
+  const dimLayer = dim > 0 ? `linear-gradient(rgba(0,0,0,${dim}),rgba(0,0,0,${dim}))` : null;
+  let base: string | undefined;
+  if (appearance.bgType === "image" && appearance.bgImageUrl) {
+    base = `url("${appearance.bgImageUrl}")`;
+  } else if (appearance.bgType === "gradient" && appearance.bgColor) {
+    base = `linear-gradient(${appearance.bgAngle ?? 180}deg, ${appearance.bgColor}, ${appearance.bgColor2 ?? appearance.bgColor})`;
+  } else if (appearance.bgColor) {
+    base = appearance.bgColor;
+  }
+  if (!base) return { background: fallback };
+  return {
+    background: dimLayer ? `${dimLayer}, ${base}` : base,
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+  };
+}
+
+function themeTextStyle(appearance: ThemeAppearance | null | undefined): React.CSSProperties | undefined {
+  if (!appearance) return undefined;
+  const s: React.CSSProperties = {};
+  if (appearance.textColor) s.color = appearance.textColor;
+  if (appearance.fontFamily) s.fontFamily = appearance.fontFamily;
+  if (typeof appearance.fontWeight === "number") s.fontWeight = appearance.fontWeight;
+  if (appearance.align) s.textAlign = appearance.align;
+  if (appearance.textShadow === false) s.textShadow = "none";
+  return Object.keys(s).length ? s : undefined;
+}
+
+export function SlideRenderer({ slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef, fontScale, appearance }: {
   slide: SlidePayload;
   className?: string;
+  // Themes Phase 1: active theme appearance (background + text styling) from
+  // OutputState. Undefined ⇒ built-in defaults (dark bg, white text). A per-slide
+  // `bgColor` still overrides the theme background. Applies to text/blank kinds;
+  // image/video/logo slides keep their own full-bleed rendering.
+  appearance?: ThemeAppearance | null;
   // B3 (2026-08-11): operator manual text-size multiplier (AUTO = 1.0),
   // threaded to AutoFitText for text slides. Undefined ⇒ AUTO.
   fontScale?: number;
@@ -31,7 +75,8 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
   if (slide.kind === "empty") return <div className={`${base} bg-black ${className || ""}`} />;
 
   if (slide.kind === "blank") {
-    return <div className={`${base} ${className || ""}`} style={{ background: slide.bgColor || "#000000" }} />;
+    const bg = slide.bgColor ? { background: slide.bgColor } : themeBackgroundStyle(appearance, "#000000");
+    return <div className={`${base} ${className || ""}`} style={bg} />;
   }
 
   if (slide.kind === "logo") {
@@ -47,8 +92,9 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
   }
 
   if (slide.kind === "text") {
+    const bg = slide.bgColor ? { background: slide.bgColor } : themeBackgroundStyle(appearance, "#0b0b0b");
     return (
-      <div className={`${base} ${className || ""}`} style={{ background: slide.bgColor || "#0b0b0b" }}>
+      <div className={`${base} ${className || ""}`} style={bg}>
         <AutoFitText
           text={slide.text}
           maxPx={120}
@@ -57,6 +103,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
           projectorFit={projectorFit}
           fontScale={fontScale}
           className="text-white font-display font-semibold"
+          textStyle={themeTextStyle(appearance)}
         />
       </div>
     );
