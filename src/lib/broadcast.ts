@@ -105,6 +105,9 @@ export type ThemeAppearance = {
   bgAngle?: number;    // gradient angle, degrees 0..360
   bgImageUrl?: string; // when bgType === "image" (https / presigned S3 URL)
   bgVideoUrl?: string; // when bgType === "video" — looping muted background (Phase 2)
+  // Themes 3 — subtle GPU-composited motion for solid/gradient backgrounds
+  // (behind verses/lyrics). No effect on image/video backgrounds.
+  bgAnimation?: "none" | "drift" | "aurora" | "pulse";
   dim?: number;        // 0..1 dark overlay over the background for readability
   textColor?: string;
   fontFamily?: string;
@@ -357,6 +360,7 @@ export function isValidThemeAppearance(a: unknown): a is ThemeAppearance {
   if (p.textColor !== undefined && !isValidColor(p.textColor)) return false;
   if (p.bgImageUrl !== undefined && !isValidRenderUrl(p.bgImageUrl)) return false;
   if (p.bgAngle !== undefined && (typeof p.bgAngle !== "number" || !Number.isFinite(p.bgAngle) || p.bgAngle < 0 || p.bgAngle > 360)) return false;
+  if (p.bgAnimation !== undefined && !["none", "drift", "aurora", "pulse"].includes(p.bgAnimation as string)) return false;
   if (p.dim !== undefined && (typeof p.dim !== "number" || !Number.isFinite(p.dim) || p.dim < 0 || p.dim > 1)) return false;
   if (p.fontWeight !== undefined && (typeof p.fontWeight !== "number" || !Number.isFinite(p.fontWeight) || p.fontWeight < 100 || p.fontWeight > 900)) return false;
   if (p.textShadow !== undefined && typeof p.textShadow !== "boolean") return false;

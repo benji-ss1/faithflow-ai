@@ -72,6 +72,13 @@ export function themeConfigToAppearance(config: unknown): ThemeAppearance | null
     a.dim = clamp(1 - c.bgOpacity, 0, 1);
   }
   if (a.bgType === "video" && (a.dim === undefined || a.dim === 0)) a.dim = 0.3;
+  // Themes 3 — animated background preset (solid/gradient only; ignored for
+  // image/video which have their own motion). Unknown values fall through to
+  // no animation.
+  if ((c.bgAnimation === "drift" || c.bgAnimation === "aurora" || c.bgAnimation === "pulse")
+    && a.bgType !== "image" && a.bgType !== "video") {
+    a.bgAnimation = c.bgAnimation;
+  }
 
   // ── Text ──
   if (isColor(c.textColor)) a.textColor = c.textColor.trim();
@@ -94,6 +101,6 @@ export function themeConfigToAppearance(config: unknown): ThemeAppearance | null
   // Nothing meaningful beyond the implicit bgType:"solid"? Treat as no theme.
   const meaningful =
     a.bgColor || a.bgImageUrl || a.bgVideoUrl || a.logoUrl || a.textColor || a.fontFamily ||
-    a.fontWeight !== undefined || a.textShadow !== undefined || a.align || a.bgType === "gradient" || a.dim !== undefined;
+    a.fontWeight !== undefined || a.textShadow !== undefined || a.align || a.bgType === "gradient" || a.dim !== undefined || a.bgAnimation !== undefined;
   return meaningful ? a : null;
 }

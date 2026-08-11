@@ -127,5 +127,30 @@ check("themeConfigToAppearance output always passes isValidThemeAppearance", () 
   }
 });
 
+check("bgAnimation: valid presets accepted on the wire", () => {
+  for (const m of ["none", "drift", "aurora", "pulse"]) {
+    assert.strictEqual(isValidThemeAppearance({ bgColor: "#111", bgAnimation: m }), true, `${m} valid`);
+  }
+});
+check("bgAnimation: rejects unknown preset", () =>
+  assert.strictEqual(isValidThemeAppearance({ bgColor: "#111", bgAnimation: "explode" }), false));
+check("bgAnimation: mapper carries drift on a gradient theme", () => {
+  const a = themeConfigToAppearance({ bgType: "gradient", bgColor: "#001a33", bgColor2: "#00335c", bgAnimation: "drift" });
+  assert.ok(a, "should build a theme");
+  assert.strictEqual(a!.bgAnimation, "drift");
+  assert.strictEqual(isValidThemeAppearance(a), true);
+});
+check("bgAnimation: mapper drops animation for image/video backgrounds", () => {
+  const img = themeConfigToAppearance({ bgType: "image", bgImageUrl: "https://s3.example.com/bg.jpg", bgAnimation: "aurora" });
+  assert.strictEqual(img?.bgAnimation, undefined, "no animation on image bg");
+  const vid = themeConfigToAppearance({ bgType: "video", bgVideoUrl: "https://s3.example.com/v.mp4", bgAnimation: "pulse" });
+  assert.strictEqual(vid?.bgAnimation, undefined, "no animation on video bg");
+});
+check("bgAnimation: a solid theme with only motion still counts as a theme", () => {
+  const a = themeConfigToAppearance({ bgType: "solid", bgAnimation: "pulse" });
+  assert.ok(a, "animation alone is meaningful");
+  assert.strictEqual(a!.bgAnimation, "pulse");
+});
+
 console.log(`\n=== theme-appearance: ${pass} passed, ${fail} failed ===`);
 if (fail > 0) process.exit(1);

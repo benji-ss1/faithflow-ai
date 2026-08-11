@@ -312,6 +312,14 @@ function SlidePreview({ config, mode = "lyrics", churchName = "Grace Community",
   const bgImageUrl = get(config, "bgImageUrl", "") as string;
   const bgVideoUrl = get(config, "bgVideoUrl", "") as string;
   const bgOpacity = get(config, "bgOpacity", 1) as number;
+  const bgAnimation = get(config, "bgAnimation", "none") as string;
+  // Same GPU-transform presets the projector uses (globals.css). Solid/gradient only.
+  const animActive = (bgType === "solid" || bgType === "gradient") && ["drift", "aurora", "pulse"].includes(bgAnimation);
+  const ANIM_CSS: Record<string, string> = {
+    drift: "pf-bg-drift 26s ease-in-out infinite",
+    aurora: "pf-bg-aurora 48s ease-in-out infinite",
+    pulse: "pf-bg-pulse 10s ease-in-out infinite",
+  };
 
   const fontFamily = get(config, "fontFamily", "Inter") as string;
   const fontSize = get(config, mode === "scripture" ? "fontSizeScripturePx" : "fontSizePx", mode === "scripture" ? 56 : 72) as number;
@@ -377,6 +385,22 @@ function SlidePreview({ config, mode = "lyrics", churchName = "Grace Community",
           playsInline
           className="absolute inset-0 h-full w-full object-cover"
         />
+      ) : null}
+
+      {/* Animated background (Themes 3) — GPU-transform gradient layer, matching
+          the projector's AnimatedThemeBg. Sits over the static base, under text. */}
+      {animActive ? (
+        <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+          <div
+            className="pf-anim-bg absolute inset-[-20%]"
+            style={{
+              background: bgType === "gradient" ? `linear-gradient(135deg, ${bg1}, ${bg2})` : bg1,
+              animation: ANIM_CSS[bgAnimation],
+              transform: bgAnimation === "aurora" ? "scale(1.6)" : bgAnimation === "drift" ? "scale(1.2)" : "scale(1.1)",
+              willChange: "transform",
+            }}
+          />
+        </div>
       ) : null}
 
       {/* Readability dim — matches the projector, which maps the Opacity slider
@@ -636,6 +660,19 @@ function ThemeEditor({
             <Row label={`Opacity — ${Math.round((get(cfg, "bgOpacity", 1) as number) * 100)}%`}>
               <input type="range" min={0} max={100} value={(get(cfg, "bgOpacity", 1) as number) * 100} onChange={(e) => set({ bgOpacity: Number(e.target.value) / 100 })} className="w-full" />
             </Row>
+            {(get<"solid" | "gradient" | "image" | "video">(cfg, "bgType", "solid") === "solid"
+              || get<"solid" | "gradient" | "image" | "video">(cfg, "bgType", "solid") === "gradient") && (
+              <Row label="Motion" hint="Subtle looping animation behind verses & lyrics. Solid/gradient only.">
+                <div className="grid grid-cols-4 gap-1">
+                  {(["none", "drift", "aurora", "pulse"] as const).map((m) => (
+                    <button key={m} type="button" onClick={() => set({ bgAnimation: m })}
+                      className={cn("h-9 rounded-md border text-xs capitalize", get(cfg, "bgAnimation", "none") === m ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10" : "border-border text-muted-foreground")}>
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              </Row>
+            )}
           </Section>
 
           <Section title="Layout">

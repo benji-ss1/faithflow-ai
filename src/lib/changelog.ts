@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.144",
+    date: "2026-08-11",
+    headline: "Animated theme backgrounds for verses & lyrics",
+    highlights: [
+      "Themes with a solid or gradient background can now gently move behind your words. In the theme editor's Background section, pick a Motion preset — Drift, Aurora, or Pulse — and the projector, stage, and livestream all show it live.",
+      "The motion is deliberately subtle and smooth: it's GPU-drawn so it won't slow down your projector machine or the livestream, and it automatically turns off for anyone who has “reduce motion” switched on.",
+    ],
+  },
+  {
     version: "0.1.143",
     date: "2026-08-11",
     headline: "Theme editor: reuse your media, export & share themes",

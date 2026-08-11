@@ -2,6 +2,22 @@
 import { useEffect, useRef, useCallback } from "react";
 import type { SlidePayload, ThemeAppearance } from "@/lib/broadcast";
 import { AutoFitText } from "./AutoFitText";
+import { AnimatedThemeBg } from "./ThemeLayers";
+
+/** True when the active theme has a running animated (solid/gradient) background
+ *  and this slide isn't over video / per-slide-coloured — i.e. AnimatedThemeBg
+ *  will render and the text must be lifted to z-[1] to stay on top.
+ *
+ *  Perf note: this only fires when `appearance` is passed, which today is ONLY
+ *  the real output surfaces (live/stage/livestream/OutputSlide). Operator
+ *  thumbnail grids render <SlideRenderer> WITHOUT appearance, so they spin up no
+ *  animated GPU layers. If you ever thread `appearance` into a many-tile grid,
+ *  gate the animation off there — N concurrent full-screen transform layers. */
+function usesAnimatedBg(appearance: ThemeAppearance | null | undefined, overVideo?: boolean, slideBgColor?: string): boolean {
+  if (overVideo || slideBgColor) return false;
+  const a = appearance?.bgAnimation;
+  return !!a && a !== "none" && appearance?.bgType !== "image" && appearance?.bgType !== "video";
+}
 
 // ── Themes Phase 1: compute CSS from the active theme appearance ───────────
 // Background supports solid / gradient / image, with an optional dark "dim"
@@ -101,7 +117,12 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
   if (slide.kind === "blank") {
     // Over video, a blank slide is fully transparent (shows the live feed).
     const bg = overVideo ? { background: "transparent" } : slide.bgColor ? { background: slide.bgColor } : themeBackgroundStyle(appearance, "#000000");
-    return <div className={`${base} ${className || ""}`} style={bg} />;
+    const animated = usesAnimatedBg(appearance, overVideo, slide.bgColor);
+    return (
+      <div className={`${base} ${animated ? "relative" : ""} ${className || ""}`} style={bg}>
+        {animated && <AnimatedThemeBg appearance={appearance} />}
+      </div>
+    );
   }
 
   if (slide.kind === "logo") {
@@ -120,8 +141,10 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
     // Over video, the text sits transparently on the feed (parent adds a scrim);
     // otherwise use the per-slide bg color or the active theme background.
     const bg = overVideo ? { background: "transparent" } : slide.bgColor ? { background: slide.bgColor } : themeBackgroundStyle(appearance, "#0b0b0b");
+    const animated = usesAnimatedBg(appearance, overVideo, slide.bgColor);
     return (
-      <div className={`${base} ${className || ""}`} style={bg}>
+      <div className={`${base} ${animated ? "relative" : ""} ${className || ""}`} style={bg}>
+        {animated && <AnimatedThemeBg appearance={appearance} />}
         <AutoFitText
           text={slide.text}
           maxPx={120}
@@ -129,7 +152,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
           disablePagination={disablePagination}
           projectorFit={projectorFit}
           fontScale={fontScale}
-          className="text-white font-display font-semibold"
+          className={`text-white font-display font-semibold${animated ? " relative z-[1]" : ""}`}
           textStyle={themeTextStyle(appearance)}
         />
       </div>

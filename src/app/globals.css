@@ -196,6 +196,26 @@ html.light {
 @keyframes pfPulse { 0%,100% { transform: scale(1); opacity: 0.9; } 50% { transform: scale(1.06); opacity: 1; } }
 @keyframes pfSlideWord { from { transform: translateX(-10px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
+/*
+ * Themes 3 — animated theme backgrounds for the projector (AnimatedThemeBg).
+ * Transform-only (GPU-composited, no repaint) so they're safe behind live
+ * lyrics/verses on a weak projector PC and for the livestream encoder. The
+ * base transform (scale) is set inline per-preset; these keyframes only add
+ * motion on top of it, so the layer stays oversized and never reveals edges.
+ */
+/*
+ * All three rest at IDENTICAL transforms at 0% AND 100% so a per-slide remount
+ * (SlideRenderer sits inside the keyed TransitionWrapper) restarts seamlessly —
+ * the animation resumes near where it rested rather than snapping. aurora is a
+ * gentle ±6° sway (NOT a full 360° spin, which visibly snapped back each slide).
+ */
+@keyframes pf-bg-drift { 0%,100% { transform: scale(1.2) translate(0,0); } 50% { transform: scale(1.2) translate(3%, 3%); } }
+@keyframes pf-bg-aurora { 0%,100% { transform: scale(1.6) rotate(0deg); } 50% { transform: scale(1.6) rotate(6deg); } }
+@keyframes pf-bg-pulse { 0%,100% { transform: scale(1.1); } 50% { transform: scale(1.22); } }
+@media (prefers-reduced-motion: reduce) {
+  .pf-anim-bg { animation: none !important; }
+}
+
 .pf-brand-text {
   background: linear-gradient(90deg, var(--color-brand-hi), var(--color-brand));
   -webkit-background-clip: text;

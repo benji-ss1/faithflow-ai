@@ -1181,6 +1181,7 @@ type ThemeConfig = {
   bgImageUrl?: string;                    // used when bgType === "image"
   bgVideoUrl?: string;                    // used when bgType === "video" (autoplay muted loop)
   bgOpacity?: number;                     // 0..1
+  bgAnimation?: "none" | "drift" | "aurora" | "pulse"; // Themes 3: motion for solid/gradient bg
   // Layout
   logoPosition?:
     | "top-left" | "top-center" | "top-right"
@@ -1211,7 +1212,7 @@ type ThemeConfig = {
 const THEME_ALLOWED_KEYS: (keyof ThemeConfig)[] = [
   "fontFamily", "fontBodyFamily", "fontSizePx", "fontSizeScripturePx",
   "fontWeight", "textColor", "textShadow", "align",
-  "bgType", "bgColor", "bgColor2", "bgImageUrl", "bgVideoUrl", "bgOpacity",
+  "bgType", "bgColor", "bgColor2", "bgImageUrl", "bgVideoUrl", "bgOpacity", "bgAnimation",
   "logoPosition", "logoSizePx", "logoUrl", "churchNameVisible", "churchNamePosition",
   "lowerThirdEnabled", "lowerThirdStyle", "lowerThirdColor",
   "scriptureShowReference", "scriptureReferencePosition", "scriptureTranslationVisible",
