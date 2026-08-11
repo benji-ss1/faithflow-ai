@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.150",
+    date: "2026-08-11",
+    headline: "Add images from your media library, inside the slide editor",
+    highlights: [
+      "In the slide editor, “Add image → From media library” opens your church's uploaded images — pick one and it drops straight onto the slide. No re-uploading, no pasting URLs (though you still can).",
+    ],
+  },
+  {
     version: "0.1.149",
     date: "2026-08-11",
     headline: "Design slides right in the operator console",

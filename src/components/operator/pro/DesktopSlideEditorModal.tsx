@@ -8,6 +8,7 @@ import type { OperatorShellCtx } from "../shell/types";
 import { useSlideEditor } from "../editor/useSlideEditor";
 import { SlideEditorProvider, useSlideEditorCtx, type SlideEditorContextValue } from "../editor/SlideEditorContext";
 import { CenterWorkspace } from "../shell/CenterWorkspace";
+import { MediaLibraryPicker } from "@/components/library/MediaLibraryPicker";
 import { saveSlideObjects, createSongSlide, deleteSongSlide, reorderSongSlides } from "@/lib/actions";
 import type { SlideObject, TextObject, ShapeObject, ImageObject } from "@/lib/slide-objects";
 
@@ -147,6 +148,7 @@ const FONTS = ["Inter", "Sora", "Plus Jakarta Sans", "Georgia", "Helvetica", "Ar
 function ObjectInspector() {
   const editor = useSlideEditorCtx();
   const [imgUrl, setImgUrl] = useState("");
+  const [libOpen, setLibOpen] = useState(false);
   if (!editor || !editor.isEditable) {
     return <aside className="w-64 shrink-0 border-l p-3 text-[11px] text-zinc-500" style={{ borderColor: "#2a3232", background: "#1a2020" }}>Editing is available for song slides.</aside>;
   }
@@ -165,17 +167,25 @@ function ObjectInspector() {
         <ToolBtn icon={Plus} label="Slide" onClick={editor.addSlide} />
       </div>
 
-      {/* Add image by URL */}
+      {/* Add image — from the media library, or by URL */}
       <div className="p-2 border-b space-y-1.5" style={{ borderColor: "#2a3232" }}>
-        <label className="block text-[9px] uppercase tracking-wide text-zinc-500">Add image (URL)</label>
+        <label className="block text-[9px] uppercase tracking-wide text-zinc-500">Add image</label>
+        <button onClick={() => setLibOpen(true)}
+          className="w-full h-7 rounded border text-[10px] font-bold uppercase text-zinc-200 inline-flex items-center justify-center gap-1.5 hover:bg-white/[0.04]"
+          style={{ borderColor: "#2a3232", background: "#1e2525" }}>
+          <ImageIcon className="w-3 h-3" /> From media library
+        </button>
         <div className="flex gap-1">
-          <input value={imgUrl} onChange={(e) => setImgUrl(e.target.value)} placeholder="https://…"
+          <input value={imgUrl} onChange={(e) => setImgUrl(e.target.value)} placeholder="…or paste image URL"
             className="flex-1 h-7 px-1.5 rounded border text-[11px] text-zinc-200 bg-[#151a1a] outline-none focus:border-teal-500/60" style={{ borderColor: "#2a3232" }} />
           <button onClick={() => { if (imgUrl.trim()) { editor.addImage(imgUrl.trim()); setImgUrl(""); } }}
             className="h-7 px-2 rounded border text-[10px] font-bold uppercase text-zinc-200" style={{ borderColor: "#2a3232", background: "#1e2525" }}>
-            <ImageIcon className="w-3 h-3" />
+            Add
           </button>
         </div>
+        {libOpen && (
+          <MediaLibraryPicker kind="image" onPick={(url) => editor.addImage(url)} onClose={() => setLibOpen(false)} />
+        )}
       </div>
 
       {/* Selected-object props */}
