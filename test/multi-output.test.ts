@@ -93,6 +93,64 @@ async function main() {
     }
   });
 
+  // --- 1c. rich slide objects (projector object rendering) ----------------
+  const withLive = (live: unknown) => ({ ...validBase, live });
+  const txtObj = { kind: "text", x: 80, y: 400, w: 1760, h: 280, text: "Grace", fontSize: 96, color: "#ffffff", align: "center" };
+
+  await check("accepts text slide with a valid text object", () => {
+    const s = withLive({ kind: "text", text: "Grace", objects: [txtObj] });
+    assert.strictEqual(isValidOutputState(s), true);
+  });
+
+  await check("accepts shape + image objects", () => {
+    const s = withLive({ kind: "text", text: "", objects: [
+      { kind: "shape", x: 0, y: 0, w: 500, h: 300, shape: "rect", fill: "#14b8a6", opacity: 0.8 },
+      { kind: "image", x: 100, y: 100, w: 400, h: 400, url: "https://s3.example.com/pic.png", fit: "cover" },
+    ] });
+    assert.strictEqual(isValidOutputState(s), true);
+  });
+
+  await check("accepts text slide with per-slide bgImageUrl (https)", () => {
+    const s = withLive({ kind: "text", text: "x", bgImageUrl: "https://s3.example.com/bg.jpg", objects: [txtObj] });
+    assert.strictEqual(isValidOutputState(s), true);
+  });
+
+  await check("rejects bgImageUrl over http (non-https)", () => {
+    const s = withLive({ kind: "text", text: "x", bgImageUrl: "http://x/bg.jpg", objects: [txtObj] });
+    assert.strictEqual(isValidOutputState(s), false);
+  });
+
+  await check("rejects object with non-finite coordinate", () => {
+    const s = withLive({ kind: "text", text: "x", objects: [{ ...txtObj, x: Infinity }] });
+    assert.strictEqual(isValidOutputState(s), false);
+  });
+
+  await check("rejects image object with non-https url", () => {
+    const s = withLive({ kind: "text", text: "x", objects: [{ kind: "image", x: 0, y: 0, w: 100, h: 100, url: "javascript:alert(1)" }] });
+    assert.strictEqual(isValidOutputState(s), false);
+  });
+
+  await check("rejects text object with hostile color", () => {
+    const s = withLive({ kind: "text", text: "x", objects: [{ ...txtObj, color: "red;}body{}" }] });
+    assert.strictEqual(isValidOutputState(s), false);
+  });
+
+  await check("rejects unknown object kind", () => {
+    const s = withLive({ kind: "text", text: "x", objects: [{ kind: "video3d", x: 0, y: 0, w: 10, h: 10 }] });
+    assert.strictEqual(isValidOutputState(s), false);
+  });
+
+  await check("rejects too many objects (>60)", () => {
+    const many = Array.from({ length: 61 }, () => txtObj);
+    const s = withLive({ kind: "text", text: "x", objects: many });
+    assert.strictEqual(isValidOutputState(s), false);
+  });
+
+  await check("text slide without objects still valid (back-compat)", () => {
+    const s = withLive({ kind: "text", text: "plain" });
+    assert.strictEqual(isValidOutputState(s), true);
+  });
+
   // --- 2. countdownEndsAt validation --------------------------------------
   await check("accepts countdownEndsAt in near future", () => {
     const s = { ...validBase, countdownEndsAt: Date.now() + 60_000 };

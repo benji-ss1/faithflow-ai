@@ -1,7 +1,25 @@
 "use client";
 
+// Rich slide objects for the projector (Phase 5D-2 → live). Coordinates are in
+// the 1920×1080 virtual canvas the editor uses; renderers scale by percentage.
+// A wire-validated subset of the editor's SlideObject (src/lib/slide-objects.ts).
+export type SlideObjectWire =
+  | { kind: "text"; x: number; y: number; w: number; h: number; text: string;
+      fontFamily?: string; fontSize?: number; fontWeight?: number; color?: string;
+      align?: "left" | "center" | "right"; italic?: boolean; underline?: boolean }
+  | { kind: "shape"; x: number; y: number; w: number; h: number; shape: "rect" | "ellipse";
+      fill?: string; stroke?: string; strokeWidth?: number; radius?: number; opacity?: number }
+  | { kind: "image"; x: number; y: number; w: number; h: number; url: string; fit?: "contain" | "cover" };
+
+export const SLIDE_CANVAS_W = 1920;
+export const SLIDE_CANVAS_H = 1080;
+export const MAX_SLIDE_OBJECTS = 60;
+
 export type SlidePayload =
-  | { kind: "text"; text: string; bgColor?: string }
+  // `objects`, when present, drives a positioned multi-object render on every
+  // output surface; `text` is kept as the flattened fallback (AI/lyric matching,
+  // and renderers that don't do objects). `bgImageUrl` is the per-slide design bg.
+  | { kind: "text"; text: string; bgColor?: string; bgImageUrl?: string; objects?: SlideObjectWire[] }
   | { kind: "image"; url: string; fit?: "contain" | "cover" }
   | { kind: "video"; url: string; fit?: "contain" | "cover"; loop?: boolean; volume?: number }
   | { kind: "blank"; bgColor?: string }
@@ -411,6 +429,68 @@ export function isValidVideoInput(v: unknown): v is VideoInputState {
   return true;
 }
 
+// A finite number within a generous canvas band (objects may sit slightly
+// off-canvas; reject NaN/Infinity and absurd values that could break layout).
+function isCanvasCoord(v: unknown): boolean {
+  return typeof v === "number" && Number.isFinite(v) && v >= -SLIDE_CANVAS_W && v <= SLIDE_CANVAS_W * 2;
+}
+
+export function isValidSlideObject(o: unknown): o is SlideObjectWire {
+  if (!o || typeof o !== "object") return false;
+  if (hasPollutionKey(o)) return false;
+  const p = o as Record<string, unknown>;
+  if (!isCanvasCoord(p.x) || !isCanvasCoord(p.y) || !isCanvasCoord(p.w) || !isCanvasCoord(p.h)) return false;
+  if ((p.w as number) < 0 || (p.h as number) < 0) return false;
+  switch (p.kind) {
+    case "text":
+      if (typeof p.text !== "string" || p.text.length > 5000) return false;
+      if (p.fontFamily !== undefined && (typeof p.fontFamily !== "string" || !FONT_FAMILY_RE.test(p.fontFamily))) return false;
+      if (p.fontSize !== undefined && (typeof p.fontSize !== "number" || !Number.isFinite(p.fontSize) || p.fontSize < 1 || p.fontSize > 2000)) return false;
+      if (p.fontWeight !== undefined && (typeof p.fontWeight !== "number" || !Number.isFinite(p.fontWeight) || p.fontWeight < 100 || p.fontWeight > 900)) return false;
+      if (p.color !== undefined && !isValidColor(p.color)) return false;
+      if (p.align !== undefined && !["left", "center", "right"].includes(p.align as string)) return false;
+      if (p.italic !== undefined && typeof p.italic !== "boolean") return false;
+      if (p.underline !== undefined && typeof p.underline !== "boolean") return false;
+      return true;
+    case "shape":
+      if (p.shape !== "rect" && p.shape !== "ellipse") return false;
+      if (p.fill !== undefined && !isValidColor(p.fill)) return false;
+      if (p.stroke !== undefined && !isValidColor(p.stroke)) return false;
+      if (p.strokeWidth !== undefined && (typeof p.strokeWidth !== "number" || !Number.isFinite(p.strokeWidth) || p.strokeWidth < 0 || p.strokeWidth > 200)) return false;
+      if (p.radius !== undefined && (typeof p.radius !== "number" || !Number.isFinite(p.radius) || p.radius < 0 || p.radius > 2000)) return false;
+      if (p.opacity !== undefined && (typeof p.opacity !== "number" || !Number.isFinite(p.opacity) || p.opacity < 0 || p.opacity > 1)) return false;
+      return true;
+    case "image":
+      if (!isValidRenderUrl(p.url)) return false;
+      if (p.fit !== undefined && p.fit !== "contain" && p.fit !== "cover") return false;
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Build a GUARANTEED wire-valid text SlidePayload from possibly-untrusted DB
+ * fields. Each field is validated with the same predicates isValidSlide uses,
+ * and invalid objects are DROPPED individually rather than failing the whole
+ * slide — so a designed slide always projects (fail-open to the readable text
+ * block), never silently no-ops on the projector. Used server-side when
+ * building the projectable plan.
+ */
+export function projectableTextSlide(text: unknown, bgColor?: unknown, bgImageUrl?: unknown, objects?: unknown): SlidePayload {
+  const out: { kind: "text"; text: string; bgColor?: string; bgImageUrl?: string; objects?: SlideObjectWire[] } = {
+    kind: "text",
+    text: typeof text === "string" ? text.slice(0, 5000) : "",
+  };
+  if (isValidColor(bgColor)) out.bgColor = bgColor as string;
+  if (isValidRenderUrl(bgImageUrl)) out.bgImageUrl = bgImageUrl as string;
+  if (Array.isArray(objects)) {
+    const valid = objects.filter(isValidSlideObject).slice(0, MAX_SLIDE_OBJECTS);
+    if (valid.length > 0) out.objects = valid;
+  }
+  return out;
+}
+
 function isValidSlide(s: unknown): s is SlidePayload {
   if (!s || typeof s !== "object") return false;
   if (hasPollutionKey(s)) return false;
@@ -420,6 +500,11 @@ function isValidSlide(s: unknown): s is SlidePayload {
     case "text":
       if (typeof st.text !== "string" || st.text.length > 5000) return false;
       if (st.bgColor !== undefined && !isValidColor(st.bgColor)) return false;
+      if (st.bgImageUrl !== undefined && !isValidRenderUrl(st.bgImageUrl)) return false;
+      if (st.objects !== undefined) {
+        if (!Array.isArray(st.objects) || st.objects.length > MAX_SLIDE_OBJECTS) return false;
+        if (!st.objects.every(isValidSlideObject)) return false;
+      }
       return true;
     case "image":
     case "video":

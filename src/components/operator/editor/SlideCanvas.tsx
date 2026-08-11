@@ -101,9 +101,13 @@ export function SlideCanvas({
           style={{
             background: slide.bgColor || "#0b0b0b",
             borderColor: "#2a3232",
-            backgroundImage: slide.bgImageUrl ? `url(${slide.bgImageUrl})` : undefined,
+            backgroundImage: slide.bgImageUrl ? `url("${slide.bgImageUrl}")` : undefined,
             backgroundSize: "cover",
             backgroundPosition: "center",
+            // Establish a query container so text objects' `cqh` font sizing
+            // resolves against the CANVAS (not the viewport) — matching the
+            // projector's SlideObjectsLayer exactly, so the editor is true WYSIWYG.
+            containerType: "size",
           }}
           onMouseDown={(e) => {
             if (readOnly) return;

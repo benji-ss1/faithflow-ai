@@ -6,6 +6,19 @@ import { desc } from "drizzle-orm";
 import { servicePlans, serviceItems, songs, songSlides, mediaAssets, pptxImports, pptxSlides, settings, aiSuggestions, themes } from "../db/schema";
 import { presignGet } from "../s3";
 import type { SlidePayload } from "../broadcast";
+import { projectableTextSlide } from "../broadcast";
+
+// Build the projectable payload for a song slide. When the slide has a designed
+// object layout (saved via saveSlideObjects → objects_json), carry the objects +
+// per-slide background so the live projector renders the real layout; otherwise
+// fall back to the plain text block. projectableTextSlide VALIDATES every field
+// and DROPS invalid objects individually (fail-open to readable text), so a
+// designed slide always projects — one bad value can never no-op the slide on
+// the projector (the whole-OutputState wire validator would otherwise reject it).
+function projectableSongSlide(text: string, objectsJson: unknown): SlidePayload {
+  const raw = objectsJson as { bgColor?: unknown; bgImageUrl?: unknown; objects?: unknown } | null | undefined;
+  return projectableTextSlide(text, raw?.bgColor, raw?.bgImageUrl, raw?.objects);
+}
 
 export type ExpandedItem = {
   id: string;
@@ -82,7 +95,7 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
           orderedRows = [...front, ...tail];
         }
         songSlideRows = orderedRows.map((r) => ({ id: r.id, lyrics: sanitizeLyrics(r.lyrics), objectsJson: r.objectsJson }));
-        slides = orderedRows.map((r) => ({ kind: "text" as const, text: sanitizeLyrics(r.lyrics) }));
+        slides = orderedRows.map((r) => projectableSongSlide(sanitizeLyrics(r.lyrics), r.objectsJson));
       }
     } else if (it.type === "scripture") {
       // 2026-07-25 field bug fix — the client (BibleMode.addVerseToPlaylist)

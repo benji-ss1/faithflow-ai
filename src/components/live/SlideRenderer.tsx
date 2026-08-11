@@ -3,6 +3,7 @@ import { useEffect, useRef, useCallback } from "react";
 import type { SlidePayload, ThemeAppearance } from "@/lib/broadcast";
 import { AutoFitText } from "./AutoFitText";
 import { AnimatedThemeBg } from "./ThemeLayers";
+import { SlideObjectsLayer } from "./SlideObjectsLayer";
 
 /** True when the active theme has a running animated (solid/gradient) background
  *  and this slide isn't over video / per-slide-coloured — i.e. AnimatedThemeBg
@@ -140,6 +141,22 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
   if (slide.kind === "text") {
     // Over video, the text sits transparently on the feed (parent adds a scrim);
     // otherwise use the per-slide bg color or the active theme background.
+    // Rich object slide (ProPresenter-style): when the operator has designed a
+    // positioned layout, render it verbatim instead of the auto-fit text block.
+    // The per-slide design background (bgColor / bgImageUrl) wins over the theme.
+    const objects = slide.objects;
+    if (objects && objects.length > 0 && !overVideo) {
+      const designBg: React.CSSProperties = slide.bgImageUrl
+        ? { background: `#000 url("${slide.bgImageUrl}") center/cover no-repeat` }
+        : slide.bgColor
+          ? { background: slide.bgColor }
+          : themeBackgroundStyle(appearance, "#0b0b0b");
+      return (
+        <div className={`${base} relative ${className || ""}`} style={designBg}>
+          <SlideObjectsLayer objects={objects} />
+        </div>
+      );
+    }
     const bg = overVideo ? { background: "transparent" } : slide.bgColor ? { background: slide.bgColor } : themeBackgroundStyle(appearance, "#0b0b0b");
     const animated = usesAnimatedBg(appearance, overVideo, slide.bgColor);
     return (

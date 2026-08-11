@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.148",
+    date: "2026-08-11",
+    headline: "Designed slide layouts now project exactly as designed",
+    highlights: [
+      "The live projector, stage, and livestream can now show rich slide layouts — multiple text boxes, fonts, colours, shapes, images and per-slide backgrounds — positioned exactly where you placed them, instead of collapsing everything to centred text.",
+      "Groundwork for the full in-app slide editor coming next: what you design is now what projects, pixel-faithful across the projector, stage screen, and livestream. (Plain lyric/verse slides are unchanged.)",
+    ],
+  },
+  {
     version: "0.1.147",
     date: "2026-08-11",
     headline: "Preview matches projector · one clean fade per verse · transcription recovery",
