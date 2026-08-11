@@ -135,6 +135,23 @@ async function main() {
     assert.strictEqual(isValidOutputState(s), false);
   });
 
+  await check("accepts a valid video object", () => {
+    const s = withLive({ kind: "text", text: "", objects: [
+      { kind: "video", x: 100, y: 100, w: 800, h: 450, url: "https://s3.example.com/clip.mp4", fit: "cover", loop: true, muted: true },
+    ] });
+    assert.strictEqual(isValidOutputState(s), true);
+  });
+
+  await check("rejects video object with non-https url", () => {
+    const s = withLive({ kind: "text", text: "", objects: [{ kind: "video", x: 0, y: 0, w: 100, h: 100, url: "http://x/clip.mp4" }] });
+    assert.strictEqual(isValidOutputState(s), false);
+  });
+
+  await check("rejects video object with non-boolean loop", () => {
+    const s = withLive({ kind: "text", text: "", objects: [{ kind: "video", x: 0, y: 0, w: 100, h: 100, url: "https://s3.example.com/clip.mp4", loop: "yes" }] });
+    assert.strictEqual(isValidOutputState(s), false);
+  });
+
   await check("rejects unknown object kind", () => {
     const s = withLive({ kind: "text", text: "x", objects: [{ kind: "video3d", x: 0, y: 0, w: 10, h: 10 }] });
     assert.strictEqual(isValidOutputState(s), false);

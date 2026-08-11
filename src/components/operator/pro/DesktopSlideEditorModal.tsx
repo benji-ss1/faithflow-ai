@@ -3,14 +3,14 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Plus, Square, Circle, Type, Image as ImageIcon, Trash2 } from "lucide-react";
+import { X, Plus, Square, Circle, Type, Image as ImageIcon, Film, Trash2, ChevronsUp, ChevronsDown, ArrowUp, ArrowDown } from "lucide-react";
 import type { OperatorShellCtx } from "../shell/types";
 import { useSlideEditor } from "../editor/useSlideEditor";
 import { SlideEditorProvider, useSlideEditorCtx, type SlideEditorContextValue } from "../editor/SlideEditorContext";
 import { CenterWorkspace } from "../shell/CenterWorkspace";
 import { MediaLibraryPicker } from "@/components/library/MediaLibraryPicker";
 import { saveSlideObjects, createSongSlide, deleteSongSlide, reorderSongSlides } from "@/lib/actions";
-import type { SlideObject, TextObject, ShapeObject, ImageObject } from "@/lib/slide-objects";
+import type { SlideObject, TextObject, ShapeObject, ImageObject, VideoObject } from "@/lib/slide-objects";
 
 /**
  * Desktop full-screen slide editor (Phase 2 of the ProPresenter-style editor).
@@ -148,7 +148,7 @@ const FONTS = ["Inter", "Sora", "Plus Jakarta Sans", "Georgia", "Helvetica", "Ar
 function ObjectInspector() {
   const editor = useSlideEditorCtx();
   const [imgUrl, setImgUrl] = useState("");
-  const [libOpen, setLibOpen] = useState(false);
+  const [libKind, setLibKind] = useState<"image" | "video" | null>(null);
   if (!editor || !editor.isEditable) {
     return <aside className="w-64 shrink-0 border-l p-3 text-[11px] text-zinc-500" style={{ borderColor: "#2a3232", background: "#1a2020" }}>Editing is available for song slides.</aside>;
   }
@@ -167,24 +167,35 @@ function ObjectInspector() {
         <ToolBtn icon={Plus} label="Slide" onClick={editor.addSlide} />
       </div>
 
-      {/* Add image — from the media library, or by URL */}
+      {/* Add media — image or video, from the library or by URL */}
       <div className="p-2 border-b space-y-1.5" style={{ borderColor: "#2a3232" }}>
-        <label className="block text-[9px] uppercase tracking-wide text-zinc-500">Add image</label>
-        <button onClick={() => setLibOpen(true)}
-          className="w-full h-7 rounded border text-[10px] font-bold uppercase text-zinc-200 inline-flex items-center justify-center gap-1.5 hover:bg-white/[0.04]"
-          style={{ borderColor: "#2a3232", background: "#1e2525" }}>
-          <ImageIcon className="w-3 h-3" /> From media library
-        </button>
+        <label className="block text-[9px] uppercase tracking-wide text-zinc-500">Add media</label>
+        <div className="grid grid-cols-2 gap-1.5">
+          <button onClick={() => setLibKind("image")}
+            className="h-7 rounded border text-[10px] font-bold uppercase text-zinc-200 inline-flex items-center justify-center gap-1 hover:bg-white/[0.04]"
+            style={{ borderColor: "#2a3232", background: "#1e2525" }}>
+            <ImageIcon className="w-3 h-3" /> Image
+          </button>
+          <button onClick={() => setLibKind("video")}
+            className="h-7 rounded border text-[10px] font-bold uppercase text-zinc-200 inline-flex items-center justify-center gap-1 hover:bg-white/[0.04]"
+            style={{ borderColor: "#2a3232", background: "#1e2525" }}>
+            <Film className="w-3 h-3" /> Video
+          </button>
+        </div>
         <div className="flex gap-1">
-          <input value={imgUrl} onChange={(e) => setImgUrl(e.target.value)} placeholder="…or paste image URL"
+          <input value={imgUrl} onChange={(e) => setImgUrl(e.target.value)} placeholder="…or paste an image URL"
             className="flex-1 h-7 px-1.5 rounded border text-[11px] text-zinc-200 bg-[#151a1a] outline-none focus:border-teal-500/60" style={{ borderColor: "#2a3232" }} />
           <button onClick={() => { if (imgUrl.trim()) { editor.addImage(imgUrl.trim()); setImgUrl(""); } }}
             className="h-7 px-2 rounded border text-[10px] font-bold uppercase text-zinc-200" style={{ borderColor: "#2a3232", background: "#1e2525" }}>
             Add
           </button>
         </div>
-        {libOpen && (
-          <MediaLibraryPicker kind="image" onPick={(url) => editor.addImage(url)} onClose={() => setLibOpen(false)} />
+        {libKind && (
+          <MediaLibraryPicker
+            kind={libKind}
+            onPick={(url) => { if (libKind === "video") editor.addVideo(url); else editor.addImage(url); }}
+            onClose={() => setLibKind(null)}
+          />
         )}
       </div>
 
@@ -197,9 +208,20 @@ function ObjectInspector() {
               <Trash2 className="w-3 h-3" />
             </button>
           </div>
+          {/* Z-order (layer) controls */}
+          <div>
+            <span className={rowCls}>Layer order</span>
+            <div className="flex gap-0.5">
+              <ZBtn icon={ChevronsDown} title="Send to back" onClick={() => editor.reorderObject(selected.id, "back")} />
+              <ZBtn icon={ArrowDown} title="Send backward" onClick={() => editor.reorderObject(selected.id, "backward")} />
+              <ZBtn icon={ArrowUp} title="Bring forward" onClick={() => editor.reorderObject(selected.id, "forward")} />
+              <ZBtn icon={ChevronsUp} title="Bring to front" onClick={() => editor.reorderObject(selected.id, "front")} />
+            </div>
+          </div>
           {selected.kind === "text" && <TextProps o={selected} upd={upd} />}
           {selected.kind === "shape" && <ShapeProps o={selected} upd={upd} />}
           {selected.kind === "image" && <ImageProps o={selected} upd={upd} />}
+          {selected.kind === "video" && <VideoProps o={selected} upd={upd} />}
         </div>
       ) : (
         <div className="p-2 text-[11px] text-zinc-500 border-b" style={{ borderColor: "#2a3232" }}>Select an object on the canvas to edit it.</div>
@@ -212,6 +234,16 @@ function ObjectInspector() {
           className="h-7 w-full rounded border cursor-pointer bg-transparent" style={{ borderColor: "#2a3232" }} />
       </div>
     </aside>
+  );
+}
+
+function ZBtn({ icon: Icon, title, onClick }: { icon: typeof Type; title: string; onClick: () => void }) {
+  return (
+    <button onClick={onClick} title={title}
+      className="flex-1 h-7 rounded border inline-flex items-center justify-center text-zinc-300 hover:bg-white/[0.04]"
+      style={{ borderColor: "#2a3232", background: "#1e2525" }}>
+      <Icon className="w-3 h-3" />
+    </button>
   );
 }
 
@@ -292,5 +324,29 @@ function ImageProps({ o, upd }: { o: ImageObject; upd: (p: Partial<SlideObject>)
         ))}
       </div>
     </div>
+  );
+}
+
+function VideoProps({ o, upd }: { o: VideoObject; upd: (p: Partial<SlideObject>) => void }) {
+  return (
+    <>
+      <div><span className={rowCls}>Fit</span>
+        <div className="flex gap-0.5">
+          {(["contain", "cover"] as const).map((f) => (
+            <button key={f} onClick={() => upd({ fit: f })}
+              className={`flex-1 h-7 rounded border text-[9px] uppercase ${(o.fit ?? "contain") === f ? "border-teal-400 bg-teal-500/20 text-teal-100" : "text-zinc-400"}`}
+              style={(o.fit ?? "contain") === f ? undefined : { borderColor: "#2a3232" }}>{f}</button>
+          ))}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        <button onClick={() => upd({ loop: !(o.loop ?? true) })}
+          className={`h-7 rounded border text-[9px] uppercase ${(o.loop ?? true) ? "border-teal-400 bg-teal-500/20 text-teal-100" : "text-zinc-400"}`}
+          style={(o.loop ?? true) ? undefined : { borderColor: "#2a3232" }}>Loop {(o.loop ?? true) ? "on" : "off"}</button>
+        <button onClick={() => upd({ muted: !(o.muted ?? true) })}
+          className={`h-7 rounded border text-[9px] uppercase ${(o.muted ?? true) ? "border-teal-400 bg-teal-500/20 text-teal-100" : "text-zinc-400"}`}
+          style={(o.muted ?? true) ? undefined : { borderColor: "#2a3232" }}>{(o.muted ?? true) ? "Muted" : "Sound on"}</button>
+      </div>
+    </>
   );
 }

@@ -41,7 +41,17 @@ export type ImageObject = {
   fit?: "contain" | "cover";
 };
 
-export type SlideObject = TextObject | ShapeObject | ImageObject;
+export type VideoObject = {
+  id: string;
+  kind: "video";
+  x: number; y: number; w: number; h: number;
+  url: string;
+  fit?: "contain" | "cover";
+  loop?: boolean;
+  muted?: boolean;
+};
+
+export type SlideObject = TextObject | ShapeObject | ImageObject | VideoObject;
 
 export type SlideTransition = {
   effectId: string;
@@ -93,6 +103,14 @@ export function emptyImage(url: string): ImageObject {
     id: newObjectId(), kind: "image",
     x: 660, y: 340, w: 600, h: 400,
     url, fit: "contain",
+  };
+}
+
+export function emptyVideo(url: string): VideoObject {
+  return {
+    id: newObjectId(), kind: "video",
+    x: 560, y: 240, w: 800, h: 450,
+    url, fit: "contain", loop: true, muted: true,
   };
 }
 

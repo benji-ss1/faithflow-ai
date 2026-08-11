@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.153",
+    date: "2026-08-11",
+    headline: "Slide editor: videos, and layer ordering",
+    highlights: [
+      "Add videos to a slide the same way as images — “Add media → Video” pulls from your church's uploaded clips; they play on the projector muted-and-looping by default, and you can toggle sound or looping per clip.",
+      "New layer controls: select any object and send it to back, backward, forward, or to the front — so text can sit cleanly over images and video.",
+    ],
+  },
+  {
     version: "0.1.152",
     date: "2026-08-11",
     headline: "Import huge ProPresenter libraries — hundreds of songs at once",

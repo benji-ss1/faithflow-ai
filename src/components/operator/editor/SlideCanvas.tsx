@@ -194,6 +194,17 @@ function ObjectView({
         draggable={false}
       />
     );
+  } else if (obj.kind === "video") {
+    inner = (
+      <video
+        src={obj.url}
+        autoPlay
+        loop={obj.loop ?? true}
+        muted
+        playsInline
+        style={{ width: "100%", height: "100%", objectFit: obj.fit ?? "contain", display: "block" }}
+      />
+    );
   }
 
   return (

@@ -16,7 +16,8 @@ export type SlideObjectWire =
       align?: "left" | "center" | "right"; italic?: boolean; underline?: boolean }
   | { kind: "shape"; x: number; y: number; w: number; h: number; shape: "rect" | "ellipse";
       fill?: string; stroke?: string; strokeWidth?: number; radius?: number; opacity?: number }
-  | { kind: "image"; x: number; y: number; w: number; h: number; url: string; fit?: "contain" | "cover" };
+  | { kind: "image"; x: number; y: number; w: number; h: number; url: string; fit?: "contain" | "cover" }
+  | { kind: "video"; x: number; y: number; w: number; h: number; url: string; fit?: "contain" | "cover"; loop?: boolean; muted?: boolean };
 
 export const SLIDE_CANVAS_W = 1920;
 export const SLIDE_CANVAS_H = 1080;
@@ -470,6 +471,12 @@ export function isValidSlideObject(o: unknown): o is SlideObjectWire {
     case "image":
       if (!isValidRenderUrl(p.url)) return false;
       if (p.fit !== undefined && p.fit !== "contain" && p.fit !== "cover") return false;
+      return true;
+    case "video":
+      if (!isValidRenderUrl(p.url)) return false;
+      if (p.fit !== undefined && p.fit !== "contain" && p.fit !== "cover") return false;
+      if (p.loop !== undefined && typeof p.loop !== "boolean") return false;
+      if (p.muted !== undefined && typeof p.muted !== "boolean") return false;
       return true;
     default:
       return false;

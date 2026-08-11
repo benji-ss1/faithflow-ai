@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type EditableSlide, type SlideObject, type TextObject, type ShapeObject, type ImageObject,
-  emptyTextObject, emptyShape, emptyImage, fromLegacyLyrics, normalizeEditableSlide,
+  emptyTextObject, emptyShape, emptyImage, emptyVideo, fromLegacyLyrics, normalizeEditableSlide,
   slidePayloadFromEditable, extractLyricsFromEditable,
 } from "@/lib/slide-objects";
 
@@ -33,6 +33,8 @@ export type UseSlideEditorReturn = {
   addTextObject: () => void;
   addShape: (shape?: "rect" | "ellipse") => void;
   addImage: (url: string) => void;
+  addVideo: (url: string) => void;
+  reorderObject: (id: string, dir: "front" | "back" | "forward" | "backward") => void;
   updateObject: (id: string, patch: Partial<SlideObject>) => void;
   removeObject: (id: string) => void;
   moveObject: (id: string, dx: number, dy: number) => void;
@@ -130,6 +132,31 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     const obj = emptyImage(url);
     patchCurrent((s) => ({ ...s, objects: [...s.objects, obj] }));
     setSelectedObjectId(obj.id);
+  }, [isEditable, patchCurrent]);
+
+  const addVideo = useCallback((url: string) => {
+    if (!isEditable) return;
+    const obj = emptyVideo(url);
+    patchCurrent((s) => ({ ...s, objects: [...s.objects, obj] }));
+    setSelectedObjectId(obj.id);
+  }, [isEditable, patchCurrent]);
+
+  // Z-order: objects paint in array order (last = front). Move the selected
+  // object within that order.
+  const reorderObject = useCallback((id: string, dir: "front" | "back" | "forward" | "backward") => {
+    if (!isEditable) return;
+    patchCurrent((s) => {
+      const idx = s.objects.findIndex((o) => o.id === id);
+      if (idx < 0) return s;
+      const objs = s.objects.slice();
+      const [obj] = objs.splice(idx, 1);
+      const to = dir === "front" ? objs.length
+        : dir === "back" ? 0
+        : dir === "forward" ? Math.min(objs.length, idx + 1)
+        : Math.max(0, idx - 1);
+      objs.splice(to, 0, obj);
+      return { ...s, objects: objs };
+    });
   }, [isEditable, patchCurrent]);
 
   const updateObject = useCallback((id: string, patch: Partial<SlideObject>) => {
@@ -272,6 +299,8 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     addTextObject,
     addShape,
     addImage,
+    addVideo,
+    reorderObject,
     updateObject,
     removeObject,
     moveObject,

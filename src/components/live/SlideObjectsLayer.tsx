@@ -68,6 +68,21 @@ export function SlideObjectsLayer({ objects }: { objects: SlideObjectWire[] }) {
             </div>
           );
         }
+        if (obj.kind === "video") {
+          return (
+            <div key={key} style={box}>
+              <video
+                src={obj.url}
+                autoPlay
+                loop={obj.loop ?? true}
+                muted={obj.muted ?? true}
+                playsInline
+                style={{ width: "100%", height: "100%", objectFit: obj.fit ?? "contain", display: "block" }}
+                onError={(e) => { (e.currentTarget as HTMLVideoElement).style.visibility = "hidden"; }}
+              />
+            </div>
+          );
+        }
         // image
         return (
           <div key={key} style={box}>
