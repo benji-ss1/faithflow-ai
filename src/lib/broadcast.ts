@@ -49,6 +49,21 @@ export const ALLOWED_TRANSITION_NAMES = new Set<string>([
   "Wipe", "Amoeba", "Dispersion Blur", "Color Burn", "Iris", "Push",
 ]);
 
+// Default transition applied to AI-fired slides (song auto-live, Bible
+// auto-approve). A short, gentle fade — smooth like ProPresenter but fast
+// enough that it never lags live speech (rule 10). Deliberately NOT the
+// operator's configured transition, which can be a slow (1–2 s) effect that
+// would drag on rapid auto-fires; that configured transition is preserved for
+// manual sends. `name: "Fade"` keeps it inside ALLOWED_TRANSITION_NAMES so the
+// cross-device Realtime validator (isValidTransitionSpec) accepts it. Tunable
+// in one place; a future themes overhaul may source this from the active theme.
+export const AI_AUTO_TRANSITION: TransitionSpec = {
+  effectId: "fade_in",
+  durationMs: 150, // sermon-rate scripture: smooth but well under one spoken word
+  easing: "ease-out",
+  name: "Fade",
+};
+
 export function isValidTransitionSpec(t: unknown): t is TransitionSpec {
   if (t === null) return true;
   if (!t || typeof t !== "object") return false;
@@ -59,6 +74,14 @@ export function isValidTransitionSpec(t: unknown): t is TransitionSpec {
   if (!ALLOWED_TRANSITION_NAMES.has(name)) return false;
   if (typeof p.durationMs !== "number" || !Number.isFinite(p.durationMs)) return false;
   if (p.durationMs < 0 || p.durationMs > 5000) return false;
+  // `easing` is string-interpolated into a CSS animation shorthand on the
+  // projector. The CSSOM parser already drops anything that isn't a valid
+  // timing-function, but keep the wire contract bounded (defense-in-depth):
+  // reject over-long or non-CSS-timing charsets from cross-device payloads.
+  if (p.easing !== undefined) {
+    if (typeof p.easing !== "string" || p.easing.length > 64) return false;
+    if (!/^[a-zA-Z0-9(),.\s%-]+$/.test(p.easing)) return false;
+  }
   return true;
 }
 

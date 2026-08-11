@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.131",
+    date: "2026-08-11",
+    headline: "Smooth transitions on auto-advanced slides",
+    highlights: [
+      "Slides that advance automatically — a detected song going live, or a spoken scripture auto-projecting — now ease in with a quick, gentle fade instead of a hard cut, matching the polished look of your manual transitions. It's deliberately fast (a fifth of a second) so it never lags behind live speech.",
+      "Your own configured transition still applies to slides you advance by hand, and instant Bible verse clicks stay instant — nothing you already do gets slower.",
+    ],
+  },
+  {
     version: "0.1.130",
     date: "2026-08-11",
     headline: "Proclaim & PowerPoint import order · text-size syncs to paired screens",

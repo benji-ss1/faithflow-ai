@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ArrowLeft, ChevronLeft, ChevronRight, Monitor, Radio, Square, Sun, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { openLiveChannel, safePost, isValidMessageOverlay, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
+import { openLiveChannel, safePost, isValidMessageOverlay, AI_AUTO_TRANSITION, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
 import { readFontScale } from "./pro/operatorConstants";
 import { openOutputChannel } from "@/lib/realtime";
 import { SyncControl } from "./SyncControl";
@@ -201,7 +201,12 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
   // Phase 5D-2: projector-level layers
   const [announcement, setAnnouncement] = useState<import("@/lib/broadcast").AnnouncementPayload | null>(null);
   const [transitionSpec, setTransitionSpec] = useState<import("@/lib/broadcast").TransitionSpec | null>(null);
-  const fastTransitionSlideRef = useRef<SlidePayload | null>(null);
+  // One-shot marker for a slide whose transition is decided at fire-time rather
+  // than from the operator's configured `transitionSpec`. `transition: null`
+  // means a hard cut (Bible card clicks — the configured theme fade is visible
+  // latency there); a spec means a forced transition (AI auto-fires use the fast
+  // AI_AUTO_TRANSITION so they animate smoothly without dragging on live speech).
+  const fastTransitionSlideRef = useRef<{ slide: SlidePayload; transition: import("@/lib/broadcast").TransitionSpec | null } | null>(null);
   const [liveBroadcastRevision, setLiveBroadcastRevision] = useState(0);
 
   // Compute next-slide payload for /stage
@@ -246,10 +251,11 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
   })();
   const lastEmittedKeyRef = useRef<string>("");
   useEffect(() => {
-    const useFastTransition = fastTransitionSlideRef.current === live;
+    const fastMarker = fastTransitionSlideRef.current;
+    const useFastTransition = fastMarker?.slide === live;
     // If another slide superseded the AI slide before this effect committed,
     // discard the stale one-shot marker so it cannot affect a later replay.
-    if (!useFastTransition && fastTransitionSlideRef.current) fastTransitionSlideRef.current = null;
+    if (!useFastTransition && fastMarker) fastTransitionSlideRef.current = null;
     const state: OutputState = {
       live,
       next: nextSlideForStage,
@@ -262,7 +268,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
       lowerThird: null,
       countdownEndsAt,
       announcement,
-      transition: useFastTransition ? null : transitionSpec,
+      transition: useFastTransition ? fastMarker!.transition : transitionSpec,
       nextItem: nextItemForStage,
       fontScale,
     };
@@ -474,16 +480,23 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
       // marks fastTransitionSlideRef so the subsequent "output" message also
       // carries transition:null. Used for Bible verse card clicks where a 1-2 s
       // theme fade is user-visible latency.
-      fastTransitionSlideRef.current = slide;
+      fastTransitionSlideRef.current = { slide, transition: null };
       setLive(slide);
       setLiveBroadcastRevision((revision) => revision + 1);
       chRef.current?.postMessage({ type: "set", slide, transition: null } as LiveMessage);
       return;
     }
+    // Transition the "set" message and the follow-up "output" message will
+    // carry. AI auto-fires (preserveConfiguredTransition) animate with the fast
+    // AI_AUTO_TRANSITION — smooth but latency-safe — while leaving the operator's
+    // configured `transitionSpec` untouched for subsequent manual sends.
+    let setTransition: import("@/lib/broadcast").TransitionSpec | null | undefined;
     if (options?.preserveConfiguredTransition) {
-      fastTransitionSlideRef.current = slide;
-    } else if (spec !== undefined) {
-      setTransitionSpec(spec);
+      fastTransitionSlideRef.current = { slide, transition: AI_AUTO_TRANSITION };
+      setTransition = AI_AUTO_TRANSITION;
+    } else {
+      if (spec !== undefined) setTransitionSpec(spec);
+      setTransition = spec;
     }
     setLive(slide);
     // A repeated reference can reuse the exact same slide object. Force the
@@ -493,7 +506,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     const posted = chRef.current?.postMessage({
       type: "set",
       slide,
-      ...(spec !== undefined ? { transition: spec } : {}),
+      ...(setTransition !== undefined ? { transition: setTransition } : {}),
     } as LiveMessage);
     try { console.log("[live] setLive committed + broadcast posted", { posted: posted !== undefined ? "ok" : "no-channel" }); } catch { /* ignore */ }
   }, []);

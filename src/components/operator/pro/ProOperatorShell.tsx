@@ -1851,7 +1851,12 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         bibleFiredMapRef.current[fireKey] = nowInstant;
         lastHandledAutoFireSuggestionIdRef.current = scripture.id;
         try {
-          sendLiveRef.current(labelSlide, null, { preserveConfiguredTransition: true });
+          // Label-only placeholder is a hard CUT (instant), not a fade: it's the
+          // latency feedback (rule 10) shown until the verse text arrives, and the
+          // fade belongs to the full verse below. Firing both with a fade would
+          // double-animate on the projector (two `set` messages → two fades) and
+          // ghost-flicker on cache hits. Instant here → exactly one fade per verse.
+          sendLiveRef.current(labelSlide, null, { instant: true });
         } catch { /* safeSendLive wrapper handles errors in the full path */ }
         // Sync preview
         bibleSession.setRef(refText);
