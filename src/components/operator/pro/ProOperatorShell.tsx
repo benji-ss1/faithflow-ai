@@ -1979,7 +1979,12 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // fades. Manual sends and the operator's configured transition are untouched
   // (this guards only the two AI fire chokepoints below).
   const AI_FADE_WINDOW_MS = 8_000;
-  const lastAiFadeRef = useRef<{ fam: string; at: number }>({ fam: "", at: 0 });
+  // Map (not a single slot): with a single {fam, at} slot, two interleaved
+  // cascades (preacher moves to Gen 4 while John 3's Whisper correction is
+  // still in flight) thrash the slot and every fire fades again — the exact
+  // bug. Per-family timestamps survive the interleave. Pruned on each call;
+  // bounded by the handful of families active in any 8s window.
+  const aiFadeAtByFamRef = useRef<Map<string, number>>(new Map());
   // Family = "book chapter" parsed from the slide's trailing reference label
   // ("...\n\nJohn 3:16 (KJV)"). Unparseable text → the text itself (unique →
   // always fades), so non-scripture content is never wrongly suppressed.
@@ -1988,8 +1993,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     const m = /^(.+?)\s+(\d+):\d+/.exec(lastLine);
     const fam = m ? `${m[1].toLowerCase()} ${m[2]}` : slideText;
     const now = Date.now();
-    const prev = lastAiFadeRef.current;
-    if (prev.fam === fam && now - prev.at < AI_FADE_WINDOW_MS) {
+    const map = aiFadeAtByFamRef.current;
+    for (const [k, t] of map) if (now - t >= AI_FADE_WINDOW_MS) map.delete(k);
+    const fadedAt = map.get(fam);
+    if (typeof fadedAt === "number" && now - fadedAt < AI_FADE_WINDOW_MS) {
       // Same family re-fired inside the window: suppress the fade. The window
       // is deliberately measured from the FADE (not refreshed here) so the
       // forward-continuation verse advance (v16 → v17, the 0.1.131 feature)
@@ -1997,7 +2004,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       // re-fire would chain-suppress fades for an entire fast reading.
       return false;
     }
-    lastAiFadeRef.current = { fam, at: now };
+    map.set(fam, now);
     return true;
   }, []);
 
