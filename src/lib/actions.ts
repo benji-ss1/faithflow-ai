@@ -338,6 +338,38 @@ export async function reorderItemSlides(
   return { ok: true };
 }
 
+// Themes 2c — assign a "section theme" to one service item (or clear it with
+// null). Stored on serviceItems.payload.themeId; the operator resolves it for
+// that item, falling back to the church default when unset. Two-hop church
+// scoping (plan → item), and a non-null themeId must belong to this church.
+export async function setServiceItemTheme(planId: string, itemId: string, themeId: string | null): Promise<Result> {
+  const user = await requireCap("operate_services");
+  const db = getDb();
+  const [plan] = await db.select().from(servicePlans)
+    .where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, user.churchId)))
+    .limit(1);
+  if (!plan) return { ok: false, error: "Plan not found" };
+  const [item] = await db.select().from(serviceItems)
+    .where(and(eq(serviceItems.id, itemId), eq(serviceItems.servicePlanId, planId)))
+    .limit(1);
+  if (!item) return { ok: false, error: "Item not part of this plan" };
+
+  if (themeId) {
+    const [theme] = await db.select({ id: themes.id }).from(themes)
+      .where(and(eq(themes.id, themeId), eq(themes.churchId, user.churchId)))
+      .limit(1);
+    if (!theme) return { ok: false, error: "Theme not found" };
+  }
+
+  const payload = (item.payload || {}) as Record<string, unknown>;
+  const nextPayload = { ...payload };
+  if (themeId) nextPayload.themeId = themeId;
+  else delete nextPayload.themeId;
+  await db.update(serviceItems).set({ payload: nextPayload }).where(eq(serviceItems.id, itemId));
+  revalidatePath(`/services/${planId}`);
+  return { ok: true };
+}
+
 // Songs ----------------------------------------------------------------------
 export async function createSong(formData: FormData): Promise<Result<{ id: string }>> {
   const user = await requireCap("edit_library");

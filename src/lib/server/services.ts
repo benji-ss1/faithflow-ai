@@ -19,6 +19,9 @@ export type ExpandedItem = {
   // for song items.
   songId?: string;
   songSlideRows?: { id: string; lyrics: string; objectsJson: unknown }[];
+  // Themes 2c — optional per-item theme override (a "section theme"). When set,
+  // the operator resolves this theme for the item instead of the church default.
+  themeId?: string;
 };
 
 export type ExpandedPlan = {
@@ -133,8 +136,9 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
     }
 
     if (slides.length === 0) slides = [{ kind: "blank", bgColor: blankBgColor }];
-    const extra: { pptxImportId?: string } = {};
+    const extra: { pptxImportId?: string; themeId?: string } = {};
     if (it.type === "sermon" && typeof payload.pptxImportId === "string") extra.pptxImportId = payload.pptxImportId;
+    if (typeof payload.themeId === "string" && payload.themeId) extra.themeId = payload.themeId;
     expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides, ...extra, songId, songSlideRows });
   }
 

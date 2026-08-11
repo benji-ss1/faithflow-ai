@@ -239,29 +239,57 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
   // `presentflow:theme-changed` (same-machine, like font-scale) for instant
   // live-apply without a refetch.
   const [appearance, setAppearance] = useState<import("@/lib/broadcast").ThemeAppearance | null>(null);
+  // Themes 2c — all church themes cached by id so we can resolve a per-item
+  // "section theme" override. `themesVersion` bumps when the cache changes.
+  const themesByIdRef = useRef<Map<string, unknown>>(new Map());
+  const [themesVersion, setThemesVersion] = useState(0);
   useEffect(() => {
     let cancelled = false;
     const userTouched = { current: false }; // an Apply during the in-flight fetch wins
-    (async () => {
+    const load = async () => {
       try {
         const res = await fetch("/api/themes");
         if (!res.ok) return;
-        const data = (await res.json()) as { themes?: { config?: unknown; isDefault?: boolean }[] };
-        const active = (data.themes ?? []).find((t) => t.isDefault) ?? null;
+        const data = (await res.json()) as { themes?: { id?: string; config?: unknown; isDefault?: boolean }[] };
+        const list = data.themes ?? [];
+        themesByIdRef.current = new Map(list.filter((t) => typeof t.id === "string").map((t) => [t.id as string, t.config]));
+        if (!cancelled) setThemesVersion((v) => v + 1);
+        const active = list.find((t) => t.isDefault) ?? null;
         if (!cancelled && !userTouched.current && active) {
           const { themeConfigToAppearance } = await import("@/lib/theme-appearance");
           setAppearance(themeConfigToAppearance(active.config));
         }
       } catch { /* no theme → built-in defaults */ }
-    })();
+    };
+    void load();
     const onChange = (e: Event) => {
       userTouched.current = true; // don't let the stale mount-fetch clobber this
       const detail = (e as CustomEvent).detail;
       setAppearance(detail?.appearance ?? null);
+      void load(); // refresh the by-id cache (default may have changed)
     };
     window.addEventListener("presentflow:theme-changed", onChange);
     return () => { cancelled = true; window.removeEventListener("presentflow:theme-changed", onChange); };
   }, []);
+
+  // Themes 2c — resolve the CURRENT item's section-theme override (if any) into
+  // its own appearance. When set it wins over the church default; when unset
+  // (every existing plan) this stays null and the default `appearance` is used,
+  // so the change is inert for plans that don't use section themes.
+  const currentItemThemeId = (plan.items[preview.itemIdx] as { themeId?: string } | undefined)?.themeId ?? null;
+  const [itemAppearance, setItemAppearance] = useState<import("@/lib/broadcast").ThemeAppearance | null>(null);
+  useEffect(() => {
+    if (!currentItemThemeId) { setItemAppearance(null); return; }
+    const cfg = themesByIdRef.current.get(currentItemThemeId);
+    if (!cfg) { setItemAppearance(null); return; }
+    let cancelled = false;
+    void import("@/lib/theme-appearance").then(({ themeConfigToAppearance }) => {
+      if (!cancelled) setItemAppearance(themeConfigToAppearance(cfg));
+    });
+    return () => { cancelled = true; };
+  }, [currentItemThemeId, themesVersion]);
+  // The appearance actually emitted: per-item section theme wins over default.
+  const effectiveAppearance = itemAppearance ?? appearance;
 
   // Phase 2a — active live video input, emitted on OutputState so the output
   // windows open the feed. Restored from the Video Input panel's persisted
@@ -333,7 +361,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
       transition: useFastTransition ? fastMarker!.transition : transitionSpec,
       nextItem: nextItemForStage,
       fontScale,
-      appearance,
+      appearance: effectiveAppearance,
       videoInput,
     };
     // Shallow signature — good enough for the fields we actually emit.
@@ -351,7 +379,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     if (rtRef.current) { void rtRef.current.publish(state.videoInput ? { ...state, videoInput: null } : state); }
     if (useFastTransition) fastTransitionSlideRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, appearance, videoInput]);
+  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, effectiveAppearance, videoInput]);
   const chRef = useRef<BroadcastChannel | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;
@@ -1167,7 +1195,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
       transition: transitionSpec,
       nextItem: nextItemForStage,
       fontScale,
-      appearance,
+      appearance: effectiveAppearance,
       videoInput,
     };
     const state: OutputState = { ...base, lowerThird: (line1 || line2) ? { line1, line2 } : null };
@@ -1175,7 +1203,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     publishRealtime(state.videoInput ? { ...state, videoInput: null } : state); // local-only camera id
     lastOutputStateRef.current = state;
     toast.success(line1 || line2 ? "Lower third sent" : "Lower third cleared");
-  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, publishRealtime, fontScale, appearance, videoInput]);
+  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, publishRealtime, fontScale, effectiveAppearance, videoInput]);
 
   /**
    * P2 message overlay — a transient lower-third bubble that displays on

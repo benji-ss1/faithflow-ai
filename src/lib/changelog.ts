@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.138",
+    date: "2026-08-11",
+    headline: "Section themes — a different look per service part",
+    highlights: [
+      "You can now give any item in your service plan its own theme: right-click it → “Section theme” → pick a theme (or “Default”). Worship can look different from the sermon, announcements different again.",
+      "As you move through the plan, the projector, stage, and livestream automatically switch to each item's theme; items without one use your church default exactly as before.",
+    ],
+  },
+  {
     version: "0.1.137",
     date: "2026-08-11",
     headline: "Theme editor now matches the projector (opacity + gradients)",

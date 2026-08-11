@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as Popover from "@radix-ui/react-popover";
@@ -33,7 +33,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
-import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong, createSongSlide, deleteSongSlide } from "@/lib/actions";
+import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong, createSongSlide, deleteSongSlide, setServiceItemTheme } from "@/lib/actions";
 
 function itemIcon(type: string) {
   if (type === "song") return Music;
@@ -55,6 +55,9 @@ function SortablePlaylistItem({
   onDuplicate,
   onAddSlide,
   onDeleteSong,
+  themes = [],
+  currentThemeId = null,
+  onSetTheme,
 }: {
   item: OperatorShellCtx["plan"]["items"][number];
   idx: number;
@@ -66,6 +69,9 @@ function SortablePlaylistItem({
   onDuplicate: () => void;
   onAddSlide?: () => void;
   onDeleteSong?: () => void;
+  themes?: { id: string; name: string }[];
+  currentThemeId?: string | null;
+  onSetTheme?: (themeId: string | null) => void;
 }) {
   const id = item.id ?? `item-${idx}`;
   const {
@@ -169,6 +175,33 @@ function SortablePlaylistItem({
                 Add slide
               </ContextMenu.Item>
             )}
+            {onSetTheme && themes.length > 0 && (
+              <ContextMenu.Sub>
+                <ContextMenu.SubTrigger className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between data-[state=open]:bg-[var(--color-panel)]">
+                  <span>Section theme</span><span className="opacity-60">▸</span>
+                </ContextMenu.SubTrigger>
+                <ContextMenu.Portal>
+                  <ContextMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[160px] max-h-[300px] overflow-y-auto">
+                    <ContextMenu.Item
+                      onSelect={() => onSetTheme(null)}
+                      className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between"
+                    >
+                      <span>Default (church)</span>{!currentThemeId && <span className="text-[var(--color-brand)]">✓</span>}
+                    </ContextMenu.Item>
+                    <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
+                    {themes.map((t) => (
+                      <ContextMenu.Item
+                        key={t.id}
+                        onSelect={() => onSetTheme(t.id)}
+                        className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between"
+                      >
+                        <span className="truncate">{t.name}</span>{currentThemeId === t.id && <span className="text-[var(--color-brand)]">✓</span>}
+                      </ContextMenu.Item>
+                    ))}
+                  </ContextMenu.SubContent>
+                </ContextMenu.Portal>
+              </ContextMenu.Sub>
+            )}
             {onDeleteSong && (
               <>
                 <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
@@ -206,12 +239,26 @@ export function PlaylistSection({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
+  // Themes 2c — church themes for the per-item "section theme" submenu.
+  const [themes, setThemes] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    let m = true;
+    fetch("/api/themes").then((r) => r.json()).then((d: { themes?: { id: string; name: string }[] }) => {
+      if (m) setThemes((d.themes ?? []).map((t) => ({ id: t.id, name: t.name })));
+    }).catch(() => { /* no themes */ });
+    return () => { m = false; };
+  }, []);
+
   // ── Result handler ────────────────────────────────────────────────────────
   const handleResult = (res: { ok: boolean; error?: string } | void, successMsg?: string) => {
     if (!res) return;
     if (!res.ok) { toast.error(res.error ?? "Action failed"); return; }
     if (successMsg) toast.success(successMsg);
     router.refresh();
+  };
+
+  const setTheme = async (itemId: string, themeId: string | null) => {
+    handleResult(await setServiceItemTheme(ctx.planId, itemId, themeId), themeId ? "Section theme set" : "Reset to default theme");
   };
 
   // Toast with an Undo action that runs the inverse (server) operation, then
@@ -459,6 +506,9 @@ export function PlaylistSection({
                   onDuplicate={() => void duplicate(idx)}
                   onAddSlide={it.type === "song" && it.songId ? () => void addSlideToItem(it) : undefined}
                   onDeleteSong={it.type === "song" && it.songId ? () => void deleteFromLibrary(it) : undefined}
+                  themes={themes}
+                  currentThemeId={(it as { themeId?: string }).themeId ?? null}
+                  onSetTheme={it.id ? (themeId) => void setTheme(it.id!, themeId) : undefined}
                 />
               ))}
             </ol>
