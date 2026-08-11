@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.154",
+    date: "2026-08-12",
+    headline: "Slide editor: duplicate objects + snap-to-centre",
+    highlights: [
+      "Select any object and hit the new copy button to duplicate it in place — great for repeating a design element or reusing a styled text box.",
+      "Dragging an object now snaps cleanly to the centre of the slide (with a guide line), so titles and verses line up perfectly without fiddling.",
+    ],
+  },
+  {
     version: "0.1.153",
     date: "2026-08-11",
     headline: "Slide editor: videos, and layer ordering",

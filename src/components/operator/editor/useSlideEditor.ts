@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type EditableSlide, type SlideObject, type TextObject, type ShapeObject, type ImageObject,
-  emptyTextObject, emptyShape, emptyImage, emptyVideo, fromLegacyLyrics, normalizeEditableSlide,
+  emptyTextObject, emptyShape, emptyImage, emptyVideo, newObjectId, fromLegacyLyrics, normalizeEditableSlide,
   slidePayloadFromEditable, extractLyricsFromEditable,
 } from "@/lib/slide-objects";
 
@@ -37,6 +37,7 @@ export type UseSlideEditorReturn = {
   reorderObject: (id: string, dir: "front" | "back" | "forward" | "backward") => void;
   updateObject: (id: string, patch: Partial<SlideObject>) => void;
   removeObject: (id: string) => void;
+  duplicateObject: (id: string) => void;
   moveObject: (id: string, dx: number, dy: number) => void;
   addSlide: () => void;
   duplicateSlide: () => void;
@@ -178,6 +179,22 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     setSelectedObjectId((cur) => (cur === id ? null : cur));
   }, [isEditable, patchCurrent]);
 
+  const duplicateObject = useCallback((id: string) => {
+    if (!isEditable) return;
+    const newId = newObjectId();
+    patchCurrent((s) => {
+      const idx = s.objects.findIndex((o) => o.id === id);
+      if (idx < 0) return s;
+      // Clone with a fresh id, nudged 40px so it's visibly a copy, inserted
+      // directly above the original.
+      const clone = { ...s.objects[idx], id: newId, x: s.objects[idx].x + 40, y: s.objects[idx].y + 40 } as SlideObject;
+      const objs = s.objects.slice();
+      objs.splice(idx + 1, 0, clone);
+      return { ...s, objects: objs };
+    });
+    setSelectedObjectId(newId);
+  }, [isEditable, patchCurrent]);
+
   const moveObject = useCallback((id: string, dx: number, dy: number) => {
     if (!isEditable) return;
     updateObject(id, { x: dx, y: dy } as Partial<SlideObject>);
@@ -303,6 +320,7 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     reorderObject,
     updateObject,
     removeObject,
+    duplicateObject,
     moveObject,
     addSlide,
     duplicateSlide,

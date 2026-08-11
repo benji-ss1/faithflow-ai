@@ -21,6 +21,9 @@ export function SlideCanvas({
   readOnly?: boolean;
 }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  // Snap guides — teal center lines shown while an object's center is snapped
+  // to the canvas centre during a move.
+  const [snap, setSnap] = useState<{ v: boolean; h: boolean }>({ v: false, h: false });
 
   // Keyboard: delete / escape. Don't hijack when a text input has focus.
   useEffect(() => {
@@ -68,6 +71,15 @@ export function SlideCanvas({
       let nx = start.x, ny = start.y, nw = start.w, nh = start.h;
       if (mode === "move") {
         nx = start.x + dx; ny = start.y + dy;
+        // Snap the object's centre to the canvas centre within a threshold, and
+        // flag the guide line so the operator sees the alignment.
+        const T = 26; // canvas units
+        const cx = nx + nw / 2, cy = ny + nh / 2;
+        const sv = Math.abs(cx - CANVAS_W / 2) < T;
+        const sh = Math.abs(cy - CANVAS_H / 2) < T;
+        if (sv) nx = CANVAS_W / 2 - nw / 2;
+        if (sh) ny = CANVAS_H / 2 - nh / 2;
+        setSnap({ v: sv, h: sh });
       } else {
         if (mode.includes("e")) nw = Math.max(20, start.w + dx);
         if (mode.includes("s")) nh = Math.max(20, start.h + dy);
@@ -77,6 +89,7 @@ export function SlideCanvas({
       onUpdateObject(obj.id, { x: nx, y: ny, w: nw, h: nh } as Partial<SlideObject>);
     }
     function onUp() {
+      setSnap({ v: false, h: false });
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     }
@@ -114,6 +127,9 @@ export function SlideCanvas({
             if (e.target === e.currentTarget) onSelectObject(null);
           }}
         >
+          {/* Centre snap guides */}
+          {snap.v && <div className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-teal-400/70 z-50" />}
+          {snap.h && <div className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-teal-400/70 z-50" />}
           {slide.objects.map((o) => (
             <ObjectView
               key={o.id}

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Plus, Square, Circle, Type, Image as ImageIcon, Film, Trash2, ChevronsUp, ChevronsDown, ArrowUp, ArrowDown } from "lucide-react";
+import { X, Plus, Square, Circle, Type, Image as ImageIcon, Film, Trash2, Copy, ChevronsUp, ChevronsDown, ArrowUp, ArrowDown } from "lucide-react";
 import type { OperatorShellCtx } from "../shell/types";
 import { useSlideEditor } from "../editor/useSlideEditor";
 import { SlideEditorProvider, useSlideEditorCtx, type SlideEditorContextValue } from "../editor/SlideEditorContext";
@@ -204,9 +204,14 @@ function ObjectInspector() {
         <div className="p-2 space-y-2 border-b" style={{ borderColor: "#2a3232" }}>
           <div className="flex items-center justify-between">
             <span className="text-[9px] uppercase tracking-wide text-zinc-400">{selected.kind} object</span>
-            <button onClick={() => editor.removeObject(selected.id)} className="grid h-6 w-6 place-items-center rounded text-red-300 hover:bg-red-500/10" title="Delete object">
-              <Trash2 className="w-3 h-3" />
-            </button>
+            <div className="flex items-center gap-0.5">
+              <button onClick={() => editor.duplicateObject(selected.id)} className="grid h-6 w-6 place-items-center rounded text-zinc-300 hover:bg-white/[0.06]" title="Duplicate object">
+                <Copy className="w-3 h-3" />
+              </button>
+              <button onClick={() => editor.removeObject(selected.id)} className="grid h-6 w-6 place-items-center rounded text-red-300 hover:bg-red-500/10" title="Delete object">
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </div>
           </div>
           {/* Z-order (layer) controls */}
           <div>
