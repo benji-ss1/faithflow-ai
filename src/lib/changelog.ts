@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.149",
+    date: "2026-08-11",
+    headline: "Design slides right in the operator console",
+    highlights: [
+      "Double-click any song slide on the desktop to open a full slide editor — add and position text boxes, shapes and images, set fonts, colours, sizes and per-slide backgrounds, and manage the slide deck, all inside the console.",
+      "What you design projects exactly on the live screen, stage, and livestream. Quick text edits are still one right-click away for fast tweaks.",
+      "Designed slides are protected: the quick grid actions won't accidentally flatten a slide you've laid out — they send you to the editor instead.",
+    ],
+  },
+  {
     version: "0.1.148",
     date: "2026-08-11",
     headline: "Designed slide layouts now project exactly as designed",

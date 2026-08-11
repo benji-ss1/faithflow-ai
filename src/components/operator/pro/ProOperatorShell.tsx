@@ -27,6 +27,7 @@ import { MediaSection } from "./left/MediaSection";
 import { HardwareSection } from "./left/HardwarePanel";
 import { CenterHeader } from "./center/CenterHeader";
 import { SlideGrid } from "./center/SlideGrid";
+import { DesktopSlideEditorModal } from "./DesktopSlideEditorModal";
 import { BibleMode } from "./center/BibleMode";
 import { SongsBrowser } from "./center/SongsBrowser";
 import { MediaBrowser } from "./center/MediaBrowser";
@@ -1211,6 +1212,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const [slideSize, setSlideSize] = useState(160);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
+  const [slideEditorOpen, setSlideEditorOpen] = useState(false);
   // Change 4 — Left panel width state. Starts at the persisted value (or the
   // default), clamped once read is verified against window.innerWidth on mount.
   const [leftPanelWidth, setLeftPanelWidth] = useState<number>(LEFT_PANEL_DEFAULT_WIDTH);
@@ -3329,7 +3331,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
               ) : centerMode === "media" ? (
                 <MediaBrowser ctx={ctx} onExitToSlides={() => setCenterMode("slides")} />
               ) : (
-                <SlideGrid ctx={ctx} slideSize={slideSize} />
+                <SlideGrid ctx={ctx} slideSize={slideSize} onOpenEditor={() => setSlideEditorOpen(true)} />
               )}
             </OperatorErrorBoundary>
           </div>
@@ -3385,6 +3387,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
 
       <SongAutopilotStaging ctx={ctx} />
       <AITranscriptTicker ctx={ctx} />
+      <DesktopSlideEditorModal ctx={ctx} open={slideEditorOpen} onClose={() => setSlideEditorOpen(false)} />
 
       <div data-tour="bottom">
         <BottomBar

@@ -58,7 +58,7 @@ function fireLive(key: string, fn: () => void) {
   fn();
 }
 
-export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize: number }) {
+export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShellCtx; slideSize: number; onOpenEditor?: () => void }) {
   const item = ctx.plan.items[ctx.previewItemIdx];
   const slides: SlidePayload[] = item?.slides ?? [];
   const lastDragEndRef = useRef(0);
@@ -88,6 +88,23 @@ export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize
   // App-level clipboard for cut/copy/paste within the grid
   const slideClipboardRef = useRef<SlidePayload | null>(null);
   const [clipboardHasSlide, setClipboardHasSlide] = useState(false);
+
+  // Data-loss guard: the grid's Quick Edit / Duplicate / Delete / Paste rewrite
+  // the WHOLE song from lyrics only (updateSongSlides), which drops every slide's
+  // designed object layout. For a song that HAS designed slides, steer those
+  // actions to the full editor (which preserves objects via the granular
+  // create/save/reorder actions). Plain lyric songs are unaffected.
+  const songHasObjects = item?.type === "song" && slides.some(
+    (s) => s.kind === "text" && Array.isArray((s as { objects?: unknown[] }).objects) && ((s as { objects?: unknown[] }).objects!.length > 0),
+  );
+  const guardObjectSong = (): boolean => {
+    if (songHasObjects) {
+      void import("sonner").then(({ toast }) => toast.error("This song has designed slides — open the slide editor to keep the layout."));
+      onOpenEditor?.();
+      return true;
+    }
+    return false;
+  };
 
   const handleQuickEditSave = async (newText: string) => {
     if (!quickEdit) return;
@@ -209,17 +226,19 @@ export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize
                 onDouble={() => {
                   console.log("[click] slide double", { id: slideIds[idx], idx });
                   // Double-click is the natural "edit" gesture. For editable song
-                  // slides, open Quick Edit inline. (Fall back to fire-to-live in
-                  // safe mode for non-editable slides so that path isn't lost.)
-                  const editable = item?.type === "song" && !!(item as { songId?: string }).songId && s.kind === "text";
-                  if (editable) {
-                    const text = s.kind === "text" ? ((s as { text?: string }).text ?? "") : "";
-                    setQuickEdit({ slideIdx: idx, text });
+                  // slides, open the full slide editor (Quick Edit remains on the
+                  // right-click menu for fast text-only tweaks). Non-editable
+                  // slides keep the fire-to-live-in-safe-mode behaviour.
+                  const editable = item?.type === "song" && !!(item as { songId?: string }).songId;
+                  if (editable && onOpenEditor) {
+                    ctx.onJumpSlide(ctx.previewItemIdx, idx); // select the slide first
+                    onOpenEditor();
                     return;
                   }
                   if (safeMode()) fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => ctx.onSendSlideToLive(s));
                 }}
                 onDelete={() => {
+                  if (guardObjectSong()) return;
                   void (async () => {
                     const { toast } = await import("sonner");
                     if (item?.type !== "song" || !(item as { songId?: string }).songId) {
@@ -240,10 +259,12 @@ export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize
                   })();
                 }}
                 onQuickEdit={() => {
+                  if (guardObjectSong()) return;
                   const text = s.kind === "text" ? ((s as { text?: string }).text ?? "") : "";
                   setQuickEdit({ slideIdx: idx, text });
                 }}
                 onDuplicate={() => {
+                  if (guardObjectSong()) return;
                   void (async () => {
                     if (item?.type === "song" && (item as { songId?: string }).songId) {
                       const songId = (item as { songId?: string }).songId!;
@@ -280,6 +301,7 @@ export function SlideGrid({ ctx, slideSize }: { ctx: OperatorShellCtx; slideSize
                 }}
                 canPaste={clipboardHasSlide && item?.type === "song" && !!(item as { songId?: string }).songId}
                 onPasteSlide={() => {
+                  if (guardObjectSong()) return;
                   const copied = slideClipboardRef.current;
                   if (!copied) {
                     void import("sonner").then(({ toast }) => toast.error("Nothing to paste"));
