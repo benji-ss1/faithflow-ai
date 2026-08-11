@@ -72,6 +72,70 @@ async function fileToBase64(file: File): Promise<string> {
   return btoa(binary);
 }
 
+function bytesToBase64(bytes: Uint8Array): string {
+  const CHUNK = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
+// A ProPresenter .probundle / .pro7x / .zip is a zip that bundles the (tiny)
+// lyric documents AND their (huge) media backgrounds. A single "song" file the
+// user drags in is often a whole LIBRARY export — e.g. one 171 MB .probundle
+// held 559 songs but only 5.5 MB of lyrics; the other 158 MB was media. Sending
+// that to the server (base64-inflated ~30%) blows the request limit and the
+// import fails with a generic error.
+//
+// Fix: unzip in the browser and keep ONLY the small non-media documents, so the
+// server receives KB of lyrics instead of hundreds of MB. PresentFlow imports
+// lyrics only anyway (backgrounds are re-themed in-app). One bundle expands into
+// its N contained song docs, each sent as its own FileDrop.
+const MEDIA_EXT_RE = /\.(mp4|mov|m4v|webm|avi|mkv|jpe?g|png|gif|webp|heic|tiff?|bmp|svg|mp3|m4a|aac|wav|aiff?|caf|pdf|ttf|otf|woff2?)$/i;
+const JUNK_RE = /(^|\/)\._|__MACOSX|\.DS_Store$/;
+const ZIP_EXT_RE = /\.(probundle|pro7x|zip)$/i;
+const MAX_DOC_BYTES = 10 * 1024 * 1024; // a lyric doc over 10MB is not lyrics
+async function expandProBundleDrops(files: File[]): Promise<{ drops: FileDrop[]; expandedFrom: number; skippedMedia: number }> {
+  const { unzipSync } = await import("fflate");
+  const drops: FileDrop[] = [];
+  let expandedFrom = 0;
+  let skippedMedia = 0;
+  for (const f of files) {
+    if (!ZIP_EXT_RE.test(f.name)) {
+      // Bare .pro / .pro6 / .pro7 document — already just lyrics; send as-is.
+      drops.push({ path: f.name, b64: await fileToBase64(f) });
+      continue;
+    }
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    let entries: Record<string, Uint8Array>;
+    try {
+      // filter runs BEFORE decompression — media entries are never materialized.
+      entries = unzipSync(bytes, {
+        filter: (file) => {
+          if (file.name.endsWith("/") || JUNK_RE.test(file.name)) return false;
+          if (MEDIA_EXT_RE.test(file.name)) { skippedMedia++; return false; }
+          if (file.originalSize > MAX_DOC_BYTES) { skippedMedia++; return false; }
+          return true;
+        },
+      });
+    } catch {
+      // Not actually a zip (or corrupt) — fall back to sending the raw file.
+      drops.push({ path: f.name, b64: await fileToBase64(f) });
+      continue;
+    }
+    const bundle = f.name.replace(ZIP_EXT_RE, "");
+    let kept = 0;
+    for (const [name, data] of Object.entries(entries)) {
+      if (!data || data.length === 0) continue;
+      drops.push({ path: `${bundle}/${name}`, b64: bytesToBase64(data) });
+      kept++;
+    }
+    if (kept > 0) expandedFrom++;
+  }
+  return { drops, expandedFrom, skippedMedia };
+}
+
 export function ProPresenterImportDialog({
   open, onClose, initialFiles,
 }: {
@@ -122,11 +186,10 @@ export function ProPresenterImportDialog({
       toast.error("No ProPresenter files found. Accepted: .proBundle, .pro, .pro6, .pro5, .pro7, .pro7x");
       return;
     }
-    const total = arr.reduce((s, f) => s + f.size, 0);
-    if (total > MAX_TOTAL_MB * 1024 * 1024) {
-      toast.error(`Files total ${Math.round(total / 1024 / 1024)} MB — max ${MAX_TOTAL_MB} MB per import. Split into batches.`);
-      return;
-    }
+    // NB: no raw-size gate here anymore. Bundles are media-heavy (a 171 MB
+    // .probundle can be 559 songs + 158 MB of backgrounds); media is stripped
+    // in the browser before upload (expandProBundleDrops), so what actually
+    // matters is the post-strip lyrics size, checked at scan/import time.
     setFiles(arr);
   }, []);
 
@@ -136,9 +199,16 @@ export function ProPresenterImportDialog({
     setError(null);
     startTransition(async () => {
       try {
-        const drop: FileDrop[] = await Promise.all(
-          files.map(async (f) => ({ path: f.name, b64: await fileToBase64(f) })),
-        );
+        const { drops: drop, expandedFrom, skippedMedia } = await expandProBundleDrops(files);
+        if (expandedFrom > 0) {
+          toast.info(`Extracted ${drop.length} song document${drop.length === 1 ? "" : "s"} from ${expandedFrom} bundle${expandedFrom === 1 ? "" : "s"} (skipped ${skippedMedia} media file${skippedMedia === 1 ? "" : "s"} — lyrics only).`);
+        }
+        const b64Bytes = drop.reduce((s, d) => s + d.b64.length, 0);
+        if (b64Bytes > 45 * 1024 * 1024) {
+          setError(`This library's lyrics are ${Math.round(b64Bytes / 1024 / 1024)} MB after stripping media — over the 45 MB per-import limit. Split it into two exports and import each.`);
+          setPhase("upload");
+          return;
+        }
         const res = await previewImportDrop({ drop });
         if (!res.ok) {
           setError(res.error);
@@ -166,9 +236,7 @@ export function ProPresenterImportDialog({
     setError(null);
     startTransition(async () => {
       try {
-        const drop: FileDrop[] = await Promise.all(
-          files.map(async (f) => ({ path: f.name, b64: await fileToBase64(f) })),
-        );
+        const { drops: drop } = await expandProBundleDrops(files);
         const res = await importDrop({ drop, onlyTitles: Array.from(selected) });
         if (!res.ok) {
           setError(res.error);

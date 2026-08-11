@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.152",
+    date: "2026-08-11",
+    headline: "Import huge ProPresenter libraries — hundreds of songs at once",
+    highlights: [
+      "Fixed importing large ProPresenter bundles that failed with an unexpected error. A single exported .probundle can secretly be a whole library — one was 171 MB holding 559 songs, but 158 MB of that was just background media. PresentFlow now strips the media in-app and imports only the lyrics (5 MB instead of 171 MB), so 500+ song libraries import in one go.",
+      "Backgrounds inside the bundle are skipped (you re-theme in PresentFlow anyway), and one malformed song can no longer stop the whole import — the rest still come in.",
+    ],
+  },
+  {
     version: "0.1.151",
     date: "2026-08-11",
     headline: "Verses detected even when the AI mis-hears the numbers",

@@ -72,8 +72,13 @@ export async function bulkInsertSongs(
     if (!songId) return; // shouldn't happen — every toInsert title was just inserted
     c.slides.forEach((lyrics, order) => slideRows.push({ songId, order, lyrics }));
   });
-  if (slideRows.length > 0) {
-    await db.insert(songSlides).values(slideRows);
+  // Chunk the slide insert: a large library (e.g. a 559-song ProPresenter
+  // export averaging ~15 slides) produces tens of thousands of rows, and a
+  // single VALUES insert would blow Postgres's 65535 bound-parameter limit
+  // (3 params/row → ~21k rows). 5000 rows/chunk keeps every insert well clear.
+  const SLIDE_CHUNK = 5000;
+  for (let i = 0; i < slideRows.length; i += SLIDE_CHUNK) {
+    await db.insert(songSlides).values(slideRows.slice(i, i + SLIDE_CHUNK));
   }
 
   return {
