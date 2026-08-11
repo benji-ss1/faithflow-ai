@@ -187,7 +187,8 @@
       "entitlements": "electron/entitlements/entitlements.mac.plist",
       "entitlementsInherit": "electron/entitlements/entitlements.mac.inherit.plist",
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "PresentFlow uses the microphone for live AI Listening — real-time transcription and scripture/song detection during your service."
+        "NSMicrophoneUsageDescription": "PresentFlow uses the microphone for live AI Listening — real-time transcription and scripture/song detection during your service.",
+        "NSCameraUsageDescription": "PresentFlow uses connected cameras and video capture devices as a live background for your lyrics and scripture on the projector."
       },
       "identity": null
     },

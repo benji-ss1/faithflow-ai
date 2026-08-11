@@ -2,7 +2,8 @@
 import { useCallback, useEffect, useRef, useState, type RefCallback } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { openLiveChannel, isValidLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance } from "@/lib/broadcast";
+import { openLiveChannel, isValidLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
+import { OutputSlide } from "@/components/live/OutputSlide";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
 import { TransitionWrapper } from "@/components/live/TransitionWrapper";
@@ -33,6 +34,7 @@ export default function LivestreamPage() {
   const [slide, setSlide] = useState<SlidePayload>({ kind: "empty" });
   const [fontScale, setFontScale] = useState(1); // B3 operator manual text size
   const [appearance, setAppearance] = useState<ThemeAppearance | null>(null); // Themes Phase 1
+  const [videoInput, setVideoInput] = useState<VideoInputState | null>(null); // Phase 2a live video
   const [lowerThird, setLowerThird] = useState<{ line1: string; line2: string } | null>(null);
   const [announcement, setAnnouncement] = useState<AnnouncementPayload | null>(null);
   const [transition, setTransition] = useState<TransitionSpec | null>(null);
@@ -94,6 +96,7 @@ export default function LivestreamPage() {
           setSlide(msg.state.live);
           setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);
           setAppearance(msg.state.appearance ?? null);
+          setVideoInput(msg.state.videoInput ?? null);
           setLowerThird(msg.state.lowerThird);
           setAnnouncement(msg.state.announcement ?? null);
           setTransition(msg.state.transition ?? null);
@@ -179,6 +182,7 @@ export default function LivestreamPage() {
         realtime.subscribe((state) => {
           setFontScale(typeof state.fontScale === "number" ? state.fontScale : 1);
           setAppearance(state.appearance ?? null);
+          setVideoInput(state.videoInput ?? null);
           lastMsgAt.current = Date.now();
           setConnected(true);
           setSlide(state.live);
@@ -244,7 +248,9 @@ export default function LivestreamPage() {
     >
       {mode === "full" && (
         <>
-          {transitionsEnabled ? (
+          {videoInput ? (
+            <OutputSlide slide={slide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} projectorFit={false} />
+          ) : transitionsEnabled ? (
             <TransitionWrapper identityKey={liveIdentity(slide)} transition={transition}>
               <SlideRenderer slide={slide} fontScale={fontScale} appearance={appearance} videoMuted={false} onVideoRef={handleVideoRef} />
             </TransitionWrapper>

@@ -106,6 +106,20 @@ export type ThemeAppearance = {
   align?: "left" | "center" | "right";
 };
 
+// ── Live video input (Phase 2a) ───────────────────────────────────────────
+// A camera / USB-HDMI-capture (UVC) source, selected in the operator's
+// Hardware panel and composited BEHIND the current slide on the output
+// surfaces. The output windows open their own getUserMedia stream on this
+// deviceId (so the projector shows the feed directly); the operator only sends
+// the selection over the wire. Additive/optional: null ⇒ normal output.
+export type VideoInputState = {
+  deviceId: string;                          // MediaDeviceInfo.deviceId
+  label?: string;                            // display name (for reconnect UX)
+  fit?: "contain" | "cover" | "fill";        // how the video fills the frame (default cover)
+  mirror?: boolean;                          // flip horizontally (front cameras)
+  overlay?: "normal" | "lower-third" | "full"; // how slide content sits over video
+};
+
 export type OutputState = {
   live: SlidePayload;                // audience/projector output
   next: SlidePayload | null;         // for stage display "Next up"
@@ -128,6 +142,8 @@ export type OutputState = {
   // Themes Phase 1: active theme's render appearance (background/text styling).
   // Undefined/null ⇒ built-in defaults. Applies to text/blank slides.
   appearance?: ThemeAppearance | null;
+  // Phase 2a: active live video input composited behind the slide. Null ⇒ off.
+  videoInput?: VideoInputState | null;
 };
 
 /**
@@ -327,6 +343,19 @@ export function isValidThemeAppearance(a: unknown): a is ThemeAppearance {
   return true;
 }
 
+export function isValidVideoInput(v: unknown): v is VideoInputState {
+  if (v === null) return true;
+  if (!v || typeof v !== "object") return false;
+  if (hasPollutionKey(v)) return false;
+  const p = v as Record<string, unknown>;
+  if (typeof p.deviceId !== "string" || p.deviceId.length === 0 || p.deviceId.length > 512) return false;
+  if (p.label !== undefined && (typeof p.label !== "string" || p.label.length > 256)) return false;
+  if (p.fit !== undefined && !["contain", "cover", "fill"].includes(p.fit as string)) return false;
+  if (p.mirror !== undefined && typeof p.mirror !== "boolean") return false;
+  if (p.overlay !== undefined && !["normal", "lower-third", "full"].includes(p.overlay as string)) return false;
+  return true;
+}
+
 function isValidSlide(s: unknown): s is SlidePayload {
   if (!s || typeof s !== "object") return false;
   if (hasPollutionKey(s)) return false;
@@ -420,6 +449,7 @@ export function isValidOutputState(s: unknown): s is OutputState {
   // malformed/hostile appearance on the cross-device path rather than letting
   // it reach the renderer's style props).
   if (st.appearance !== undefined && !isValidThemeAppearance(st.appearance)) return false;
+  if (st.videoInput !== undefined && !isValidVideoInput(st.videoInput)) return false;
   return true;
 }
 
@@ -481,4 +511,5 @@ export const EMPTY_OUTPUT: OutputState = {
   transition: null,
   nextItem: null,
   appearance: null,
+  videoInput: null,
 };

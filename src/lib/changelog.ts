@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.135",
+    date: "2026-08-11",
+    headline: "Live Video Input — camera behind your lyrics & scripture",
+    highlights: [
+      "New “Video Input” in the Hardware panel (bottom-left): pick a connected camera or USB HDMI capture card, preview it, and Activate — the live feed becomes the projector background with your lyrics/Bible composited over it as a lower third.",
+      "The camera stays running while you change slides, switch verses, or change songs — only the overlay text updates. Clear removes the video without touching your current slide.",
+      "Requires the latest PresentFlow app update (for camera permission) and a one-time approval in macOS System Settings › Privacy & Security › Camera. Professional SDI/NDI inputs come in a later update.",
+    ],
+  },
+  {
     version: "0.1.134",
     date: "2026-08-11",
     headline: "Themes now change the projector",

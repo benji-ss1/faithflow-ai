@@ -263,6 +263,29 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     return () => { cancelled = true; window.removeEventListener("presentflow:theme-changed", onChange); };
   }, []);
 
+  // Phase 2a — active live video input, emitted on OutputState so the output
+  // windows open the feed. Restored from the Video Input panel's persisted
+  // active selection on mount; the panel fires `presentflow:video-input-changed`
+  // (same-machine, like theme/font-scale) on Activate/Clear/tweak.
+  const [videoInput, setVideoInput] = useState<import("@/lib/broadcast").VideoInputState | null>(null);
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem("presentflow.videoInput.v1");
+      if (raw) {
+        const p = JSON.parse(raw) as import("@/lib/broadcast").VideoInputState & { active?: boolean };
+        // Require a non-empty deviceId: an empty id (can be persisted pre-
+        // permission) would emit an invalid videoInput and freeze the whole
+        // OutputState on the projector.
+        if (p?.active && typeof p.deviceId === "string" && p.deviceId.length > 0) {
+          setVideoInput({ deviceId: p.deviceId, label: p.label, fit: p.fit, mirror: p.mirror, overlay: p.overlay });
+        }
+      }
+    } catch { /* no persisted video input */ }
+    const onChange = (e: Event) => setVideoInput((e as CustomEvent).detail?.videoInput ?? null);
+    window.addEventListener("presentflow:video-input-changed", onChange);
+    return () => window.removeEventListener("presentflow:video-input-changed", onChange);
+  }, []);
+
   // Push extended OutputState on every relevant change so /stage and
   // /livestream get item labels + next-slide + lower-third data without
   // rewriting them. Piggybacks on the existing BroadcastChannel — /live
@@ -302,6 +325,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
       nextItem: nextItemForStage,
       fontScale,
       appearance,
+      videoInput,
     };
     // Shallow signature — good enough for the fields we actually emit.
     let key: string;
@@ -310,10 +334,15 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     lastEmittedKeyRef.current = key;
     lastOutputStateRef.current = state; // cached for snapshot-on-join replay
     safePost(chRef.current, { type: "output", state });
-    if (rtRef.current) { void rtRef.current.publish(state); }
+    // videoInput.deviceId only means something on THIS machine (the camera is
+    // physically here), so it goes over same-machine BroadcastChannel only —
+    // never Realtime. A cross-device surface can't open a local camera id, and
+    // this prevents a paired frame from activating a default camera on a public
+    // livestream (security).
+    if (rtRef.current) { void rtRef.current.publish(state.videoInput ? { ...state, videoInput: null } : state); }
     if (useFastTransition) fastTransitionSlideRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, appearance]);
+  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, appearance, videoInput]);
   const chRef = useRef<BroadcastChannel | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;
@@ -1130,13 +1159,14 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
       nextItem: nextItemForStage,
       fontScale,
       appearance,
+      videoInput,
     };
     const state: OutputState = { ...base, lowerThird: (line1 || line2) ? { line1, line2 } : null };
     safePost(chRef.current, { type: "output", state });
-    publishRealtime(state);
+    publishRealtime(state.videoInput ? { ...state, videoInput: null } : state); // local-only camera id
     lastOutputStateRef.current = state;
     toast.success(line1 || line2 ? "Lower third sent" : "Lower third cleared");
-  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, publishRealtime, fontScale, appearance]);
+  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, publishRealtime, fontScale, appearance, videoInput]);
 
   /**
    * P2 message overlay — a transient lower-third bubble that displays on

@@ -9,11 +9,14 @@
 // localStorage + window events, so both access points stay in sync.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ChevronRight, Mic, Monitor, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Mic, Monitor, Video, X } from "lucide-react";
 import { AudioTab } from "../right/tabs/AudioTab";
 import { ScreensPanel } from "@/components/operator/screens/ScreensPanel";
+import { VideoInputPanel } from "./VideoInputPanel";
 
-type HardwareKey = "screens" | "audio";
+type HardwareKey = "screens" | "audio" | "video";
+
+const HARDWARE_LABELS: Record<HardwareKey, string> = { screens: "Screens", audio: "Audio", video: "Video Input" };
 
 export function HardwareSection() {
   const [open, setOpen] = useState(true);
@@ -69,6 +72,7 @@ export function HardwareSection() {
   const rows: { k: HardwareKey; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
     { k: "screens", label: "Screens", Icon: Monitor },
     { k: "audio", label: "Audio", Icon: Mic },
+    { k: "video", label: "Video Input", Icon: Video },
   ];
 
   return (
@@ -118,7 +122,7 @@ export function HardwareSection() {
         <div
           ref={panelRef}
           role="dialog"
-          aria-label={panel === "audio" ? "Audio hardware" : "Screens hardware"}
+          aria-label={`${HARDWARE_LABELS[panel]} hardware`}
           className="fixed w-[360px] bg-[var(--color-elevated)] border-r border-[var(--color-border)] shadow-2xl flex flex-col z-40"
           style={{
             top: anchor.top,
@@ -128,7 +132,7 @@ export function HardwareSection() {
         >
           <div className="flex items-center justify-between px-3 h-8 border-b border-[var(--color-border)] shrink-0">
             <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)]">
-              {panel === "audio" ? "Audio" : "Screens"}
+              {HARDWARE_LABELS[panel]}
             </span>
             <button
               type="button"
@@ -142,6 +146,7 @@ export function HardwareSection() {
           <div className="flex-1 min-h-0 overflow-y-auto pf-transcript-scroll p-2 text-[12px]">
             {panel === "screens" && <ScreensPanel />}
             {panel === "audio" && <AudioTab />}
+            {panel === "video" && <VideoInputPanel />}
           </div>
         </div>,
         document.body,

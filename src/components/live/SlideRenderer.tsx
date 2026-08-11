@@ -62,9 +62,13 @@ function themeTextStyle(appearance: ThemeAppearance | null | undefined): React.C
   return Object.keys(s).length ? s : undefined;
 }
 
-export function SlideRenderer({ slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef, fontScale, appearance }: {
+export function SlideRenderer({ slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef, fontScale, appearance, overVideo }: {
   slide: SlidePayload;
   className?: string;
+  // Phase 2a: rendering as an overlay ON TOP of a live video layer. Makes
+  // text/blank backgrounds transparent (video shows through); the parent
+  // supplies a readability scrim. Theme text styling still applies.
+  overVideo?: boolean;
   // Themes Phase 1: active theme appearance (background + text styling) from
   // OutputState. Undefined ⇒ built-in defaults (dark bg, white text). A per-slide
   // `bgColor` still overrides the theme background. Applies to text/blank kinds;
@@ -95,7 +99,8 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
   if (slide.kind === "empty") return <div className={`${base} bg-black ${className || ""}`} />;
 
   if (slide.kind === "blank") {
-    const bg = slide.bgColor ? { background: slide.bgColor } : themeBackgroundStyle(appearance, "#000000");
+    // Over video, a blank slide is fully transparent (shows the live feed).
+    const bg = overVideo ? { background: "transparent" } : slide.bgColor ? { background: slide.bgColor } : themeBackgroundStyle(appearance, "#000000");
     return <div className={`${base} ${className || ""}`} style={bg} />;
   }
 
@@ -112,7 +117,9 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
   }
 
   if (slide.kind === "text") {
-    const bg = slide.bgColor ? { background: slide.bgColor } : themeBackgroundStyle(appearance, "#0b0b0b");
+    // Over video, the text sits transparently on the feed (parent adds a scrim);
+    // otherwise use the per-slide bg color or the active theme background.
+    const bg = overVideo ? { background: "transparent" } : slide.bgColor ? { background: slide.bgColor } : themeBackgroundStyle(appearance, "#0b0b0b");
     return (
       <div className={`${base} ${className || ""}`} style={bg}>
         <AutoFitText
