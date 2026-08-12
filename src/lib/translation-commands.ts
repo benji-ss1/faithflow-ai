@@ -148,6 +148,23 @@ const FULL_NAMES: Array<{ phrase: RegExp; code: string; ambiguous: boolean }> = 
   //   "the message" is common sermon language ("the message of hope") — never
   //   match when followed by "of", and require intent context.
   { phrase: /\bthe message\b(?!\s+of\b)/, code: "MSG", ambiguous: true },
+
+  // ── ASR mishears of translation NAMES (v2, 2026-08-12) ────────────────────
+  // Deepgram garbles spoken abbreviations. All are marked ambiguous:true so
+  // they ONLY fire with explicit switch intent (read/use/give me/can we…) —
+  // most contain real English words ("cage", "naive", "easy", "nasa") that
+  // would false-positive otherwise. Longest/most-specific spellings first.
+  { phrase: /\bnew inter national\b/, code: "NIV", ambiguous: true }, // "new international" split
+  { phrase: /\bcage v(?:ee?)?\b/, code: "KJV", ambiguous: true },     // "K J V" (v / ve / vee)
+  { phrase: /\bkay jay vee?\b/, code: "KJV", ambiguous: true },
+  { phrase: /\bknive\b/, code: "NIV", ambiguous: true },              // "NIV"
+  { phrase: /\ben eye vee?\b/, code: "NIV", ambiguous: true },
+  { phrase: /\bnaive\b/, code: "NIV", ambiguous: true },
+  { phrase: /\beasy v(?:ee?)?\b/, code: "ESV", ambiguous: true },     // "ESV"
+  { phrase: /\byes vee\b/, code: "ESV", ambiguous: true },
+  { phrase: /\be as v(?:ee?)?\b/, code: "ESV", ambiguous: true },
+  { phrase: /\bnasa b(?:ee?)?\b/, code: "NASB", ambiguous: true },    // "NASB"
+  { phrase: /\bnas bee\b/, code: "NASB", ambiguous: true },
 ];
 
 // STRONG switch-intent phrases for ambiguous full names and ambiguous abbrs.

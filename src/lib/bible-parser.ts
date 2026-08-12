@@ -33,8 +33,14 @@ const RAW_BOOKS: [string, string[]][] = [
   // "route" — very common Deepgram mishearing of "Ruth" in speech
   // (they're near-homophones for many accents).
   ["Ruth", ["ruth", "rut", "route"]],
-  ["1 Samuel", ["1 samuel", "first samuel", "1st samuel", "one samuel", "i samuel", "1 sam", "1sam", "1 sm", "1s"]],
-  ["2 Samuel", ["2 samuel", "second samuel", "2nd samuel", "two samuel", "ii samuel", "2 sam", "2sam", "2 sm", "2s"]],
+  // Multi-word ASR mishears ("first salvo"/"first sample" for "First Samuel")
+  // are added as explicit variants — the single-token fuzzyBookMatch can't
+  // reach them, and BOOK_PATTERN already matches multi-word variants (like
+  // "song of solomon"). Gated in practice by the chapter:verse shape the
+  // patterns require, so they never fire on ordinary speech. "salvo"→"samuel"
+  // is a confirmed field error.
+  ["1 Samuel", ["1 samuel", "first samuel", "1st samuel", "one samuel", "i samuel", "1 sam", "1sam", "1 sm", "1s", "first salvo", "first sample", "first salmon"]],
+  ["2 Samuel", ["2 samuel", "second samuel", "2nd samuel", "two samuel", "ii samuel", "2 sam", "2sam", "2 sm", "2s", "second salvo", "second sample"]],
   ["1 Kings", ["1 kings", "first kings", "1st kings", "one kings", "i kings", "1 kgs", "1kgs"]],
   ["2 Kings", ["2 kings", "second kings", "2nd kings", "two kings", "ii kings", "2 kgs", "2kgs"]],
   ["1 Chronicles", ["1 chronicles", "first chronicles", "1st chronicles", "one chronicles", "i chronicles", "1 chron", "1 chr", "1 ch"]],
@@ -59,7 +65,10 @@ const RAW_BOOKS: [string, string[]][] = [
   ["Jonah", ["jonah", "jon"]],
   ["Micah", ["micah", "mic", "mi"]],
   ["Nahum", ["nahum", "nah", "na"]],
-  ["Habakkuk", ["habakkuk", "hab"]],
+  // Habakkuk is badly garbled by ASR — "habba cook", "have a cook", etc. are
+  // confirmed real mishears. Safe as explicit variants: they only parse as a
+  // book when followed by a chapter:verse.
+  ["Habakkuk", ["habakkuk", "hab", "habba cook", "have a cook", "havoc cook", "abba cook", "hab a cook", "havakkuk"]],
   ["Zephaniah", ["zephaniah", "zeph", "zep"]],
   ["Haggai", ["haggai", "hag"]],
   ["Zechariah", ["zechariah", "zech", "zec"]],
@@ -77,14 +86,21 @@ const RAW_BOOKS: [string, string[]][] = [
   ["2 Corinthians", ["2 corinthians", "second corinthians", "2nd corinthians", "two corinthians", "ii corinthians", "2 cor", "2cor", "ii cor"]],
   ["Galatians", ["galatians", "gal"]],
   ["Ephesians", ["ephesians", "eph"]],
-  ["Philippians", ["philippians", "phil", "php"]],
+  // "filippians" (misspelling) is safe as an explicit variant. "philippines"
+  // (the country) is deliberately NOT added — it's common English and would
+  // false-fire on "the Philippines four times"; the strict-shape fuzzyBookMatch
+  // path already recovers "philippines four:thirteen" at low confidence.
+  ["Philippians", ["philippians", "phil", "php", "filippians"]],
   ["Colossians", ["colossians", "col", "colo", "colos"]],
   ["1 Thessalonians", ["1 thessalonians", "first thessalonians", "1st thessalonians", "one thessalonians", "i thessalonians", "1 thess", "1 thes"]],
   ["2 Thessalonians", ["2 thessalonians", "second thessalonians", "2nd thessalonians", "two thessalonians", "ii thessalonians", "2 thess", "2 thes"]],
   ["1 Timothy", ["1 timothy", "first timothy", "1st timothy", "one timothy", "i timothy", "1 tim", "1tim"]],
   ["2 Timothy", ["2 timothy", "second timothy", "2nd timothy", "two timothy", "ii timothy", "2 tim", "2tim"]],
   ["Titus", ["titus", "tit"]],
-  ["Philemon", ["philemon", "philem", "phlm", "phm"]],
+  // "fill a man" / "feel a man" are confirmed ASR mishears of Philemon. Real
+  // English, but only parses as a book before a chapter:verse ("fill a man 1:6"),
+  // which is not a natural non-scripture utterance.
+  ["Philemon", ["philemon", "philem", "phlm", "phm", "fill a man", "feel a man"]],
   ["Hebrews", ["hebrews", "heb"]],
   ["James", ["james", "jas", "jm"]],
   ["1 Peter", ["1 peter", "first peter", "1st peter", "one peter", "i peter", "1 pet", "1pet"]],

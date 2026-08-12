@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.163",
+    date: "2026-08-12",
+    headline: "Catches badly-misheard book names and translation requests",
+    highlights: [
+      "The AI now recognises book names even when speech-to-text mangles them into other words — \"first salvo\" → 1 Samuel, \"habba cook\" → Habakkuk, \"fill a man\" → Philemon — as long as a chapter and verse follow, so ordinary speech is never mistaken for a reference.",
+      "Translation requests survive mis-hearings too: \"can we read it in cage v\" → KJV, \"use knive\" → NIV, \"give me easy v\" → ESV. These only trigger when you clearly ask to switch, so words like \"naive\" in normal speech won't change your Bible version.",
+    ],
+  },
+  {
     version: "0.1.162",
     date: "2026-08-12",
     headline: "Slide editor: edit text, undo/redo, and full controls",
