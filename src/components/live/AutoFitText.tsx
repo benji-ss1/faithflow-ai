@@ -279,6 +279,20 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // FOUT fix (2026-08-12): fonts load with display=swap, so the FIRST slide of a
+  // session can paint in the fallback font and then swap to the real font (Sora)
+  // when it finishes loading — the fit measured fallback glyph widths, so the
+  // line reflows/overflows on swap. Refit ONCE when the webfonts are actually
+  // ready. One-shot: later slides fit correctly because the font is already
+  // loaded by then. No artificial delay — a real "font is ready" signal.
+  useEffect(() => {
+    if (typeof document === "undefined" || !document.fonts?.ready) return;
+    let cancelled = false;
+    document.fonts.ready.then(() => { if (!cancelled) fit(); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Keyboard-only page nav inside the pane (for operator preview
   // testing). Live projector doesn't respond to keys.
   useEffect(() => {

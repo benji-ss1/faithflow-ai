@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.164",
+    date: "2026-08-12",
+    headline: "Verses appear cleanly on the projector — no flash or jump",
+    highlights: [
+      "Fixed the projected scripture slide briefly appearing, blinking out, and fading back in. The verse now fades in cleanly in one motion — no flash of an intermediate state for the congregation to see.",
+      "Also fixed the very first slide of a session momentarily showing in the wrong font before snapping to the right one — it now re-fits to the correct font the instant it loads.",
+    ],
+  },
+  {
     version: "0.1.163",
     date: "2026-08-12",
     headline: "Catches badly-misheard book names and translation requests",
