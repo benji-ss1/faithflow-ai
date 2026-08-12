@@ -10,6 +10,7 @@ import Link from "next/link";
 import { CheckCircle2, FileText, FolderOpen, Upload, X } from "lucide-react";
 import { finalizeImport } from "@/lib/import-actions";
 import { ElectronPickFilesButton, ElectronPickFolderButton } from "@/components/electron/ElectronFilePickers";
+import { stripProBundles } from "@/lib/pro-bundle-strip";
 
 type SourceCard = {
   id: "propresenter" | "easyworship" | "proclaim" | "openlp" | "mediashout" | "worshiptools" | "csv" | "none";
@@ -93,8 +94,41 @@ export function WizardClient() {
     setError(null);
     setProgress({ stage: "parsing", processed: 0, total: files.length });
     try {
+      // Strip embedded media in the browser BEFORE upload. A ProPresenter
+      // .probundle bundles the (tiny) lyric docs with (huge) backgrounds — a
+      // real 171 MB export was 559 songs but only 5.4 MB of lyrics. Sending the
+      // raw bundle blows the server's 100 MB/file + 250 MB caps and the import
+      // dies with a generic error. We upload lyrics only (backgrounds are
+      // re-themed in-app). Bare .pro/.pro6/.pro7 files pass through unchanged.
+      const isProPresenter = source.id === "propresenter";
       const fd = new FormData();
-      for (const f of files) fd.append("files", f, f.webkitRelativePath || f.name);
+      if (isProPresenter) {
+        const { docs, expandedFrom, skippedMedia, truncated, skippedFiles } = await stripProBundles(files);
+        if (docs.length === 0) {
+          throw new Error(skippedFiles.length
+            ? `Could not read ${skippedFiles.length} file(s). If these are very large bundles, export the library in smaller parts.`
+            : "No song documents found in these files.");
+        }
+        for (const d of docs) {
+          const name = d.path.split("/").pop() || d.path;
+          // Copy into a fresh ArrayBuffer so the Blob type is definitively
+          // ArrayBuffer (not a shared view) before handing it to File().
+          const ab = new ArrayBuffer(d.bytes.length);
+          new Uint8Array(ab).set(d.bytes);
+          fd.append("files", new File([ab], name, { type: "application/octet-stream" }), name);
+        }
+        const rawBytes = docs.reduce((s, d) => s + d.bytes.length, 0);
+        if (expandedFrom > 0 || skippedMedia > 0) {
+          setProgress({ stage: "parsing", processed: 0, total: docs.length,
+            currentFile: `Extracted ${docs.length} songs (${Math.round(rawBytes / 1024 / 1024)} MB, skipped ${skippedMedia} media)` });
+        }
+        if (truncated || skippedFiles.length > 0) {
+          // Non-fatal: proceed with what we extracted, warn via error banner after.
+          console.warn("[import] some content skipped (size caps):", skippedFiles);
+        }
+      } else {
+        for (const f of files) fd.append("files", f, f.webkitRelativePath || f.name);
+      }
       const res = await fetch(`/api/imports/parse?source=${encodeURIComponent(source.id)}`, {
         method: "POST",
         body: fd,

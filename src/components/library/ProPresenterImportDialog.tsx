@@ -23,6 +23,7 @@ import {
   AlertTriangle, Image as ImageIcon, Film, ArrowRight, Music,
 } from "lucide-react";
 import { previewImportDrop, importDrop, type FileDrop } from "@/lib/import-actions";
+import { stripProBundles } from "@/lib/pro-bundle-strip";
 
 type Phase = "upload" | "scanning" | "preview" | "importing" | "complete";
 
@@ -60,18 +61,6 @@ function fileMatchesAccept(name: string): boolean {
   return ACCEPTED_EXTS.some((ext) => lower.endsWith(ext.toLowerCase()));
 }
 
-async function fileToBase64(file: File): Promise<string> {
-  const buf = await file.arrayBuffer();
-  const bytes = new Uint8Array(buf);
-  // Chunked base64 encoding — btoa chokes on very large binary strings.
-  const CHUNK = 0x8000;
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
-  }
-  return btoa(binary);
-}
-
 function bytesToBase64(bytes: Uint8Array): string {
   const CHUNK = 0x8000;
   let binary = "";
@@ -79,37 +68,6 @@ function bytesToBase64(bytes: Uint8Array): string {
     binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
   }
   return btoa(binary);
-}
-
-// A ProPresenter .probundle / .pro7x / .zip is a zip that bundles the (tiny)
-// lyric documents AND their (huge) media backgrounds. A single "song" file the
-// user drags in is often a whole LIBRARY export — e.g. one 171 MB .probundle
-// held 559 songs but only 5.5 MB of lyrics; the other 158 MB was media. Sending
-// that to the server (base64-inflated ~30%) blows the request limit and the
-// import fails with a generic error.
-//
-// Fix: unzip in the browser and keep ONLY the small non-media documents, so the
-// server receives KB of lyrics instead of hundreds of MB. PresentFlow imports
-// lyrics only anyway (backgrounds are re-themed in-app). One bundle expands into
-// its N contained song docs, each sent as its own FileDrop.
-const MEDIA_EXT_RE = /\.(mp4|mov|m4v|webm|avi|mkv|jpe?g|png|gif|webp|heic|tiff?|bmp|svg|mp3|m4a|aac|wav|aiff?|caf|pdf|ttf|otf|woff2?)$/i;
-const JUNK_RE = /(^|\/)\._|__MACOSX|\.DS_Store$/;
-const ZIP_EXT_RE = /\.(probundle|pro7x|zip)$/i;
-const MAX_DOC_BYTES = 10 * 1024 * 1024;          // a lyric doc over 10MB is not lyrics
-const MAX_RAW_INPUT_BYTES = 600 * 1024 * 1024;   // refuse to buffer an absurd file
-const MAX_KEPT_ENTRIES = 5000;                   // mirrors server MAX_BUNDLE_ENTRIES
-const MAX_TOTAL_DECOMP_BYTES = 60 * 1024 * 1024; // cap total lyrics decompression (zip-bomb guard)
-
-async function unzipFiltered(
-  bytes: Uint8Array,
-  filter: (f: { name: string; originalSize: number }) => boolean,
-): Promise<Record<string, Uint8Array>> {
-  // Async fflate → decompression runs OFF the renderer main thread (worker), so
-  // the UI/spinner stays live even on a large bundle.
-  const { unzip } = await import("fflate");
-  return new Promise((resolve, reject) => {
-    unzip(bytes, { filter }, (err, data) => (err ? reject(err) : resolve(data)));
-  });
 }
 
 // Post-strip payload guard, applied on BOTH scan and import paths. Kept under
@@ -123,57 +81,13 @@ function importDropsTooLarge(drops: FileDrop[]): string | null {
   return null;
 }
 
-/** Returns FileDrops of lyrics-only docs, plus counters and a truncated flag. */
+// Delegates to the shared browser media-stripper (also used by the Import
+// Wizard) and maps the lyrics-only docs to base64 FileDrops for the
+// server-action import path. Single source of truth for the strip logic so the
+// two import UIs can't diverge.
 async function expandProBundleDrops(files: File[]): Promise<{ drops: FileDrop[]; expandedFrom: number; skippedMedia: number; truncated: boolean; skippedFiles: string[] }> {
-  const drops: FileDrop[] = [];
-  let expandedFrom = 0;
-  let skippedMedia = 0;
-  let truncated = false;
-  const skippedFiles: string[] = [];
-  for (const f of files) {
-    if (!ZIP_EXT_RE.test(f.name)) {
-      // Bare .pro / .pro6 / .pro7 document — already just lyrics; send as-is.
-      if (f.size > MAX_DOC_BYTES) { skippedFiles.push(f.name); continue; }
-      drops.push({ path: f.name, b64: await fileToBase64(f) });
-      continue;
-    }
-    // Fast-fail on absurd raw input BEFORE buffering the whole file into memory.
-    if (f.size > MAX_RAW_INPUT_BYTES) { skippedFiles.push(f.name); truncated = true; continue; }
-    const bytes = new Uint8Array(await f.arrayBuffer());
-    // Bounded filter: mirrors the server's hardening. `originalSize` is the
-    // declared (attacker-controllable) uncompressed size — we use it to REFUSE
-    // work: skip media, skip oversized entries, cap entry count, and cap the
-    // running sum of admitted uncompressed bytes so a deflate zip-bomb can't
-    // fan out to gigabytes in the operator's renderer.
-    let admittedBytes = 0;
-    let admittedCount = 0;
-    let entries: Record<string, Uint8Array>;
-    try {
-      entries = await unzipFiltered(bytes, (file) => {
-        if (file.name.endsWith("/") || JUNK_RE.test(file.name)) return false;
-        if (MEDIA_EXT_RE.test(file.name)) { skippedMedia++; return false; }
-        if (file.originalSize > MAX_DOC_BYTES) { skippedMedia++; return false; }
-        if (admittedCount >= MAX_KEPT_ENTRIES) { truncated = true; return false; }
-        if (admittedBytes + file.originalSize > MAX_TOTAL_DECOMP_BYTES) { truncated = true; return false; }
-        admittedBytes += file.originalSize;
-        admittedCount++;
-        return true;
-      });
-    } catch {
-      // Not actually a zip (or corrupt) — fall back to sending the raw file.
-      if (f.size <= MAX_DOC_BYTES) drops.push({ path: f.name, b64: await fileToBase64(f) });
-      else skippedFiles.push(f.name);
-      continue;
-    }
-    const bundle = f.name.replace(ZIP_EXT_RE, "");
-    let kept = 0;
-    for (const [name, data] of Object.entries(entries)) {
-      if (!data || data.length === 0) continue;
-      drops.push({ path: `${bundle}/${name}`, b64: bytesToBase64(data) });
-      kept++;
-    }
-    if (kept > 0) expandedFrom++;
-  }
+  const { docs, expandedFrom, skippedMedia, truncated, skippedFiles } = await stripProBundles(files);
+  const drops: FileDrop[] = docs.map((d) => ({ path: d.path, b64: bytesToBase64(d.bytes) }));
   return { drops, expandedFrom, skippedMedia, truncated, skippedFiles };
 }
 

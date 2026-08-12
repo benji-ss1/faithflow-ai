@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.161",
+    date: "2026-08-12",
+    headline: "Big ProPresenter libraries import — for real this time (both import screens)",
+    highlights: [
+      "Fixed ProPresenter imports failing on large .probundle libraries. The earlier fix only covered one of the two import screens — the Import Wizard was still uploading the raw bundle (hundreds of MB of backgrounds) and choking. Both screens now strip the media in-app and import just the lyrics, so a 500+ song library (a real one was 171 MB → 5 MB of lyrics) imports cleanly.",
+      "Made the extraction rock-solid: it no longer depends on a background worker that some setups block — so it works reliably in the installed app.",
+    ],
+  },
+  {
     version: "0.1.160",
     date: "2026-08-12",
     headline: "Slide editor: copy an object to another slide",
