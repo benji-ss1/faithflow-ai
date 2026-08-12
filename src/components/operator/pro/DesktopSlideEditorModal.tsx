@@ -9,6 +9,7 @@ import { useSlideEditor } from "../editor/useSlideEditor";
 import { SlideEditorProvider, useSlideEditorCtx, type SlideEditorContextValue } from "../editor/SlideEditorContext";
 import { CenterWorkspace } from "../shell/CenterWorkspace";
 import { MediaLibraryPicker } from "@/components/library/MediaLibraryPicker";
+import { SLIDE_TEMPLATES } from "@/lib/slide-templates";
 import { saveSlideObjects, createSongSlide, deleteSongSlide, reorderSongSlides } from "@/lib/actions";
 import type { SlideObject, TextObject, ShapeObject, ImageObject, VideoObject, ObjectAnim } from "@/lib/slide-objects";
 import { CANVAS_W, CANVAS_H } from "@/lib/slide-objects";
@@ -158,8 +159,28 @@ function ObjectInspector() {
 
   const upd = (patch: Partial<SlideObject>) => { if (selected) editor.updateObject(selected.id, patch); };
 
+  const applyTemplate = (tid: string) => {
+    const tpl = SLIDE_TEMPLATES.find((x) => x.id === tid);
+    if (!tpl) return;
+    if ((slide?.objects.length ?? 0) > 0 && !confirm("Replace this slide's content with the template?")) return;
+    editor.updateSlideDirect(tpl.build());
+  };
+
   return (
     <aside className="w-64 shrink-0 border-l overflow-y-auto" style={{ borderColor: "#2a3232", background: "#1a2020" }}>
+      {/* Start from a template */}
+      <div className="p-2 border-b" style={{ borderColor: "#2a3232" }}>
+        <label className="block text-[9px] uppercase tracking-wide text-zinc-500 mb-1">Start from template</label>
+        <div className="grid grid-cols-2 gap-1.5">
+          {SLIDE_TEMPLATES.map((tpl) => (
+            <button key={tpl.id} onClick={() => applyTemplate(tpl.id)}
+              className="h-7 rounded border text-[10px] font-semibold text-zinc-200 hover:bg-white/[0.04]"
+              style={{ borderColor: "#2a3232", background: "#1e2525" }}>
+              {tpl.name}
+            </button>
+          ))}
+        </div>
+      </div>
       {/* Add-object toolbar */}
       <div className="p-2 border-b grid grid-cols-2 gap-1.5" style={{ borderColor: "#2a3232" }}>
         <ToolBtn icon={Type} label="Text" onClick={editor.addTextObject} />

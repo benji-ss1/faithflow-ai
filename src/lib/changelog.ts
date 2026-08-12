@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.159",
+    date: "2026-08-12",
+    headline: "Slide editor: start from a template",
+    highlights: [
+      "New “Start from template” buttons in the editor lay down a professional layout in one click — Title, Scripture, Announcement, Two-column, or Lower third — then just edit the text. No more building every slide from a blank canvas.",
+    ],
+  },
+  {
     version: "0.1.158",
     date: "2026-08-12",
     headline: "Slide editor: entrance animations for objects",
