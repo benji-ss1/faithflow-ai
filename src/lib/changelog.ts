@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.166",
+    date: "2026-08-12",
+    headline: "Auto-detected songs open the full song",
+    highlights: [
+      "When the AI auto-projects a detected song, it now opens the whole song in your workspace — all slides visible and ready to navigate or edit — and adds it to your playlist if it wasn't already there. Previously it only sent the first slide live without opening the song.",
+      "This matches how clicking a song chip or confirming one with the keyboard already worked — all three now behave the same.",
+    ],
+  },
+  {
     version: "0.1.165",
     date: "2026-08-12",
     headline: "Navigating no longer changes your theme",

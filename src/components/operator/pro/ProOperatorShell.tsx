@@ -623,7 +623,18 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
               setTimeout(() => el.classList.remove("presentflow-song-pulse"), 2000);
             }
           }
+        } else if (ctx.onAddLibraryItem) {
+          // Bug 3 (2026-08-12): the detected song isn't in the plan yet — add it
+          // so its FULL slide set loads into the workspace (all slides viewable /
+          // navigable / editable), mirroring the manual chip-click path. Only
+          // the song-open flow; no detection/confidence/anti-replay logic.
+          try { await ctx.onAddLibraryItem("song", { id: songId, title }); }
+          catch { /* non-fatal — live already fired */ }
         }
+        // Open the center workspace to the full song (same as the manual
+        // handleSongChipClick path). The show-slides handler's AUTO-mode guard
+        // prevents it from overwriting the song that just went live.
+        dispatchInternal("presentflow:show-slides", {});
       } catch { /* non-fatal — visual polish only */ }
       try {
         const raw = window.sessionStorage.getItem(SONG_AUTO_FIRED_SESSION_KEY);
