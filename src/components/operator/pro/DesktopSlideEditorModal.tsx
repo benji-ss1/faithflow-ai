@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Plus, Square, Circle, Type, Image as ImageIcon, Film, Trash2, Copy, ClipboardCopy, ClipboardPaste, ChevronsUp, ChevronsDown, ArrowUp, ArrowDown } from "lucide-react";
+import { X, Plus, Square, Circle, Type, Image as ImageIcon, Film, Trash2, Copy, ClipboardCopy, ClipboardPaste, ChevronsUp, ChevronsDown, ArrowUp, ArrowDown, Undo2, Redo2 } from "lucide-react";
 import type { OperatorShellCtx } from "../shell/types";
 import { useSlideEditor } from "../editor/useSlideEditor";
 import { SlideEditorProvider, useSlideEditorCtx, type SlideEditorContextValue } from "../editor/SlideEditorContext";
@@ -111,6 +111,14 @@ export function DesktopSlideEditorModal({ ctx, open, onClose }: {
           aria-describedby={undefined}
           onEscapeKeyDown={(e) => { e.preventDefault(); requestClose(); }}
           onInteractOutside={(e) => { e.preventDefault(); requestClose(); }}
+          onKeyDown={(e) => {
+            if (!(e.metaKey || e.ctrlKey)) return;
+            const tgt = e.target as HTMLElement | null;
+            if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable)) return;
+            const k = e.key.toLowerCase();
+            if (k === "z" && !e.shiftKey) { e.preventDefault(); editor.undo(); }
+            else if ((k === "z" && e.shiftKey) || k === "y") { e.preventDefault(); editor.redo(); }
+          }}
           className="fixed left-1/2 top-1/2 z-[71] -translate-x-1/2 -translate-y-1/2 w-[95vw] h-[92vh] flex flex-col rounded-xl overflow-hidden border shadow-2xl outline-none"
           style={{ borderColor: "#2a3232", background: "#171c1c" }}
         >
@@ -119,9 +127,19 @@ export function DesktopSlideEditorModal({ ctx, open, onClose }: {
             <Dialog.Title className="text-[12px] font-semibold text-zinc-100">Edit slide</Dialog.Title>
             <span className="text-[11px] text-zinc-500 truncate">— {item?.title ?? ""}</span>
             {!songId && <span className="text-[10px] italic text-amber-300/80 ml-1">Only song slides are editable</span>}
+            <div className="ml-auto flex items-center gap-1">
+              <button onClick={editor.undo} disabled={!editor.canUndo} title="Undo (⌘Z)"
+                className="grid h-8 w-8 place-items-center rounded-md text-zinc-300 hover:bg-white/[0.06] disabled:opacity-30">
+                <Undo2 className="w-4 h-4" />
+              </button>
+              <button onClick={editor.redo} disabled={!editor.canRedo} title="Redo (⌘⇧Z)"
+                className="grid h-8 w-8 place-items-center rounded-md text-zinc-300 hover:bg-white/[0.06] disabled:opacity-30">
+                <Redo2 className="w-4 h-4" />
+              </button>
+            </div>
             <button
               onClick={requestClose}
-              className="ml-auto grid h-8 w-8 place-items-center rounded-md text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100"
+              className="grid h-8 w-8 place-items-center rounded-md text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100"
               aria-label="Close editor"
             >
               <X className="w-4 h-4" />
@@ -154,6 +172,7 @@ function ObjectInspector() {
   // Clipboard for copying an object to another slide (persists while the editor
   // is open). Cleared implicitly when the modal closes.
   const [clip, setClip] = useState<SlideObject | null>(null);
+  const [bgLib, setBgLib] = useState(false);
   if (!editor || !editor.isEditable) {
     return <aside className="w-64 shrink-0 border-l p-3 text-[11px] text-zinc-500" style={{ borderColor: "#2a3232", background: "#1a2020" }}>Editing is available for song slides.</aside>;
   }
@@ -286,6 +305,13 @@ function ObjectInspector() {
                 className="w-14 h-7 px-1.5 rounded border text-[11px] text-zinc-200 bg-[#151a1a] outline-none" style={{ borderColor: "#2a3232" }} />
             </div>
           </div>
+          {/* Precise position & size (canvas units, 1920×1080) */}
+          <div className="grid grid-cols-2 gap-1.5">
+            <div><span className={rowCls}>X</span><input type="number" value={Math.round(selected.x)} onChange={(e) => upd({ x: Number(e.target.value) })} className={inCls} style={{ borderColor: "#2a3232" }} /></div>
+            <div><span className={rowCls}>Y</span><input type="number" value={Math.round(selected.y)} onChange={(e) => upd({ y: Number(e.target.value) })} className={inCls} style={{ borderColor: "#2a3232" }} /></div>
+            <div><span className={rowCls}>W</span><input type="number" value={Math.round(selected.w)} onChange={(e) => upd({ w: Math.max(20, Number(e.target.value)) })} className={inCls} style={{ borderColor: "#2a3232" }} /></div>
+            <div><span className={rowCls}>H</span><input type="number" value={Math.round(selected.h)} onChange={(e) => upd({ h: Math.max(20, Number(e.target.value)) })} className={inCls} style={{ borderColor: "#2a3232" }} /></div>
+          </div>
           {selected.kind === "text" && <TextProps o={selected} upd={upd} />}
           {selected.kind === "shape" && <ShapeProps o={selected} upd={upd} />}
           {selected.kind === "image" && <ImageProps o={selected} upd={upd} />}
@@ -295,11 +321,22 @@ function ObjectInspector() {
         <div className="p-2 text-[11px] text-zinc-500 border-b" style={{ borderColor: "#2a3232" }}>Select an object on the canvas to edit it.</div>
       )}
 
-      {/* Slide background */}
+      {/* Slide background — colour + optional image */}
       <div className="p-2 space-y-1.5">
         <label className="block text-[9px] uppercase tracking-wide text-zinc-500">Slide background</label>
         <input type="color" value={slide?.bgColor ?? "#0b0b0b"} onChange={(e) => editor.setBg({ bgColor: e.target.value })}
           className="h-7 w-full rounded border cursor-pointer bg-transparent" style={{ borderColor: "#2a3232" }} />
+        <button onClick={() => setBgLib(true)}
+          className="w-full h-7 rounded border text-[10px] font-semibold text-zinc-200 inline-flex items-center justify-center gap-1.5 hover:bg-white/[0.04]"
+          style={{ borderColor: "#2a3232", background: "#1e2525" }}>
+          <ImageIcon className="w-3 h-3" /> {slide?.bgImageUrl ? "Change background image" : "Background image…"}
+        </button>
+        {slide?.bgImageUrl && (
+          <button onClick={() => editor.setBg({ bgImageUrl: "" })} className="text-[10px] text-red-300 hover:opacity-80">Remove background image</button>
+        )}
+        {bgLib && (
+          <MediaLibraryPicker kind="image" onPick={(url) => editor.setBg({ bgImageUrl: url })} onClose={() => setBgLib(false)} />
+        )}
       </div>
     </aside>
   );
@@ -340,6 +377,11 @@ const inCls = "w-full h-7 px-1.5 rounded border text-[11px] text-zinc-200 bg-[#1
 function TextProps({ o, upd }: { o: TextObject; upd: (p: Partial<SlideObject>) => void }) {
   return (
     <>
+      <div><span className={rowCls}>Text</span>
+        <textarea value={o.text} onChange={(e) => upd({ text: e.target.value })} rows={3}
+          className="w-full px-1.5 py-1 rounded border text-[12px] text-zinc-100 bg-[#151a1a] outline-none focus:border-teal-500/60 resize-y"
+          style={{ borderColor: "#2a3232" }} />
+      </div>
       <div><span className={rowCls}>Font</span>
         <select value={o.fontFamily ?? "Inter"} onChange={(e) => upd({ fontFamily: e.target.value })} className={inCls} style={{ borderColor: "#2a3232" }}>
           {FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
@@ -369,6 +411,14 @@ function TextProps({ o, upd }: { o: TextObject; upd: (p: Partial<SlideObject>) =
           </div>
         </div>
       </div>
+      <div className="flex gap-1.5">
+        <button onClick={() => upd({ italic: !o.italic })}
+          className={`flex-1 h-7 rounded border text-[10px] italic ${o.italic ? "border-teal-400 bg-teal-500/20 text-teal-100" : "text-zinc-400"}`}
+          style={o.italic ? undefined : { borderColor: "#2a3232" }}>Italic</button>
+        <button onClick={() => upd({ underline: !o.underline })}
+          className={`flex-1 h-7 rounded border text-[10px] underline ${o.underline ? "border-teal-400 bg-teal-500/20 text-teal-100" : "text-zinc-400"}`}
+          style={o.underline ? undefined : { borderColor: "#2a3232" }}>Underline</button>
+      </div>
     </>
   );
 }
@@ -376,8 +426,16 @@ function TextProps({ o, upd }: { o: TextObject; upd: (p: Partial<SlideObject>) =
 function ShapeProps({ o, upd }: { o: ShapeObject; upd: (p: Partial<SlideObject>) => void }) {
   return (
     <>
-      <div><span className={rowCls}>Fill</span>
-        <input type="color" value={o.fill ?? "#14b8a6"} onChange={(e) => upd({ fill: e.target.value })} className="h-7 w-full rounded border cursor-pointer bg-transparent" style={{ borderColor: "#2a3232" }} />
+      <div className="grid grid-cols-2 gap-1.5">
+        <div><span className={rowCls}>Fill</span>
+          <input type="color" value={o.fill ?? "#14b8a6"} onChange={(e) => upd({ fill: e.target.value })} className="h-7 w-full rounded border cursor-pointer bg-transparent" style={{ borderColor: "#2a3232" }} />
+        </div>
+        <div><span className={rowCls}>Border</span>
+          <input type="color" value={o.stroke ?? "#0f766e"} onChange={(e) => upd({ stroke: e.target.value })} className="h-7 w-full rounded border cursor-pointer bg-transparent" style={{ borderColor: "#2a3232" }} />
+        </div>
+      </div>
+      <div><span className={rowCls}>Border width — {o.strokeWidth ?? 0}px</span>
+        <input type="range" min={0} max={40} value={o.strokeWidth ?? 0} onChange={(e) => upd({ strokeWidth: Number(e.target.value) })} className="w-full" />
       </div>
       <div><span className={rowCls}>Opacity — {Math.round((o.opacity ?? 1) * 100)}%</span>
         <input type="range" min={0} max={100} value={(o.opacity ?? 1) * 100} onChange={(e) => upd({ opacity: Number(e.target.value) / 100 })} className="w-full" />

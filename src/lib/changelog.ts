@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.162",
+    date: "2026-08-12",
+    headline: "Slide editor: edit text, undo/redo, and full controls",
+    highlights: [
+      "You can now edit a text object's words directly in the editor — type into the Text box in the inspector. (Previously you could add text but not change it.)",
+      "Undo and Redo — with ⌘Z / ⌘⇧Z, or the buttons in the editor's top bar. A whole drag counts as one undo step.",
+      "More precise controls: italic & underline, shape border colour + thickness, an exact X / Y / width / height for any object, and a background image per slide from your media library.",
+    ],
+  },
+  {
     version: "0.1.161",
     date: "2026-08-12",
     headline: "Big ProPresenter libraries import — for real this time (both import screens)",

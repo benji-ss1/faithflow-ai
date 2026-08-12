@@ -49,6 +49,10 @@ export type UseSlideEditorReturn = {
   updateSlideDirect: (patch: Partial<EditableSlide>) => void;
   hasDirtyChanges: boolean;
   resetDirty: () => void;
+  undo: () => void;
+  redo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
   // Compat: current slide as a SlidePayload for staging to Preview.
   currentPayload: ReturnType<typeof slidePayloadFromEditable> | null;
   currentLyrics: string;
@@ -80,11 +84,84 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
   const itemIdRef = useRef(itemId);
   itemIdRef.current = itemId;
 
+  // ── Undo / redo ──────────────────────────────────────────────────────────
+  // History of `slides` snapshots, recorded automatically by watching `slides`
+  // change and pushing the PREVIOUS value. Rapid successive changes (a drag)
+  // coalesce into one step. Programmatic changes (undo/redo itself, item reset,
+  // server re-sync) set `suppressRecordRef` so they never pollute history.
+  const historyRef = useRef<{ past: EditableSlide[][]; future: EditableSlide[][] }>({ past: [], future: [] });
+  const prevSlidesRef = useRef(slides);
+  const lastSnapRef = useRef(0);
+  const suppressRecordRef = useRef(false);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
+  useEffect(() => {
+    if (prevSlidesRef.current === slides) {
+      // No reference change — still consume any pending suppress flag so it can
+      // never leak into (and wrongly swallow) the NEXT real edit.
+      if (suppressRecordRef.current) suppressRecordRef.current = false;
+      return;
+    }
+    const prev = prevSlidesRef.current;
+    prevSlidesRef.current = slides;
+    if (suppressRecordRef.current) { suppressRecordRef.current = false; return; }
+    const now = Date.now();
+    const h = historyRef.current;
+    if (now - lastSnapRef.current < 350 && h.past.length > 0) return; // coalesce a drag burst
+    lastSnapRef.current = now;
+    h.past.push(prev);
+    if (h.past.length > 80) h.past.shift();
+    h.future = [];
+    setCanUndo(true);
+    setCanRedo(false);
+  }, [slides]);
+
+  const undo = useCallback(() => {
+    const h = historyRef.current;
+    if (h.past.length === 0) return;
+    const target = h.past.pop()!;
+    h.future.push(slidesRef.current);
+    if (h.future.length > 80) h.future.shift();
+    lastSnapRef.current = 0;
+    suppressRecordRef.current = true;
+    slidesRef.current = target; // keep the ref fresh so a synchronous 2nd undo is safe
+    setSlides(target);
+    setSelectedObjectId(null);
+    setCurrentIndex((i) => Math.max(0, Math.min(i, target.length - 1)));
+    setDirty(true);
+    setCanUndo(h.past.length > 0);
+    setCanRedo(true);
+  }, []);
+
+  const redo = useCallback(() => {
+    const h = historyRef.current;
+    if (h.future.length === 0) return;
+    const target = h.future.pop()!;
+    h.past.push(slidesRef.current);
+    if (h.past.length > 80) h.past.shift();
+    lastSnapRef.current = 0;
+    suppressRecordRef.current = true;
+    slidesRef.current = target; // keep the ref fresh so a synchronous 2nd redo is safe
+    setSlides(target);
+    setSelectedObjectId(null);
+    setCurrentIndex((i) => Math.max(0, Math.min(i, target.length - 1)));
+    setDirty(true);
+    setCanUndo(true);
+    setCanRedo(h.future.length > 0);
+  }, []);
+
   // Reset editor state when the underlying item changes.
   const lastItemIdRef = useRef<string | null>(itemId);
   useEffect(() => {
     if (lastItemIdRef.current === itemId) return;
     lastItemIdRef.current = itemId;
+    // New item — clear undo history and don't record the reset itself.
+    historyRef.current = { past: [], future: [] };
+    lastSnapRef.current = 0;
+    suppressRecordRef.current = true;
+    setCanUndo(false);
+    setCanRedo(false);
     setSlides(initialSlides.map(normalizeEditableSlide));
     setCurrentIndex(0);
     setSelectedObjectId(null);
@@ -98,6 +175,13 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     if (lastItemIdRef.current !== itemId) return;
     // Only sync when we haven't got local unsaved edits.
     if (dirty) return;
+    // Fresh server state (e.g. after a save that reassigned pending_ ids) —
+    // clear undo history so a later undo can't revive a pre-sync pending id.
+    historyRef.current = { past: [], future: [] };
+    lastSnapRef.current = 0;
+    setCanUndo(false);
+    setCanRedo(false);
+    suppressRecordRef.current = true; // server re-sync isn't an undoable edit
     setSlides(initialSlides.map(normalizeEditableSlide));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialSlides.length, itemId]);
@@ -343,6 +427,10 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     updateSlideDirect,
     hasDirtyChanges: dirty,
     resetDirty: () => setDirty(false),
+    undo,
+    redo,
+    canUndo,
+    canRedo,
     currentPayload,
     currentLyrics,
   };
