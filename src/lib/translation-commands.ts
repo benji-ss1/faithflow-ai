@@ -157,13 +157,17 @@ const FULL_NAMES: Array<{ phrase: RegExp; code: string; ambiguous: boolean }> = 
   { phrase: /\bnew inter national\b/, code: "NIV", ambiguous: true }, // "new international" split
   { phrase: /\bcage v(?:ee?)?\b/, code: "KJV", ambiguous: true },     // "K J V" (v / ve / vee)
   { phrase: /\bkay jay vee?\b/, code: "KJV", ambiguous: true },
-  { phrase: /\bknive\b/, code: "NIV", ambiguous: true },              // "NIV"
+  { phrase: /\bknive\b/, code: "NIV", ambiguous: true },              // "NIV" (not a real word — safe)
   { phrase: /\ben eye vee?\b/, code: "NIV", ambiguous: true },
-  { phrase: /\bnaive\b/, code: "NIV", ambiguous: true },
+  // NB: "naive" deliberately NOT mapped — it is common English and co-occurs
+  // with intent words ("the bible tells us not to be naive") constantly in
+  // preaching, so even intent-gating false-fires. Adversarial review 🔴.
   { phrase: /\beasy v(?:ee?)?\b/, code: "ESV", ambiguous: true },     // "ESV"
   { phrase: /\byes vee\b/, code: "ESV", ambiguous: true },
   { phrase: /\be as v(?:ee?)?\b/, code: "ESV", ambiguous: true },
-  { phrase: /\bnasa b(?:ee?)?\b/, code: "NASB", ambiguous: true },    // "NASB"
+  // "nasa bee" only (require the full "bee"); bare "nasa be" collides with
+  // "nasa be praised" and similar. Adversarial review 🔴.
+  { phrase: /\bnasa bee\b/, code: "NASB", ambiguous: true },          // "NASB"
   { phrase: /\bnas bee\b/, code: "NASB", ambiguous: true },
 ];
 

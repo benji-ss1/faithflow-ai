@@ -33,14 +33,16 @@ const RAW_BOOKS: [string, string[]][] = [
   // "route" — very common Deepgram mishearing of "Ruth" in speech
   // (they're near-homophones for many accents).
   ["Ruth", ["ruth", "rut", "route"]],
-  // Multi-word ASR mishears ("first salvo"/"first sample" for "First Samuel")
-  // are added as explicit variants — the single-token fuzzyBookMatch can't
-  // reach them, and BOOK_PATTERN already matches multi-word variants (like
-  // "song of solomon"). Gated in practice by the chapter:verse shape the
-  // patterns require, so they never fire on ordinary speech. "salvo"→"samuel"
-  // is a confirmed field error.
-  ["1 Samuel", ["1 samuel", "first samuel", "1st samuel", "one samuel", "i samuel", "1 sam", "1sam", "1 sm", "1s", "first salvo", "first sample", "first salmon"]],
-  ["2 Samuel", ["2 samuel", "second samuel", "2nd samuel", "two samuel", "ii samuel", "2 sam", "2sam", "2 sm", "2s", "second salvo", "second sample"]],
+  // Multi-word ASR mishears for these books ("first salvo"→1 Samuel,
+  // "fill a man"→Philemon, "have a cook"→Habakkuk) are REAL English and are NOT
+  // added here as full variants — a full variant matches `book_ch` too, which
+  // needs only ONE trailing number, so "the first salvo three years ago" would
+  // false-fire 1 Samuel 3 (adversarial review 🔴). Those risky phrases live in
+  // KNOWN_BOOK_MISHEARS below, matched only in a strict TWO-number chapter:verse
+  // shape at low confidence. Only pure-nonsense phrases (never real speech) stay
+  // as full variants (e.g. "habba cook" on Habakkuk).
+  ["1 Samuel", ["1 samuel", "first samuel", "1st samuel", "one samuel", "i samuel", "1 sam", "1sam", "1 sm", "1s"]],
+  ["2 Samuel", ["2 samuel", "second samuel", "2nd samuel", "two samuel", "ii samuel", "2 sam", "2sam", "2 sm", "2s"]],
   ["1 Kings", ["1 kings", "first kings", "1st kings", "one kings", "i kings", "1 kgs", "1kgs"]],
   ["2 Kings", ["2 kings", "second kings", "2nd kings", "two kings", "ii kings", "2 kgs", "2kgs"]],
   ["1 Chronicles", ["1 chronicles", "first chronicles", "1st chronicles", "one chronicles", "i chronicles", "1 chron", "1 chr", "1 ch"]],
@@ -65,10 +67,9 @@ const RAW_BOOKS: [string, string[]][] = [
   ["Jonah", ["jonah", "jon"]],
   ["Micah", ["micah", "mic", "mi"]],
   ["Nahum", ["nahum", "nah", "na"]],
-  // Habakkuk is badly garbled by ASR — "habba cook", "have a cook", etc. are
-  // confirmed real mishears. Safe as explicit variants: they only parse as a
-  // book when followed by a chapter:verse.
-  ["Habakkuk", ["habakkuk", "hab", "habba cook", "have a cook", "havoc cook", "abba cook", "hab a cook", "havakkuk"]],
+  // Only PURE-NONSENSE Habakkuk mishears here (never real speech). "have a cook"
+  // is real English → moved to KNOWN_BOOK_MISHEARS (strict two-number shape).
+  ["Habakkuk", ["habakkuk", "hab", "habba cook", "havoc cook", "abba cook", "hab a cook", "havakkuk"]],
   ["Zephaniah", ["zephaniah", "zeph", "zep"]],
   ["Haggai", ["haggai", "hag"]],
   ["Zechariah", ["zechariah", "zech", "zec"]],
@@ -97,10 +98,8 @@ const RAW_BOOKS: [string, string[]][] = [
   ["1 Timothy", ["1 timothy", "first timothy", "1st timothy", "one timothy", "i timothy", "1 tim", "1tim"]],
   ["2 Timothy", ["2 timothy", "second timothy", "2nd timothy", "two timothy", "ii timothy", "2 tim", "2tim"]],
   ["Titus", ["titus", "tit"]],
-  // "fill a man" / "feel a man" are confirmed ASR mishears of Philemon. Real
-  // English, but only parses as a book before a chapter:verse ("fill a man 1:6"),
-  // which is not a natural non-scripture utterance.
-  ["Philemon", ["philemon", "philem", "phlm", "phm", "fill a man", "feel a man"]],
+  // "fill a man" / "feel a man" (real English) → KNOWN_BOOK_MISHEARS, not here.
+  ["Philemon", ["philemon", "philem", "phlm", "phm"]],
   ["Hebrews", ["hebrews", "heb"]],
   ["James", ["james", "jas", "jm"]],
   ["1 Peter", ["1 peter", "first peter", "1st peter", "one peter", "i peter", "1 pet", "1pet"]],
@@ -548,7 +547,48 @@ function trySplitFusedDigits(book: string, digits: string): FusedResult | null {
   return null;
 }
 
+// Real-English multi-word ASR mishears → canonical book. Kept OUT of the full
+// variant list (BOOK_PATTERN) because a full variant also matches `book_ch`,
+// which needs only ONE number, so "the first salvo three years ago" would
+// false-fire 1 Samuel 3. These match ONLY in a strict TWO-number chapter:verse
+// shape (known_mishear_ch_verse pattern), at low confidence + semantic fallback,
+// so a rare collision surfaces as an operator suggestion, never an auto-project.
+const KNOWN_BOOK_MISHEARS: Record<string, string> = {
+  "first salvo": "1 Samuel", "first sample": "1 Samuel", "first salmon": "1 Samuel",
+  "second salvo": "2 Samuel", "second sample": "2 Samuel",
+  "have a cook": "Habakkuk",
+  "fill a man": "Philemon", "feel a man": "Philemon",
+};
+const KNOWN_MISHEAR_ALT = Object.keys(KNOWN_BOOK_MISHEARS)
+  .sort((a, b) => b.length - a.length)
+  .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+  .join("|");
+
 const PATTERNS: { name: string; regex: RegExp; parse: (m: RegExpExecArray) => ParsedReference | null }[] = [
+  // Known multi-word ASR mishears in a STRICT two-number chapter:verse shape.
+  // Two numbers required (chapter AND verse, via colon / "verse" / comma / bare
+  // space) so a single trailing number in natural speech can't misfire. Low
+  // confidence + semantic fallback; never auto-projects on its own.
+  {
+    name: "known_mishear_ch_verse",
+    regex: new RegExp(
+      `\\b(${KNOWN_MISHEAR_ALT})\\s+(?:chapter\\s+)?${NUM_SINGLE}\\s*(?::|\\s+verses?\\s+|,\\s*|\\s+)\\s*${NUM_SINGLE}\\b(?!\\s*(?:to\\b|through\\b|thru\\b|-|–|—|hundred\\b))`,
+      "gi",
+    ),
+    parse: (m) => {
+      const book = KNOWN_BOOK_MISHEARS[m[1].toLowerCase().replace(/\s+/g, " ")];
+      if (!book) return null;
+      const chapter = chunkToNum(m[2]);
+      const verse = chunkToNum(m[3]);
+      if (!isFinite(chapter) || !isFinite(verse)) return null;
+      if (SINGLE_CHAPTER_BOOKS.has(book)) {
+        // "fill a man one six" → Philemon 1:6 (chapter forced to 1, 2nd num = verse).
+        return { book, chapter: 1, verseStart: verse, verseEnd: verse, confidence: 60, matchedText: m[0], needsSemanticFallback: true };
+      }
+      if (!isValidChapter(book, chapter)) return null;
+      return { book, chapter, verseStart: verse, verseEnd: verse, confidence: 60, matchedText: m[0], needsSemanticFallback: true };
+    },
+  },
   // "SingleChapterBook verse N"
   {
     name: "single_chapter_book_verse",
