@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.160",
+    date: "2026-08-12",
+    headline: "Slide editor: copy an object to another slide",
+    highlights: [
+      "Select an object and hit the new copy button, then move to any other slide and paste it — reuse a styled text box, logo, or shape across your whole song without rebuilding it each time.",
+    ],
+  },
+  {
     version: "0.1.159",
     date: "2026-08-12",
     headline: "Slide editor: start from a template",

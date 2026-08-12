@@ -38,6 +38,7 @@ export type UseSlideEditorReturn = {
   updateObject: (id: string, patch: Partial<SlideObject>) => void;
   removeObject: (id: string) => void;
   duplicateObject: (id: string) => void;
+  addObject: (obj: SlideObject) => void;
   moveObject: (id: string, dx: number, dy: number) => void;
   addSlide: () => void;
   duplicateSlide: () => void;
@@ -177,6 +178,16 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     if (!isEditable) return;
     patchCurrent((s) => ({ ...s, objects: s.objects.filter((o) => o.id !== id) }));
     setSelectedObjectId((cur) => (cur === id ? null : cur));
+  }, [isEditable, patchCurrent]);
+
+  // Insert a clone of an arbitrary object (e.g. pasted from another slide) onto
+  // the current slide with a fresh id, nudged so it's visibly a copy.
+  const addObject = useCallback((obj: SlideObject) => {
+    if (!isEditable) return;
+    const newId = newObjectId();
+    const clone = { ...obj, id: newId, x: obj.x + 40, y: obj.y + 40 } as SlideObject;
+    patchCurrent((s) => ({ ...s, objects: [...s.objects, clone] }));
+    setSelectedObjectId(newId);
   }, [isEditable, patchCurrent]);
 
   const duplicateObject = useCallback((id: string) => {
@@ -321,6 +332,7 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     updateObject,
     removeObject,
     duplicateObject,
+    addObject,
     moveObject,
     addSlide,
     duplicateSlide,

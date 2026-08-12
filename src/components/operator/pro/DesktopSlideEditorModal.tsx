@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Plus, Square, Circle, Type, Image as ImageIcon, Film, Trash2, Copy, ChevronsUp, ChevronsDown, ArrowUp, ArrowDown } from "lucide-react";
+import { X, Plus, Square, Circle, Type, Image as ImageIcon, Film, Trash2, Copy, ClipboardCopy, ClipboardPaste, ChevronsUp, ChevronsDown, ArrowUp, ArrowDown } from "lucide-react";
 import type { OperatorShellCtx } from "../shell/types";
 import { useSlideEditor } from "../editor/useSlideEditor";
 import { SlideEditorProvider, useSlideEditorCtx, type SlideEditorContextValue } from "../editor/SlideEditorContext";
@@ -151,6 +151,9 @@ function ObjectInspector() {
   const editor = useSlideEditorCtx();
   const [imgUrl, setImgUrl] = useState("");
   const [libKind, setLibKind] = useState<"image" | "video" | null>(null);
+  // Clipboard for copying an object to another slide (persists while the editor
+  // is open). Cleared implicitly when the modal closes.
+  const [clip, setClip] = useState<SlideObject | null>(null);
   if (!editor || !editor.isEditable) {
     return <aside className="w-64 shrink-0 border-l p-3 text-[11px] text-zinc-500" style={{ borderColor: "#2a3232", background: "#1a2020" }}>Editing is available for song slides.</aside>;
   }
@@ -187,6 +190,7 @@ function ObjectInspector() {
         <ToolBtn icon={Square} label="Rect" onClick={() => editor.addShape("rect")} />
         <ToolBtn icon={Circle} label="Ellipse" onClick={() => editor.addShape("ellipse")} />
         <ToolBtn icon={Plus} label="Slide" onClick={editor.addSlide} />
+        {clip && <ToolBtn icon={ClipboardPaste} label="Paste" onClick={() => editor.addObject(clip)} />}
       </div>
 
       {/* Add media — image or video, from the library or by URL */}
@@ -227,6 +231,9 @@ function ObjectInspector() {
           <div className="flex items-center justify-between">
             <span className="text-[9px] uppercase tracking-wide text-zinc-400">{selected.kind} object</span>
             <div className="flex items-center gap-0.5">
+              <button onClick={() => setClip({ ...selected })} className="grid h-6 w-6 place-items-center rounded text-zinc-300 hover:bg-white/[0.06]" title="Copy object (paste on any slide)">
+                <ClipboardCopy className="w-3 h-3" />
+              </button>
               <button onClick={() => editor.duplicateObject(selected.id)} className="grid h-6 w-6 place-items-center rounded text-zinc-300 hover:bg-white/[0.06]" title="Duplicate object">
                 <Copy className="w-3 h-3" />
               </button>
