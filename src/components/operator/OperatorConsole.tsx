@@ -299,11 +299,32 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     return () => { cancelled = true; window.removeEventListener("presentflow:theme-changed", onChange); };
   }, []);
 
-  // Themes 2c — resolve the CURRENT item's section-theme override (if any) into
-  // its own appearance. When set it wins over the church default; when unset
-  // (every existing plan) this stays null and the default `appearance` is used,
-  // so the change is inert for plans that don't use section themes.
-  const currentItemThemeId = (plan.items[preview.itemIdx] as { themeId?: string } | undefined)?.themeId ?? null;
+  // liveItemIdx — which plan item is currently LIVE on the projector (-1 if
+  // none). Relocated here (2026-08-12) so the section-theme resolution below can
+  // key off the LIVE item instead of the preview cursor. Deps unchanged.
+  const liveKey = useMemo(() => {
+    try { return JSON.stringify(live); } catch { return ""; }
+  }, [live]);
+  const liveItemIdx = useMemo(() => {
+    if (!liveKey) return -1;
+    for (let i = 0; i < plan.items.length; i++) {
+      const slides = plan.items[i].slides;
+      for (let j = 0; j < slides.length; j++) {
+        // Cheap kind check first — skip stringify on obvious mismatches.
+        if (slides[j].kind !== live.kind) continue;
+        try { if (JSON.stringify(slides[j]) === liveKey) return i; } catch { /* continue */ }
+      }
+    }
+    return -1;
+  }, [plan.items, live.kind, liveKey]);
+
+  // Themes 2c — resolve the LIVE item's section-theme override (if any) into its
+  // own appearance. Anchored to the LIVE item (not the preview cursor) so that
+  // navigating the playlist / clicking a Song-Detection chip NEVER changes the
+  // projector theme — only what is actually LIVE (or, when nothing is live, the
+  // applied church default `appearance`) drives it. When set it wins over the
+  // default; unset (every existing plan, or nothing live) → null → default used.
+  const currentItemThemeId = (plan.items[liveItemIdx] as { themeId?: string } | undefined)?.themeId ?? null;
   const [itemAppearance, setItemAppearance] = useState<import("@/lib/broadcast").ThemeAppearance | null>(null);
   useEffect(() => {
     if (!currentItemThemeId) { setItemAppearance(null); return; }
@@ -1187,24 +1208,8 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
   const previewSlideInfo = plan.items[preview.itemIdx]
     ? `Item ${preview.itemIdx + 1}/${plan.items.length} · Slide ${preview.slideIdx + 1}/${plan.items[preview.itemIdx].slides.length}`
     : "";
-  // Y6: memoize liveItemIdx. Previously computed `JSON.stringify(s) === JSON.stringify(live)`
-  // for every slide of every item on every render. With plan-level identity as
-  // the trigger and a stable liveKey we recompute only when actually needed.
-  const liveKey = useMemo(() => {
-    try { return JSON.stringify(live); } catch { return ""; }
-  }, [live]);
-  const liveItemIdx = useMemo(() => {
-    if (!liveKey) return -1;
-    for (let i = 0; i < plan.items.length; i++) {
-      const slides = plan.items[i].slides;
-      for (let j = 0; j < slides.length; j++) {
-        // Cheap kind check first — skip stringify on obvious mismatches.
-        if (slides[j].kind !== live.kind) continue;
-        try { if (JSON.stringify(slides[j]) === liveKey) return i; } catch { /* continue */ }
-      }
-    }
-    return -1;
-  }, [plan.items, live.kind, liveKey]);
+  // (liveKey / liveItemIdx are computed earlier — moved above the theme
+  // resolution so the section theme follows the LIVE item, not the preview.)
 
   // Phase 5C: build ctx bag for the new operator shell
   const sendLowerThird = useCallback((line1: string, line2: string) => {

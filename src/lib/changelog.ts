@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.165",
+    date: "2026-08-12",
+    headline: "Navigating no longer changes your theme",
+    highlights: [
+      "Clicking Playlist, a Song-Detection chip, or moving around the console no longer switches the projector's theme. The theme now follows what's actually LIVE (or your applied default) — so browsing never disturbs the screen.",
+      "Section themes still apply per service part when that part goes live, and picking a theme yourself still works exactly as before.",
+    ],
+  },
+  {
     version: "0.1.164",
     date: "2026-08-12",
     headline: "Verses appear cleanly on the projector — no flash or jump",
