@@ -58,6 +58,11 @@ function mapEnum(id: string): "propresenter" | "easyworship" | "proclaim" | "csv
 }
 
 export const runtime = "nodejs";
+// A large ProPresenter library (500+ song docs) streams many per-file parses;
+// give the function generous headroom so a big import can't be cut off mid-
+// stream by the platform default. Parsing is fast (no media upload after the
+// client media-strip), but this removes the timeout as a failure mode.
+export const maxDuration = 300;
 
 // Helper: encode a JSON object + newline into a Uint8Array chunk.
 function ev(encoder: TextEncoder, event: Record<string, unknown>): Uint8Array {

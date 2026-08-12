@@ -34,7 +34,8 @@
  */
 
 import type { Parser, ParseResult, ParsedSong } from "./index";
-import { parsePro6 } from "../pro6-parser";
+import { parsePro6, isPro7Binary } from "../pro6-parser";
+import { parsePro7 } from "../pro7-parser";
 import { decodeUtf8Strict } from "./safety";
 
 export const propresenterParser: Parser = {
@@ -43,8 +44,8 @@ export const propresenterParser: Parser = {
   detect(files) {
     let hits = 0;
     for (const f of files) {
-      if (/\.pro6?$/i.test(f.name) || /\.pro5$/i.test(f.name)) hits++;
-      if (/\.propresenter$/i.test(f.name)) hits += 0.25; // pro7, unsupported
+      // .pro7/.pro7x and protobuf .pro are now supported (see parse()).
+      if (/\.(pro6?|pro5|pro7x?)$/i.test(f.name)) hits++;
     }
     if (hits === 0) return 0;
     return Math.min(1, hits / Math.max(1, files.length));
@@ -55,11 +56,32 @@ export const propresenterParser: Parser = {
 
     for (const f of files) {
       try {
-        if (/\.propresenter$/i.test(f.name)) {
-          skipped.push({ file: f.name, reason: "ProPresenter 7 (.propresenter) uses a protobuf schema — not supported yet" });
+        if (!/\.(pro6?|pro5|pro7x?)$/i.test(f.name)) continue;
+
+        const titleFallback = () => f.name.split(/[/\\]/).pop()!.replace(/\.(pro6|pro5|pro7x?|pro)$/i, "").trim();
+
+        // ProPresenter 7 (.pro / .pro7 / .pro7x) documents are binary protobuf.
+        // A real .probundle library is almost entirely these. Detect the
+        // protobuf shape and route to the dedicated Pro7 string extractor —
+        // mirrors the dialog import path (src/lib/importers/propresenter.ts).
+        // Without this, bare pro7 docs hit the XML path below, fail UTF-8
+        // decode, and every song is skipped (0 imported).
+        if (isPro7Binary(f.buffer, f.name)) {
+          let parsed;
+          try {
+            parsed = parsePro7(f.buffer, f.name);
+          } catch (e) {
+            skipped.push({ file: f.name, reason: `ProPresenter 7 parse failed: ${e instanceof Error ? e.message : "unknown"}` });
+            continue;
+          }
+          const title = (parsed.title || "").trim() || titleFallback();
+          if (!title || parsed.slides.length === 0) {
+            skipped.push({ file: f.name, reason: parsed.warnings[0] || "Pro7 file had no readable lyric text" });
+            continue;
+          }
+          songs.push({ title, artist: parsed.artist, slides: parsed.slides, warnings: parsed.warnings, sourceFile: f.name });
           continue;
         }
-        if (!/\.pro6?$|\.pro5$/i.test(f.name)) continue;
 
         let xml: string;
         try {
@@ -78,8 +100,7 @@ export const propresenterParser: Parser = {
         }
 
         // Many real exports omit CCLISongTitle — fall back to the filename.
-        const title = (parsed.title || "").trim()
-          || f.name.split(/[/\\]/).pop()!.replace(/\.(pro6|pro5|pro)$/i, "").trim();
+        const title = (parsed.title || "").trim() || titleFallback();
         if (!title || parsed.slides.length === 0) {
           skipped.push({ file: f.name, reason: parsed.warnings[0] || "No title or slides found" });
           continue;
