@@ -12,7 +12,8 @@ import { MediaLibraryPicker } from "@/components/library/MediaLibraryPicker";
 import { SLIDE_TEMPLATES } from "@/lib/slide-templates";
 import { saveSlideObjects, createSongSlide, deleteSongSlide, reorderSongSlides } from "@/lib/actions";
 import type { SlideObject, TextObject, ShapeObject, ImageObject, VideoObject, ObjectAnim } from "@/lib/slide-objects";
-import { CANVAS_W, CANVAS_H } from "@/lib/slide-objects";
+import { CANVAS_W, CANVAS_H, newObjectId } from "@/lib/slide-objects";
+import { loadCustomTemplates, saveCustomTemplate, deleteCustomTemplate, type CustomTemplate } from "@/lib/custom-templates";
 
 /**
  * Desktop full-screen slide editor (Phase 2 of the ProPresenter-style editor).
@@ -151,7 +152,7 @@ export function DesktopSlideEditorModal({ ctx, open, onClose }: {
               {/* Reused canvas + slide rail + save/show */}
               <CenterWorkspace ctx={ctx} />
               {/* Object inspector (new, compact) */}
-              <ObjectInspector />
+              <ObjectInspector churchId={ctx.churchId} />
             </div>
           </SlideEditorProvider>
         </Dialog.Content>
@@ -165,10 +166,14 @@ export function DesktopSlideEditorModal({ ctx, open, onClose }: {
 // the per-slide background. Reads the same editor context the canvas uses.
 const FONTS = ["Inter", "Sora", "Plus Jakarta Sans", "Georgia", "Helvetica", "Arial", "Times New Roman"];
 
-function ObjectInspector() {
+function ObjectInspector({ churchId }: { churchId: string }) {
   const editor = useSlideEditorCtx();
   const [imgUrl, setImgUrl] = useState("");
   const [libKind, setLibKind] = useState<"image" | "video" | null>(null);
+  const [customTpls, setCustomTpls] = useState<CustomTemplate[]>([]);
+  const [naming, setNaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  useEffect(() => { setCustomTpls(loadCustomTemplates(churchId)); }, [churchId]);
   // Clipboard for copying an object to another slide (persists while the editor
   // is open). Cleared implicitly when the modal closes.
   const [clip, setClip] = useState<SlideObject | null>(null);
@@ -181,12 +186,35 @@ function ObjectInspector() {
 
   const upd = (patch: Partial<SlideObject>) => { if (selected) editor.updateObject(selected.id, patch); };
 
+  const confirmReplace = () => (slide?.objects.length ?? 0) === 0 || confirm("Replace this slide's content with the template?");
+
   const applyTemplate = (tid: string) => {
     const tpl = SLIDE_TEMPLATES.find((x) => x.id === tid);
-    if (!tpl) return;
-    if ((slide?.objects.length ?? 0) > 0 && !confirm("Replace this slide's content with the template?")) return;
+    if (!tpl || !confirmReplace()) return;
     editor.updateSlideDirect(tpl.build());
   };
+
+  const applyCustom = (ct: CustomTemplate) => {
+    if (!confirmReplace()) return;
+    // Clone objects with fresh ids so re-applying never collides ids.
+    const objects = ct.objects.map((o) => ({ ...o, id: newObjectId() }));
+    editor.updateSlideDirect({ objects, bgColor: ct.bgColor, bgImageUrl: ct.bgImageUrl });
+  };
+
+  const beginSaveTemplate = () => {
+    if (!slide || slide.objects.length === 0) { void import("sonner").then(({ toast }) => toast.error("Add something to the slide first")); return; }
+    setNameDraft("");
+    setNaming(true);
+  };
+  const commitSaveTemplate = () => {
+    const name = nameDraft.trim() || "Untitled template";
+    if (!slide) return;
+    setCustomTpls(saveCustomTemplate(churchId, { name, bgColor: slide.bgColor, bgImageUrl: slide.bgImageUrl, objects: slide.objects }));
+    setNaming(false);
+    void import("sonner").then(({ toast }) => toast.success(`Saved template "${name}"`));
+  };
+
+  const removeCustom = (id: string) => setCustomTpls(deleteCustomTemplate(churchId, id));
 
   return (
     <aside className="w-64 shrink-0 border-l overflow-y-auto" style={{ borderColor: "#2a3232", background: "#1a2020" }}>
@@ -202,6 +230,42 @@ function ObjectInspector() {
             </button>
           ))}
         </div>
+        {customTpls.length > 0 && (
+          <>
+            <div className="mt-2 mb-1 text-[9px] uppercase tracking-wide text-zinc-500">Your templates</div>
+            <div className="space-y-1">
+              {customTpls.map((ct) => (
+                <div key={ct.id} className="flex gap-1">
+                  <button onClick={() => applyCustom(ct)} title={`Apply "${ct.name}"`}
+                    className="flex-1 h-7 rounded border text-[10px] font-semibold text-zinc-200 hover:bg-white/[0.04] truncate px-2 text-left"
+                    style={{ borderColor: "#2a3232", background: "#1e2525" }}>
+                    {ct.name}
+                  </button>
+                  <button onClick={() => removeCustom(ct.id)} title="Delete template"
+                    className="grid h-7 w-7 place-items-center rounded border text-red-300 hover:bg-red-500/10" style={{ borderColor: "#2a3232" }}>
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+        {naming ? (
+          <div className="mt-2 flex gap-1">
+            <input autoFocus value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} placeholder="Template name"
+              onKeyDown={(e) => { if (e.key === "Enter") commitSaveTemplate(); else if (e.key === "Escape") setNaming(false); }}
+              maxLength={60}
+              className="flex-1 h-7 px-1.5 rounded border text-[11px] text-zinc-100 bg-[#151a1a] outline-none focus:border-teal-500/60" style={{ borderColor: "#2a3232" }} />
+            <button onClick={commitSaveTemplate} className="h-7 px-2 rounded border text-[10px] font-bold uppercase text-teal-200 border-teal-500/60 bg-teal-500/20">Save</button>
+            <button onClick={() => setNaming(false)} className="grid h-7 w-7 place-items-center rounded border text-zinc-400" style={{ borderColor: "#2a3232" }}><X className="w-3 h-3" /></button>
+          </div>
+        ) : (
+          <button onClick={beginSaveTemplate}
+            className="mt-2 w-full h-7 rounded border text-[10px] font-bold uppercase text-zinc-200 inline-flex items-center justify-center gap-1.5 hover:bg-white/[0.04]"
+            style={{ borderColor: "#2a3232", background: "#1e2525" }}>
+            <Plus className="w-3 h-3" /> Save current as template
+          </button>
+        )}
       </div>
       {/* Add-object toolbar */}
       <div className="p-2 border-b grid grid-cols-2 gap-1.5" style={{ borderColor: "#2a3232" }}>

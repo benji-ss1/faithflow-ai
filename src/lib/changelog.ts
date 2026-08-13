@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.169",
+    date: "2026-08-13",
+    headline: "Slide editor: save your own templates",
+    highlights: [
+      "Designed a slide layout you love? Hit “Save current as template,” give it a name, and it joins the template list — apply it to any slide with one click. Your templates live under “Your templates” alongside the built-in ones, and you can delete them anytime.",
+    ],
+  },
+  {
     version: "0.1.168",
     date: "2026-08-13",
     headline: "Preview now matches the projector — and scripture is bigger",
