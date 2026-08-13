@@ -511,6 +511,29 @@ export function projectableTextSlide(text: unknown, bgColor?: unknown, bgImageUr
   return out;
 }
 
+/**
+ * Compact signature of a designed (object) text slide's background + objects,
+ * folded into the projector transition identity (live/stage/livestream) so two
+ * DIFFERENT designed slides get different transition keys — they crossfade and
+ * replay entrance animations instead of swapping in place. Covers position,
+ * size, rotation, url, and the key colours so appearance-only edits also
+ * transition. Pure + deterministic (same slide → same string) so the jitter
+ * fix's heartbeat-stability invariant holds. Plain text slides (no objects, no
+ * design bg) collapse to "|", leaving their identity behaviour unchanged.
+ */
+export function slideDesignSig(s: Extract<SlidePayload, { kind: "text" }>): string {
+  let sig = `${s.bgColor ?? ""}|${s.bgImageUrl ?? ""}`;
+  if (s.objects?.length) {
+    sig += "|o" + s.objects.length + ":" + s.objects.map((o) => {
+      const base = `${o.kind[0]}${Math.round(o.x)},${Math.round(o.y)},${Math.round(o.w)},${Math.round(o.h)}${o.rotation ? "@" + Math.round(o.rotation) : ""}`;
+      if (o.kind === "text") return base + (o.color ?? "");
+      if (o.kind === "shape") return base + (o.fill ?? "") + (o.fill2 ?? "");
+      return base + o.url; // image | video
+    }).join(";");
+  }
+  return sig;
+}
+
 function isValidSlide(s: unknown): s is SlidePayload {
   if (!s || typeof s !== "object") return false;
   if (hasPollutionKey(s)) return false;

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
-import { openLiveChannel, isValidLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance } from "@/lib/broadcast";
+import { openLiveChannel, isValidLiveMessage, slideDesignSig, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance } from "@/lib/broadcast";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
 import { TransitionWrapper } from "@/components/live/TransitionWrapper";
@@ -355,7 +355,7 @@ function formatStageTimer(sec: number): string {
 }
 
 function stageIdentity(s: SlidePayload): string {
-  if (s.kind === "text") return `t:${s.text}`;
+  if (s.kind === "text") return `t:${s.text}|${slideDesignSig(s)}`;
   if (s.kind === "image") return `i:${s.url}`;
   if (s.kind === "video") return `v:${s.url}`;
   if (s.kind === "blank") return `b:${s.bgColor ?? ""}`;

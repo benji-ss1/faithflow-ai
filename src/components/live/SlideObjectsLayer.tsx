@@ -37,8 +37,12 @@ export function SlideObjectsLayer({ objects }: { objects: SlideObjectWire[] }) {
         // (identity transform, full opacity) — so it never permanently changes
         // an object's position, size, or font; it only plays once on slide show.
         const animName = obj.anim && obj.anim !== "none" ? `pf-obj-${obj.anim}` : null;
+        // No persistent `willChange`: the browser auto-promotes a transform/
+        // opacity animation to its own layer for the animation's duration and
+        // de-promotes after, so we avoid holding a compositor layer for the whole
+        // time an animated slide is on screen.
         const boxStyle: React.CSSProperties = animName
-          ? { ...box, animation: `${animName} 550ms cubic-bezier(0.2,0.7,0.2,1) ${Math.min(Math.max(obj.animDelayMs ?? 0, 0), 10000)}ms both`, willChange: "transform, opacity" }
+          ? { ...box, animation: `${animName} 550ms cubic-bezier(0.2,0.7,0.2,1) ${Math.min(Math.max(obj.animDelayMs ?? 0, 0), 10000)}ms both` }
           : box;
         const animCls = animName ? "pf-obj-anim" : undefined;
         if (obj.kind === "text") {
@@ -75,8 +79,11 @@ export function SlideObjectsLayer({ objects }: { objects: SlideObjectWire[] }) {
                   background: obj.fill2
                     ? `linear-gradient(${obj.fillAngle ?? 135}deg, ${obj.fill ?? "#14b8a6"}, ${obj.fill2})`
                     : (obj.fill ?? "#14b8a6"),
-                  border: obj.strokeWidth ? `${obj.strokeWidth}px solid ${obj.stroke ?? "#0f766e"}` : undefined,
-                  borderRadius: obj.shape === "ellipse" ? "50%" : `${obj.radius ?? 0}px`,
+                  // stroke/radius expressed in cqw (against the container-type:size
+                  // root) so they scale with the output surface exactly like text,
+                  // instead of a fixed px that looks heavy small / thin at 4K.
+                  border: obj.strokeWidth ? `${((obj.strokeWidth / SLIDE_CANVAS_W) * 100)}cqw solid ${obj.stroke ?? "#0f766e"}` : undefined,
+                  borderRadius: obj.shape === "ellipse" ? "50%" : `${(((obj.radius ?? 0) / SLIDE_CANVAS_W) * 100)}cqw`,
                   opacity: obj.opacity ?? 1,
                 }}
               />

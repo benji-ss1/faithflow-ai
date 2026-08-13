@@ -206,6 +206,8 @@ function ObjectView({
           textAlign: obj.align ?? "center",
           padding: "2%",
           containerType: "size",
+          // Match the projector's text shadow so the editor is true WYSIWYG.
+          textShadow: "0 2px 8px rgba(0,0,0,0.45)",
         }}
       >
         {obj.text}
@@ -219,8 +221,8 @@ function ObjectView({
           background: obj.fill2
             ? `linear-gradient(${obj.fillAngle ?? 135}deg, ${obj.fill ?? "#14b8a6"}, ${obj.fill2})`
             : (obj.fill ?? "#14b8a6"),
-          border: obj.strokeWidth ? `${obj.strokeWidth}px solid ${obj.stroke ?? "#0f766e"}` : undefined,
-          borderRadius: obj.shape === "ellipse" ? "50%" : `${obj.radius ?? 0}px`,
+          border: obj.strokeWidth ? `${((obj.strokeWidth / CANVAS_W) * 100)}cqw solid ${obj.stroke ?? "#0f766e"}` : undefined,
+          borderRadius: obj.shape === "ellipse" ? "50%" : `${(((obj.radius ?? 0) / CANVAS_W) * 100)}cqw`,
           opacity: obj.opacity ?? 1,
         }}
       />

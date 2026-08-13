@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState, type RefCallback } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { openLiveChannel, isValidLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
+import { openLiveChannel, isValidLiveMessage, slideDesignSig, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
 import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
 import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
@@ -329,7 +329,7 @@ export default function LivestreamPage() {
 }
 
 function liveIdentity(s: SlidePayload): string {
-  if (s.kind === "text") return `t:${s.text}`;
+  if (s.kind === "text") return `t:${s.text}|${slideDesignSig(s)}`;
   if (s.kind === "image") return `i:${s.url}`;
   if (s.kind === "video") return `v:${s.url}`;
   if (s.kind === "blank") return `b:${s.bgColor ?? ""}`;

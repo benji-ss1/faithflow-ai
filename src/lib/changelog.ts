@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.171",
+    date: "2026-08-13",
+    headline: "Designed slides project cleaner — smoother transitions, crisper detail",
+    highlights: [
+      "Switching between designed slides (including image- or shape-only slides) now crossfades and replays their entrance animations, instead of the new slide popping in place.",
+      "Shape borders and rounded corners now scale with the screen, and the editor matches the projector even more closely (text shadow) — so what you design is what projects, at any resolution.",
+    ],
+  },
+  {
     version: "0.1.170",
     date: "2026-08-13",
     headline: "Slide editor: gradient fills for shapes",

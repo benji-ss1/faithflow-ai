@@ -14,6 +14,7 @@ import { resolve } from "node:path";
 import {
   EMPTY_OUTPUT,
   isValidOutputState,
+  slideDesignSig,
   livestreamUrl,
   type OutputState,
 } from "../src/lib/broadcast";
@@ -150,6 +151,30 @@ async function main() {
   await check("rejects video object with non-boolean loop", () => {
     const s = withLive({ kind: "text", text: "", objects: [{ kind: "video", x: 0, y: 0, w: 100, h: 100, url: "https://s3.example.com/clip.mp4", loop: "yes" }] });
     assert.strictEqual(isValidOutputState(s), false);
+  });
+
+  // --- slideDesignSig (transition identity for designed slides) ------------
+  const dsText = (text: string, extra: Record<string, unknown> = {}) => ({ kind: "text" as const, text, ...extra });
+
+  await check("slideDesignSig is deterministic (same slide → same string)", () => {
+    const s = dsText("x", { bgColor: "#111", objects: [{ kind: "image", x: 100, y: 100, w: 400, h: 300, url: "https://s3.example.com/a.png" }] });
+    assert.strictEqual(slideDesignSig(s), slideDesignSig(s));
+  });
+
+  await check("slideDesignSig: plain text slide collapses to '|' (unchanged behaviour)", () => {
+    assert.strictEqual(slideDesignSig(dsText("hello")), "|");
+  });
+
+  await check("slideDesignSig distinguishes two image-only slides (different urls)", () => {
+    const a = dsText("", { objects: [{ kind: "image", x: 0, y: 0, w: 100, h: 100, url: "https://s3.example.com/a.png" }] });
+    const b = dsText("", { objects: [{ kind: "image", x: 0, y: 0, w: 100, h: 100, url: "https://s3.example.com/b.png" }] });
+    assert.notStrictEqual(slideDesignSig(a), slideDesignSig(b));
+  });
+
+  await check("slideDesignSig distinguishes a shape recolour (fill only)", () => {
+    const a = dsText("", { objects: [{ kind: "shape", x: 0, y: 0, w: 100, h: 100, shape: "rect", fill: "#111" }] });
+    const b = dsText("", { objects: [{ kind: "shape", x: 0, y: 0, w: 100, h: 100, shape: "rect", fill: "#222" }] });
+    assert.notStrictEqual(slideDesignSig(a), slideDesignSig(b));
   });
 
   await check("accepts a shape with a gradient fill", () => {
