@@ -67,7 +67,11 @@ export function ThemesModal({ open, onClose }: { open: boolean; onClose: () => v
         <Dialog.Overlay className="fixed inset-0 z-[70]" style={{ background: "rgba(0,0,0,0.6)" }} />
         <Dialog.Content
           aria-describedby={undefined}
-          className="fixed left-1/2 top-1/2 z-[71] -translate-x-1/2 -translate-y-1/2 w-[94vw] max-w-[1280px] h-[88vh] flex flex-col rounded-xl overflow-hidden border shadow-2xl outline-none"
+          // Centre with `inset-0 m-auto` + fixed size — NOT a translate
+          // transform. A transform would make this box the containing block for
+          // the theme editor's `position: fixed` overlay (and clip it via
+          // overflow-hidden), trapping the "full-screen" editor inside the modal.
+          className="fixed inset-0 m-auto z-[71] w-[94vw] max-w-[1280px] h-[88vh] flex flex-col rounded-xl overflow-hidden border shadow-2xl outline-none"
           style={{ borderColor: "var(--color-border)", background: "var(--color-panel)" }}
         >
           <header className="h-12 shrink-0 flex items-center gap-2 px-4 border-b" style={{ borderColor: "var(--color-border)", background: "var(--color-elevated)" }}>

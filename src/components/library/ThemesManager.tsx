@@ -874,17 +874,17 @@ function SortableThemeCard({
     <li
       ref={setNodeRef}
       style={style}
-      className={cn("relative overflow-hidden rounded-2xl border bg-card/80", theme.isDefault ? "border-[var(--pf-admin-accent)]/40" : "border-border")}
+      className={cn("relative overflow-hidden rounded-2xl border bg-card/80", theme.isDefault ? "border-[var(--color-brand)]/40" : "border-border")}
     >
       {theme.isDefault ? (
-        <span className="absolute right-3 top-3 z-10 inline-flex items-center gap-1 rounded-full bg-[var(--pf-admin-accent)]/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--pf-admin-text-inverse)]">
+        <span className="absolute right-3 top-3 z-10 inline-flex items-center gap-1 rounded-full bg-[var(--color-brand)]/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--color-primary-foreground)]">
           <Star className="h-2.5 w-2.5 fill-current" /> Default
         </span>
       ) : null}
       <button
         type="button"
         onClick={onEdit}
-        className="block w-full text-left focus:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--pf-admin-accent-ring)]"
+        className="block w-full text-left focus:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--color-brand)]"
       >
         <SlidePreview config={theme.config} mode="lyrics" churchLogoUrl={churchLogoUrl} />
       </button>
@@ -915,7 +915,7 @@ function SortableThemeCard({
               onClick={onSetDefault}
               title="Set as default"
               disabled={pending}
-              className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-[var(--pf-admin-accent)]/10 hover:text-[var(--pf-admin-accent)] disabled:opacity-50"
+              className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-[var(--color-brand)]/10 hover:text-[var(--color-brand)] disabled:opacity-50"
             >
               <Star className="h-3.5 w-3.5" />
             </button>

@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.176",
+    date: "2026-08-13",
+    headline: "Theme editor polish",
+    highlights: [
+      "The theme design editor now opens truly full-screen instead of being boxed inside the Themes window, and the Default badge and accents render correctly in the operator.",
+    ],
+  },
+  {
     version: "0.1.175",
     date: "2026-08-13",
     headline: "Full theme design studio in the operator",
