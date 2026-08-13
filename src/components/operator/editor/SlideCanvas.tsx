@@ -208,6 +208,7 @@ function ObjectView({
           containerType: "size",
           // Match the projector's text shadow so the editor is true WYSIWYG.
           textShadow: "0 2px 8px rgba(0,0,0,0.45)",
+          opacity: obj.opacity ?? 1,
         }}
       >
         {obj.text}
@@ -233,7 +234,7 @@ function ObjectView({
       <img
         src={obj.url}
         alt=""
-        style={{ width: "100%", height: "100%", objectFit: obj.fit ?? "contain", display: "block" }}
+        style={{ width: "100%", height: "100%", objectFit: obj.fit ?? "contain", display: "block", opacity: obj.opacity ?? 1 }}
         draggable={false}
       />
     );
@@ -245,7 +246,7 @@ function ObjectView({
         loop={obj.loop ?? true}
         muted
         playsInline
-        style={{ width: "100%", height: "100%", objectFit: obj.fit ?? "contain", display: "block" }}
+        style={{ width: "100%", height: "100%", objectFit: obj.fit ?? "contain", display: "block", opacity: obj.opacity ?? 1 }}
       />
     );
   }

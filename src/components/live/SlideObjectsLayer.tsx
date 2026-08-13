@@ -63,6 +63,7 @@ export function SlideObjectsLayer({ objects }: { objects: SlideObjectWire[] }) {
                   padding: "2%",
                   containerType: "size",
                   textShadow: "0 2px 8px rgba(0,0,0,0.45)",
+                  opacity: obj.opacity ?? 1,
                 }}
               >
                 {obj.text}
@@ -99,7 +100,7 @@ export function SlideObjectsLayer({ objects }: { objects: SlideObjectWire[] }) {
                 loop={obj.loop ?? true}
                 muted={obj.muted ?? true}
                 playsInline
-                style={{ width: "100%", height: "100%", objectFit: obj.fit ?? "contain", display: "block" }}
+                style={{ width: "100%", height: "100%", objectFit: obj.fit ?? "contain", display: "block", opacity: obj.opacity ?? 1 }}
                 onError={(e) => { (e.currentTarget as HTMLVideoElement).style.visibility = "hidden"; }}
               />
             </div>
@@ -112,7 +113,7 @@ export function SlideObjectsLayer({ objects }: { objects: SlideObjectWire[] }) {
             <img
               src={obj.url}
               alt=""
-              style={{ width: "100%", height: "100%", objectFit: obj.fit ?? "contain", display: "block" }}
+              style={{ width: "100%", height: "100%", objectFit: obj.fit ?? "contain", display: "block", opacity: obj.opacity ?? 1 }}
               draggable={false}
               // A 404 / expired-presign object image must never show the browser's
               // broken-image glyph on the congregation's screen — hide it instead.

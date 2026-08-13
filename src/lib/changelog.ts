@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.172",
+    date: "2026-08-13",
+    headline: "Slide editor: opacity for every object",
+    highlights: [
+      "Any object — text, image, or video, not just shapes — can now be made semi-transparent with the Opacity slider. Perfect for faded watermarks, subtle logos, and text or images layered over a background.",
+    ],
+  },
+  {
     version: "0.1.171",
     date: "2026-08-13",
     headline: "Designed slides project cleaner — smoother transitions, crisper detail",

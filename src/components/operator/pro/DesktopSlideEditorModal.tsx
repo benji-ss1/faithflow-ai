@@ -379,6 +379,9 @@ function ObjectInspector({ churchId }: { churchId: string }) {
           <div><span className={rowCls}>Rotation — {Math.round(selected.rotation ?? 0)}°</span>
             <input type="range" min={-180} max={180} value={selected.rotation ?? 0} onChange={(e) => upd({ rotation: Number(e.target.value) })} className="w-full" />
           </div>
+          <div><span className={rowCls}>Opacity — {Math.round((selected.opacity ?? 1) * 100)}%</span>
+            <input type="range" min={0} max={100} value={(selected.opacity ?? 1) * 100} onChange={(e) => upd({ opacity: Number(e.target.value) / 100 })} className="w-full" />
+          </div>
           {selected.kind === "text" && <TextProps o={selected} upd={upd} />}
           {selected.kind === "shape" && <ShapeProps o={selected} upd={upd} />}
           {selected.kind === "image" && <ImageProps o={selected} upd={upd} />}
@@ -516,9 +519,6 @@ function ShapeProps({ o, upd }: { o: ShapeObject; upd: (p: Partial<SlideObject>)
       )}
       <div><span className={rowCls}>Border width — {o.strokeWidth ?? 0}px</span>
         <input type="range" min={0} max={40} value={o.strokeWidth ?? 0} onChange={(e) => upd({ strokeWidth: Number(e.target.value) })} className="w-full" />
-      </div>
-      <div><span className={rowCls}>Opacity — {Math.round((o.opacity ?? 1) * 100)}%</span>
-        <input type="range" min={0} max={100} value={(o.opacity ?? 1) * 100} onChange={(e) => upd({ opacity: Number(e.target.value) / 100 })} className="w-full" />
       </div>
       {o.shape === "rect" && (
         <div><span className={rowCls}>Corner radius — {o.radius ?? 0}px</span>

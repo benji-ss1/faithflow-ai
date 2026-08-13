@@ -24,6 +24,7 @@ export type TextObject = {
   align?: "left" | "center" | "right";
   italic?: boolean;
   underline?: boolean;
+  opacity?: number;
 };
 
 export type ShapeObject = {
@@ -50,6 +51,7 @@ export type ImageObject = {
   rotation?: number;
   url: string;
   fit?: "contain" | "cover";
+  opacity?: number;
 };
 
 export type VideoObject = {
@@ -62,6 +64,7 @@ export type VideoObject = {
   fit?: "contain" | "cover";
   loop?: boolean;
   muted?: boolean;
+  opacity?: number;
 };
 
 export type SlideObject = TextObject | ShapeObject | ImageObject | VideoObject;

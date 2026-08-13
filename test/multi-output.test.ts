@@ -192,6 +192,19 @@ async function main() {
     assert.strictEqual(isValidOutputState(s), false);
   });
 
+  await check("accepts opacity on any object kind", () => {
+    const s = withLive({ kind: "text", text: "x", objects: [
+      { ...txtObj, opacity: 0.5 },
+      { kind: "image", x: 0, y: 0, w: 100, h: 100, url: "https://s3.example.com/a.png", opacity: 0.2 },
+    ] });
+    assert.strictEqual(isValidOutputState(s), true);
+  });
+
+  await check("rejects opacity out of range", () => {
+    const s = withLive({ kind: "text", text: "x", objects: [{ ...txtObj, opacity: 2 }] });
+    assert.strictEqual(isValidOutputState(s), false);
+  });
+
   await check("accepts an object with a valid rotation", () => {
     const s = withLive({ kind: "text", text: "x", objects: [{ ...txtObj, rotation: -45 }] });
     assert.strictEqual(isValidOutputState(s), true);
