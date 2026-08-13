@@ -7,56 +7,69 @@ type HandleKey = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 
 export function SlideCanvas({
   slide,
-  selectedObjectId,
+  selectedIds,
   onSelectObject,
+  onSetSelection,
   onUpdateObject,
-  onRemoveObject,
+  onUpdateObjects,
+  onRemoveObjects,
   readOnly,
 }: {
   slide: EditableSlide | null;
-  selectedObjectId: string | null;
-  onSelectObject: (id: string | null) => void;
+  // Full selection set. Length 1 = classic single-select (with resize handles);
+  // length >1 = a group (move/delete/nudge together, no per-object handles).
+  selectedIds: string[];
+  // additive = shift/⌘-click → toggle this id in/out of the selection.
+  onSelectObject: (id: string | null, additive?: boolean) => void;
+  // Replace the whole selection (marquee result).
+  onSetSelection: (ids: string[]) => void;
   onUpdateObject: (id: string, patch: Partial<SlideObject>) => void;
-  onRemoveObject: (id: string) => void;
+  onUpdateObjects: (patches: { id: string; patch: Partial<SlideObject> }[]) => void;
+  onRemoveObjects: (ids: string[]) => void;
   readOnly?: boolean;
 }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   // Snap guides — teal alignment lines (in canvas units) shown while a moving
   // object's edge/centre snaps to the canvas or another object's edge/centre.
   const [guides, setGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
-  // Fresh slide ref so the drag's mousemove closure reads the latest objects.
+  // Marquee rubber-band (in canvas units) while dragging on empty canvas.
+  const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  // Fresh refs so the drag/marquee mousemove closures read the latest values.
   const slideRef = useRef(slide);
   slideRef.current = slide;
+  const selRef = useRef(selectedIds);
+  selRef.current = selectedIds;
 
-  // Keyboard: delete / escape. Don't hijack when a text input has focus.
+  // Keyboard: delete / escape / nudge. Don't hijack when a text input has focus.
   useEffect(() => {
     if (readOnly) return;
     function onKey(e: KeyboardEvent) {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
-      if (!selectedObjectId) {
+      const ids = selRef.current;
+      if (ids.length === 0) {
         if (e.key === "Escape") onSelectObject(null);
         return;
       }
       if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
-        onRemoveObject(selectedObjectId);
+        onRemoveObjects(ids);
       } else if (e.key === "Escape") {
         onSelectObject(null);
       } else if (e.key.startsWith("Arrow")) {
-        // Nudge the selected object. Shift = 1px fine, otherwise 10px (canvas units).
-        const obj = slide?.objects.find((o) => o.id === selectedObjectId);
-        if (!obj) return;
+        // Nudge every selected object. Shift = 1px fine, otherwise 10px.
+        const objs = (slideRef.current?.objects ?? []).filter((o) => ids.includes(o.id));
+        if (objs.length === 0) return;
         e.preventDefault();
         const step = e.shiftKey ? 1 : 10;
         const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
         const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
-        onUpdateObject(selectedObjectId, { x: obj.x + dx, y: obj.y + dy } as Partial<SlideObject>);
+        onUpdateObjects(objs.map((o) => ({ id: o.id, patch: { x: o.x + dx, y: o.y + dy } as Partial<SlideObject> })));
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedObjectId, onRemoveObject, onSelectObject, onUpdateObject, slide, readOnly]);
+  }, [onRemoveObjects, onSelectObject, onUpdateObjects, readOnly]);
 
   const getCanvasRect = useCallback(() => {
     const el = wrapRef.current?.querySelector<HTMLDivElement>("[data-canvas-inner]");
@@ -77,9 +90,24 @@ export function SlideCanvas({
     const startY = e.clientY;
     const start = { x: obj.x, y: obj.y, w: obj.w, h: obj.h };
 
+    // Group move: if the grabbed object is part of a multi-selection, move ALL
+    // selected objects by the same delta (no snapping — snapping a whole group
+    // to a single edge is more surprising than helpful).
+    const groupIds = selRef.current;
+    const isGroup = mode === "move" && groupIds.length > 1 && groupIds.includes(obj.id);
+    const groupStart = isGroup
+      ? (slideRef.current?.objects ?? [])
+          .filter((o) => groupIds.includes(o.id))
+          .map((o) => ({ id: o.id, x: o.x, y: o.y }))
+      : null;
+
     function onMove(ev: MouseEvent) {
       const dx = (ev.clientX - startX) * scaleX;
       const dy = (ev.clientY - startY) * scaleY;
+      if (groupStart) {
+        onUpdateObjects(groupStart.map((g) => ({ id: g.id, patch: { x: g.x + dx, y: g.y + dy } as Partial<SlideObject> })));
+        return;
+      }
       let nx = start.x, ny = start.y, nw = start.w, nh = start.h;
       if (mode === "move") {
         nx = start.x + dx; ny = start.y + dy;
@@ -117,7 +145,45 @@ export function SlideCanvas({
     }
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [getCanvasRect, onUpdateObject, readOnly]);
+  }, [getCanvasRect, onUpdateObject, onUpdateObjects, readOnly]);
+
+  // Rubber-band marquee: begins on empty-canvas mousedown. On release, selects
+  // every object that intersects the box. A tiny box (a plain click) clears.
+  const beginMarquee = useCallback((e: React.MouseEvent) => {
+    if (readOnly) return;
+    const rect = getCanvasRect();
+    if (!rect) return;
+    const scaleX = CANVAS_W / rect.width;
+    const scaleY = CANVAS_H / rect.height;
+    const ox = (e.clientX - rect.left) * scaleX;
+    const oy = (e.clientY - rect.top) * scaleY;
+    let moved = false;
+
+    function onMove(ev: MouseEvent) {
+      const cx = (ev.clientX - rect!.left) * scaleX;
+      const cy = (ev.clientY - rect!.top) * scaleY;
+      const x = Math.min(ox, cx), y = Math.min(oy, cy);
+      const w = Math.abs(cx - ox), h = Math.abs(cy - oy);
+      if (w > 6 || h > 6) moved = true;
+      setMarquee({ x, y, w, h });
+    }
+    function onUp(ev: MouseEvent) {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      setMarquee(null);
+      if (!moved) { onSelectObject(null); return; } // plain click → clear
+      const cx = (ev.clientX - rect!.left) * scaleX;
+      const cy = (ev.clientY - rect!.top) * scaleY;
+      const bx = Math.min(ox, cx), by = Math.min(oy, cy);
+      const bw = Math.abs(cx - ox), bh = Math.abs(cy - oy);
+      const hits = (slideRef.current?.objects ?? [])
+        .filter((o) => o.x < bx + bw && o.x + o.w > bx && o.y < by + bh && o.y + o.h > by)
+        .map((o) => o.id);
+      onSetSelection(hits);
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [getCanvasRect, onSelectObject, onSetSelection, readOnly]);
 
   if (!slide) {
     return (
@@ -126,6 +192,8 @@ export function SlideCanvas({
       </div>
     );
   }
+
+  const selSet = new Set(selectedIds);
 
   return (
     <div ref={wrapRef} className="w-full h-full flex items-center justify-center p-4 min-h-0 min-w-0">
@@ -146,18 +214,28 @@ export function SlideCanvas({
           }}
           onMouseDown={(e) => {
             if (readOnly) return;
-            if (e.target === e.currentTarget) onSelectObject(null);
+            if (e.target === e.currentTarget) beginMarquee(e);
           }}
         >
           {/* Alignment snap guides (positioned at the snapped canvas coordinate) */}
           {guides.x !== null && <div className="pointer-events-none absolute inset-y-0 w-px bg-teal-400/80 z-50" style={{ left: `${(guides.x / CANVAS_W) * 100}%` }} />}
           {guides.y !== null && <div className="pointer-events-none absolute inset-x-0 h-px bg-teal-400/80 z-50" style={{ top: `${(guides.y / CANVAS_H) * 100}%` }} />}
+          {/* Marquee rubber-band */}
+          {marquee && (
+            <div className="pointer-events-none absolute z-50 border border-teal-400 bg-teal-400/10"
+              style={{
+                left: `${(marquee.x / CANVAS_W) * 100}%`, top: `${(marquee.y / CANVAS_H) * 100}%`,
+                width: `${(marquee.w / CANVAS_W) * 100}%`, height: `${(marquee.h / CANVAS_H) * 100}%`,
+              }} />
+          )}
           {slide.objects.map((o) => (
             <ObjectView
               key={o.id}
               obj={o}
-              selected={!readOnly && selectedObjectId === o.id}
-              onSelect={() => !readOnly && onSelectObject(o.id)}
+              selected={!readOnly && selSet.has(o.id)}
+              soleSelected={!readOnly && selSet.has(o.id) && selectedIds.length === 1}
+              onSelect={(additive) => !readOnly && onSelectObject(o.id, additive)}
+              selectedNow={selSet.has(o.id)}
               beginDrag={beginDrag}
               readOnly={!!readOnly}
             />
@@ -169,11 +247,13 @@ export function SlideCanvas({
 }
 
 function ObjectView({
-  obj, selected, onSelect, beginDrag, readOnly,
+  obj, selected, soleSelected, selectedNow, onSelect, beginDrag, readOnly,
 }: {
   obj: SlideObject;
   selected: boolean;
-  onSelect: () => void;
+  soleSelected: boolean;
+  selectedNow: boolean;
+  onSelect: (additive: boolean) => void;
   beginDrag: (e: React.MouseEvent, obj: SlideObject, mode: "move" | HandleKey) => void;
   readOnly: boolean;
 }) {
@@ -256,15 +336,21 @@ function ObjectView({
       style={style}
       onMouseDown={(e) => {
         if (readOnly) return;
-        onSelect();
+        const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+        if (additive) { e.stopPropagation(); onSelect(true); return; }
+        // Plain click: if this object isn't already part of the selection,
+        // select it alone; if it IS (part of a group), keep the group so the
+        // drag moves the whole group. Then begin the move.
+        if (!selectedNow) onSelect(false);
         beginDrag(e, obj, "move");
       }}
     >
       {inner}
       {selected && !readOnly && (
         <>
-          <div className="absolute inset-0 pointer-events-none ring-2 ring-teal-400" />
-          {(["nw", "n", "ne", "e", "se", "s", "sw", "w"] as HandleKey[]).map((k) => (
+          <div className={cn("absolute inset-0 pointer-events-none ring-2", soleSelected ? "ring-teal-400" : "ring-teal-400/70")} />
+          {/* Resize handles only for a sole selection — a group moves as a unit. */}
+          {soleSelected && (["nw", "n", "ne", "e", "se", "s", "sw", "w"] as HandleKey[]).map((k) => (
             <Handle key={k} k={k} onBegin={(e) => beginDrag(e, obj, k)} />
           ))}
         </>

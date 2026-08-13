@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.173",
+    date: "2026-08-13",
+    headline: "Slide editor: select and move multiple objects at once",
+    highlights: [
+      "Drag a box around several objects — or Shift-click to add them one by one — and move, nudge (arrow keys), or delete them all together.",
+      "New group Align buttons snap the whole selection's left/centre/right and top/middle/bottom edges into line in one click — perfect for tidying stacked lyric lines or a row of logos.",
+    ],
+  },
+  {
     version: "0.1.172",
     date: "2026-08-13",
     headline: "Slide editor: opacity for every object",

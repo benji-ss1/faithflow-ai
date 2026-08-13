@@ -26,10 +26,20 @@ export type UseSlideEditorReturn = {
   slides: EditableSlide[];
   currentIndex: number;
   currentSlide: EditableSlide | null;
+  // Primary selection — the single anchored object, or null when zero OR more
+  // than one object is selected. Single-object inspectors key off this.
   selectedObjectId: string | null;
+  // Full selection set (multi-select). Length 0/1 keeps the classic behaviour;
+  // >1 drives group move/align/delete in the desktop canvas + inspector.
+  selectedObjectIds: string[];
   isEditable: boolean;
   setCurrentIndex: (i: number) => void;
   setSelectedObjectId: (id: string | null) => void;
+  setSelectedObjectIds: (ids: string[]) => void;
+  toggleObjectSelection: (id: string) => void;
+  updateObjects: (patches: { id: string; patch: Partial<SlideObject> }[]) => void;
+  removeObjects: (ids: string[]) => void;
+  alignObjects: (ids: string[], edge: "left" | "hcenter" | "right" | "top" | "vcenter" | "bottom") => void;
   addTextObject: () => void;
   addShape: (shape?: "rect" | "ellipse") => void;
   addImage: (url: string) => void;
@@ -66,7 +76,10 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
   const initialParsed = initialSlides.map(normalizeEditableSlide);
   const [slides, setSlides] = useState<EditableSlide[]>(initialParsed);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
+  // Selection is a set of object ids. `selectedObjectId` (below) is the derived
+  // single-anchor for classic single-object inspectors.
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const selectedObjectId = selectedIds.length === 1 ? selectedIds[0] : null;
   const [dirty, setDirty] = useState(false);
 
   // Refs mirror the latest state so imperative slide-management handlers
@@ -127,7 +140,7 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     suppressRecordRef.current = true;
     slidesRef.current = target; // keep the ref fresh so a synchronous 2nd undo is safe
     setSlides(target);
-    setSelectedObjectId(null);
+    setSelectedIds([]);
     setCurrentIndex((i) => Math.max(0, Math.min(i, target.length - 1)));
     setDirty(true);
     setCanUndo(h.past.length > 0);
@@ -144,7 +157,7 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     suppressRecordRef.current = true;
     slidesRef.current = target; // keep the ref fresh so a synchronous 2nd redo is safe
     setSlides(target);
-    setSelectedObjectId(null);
+    setSelectedIds([]);
     setCurrentIndex((i) => Math.max(0, Math.min(i, target.length - 1)));
     setDirty(true);
     setCanUndo(true);
@@ -164,7 +177,7 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     setCanRedo(false);
     setSlides(initialSlides.map(normalizeEditableSlide));
     setCurrentIndex(0);
-    setSelectedObjectId(null);
+    setSelectedIds([]);
     setDirty(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemId]);
@@ -203,28 +216,28 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     if (!isEditable) return;
     const obj = emptyTextObject();
     patchCurrent((s) => ({ ...s, objects: [...s.objects, obj] }));
-    setSelectedObjectId(obj.id);
+    setSelectedIds([obj.id]);
   }, [isEditable, patchCurrent]);
 
   const addShape = useCallback((shape: "rect" | "ellipse" = "rect") => {
     if (!isEditable) return;
     const obj = emptyShape(shape);
     patchCurrent((s) => ({ ...s, objects: [...s.objects, obj] }));
-    setSelectedObjectId(obj.id);
+    setSelectedIds([obj.id]);
   }, [isEditable, patchCurrent]);
 
   const addImage = useCallback((url: string) => {
     if (!isEditable) return;
     const obj = emptyImage(url);
     patchCurrent((s) => ({ ...s, objects: [...s.objects, obj] }));
-    setSelectedObjectId(obj.id);
+    setSelectedIds([obj.id]);
   }, [isEditable, patchCurrent]);
 
   const addVideo = useCallback((url: string) => {
     if (!isEditable) return;
     const obj = emptyVideo(url);
     patchCurrent((s) => ({ ...s, objects: [...s.objects, obj] }));
-    setSelectedObjectId(obj.id);
+    setSelectedIds([obj.id]);
   }, [isEditable, patchCurrent]);
 
   // Z-order: objects paint in array order (last = front). Move the selected
@@ -261,7 +274,64 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
   const removeObject = useCallback((id: string) => {
     if (!isEditable) return;
     patchCurrent((s) => ({ ...s, objects: s.objects.filter((o) => o.id !== id) }));
-    setSelectedObjectId((cur) => (cur === id ? null : cur));
+    setSelectedIds((cur) => cur.filter((x) => x !== id));
+  }, [isEditable, patchCurrent]);
+
+  // ── Multi-select group operations ─────────────────────────────────────────
+  // Toggle one id in/out of the selection (shift/⌘-click on the canvas).
+  const toggleObjectSelection = useCallback((id: string) => {
+    setSelectedIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
+  }, []);
+
+  // Apply a batch of per-object patches in a SINGLE setSlides pass — used by a
+  // group drag/nudge so N objects move in one render (and one history step),
+  // instead of N cascading updateObject calls.
+  const updateObjects = useCallback((patches: { id: string; patch: Partial<SlideObject> }[]) => {
+    if (!isEditable || patches.length === 0) return;
+    const byId = new Map(patches.map((p) => [p.id, p.patch]));
+    patchCurrent((s) => ({
+      ...s,
+      objects: s.objects.map((o) => {
+        const p = byId.get(o.id);
+        return p ? ({ ...o, ...p } as SlideObject) : o;
+      }),
+    }));
+  }, [isEditable, patchCurrent]);
+
+  const removeObjects = useCallback((ids: string[]) => {
+    if (!isEditable || ids.length === 0) return;
+    const rm = new Set(ids);
+    patchCurrent((s) => ({ ...s, objects: s.objects.filter((o) => !rm.has(o.id)) }));
+    setSelectedIds((cur) => cur.filter((x) => !rm.has(x)));
+  }, [isEditable, patchCurrent]);
+
+  // Align every selected object's edge/centre to the SELECTION's bounding box
+  // (classic multi-align). With <2 ids it's a no-op — single-object align uses
+  // the canvas-relative buttons instead.
+  const alignObjects = useCallback((ids: string[], edge: "left" | "hcenter" | "right" | "top" | "vcenter" | "bottom") => {
+    if (!isEditable || ids.length < 2) return;
+    patchCurrent((s) => {
+      const sel = s.objects.filter((o) => ids.includes(o.id));
+      if (sel.length < 2) return s;
+      const minX = Math.min(...sel.map((o) => o.x));
+      const maxX = Math.max(...sel.map((o) => o.x + o.w));
+      const minY = Math.min(...sel.map((o) => o.y));
+      const maxY = Math.max(...sel.map((o) => o.y + o.h));
+      const cx = (minX + maxX) / 2;
+      const cy = (minY + maxY) / 2;
+      const move = (o: SlideObject): SlideObject => {
+        switch (edge) {
+          case "left": return { ...o, x: Math.round(minX) } as SlideObject;
+          case "hcenter": return { ...o, x: Math.round(cx - o.w / 2) } as SlideObject;
+          case "right": return { ...o, x: Math.round(maxX - o.w) } as SlideObject;
+          case "top": return { ...o, y: Math.round(minY) } as SlideObject;
+          case "vcenter": return { ...o, y: Math.round(cy - o.h / 2) } as SlideObject;
+          case "bottom": return { ...o, y: Math.round(maxY - o.h) } as SlideObject;
+        }
+      };
+      const idset = new Set(ids);
+      return { ...s, objects: s.objects.map((o) => (idset.has(o.id) ? move(o) : o)) };
+    });
   }, [isEditable, patchCurrent]);
 
   // Insert a clone of an arbitrary object (e.g. pasted from another slide) onto
@@ -271,7 +341,7 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     const newId = newObjectId();
     const clone = { ...obj, id: newId, x: obj.x + 40, y: obj.y + 40 } as SlideObject;
     patchCurrent((s) => ({ ...s, objects: [...s.objects, clone] }));
-    setSelectedObjectId(newId);
+    setSelectedIds([newId]);
   }, [isEditable, patchCurrent]);
 
   const duplicateObject = useCallback((id: string) => {
@@ -287,7 +357,7 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
       objs.splice(idx + 1, 0, clone);
       return { ...s, objects: objs };
     });
-    setSelectedObjectId(newId);
+    setSelectedIds([newId]);
   }, [isEditable, patchCurrent]);
 
   const moveObject = useCallback((id: string, dx: number, dy: number) => {
@@ -307,7 +377,7 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     });
     setDirty(true);
     setCurrentIndex(slides.length);
-    setSelectedObjectId(null);
+    setSelectedIds([]);
   }, [isEditable, slides.length]);
 
   const duplicateSlide = useCallback(() => {
@@ -326,7 +396,7 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     });
     setDirty(true);
     setCurrentIndex((i) => i + 1);
-    setSelectedObjectId(null);
+    setSelectedIds([]);
   }, [isEditable, currentIndex]);
 
   // deleteSlide(index?) — deletes the slide at `index`, or the currently
@@ -351,7 +421,7 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     const nextIndex = Math.max(0, Math.min(target <= cur ? cur - 1 : cur, copy.length - 1));
     setSlides(copy);
     setCurrentIndex(nextIndex);
-    setSelectedObjectId(null);
+    setSelectedIds([]);
     setDirty(true);
     return true;
   }, [isEditable]);
@@ -371,7 +441,7 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
       return copy;
     });
     setCurrentIndex(Math.max(0, Math.min(index, slidesRef.current.length)));
-    setSelectedObjectId(null);
+    setSelectedIds([]);
     setDirty(true);
   }, [isEditable]);
 
@@ -387,6 +457,10 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     });
     setDirty(true);
     setCurrentIndex(to);
+    // Object ids are per-slide; changing the displayed slide invalidates any
+    // multi-selection (mirrors the setCurrentIndex wrapper) so the group panel
+    // and group ops never linger over objects that aren't on screen.
+    setSelectedIds([]);
   }, [isEditable]);
 
   const setBg = useCallback((patch: { bgColor?: string; bgImageUrl?: string }) => {
@@ -395,6 +469,10 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
 
   const updateSlideDirect = useCallback((patch: Partial<EditableSlide>) => {
     patchCurrent((s) => ({ ...s, ...patch }));
+    // A template/bulk apply that replaces the object list invalidates any
+    // current selection (the old ids are gone) — clear it so the group panel
+    // and group ops can't linger over non-existent objects.
+    if (patch.objects) setSelectedIds([]);
   }, [patchCurrent]);
 
   const currentPayload = currentSlide ? slidePayloadFromEditable(currentSlide) : null;
@@ -405,9 +483,15 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     currentIndex,
     currentSlide,
     selectedObjectId,
+    selectedObjectIds: selectedIds,
     isEditable,
-    setCurrentIndex: (i) => { setCurrentIndex(i); setSelectedObjectId(null); },
-    setSelectedObjectId,
+    setCurrentIndex: (i) => { setCurrentIndex(i); setSelectedIds([]); },
+    setSelectedObjectId: (id) => setSelectedIds(id ? [id] : []),
+    setSelectedObjectIds: setSelectedIds,
+    toggleObjectSelection,
+    updateObjects,
+    removeObjects,
+    alignObjects,
     addTextObject,
     addShape,
     addImage,

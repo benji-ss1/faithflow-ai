@@ -100,10 +100,15 @@ export function CenterWorkspace({ ctx }: { ctx: OperatorShellCtx }) {
           {isSong ? (
             <SlideCanvas
               slide={editor.currentSlide}
-              selectedObjectId={editor.selectedObjectId}
-              onSelectObject={editor.setSelectedObjectId}
+              selectedIds={editor.selectedObjectIds}
+              onSelectObject={(id, additive) => {
+                if (additive && id) editor.toggleObjectSelection(id);
+                else editor.setSelectedObjectId(id);
+              }}
+              onSetSelection={editor.setSelectedObjectIds}
               onUpdateObject={editor.updateObject}
-              onRemoveObject={editor.removeObject}
+              onUpdateObjects={editor.updateObjects}
+              onRemoveObjects={editor.removeObjects}
               readOnly={false}
             />
           ) : (
