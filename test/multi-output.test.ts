@@ -152,6 +152,21 @@ async function main() {
     assert.strictEqual(isValidOutputState(s), false);
   });
 
+  await check("accepts an object with a valid rotation", () => {
+    const s = withLive({ kind: "text", text: "x", objects: [{ ...txtObj, rotation: -45 }] });
+    assert.strictEqual(isValidOutputState(s), true);
+  });
+
+  await check("rejects rotation out of range (>360)", () => {
+    const s = withLive({ kind: "text", text: "x", objects: [{ ...txtObj, rotation: 999 }] });
+    assert.strictEqual(isValidOutputState(s), false);
+  });
+
+  await check("rejects non-finite rotation", () => {
+    const s = withLive({ kind: "text", text: "x", objects: [{ ...txtObj, rotation: NaN }] });
+    assert.strictEqual(isValidOutputState(s), false);
+  });
+
   await check("accepts objects with a valid entrance animation", () => {
     const s = withLive({ kind: "text", text: "x", objects: [{ ...txtObj, anim: "slide-up", animDelayMs: 200 }] });
     assert.strictEqual(isValidOutputState(s), true);

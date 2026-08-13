@@ -312,6 +312,9 @@ function ObjectInspector() {
             <div><span className={rowCls}>W</span><input type="number" value={Math.round(selected.w)} onChange={(e) => upd({ w: Math.max(20, Number(e.target.value)) })} className={inCls} style={{ borderColor: "#2a3232" }} /></div>
             <div><span className={rowCls}>H</span><input type="number" value={Math.round(selected.h)} onChange={(e) => upd({ h: Math.max(20, Number(e.target.value)) })} className={inCls} style={{ borderColor: "#2a3232" }} /></div>
           </div>
+          <div><span className={rowCls}>Rotation — {Math.round(selected.rotation ?? 0)}°</span>
+            <input type="range" min={-180} max={180} value={selected.rotation ?? 0} onChange={(e) => upd({ rotation: Number(e.target.value) })} className="w-full" />
+          </div>
           {selected.kind === "text" && <TextProps o={selected} upd={upd} />}
           {selected.kind === "shape" && <ShapeProps o={selected} upd={upd} />}
           {selected.kind === "image" && <ImageProps o={selected} upd={upd} />}

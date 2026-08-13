@@ -15,6 +15,7 @@ export type TextObject = {
   kind: "text";
   x: number; y: number; w: number; h: number;
   anim?: ObjectAnim; animDelayMs?: number;
+  rotation?: number;
   text: string;
   fontFamily?: string;
   fontSize?: number;
@@ -30,6 +31,7 @@ export type ShapeObject = {
   kind: "shape";
   x: number; y: number; w: number; h: number;
   anim?: ObjectAnim; animDelayMs?: number;
+  rotation?: number;
   shape: "rect" | "ellipse";
   fill?: string;
   stroke?: string;
@@ -43,6 +45,7 @@ export type ImageObject = {
   kind: "image";
   x: number; y: number; w: number; h: number;
   anim?: ObjectAnim; animDelayMs?: number;
+  rotation?: number;
   url: string;
   fit?: "contain" | "cover";
 };
@@ -52,6 +55,7 @@ export type VideoObject = {
   kind: "video";
   x: number; y: number; w: number; h: number;
   anim?: ObjectAnim; animDelayMs?: number;
+  rotation?: number;
   url: string;
   fit?: "contain" | "cover";
   loop?: boolean;

@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.167",
+    date: "2026-08-13",
+    headline: "Slide editor: rotate objects",
+    highlights: [
+      "Any object — text, shape, image or video — can now be rotated. Select it and use the new Rotation slider in the editor; the angle projects exactly as designed and plays nicely with entrance animations.",
+    ],
+  },
+  {
     version: "0.1.166",
     date: "2026-08-12",
     headline: "Auto-detected songs open the full song",

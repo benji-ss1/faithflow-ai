@@ -26,6 +26,10 @@ export function SlideObjectsLayer({ objects }: { objects: SlideObjectWire[] }) {
           top: `${(obj.y / SLIDE_CANVAS_H) * 100}%`,
           width: `${(obj.w / SLIDE_CANVAS_W) * 100}%`,
           height: `${(obj.h / SLIDE_CANVAS_H) * 100}%`,
+          // Rotation via the INDEPENDENT `rotate` property (not `transform`) so
+          // it composes cleanly with the entrance animation's transform instead
+          // of being overwritten by it.
+          rotate: obj.rotation ? `${obj.rotation}deg` : undefined,
         };
         const key = `${obj.kind}-${i}`;
         // Entrance animation: applied to the positioned box only. `both` fill
