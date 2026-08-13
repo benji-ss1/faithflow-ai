@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.174",
+    date: "2026-08-13",
+    headline: "Themes opens as a full-screen manager",
+    highlights: [
+      "The Themes button in the top bar now opens a proper full-screen manager instead of a cramped side panel — big theme previews, one-click Apply, Import, Quick Swatches and Blank Slides, all with room to breathe.",
+    ],
+  },
+  {
     version: "0.1.173",
     date: "2026-08-13",
     headline: "Slide editor: select and move multiple objects at once",

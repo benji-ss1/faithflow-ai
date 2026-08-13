@@ -26,7 +26,8 @@ function bgStyle(cfg: Record<string, unknown>): React.CSSProperties {
   return { background: bg1 };
 }
 
-export function ThemesTab() {
+export function ThemesTab({ layout = "panel" }: { layout?: "panel" | "modal" } = {}) {
+  const modal = layout === "modal";
   const { tier } = useTier();
   const canPremiumThemes = tier !== null && canAccess(tier, "premium-themes");
   const { themes: customThemes, add: addCustomTheme, remove: removeCustomTheme } = useCustomThemes();
@@ -73,20 +74,29 @@ export function ThemesTab() {
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className={cn("flex flex-col", modal ? "gap-5" : "gap-3")}>
       <ThemeImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
 
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="eyebrow">Themes</div>
+        {modal ? (
+          <div className="text-[12px] text-[var(--color-muted-foreground)] max-w-[60ch]">
+            Pick a look for the projector, stage &amp; livestream. Applying a theme updates every output live. Import a ProPresenter theme, or build a quick colour swatch.
+          </div>
+        ) : (
+          <div className="eyebrow">Themes</div>
+        )}
         <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={() => setImportOpen(true)}
             title="Import from ProPresenter"
-            className="flex items-center gap-1 h-6 px-2 rounded border border-[var(--color-border)] text-[10px] text-[var(--color-muted-foreground)] hover:bg-[var(--color-elevated)] transition-colors"
+            className={cn(
+              "flex items-center gap-1.5 rounded border border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:bg-[var(--color-elevated)] transition-colors",
+              modal ? "h-9 px-3 text-[12px] font-medium" : "h-6 px-2 text-[10px]",
+            )}
           >
-            <Upload className="w-2.5 h-2.5" /> Import
+            <Upload className={modal ? "w-3.5 h-3.5" : "w-2.5 h-2.5"} /> Import
           </button>
         </div>
       </div>
@@ -104,7 +114,7 @@ export function ThemesTab() {
           Use + Create Quick Swatch below
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-2">
+        <div className={cn("grid gap-2", modal ? "grid-cols-3 xl:grid-cols-4 gap-4" : "grid-cols-2")}>
           {dbThemes.map((t) => {
             const cfg = t.config;
             const textColor = (cfg.textColor as string) || "#F1EFE8";
@@ -113,6 +123,7 @@ export function ThemesTab() {
                 key={t.id}
                 className={cn(
                   "relative aspect-video rounded border group overflow-hidden cursor-pointer",
+                  modal && "rounded-lg",
                   t.isDefault ? "border-[var(--color-brand)]" : "border-[var(--color-border)]",
                 )}
                 style={bgStyle(cfg)}
@@ -120,26 +131,38 @@ export function ThemesTab() {
               >
                 {/* Default badge */}
                 {t.isDefault && (
-                  <span className="absolute top-0.5 left-0.5 text-[7px] uppercase tracking-wider bg-[var(--color-brand)]/80 text-white px-1 rounded">
+                  <span className={cn(
+                    "absolute uppercase tracking-wider bg-[var(--color-brand)]/80 text-white rounded",
+                    modal ? "top-2 left-2 text-[10px] px-1.5 py-0.5 font-semibold" : "top-0.5 left-0.5 text-[7px] px-1",
+                  )}>
                     Default
                   </span>
                 )}
                 {/* Theme name */}
                 <div
-                  className="absolute inset-0 flex items-center justify-center text-[9px] font-medium px-1 text-center leading-tight"
+                  className={cn(
+                    "absolute inset-0 flex items-center justify-center font-medium text-center leading-tight",
+                    modal ? "text-[18px] px-3" : "text-[9px] px-1",
+                  )}
                   style={{ color: textColor }}
                 >
                   {t.name}
                 </div>
-                {/* Hover overlay: Apply + Edit */}
-                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1 px-1">
+                {/* Hover overlay: Apply */}
+                <div className={cn(
+                  "absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center",
+                  modal ? "gap-2 px-4" : "gap-1 px-1",
+                )}>
                   <button
                     type="button"
                     onClick={() => void applyTheme(t)}
                     disabled={applying === t.id}
-                    className="w-full h-5 rounded bg-[var(--color-brand)] text-white text-[9px] font-medium flex items-center justify-center gap-1 disabled:opacity-50"
+                    className={cn(
+                      "w-full rounded bg-[var(--color-brand)] text-white font-medium flex items-center justify-center gap-1 disabled:opacity-50",
+                      modal ? "h-10 text-[14px] gap-1.5" : "h-5 text-[9px]",
+                    )}
                   >
-                    {applying === t.id ? "…" : <><Check className="w-2.5 h-2.5" /> Apply</>}
+                    {applying === t.id ? "…" : <><Check className={modal ? "w-4 h-4" : "w-2.5 h-2.5"} /> Apply{t.isDefault ? " (current)" : ""}</>}
                   </button>
                 </div>
               </div>
@@ -161,7 +184,7 @@ export function ThemesTab() {
             Quick Swatches ({customThemes.length})
           </button>
           {showExtras && (
-            <div className="grid grid-cols-3 gap-2">
+            <div className={cn("grid gap-2", modal ? "grid-cols-4 xl:grid-cols-6 gap-3" : "grid-cols-3")}>
               {customThemes.map((t) => (
                 <div
                   key={t.id}
@@ -187,15 +210,15 @@ export function ThemesTab() {
       )}
 
       {/* Utility buttons */}
-      <div className="flex flex-col gap-1 mt-1">
-        <CreateSwatchDialog onAdd={addCustomTheme} />
-        <AddBlankSlideDialog />
+      <div className={cn("mt-1", modal ? "flex gap-3 max-w-md" : "flex flex-col gap-1")}>
+        <CreateSwatchDialog onAdd={addCustomTheme} big={modal} />
+        <AddBlankSlideDialog big={modal} />
       </div>
     </div>
   );
 }
 
-function AddBlankSlideDialog() {
+function AddBlankSlideDialog({ big = false }: { big?: boolean }) {
   const { add: addBlankSlide } = useBlankSlides();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -210,8 +233,11 @@ function AddBlankSlideDialog() {
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger asChild>
-        <button className="w-full h-7 rounded border border-[var(--color-border)] text-[10px] text-[var(--color-muted-foreground)] hover:bg-[var(--color-elevated)] flex items-center justify-center gap-1">
-          <Plus className="w-2.5 h-2.5" /> Add Blank Slide
+        <button className={cn(
+          "rounded border border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:bg-[var(--color-elevated)] flex items-center justify-center gap-1.5",
+          big ? "flex-1 h-11 text-[13px] font-medium" : "w-full h-7 text-[10px]",
+        )}>
+          <Plus className={big ? "w-4 h-4" : "w-2.5 h-2.5"} /> Add Blank Slide
         </button>
       </Dialog.Trigger>
       <Dialog.Portal>
@@ -242,7 +268,7 @@ const FONT_FAMILIES = [
   { id: "mono", name: "Mono", css: "ui-monospace, SFMono-Regular, monospace" },
 ];
 
-function CreateSwatchDialog({ onAdd }: { onAdd: (t: { name: string; textColor: string; bgColor: string; accentColor: string; fontFamily: string }) => void }) {
+function CreateSwatchDialog({ onAdd, big = false }: { onAdd: (t: { name: string; textColor: string; bgColor: string; accentColor: string; fontFamily: string }) => void; big?: boolean }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [textColor, setTextColor] = useState("#ffffff");
@@ -260,8 +286,11 @@ function CreateSwatchDialog({ onAdd }: { onAdd: (t: { name: string; textColor: s
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger asChild>
-        <button className="w-full h-7 rounded border border-[var(--color-border)] text-[10px] text-[var(--color-muted-foreground)] hover:bg-[var(--color-elevated)] flex items-center justify-center gap-1">
-          <Plus className="w-2.5 h-2.5" /> Create Quick Swatch
+        <button className={cn(
+          "rounded border border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:bg-[var(--color-elevated)] flex items-center justify-center gap-1.5",
+          big ? "flex-1 h-11 text-[13px] font-medium" : "w-full h-7 text-[10px]",
+        )}>
+          <Plus className={big ? "w-4 h-4" : "w-2.5 h-2.5"} /> Create Quick Swatch
         </button>
       </Dialog.Trigger>
       <Dialog.Portal>

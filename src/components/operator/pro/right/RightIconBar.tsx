@@ -39,8 +39,8 @@ import type { UnifiedSuggestion } from "../../useAudioStream";
 import { AIDetectionsPanel } from "./AIDetectionsPanel";
 import { MessagesTab } from "./tabs/MessagesTab";
 import { TimersTab } from "./tabs/TimersTab";
-import { ThemesTab } from "./tabs/ThemesTab";
 import { MacrosTab } from "./tabs/MacrosTab";
+import { ThemesModal } from "../ThemesModal";
 import { BibleLicensingTab } from "./tabs/BibleLicensingTab";
 import { ChannelStrip } from "../../ChannelStrip";
 // Change 5C (2026-07-27) — right-icon Screens tab retired. Duplicated the
@@ -82,15 +82,17 @@ export function RightIconBar({
   // even if the popover was already open on Messages/Timers/etc.
   const [settingsEpoch, setSettingsEpoch] = useState(0);
   const [settingsInitialTab, setSettingsInitialTab] = useState<"messages" | "timers" | "macros" | "bible">("messages");
+  // Themes now opens as a full-screen operator modal (not a sidebar popover).
+  const [themesModalOpen, setThemesModalOpen] = useState(false);
   useEffect(() => {
     // Audio tab removed from Settings — the AUDIO guardian chip already surfaces
     // the issue inline; operators can check hardware settings in the left sidebar.
     const onOpenAudioSettings = () => {
       // No-op: Audio removed from settings panel.
     };
-    // Themes now has its own dedicated panel (not embedded in Settings).
+    // Themes now opens as a full-screen operator modal.
     const onOpenThemesSettings = () => {
-      setOpenKey("themes");
+      setThemesModalOpen(true);
     };
     window.addEventListener("presentflow:open-audio-settings", onOpenAudioSettings);
     window.addEventListener("presentflow:open-themes-settings", onOpenThemesSettings);
@@ -163,14 +165,11 @@ export function RightIconBar({
           <SettingsPopoverBody key={settingsEpoch} initialTab={settingsInitialTab} timer={timer} messages={messages} />
         </PopoverShell>
       )}
-      {openKey === "themes" && (
-        <PopoverShell title="Themes" onClose={() => setOpenKey(null)}>
-          <div className="p-2">
-            <ThemesTab />
-          </div>
-        </PopoverShell>
-      )}
       {/* Change 5C — Screens popover render block removed. */}
+
+      {/* Themes — full-screen operator modal (opened from the top-bar Themes
+          button via the presentflow:open-themes-settings event). */}
+      <ThemesModal open={themesModalOpen} onClose={() => setThemesModalOpen(false)} />
     </div>
   );
 }
