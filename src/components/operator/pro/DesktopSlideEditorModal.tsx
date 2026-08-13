@@ -501,6 +501,19 @@ function ShapeProps({ o, upd }: { o: ShapeObject; upd: (p: Partial<SlideObject>)
           <input type="color" value={o.stroke ?? "#0f766e"} onChange={(e) => upd({ stroke: e.target.value })} className="h-7 w-full rounded border cursor-pointer bg-transparent" style={{ borderColor: "#2a3232" }} />
         </div>
       </div>
+      <button onClick={() => upd({ fill2: o.fill2 ? undefined : "#0f766e" })}
+        className={`w-full h-7 rounded border text-[10px] uppercase ${o.fill2 ? "border-teal-400 bg-teal-500/20 text-teal-100" : "text-zinc-400"}`}
+        style={o.fill2 ? undefined : { borderColor: "#2a3232" }}>Gradient {o.fill2 ? "on" : "off"}</button>
+      {o.fill2 && (
+        <div className="grid grid-cols-2 gap-1.5">
+          <div><span className={rowCls}>Fill 2</span>
+            <input type="color" value={o.fill2} onChange={(e) => upd({ fill2: e.target.value })} className="h-7 w-full rounded border cursor-pointer bg-transparent" style={{ borderColor: "#2a3232" }} />
+          </div>
+          <div><span className={rowCls}>Angle — {o.fillAngle ?? 135}°</span>
+            <input type="range" min={0} max={360} value={o.fillAngle ?? 135} onChange={(e) => upd({ fillAngle: Number(e.target.value) })} className="w-full" />
+          </div>
+        </div>
+      )}
       <div><span className={rowCls}>Border width — {o.strokeWidth ?? 0}px</span>
         <input type="range" min={0} max={40} value={o.strokeWidth ?? 0} onChange={(e) => upd({ strokeWidth: Number(e.target.value) })} className="w-full" />
       </div>

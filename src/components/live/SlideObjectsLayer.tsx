@@ -72,7 +72,9 @@ export function SlideObjectsLayer({ objects }: { objects: SlideObjectWire[] }) {
               <div
                 className="w-full h-full"
                 style={{
-                  background: obj.fill ?? "#14b8a6",
+                  background: obj.fill2
+                    ? `linear-gradient(${obj.fillAngle ?? 135}deg, ${obj.fill ?? "#14b8a6"}, ${obj.fill2})`
+                    : (obj.fill ?? "#14b8a6"),
                   border: obj.strokeWidth ? `${obj.strokeWidth}px solid ${obj.stroke ?? "#0f766e"}` : undefined,
                   borderRadius: obj.shape === "ellipse" ? "50%" : `${obj.radius ?? 0}px`,
                   opacity: obj.opacity ?? 1,

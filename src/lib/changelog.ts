@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.170",
+    date: "2026-08-13",
+    headline: "Slide editor: gradient fills for shapes",
+    highlights: [
+      "Shapes can now be filled with a gradient — turn on Gradient, pick a second colour and an angle, and it projects exactly as designed. Great for accent bars, banners, and lower-third backgrounds.",
+    ],
+  },
+  {
     version: "0.1.169",
     date: "2026-08-13",
     headline: "Slide editor: save your own templates",

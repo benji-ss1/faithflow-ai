@@ -152,6 +152,21 @@ async function main() {
     assert.strictEqual(isValidOutputState(s), false);
   });
 
+  await check("accepts a shape with a gradient fill", () => {
+    const s = withLive({ kind: "text", text: "", objects: [{ kind: "shape", x: 0, y: 0, w: 500, h: 300, shape: "rect", fill: "#14b8a6", fill2: "#0f766e", fillAngle: 135 }] });
+    assert.strictEqual(isValidOutputState(s), true);
+  });
+
+  await check("rejects a shape gradient with a hostile fill2", () => {
+    const s = withLive({ kind: "text", text: "", objects: [{ kind: "shape", x: 0, y: 0, w: 500, h: 300, shape: "rect", fill: "#14b8a6", fill2: "red;}body{}" }] });
+    assert.strictEqual(isValidOutputState(s), false);
+  });
+
+  await check("rejects a shape gradient with out-of-range fillAngle", () => {
+    const s = withLive({ kind: "text", text: "", objects: [{ kind: "shape", x: 0, y: 0, w: 500, h: 300, shape: "rect", fill: "#14b8a6", fill2: "#000", fillAngle: 999 }] });
+    assert.strictEqual(isValidOutputState(s), false);
+  });
+
   await check("accepts an object with a valid rotation", () => {
     const s = withLive({ kind: "text", text: "x", objects: [{ ...txtObj, rotation: -45 }] });
     assert.strictEqual(isValidOutputState(s), true);

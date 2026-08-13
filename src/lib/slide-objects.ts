@@ -34,6 +34,8 @@ export type ShapeObject = {
   rotation?: number;
   shape: "rect" | "ellipse";
   fill?: string;
+  fill2?: string;       // when set, fill becomes a linear gradient fill → fill2
+  fillAngle?: number;   // gradient angle in degrees (0..360), default 135
   stroke?: string;
   strokeWidth?: number;
   radius?: number;

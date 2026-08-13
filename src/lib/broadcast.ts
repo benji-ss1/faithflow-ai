@@ -15,7 +15,7 @@ export type SlideObjectWire =
       fontFamily?: string; fontSize?: number; fontWeight?: number; color?: string;
       align?: "left" | "center" | "right"; italic?: boolean; underline?: boolean }
   | { kind: "shape"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; shape: "rect" | "ellipse";
-      fill?: string; stroke?: string; strokeWidth?: number; radius?: number; opacity?: number }
+      fill?: string; fill2?: string; fillAngle?: number; stroke?: string; strokeWidth?: number; radius?: number; opacity?: number }
   | { kind: "image"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; url: string; fit?: "contain" | "cover" }
   | { kind: "video"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; url: string; fit?: "contain" | "cover"; loop?: boolean; muted?: boolean };
 
@@ -467,6 +467,8 @@ export function isValidSlideObject(o: unknown): o is SlideObjectWire {
     case "shape":
       if (p.shape !== "rect" && p.shape !== "ellipse") return false;
       if (p.fill !== undefined && !isValidColor(p.fill)) return false;
+      if (p.fill2 !== undefined && !isValidColor(p.fill2)) return false;
+      if (p.fillAngle !== undefined && (typeof p.fillAngle !== "number" || !Number.isFinite(p.fillAngle) || p.fillAngle < 0 || p.fillAngle > 360)) return false;
       if (p.stroke !== undefined && !isValidColor(p.stroke)) return false;
       if (p.strokeWidth !== undefined && (typeof p.strokeWidth !== "number" || !Number.isFinite(p.strokeWidth) || p.strokeWidth < 0 || p.strokeWidth > 200)) return false;
       if (p.radius !== undefined && (typeof p.radius !== "number" || !Number.isFinite(p.radius) || p.radius < 0 || p.radius > 2000)) return false;
