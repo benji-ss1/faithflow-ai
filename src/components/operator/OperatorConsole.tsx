@@ -1365,6 +1365,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     plan,
     previewSlide,
     liveSlide: live,
+    fontScale,
     appearance: effectiveAppearance,
     previewItemIdx: preview.itemIdx,
     previewSlideIdx: preview.slideIdx,

@@ -18,8 +18,11 @@
  * Pure function — unit-testable, no DOM.
  */
 
-/** Absolute floor for projected body text, as a fraction of display height. */
-export const PROJECTOR_MIN_BODY_FRACTION = 0.03;
+/** Absolute floor for projected body text, as a fraction of display height.
+ *  2026-08-13: raised 0.03 → 0.06 (≈64px on 1080) so scripture is sanctuary-
+ *  readable by default. Short/medium verses now render large; only genuinely
+ *  long passages shrink to this floor and then paginate — never illegibly small. */
+export const PROJECTOR_MIN_BODY_FRACTION = 0.06;
 
 /**
  * Ceiling so a very short line doesn't become cartoonishly huge, but still

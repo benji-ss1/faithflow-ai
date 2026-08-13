@@ -156,7 +156,7 @@ function OutputSurface({
           border: kind === "live" ? `4px solid ${borderColor}` : `1px solid ${borderColor}`,
           background: "#000",
         }}>
-        <SlideRenderer slide={slide} />
+        <SlideRenderer slide={slide} projectorFit />
         {safeArea && (
           <div className="absolute inset-[5%] pointer-events-none border-2 border-dashed border-white/25 rounded-sm" />
         )}
@@ -190,11 +190,11 @@ function StageOutputPlaceholder({ previewSlide, liveSlide, onOpenStage }: {
       <div className="flex-1 min-h-0 grid grid-cols-2 gap-2 rounded-md overflow-hidden border" style={{ borderColor: "var(--color-border)" }}>
         <div className="flex flex-col bg-black relative min-h-0">
           <div className="absolute top-1.5 left-2 text-[9px] font-mono uppercase tracking-wider text-white/60 z-10">Current</div>
-          <SlideRenderer slide={liveSlide} />
+          <SlideRenderer slide={liveSlide} projectorFit />
         </div>
         <div className="flex flex-col bg-black relative min-h-0">
           <div className="absolute top-1.5 left-2 text-[9px] font-mono uppercase tracking-wider text-white/60 z-10">Next</div>
-          <SlideRenderer slide={previewSlide} />
+          <SlideRenderer slide={previewSlide} projectorFit />
         </div>
       </div>
       <div className="text-[10px] text-[color:var(--color-muted-foreground)] leading-relaxed">
@@ -222,7 +222,7 @@ function StreamOutputPlaceholder({ liveSlide, onOpenStream }: {
       </header>
       <div className="flex-1 min-h-0 rounded-md overflow-hidden border bg-black relative"
         style={{ borderColor: "var(--color-border)" }}>
-        <SlideRenderer slide={liveSlide} />
+        <SlideRenderer slide={liveSlide} projectorFit />
         {/* Lower third placeholder overlay */}
         <div className="absolute bottom-6 left-6 right-6 bg-black/60 border-l-2 border-[color:var(--color-brand)] p-3 opacity-40">
           <div className="text-[9px] font-mono uppercase tracking-wider text-white/60">Lower Third · placeholder</div>

@@ -51,11 +51,18 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
           floor (24px min) fits most single verses without any clipping.
           Kept aspect-agnostic (no aspect-video) so the box is a stable
           size regardless of content length. */}
+      {/* 2026-08-13 — restored true 16:9 (aspect-video) + projectorFit sizing so
+          this preview is proportionally WYSIWYG with the projector. The earlier
+          aspect-agnostic h-[280px] + non-projector fit was the cause of the
+          preview-looks-bigger-than-projector mismatch; projectorFit paginates
+          long verses at the sanctuary floor instead of clipping/growing, so the
+          16:9 box stays stable. Panel width is fixed, so aspect-video height is
+          stable (no oscillation). */}
       <div
         className={
           isLive
-            ? "relative h-[280px] w-full rounded-md overflow-hidden border-2 border-[color:var(--color-destructive,#e11d48)] bg-black"
-            : "relative h-[280px] w-full rounded-md overflow-hidden border border-[var(--color-border)] bg-black"
+            ? "relative aspect-video w-full rounded-md overflow-hidden border-2 border-[color:var(--color-destructive,#e11d48)] bg-black"
+            : "relative aspect-video w-full rounded-md overflow-hidden border border-[var(--color-border)] bg-black"
         }
         style={isLive ? { boxShadow: "0 0 12px 2px rgba(225, 29, 72, 0.35)" } : undefined}
       >
@@ -65,7 +72,7 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
             LIVE
           </div>
         )}
-        <SlideRenderer slide={ctx.liveSlide} appearance={ctx.appearance ?? undefined} onVideoRef={onVideoRef} />
+        <SlideRenderer slide={ctx.liveSlide} appearance={ctx.appearance ?? undefined} projectorFit fontScale={ctx.fontScale} onVideoRef={onVideoRef} />
         {ctx.liveSlide.kind !== "empty" && (
           <button
             onClick={ctx.onKill}

@@ -53,7 +53,7 @@ export function RightInspector({ ctx, tab, onTabChange }: {
       <div className="shrink-0 p-2 border-b" style={{ borderColor: "#2a3232" }}>
         <div className="aspect-video w-full rounded-md overflow-hidden border relative"
           style={{ borderColor: "#2a3232", background: "#000" }}>
-          <SlideRenderer slide={ctx.liveSlide} />
+          <SlideRenderer slide={ctx.liveSlide} projectorFit fontScale={ctx.fontScale} />
           <span className={cn(
             "absolute top-1 left-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm",
             ctx.liveSlide.kind !== "empty"

@@ -207,7 +207,7 @@ function ReadOnlyPreview({ item, slideIdx }: { item: OperatorShellCtx["plan"]["i
     <div className="w-full h-full flex items-center justify-center p-4">
       <div className="relative w-full max-w-full max-h-full" style={{ aspectRatio: "16 / 9" }}>
         <div className="absolute inset-0 rounded-md overflow-hidden border" style={{ borderColor: "#2a3232", background: "#000" }}>
-          <SlideRenderer slide={slide} />
+          <SlideRenderer slide={slide} projectorFit />
         </div>
       </div>
     </div>

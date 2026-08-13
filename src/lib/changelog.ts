@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.168",
+    date: "2026-08-13",
+    headline: "Preview now matches the projector — and scripture is bigger",
+    highlights: [
+      "The operator preview is now a true 16:9 mirror of the projector and sizes text exactly the same way, so what you see in the app is what the congregation sees on screen — same proportions, same line breaks. Your A−/A+ size changes now show in the preview too.",
+      "Scripture is noticeably larger by default (sanctuary-readable), while long passages still auto-fit down and paginate rather than ever going tiny.",
+    ],
+  },
+  {
     version: "0.1.167",
     date: "2026-08-13",
     headline: "Slide editor: rotate objects",

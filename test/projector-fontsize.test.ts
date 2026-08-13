@@ -43,9 +43,9 @@ run("ceiling raised above the old 0.12 cap", () => {
   assert.ok(PROJECTOR_MAX_BODY_FRACTION >= 0.24);
   assert.ok(PROJECTOR_MAX_BODY_FRACTION > PROJECTOR_MIN_BODY_FRACTION);
 });
-run("floor stays at the signed-off 3%/16px", () => {
-  assert.strictEqual(projectorFloorPx(1080), Math.round(0.03 * 1080)); // 32
-  assert.strictEqual(projectorFloorPx(300), 16); // 0.03*300=9 → clamped to 16
+run("floor is the sanctuary-readable 6%/16px (raised 2026-08-13)", () => {
+  assert.strictEqual(projectorFloorPx(1080), Math.round(0.06 * 1080)); // 65
+  assert.strictEqual(projectorFloorPx(200), 16); // 0.06*200=12 → clamped to 16
 });
 run("band seed still returns a size within [floor, ceil]", () => {
   const h = 1080;

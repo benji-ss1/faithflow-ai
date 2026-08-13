@@ -16,6 +16,9 @@ export type OperatorShellCtx = {
   plan: ExpandedPlan;
   previewSlide: SlidePayload;
   liveSlide: SlidePayload;
+  // B3 operator manual text-size multiplier (A−/AUTO/A+). Threaded so the live-
+  // mirror previews size text identically to the projector.
+  fontScale: number;
   // Bug-fix 2026-08-11 (font mismatch): the ACTIVE theme appearance, same value
   // OperatorConsole puts on the wire for /live. Preview surfaces must pass this
   // to <SlideRenderer appearance={...}> so preview === projector (one source of
