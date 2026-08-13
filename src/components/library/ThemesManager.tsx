@@ -61,7 +61,14 @@ function get<T>(cfg: ThemeConfig, key: string, fallback: T): T {
   return (v === undefined || v === null ? fallback : v) as T;
 }
 
-export function ThemesManager({ themes: initial, churchLogoUrl }: { themes: ThemeRow[]; churchLogoUrl?: string | null }) {
+export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated }: {
+  themes: ThemeRow[];
+  churchLogoUrl?: string | null;
+  // Optional: called with a theme's config when it becomes the active look
+  // (set-as-default, or saving edits to the current default). The desktop
+  // operator uses this to push the theme to the LIVE projector immediately.
+  onThemeActivated?: (config: ThemeConfig) => void;
+}) {
   const [themes, setThemes] = useState(initial);
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState<ThemeRow | null>(null);
@@ -151,6 +158,8 @@ export function ThemesManager({ themes: initial, churchLogoUrl }: { themes: Them
       // Mirror the server transaction locally: unset any current default,
       // then set the target. Avoids a full refetch.
       setThemes((prev) => prev.map((t) => ({ ...t, isDefault: t.id === id })));
+      // Drive the live output immediately (operator only — no-op on web).
+      onThemeActivated?.(themes.find((t) => t.id === id)?.config ?? {});
       toast.success("Set as default");
     });
   }
@@ -172,6 +181,8 @@ export function ThemesManager({ themes: initial, churchLogoUrl }: { themes: Them
         const res = await updateTheme(target.id, { name, config: target.config });
         if (!res.ok) { toast.error(res.error || "Could not save"); return; }
         refresh(themes.map((t) => (t.id === target.id ? { ...target, name } : t)));
+        // If we just edited the active (default) theme, refresh the live look.
+        if (themes.find((t) => t.id === target.id)?.isDefault) onThemeActivated?.(target.config);
         setEditing(null);
         toast.success("Saved");
       }
@@ -554,7 +565,7 @@ function ThemeEditor({
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid grid-cols-[minmax(360px,40%)_1fr] bg-black/70 backdrop-blur-sm" onClick={onCancel}>
+    <div className="fixed inset-0 z-[85] grid grid-cols-[minmax(360px,40%)_1fr] bg-black/70 backdrop-blur-sm" onClick={onCancel}>
       {/* Left panel — controls */}
       <aside
         onClick={(e) => e.stopPropagation()}
@@ -980,7 +991,7 @@ function MediaLibraryPicker({
 
   return (
     <div
-      className="fixed inset-0 z-[60] grid place-items-center bg-black/70 p-6 backdrop-blur-sm"
+      className="fixed inset-0 z-[95] grid place-items-center bg-black/70 p-6 backdrop-blur-sm"
       onClick={onClose}
     >
       <div

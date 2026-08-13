@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.175",
+    date: "2026-08-13",
+    headline: "Full theme design studio in the operator",
+    highlights: [
+      "The Themes button now opens the complete theme designer — edit any theme's fonts, text colour, background (solid, gradient, image or video), animated backgrounds, and logo overlay, with a live 16:9 preview of exactly what the projector will show.",
+      "Create, duplicate, rename, reorder, export and delete themes right from the operator. Setting a theme as default (or saving an edit to the current one) updates the live projector, stage and livestream instantly.",
+    ],
+  },
+  {
     version: "0.1.174",
     date: "2026-08-13",
     headline: "Themes opens as a full-screen manager",

@@ -174,7 +174,7 @@ export function ThemeImportDialog({
     : 3;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
         className="relative flex flex-col w-[680px] max-w-[95vw] max-h-[85vh] rounded-xl bg-[var(--color-panel,#141818)] border border-[var(--color-border)] shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
