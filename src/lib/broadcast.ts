@@ -13,7 +13,8 @@
 export type SlideObjectWire =
   | { kind: "text"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; text: string;
       fontFamily?: string; fontSize?: number; fontWeight?: number; color?: string;
-      align?: "left" | "center" | "right"; italic?: boolean; underline?: boolean; opacity?: number }
+      align?: "left" | "center" | "right"; italic?: boolean; underline?: boolean; opacity?: number;
+      lineHeight?: number; letterSpacing?: number; uppercase?: boolean; shadow?: boolean; stroke?: string; strokeWidth?: number }
   | { kind: "shape"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; shape: "rect" | "ellipse";
       fill?: string; fill2?: string; fillAngle?: number; stroke?: string; strokeWidth?: number; radius?: number; opacity?: number }
   | { kind: "image"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; url: string; fit?: "contain" | "cover"; opacity?: number }
@@ -464,6 +465,12 @@ export function isValidSlideObject(o: unknown): o is SlideObjectWire {
       if (p.align !== undefined && !["left", "center", "right"].includes(p.align as string)) return false;
       if (p.italic !== undefined && typeof p.italic !== "boolean") return false;
       if (p.underline !== undefined && typeof p.underline !== "boolean") return false;
+      if (p.lineHeight !== undefined && (typeof p.lineHeight !== "number" || !Number.isFinite(p.lineHeight) || p.lineHeight < 0.5 || p.lineHeight > 4)) return false;
+      if (p.letterSpacing !== undefined && (typeof p.letterSpacing !== "number" || !Number.isFinite(p.letterSpacing) || p.letterSpacing < -50 || p.letterSpacing > 200)) return false;
+      if (p.uppercase !== undefined && typeof p.uppercase !== "boolean") return false;
+      if (p.shadow !== undefined && typeof p.shadow !== "boolean") return false;
+      if (p.stroke !== undefined && !isValidColor(p.stroke)) return false;
+      if (p.strokeWidth !== undefined && (typeof p.strokeWidth !== "number" || !Number.isFinite(p.strokeWidth) || p.strokeWidth < 0 || p.strokeWidth > 200)) return false;
       return true;
     case "shape":
       if (p.shape !== "rect" && p.shape !== "ellipse") return false;

@@ -533,6 +533,30 @@ function TextProps({ o, upd }: { o: TextObject; upd: (p: Partial<SlideObject>) =
           className={`flex-1 h-7 rounded border text-[10px] underline ${o.underline ? "border-teal-400 bg-teal-500/20 text-teal-100" : "text-zinc-400"}`}
           style={o.underline ? undefined : { borderColor: "#2a3232" }}>Underline</button>
       </div>
+      <div className="flex gap-1.5">
+        <button onClick={() => upd({ uppercase: !o.uppercase })}
+          className={`flex-1 h-7 rounded border text-[10px] uppercase ${o.uppercase ? "border-teal-400 bg-teal-500/20 text-teal-100" : "text-zinc-400"}`}
+          style={o.uppercase ? undefined : { borderColor: "#2a3232" }}>Uppercase</button>
+        <button onClick={() => upd({ shadow: !(o.shadow ?? true) })}
+          className={`flex-1 h-7 rounded border text-[10px] ${(o.shadow ?? true) ? "border-teal-400 bg-teal-500/20 text-teal-100" : "text-zinc-400"}`}
+          style={(o.shadow ?? true) ? undefined : { borderColor: "#2a3232" }}>Shadow</button>
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        <div><span className={rowCls}>Line height</span>
+          <input type="number" min={0.5} max={4} step={0.05} value={o.lineHeight ?? 1.1} onChange={(e) => upd({ lineHeight: Number(e.target.value) })} className={inCls} style={{ borderColor: "#2a3232" }} />
+        </div>
+        <div><span className={rowCls}>Letter spacing</span>
+          <input type="number" min={-20} max={100} step={1} value={o.letterSpacing ?? 0} onChange={(e) => upd({ letterSpacing: Number(e.target.value) })} className={inCls} style={{ borderColor: "#2a3232" }} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        <div><span className={rowCls}>Outline</span>
+          <input type="color" value={o.stroke ?? "#000000"} onChange={(e) => upd({ stroke: e.target.value })} className="h-7 w-full rounded border cursor-pointer bg-transparent" style={{ borderColor: "#2a3232" }} />
+        </div>
+        <div><span className={rowCls}>Outline width</span>
+          <input type="number" min={0} max={40} step={1} value={o.strokeWidth ?? 0} onChange={(e) => upd({ strokeWidth: Number(e.target.value) })} className={inCls} style={{ borderColor: "#2a3232" }} />
+        </div>
+      </div>
     </>
   );
 }

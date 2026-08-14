@@ -62,7 +62,13 @@ export function SlideObjectsLayer({ objects }: { objects: SlideObjectWire[] }) {
                   textAlign: obj.align ?? "center",
                   padding: "2%",
                   containerType: "size",
-                  textShadow: "0 2px 8px rgba(0,0,0,0.45)",
+                  lineHeight: obj.lineHeight ?? undefined,
+                  // letterSpacing/stroke scale with the output surface (cqh/cqw)
+                  // exactly like fontSize, so they hold at 720p/1080p/4K/preview.
+                  letterSpacing: obj.letterSpacing ? `${(obj.letterSpacing / SLIDE_CANVAS_H) * 100}cqh` : undefined,
+                  textTransform: obj.uppercase ? "uppercase" : undefined,
+                  WebkitTextStroke: obj.strokeWidth ? `${(obj.strokeWidth / SLIDE_CANVAS_W) * 100}cqw ${obj.stroke ?? "#000000"}` : undefined,
+                  textShadow: (obj.shadow ?? true) ? "0 2px 8px rgba(0,0,0,0.45)" : undefined,
                   opacity: obj.opacity ?? 1,
                 }}
               >

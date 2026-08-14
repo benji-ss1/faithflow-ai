@@ -192,6 +192,23 @@ async function main() {
     assert.strictEqual(isValidOutputState(s), false);
   });
 
+  await check("accepts text styling fields", () => {
+    const s = withLive({ kind: "text", text: "x", objects: [
+      { ...txtObj, lineHeight: 1.4, letterSpacing: 12, uppercase: true, shadow: false, stroke: "#000000", strokeWidth: 6 },
+    ] });
+    assert.strictEqual(isValidOutputState(s), true);
+  });
+
+  await check("rejects out-of-range lineHeight", () => {
+    const s = withLive({ kind: "text", text: "x", objects: [{ ...txtObj, lineHeight: 9 }] });
+    assert.strictEqual(isValidOutputState(s), false);
+  });
+
+  await check("rejects a bad text outline colour", () => {
+    const s = withLive({ kind: "text", text: "x", objects: [{ ...txtObj, stroke: "not-a-color" }] });
+    assert.strictEqual(isValidOutputState(s), false);
+  });
+
   await check("accepts opacity on any object kind", () => {
     const s = withLive({ kind: "text", text: "x", objects: [
       { ...txtObj, opacity: 0.5 },

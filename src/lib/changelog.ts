@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.183",
+    date: "2026-08-14",
+    headline: "Slide editor: richer text styling",
+    highlights: [
+      "Text boxes now have ProPresenter-style controls: line spacing, letter spacing, UPPERCASE, a text-shadow toggle, and a text outline (colour + width) for readability over busy backgrounds.",
+      "Everything scales with the output so it looks identical in the editor and on the projector at any resolution.",
+    ],
+  },
+  {
     version: "0.1.182",
     date: "2026-08-14",
     headline: "Theme backgrounds & logos no longer expire",

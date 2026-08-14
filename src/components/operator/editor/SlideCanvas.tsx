@@ -302,8 +302,12 @@ function ObjectView({
       textAlign: obj.align ?? "center",
       padding: "2%",
       containerType: "size",
+      lineHeight: obj.lineHeight ?? undefined,
+      letterSpacing: obj.letterSpacing ? `${(obj.letterSpacing / CANVAS_H) * 100}cqh` : undefined,
+      textTransform: obj.uppercase ? "uppercase" : undefined,
+      WebkitTextStroke: obj.strokeWidth ? `${(obj.strokeWidth / CANVAS_W) * 100}cqw ${obj.stroke ?? "#000000"}` : undefined,
       // Match the projector's text shadow so the editor is true WYSIWYG.
-      textShadow: "0 2px 8px rgba(0,0,0,0.45)",
+      textShadow: (obj.shadow ?? true) ? "0 2px 8px rgba(0,0,0,0.45)" : undefined,
       opacity: obj.opacity ?? 1,
     };
     inner = editing ? (

@@ -25,6 +25,13 @@ export type TextObject = {
   italic?: boolean;
   underline?: boolean;
   opacity?: number;
+  // Text styling (ProPresenter-style). All optional; omitted = current defaults.
+  lineHeight?: number;      // multiplier, ~0.8–2.5 (line spacing)
+  letterSpacing?: number;   // canvas px, ~-10–40 (tracking)
+  uppercase?: boolean;      // force UPPERCASE
+  shadow?: boolean;         // drop shadow (default true — preserves existing look)
+  stroke?: string;          // text outline colour
+  strokeWidth?: number;     // outline width, canvas px (0 = none)
 };
 
 export type ShapeObject = {
