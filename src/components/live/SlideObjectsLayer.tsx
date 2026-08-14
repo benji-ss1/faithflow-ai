@@ -20,6 +20,9 @@ export function SlideObjectsLayer({ objects }: { objects: SlideObjectWire[] }) {
       aria-hidden
     >
       {objects.map((obj, i) => {
+        // Hidden objects are for the operator's editing convenience only — never
+        // rendered on the congregation's screen.
+        if (obj.hidden) return null;
         const box: React.CSSProperties = {
           position: "absolute",
           left: `${(obj.x / SLIDE_CANVAS_W) * 100}%`,

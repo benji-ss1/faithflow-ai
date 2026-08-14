@@ -61,14 +61,17 @@ export function SlideCanvas({
         if (e.key === "Escape") onSelectObject(null);
         return;
       }
+      const objsNow = slideRef.current?.objects ?? [];
+      const lockedIds = new Set(objsNow.filter((o) => o.locked).map((o) => o.id));
       if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
-        onRemoveObjects(ids);
+        const del = ids.filter((id) => !lockedIds.has(id)); // never delete locked
+        if (del.length) onRemoveObjects(del);
       } else if (e.key === "Escape") {
         onSelectObject(null);
       } else if (e.key.startsWith("Arrow")) {
-        // Nudge every selected object. Shift = 1px fine, otherwise 10px.
-        const objs = (slideRef.current?.objects ?? []).filter((o) => ids.includes(o.id));
+        // Nudge every selected UNLOCKED object. Shift = 1px fine, otherwise 10px.
+        const objs = objsNow.filter((o) => ids.includes(o.id) && !o.locked);
         if (objs.length === 0) return;
         e.preventDefault();
         const step = e.shiftKey ? 1 : 10;
@@ -187,7 +190,7 @@ export function SlideCanvas({
       const bx = Math.min(ox, cx), by = Math.min(oy, cy);
       const bw = Math.abs(cx - ox), bh = Math.abs(cy - oy);
       const hits = (slideRef.current?.objects ?? [])
-        .filter((o) => o.x < bx + bw && o.x + o.w > bx && o.y < by + bh && o.y + o.h > by)
+        .filter((o) => !o.locked && !o.hidden && o.x < bx + bw && o.x + o.w > bx && o.y < by + bh && o.y + o.h > by)
         .map((o) => o.id);
       onSetSelection(hits);
     }
@@ -276,6 +279,8 @@ function ObjectView({
   onEndEdit: () => void;
   onText: (t: string) => void;
 }) {
+  const locked = !!obj.locked;
+  const hidden = !!obj.hidden;
   const style: React.CSSProperties = {
     position: "absolute",
     left: `${(obj.x / CANVAS_W) * 100}%`,
@@ -283,7 +288,11 @@ function ObjectView({
     width: `${(obj.w / CANVAS_W) * 100}%`,
     height: `${(obj.h / CANVAS_H) * 100}%`,
     rotate: obj.rotation ? `${obj.rotation}deg` : undefined,
-    cursor: readOnly ? "default" : editing ? "text" : "grab",
+    cursor: readOnly || locked ? "default" : editing ? "text" : "grab",
+    // Hidden objects are dimmed and click-through in the editor (manage them via
+    // the Layers panel) — they never render on the projector at all.
+    opacity: hidden ? 0.3 : undefined,
+    pointerEvents: hidden ? "none" : undefined,
   };
 
   let inner: React.ReactNode = null;
@@ -383,6 +392,9 @@ function ObjectView({
         if (readOnly || editing) return;
         const additive = e.shiftKey || e.metaKey || e.ctrlKey;
         if (additive) { e.stopPropagation(); onSelect(true); return; }
+        // Locked: selectable (so its props/unlock show in the inspector) but
+        // never draggable/resizable on the canvas — manage via the Layers panel.
+        if (locked) { e.stopPropagation(); onSelect(false); return; }
         // Plain click: if this object isn't already part of the selection,
         // select it alone; if it IS (part of a group), keep the group so the
         // drag moves the whole group. Then begin the move.
@@ -391,18 +403,22 @@ function ObjectView({
       }}
       onDoubleClick={(e) => {
         // Double-click a text object to edit its text right on the canvas.
-        if (readOnly || obj.kind !== "text") return;
+        if (readOnly || locked || obj.kind !== "text") return;
         e.stopPropagation();
         onSelect(false);
         onStartEdit();
       }}
     >
       {inner}
+      {locked && !readOnly && (
+        <div className="absolute right-1 top-1 grid h-4 w-4 place-items-center rounded bg-black/60 text-[9px] text-white" aria-hidden>🔒</div>
+      )}
       {selected && !readOnly && !editing && (
         <>
           <div className={cn("absolute inset-0 pointer-events-none ring-2", soleSelected ? "ring-teal-400" : "ring-teal-400/70")} />
-          {/* Resize handles only for a sole selection — a group moves as a unit. */}
-          {soleSelected && (["nw", "n", "ne", "e", "se", "s", "sw", "w"] as HandleKey[]).map((k) => (
+          {/* Resize handles only for an unlocked sole selection — a group moves
+              as a unit and locked objects can't be resized. */}
+          {soleSelected && !locked && (["nw", "n", "ne", "e", "se", "s", "sw", "w"] as HandleKey[]).map((k) => (
             <Handle key={k} k={k} onBegin={(e) => beginDrag(e, obj, k)} />
           ))}
         </>

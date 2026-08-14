@@ -16,6 +16,8 @@ export type TextObject = {
   x: number; y: number; w: number; h: number;
   anim?: ObjectAnim; animDelayMs?: number;
   rotation?: number;
+  locked?: boolean;   // editor: can't be dragged/resized/marquee-selected on canvas
+  hidden?: boolean;   // hidden from the projector; shown dimmed in the editor
   text: string;
   fontFamily?: string;
   fontSize?: number;
@@ -40,6 +42,8 @@ export type ShapeObject = {
   x: number; y: number; w: number; h: number;
   anim?: ObjectAnim; animDelayMs?: number;
   rotation?: number;
+  locked?: boolean;   // editor: can't be dragged/resized/marquee-selected on canvas
+  hidden?: boolean;   // hidden from the projector; shown dimmed in the editor
   shape: "rect" | "ellipse";
   fill?: string;
   fill2?: string;       // when set, fill becomes a linear gradient fill → fill2
@@ -56,6 +60,8 @@ export type ImageObject = {
   x: number; y: number; w: number; h: number;
   anim?: ObjectAnim; animDelayMs?: number;
   rotation?: number;
+  locked?: boolean;   // editor: can't be dragged/resized/marquee-selected on canvas
+  hidden?: boolean;   // hidden from the projector; shown dimmed in the editor
   url: string;
   fit?: "contain" | "cover";
   opacity?: number;
@@ -67,6 +73,8 @@ export type VideoObject = {
   x: number; y: number; w: number; h: number;
   anim?: ObjectAnim; animDelayMs?: number;
   rotation?: number;
+  locked?: boolean;   // editor: can't be dragged/resized/marquee-selected on canvas
+  hidden?: boolean;   // hidden from the projector; shown dimmed in the editor
   url: string;
   fit?: "contain" | "cover";
   loop?: boolean;

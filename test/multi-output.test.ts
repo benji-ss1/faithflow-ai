@@ -192,6 +192,19 @@ async function main() {
     assert.strictEqual(isValidOutputState(s), false);
   });
 
+  await check("accepts locked/hidden on any object kind", () => {
+    const s = withLive({ kind: "text", text: "x", objects: [
+      { ...txtObj, locked: true, hidden: true },
+      { kind: "shape", x: 0, y: 0, w: 100, h: 100, shape: "rect", locked: false, hidden: false },
+    ] });
+    assert.strictEqual(isValidOutputState(s), true);
+  });
+
+  await check("rejects non-boolean locked/hidden", () => {
+    const s = withLive({ kind: "text", text: "x", objects: [{ ...txtObj, locked: "yes" as unknown as boolean }] });
+    assert.strictEqual(isValidOutputState(s), false);
+  });
+
   await check("accepts text styling fields", () => {
     const s = withLive({ kind: "text", text: "x", objects: [
       { ...txtObj, lineHeight: 1.4, letterSpacing: 12, uppercase: true, shadow: false, stroke: "#000000", strokeWidth: 6 },

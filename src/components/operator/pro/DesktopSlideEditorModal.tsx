@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Plus, Square, Circle, Type, Image as ImageIcon, Film, Trash2, Copy, ClipboardCopy, ClipboardPaste, ChevronsUp, ChevronsDown, ArrowUp, ArrowDown, Undo2, Redo2 } from "lucide-react";
+import { X, Plus, Square, Circle, Type, Image as ImageIcon, Film, Trash2, Copy, ClipboardCopy, ClipboardPaste, ChevronsUp, ChevronsDown, ArrowUp, ArrowDown, Undo2, Redo2, Eye, EyeOff, Lock, Unlock } from "lucide-react";
 import type { OperatorShellCtx } from "../shell/types";
 import { useSlideEditor } from "../editor/useSlideEditor";
 import { SlideEditorProvider, useSlideEditorCtx, type SlideEditorContextValue } from "../editor/SlideEditorContext";
@@ -14,6 +14,7 @@ import { saveSlideObjects, createSongSlide, deleteSongSlide, reorderSongSlides }
 import type { SlideObject, TextObject, ShapeObject, ImageObject, VideoObject, ObjectAnim } from "@/lib/slide-objects";
 import { CANVAS_W, CANVAS_H, newObjectId } from "@/lib/slide-objects";
 import { loadCustomTemplates, saveCustomTemplate, deleteCustomTemplate, type CustomTemplate } from "@/lib/custom-templates";
+import { cn } from "@/lib/utils";
 
 /**
  * Desktop full-screen slide editor (Phase 2 of the ProPresenter-style editor).
@@ -310,6 +311,39 @@ function ObjectInspector({ churchId }: { churchId: string }) {
         )}
       </div>
 
+      {/* Layers — every object on the slide, top layer first. Click to select;
+          eye = show/hide on the projector; lock = protect from drag/resize. */}
+      {slide && slide.objects.length > 0 && (
+        <div className="p-2 border-b" style={{ borderColor: "#2a3232" }}>
+          <label className="block text-[9px] uppercase tracking-wide text-zinc-500 mb-1">Layers</label>
+          <div className="space-y-0.5 max-h-40 overflow-y-auto">
+            {slide.objects.slice().reverse().map((o) => {
+              const Icon = o.kind === "text" ? Type : o.kind === "shape" ? (o.shape === "ellipse" ? Circle : Square) : o.kind === "image" ? ImageIcon : Film;
+              const label = o.kind === "text" ? (o.text.trim().slice(0, 20) || "Text") : o.kind === "shape" ? (o.shape === "ellipse" ? "Ellipse" : "Rectangle") : o.kind === "image" ? "Image" : "Video";
+              const isSel = selIds.includes(o.id);
+              return (
+                <div key={o.id}
+                  className={cn("flex items-center gap-1 rounded px-1 h-6 cursor-pointer", isSel ? "bg-teal-500/20" : "hover:bg-white/[0.04]")}
+                  onClick={() => editor.setSelectedObjectId(o.id)}>
+                  <Icon className={cn("w-3 h-3 shrink-0", isSel ? "text-teal-200" : "text-zinc-400")} />
+                  <span className={cn("flex-1 truncate text-[10px]", o.hidden ? "text-zinc-600 line-through" : isSel ? "text-teal-100" : "text-zinc-300")}>{label}</span>
+                  <button onClick={(e) => { e.stopPropagation(); editor.updateObject(o.id, { hidden: !o.hidden }); }}
+                    title={o.hidden ? "Show on projector" : "Hide from projector"}
+                    className="grid h-5 w-5 place-items-center rounded text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.06]">
+                    {o.hidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); editor.updateObject(o.id, { locked: !o.locked }); }}
+                    title={o.locked ? "Unlock" : "Lock (no drag/resize)"}
+                    className={cn("grid h-5 w-5 place-items-center rounded hover:bg-white/[0.06]", o.locked ? "text-amber-300" : "text-zinc-400 hover:text-zinc-100")}>
+                    {o.locked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Group panel — shown when 2+ objects are selected (marquee or ⇧-click) */}
       {multi ? (
         <div className="p-2 space-y-2 border-b" style={{ borderColor: "#2a3232" }}>
@@ -358,6 +392,12 @@ function ObjectInspector({ churchId }: { churchId: string }) {
           <div className="flex items-center justify-between">
             <span className="text-[9px] uppercase tracking-wide text-zinc-400">{selected.kind} object</span>
             <div className="flex items-center gap-0.5">
+              <button onClick={() => editor.updateObject(selected.id, { hidden: !selected.hidden })} className="grid h-6 w-6 place-items-center rounded text-zinc-300 hover:bg-white/[0.06]" title={selected.hidden ? "Show on projector" : "Hide from projector"}>
+                {selected.hidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+              </button>
+              <button onClick={() => editor.updateObject(selected.id, { locked: !selected.locked })} className={cn("grid h-6 w-6 place-items-center rounded hover:bg-white/[0.06]", selected.locked ? "text-amber-300" : "text-zinc-300")} title={selected.locked ? "Unlock" : "Lock (no drag/resize)"}>
+                {selected.locked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+              </button>
               <button onClick={() => setClip({ ...selected })} className="grid h-6 w-6 place-items-center rounded text-zinc-300 hover:bg-white/[0.06]" title="Copy object (paste on any slide)">
                 <ClipboardCopy className="w-3 h-3" />
               </button>

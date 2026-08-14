@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.188",
+    date: "2026-08-14",
+    headline: "Slide editor: Layers panel with lock & hide",
+    highlights: [
+      "New Layers panel lists every object on the slide (top layer first) — click to select, tap the eye to hide it from the projector, tap the lock to protect it from accidental drags or resizes.",
+      "Locked objects can't be moved, resized or deleted on the canvas; hidden objects show dimmed in the editor but never appear on the projector, stage or livestream.",
+    ],
+  },
+  {
     version: "0.1.187",
     date: "2026-08-14",
     headline: "Projected text much bigger",
