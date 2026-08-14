@@ -15,12 +15,12 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    version: "0.1.184",
+    version: "0.1.185",
     date: "2026-08-14",
     headline: "Large song imports now go through",
     highlights: [
-      "Fixed imports reporting '0 songs imported' — the song library limit was capped at 50, so once you had 50 songs every imported song was silently skipped. The cap is now effectively unlimited, so full ProPresenter libraries (500+ songs) import properly.",
-      "If a limit is ever hit again it now tells you clearly instead of skipping in silence.",
+      "Fixed imports reporting '0 songs imported' — the library cap was blocking every song once you hit 50. Paid/Max and demo accounts now have an effectively unlimited library, so full ProPresenter imports (500+ songs) go straight in.",
+      "Free accounts keep the 50-song starter limit (add a bundle to grow it), and if a limit is ever hit it now tells you clearly instead of skipping in silence.",
     ],
   },
   {

@@ -8,7 +8,8 @@ import { runImportPipeline, type PipelineOutput } from "./importers/pipeline";
 import { presignPut, isS3Configured, s3, BUCKET } from "./s3";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { randomUUID } from "node:crypto";
-import { getSongLimit, getSongUsage } from "./song-limits";
+import { getSongUsage } from "./song-limits";
+import { getEffectiveSongLimit } from "./server/song-limits-server";
 import { bulkInsertSongs } from "./song-bulk-insert";
 import { generateImageThumbnail } from "./media-thumbnail";
 
@@ -125,7 +126,7 @@ export async function importDrop(input: {
 
   // Same library-cap headroom gate as finalizeImport below — partial import
   // rather than all-or-nothing.
-  const [__limit, __usage] = await Promise.all([getSongLimit(user.churchId), getSongUsage(user.churchId)]);
+  const [__limit, __usage] = await Promise.all([getEffectiveSongLimit(user.churchId), getSongUsage(user.churchId)]);
   const remainingHeadroom = Math.max(0, __limit - __usage);
 
   // If the caller passed a whitelist (from the preview UI's per-song
@@ -305,7 +306,7 @@ export async function finalizeImport(migrationJobId: string): Promise<Result<{
   // as "skipped" rather than blocking the whole batch or silently inserting
   // past the limit — a partial import (some added, rest reported skipped)
   // is more useful than an all-or-nothing failure here.
-  const [__limit, __usage] = await Promise.all([getSongLimit(user.churchId), getSongUsage(user.churchId)]);
+  const [__limit, __usage] = await Promise.all([getEffectiveSongLimit(user.churchId), getSongUsage(user.churchId)]);
   const remainingHeadroom = Math.max(0, __limit - __usage);
 
   const validSongs = parsedSongs.filter((s) => (s.title || "").trim() && Array.isArray(s.slides) && s.slides.length > 0);

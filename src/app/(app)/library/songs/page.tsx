@@ -6,7 +6,8 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { SongImporter } from "@/components/library/SongImporter";
 import { InternetSongDetectionPanel } from "@/components/library/InternetSongDetectionPanel";
 import { SongsTable } from "@/components/library/SongsTable";
-import { getSongLimit, getSongUsage } from "@/lib/song-limits";
+import { getSongUsage } from "@/lib/song-limits";
+import { getEffectiveSongLimit } from "@/lib/server/song-limits-server";
 import { createSong } from "@/lib/actions";
 
 async function create(formData: FormData) {
@@ -19,7 +20,7 @@ export default async function SongsPage() {
   const user = await requireUser();
   const [songs, limit, usage] = await Promise.all([
     listSongs(user.churchId),
-    getSongLimit(user.churchId),
+    getEffectiveSongLimit(user.churchId),
     getSongUsage(user.churchId),
   ]);
 

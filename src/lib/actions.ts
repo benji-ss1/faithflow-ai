@@ -7,7 +7,8 @@ import { requireUser, requireRole, requireCap } from "./session";
 import { deleteObject } from "./s3";
 import { validateReorderItemSlides } from "./reorder-validator";
 import { createLimiter } from "./rate-limit";
-import { getSongUsage, getSongLimit } from "./song-limits";
+import { getSongUsage } from "./song-limits";
+import { getEffectiveSongLimit } from "./server/song-limits-server";
 import { bulkInsertSongs } from "./song-bulk-insert";
 
 type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
@@ -377,7 +378,7 @@ export async function createSong(formData: FormData): Promise<Result<{ id: strin
   const artistRaw = String(formData.get("artist") || "").trim().slice(0, 120);
   const artist = artistRaw || null;
   if (!title) return { ok: false, error: "Title required" };
-  const [usage, limit] = await Promise.all([getSongUsage(user.churchId), getSongLimit(user.churchId)]);
+  const [usage, limit] = await Promise.all([getSongUsage(user.churchId), getEffectiveSongLimit(user.churchId)]);
   if (usage >= limit) {
     return { ok: false, error: `Song library limit reached (${usage}/${limit}) — buy a bundle to add more.` };
   }
@@ -604,7 +605,7 @@ export async function importPro6Files(files: { name: string; content: string }[]
 
   let parseSkipped = 0;
   const warnings: { file: string; warnings: string[] }[] = [];
-  const [__limit, __usage] = await Promise.all([getSongLimit(user.churchId), getSongUsage(user.churchId)]);
+  const [__limit, __usage] = await Promise.all([getEffectiveSongLimit(user.churchId), getSongUsage(user.churchId)]);
   const remainingHeadroom = Math.max(0, __limit - __usage);
 
   // Parsing stays per-file (each file can fail/warn independently), but the
@@ -705,7 +706,7 @@ export async function importSongsCsv(text: string): Promise<Result<{ added: numb
     }
   }
 
-  const [__limit, __usage] = await Promise.all([getSongLimit(user.churchId), getSongUsage(user.churchId)]);
+  const [__limit, __usage] = await Promise.all([getEffectiveSongLimit(user.churchId), getSongUsage(user.churchId)]);
   const remainingHeadroom = Math.max(0, __limit - __usage);
   const { added, skipped } = await bulkInsertSongs(
     user.churchId,
@@ -1522,7 +1523,7 @@ export async function importPublicDomainSong(input: {
   if (existing) {
     return { ok: true, data: { id: existing.id, duplicate: true } };
   }
-  const [usage, limit] = await Promise.all([getSongUsage(user.churchId), getSongLimit(user.churchId)]);
+  const [usage, limit] = await Promise.all([getSongUsage(user.churchId), getEffectiveSongLimit(user.churchId)]);
   if (usage >= limit) {
     return { ok: false, error: `Song library limit reached (${usage}/${limit}) — buy a bundle to add more.` };
   }
