@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.196",
+    date: "2026-08-14",
+    headline: "Auto-follow the speaking mic (multi-mic)",
+    highlights: [
+      "New 'Auto-follow' toggle on the Channel strip: with several mics on a mixer, the AI now listens to whichever channel carries the strongest sustained voice — so the preacher's mic wins even while the choir sings on other channels.",
+      "It won't jump around mid-sentence (it waits for a clear, sustained lead before switching), and clicking a channel pins it manually. Off by default; your transcription is otherwise unchanged.",
+    ],
+  },
+  {
     version: "0.1.195",
     date: "2026-08-14",
     headline: "Separate looks for songs vs Bible verses",

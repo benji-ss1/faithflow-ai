@@ -34,6 +34,63 @@ export function ChannelStrip({ capture, deviceId }: ChannelStripProps) {
   const [editingChannel, setEditingChannel] = useState<number | null>(null);
   const intervalRef = useRef<number | null>(null);
 
+  // ── Phase 1: auto-follow the dominant voice channel ────────────────────────
+  // Opt-in. When on, the mic that carries the strongest SUSTAINED voice becomes
+  // the transcription source (so the preacher's mic wins even while the choir
+  // sings on other channels). Anti-flap: a candidate must lead by a margin for a
+  // dwell window before it switches, and there's a min-hold between switches so
+  // it never bounces mid-sentence. Reuses the exact same hot-swap path as a
+  // manual channel click — the transcription/detection core is untouched.
+  const AUTO_FOLLOW_KEY = "presentflow.audio.autoFollow.v1";
+  const [autoFollow, setAutoFollow] = useState(false);
+  useEffect(() => { try { setAutoFollow(localStorage.getItem(AUTO_FOLLOW_KEY) === "1"); } catch { /* noop */ } }, []);
+  const autoFollowRef = useRef(false);
+  autoFollowRef.current = autoFollow;
+  const selectedChannelRef = useRef<number | null>(null);
+  selectedChannelRef.current = selectedChannel;
+  const smoothedRef = useRef<number[]>([]);         // EMA of per-channel vocal energy
+  const candidateRef = useRef<{ ch: number; since: number } | null>(null);
+  const lastSwitchAtRef = useRef(0);
+
+  // Reassigned every render so the interval below always runs the freshest
+  // closure (deviceId etc.) — no stale-closure re-subscription needed.
+  const evaluateRef = useRef<(lv: ChannelLevels[]) => void>(() => {});
+  evaluateRef.current = (lv: ChannelLevels[]) => {
+    if (!autoFollowRef.current || !deviceId || lv.length < 2) return;
+    const now = Date.now();
+    const EMA = 0.3, MIN_VOCAL = 0.02, MARGIN = 1.4, DWELL_MS = 1200, HOLD_MS = 2500;
+    const sm = smoothedRef.current;
+    for (let i = 0; i < lv.length; i++) {
+      const v = lv[i]?.vocalBandEnergy ?? 0;
+      sm[i] = sm[i] === undefined ? v : sm[i] * (1 - EMA) + v * EMA;
+    }
+    smoothedRef.current = sm.slice(0, lv.length);
+    // Leader + runner-up by smoothed vocal energy.
+    let leader = -1, leaderV = 0, secondV = 0;
+    for (let i = 0; i < sm.length; i++) {
+      if (sm[i] > leaderV) { secondV = leaderV; leaderV = sm[i]; leader = i; }
+      else if (sm[i] > secondV) { secondV = sm[i]; }
+    }
+    const cur = selectedChannelRef.current;
+    if (leader < 0 || leaderV < MIN_VOCAL) { candidateRef.current = null; return; }  // silence
+    if (leader === cur) { candidateRef.current = null; return; }                     // already on it
+    // Leader must clearly beat the CURRENT channel (or 2nd place if none selected).
+    const compareV = cur != null && sm[cur] !== undefined ? sm[cur] : secondV;
+    if (leaderV < Math.max(MIN_VOCAL, compareV * MARGIN)) { candidateRef.current = null; return; }
+    // Dwell: candidate must hold the lead continuously.
+    const c = candidateRef.current;
+    if (!c || c.ch !== leader) { candidateRef.current = { ch: leader, since: now }; return; }
+    if (now - c.since < DWELL_MS) return;
+    if (now - lastSwitchAtRef.current < HOLD_MS) return;  // min-hold between switches
+    // Switch — SAME hot-swap path as a manual channel click.
+    const pref = readDeviceChannelPref(deviceId);
+    if (!pref) return;
+    writeDeviceChannelPref({ ...pref, mode: "mono", selectedChannels: [leader] });
+    setSelectedChannel(leader);
+    lastSwitchAtRef.current = now;
+    candidateRef.current = null;
+  };
+
   // Load selected channel and labels from prefs
   useEffect(() => {
     if (!deviceId) return;
@@ -49,7 +106,9 @@ export function ChannelStrip({ capture, deviceId }: ChannelStripProps) {
     if (!capture) { setLevels([]); return; }
     const id = window.setInterval(() => {
       try {
-        setLevels(capture.readLevels());
+        const lv = capture.readLevels();
+        setLevels(lv);
+        evaluateRef.current(lv); // auto-follow (no-op unless enabled)
       } catch { /* capture may be closed */ }
     }, 1000 / METER_FPS);
     intervalRef.current = id;
@@ -66,6 +125,9 @@ export function ChannelStrip({ capture, deviceId }: ChannelStripProps) {
       selectedChannels: [ch],
     });
     setSelectedChannel(ch);
+    // Manual pick pins the channel — stop auto-follow so it can't switch away.
+    setAutoFollow(false);
+    try { localStorage.setItem(AUTO_FOLLOW_KEY, "0"); } catch { /* noop */ }
   }, [deviceId]);
 
   const handleLabelSave = useCallback((ch: number, label: string) => {
@@ -87,6 +149,19 @@ export function ChannelStrip({ capture, deviceId }: ChannelStripProps) {
         <span className="text-[9px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)]">
           Channels
         </span>
+        <button
+          type="button"
+          onClick={() => { const n = !autoFollow; setAutoFollow(n); try { localStorage.setItem(AUTO_FOLLOW_KEY, n ? "1" : "0"); } catch { /* noop */ } if (n) candidateRef.current = null; }}
+          title="Auto-follow the speaking mic — switches transcription to whichever channel carries the strongest sustained voice (the preacher's mic wins even while the choir sings). Click a channel to pin manually."
+          className={cn(
+            "ml-auto h-4 px-1.5 rounded text-[8px] font-bold uppercase tracking-wider border transition-colors",
+            autoFollow
+              ? "border-[var(--color-brand)] bg-[var(--color-brand)]/15 text-[var(--color-brand)]"
+              : "border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",
+          )}
+        >
+          Auto-follow{autoFollow ? " ●" : ""}
+        </button>
       </div>
       <div
         className="grid gap-px"
