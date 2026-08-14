@@ -10,12 +10,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Plus, Pencil, Upload, Loader2 } from "lucide-react";
+import { Plus, Pencil, Upload, Loader2, Trash2, CheckSquare, Square, ListPlus } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload } from "@/lib/broadcast";
-import { createSong, createSongSlide, importPro6Files, renameSong, updateSongSlides } from "@/lib/actions";
+import { createSong, createSongSlide, importPro6Files, renameSong, updateSongSlides, deleteSong } from "@/lib/actions";
 import { isInternalEvent } from "@/lib/internal-events";
 import { ProPresenterImportDialog } from "@/components/library/ProPresenterImportDialog";
 
@@ -34,6 +34,9 @@ export function SongsBrowser({
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<SongRow | null>(null);
+  // Multi-select for bulk add-to-playlist / delete.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [slides, setSlides] = useState<SlideRow[] | null>(null);
   const [slidesLoading, setSlidesLoading] = useState(false);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
@@ -276,6 +279,43 @@ export function SongsBrowser({
     onExitToSlides();
   };
 
+  // ── Bulk selection ────────────────────────────────────────────────────────
+  const toggleSel = (id: string) => setSelectedIds((prev) => {
+    const n = new Set(prev);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
+  const allFilteredSelected = filtered.length > 0 && filtered.every((s) => selectedIds.has(s.id));
+  const toggleSelectAll = () => setSelectedIds(allFilteredSelected ? new Set() : new Set(filtered.map((s) => s.id)));
+
+  const bulkAddToPlaylist = async () => {
+    if (!ctx.onAddLibraryItem) { toast.info("Playlist add not available in this view"); return; }
+    const rows = songs.filter((s) => selectedIds.has(s.id));
+    if (rows.length === 0) return;
+    setBulkBusy(true);
+    let added = 0;
+    for (const s of rows) { try { await ctx.onAddLibraryItem("song", { id: s.id, title: s.title }); added++; } catch { /* keep going */ } }
+    setBulkBusy(false);
+    setSelectedIds(new Set());
+    toast.success(`Added ${added} song${added === 1 ? "" : "s"} to the playlist`);
+  };
+
+  const bulkDelete = async () => {
+    const rows = songs.filter((s) => selectedIds.has(s.id));
+    if (rows.length === 0) return;
+    if (typeof window !== "undefined" && !window.confirm(`Delete ${rows.length} song${rows.length === 1 ? "" : "s"} from your library? This can't be undone.`)) return;
+    setBulkBusy(true);
+    const failed = new Set<string>();
+    let deleted = 0;
+    for (const s of rows) { const res = await deleteSong(s.id); if (res.ok) deleted++; else failed.add(s.id); }
+    setBulkBusy(false);
+    setSongs((list) => list.filter((s) => !selectedIds.has(s.id) || failed.has(s.id)));
+    if (selected && selectedIds.has(selected.id) && !failed.has(selected.id)) setSelected(null);
+    setSelectedIds(failed);
+    toast[deleted > 0 ? "success" : "error"](`Deleted ${deleted} song${deleted === 1 ? "" : "s"}${failed.size ? ` — ${failed.size} failed` : ""}`);
+    router.refresh();
+  };
+
   return (
     <div
       className="relative p-4 grid gap-3 h-full"
@@ -323,11 +363,35 @@ export function SongsBrowser({
             }}
           />
         </div>
+        {/* Bulk-select bar: pick many songs to add-to-playlist or delete at once */}
+        <div className="px-2 h-8 shrink-0 border-b border-[var(--color-border)] flex items-center gap-1.5">
+          <button type="button" onClick={toggleSelectAll} title={allFilteredSelected ? "Deselect all" : "Select all"}
+            className="flex items-center gap-1.5 text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
+            {allFilteredSelected ? <CheckSquare className="w-3.5 h-3.5 text-[var(--color-brand)]" /> : <Square className="w-3.5 h-3.5" />}
+            {selectedIds.size > 0 ? `${selectedIds.size} selected` : "Select"}
+          </button>
+          {selectedIds.size > 0 && (
+            <div className="ml-auto flex items-center gap-1">
+              <button type="button" onClick={() => void bulkAddToPlaylist()} disabled={bulkBusy}
+                className="h-6 px-2 rounded border border-[var(--color-border)] flex items-center gap-1 text-[10px] font-semibold text-[var(--color-foreground)] hover:bg-[var(--color-elevated)] disabled:opacity-50">
+                <ListPlus className="w-3 h-3" /> Add to playlist
+              </button>
+              <button type="button" onClick={() => void bulkDelete()} disabled={bulkBusy}
+                className="h-6 px-2 rounded border border-red-500/40 flex items-center gap-1 text-[10px] font-semibold text-red-300 hover:bg-red-500/10 disabled:opacity-50">
+                <Trash2 className="w-3 h-3" /> Delete
+              </button>
+              <button type="button" onClick={() => setSelectedIds(new Set())} title="Clear selection"
+                className="grid h-6 w-6 place-items-center rounded text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">×</button>
+            </div>
+          )}
+        </div>
         <ul className="flex-1 overflow-y-auto">
           {filtered.length === 0 && !loading && (
             <li className="p-3 text-[12px] text-[var(--color-muted-foreground)]">No songs found.</li>
           )}
-          {filtered.map((s) => (
+          {filtered.map((s) => {
+            const isChecked = selectedIds.has(s.id);
+            return (
             <li
               key={s.id}
               draggable
@@ -338,20 +402,27 @@ export function SongsBrowser({
                   JSON.stringify({ pfType: "song", id: s.id, title: s.title }),
                 );
               }}
+              className={cn("flex items-stretch border-b border-[var(--color-border)]", (isChecked || selected?.id === s.id) && "bg-[var(--color-elevated)]")}
             >
+              <button
+                type="button"
+                onClick={() => toggleSel(s.id)}
+                title={isChecked ? "Deselect" : "Select"}
+                className="shrink-0 grid w-8 place-items-center text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+              >
+                {isChecked ? <CheckSquare className="w-3.5 h-3.5 text-[var(--color-brand)]" /> : <Square className="w-3.5 h-3.5" />}
+              </button>
               <button
                 onClick={() => setSelected(s)}
                 onDoubleClick={() => void addToPlaylist(s)}
-                className={cn(
-                  "w-full text-left px-3 py-2 border-b border-[var(--color-border)] hover:bg-[var(--color-elevated)] cursor-grab active:cursor-grabbing",
-                  selected?.id === s.id && "bg-[var(--color-elevated)]",
-                )}
+                className="flex-1 min-w-0 text-left pr-3 py-2 hover:bg-[var(--color-elevated)] cursor-grab active:cursor-grabbing"
               >
                 <div className="text-[13px] text-[var(--color-foreground)] truncate">{s.title}</div>
                 {s.artist && <div className="text-[11px] text-[var(--color-muted-foreground)] truncate">{s.artist}</div>}
               </button>
             </li>
-          ))}
+            );
+          })}
         </ul>
       </div>
 

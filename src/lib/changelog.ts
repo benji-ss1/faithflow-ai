@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.189",
+    date: "2026-08-14",
+    headline: "Songs: bulk select, add & delete",
+    highlights: [
+      "Tick multiple songs (or Select all) in the Songs library, then add them all to the playlist in one click — no more adding one at a time.",
+      "Bulk delete too: select any number of songs and remove them together. Right in the operator, no need to leave for the web library.",
+    ],
+  },
+  {
     version: "0.1.188",
     date: "2026-08-14",
     headline: "Slide editor: Layers panel with lock & hide",
