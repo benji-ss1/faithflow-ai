@@ -1224,6 +1224,13 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
   const [slideEditorOpen, setSlideEditorOpen] = useState(false);
+  // Open the full-screen slide editor from anywhere (SlideGrid double-click, the
+  // "Edit slide" button in the center header) via a window event.
+  useEffect(() => {
+    const open = () => setSlideEditorOpen(true);
+    window.addEventListener("presentflow:open-slide-editor", open);
+    return () => window.removeEventListener("presentflow:open-slide-editor", open);
+  }, []);
   // Change 4 — Left panel width state. Starts at the persisted value (or the
   // default), clamped once read is verified against window.innerWidth on mount.
   const [leftPanelWidth, setLeftPanelWidth] = useState<number>(LEFT_PANEL_DEFAULT_WIDTH);

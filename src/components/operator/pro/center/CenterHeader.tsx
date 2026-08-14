@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { LayoutGrid, List, Eye, Play, Music, BookOpen, Image as ImageIcon, Type } from "lucide-react";
+import { LayoutGrid, List, Eye, Play, Music, BookOpen, Image as ImageIcon, Type, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { dispatchInternal } from "@/lib/internal-events";
@@ -49,11 +49,23 @@ export function CenterHeader({
       <Icon className="w-4 h-4 text-[var(--color-muted-foreground)]" />
       {/* Item title is read-only; edit via the library entry. */}
       <div
-        className="flex-1 text-[14px] font-medium px-2 py-1 truncate"
+        className="min-w-0 text-[14px] font-medium px-2 py-1 truncate"
         title={title}
       >
         {title}
       </div>
+      {/* Edit slide — opens the full-screen style editor for the current song
+          (fonts, layout, backgrounds, objects). Song slides only. */}
+      {item?.type === "song" && (
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent("presentflow:open-slide-editor"))}
+          title="Edit slide — fonts, layout, backgrounds"
+          className="shrink-0 h-7 px-2.5 rounded-md border border-[var(--color-border)] flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-foreground)] hover:bg-[var(--color-elevated)]"
+        >
+          <Pencil className="w-3.5 h-3.5" /> Edit slide
+        </button>
+      )}
+      <div className="flex-1" />
       {/* Unified size slider — slides mode uses the ctx-supplied setter,
           bible/songs modes broadcast to their own local size state via a
           shared window event so a single control drives every center panel. */}

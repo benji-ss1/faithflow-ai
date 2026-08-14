@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.194",
+    date: "2026-08-14",
+    headline: "One-click 'Edit slide' next to the song title",
+    highlights: [
+      "A clear 'Edit slide' button now sits beside the song title in the center panel — click it to open the full-screen style editor (fonts, layout, backgrounds, objects). No more needing to double-click a slide to find it.",
+      "All edits save and persist as before.",
+    ],
+  },
+  {
     version: "0.1.193",
     date: "2026-08-14",
     headline: "Voice translation switching handles mis-hearings",
