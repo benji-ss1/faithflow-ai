@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.187",
+    date: "2026-08-14",
+    headline: "Projected text much bigger",
+    highlights: [
+      "Raised the projected-text size floor (6% → 9% of screen height) and ceiling, and bumped the size targets, so scripture, lyrics and the reference line all fill the screen far more — no more small text stranded in the middle with empty space around it.",
+      "Long passages still shrink to fit and paginate; applies to the projector, stage and livestream.",
+    ],
+  },
+  {
     version: "0.1.186",
     date: "2026-08-14",
     headline: "Bigger scripture & lyrics on every screen",

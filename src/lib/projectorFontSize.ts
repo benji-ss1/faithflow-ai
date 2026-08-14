@@ -22,7 +22,7 @@
  *  2026-08-13: raised 0.03 → 0.06 (≈64px on 1080) so scripture is sanctuary-
  *  readable by default. Short/medium verses now render large; only genuinely
  *  long passages shrink to this floor and then paginate — never illegibly small. */
-export const PROJECTOR_MIN_BODY_FRACTION = 0.06;
+export const PROJECTOR_MIN_BODY_FRACTION = 0.09;
 
 /**
  * Ceiling so a very short line doesn't become cartoonishly huge, but still
@@ -33,7 +33,7 @@ export const PROJECTOR_MIN_BODY_FRACTION = 0.06;
  * that fits the safe area, so "Jesus Saves" fills the wall while long passages
  * shrink only as needed (then paginate at the floor). 0.24 of 1080p ≈ 259px.
  */
-export const PROJECTOR_MAX_BODY_FRACTION = 0.24;
+export const PROJECTOR_MAX_BODY_FRACTION = 0.30;
 
 /** Floor for reference/label text (e.g. "John 3:16 (KJV)"), fraction of height. */
 export const PROJECTOR_MIN_REF_SIZE = 0.02;
@@ -52,10 +52,10 @@ export function calculateProjectorFontSize(text: string, displayHeightPx: number
   const h = Number.isFinite(displayHeightPx) && displayHeightPx > 0 ? displayHeightPx : 1080;
   const words = countWords(text);
   let fraction: number;
-  if (words <= 10) fraction = 0.10;
-  else if (words <= 25) fraction = 0.075;
-  else if (words <= 50) fraction = 0.055;
-  else if (words <= 80) fraction = 0.042;
+  if (words <= 10) fraction = 0.16;
+  else if (words <= 25) fraction = 0.125;
+  else if (words <= 50) fraction = 0.10;
+  else if (words <= 80) fraction = 0.09;
   else fraction = PROJECTOR_MIN_BODY_FRACTION;
   const clamped = Math.min(PROJECTOR_MAX_BODY_FRACTION, Math.max(PROJECTOR_MIN_BODY_FRACTION, fraction));
   return Math.round(clamped * h);

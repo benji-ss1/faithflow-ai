@@ -26,13 +26,13 @@ function run(name: string, fn: () => void) {
 // ---- ceiling / floor -------------------------------------------------------
 
 run("ceiling is 24% of height on 1080p", () => {
-  assert.strictEqual(projectorCeilingPx(1080), Math.round(0.24 * 1080)); // 259
+  assert.strictEqual(projectorCeilingPx(1080), Math.round(0.30 * 1080)); // 324
 });
 run("ceiling scales to 4K", () => {
-  assert.strictEqual(projectorCeilingPx(2160), Math.round(0.24 * 2160)); // 518
+  assert.strictEqual(projectorCeilingPx(2160), Math.round(0.30 * 2160)); // 648
 });
 run("ceiling has a sane absolute minimum on tiny surfaces", () => {
-  assert.strictEqual(projectorCeilingPx(100), 48); // 0.24*100=24 → clamped to 48
+  assert.strictEqual(projectorCeilingPx(100), 48); // 0.30*100=30 → clamped to 48
 });
 run("ceiling always exceeds floor (search range never inverted)", () => {
   for (const h of [120, 200, 340, 720, 1080, 1440, 2160, 4320]) {
@@ -40,12 +40,12 @@ run("ceiling always exceeds floor (search range never inverted)", () => {
   }
 });
 run("ceiling raised above the old 0.12 cap", () => {
-  assert.ok(PROJECTOR_MAX_BODY_FRACTION >= 0.24);
+  assert.ok(PROJECTOR_MAX_BODY_FRACTION >= 0.30);
   assert.ok(PROJECTOR_MAX_BODY_FRACTION > PROJECTOR_MIN_BODY_FRACTION);
 });
-run("floor is the sanctuary-readable 6%/16px (raised 2026-08-13)", () => {
-  assert.strictEqual(projectorFloorPx(1080), Math.round(0.06 * 1080)); // 65
-  assert.strictEqual(projectorFloorPx(200), 16); // 0.06*200=12 → clamped to 16
+run("floor is the sanctuary-readable 9%/16px (raised 2026-08-14)", () => {
+  assert.strictEqual(projectorFloorPx(1080), Math.round(0.09 * 1080)); // 97
+  assert.strictEqual(projectorFloorPx(200), 18); // 0.09*200=18
 });
 run("band seed still returns a size within [floor, ceil]", () => {
   const h = 1080;
