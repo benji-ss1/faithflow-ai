@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.200",
+    date: "2026-08-14",
+    headline: "See who the AI hears at a glance (multi-mic)",
+    highlights: [
+      "The multi-mic Channel strip now shows a live 'who's who' line — 🎤 next to the mic it hears preaching/praying and 🎶 next to the worship mic — so you can tell at a glance which channel the AI thinks is the speaker vs the singers.",
+      "This is powered by the speech-vs-singing detection now tuned on real prayer and sermon audio. Tip: pick any one channel for your mixer in Settings › Audio, then turn on 'Auto-follow' — it will move to whichever mic is speaking.",
+    ],
+  },
+  {
     version: "0.1.199",
     date: "2026-08-14",
     headline: "Auto-follow now reliably tells prayer/preaching from singing",

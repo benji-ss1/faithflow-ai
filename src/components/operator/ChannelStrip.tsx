@@ -208,6 +208,29 @@ export function ChannelStrip({ capture, deviceId }: ChannelStripProps) {
           Auto-follow{autoFollow ? " ●" : ""}
         </button>
       </div>
+      {/* Live who's-who summary — the validated speech-vs-singing classifier,
+          made legible: which mic is the preacher (speaking) and which is the
+          worship lead (singing) right now. Updates ~1.3s. */}
+      {(() => {
+        const preacherCh = Object.keys(roles).map(Number).find((i) => roles[i] === "preacher");
+        const worshipCh = Object.keys(roles).map(Number).find((i) => roles[i] === "worship");
+        const name = (i: number) => channelLabels[i] || `Ch ${i + 1}`;
+        if (preacherCh === undefined && worshipCh === undefined) return null;
+        return (
+          <div className="flex items-center gap-2 mb-1 text-[9px] leading-none">
+            {preacherCh !== undefined && (
+              <span className="inline-flex items-center gap-1 text-[var(--color-foreground)]" title="The mic the AI hears speaking (preacher / prayer)">
+                🎤 <span className="font-semibold">{name(preacherCh)}</span>
+              </span>
+            )}
+            {worshipCh !== undefined && (
+              <span className="inline-flex items-center gap-1 text-[var(--color-muted-foreground)]" title="The mic the AI hears singing (worship)">
+                🎶 <span className="font-semibold">{name(worshipCh)}</span>
+              </span>
+            )}
+          </div>
+        );
+      })()}
       <div
         className="grid gap-px"
         style={{
