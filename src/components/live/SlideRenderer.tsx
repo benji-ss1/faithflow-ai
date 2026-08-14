@@ -151,6 +151,44 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
         : slide.bgColor
           ? { background: slide.bgColor }
           : themeBackgroundStyle(appearance, "#0b0b0b");
+      // Lyric/verse slides are stored as a SINGLE centered text object (from
+      // import or the slide editor). Rendering that at its stored ~96px font
+      // makes it tiny on a sanctuary screen — the "songs project small" bug.
+      // On the output/preview surfaces, fill the screen with it via the same
+      // largest-fit engine as plain-text lyrics, so ALL lyrics are big and
+      // crowd-readable and preview stays WYSIWYG with the projector. Genuinely
+      // DESIGNED slides (2+ objects, or an image/shape/video) keep their exact
+      // positioned layout via SlideObjectsLayer.
+      const visible = objects.filter((o) => !o.hidden);
+      const soleText = visible.length === 1 && visible[0].kind === "text" ? visible[0] : null;
+      if (soleText && soleText.text.trim()) {
+        const animated = usesAnimatedBg(appearance, false, slide.bgColor || slide.bgImageUrl);
+        // Respect the operator's colour/font/weight/alignment; AutoFitText owns
+        // the SIZE (fill-to-fit) + the always-on uppercase crowd-readability.
+        const objStyle: React.CSSProperties = {
+          ...(soleText.color ? { color: soleText.color } : {}),
+          ...(soleText.fontFamily ? { fontFamily: soleText.fontFamily } : {}),
+          ...(soleText.fontWeight ? { fontWeight: soleText.fontWeight } : {}),
+          ...(soleText.align ? { textAlign: soleText.align } : {}),
+          ...(soleText.italic ? { fontStyle: "italic" } : {}),
+        };
+        return (
+          <div className={`${base} ${animated ? "relative" : ""} ${className || ""}`} style={designBg}>
+            {animated && <AnimatedThemeBg appearance={appearance} />}
+            <AutoFitText
+              text={soleText.text}
+              maxPx={120}
+              minPx={textMinPx}
+              paddingRatio={projectorFit ? 0.035 : 0.06}
+              disablePagination={disablePagination}
+              projectorFit={projectorFit}
+              fontScale={fontScale}
+              className={`text-white font-display font-semibold${animated ? " relative z-[1]" : ""}`}
+              textStyle={{ ...themeTextStyle(appearance), ...objStyle }}
+            />
+          </div>
+        );
+      }
       return (
         <div className={`${base} relative ${className || ""}`} style={designBg}>
           <SlideObjectsLayer objects={objects} />

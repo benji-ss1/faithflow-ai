@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.202",
+    date: "2026-08-14",
+    headline: "Lyrics fill the projector again — big and crowd-readable",
+    highlights: [
+      "Fixed: song lyrics that had been edited or imported were projecting small (they were rendering at their saved font size instead of filling the screen). Lyric slides now auto-size to fill the projector — big and readable from the back — exactly like the operator preview shows, and they never run off-screen.",
+      "Deliberately designed slides with multiple elements (e.g. a title over an image) keep their exact layout as before.",
+    ],
+  },
+  {
     version: "0.1.201",
     date: "2026-08-14",
     headline: "Songs: calmer suggestions, higher bar before auto-projecting",
