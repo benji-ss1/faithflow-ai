@@ -137,11 +137,16 @@ export async function importDrop(input: {
     ? output.songs.filter((s) => titleWhitelist.has(s.title.trim().toLowerCase()))
     : output.songs;
 
-  const { added, skipped } = await bulkInsertSongs(
+  const { added, skipped, limitSkipped } = await bulkInsertSongs(
     user.churchId,
     songsToInsert.map((s) => ({ title: s.title, artist: s.artist, slides: s.slides, source: "imported" as const })),
     remainingHeadroom,
   );
+  // Never let a song-limit block be silent again (the old 50-song cap made a
+  // full-library import report "0 imported" with no reason). Surface it.
+  if (limitSkipped > 0) {
+    output.warnings.push({ file: "Song limit", warnings: [`${limitSkipped} song(s) skipped — your song library limit (${__limit}) was reached. Remove songs or add a bundle, then re-import.`] });
+  }
 
   // Media upload — only if S3 is configured. Anything else surfaces as a
   // warning rather than silently dropping. Every image also gets a 320x180

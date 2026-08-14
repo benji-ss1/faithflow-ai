@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.184",
+    date: "2026-08-14",
+    headline: "Large song imports now go through",
+    highlights: [
+      "Fixed imports reporting '0 songs imported' — the song library limit was capped at 50, so once you had 50 songs every imported song was silently skipped. The cap is now effectively unlimited, so full ProPresenter libraries (500+ songs) import properly.",
+      "If a limit is ever hit again it now tells you clearly instead of skipping in silence.",
+    ],
+  },
+  {
     version: "0.1.183",
     date: "2026-08-14",
     headline: "Slide editor: richer text styling",
