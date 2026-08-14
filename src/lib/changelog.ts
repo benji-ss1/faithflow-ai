@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.197",
+    date: "2026-08-14",
+    headline: "'Edit slide' now opens the song you're looking at",
+    highlights: [
+      "Fixed: in the Songs Library, 'Edit slide' opened the wrong song (the current playlist item) instead of the song you had selected. The button now lives beside the selected song's title and always opens that exact song — with all its real fonts, layout and backgrounds intact.",
+    ],
+  },
+  {
     version: "0.1.196",
     date: "2026-08-14",
     headline: "Auto-follow the speaking mic (multi-mic)",

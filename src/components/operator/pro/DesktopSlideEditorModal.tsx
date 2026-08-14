@@ -25,22 +25,42 @@ import { cn } from "@/lib/utils";
  * (add text/shape/image + selected-object props) so operators can design
  * multi-object lyric/verse slides without leaving the desktop console.
  */
-export function DesktopSlideEditorModal({ ctx, open, onClose }: {
+/**
+ * When `targetSong` is set, the editor edits THAT song (opened from the Songs
+ * Library "Edit slide" button) instead of the playlist preview item. This is
+ * the fix for the field bug where "Edit slide" in the Songs Library opened
+ * whatever song happened to be the playlist preview item, not the song the
+ * operator was actually looking at. In target-song mode every playlist-coupled
+ * reference (initialSlides, the delete-set in onSave, the title) is sourced
+ * from the target song; save still routes through the songId-based actions.
+ */
+export type SlideEditorTargetSong = {
+  songId: string;
+  title: string;
+  slides: { id: string; lyrics: string; objectsJson?: unknown }[];
+};
+
+export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null }: {
   ctx: OperatorShellCtx;
   open: boolean;
   onClose: () => void;
+  targetSong?: SlideEditorTargetSong | null;
 }) {
-  const item = ctx.plan.items[ctx.previewItemIdx];
-  const itemId = item?.id ?? null;
-  const itemType = item?.type ?? null;
-  const songId = item?.songId ?? null;
+  const playlistItem = ctx.plan.items[ctx.previewItemIdx];
+  const item = targetSong ? null : playlistItem;
+  const itemId = targetSong ? `song_${targetSong.songId}` : (playlistItem?.id ?? null);
+  const itemType = targetSong ? "song" : (playlistItem?.type ?? null);
+  const songId = targetSong ? targetSong.songId : (playlistItem?.songId ?? null);
+  const title = targetSong ? targetSong.title : (playlistItem?.title ?? "");
 
-  const initialSlides = item?.songSlideRows ??
-    (item?.slides.map((s, i) => ({
-      id: `readonly_${item.id}_${i}`,
-      lyrics: s.kind === "text" ? s.text : `[${s.kind}]`,
-      objectsJson: null,
-    })) ?? []);
+  const initialSlides = targetSong
+    ? targetSong.slides
+    : (playlistItem?.songSlideRows ??
+      (playlistItem?.slides.map((s, i) => ({
+        id: `readonly_${playlistItem.id}_${i}`,
+        lyrics: s.kind === "text" ? s.text : `[${s.kind}]`,
+        objectsJson: null,
+      })) ?? []));
 
   const editor = useSlideEditor({ itemId, itemType: itemType ?? "blank", songId, initialSlides });
   const [saveState, setSaveState] = useState<"idle" | "saving" | "error">("idle");
@@ -52,7 +72,7 @@ export function DesktopSlideEditorModal({ ctx, open, onClose }: {
     if (!editor.isEditable || !songId) return;
     setSaveState("saving");
     try {
-      const dbIds = (item?.songSlideRows ?? []).map((r) => r.id);
+      const dbIds = (targetSong ? targetSong.slides : (item?.songSlideRows ?? [])).map((r) => r.id);
       const localIds = editor.slides.map((s) => s.id);
       for (const id of dbIds) {
         if (!localIds.includes(id)) await deleteSongSlide(id);
@@ -80,16 +100,24 @@ export function DesktopSlideEditorModal({ ctx, open, onClose }: {
       setSaveState("error");
       toast.error(e instanceof Error ? e.message : "Save failed");
     }
-  }, [editor, songId, item, router]);
+  }, [editor, songId, item, targetSong, router]);
 
   const onShow = useCallback(() => {
+    // Target-song (Songs Library) mode: the song isn't a playlist item, so
+    // there's no index to jump — send the current slide's text straight to LIVE.
+    if (targetSong) {
+      const cur = editor.slides[editor.currentIndex];
+      if (cur) ctx.onSendSlideToLive({ kind: "text", text: cur.lyrics ?? "" });
+      return;
+    }
     if (!item) return;
     ctx.onJumpSlide(ctx.previewItemIdx, editor.currentIndex);
-  }, [editor, ctx, item]);
+  }, [editor, ctx, item, targetSong]);
 
-  // Open on the slide the operator double-clicked (they're the same item).
+  // Open on the slide the operator double-clicked (playlist slides mode); for
+  // a Songs-Library target song, open at the top.
   useEffect(() => {
-    if (open) editor.setCurrentIndex(ctx.previewSlideIdx);
+    if (open) editor.setCurrentIndex(targetSong ? 0 : ctx.previewSlideIdx);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -127,7 +155,7 @@ export function DesktopSlideEditorModal({ ctx, open, onClose }: {
           <header className="h-11 shrink-0 flex items-center gap-2 px-3 border-b" style={{ borderColor: "#2a3232", background: "#1a2020" }}>
             <Type className="w-4 h-4 text-teal-300" />
             <Dialog.Title className="text-[12px] font-semibold text-zinc-100">Edit slide</Dialog.Title>
-            <span className="text-[11px] text-zinc-500 truncate">— {item?.title ?? ""}</span>
+            <span className="text-[11px] text-zinc-500 truncate">— {title}</span>
             {!songId && <span className="text-[10px] italic text-amber-300/80 ml-1">Only song slides are editable</span>}
             <div className="ml-auto flex items-center gap-1">
               <button onClick={editor.undo} disabled={!editor.canUndo} title="Undo (⌘Z)"

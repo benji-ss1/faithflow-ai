@@ -15,5 +15,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const [song] = await db.select().from(songs).where(and(eq(songs.id, id), eq(songs.churchId, user.churchId))).limit(1);
   if (!song) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const slides = await db.select().from(songSlides).where(eq(songSlides.songId, song.id)).orderBy(asc(songSlides.order));
-  return NextResponse.json({ title: song.title, slides: slides.map((s) => ({ id: s.id, lyrics: sanitizeLyrics(s.lyrics) })) });
+  // objectsJson carries the per-slide object design (fonts/layout/background).
+  // The desktop slide editor needs it so opening a Songs-Library song for edit
+  // hydrates its real design — and so a save never overwrites objects with
+  // lyrics-only. The SongsBrowser preview ignores the extra field harmlessly.
+  return NextResponse.json({ title: song.title, slides: slides.map((s) => ({ id: s.id, lyrics: sanitizeLyrics(s.lyrics), objectsJson: s.objectsJson })) });
 }

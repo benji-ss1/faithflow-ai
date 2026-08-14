@@ -1224,10 +1224,35 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
   const [slideEditorOpen, setSlideEditorOpen] = useState(false);
-  // Open the full-screen slide editor from anywhere (SlideGrid double-click, the
-  // "Edit slide" button in the center header) via a window event.
+  // Target-song mode: when the Songs Library "Edit slide" button opens the
+  // editor it passes { songId, title } in the event detail. We fetch that
+  // song's slides (WITH objectsJson) and hand them to the modal so it edits the
+  // song the operator is actually looking at — not the playlist preview item.
+  // A SlideGrid double-click dispatches with no detail → targetSong stays null
+  // → the modal edits the playlist item (original behavior).
+  const [slideEditorTargetSong, setSlideEditorTargetSong] =
+    useState<import("./DesktopSlideEditorModal").SlideEditorTargetSong | null>(null);
   useEffect(() => {
-    const open = () => setSlideEditorOpen(true);
+    const open = (e: Event) => {
+      const detail = (e as CustomEvent<{ songId?: string; title?: string } | undefined>).detail;
+      if (detail?.songId) {
+        const songId = detail.songId;
+        const title = detail.title ?? "Song";
+        // Fetch first so the editor hydrates with the real design on open.
+        fetch(`/api/songs/${songId}/slides`)
+          .then((r) => r.json())
+          .then((data) => {
+            setSlideEditorTargetSong({ songId, title, slides: Array.isArray(data.slides) ? data.slides : [] });
+            setSlideEditorOpen(true);
+          })
+          .catch(() => {
+            toast.error("Couldn't load that song to edit.");
+          });
+        return;
+      }
+      setSlideEditorTargetSong(null);
+      setSlideEditorOpen(true);
+    };
     window.addEventListener("presentflow:open-slide-editor", open);
     return () => window.removeEventListener("presentflow:open-slide-editor", open);
   }, []);
@@ -3420,7 +3445,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
 
       <SongAutopilotStaging ctx={ctx} />
       <AITranscriptTicker ctx={ctx} />
-      <DesktopSlideEditorModal ctx={ctx} open={slideEditorOpen} onClose={() => setSlideEditorOpen(false)} />
+      <DesktopSlideEditorModal ctx={ctx} open={slideEditorOpen} targetSong={slideEditorTargetSong} onClose={() => { setSlideEditorOpen(false); setSlideEditorTargetSong(null); }} />
 
       <div data-tour="bottom">
         <BottomBar

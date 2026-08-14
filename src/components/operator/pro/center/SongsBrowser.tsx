@@ -463,6 +463,20 @@ export function SongsBrowser({
           )}
           {selected && (
             <>
+              {/* Edit slide — opens the full-screen style editor for THIS selected
+                  song (fonts, layout, backgrounds, objects). Passes the song
+                  along so the editor always opens the song being previewed. */}
+              <button
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent("presentflow:open-slide-editor", {
+                    detail: { songId: selected.id, title: selected.title },
+                  }));
+                }}
+                className="h-8 px-3 rounded-md border border-[var(--color-border)] text-[12px] font-semibold hover:bg-[var(--color-elevated)] inline-flex items-center gap-1.5"
+                title="Edit slide — fonts, layout, backgrounds"
+              >
+                <Pencil className="w-3.5 h-3.5" /> Edit slide
+              </button>
               <button
                 onClick={() => {
                   setEditingIdx(null);

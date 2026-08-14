@@ -55,8 +55,12 @@ export function CenterHeader({
         {title}
       </div>
       {/* Edit slide — opens the full-screen style editor for the current song
-          (fonts, layout, backgrounds, objects). Song slides only. */}
-      {item?.type === "song" && (
+          (fonts, layout, backgrounds, objects). Slides mode ONLY: here `item`
+          (the playlist preview item) is exactly what the SlideGrid shows, so
+          the editor targets the right song. In Songs Library mode the displayed
+          song is the SongsBrowser selection (not the playlist item), so its own
+          "Edit slide" button lives there and passes the selected song along. */}
+      {centerMode === "slides" && item?.type === "song" && (
         <button
           onClick={() => window.dispatchEvent(new CustomEvent("presentflow:open-slide-editor"))}
           title="Edit slide — fonts, layout, backgrounds"
