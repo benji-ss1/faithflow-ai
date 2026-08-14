@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.195",
+    date: "2026-08-14",
+    headline: "Separate looks for songs vs Bible verses",
+    highlights: [
+      "In the Themes panel you can now set a default style for Songs and a different one for Bible verses — the projector, stage and livestream automatically switch looks based on what's live, so worship and scripture can each have their own design.",
+      "A specific item can still override it, and the church default applies when nothing is set.",
+    ],
+  },
+  {
     version: "0.1.194",
     date: "2026-08-14",
     headline: "One-click 'Edit slide' next to the song title",

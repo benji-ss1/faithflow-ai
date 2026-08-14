@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { createTheme, updateTheme, duplicateTheme, deleteTheme, setDefaultTheme, reorderThemes, extractLogoPalette, exportTheme, importTheme } from "@/lib/actions";
 import { buildColorwayFromPalette } from "@/lib/colorway";
 import { ThemeImportDialog } from "@/components/library/ThemeImportDialog";
+import { loadContentTypeStyles, saveContentTypeStyles, CONTENT_STYLE_TYPES, type ContentStyleType, type ContentTypeStyles } from "@/lib/content-type-styles";
 
 // Kept minimal + additive — see `type ThemeConfig` in src/lib/actions.ts for
 // the full sanitised shape. Everything below is optional; the preview + the
@@ -282,6 +283,8 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
         </div>
       </div>
       <ThemeImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
+
+      {operatorMode && <ContentTypeStyleBar themes={themes} />}
 
       {themes.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border bg-white/[0.02] p-12 text-center">
@@ -1014,6 +1017,43 @@ function SortableThemeCard({
         </div>
       </div>
     </li>
+  );
+}
+
+// -- per-content-type default styles (operator) --
+// Assign a theme to Songs and to Bible verses. OperatorConsole resolves the live
+// item's TYPE → this theme when the item has no explicit override.
+function ContentTypeStyleBar({ themes }: { themes: ThemeRow[] }) {
+  const [styles, setStyles] = useState<ContentTypeStyles>({});
+  useEffect(() => { setStyles(loadContentTypeStyles()); }, []);
+  const set = (type: ContentStyleType, themeId: string) => {
+    const next: ContentTypeStyles = { ...styles };
+    if (themeId) next[type] = themeId; else delete next[type];
+    setStyles(next);
+    saveContentTypeStyles(next);
+  };
+  return (
+    <div className="rounded-lg border border-border bg-card/60 p-3">
+      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Default style per content type</div>
+      <div className="grid grid-cols-2 gap-3">
+        {CONTENT_STYLE_TYPES.map(({ key, label }) => (
+          <label key={key} className="flex flex-col gap-1 text-[12px]">
+            <span className="text-muted-foreground">{label}</span>
+            <select
+              value={styles[key] ?? ""}
+              onChange={(e) => set(key, e.target.value)}
+              className="h-9 rounded-md border border-border bg-[var(--color-elevated)] px-2 text-[12px] text-foreground"
+            >
+              <option value="">Church default</option>
+              {themes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </label>
+        ))}
+      </div>
+      <p className="mt-2 text-[11px] text-muted-foreground">
+        Songs and Bible verses automatically use these looks on the projector, stage &amp; livestream — unless a specific item overrides it. Announcements are styled in the announcement composer.
+      </p>
+    </div>
   );
 }
 

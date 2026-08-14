@@ -336,8 +336,34 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     });
     return () => { cancelled = true; };
   }, [currentItemThemeId, themesVersion]);
-  // The appearance actually emitted: per-item section theme wins over default.
-  const effectiveAppearance = itemAppearance ?? appearance;
+  // Per-content-type default style: when the LIVE item has no explicit per-item
+  // theme, its TYPE (song / scripture) selects a default theme; else the church
+  // default. Operator-machine setting (localStorage), same-machine event-driven.
+  const [contentStyles, setContentStyles] = useState<import("@/lib/content-type-styles").ContentTypeStyles>({});
+  useEffect(() => {
+    let alive = true;
+    const load = () => import("@/lib/content-type-styles").then(({ loadContentTypeStyles }) => { if (alive) setContentStyles(loadContentTypeStyles()); });
+    void load();
+    const onChange = () => void load();
+    window.addEventListener("presentflow:content-type-styles-changed", onChange);
+    return () => { alive = false; window.removeEventListener("presentflow:content-type-styles-changed", onChange); };
+  }, []);
+  const liveItemType = (plan.items[liveItemIdx] as { type?: string } | undefined)?.type;
+  const contentTypeThemeId = liveItemType === "song" ? (contentStyles.song ?? null) : liveItemType === "scripture" ? (contentStyles.scripture ?? null) : null;
+  const [contentTypeAppearance, setContentTypeAppearance] = useState<import("@/lib/broadcast").ThemeAppearance | null>(null);
+  useEffect(() => {
+    if (!contentTypeThemeId) { setContentTypeAppearance(null); return; }
+    const cfg = themesByIdRef.current.get(contentTypeThemeId);
+    if (!cfg) { setContentTypeAppearance(null); return; }
+    let cancelled = false;
+    void import("@/lib/theme-appearance").then(({ themeConfigToAppearance }) => {
+      if (!cancelled) setContentTypeAppearance(themeConfigToAppearance(cfg));
+    });
+    return () => { cancelled = true; };
+  }, [contentTypeThemeId, themesVersion]);
+  // The appearance actually emitted: per-item theme wins, then the content-type
+  // default for the live item, then the church default.
+  const effectiveAppearance = itemAppearance ?? contentTypeAppearance ?? appearance;
 
   // Phase 2a — active live video input, emitted on OutputState so the output
   // windows open the feed. Restored from the Video Input panel's persisted
