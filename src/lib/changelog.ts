@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.199",
+    date: "2026-08-14",
+    headline: "Auto-follow now reliably tells prayer/preaching from singing",
+    highlights: [
+      "Tuned the speech-vs-singing detection on real JPD service audio — including a full worship → prayer → worship recording. It now correctly spots when the band drops out and someone prays or preaches (even a quieter single voice over the room), instead of treating it the same as singing.",
+      "The channel badges are steadier too: sung worship stays 🎶, spoken prayer/preaching shows 🎤, and genuinely in-between moments show no badge rather than guessing wrong.",
+    ],
+  },
+  {
     version: "0.1.198",
     date: "2026-08-14",
     headline: "Auto-follow now tells singing from preaching",

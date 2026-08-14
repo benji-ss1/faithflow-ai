@@ -246,18 +246,26 @@ export async function openMultiChannelCapture(
       varr /= Math.max(1, ring.length);
       const cv = mean > 0.005 ? Math.sqrt(varr) / mean : 0;
 
-      // Blend → speechiness. FLUX_REF / CV_REF calibrated against real JPD
-      // worship audio (2026-08-14): continuous singing lands at ~0.24 speechiness
-      // — safely in the "not speech" band — while brief spoken exhortations over
-      // the music bed spike to ~0.65+, exactly as intended.
+      // Blend → speechiness. CALIBRATED on real JPD service audio (2026-08-14:
+      // 4 recordings incl. a full sung-worship → spoken-prayer → worship arc,
+      // ~4600 labelled 15fps polls). Key finding: burstiness (CV of the vocal-
+      // energy envelope) cleanly separates speech from singing — sung worship
+      // median CV ≈ 0.038, spoken prayer ≈ 0.103 — while spectral FLUX barely
+      // differs between them at this FFT resolution (≈0.017 both), so flux is
+      // demoted to a light support term. With CV_REF=0.18 and an 0.85 CV weight,
+      // the slow-EMA role signal lands sung worship at ~0.22-0.32 (🎶 worship
+      // band) and spoken prayer at ~0.54 (🎤 preacher band), with ambiguous
+      // energetic worship falling into the no-badge middle rather than mislabel.
+      // (Original flux-dominant 0.6/0.4 split read prayer ≈ singing and missed
+      // the speaker entirely — see scratchpad calibration.)
       // Warm-up guard: for the first few frames the previous-spectrum buffer is
       // still zero (→ spuriously maximal spectral flux) and the energy ring is
-      // too short for a meaningful CV, so both signals read as false "speech".
-      // Return 0 until the ring warms — prevents a false preacher badge / switch
-      // flash on capture start and right after a channel hot-swap.
-      const FLUX_REF = 0.06, CV_REF = 0.7, SPEECH_WARMUP = 5;
+      // too short for a meaningful CV, so both read as false "speech". Return 0
+      // until the ring warms — prevents a false preacher badge / switch flash on
+      // capture start and right after a channel hot-swap.
+      const FLUX_REF = 0.06, CV_REF = 0.18, SPEECH_WARMUP = 5;
       const speechiness = ring.length < SPEECH_WARMUP ? 0 : Math.max(0, Math.min(1,
-        Math.min(1, fluxNorm / FLUX_REF) * 0.6 + Math.min(1, cv / CV_REF) * 0.4,
+        Math.min(1, cv / CV_REF) * 0.85 + Math.min(1, fluxNorm / FLUX_REF) * 0.15,
       ));
 
       out[i] = {
