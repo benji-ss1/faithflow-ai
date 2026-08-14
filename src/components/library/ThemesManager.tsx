@@ -1161,6 +1161,19 @@ function BgAssetPicker({
         onDrop={(e) => {
           e.preventDefault();
           setDragOver(false);
+          // Prefer an already-uploaded library asset dragged from the media
+          // browser (carries a ready URL) over re-uploading a raw file.
+          const lib = e.dataTransfer.getData("application/x-pf-library-item");
+          if (lib) {
+            try {
+              const item = JSON.parse(lib) as { url?: string; kind?: string };
+              if (item.url && (kind === "video" ? String(item.kind).startsWith("video") : !String(item.kind).startsWith("video"))) {
+                onUrl(item.url);
+                toast.success(`${kind === "image" ? "Image" : "Video"} set from library`);
+                return;
+              }
+            } catch { /* fall through to file handling */ }
+          }
           const f = e.dataTransfer.files?.[0];
           if (f) void pickFile(f);
         }}

@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.178",
+    date: "2026-08-14",
+    headline: "Themes: quick switcher + use any media as logo/background",
+    highlights: [
+      "New 'Change theme' button in the top bar — switch the live projector/stage/livestream look in one click, no editor needed.",
+      "Right-click any image in the Media library to instantly set it as the current theme's background or logo. You can also drag a library image straight onto the Logo/Background slots in the theme editor.",
+    ],
+  },
+  {
     version: "0.1.177",
     date: "2026-08-14",
     headline: "Slide editor: type on the canvas, duplicate & distribute groups",

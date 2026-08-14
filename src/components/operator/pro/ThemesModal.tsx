@@ -58,6 +58,8 @@ export function ThemesModal({ open, onClose }: { open: boolean; onClose: () => v
       window.dispatchEvent(new CustomEvent("presentflow:theme-changed", {
         detail: { appearance: themeConfigToAppearance(config) },
       }));
+      // Keep the top-bar quick switcher's list/selection in sync.
+      window.dispatchEvent(new CustomEvent("presentflow:themes-changed"));
     } catch { /* mapping unavailable — DB default still applies on next load */ }
   }, []);
 

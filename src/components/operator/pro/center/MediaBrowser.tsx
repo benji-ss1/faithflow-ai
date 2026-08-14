@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload } from "@/lib/broadcast";
 import { registerMediaAsset, renameMediaAsset, deleteMediaAsset } from "@/lib/actions";
+import { setMediaOnActiveTheme } from "@/lib/theme-quick-apply";
 import { MediaImportWizard } from "./MediaImportWizard";
 
 type Asset = {
@@ -203,7 +204,7 @@ export function MediaBrowser({
                       e.dataTransfer.effectAllowed = "copy";
                       e.dataTransfer.setData(
                         "application/x-pf-library-item",
-                        JSON.stringify({ pfType: "media", id: a.id, title: a.fileName }),
+                        JSON.stringify({ pfType: "media", id: a.id, title: a.fileName, url: a.url, kind: a.kind }),
                       );
                     }}
                     onClick={() => sendLive(a)}
@@ -287,6 +288,25 @@ export function MediaBrowser({
                     >
                       Add to Playlist
                     </ContextMenu.Item>
+                    {!a.kind.startsWith("video") && (
+                      <>
+                        <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
+                        <ContextMenu.Item
+                          onSelect={() => void setMediaOnActiveTheme("background", a.url).then((name) =>
+                            name ? toast.success(`Set as background of theme “${name}”`) : toast.error("No theme to update"))}
+                          className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer"
+                        >
+                          Set as theme background
+                        </ContextMenu.Item>
+                        <ContextMenu.Item
+                          onSelect={() => void setMediaOnActiveTheme("logo", a.url).then((name) =>
+                            name ? toast.success(`Set as logo of theme “${name}”`) : toast.error("No theme to update"))}
+                          className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer"
+                        >
+                          Set as theme logo
+                        </ContextMenu.Item>
+                      </>
+                    )}
                     <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
                     <ContextMenu.Item
                       onSelect={() => startRename(a)}
