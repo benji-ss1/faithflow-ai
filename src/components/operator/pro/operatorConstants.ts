@@ -70,17 +70,32 @@ export function readFontScale(): number {
  */
 export const SONG_AUTOSTAGE_CONFIRM_KEY = "KeyG";
 
-/** Minimum confidence to stage a song for operator confirm (G key).
- *  Below this, the song appears only as a passive chip. Signed off 2026-07-26.
+/** Minimum confidence for a song to appear at all (as a manual chip you push
+ *  in the AI chip area / "golden section" to go live). Below this it's ignored.
+ *  Raised 60 → 70 on 2026-08-14 (user sign-off): songs were over-suggesting —
+ *  too many low-confidence chips constantly popping up during worship. The
+ *  70-84 band is now suggest-ONLY (operator clicks the chip / presses G to go
+ *  live); nothing below 70 surfaces. See CLAUDE.md rule 7.
  */
-export const SONG_STAGE_CONFIDENCE = 60;
+export const SONG_STAGE_CONFIDENCE = 70;
 
 /** Minimum confidence for zero-click auto-live.
- *  Lowered from 85 → 70 on 2026-07-26 with user sign-off after field data
- *  showed most real detections in the 60–84% band were being missed.
- *  Hard floor is 65% — do not lower below it. See CLAUDE.md rule 7.
+ *  Raised 70 → 85 on 2026-08-14 (user sign-off) to match the "high bar before
+ *  it projects itself" policy: songs auto-project ONLY at ≥85%; the 70-84 band
+ *  is manual (chip / G key). Rationale: songs share lyrics with each other and
+ *  with sung worship, so the auto bar must be higher than Bible's 75% to avoid
+ *  projecting the wrong song. Paired with SONG_DISAMBIG_MARGIN below. See
+ *  CLAUDE.md rule 7.
  */
-export const SONG_AUTOLIVE_CONFIDENCE = 70;
+export const SONG_AUTOLIVE_CONFIDENCE = 85;
+
+/** Similar-song disambiguation margin (confidence points). Even at ≥85%, a song
+ *  only auto-projects if it leads the next-best DIFFERENT song by at least this
+ *  much. When two songs match the sung/spoken lyrics almost equally (shared
+ *  lines, e.g. two arrangements of the same phrase), the detection can't be sure
+ *  WHICH song it is, so it downgrades to a manual chip rather than risk
+ *  projecting the wrong one. Added 2026-08-14. See CLAUDE.md rule 7. */
+export const SONG_DISAMBIG_MARGIN = 12;
 
 /** Min gap (ms) between same-song auto-live fires.
  *  Nudged from 700 → 800 on 2026-07-24 after a false-trigger report.

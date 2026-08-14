@@ -107,6 +107,7 @@ import {
   SONG_AUTOSTAGE_CONFIRM_KEY,
   SONG_STAGE_CONFIDENCE,
   SONG_AUTOLIVE_CONFIDENCE,
+  SONG_DISAMBIG_MARGIN,
   SONG_AUTO_FIRED_SESSION_KEY,
   SONG_AUTO_LIVE_MIN_GAP_MS,
   AUTO_FIRED_SESSION_KEY,
@@ -657,7 +658,8 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   useEffect(() => {
     // 2026-07-26 policy change (user sign-off): song auto-fire is NO
     // LONGER gated by the AUTO/MANUAL toggle. Rule 7's confidence-tier
-    // policy (≥70% auto-live, 60-69% stage+G, <60% chip only) applies
+    // policy (2026-08-14: ≥85% auto-live — and only if it clearly beats the
+    // next-best song — 70-84% manual chip / G-key, <70% ignored) applies
     // unconditionally. The AUTO/MANUAL toggle now only controls Bible
     // auto-approve (its original purpose). Rationale: field report from
     // JPD — operator was in MANUAL mode, Amazing Grace hit 87% but
@@ -782,7 +784,20 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       // CLAUDE.md rule 7); clean confident speech clears musicSuspected and
       // auto-live resumes normally.
       const musicHold = !!ctx.audio.musicSuspected;
-      if (c.confidence >= SONG_AUTOLIVE_CONFIDENCE && !musicHold) {
+      // 2026-08-14 similar-song disambiguation (user directive): songs share
+      // lyrics with each other, so a high raw confidence isn't enough to
+      // ZERO-CLICK project — the top song must also clearly BEAT the next-best
+      // DIFFERENT song. If two songs match the sung/spoken words almost equally
+      // (within SONG_DISAMBIG_MARGIN), we can't be sure which one it is, so we
+      // downgrade to a manual chip (stage) instead of risking the wrong song on
+      // the projector. `candidates` is sorted desc, so the first entry with a
+      // different songId is the runner-up.
+      const runnerUp = candidates.find((x) => x.songId !== c.songId);
+      const ambiguous = !!runnerUp && (c.confidence - runnerUp.confidence) < SONG_DISAMBIG_MARGIN;
+      if (ambiguous) {
+        console.log(`[song-autolive] AMBIGUOUS — "${c.title}" ${c.confidence}% vs "${runnerUp!.title}" ${runnerUp!.confidence}% (< ${SONG_DISAMBIG_MARGIN}pt margin) → staging for manual pick instead of auto-project`);
+      }
+      if (c.confidence >= SONG_AUTOLIVE_CONFIDENCE && !musicHold && !ambiguous) {
         stagedOrHandledRef.current.set(c.songId, now);
         firedSuggestionIdsRef.current.add(c.suggestionId);
         // Prune fired-id set to last 200 entries (LRU-ish via clear+re-add

@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.201",
+    date: "2026-08-14",
+    headline: "Songs: calmer suggestions, higher bar before auto-projecting",
+    highlights: [
+      "Song detection is now more conservative so it stops flooding you with low-confidence suggestions. A song only auto-projects on its own at 85%+ (was 70%). The 70–84% band now shows as a chip you tap to send live yourself; anything below 70% no longer pops up at all.",
+      "New: when the words match two similar songs almost equally, it no longer guesses — it holds back and shows a chip for you to pick the right one, instead of risking the wrong song on screen.",
+      "Bible verse auto-projection is unchanged (still 75%). This only makes songs stricter.",
+    ],
+  },
+  {
     version: "0.1.200",
     date: "2026-08-14",
     headline: "See who the AI hears at a glance (multi-mic)",
