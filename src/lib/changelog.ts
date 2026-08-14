@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.179",
+    date: "2026-08-14",
+    headline: "Big ProPresenter imports now actually work",
+    highlights: [
+      "Importing large ProPresenter libraries (500+ songs) no longer fails with a server error — the import is now processed in small batches so a big library can't overload the server.",
+      "You get a live progress bar showing exactly what's happening — chunking, reading songs, and importing — batch by batch, so you can see it working the whole way through.",
+      "Resilient: if a batch has trouble it retries automatically, and if anything is skipped you're told clearly instead of songs silently going missing.",
+    ],
+  },
+  {
     version: "0.1.178",
     date: "2026-08-14",
     headline: "Themes: quick switcher + use any media as logo/background",

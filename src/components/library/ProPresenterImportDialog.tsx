@@ -81,6 +81,90 @@ function importDropsTooLarge(drops: FileDrop[]): string | null {
   return null;
 }
 
+// ── Chunked pipeline ────────────────────────────────────────────────────────
+// The old path sent ALL ~557 song docs to a single server action which parsed
+// + inserted them in one invocation — that timed out / 500'd on big libraries
+// (the "unexpected response" error). We now chunk the docs into small batches
+// and run each as its own short server call, with live progress. If a batch
+// still fails, it recursively splits in half and retries so one bad doc can't
+// sink the run.
+const IMPORT_BATCH_SIZE = 40;
+
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+function mergePreview(parts: PreviewData[]): PreviewData {
+  const songs: PreviewSong[] = [];
+  const seen = new Set<string>();
+  let mediaCount = 0;
+  const mediaSample: PreviewData["mediaSample"] = [];
+  const warnings: PreviewData["warnings"] = [];
+  for (const p of parts) {
+    for (const s of p.songs) {
+      const key = s.title.trim().toLowerCase();
+      if (seen.has(key)) continue; // matches the single-call within-batch dedupe
+      seen.add(key);
+      songs.push(s);
+    }
+    mediaCount += p.mediaCount;
+    for (const m of p.mediaSample) if (mediaSample.length < 20) mediaSample.push(m);
+    warnings.push(...p.warnings);
+  }
+  return { songs, mediaCount, mediaSample, warnings };
+}
+
+// Each batch helper returns a `dropped` count of leaf docs that could NOT be
+// processed after all split-retries, so a whole-batch failure (e.g. a transient
+// server 500) is surfaced to the user instead of silently losing songs.
+// NOTE: depth cap 6 pairs with IMPORT_BATCH_SIZE=40 (ceil(40/2^6)=1) so every
+// multi-doc batch splits down to size-1 leaves before giving up; raise the cap
+// too if the batch size ever goes above ~64.
+async function scanBatch(batch: FileDrop[], depth = 0): Promise<{ data: PreviewData | null; dropped: number }> {
+  try {
+    const res = await previewImportDrop({ drop: batch });
+    if (res.ok && res.data) return { data: res.data as PreviewData, dropped: 0 };
+  } catch { /* fall through to split/retry */ }
+  if (batch.length > 1 && depth < 6) {
+    const mid = Math.ceil(batch.length / 2);
+    const a = await scanBatch(batch.slice(0, mid), depth + 1);
+    const b = await scanBatch(batch.slice(mid), depth + 1);
+    const parts = [a.data, b.data].filter(Boolean) as PreviewData[];
+    return { data: parts.length ? mergePreview(parts) : null, dropped: a.dropped + b.dropped };
+  }
+  return { data: null, dropped: batch.length };
+}
+
+const EMPTY_RESULT: CompleteData = { added: 0, skipped: 0, mediaAdded: 0, backgroundsLinked: 0, warnings: [] };
+function addResults(a: CompleteData, b: CompleteData): CompleteData {
+  return {
+    added: a.added + b.added,
+    skipped: a.skipped + b.skipped,
+    mediaAdded: a.mediaAdded + b.mediaAdded,
+    backgroundsLinked: a.backgroundsLinked + b.backgroundsLinked,
+    warnings: [...a.warnings, ...b.warnings],
+  };
+}
+
+async function importBatch(batch: FileDrop[], onlyTitles: string[], depth = 0): Promise<{ data: CompleteData; dropped: number }> {
+  try {
+    const res = await importDrop({ drop: batch, onlyTitles });
+    if (res.ok && res.data) {
+      const d = res.data;
+      return { data: { added: d.added, skipped: d.skipped, mediaAdded: d.mediaAdded, backgroundsLinked: d.backgroundsLinked, warnings: d.warnings }, dropped: 0 };
+    }
+  } catch { /* fall through to split/retry */ }
+  if (batch.length > 1 && depth < 6) {
+    const mid = Math.ceil(batch.length / 2);
+    const a = await importBatch(batch.slice(0, mid), onlyTitles, depth + 1);
+    const b = await importBatch(batch.slice(mid), onlyTitles, depth + 1);
+    return { data: addResults(a.data, b.data), dropped: a.dropped + b.dropped };
+  }
+  return { data: { ...EMPTY_RESULT }, dropped: batch.length };
+}
+
 // Delegates to the shared browser media-stripper (also used by the Import
 // Wizard) and maps the lyrics-only docs to base64 FileDrops for the
 // server-action import path. Single source of truth for the strip logic so the
@@ -108,6 +192,9 @@ export function ProPresenterImportDialog({
   const [result, setResult] = useState<CompleteData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // Live batch progress for the scanning + importing phases (the beefed-up,
+  // chunked pipeline). done/total are batch counts; note is the narration line.
+  const [progress, setProgress] = useState<{ done: number; total: number; note: string; songs: number } | null>(null);
 
   const reset = useCallback(() => {
     setPhase("upload");
@@ -118,6 +205,7 @@ export function ProPresenterImportDialog({
     setQuery("");
     setResult(null);
     setError(null);
+    setProgress(null);
     scannedDropsRef.current = null;
   }, []);
 
@@ -159,6 +247,7 @@ export function ProPresenterImportDialog({
     if (files.length === 0) return;
     setPhase("scanning");
     setError(null);
+    setProgress({ done: 0, total: 1, note: "Unzipping your bundle…", songs: 0 });
     startTransition(async () => {
       try {
         const { drops: drop, expandedFrom, skippedMedia, truncated, skippedFiles } = await expandProBundleDrops(files);
@@ -169,18 +258,34 @@ export function ProPresenterImportDialog({
           toast.warning(`Some content was skipped (over safe size limits${skippedFiles.length ? `: ${skippedFiles.slice(0, 2).join(", ")}${skippedFiles.length > 2 ? "…" : ""}` : ""}). If songs are missing, split the export into smaller files.`);
         }
         const oversize = importDropsTooLarge(drop);
-        if (oversize) { setError(oversize); setPhase("upload"); return; }
+        if (oversize) { setError(oversize); setPhase("upload"); setProgress(null); return; }
         scannedDropsRef.current = drop; // reuse in runImport() — avoid re-unzipping
-        const res = await previewImportDrop({ drop });
-        if (!res.ok) {
-          setError(res.error);
-          setPhase("upload");
-          return;
+
+        // Chunk the docs and scan each batch in its own short server call so a
+        // 500+ song library never has to parse in one invocation.
+        const batches = chunk(drop, IMPORT_BATCH_SIZE);
+        setProgress({ done: 0, total: batches.length, note: `Chunking ${drop.length} songs into ${batches.length} batches…`, songs: 0 });
+        const parts: PreviewData[] = [];
+        let songCount = 0;
+        let droppedDocs = 0;
+        for (let i = 0; i < batches.length; i++) {
+          const r = await scanBatch(batches[i]);
+          if (r.data) { parts.push(r.data); songCount += r.data.songs.length; }
+          droppedDocs += r.dropped;
+          setProgress({ done: i + 1, total: batches.length, note: `Reading songs — batch ${i + 1} of ${batches.length}`, songs: songCount });
         }
-        const data = res.data!;
+        if (parts.length === 0) {
+          setError("Couldn't read any songs from this file. Try re-exporting from ProPresenter as a bundle.");
+          setPhase("upload"); setProgress(null); return;
+        }
+        if (droppedDocs > 0) {
+          toast.warning(`${droppedDocs} song document${droppedDocs === 1 ? "" : "s"} couldn't be read and won't be shown. The rest are ready below.`);
+        }
+        const data = mergePreview(parts);
         setPreview(data);
         // Default selection: everything EXCEPT duplicates.
         setSelected(new Set(data.songs.filter((s) => !s.isDuplicate).map((s) => s.title)));
+        setProgress(null);
         setPhase("preview");
         if (data.songs.length === 0) {
           toast.info("No songs found in this file. Make sure you exported as a ProPresenter bundle.");
@@ -188,6 +293,7 @@ export function ProPresenterImportDialog({
       } catch (e) {
         setError(e instanceof Error ? e.message : "Scan failed");
         setPhase("upload");
+        setProgress(null);
       }
     });
   }, [files]);
@@ -196,31 +302,45 @@ export function ProPresenterImportDialog({
     if (!preview || selected.size === 0) return;
     setPhase("importing");
     setError(null);
+    const onlyTitles = Array.from(selected);
+    setProgress({ done: 0, total: 1, note: "Preparing your library…", songs: 0 });
     startTransition(async () => {
       try {
         // Reuse the drops already produced by scan() — don't re-read + re-unzip
         // the bundle. Fall back to expanding only if the cache was invalidated.
         const drop = scannedDropsRef.current ?? (await expandProBundleDrops(files)).drops;
-        const oversize = importDropsTooLarge(drop);
-        if (oversize) { setError(oversize); setPhase("preview"); return; }
-        const res = await importDrop({ drop, onlyTitles: Array.from(selected) });
-        if (!res.ok) {
-          setError(res.error);
-          setPhase("preview");
-          return;
+
+        // Write in the same small batches as the scan — each batch is its own
+        // short server call, so 500+ songs import without a single overloaded
+        // invocation. bulkInsertSongs de-dupes against the DB, so a title that
+        // spans batches is inserted once.
+        const batches = chunk(drop, IMPORT_BATCH_SIZE);
+        let agg: CompleteData = { ...EMPTY_RESULT };
+        let droppedDocs = 0;
+        for (let i = 0; i < batches.length; i++) {
+          setProgress({ done: i, total: batches.length, note: `Importing songs — batch ${i + 1} of ${batches.length}`, songs: agg.added });
+          const r = await importBatch(batches[i], onlyTitles);
+          agg = addResults(agg, r.data);
+          droppedDocs += r.dropped;
+          setProgress({ done: i + 1, total: batches.length, note: `Imported ${agg.added} song${agg.added === 1 ? "" : "s"} so far…`, songs: agg.added });
         }
-        const d = res.data!;
-        setResult({
-          added: d.added,
-          skipped: d.skipped,
-          mediaAdded: d.mediaAdded,
-          backgroundsLinked: d.backgroundsLinked,
-          warnings: d.warnings,
-        });
+        // Surface any docs that failed every retry — never let a batch vanish
+        // silently. If NOTHING imported and docs failed, treat the whole run as
+        // an error (the server was likely busy) rather than showing "0 imported".
+        if (agg.added === 0 && droppedDocs > 0) {
+          setError("The import couldn't add any songs — the server may be busy. Please try again; anything already imported will be skipped.");
+          setPhase("preview"); setProgress(null); return;
+        }
+        if (droppedDocs > 0) {
+          agg = { ...agg, warnings: [...agg.warnings, { file: "Import", warnings: [`${droppedDocs} song document(s) failed to import after retries. Re-run the import to catch them — songs already added are skipped automatically.`] }] };
+        }
+        setResult(agg);
+        setProgress(null);
         setPhase("complete");
       } catch (e) {
         setError(e instanceof Error ? e.message : "Import failed");
         setPhase("preview");
+        setProgress(null);
       }
     });
   }, [preview, selected, files]);
@@ -248,7 +368,7 @@ export function ProPresenterImportDialog({
               error={error}
             />
           )}
-          {phase === "scanning" && <ScanningStep />}
+          {phase === "scanning" && <ScanningStep progress={progress} />}
           {phase === "preview" && preview && (
             <PreviewStep
               preview={preview}
@@ -261,7 +381,7 @@ export function ProPresenterImportDialog({
               error={error}
             />
           )}
-          {phase === "importing" && <ImportingStep total={selected.size} />}
+          {phase === "importing" && <ImportingStep total={selected.size} progress={progress} />}
           {phase === "complete" && result && preview && (
             <CompleteStep result={result} preview={preview} />
           )}
@@ -445,18 +565,61 @@ function UploadStep({
 
 /* ─── Step 1b: Scanning ──────────────────────────────────────────────── */
 
-function ScanningStep() {
+type ImportProgress = { done: number; total: number; note: string; songs: number };
+
+const SCAN_TIPS = [
+  "Chunking your library into small batches so nothing overloads the server…",
+  "Reading each song's slide arrangement and order…",
+  "Flagging songs you already have so you don't import them twice…",
+  "Keeping lyrics only — backgrounds are handled separately…",
+];
+const IMPORT_TIPS = [
+  "Writing songs to your library in small, safe batches…",
+  "Each batch is its own request, so a big library can't time out…",
+  "De-duplicating as we go — nothing imports twice…",
+  "Almost there — your songs will appear in the library…",
+];
+
+function useRotatingTip(tips: string[]): string {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setI((n) => (n + 1) % tips.length), 2600);
+    return () => clearInterval(id);
+  }, [tips.length]);
+  return tips[i];
+}
+
+function ProgressPanel({ icon: Icon, title, progress, tips }: {
+  icon: typeof Music;
+  title: string;
+  progress: ImportProgress | null;
+  tips: string[];
+}) {
+  const pct = progress && progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
+  const tip = useRotatingTip(tips);
   return (
-    <div className="flex flex-col items-center justify-center gap-4 p-16 text-center">
+    <div className="flex flex-col items-center justify-center gap-3 p-16 text-center">
       <div className="grid h-14 w-14 animate-pulse place-items-center rounded-full bg-[var(--color-primary)]/10 text-[var(--color-primary)]">
-        <Music className="h-6 w-6" />
+        <Icon className="h-6 w-6" />
       </div>
-      <div className="text-base font-semibold text-foreground">Reading your library…</div>
-      <div className="text-sm text-muted-foreground">
-        Parsing songs and extracting backgrounds. Larger bundles take a few seconds.
+      <div className="text-base font-semibold text-foreground">{title}</div>
+      <div className="min-h-[20px] text-sm text-muted-foreground">{progress?.note ?? "Starting…"}</div>
+      <div className="mt-1 h-2.5 w-72 max-w-full overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full rounded-full bg-[var(--color-primary)] transition-[width] duration-300 ease-out"
+          style={{ width: `${Math.max(4, pct)}%` }}
+        />
       </div>
+      <div className="text-xs tabular-nums text-muted-foreground">
+        {pct}%{progress && progress.songs > 0 ? ` · ${progress.songs} song${progress.songs === 1 ? "" : "s"}` : ""}
+      </div>
+      <div className="min-h-[16px] max-w-sm text-[11px] italic text-muted-foreground/70">{tip}</div>
     </div>
   );
+}
+
+function ScanningStep({ progress }: { progress: ImportProgress | null }) {
+  return <ProgressPanel icon={Music} title="Reading your library…" progress={progress} tips={SCAN_TIPS} />;
 }
 
 /* ─── Step 2: Preview ────────────────────────────────────────────────── */
@@ -672,22 +835,14 @@ function PreviewRow({
 
 /* ─── Step 3: Importing ──────────────────────────────────────────────── */
 
-function ImportingStep({ total }: { total: number }) {
+function ImportingStep({ total, progress }: { total: number; progress: ImportProgress | null }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-4 p-16 text-center">
-      <div className="grid h-14 w-14 place-items-center rounded-full bg-[var(--color-primary)]/10 text-[var(--color-primary)]">
-        <Upload className="h-6 w-6 animate-bounce" />
-      </div>
-      <div className="text-base font-semibold text-foreground">
-        Importing {total} song{total === 1 ? "" : "s"}…
-      </div>
-      <div className="text-sm text-muted-foreground">
-        Uploading backgrounds, generating thumbnails, writing to your library.
-      </div>
-      <div className="mt-2 h-2 w-64 overflow-hidden rounded-full bg-muted">
-        <div className="h-full w-1/3 animate-pulse bg-[var(--color-primary)]" />
-      </div>
-    </div>
+    <ProgressPanel
+      icon={Upload}
+      title={`Importing ${total} song${total === 1 ? "" : "s"}…`}
+      progress={progress}
+      tips={IMPORT_TIPS}
+    />
   );
 }
 

@@ -33,8 +33,13 @@ export async function bulkInsertSongs(
   const db = getDb();
   if (candidates.length === 0) return { added: 0, skipped: 0, duplicateSkipped: 0, limitSkipped: 0 };
 
+  // Dedupe key is case/whitespace-insensitive. This matters for the CHUNKED
+  // importer: the parse pipeline used to collapse "Amazing Grace"/"amazing
+  // grace" to one song before this function ever saw them, but batching splits
+  // such variants across separate calls, so cross-batch dedupe now happens
+  // ONLY here — it must match the pipeline's case-insensitive key.
   const existingTitles = new Set(
-    (await db.select({ title: songs.title }).from(songs).where(eq(songs.churchId, churchId))).map((r) => r.title),
+    (await db.select({ title: songs.title }).from(songs).where(eq(songs.churchId, churchId))).map((r) => r.title.trim().toLowerCase()),
   );
 
   const toInsert: SongCandidate[] = [];
@@ -45,10 +50,11 @@ export async function bulkInsertSongs(
 
   for (const c of candidates) {
     const title = c.title.trim();
+    const key = title.toLowerCase();
     if (!title || c.slides.length === 0) { duplicateSkipped++; continue; }
-    if (existingTitles.has(title) || seenInBatch.has(title)) { duplicateSkipped++; continue; }
+    if (existingTitles.has(key) || seenInBatch.has(key)) { duplicateSkipped++; continue; }
     if (remaining <= 0) { limitSkipped++; continue; }
-    seenInBatch.add(title);
+    seenInBatch.add(key);
     toInsert.push({ ...c, title });
     remaining--;
   }
