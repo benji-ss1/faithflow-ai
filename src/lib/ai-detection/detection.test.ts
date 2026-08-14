@@ -57,6 +57,23 @@ async function main() {
   const rNoWake = await detectAll("Amazing grace how sweet the sound that saved a wretch like me", ctx);
   ok('no-wake-phrase: pure-lyric content resolves the song', rNoWake.song.some((s) => s.songId === "song-ag") || rNoWake.lyric.some((l) => l.songId === "song-ag"), { song: rNoWake.song, lyric: rNoWake.lyric });
 
+  // 3b. VERSE-vs-SONG arbitration (2026-08-14): an explicit spoken verse
+  // reference must NOT suppress a song that is genuinely being SUNG. Congregations
+  // frequently burst into song with no "let's sing" cue (Holy-Spirit flow), so a
+  // strong lyric match survives even when a verse is quoted in the same window —
+  // only weak coincidental verse-overlap matches are dropped.
+  const rVerseSong = await detectAll("John 3:16 amazing grace how sweet the sound that saved a wretch like me", ctx);
+  ok('verse+song: a strongly-sung song SURVIVES an explicit verse reference',
+    rVerseSong.song.some((s) => s.songId === "song-ag") || rVerseSong.lyric.some((l) => l.songId === "song-ag"),
+    { song: rVerseSong.song, lyric: rVerseSong.lyric });
+  ok('verse+song: scripture is still detected alongside',
+    rVerseSong.scripture.some((s) => s.book === "John" && s.chapter === 3 && s.verseStart === 16), rVerseSong.scripture);
+
+  // 3c. A bare spoken verse reference with NO real singing must not conjure a
+  // coincidental song (nothing in the library matches these words strongly).
+  const rBareVerse = await detectAll("please turn with me to Romans chapter 8 verse 28", ctx);
+  ok('bare verse: no coincidental song fired', rBareVerse.song.length === 0 && rBareVerse.lyric.length === 0, { song: rBareVerse.song, lyric: rBareVerse.lyric });
+
   // 3. "Let's sing Amazing Grace" → cue + candidateTitle
   const r3 = await detectAll("Let's sing Amazing Grace together", ctx);
   ok('cue: "let\'s sing" fires', r3.cue.length > 0);

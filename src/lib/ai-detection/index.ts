@@ -220,6 +220,65 @@ export async function detectAll(chunk: string, ctx: DetectAllContext): Promise<D
     return s === undefined || m.confidence > s;
   });
 
+  // ── Verse-vs-song arbitration (2026-08-14) ────────────────────────────────
+  // "Deeper listening" for spoken scripture vs sung lyrics. When someone READS
+  // or ANNOUNCES a verse, the verse words routinely overlap a song's lyrics
+  // (many worship songs quote scripture), so the lyric-fragment matcher fires a
+  // coincidental song — e.g. "turn to Psalm 23 … the Lord is my shepherd"
+  // spuriously matching a shepherd song.
+  //
+  // We do NOT use the "let's sing X" cue as the signal for song intent, because
+  // congregations frequently just START singing without announcing it (esp.
+  // African-gospel worship). Instead we grade by MATCH STRENGTH: a genuinely
+  // sung song produces a STRONG, sustained lyric match (high confidence, boosted
+  // if it's in the plan), whereas verse-words grazing a song's lyrics produce a
+  // WEAK/mid coincidental match. So when the chunk carries an EXPLICIT direct
+  // reference (book + chapter + verse, fully parsed, high confidence — NOT a
+  // phrase-quote, NOT an ambiguous bare number), we keep only STRONG song/lyric
+  // matches (≥ VERSE_OVERRIDE_SONG_CONF) plus an exact/substring TITLE trigger
+  // hit or any explicit "let's sing" cue match, and drop the weak coincidental
+  // ones. A song sung right as a verse is quoted still survives if it's clearly
+  // sung; if it's borderline it resurfaces on the next chunk once the reference
+  // scrolls out of the window. Scripture itself is always preserved.
+  const hasExplicitVerse = scripture.some(
+    (r) => !r.isPhraseMatch && r.needsSemanticFallback === false && r.confidence >= 85,
+  );
+  if (hasExplicitVerse) {
+    // SAFE arbitration — never HIDE a song (missing real spontaneous worship is
+    // the worst outcome), and don't rely on match confidence to tell "real
+    // singing" from "coincidental overlap" (a full sung hymn line can score
+    // below the auto bar). Instead we CAP co-occurring song/lyric matches into
+    // the manual-chip tier: while a verse is being spoken a song can still be
+    // seen and pushed live by the operator, but it won't ZERO-CLICK auto-project
+    // (which is where a wrong song on the projector during a reading hurts). If
+    // it's genuinely being sung, the reference scrolls out of the transcript
+    // window within a chunk or two and the song re-fires at full confidence and
+    // auto-projects normally. An explicit "let's sing" cue or an exact/substring
+    // TITLE trigger is treated as clear song intent and passes through uncapped.
+    const SUGGEST_CAP = 84; // one below the song auto-project bar (see operatorConstants SONG_AUTOLIVE_CONFIDENCE=85)
+    const hasCue = cue.length > 0;
+    const cap = (m: SongMatchResult): SongMatchResult =>
+      hasCue || m.songId === triggerHit?.songId || m.confidence <= SUGGEST_CAP
+        ? m
+        : { ...m, confidence: SUGGEST_CAP };
+    const cappedSong = finalSong.map(cap);
+    const cappedLyric = finalLyric.map(cap);
+    const capped = finalSong.concat(finalLyric).filter((m) => m.confidence > SUGGEST_CAP).length;
+    if (capped > 0 && !hasCue) {
+      console.log(
+        `[verse-vs-song] explicit scripture reference present → holding ${capped} co-occurring song/lyric match(es) at chip-tier (no zero-click) until the reference clears (trigger=${triggerHit?.songId ?? "none"})`,
+      );
+    }
+    return {
+      scripture,
+      song: cappedSong,
+      lyric: cappedLyric,
+      command: cmd ? [cmd] : [],
+      cue,
+      section,
+    };
+  }
+
   return {
     scripture,
     song: finalSong,

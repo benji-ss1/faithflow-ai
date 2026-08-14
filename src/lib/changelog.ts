@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.203",
+    date: "2026-08-14",
+    headline: "Smarter: knows a spoken Bible verse from a sung song",
+    highlights: [
+      "When someone reads or announces a scripture (e.g. 'turn to Psalm 23'), the AI no longer fires a coincidental song just because the verse words happen to overlap a song's lyrics. It still detects songs from the lyrics being sung — no one has to say 'let's sing', spontaneous worship is caught the same as before.",
+      "It never hides a real song: during a spoken verse a song is held as a tap-to-go-live chip rather than auto-projected, and the moment real singing continues it projects as normal.",
+    ],
+  },
+  {
     version: "0.1.202",
     date: "2026-08-14",
     headline: "Lyrics fill the projector again — big and crowd-readable",
