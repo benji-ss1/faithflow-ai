@@ -246,10 +246,17 @@ export async function openMultiChannelCapture(
       varr /= Math.max(1, ring.length);
       const cv = mean > 0.005 ? Math.sqrt(varr) / mean : 0;
 
-      // Blend → speechiness. FLUX_REF / CV_REF are first-pass and meant to be
-      // tuned on real JPD service audio (choir vs a thick-accent preacher).
-      const FLUX_REF = 0.06, CV_REF = 0.7;
-      const speechiness = Math.max(0, Math.min(1,
+      // Blend → speechiness. FLUX_REF / CV_REF calibrated against real JPD
+      // worship audio (2026-08-14): continuous singing lands at ~0.24 speechiness
+      // — safely in the "not speech" band — while brief spoken exhortations over
+      // the music bed spike to ~0.65+, exactly as intended.
+      // Warm-up guard: for the first few frames the previous-spectrum buffer is
+      // still zero (→ spuriously maximal spectral flux) and the energy ring is
+      // too short for a meaningful CV, so both signals read as false "speech".
+      // Return 0 until the ring warms — prevents a false preacher badge / switch
+      // flash on capture start and right after a channel hot-swap.
+      const FLUX_REF = 0.06, CV_REF = 0.7, SPEECH_WARMUP = 5;
+      const speechiness = ring.length < SPEECH_WARMUP ? 0 : Math.max(0, Math.min(1,
         Math.min(1, fluxNorm / FLUX_REF) * 0.6 + Math.min(1, cv / CV_REF) * 0.4,
       ));
 
