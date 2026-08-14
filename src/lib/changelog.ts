@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.177",
+    date: "2026-08-14",
+    headline: "Slide editor: type on the canvas, duplicate & distribute groups",
+    highlights: [
+      "Double-click any text box on the slide canvas to edit the words right there — no more hunting for a side field. Enter commits, Shift+Enter adds a line, Esc cancels.",
+      "With several objects selected you can now Duplicate the whole group in one click, and Distribute 3+ objects into perfectly even horizontal or vertical spacing.",
+    ],
+  },
+  {
     version: "0.1.176",
     date: "2026-08-13",
     headline: "Theme editor polish",

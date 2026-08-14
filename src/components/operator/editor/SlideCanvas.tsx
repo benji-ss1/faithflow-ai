@@ -39,6 +39,16 @@ export function SlideCanvas({
   slideRef.current = slide;
   const selRef = useRef(selectedIds);
   selRef.current = selectedIds;
+  // Which text object (if any) is being edited inline (double-click to enter).
+  const [editingId, setEditingId] = useState<string | null>(null);
+  // Leaving the slide cancels any in-progress inline edit.
+  useEffect(() => { setEditingId(null); }, [slide?.id]);
+  // If selection moves off the object being edited (e.g. clicking another
+  // object, whose beginDrag preventDefault()s the mousedown and so blocks the
+  // textarea's blur), exit edit mode explicitly — no dual selected/editing state.
+  useEffect(() => {
+    if (editingId && !selectedIds.includes(editingId)) setEditingId(null);
+  }, [selectedIds, editingId]);
 
   // Keyboard: delete / escape / nudge. Don't hijack when a text input has focus.
   useEffect(() => {
@@ -238,6 +248,10 @@ export function SlideCanvas({
               selectedNow={selSet.has(o.id)}
               beginDrag={beginDrag}
               readOnly={!!readOnly}
+              editing={editingId === o.id}
+              onStartEdit={() => setEditingId(o.id)}
+              onEndEdit={() => setEditingId(null)}
+              onText={(t) => onUpdateObject(o.id, { text: t } as Partial<SlideObject>)}
             />
           ))}
         </div>
@@ -248,6 +262,7 @@ export function SlideCanvas({
 
 function ObjectView({
   obj, selected, soleSelected, selectedNow, onSelect, beginDrag, readOnly,
+  editing, onStartEdit, onEndEdit, onText,
 }: {
   obj: SlideObject;
   selected: boolean;
@@ -256,6 +271,10 @@ function ObjectView({
   onSelect: (additive: boolean) => void;
   beginDrag: (e: React.MouseEvent, obj: SlideObject, mode: "move" | HandleKey) => void;
   readOnly: boolean;
+  editing: boolean;
+  onStartEdit: () => void;
+  onEndEdit: () => void;
+  onText: (t: string) => void;
 }) {
   const style: React.CSSProperties = {
     position: "absolute",
@@ -264,31 +283,53 @@ function ObjectView({
     width: `${(obj.w / CANVAS_W) * 100}%`,
     height: `${(obj.h / CANVAS_H) * 100}%`,
     rotate: obj.rotation ? `${obj.rotation}deg` : undefined,
-    cursor: readOnly ? "default" : "grab",
+    cursor: readOnly ? "default" : editing ? "text" : "grab",
   };
 
   let inner: React.ReactNode = null;
   if (obj.kind === "text") {
-    inner = (
+    // Shared font styling so the inline-edit textarea matches the rendered text
+    // exactly (true WYSIWYG while typing).
+    const textStyle: React.CSSProperties = {
+      fontFamily: obj.fontFamily || "Inter, system-ui, sans-serif",
+      // fontSize is expressed in canvas px (1920×1080 virtual space) so we
+      // scale via a container-derived em unit. Approximation with cqw:
+      fontSize: `${((obj.fontSize ?? 96) / CANVAS_H) * 100}cqh`,
+      fontWeight: obj.fontWeight ?? 600,
+      color: obj.color ?? "#ffffff",
+      fontStyle: obj.italic ? "italic" : undefined,
+      textDecoration: obj.underline ? "underline" : undefined,
+      textAlign: obj.align ?? "center",
+      padding: "2%",
+      containerType: "size",
+      // Match the projector's text shadow so the editor is true WYSIWYG.
+      textShadow: "0 2px 8px rgba(0,0,0,0.45)",
+      opacity: obj.opacity ?? 1,
+    };
+    inner = editing ? (
+      <textarea
+        autoFocus
+        value={obj.text}
+        onChange={(e) => onText(e.target.value)}
+        onMouseDown={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => e.stopPropagation()}
+        onBlur={onEndEdit}
+        onFocus={(e) => e.currentTarget.select()}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Escape") { e.preventDefault(); onEndEdit(); }
+          else if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onEndEdit(); }
+        }}
+        className="w-full h-full resize-none border-0 bg-transparent outline-none overflow-hidden"
+        style={{ ...textStyle, display: "block", caretColor: obj.color ?? "#ffffff" }}
+      />
+    ) : (
       <div
         className="w-full h-full flex whitespace-pre-wrap overflow-hidden"
         style={{
-          fontFamily: obj.fontFamily || "Inter, system-ui, sans-serif",
-          // fontSize is expressed in canvas px (1920×1080 virtual space) so we
-          // scale via a container-derived em unit. Approximation with cqw:
-          fontSize: `${((obj.fontSize ?? 96) / CANVAS_H) * 100}cqh`,
-          fontWeight: obj.fontWeight ?? 600,
-          color: obj.color ?? "#ffffff",
-          fontStyle: obj.italic ? "italic" : undefined,
-          textDecoration: obj.underline ? "underline" : undefined,
+          ...textStyle,
           justifyContent: obj.align === "left" ? "flex-start" : obj.align === "right" ? "flex-end" : "center",
           alignItems: "center",
-          textAlign: obj.align ?? "center",
-          padding: "2%",
-          containerType: "size",
-          // Match the projector's text shadow so the editor is true WYSIWYG.
-          textShadow: "0 2px 8px rgba(0,0,0,0.45)",
-          opacity: obj.opacity ?? 1,
         }}
       >
         {obj.text}
@@ -335,7 +376,7 @@ function ObjectView({
     <div
       style={style}
       onMouseDown={(e) => {
-        if (readOnly) return;
+        if (readOnly || editing) return;
         const additive = e.shiftKey || e.metaKey || e.ctrlKey;
         if (additive) { e.stopPropagation(); onSelect(true); return; }
         // Plain click: if this object isn't already part of the selection,
@@ -344,9 +385,16 @@ function ObjectView({
         if (!selectedNow) onSelect(false);
         beginDrag(e, obj, "move");
       }}
+      onDoubleClick={(e) => {
+        // Double-click a text object to edit its text right on the canvas.
+        if (readOnly || obj.kind !== "text") return;
+        e.stopPropagation();
+        onSelect(false);
+        onStartEdit();
+      }}
     >
       {inner}
-      {selected && !readOnly && (
+      {selected && !readOnly && !editing && (
         <>
           <div className={cn("absolute inset-0 pointer-events-none ring-2", soleSelected ? "ring-teal-400" : "ring-teal-400/70")} />
           {/* Resize handles only for a sole selection — a group moves as a unit. */}

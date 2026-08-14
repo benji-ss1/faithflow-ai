@@ -40,6 +40,8 @@ export type UseSlideEditorReturn = {
   updateObjects: (patches: { id: string; patch: Partial<SlideObject> }[]) => void;
   removeObjects: (ids: string[]) => void;
   alignObjects: (ids: string[], edge: "left" | "hcenter" | "right" | "top" | "vcenter" | "bottom") => void;
+  distributeObjects: (ids: string[], axis: "h" | "v") => void;
+  duplicateObjects: (ids: string[]) => void;
   addTextObject: () => void;
   addShape: (shape?: "rect" | "ellipse") => void;
   addImage: (url: string) => void;
@@ -334,6 +336,61 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     });
   }, [isEditable, patchCurrent]);
 
+  // Evenly space 3+ selected objects along an axis: the two extreme objects
+  // stay put and the middle ones are distributed so the gaps between adjacent
+  // objects are equal (ProPresenter's "distribute horizontally/vertically").
+  const distributeObjects = useCallback((ids: string[], axis: "h" | "v") => {
+    if (!isEditable || ids.length < 3) return;
+    patchCurrent((s) => {
+      const sel = s.objects.filter((o) => ids.includes(o.id));
+      if (sel.length < 3) return s;
+      // Sort by leading edge along the axis.
+      const sorted = sel.slice().sort((a, b) => (axis === "h" ? a.x - b.x : a.y - b.y));
+      const size = (o: SlideObject) => (axis === "h" ? o.w : o.h);
+      const start = axis === "h" ? sorted[0].x : sorted[0].y;
+      const last = sorted[sorted.length - 1];
+      const end = (axis === "h" ? last.x : last.y) + size(last);
+      const totalSize = sorted.reduce((sum, o) => sum + size(o), 0);
+      // Gap distributed across (n-1) intervals; can be negative if objects
+      // overlap the span — that's fine, it just packs them.
+      const gap = (end - start - totalSize) / (sorted.length - 1);
+      let cursor = start;
+      const pos = new Map<string, number>();
+      for (const o of sorted) {
+        pos.set(o.id, Math.round(cursor));
+        cursor += size(o) + gap;
+      }
+      return {
+        ...s,
+        objects: s.objects.map((o) => {
+          if (!pos.has(o.id)) return o;
+          return (axis === "h" ? { ...o, x: pos.get(o.id)! } : { ...o, y: pos.get(o.id)! }) as SlideObject;
+        }),
+      };
+    });
+  }, [isEditable, patchCurrent]);
+
+  // Duplicate every selected object at once (group duplicate). Clones get fresh
+  // ids nudged +40,+40 and become the new selection. Ids are pre-generated
+  // OUTSIDE the setSlides updater (pure updater — mirrors duplicateObject) so a
+  // pending same-tick update or StrictMode double-invoke can't drop the
+  // selection.
+  const duplicateObjects = useCallback((ids: string[]) => {
+    if (!isEditable || ids.length === 0) return;
+    const cur = slidesRef.current[currentIndexRef.current];
+    if (!cur) return;
+    const present = ids.filter((id) => cur.objects.some((o) => o.id === id));
+    if (present.length === 0) return;
+    const cloneId = new Map(present.map((id) => [id, newObjectId()]));
+    patchCurrent((s) => {
+      const clones = s.objects
+        .filter((o) => cloneId.has(o.id))
+        .map((o) => ({ ...o, id: cloneId.get(o.id)!, x: o.x + 40, y: o.y + 40 } as SlideObject));
+      return clones.length ? { ...s, objects: [...s.objects, ...clones] } : s;
+    });
+    setSelectedIds(present.map((id) => cloneId.get(id)!));
+  }, [isEditable, patchCurrent]);
+
   // Insert a clone of an arbitrary object (e.g. pasted from another slide) onto
   // the current slide with a fresh id, nudged so it's visibly a copy.
   const addObject = useCallback((obj: SlideObject) => {
@@ -492,6 +549,8 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     updateObjects,
     removeObjects,
     alignObjects,
+    distributeObjects,
+    duplicateObjects,
     addTextObject,
     addShape,
     addImage,

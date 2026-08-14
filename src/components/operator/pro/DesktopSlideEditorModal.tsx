@@ -315,9 +315,14 @@ function ObjectInspector({ churchId }: { churchId: string }) {
         <div className="p-2 space-y-2 border-b" style={{ borderColor: "#2a3232" }}>
           <div className="flex items-center justify-between">
             <span className="text-[9px] uppercase tracking-wide text-zinc-400">{selIds.length} objects selected</span>
-            <button onClick={() => editor.removeObjects(selIds)} className="grid h-6 w-6 place-items-center rounded text-red-300 hover:bg-red-500/10" title="Delete all selected">
-              <Trash2 className="w-3 h-3" />
-            </button>
+            <div className="flex items-center gap-0.5">
+              <button onClick={() => editor.duplicateObjects(selIds)} className="grid h-6 w-6 place-items-center rounded text-zinc-300 hover:bg-white/[0.06]" title="Duplicate all selected">
+                <Copy className="w-3 h-3" />
+              </button>
+              <button onClick={() => editor.removeObjects(selIds)} className="grid h-6 w-6 place-items-center rounded text-red-300 hover:bg-red-500/10" title="Delete all selected">
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-1.5">
             <div>
@@ -337,6 +342,15 @@ function ObjectInspector({ churchId }: { churchId: string }) {
               </div>
             </div>
           </div>
+          {selIds.length >= 3 && (
+            <div>
+              <span className={rowCls}>Distribute — even spacing</span>
+              <div className="flex gap-0.5">
+                <AlignBtn label="Horizontal" onClick={() => editor.distributeObjects(selIds, "h")} />
+                <AlignBtn label="Vertical" onClick={() => editor.distributeObjects(selIds, "v")} />
+              </div>
+            </div>
+          )}
           <p className="text-[10px] text-zinc-500 leading-snug">Drag any selected object to move the group. Align snaps edges/centres to the selection&rsquo;s bounds. ⇧-click to add or remove one.</p>
         </div>
       ) : selected ? (
