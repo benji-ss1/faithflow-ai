@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.193",
+    date: "2026-08-14",
+    headline: "Voice translation switching handles mis-hearings",
+    highlights: [
+      "Saying a translation now works even when the AI mis-hears it — 'do you have IV?' or spelled-out 'N I V' resolves to NIV, and the same for ESV, KJV, NLT, NASB, CSB. It's carefully gated so ordinary speech ('give her an IV') never switches anything.",
+      "This activates automatically the moment a translation is licensed/added — ready for when your Bible licenses come through.",
+    ],
+  },
+  {
     version: "0.1.192",
     date: "2026-08-14",
     headline: "AI stays on across reloads",

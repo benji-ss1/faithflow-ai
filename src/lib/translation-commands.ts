@@ -105,6 +105,24 @@ const UNAMBIGUOUS_ABBR_RE = /\b(NKJV|KJV|NIV|NLT|ESV|NASB|CSB|HCSB|NRSV|NCV|CEV|
 //   - NET: "the net result", "safety net" — common secular speech
 const AMBIGUOUS_ABBR_RE = /\b(WEB|AMP|MSG|ASV|NET)\b/;
 
+// ── ASR mishearings (rule-9-style homophone repair for translation names) ──
+// Deepgram frequently drops the leading letter or spells codes out ("NIV" →
+// "IV" / "N I V" / "N.I.V.", "ESV" → "E S V"). These collide with ordinary
+// speech ("give her an IV", roman numeral IV), so EVERY misheard pattern is
+// STRICTLY intent-gated (a switch-intent verb must precede it) AND availability-
+// gated (only fires when the target translation is actually in the DB). Result:
+// "do you have IV?", "can we read in N I V" resolve to NIV — but only once NIV
+// is licensed/seeded. Extend as real transcripts reveal new mishearings.
+const MISHEARD_NAMES: Array<{ phrase: RegExp; code: string }> = [
+  { phrase: /\b(?:iv|n\.?\s?i\.?\s?v)\b/i, code: "NIV" },     // NIV → "IV" / "N I V" / "N.I.V"
+  { phrase: /\b(?:e\.?\s?s\.?\s?v|esb)\b/i, code: "ESV" },    // ESV → "E S V" / "ESB"
+  { phrase: /\bn\.?\s?k\.?\s?j\.?\s?v\b/i, code: "NKJV" },    // NKJV → "N K J V"
+  { phrase: /\bk\.?\s?j\.?\s?v\b/i, code: "KJV" },            // KJV → "K J V"
+  { phrase: /\bn\.?\s?l\.?\s?t\b/i, code: "NLT" },            // NLT → "N L T"
+  { phrase: /\bn\.?\s?a\.?\s?s\.?\s?b\b/i, code: "NASB" },    // NASB → "N A S B"
+  { phrase: /\bc\.?\s?s\.?\s?b\b/i, code: "CSB" },            // CSB → "C S B"
+];
+
 // Longest-first so "new king james" wins over "king james", and
 // "new american standard" (NASB) wins over "american standard" (ASV).
 // 2026-07-30 expansion: added full-name patterns for the remaining 24 codes
@@ -270,6 +288,18 @@ export function detectTranslationSwitch(
       if (available.has(code) && hasIntentBefore(text, m.index)) {
         hit = { code, matchedPhrase: m[0] };
       }
+    }
+  }
+
+  // 4) ASR mishearings — STRICTLY intent-gated + availability-gated. Handles
+  //    "do you have IV" (NIV), spelled-out "N I V", "E S V", etc. Only fires
+  //    when a switch-intent verb precedes the mangled code AND the translation
+  //    is actually available, so it can't false-fire on ordinary speech.
+  if (!hit) {
+    for (const { phrase, code } of MISHEARD_NAMES) {
+      if (!available.has(code)) continue;
+      const m = phrase.exec(text);
+      if (m && hasIntentBefore(text, m.index)) { hit = { code, matchedPhrase: m[0] }; break; }
     }
   }
 

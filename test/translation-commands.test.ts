@@ -461,6 +461,23 @@ async function main() {
     );
   });
 
+  // ── ASR mishearings (intent + availability gated) ─────────────────────────
+  await check("misheard 'do you have IV' → NIV when available + intent", () => {
+    assert.deepStrictEqual(detect("do you have iv", ["NIV"]), { code: "NIV", matchedPhrase: "iv" });
+  });
+  await check("spelled-out 'read in N I V' → NIV", () => {
+    assert.strictEqual(detect("let us read in n i v", ["NIV"])?.code, "NIV");
+  });
+  await check("'switch to E S V' → ESV", () => {
+    assert.strictEqual(detect("switch to e s v please", ["ESV"])?.code, "ESV");
+  });
+  await check("misheard code with NO intent → null ('give her an IV')", () => {
+    assert.strictEqual(detect("give her an iv", ["NIV"]), null);
+  });
+  await check("misheard code fires ONLY when the translation is available", () => {
+    assert.strictEqual(detect("do you have iv", ["KJV"]), null); // NIV not in DB → no fire
+  });
+
   // ── Misc negatives ───────────────────────────────────────────────────────
   await check("empty / plain speech returns null", () => {
     assert.strictEqual(detect(""), null);
