@@ -170,7 +170,11 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
       // and clip-free — vs a naive post-scale where A+ would just crop.
       const scale = fontScaleRef.current;
       const ceilPx = Math.round(projectorCeilingPx(containerH) * Math.max(1, scale));
-      t.style.lineHeight = "1.15";
+      // Projector line spacing tightened 1.15 → 1.08 (2026-08-14): multi-line
+      // verses are height-limited, so tighter leading lets the largest-fit grow
+      // the font ~8% for the same box — noticeably bigger scripture, still
+      // readable. Measure + render use the SAME value so the fit stays exact.
+      t.style.lineHeight = "1.08";
       const fitsAt = (px: number) => {
         t.style.fontSize = `${px}px`;
         return t.scrollWidth <= bw + 1 && t.scrollHeight <= bh + 1;
@@ -213,7 +217,7 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
       // Pin the DOM to the shown size + line-height (the search's last probe
       // may have been a failing value, and a no-op setState wouldn't re-render).
       t.style.fontSize = `${shown}px`;
-      t.style.lineHeight = overflowAtFloor ? "1.05" : "1.15";
+      t.style.lineHeight = overflowAtFloor ? "1.02" : "1.08";
       setTightLine(overflowAtFloor);
       setSize(shown);
       return;
@@ -321,7 +325,7 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
           // Layout-critical — always win over the theme (never let a theme break
           // the fit, wrapping, or the always-on ALL-CAPS crowd readability).
           fontSize: `${size}px`,
-          lineHeight: tightLine ? 1.05 : 1.15,
+          lineHeight: tightLine ? 1.02 : 1.08,
           whiteSpace: "pre-wrap",
           overflowWrap: "break-word",
           wordBreak: "normal",

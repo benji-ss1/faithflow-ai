@@ -250,13 +250,13 @@ export default function LivestreamPage() {
       {mode === "full" && (
         <>
           {hasVideoBackground(videoInput, appearance) ? (
-            <OutputSlide slide={slide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} projectorFit={false} />
+            <OutputSlide slide={slide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} projectorFit />
           ) : transitionsEnabled ? (
             <TransitionWrapper identityKey={liveIdentity(slide)} transition={transition}>
-              <SlideRenderer slide={slide} fontScale={fontScale} appearance={appearance} videoMuted={false} onVideoRef={handleVideoRef} />
+              <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} videoMuted={false} onVideoRef={handleVideoRef} />
             </TransitionWrapper>
           ) : (
-            <SlideRenderer slide={slide} fontScale={fontScale} appearance={appearance} videoMuted={false} onVideoRef={handleVideoRef} />
+            <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} videoMuted={false} onVideoRef={handleVideoRef} />
           )}
           <ThemeLogoLayer appearance={appearance} />
           <AnnouncementLayer ann={announcement} />
