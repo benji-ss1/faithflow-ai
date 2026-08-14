@@ -41,6 +41,45 @@ export async function presignGet(key: string, expiresSec = 6 * 3600) {
   }
 }
 
+/**
+ * Given one of OUR presigned GET URLs, return the stable object key
+ * ({churchId}/media/{uuid}.ext) so it can be re-signed fresh. Returns null for
+ * non-presigned or external URLs (those are left untouched by callers).
+ */
+export function keyFromPresignedUrl(url: string): string | null {
+  if (!url || !isS3Configured()) return null;
+  let u: URL;
+  try { u = new URL(url); } catch { return null; }
+  // Only ever touch SigV4-presigned URLs — never an external/plain image URL.
+  if (!u.searchParams.has("X-Amz-Signature")) return null;
+  // Host must be ours: the custom endpoint host, or the object's AWS host.
+  const endpoint = process.env.S3_ENDPOINT;
+  if (endpoint) {
+    try { if (u.host !== new URL(endpoint).host) return null; } catch { return null; }
+  } else if (!u.host.includes(".amazonaws.com")) {
+    return null;
+  }
+  let path = decodeURIComponent(u.pathname).replace(/^\/+/, "");
+  const bucket = BUCKET();
+  if (path === bucket) return null;
+  // Path-style URLs (custom endpoint / forcePathStyle) carry the bucket as the
+  // leading path segment; virtual-hosted AWS URLs don't. Strip it if present.
+  if (path.startsWith(bucket + "/")) path = path.slice(bucket.length + 1);
+  return path || null;
+}
+
+/**
+ * Re-sign an expiring media URL. If it's one of our presigned URLs, mint a fresh
+ * presign for the same key (resetting the 6h TTL); otherwise return unchanged.
+ * Lets stored theme backgrounds/logos survive past the original presign window.
+ */
+export async function refreshPresignedUrl(url: string): Promise<string> {
+  const key = keyFromPresignedUrl(url);
+  if (!key) return url;
+  const fresh = await presignGet(key);
+  return fresh || url;
+}
+
 export async function deleteObject(key: string) {
   await s3().send(new DeleteObjectCommand({ Bucket: BUCKET(), Key: key }));
 }

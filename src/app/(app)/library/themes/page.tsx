@@ -14,12 +14,14 @@ export default async function ThemesPage() {
     listThemes(user.churchId),
     db.select({ logoS3Key: settings.logoS3Key }).from(settings).where(eq(settings.churchId, user.churchId)).limit(1),
   ]);
-  const themes = rows.map((r: typeof rows[number]) => ({
+  const { refreshThemeMediaUrls } = await import("@/lib/server/theming");
+  const themes = await Promise.all(rows.map(async (r: typeof rows[number]) => ({
     id: r.id,
     name: r.name,
-    config: (r.config as Record<string, unknown>) ?? {},
+    // Re-sign expiring media URLs so theme backgrounds/logos never 404.
+    config: ((await refreshThemeMediaUrls(r.config)) as Record<string, unknown>) ?? {},
     isDefault: r.isDefault ?? false,
-  }));
+  })));
   const logoKey = settingsRow[0]?.logoS3Key;
   const churchLogoUrl = logoKey ? await presignGet(logoKey) : null;
 

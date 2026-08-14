@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.182",
+    date: "2026-08-14",
+    headline: "Theme backgrounds & logos no longer expire",
+    highlights: [
+      "Fixed a long-standing issue where a theme's background image, video or logo could stop showing after a few hours. Theme media links are now refreshed automatically every time themes load, so your look stays intact through the whole service.",
+    ],
+  },
+  {
     version: "0.1.181",
     date: "2026-08-14",
     headline: "Bible AUTO: no more low-confidence verses projecting themselves",
