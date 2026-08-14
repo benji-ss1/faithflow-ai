@@ -17,7 +17,6 @@ import type { OperatorShellCtx } from "../shell/types";
 import type { CenterMode } from "./ProOperatorShell";
 import { cn } from "@/lib/utils";
 import { SearchPalette } from "./SearchPalette";
-import { ThemeQuickSwitch } from "./ThemeQuickSwitch";
 import { AIDiagnosticModal, type LiveAudioStats } from "../AIDiagnosticModal";
 import { readNativeDevicePref } from "@/lib/audio/nativeDeviceStore";
 import type { DisplayInfo } from "@/types/electron";
@@ -312,7 +311,6 @@ export function TopBar({
           active={false}
           onClick={() => window.dispatchEvent(new CustomEvent("presentflow:open-themes-settings"))}
         />
-        <ThemeQuickSwitch />
       </div>
 
       <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-muted-foreground)] truncate px-4">

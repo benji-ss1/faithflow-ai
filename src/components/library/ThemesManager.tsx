@@ -61,13 +61,17 @@ function get<T>(cfg: ThemeConfig, key: string, fallback: T): T {
   return (v === undefined || v === null ? fallback : v) as T;
 }
 
-export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated }: {
+export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated, operatorMode = false }: {
   themes: ThemeRow[];
   churchLogoUrl?: string | null;
   // Optional: called with a theme's config when it becomes the active look
   // (set-as-default, or saving edits to the current default). The desktop
   // operator uses this to push the theme to the LIVE projector immediately.
   onThemeActivated?: (config: ThemeConfig) => void;
+  // Operator variant: compact ProPresenter-style grid where clicking a card
+  // makes that theme go LIVE (not open the editor), each card has an explicit
+  // Edit button (→ full-screen editor), and creating a theme applies it live.
+  operatorMode?: boolean;
 }) {
   const [themes, setThemes] = useState(initial);
   const [pending, startTransition] = useTransition();
@@ -174,17 +178,34 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
         const res = await createTheme(name, target.config);
         if (!res.ok) { toast.error(res.error || "Could not create theme"); return; }
         if (!res.data) { toast.error("Server returned no id"); return; }
-        refresh([...themes, { id: res.data.id, name, config: target.config }]);
+        const newId = res.data.id;
+        // Operator: a freshly-created theme goes LIVE immediately.
+        if (operatorMode) {
+          await setDefaultTheme(newId);
+          setThemes((prev) => [...prev.map((t) => ({ ...t, isDefault: false })), { id: newId, name, config: target.config, isDefault: true }].sort((a, b) => a.name.localeCompare(b.name)));
+          onThemeActivated?.(target.config);
+        } else {
+          refresh([...themes, { id: newId, name, config: target.config }]);
+        }
         setEditing(null);
-        toast.success(`Created "${name}"`);
+        toast.success(operatorMode ? `“${name}” created and live` : `Created "${name}"`);
       } else {
         const res = await updateTheme(target.id, { name, config: target.config });
         if (!res.ok) { toast.error(res.error || "Could not save"); return; }
         refresh(themes.map((t) => (t.id === target.id ? { ...target, name } : t)));
-        // If we just edited the active (default) theme, refresh the live look.
-        if (themes.find((t) => t.id === target.id)?.isDefault) onThemeActivated?.(target.config);
+        // Operator: saving edits applies them live (make the edited theme the
+        // live look). Web admin: only re-push if it was already the default.
+        if (operatorMode) {
+          if (!themes.find((t) => t.id === target.id)?.isDefault) {
+            await setDefaultTheme(target.id);
+            setThemes((prev) => prev.map((t) => ({ ...t, isDefault: t.id === target.id })));
+          }
+          onThemeActivated?.(target.config);
+        } else if (themes.find((t) => t.id === target.id)?.isDefault) {
+          onThemeActivated?.(target.config);
+        }
         setEditing(null);
-        toast.success("Saved");
+        toast.success(operatorMode ? "Saved and live" : "Saved");
       }
     });
   }
@@ -215,36 +236,46 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
   }
 
   return (
-    <div className="space-y-6">
+    <div className={operatorMode ? "space-y-4" : "space-y-6"}>
       <div className="flex items-center justify-between gap-3">
         <div className="text-sm text-muted-foreground">
-          {themes.length} theme{themes.length === 1 ? "" : "s"}
+          {operatorMode
+            ? <>Click a theme to make it <span className="font-semibold text-[var(--color-brand)]">live</span> · Edit to customise</>
+            : <>{themes.length} theme{themes.length === 1 ? "" : "s"}</>}
         </div>
         <div className="flex items-center gap-2">
-          <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-border px-4 text-sm font-medium text-foreground hover:bg-accent">
-            <Download className="h-4 w-4 rotate-180" /> Import file
-            <input
-              type="file"
-              accept="application/json,.json"
-              className="sr-only"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) onImportFile(f);
-                e.target.value = "";
-              }}
-            />
-          </label>
+          {!operatorMode && (
+            <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-border px-4 text-sm font-medium text-foreground hover:bg-accent">
+              <Download className="h-4 w-4 rotate-180" /> Import file
+              <input
+                type="file"
+                accept="application/json,.json"
+                className="sr-only"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) onImportFile(f);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+          )}
           <button
             type="button"
             onClick={() => setImportOpen(true)}
-            className="inline-flex h-10 items-center gap-2 rounded-xl border border-border px-4 text-sm font-medium text-foreground hover:bg-accent"
+            className={cn(
+              "inline-flex items-center gap-2 rounded-xl border border-border font-medium text-foreground hover:bg-accent",
+              operatorMode ? "h-9 px-3 text-[13px]" : "h-10 px-4 text-sm",
+            )}
           >
-            Import from ProPresenter
+            Import{operatorMode ? "" : " from ProPresenter"}
           </button>
           <button
             type="button"
             onClick={onNewTheme}
-            className="inline-flex h-10 items-center gap-2 rounded-xl bg-[var(--color-primary)] px-4 text-sm font-semibold text-[var(--color-primary-foreground)]"
+            className={cn(
+              "inline-flex items-center gap-2 rounded-xl bg-[var(--color-primary)] font-semibold text-[var(--color-primary-foreground)]",
+              operatorMode ? "h-9 px-3 text-[13px]" : "h-10 px-4 text-sm",
+            )}
           >
             <Plus className="h-4 w-4" /> New theme
           </button>
@@ -269,6 +300,23 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
             <Plus className="h-4 w-4" /> Create your first theme
           </button>
         </div>
+      ) : operatorMode ? (
+        // Operator: compact ProPresenter-style grid. No drag-reorder (click is
+        // reserved for go-live). Clicking a card makes it live; Edit → editor.
+        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {themes.map((t) => (
+            <OperatorThemeCard
+              key={t.id}
+              theme={t}
+              pending={pending}
+              churchLogoUrl={churchLogoUrl}
+              onGoLive={() => onSetDefault(t.id)}
+              onEdit={() => setEditing(t)}
+              onDuplicate={() => onDuplicate(t.id)}
+              onDelete={() => onDelete(t.id, t.name)}
+            />
+          ))}
+        </ul>
       ) : (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext items={themes.map((t) => t.id)} strategy={rectSortingStrategy}>
@@ -541,6 +589,22 @@ function ThemeEditor({
   const [mode, setMode] = useState<PreviewMode>("lyrics");
   const [paletteBusy, setPaletteBusy] = useState(false);
   const cfg = theme.config;
+
+  // Escape cancels THIS editor only. Captured at the document capture phase and
+  // stopped before it bubbles, so when the editor is nested inside the operator
+  // Themes dialog, Esc doesn't fall through to Radix and close the whole panel.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (e.key !== "Escape") return;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      onCancel();
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [onCancel]);
 
   function set(patch: Partial<Record<string, unknown>>) {
     onChange({ ...theme, config: { ...cfg, ...patch } });
@@ -948,6 +1012,79 @@ function SortableThemeCard({
             <Trash2 className="h-3.5 w-3.5" />
           </button>
         </div>
+      </div>
+    </li>
+  );
+}
+
+// -- operator theme card --
+//
+// Compact ProPresenter-style card for the operator's Themes panel. Clicking the
+// preview makes the theme LIVE (the primary action — easy go-live); the active
+// theme carries a red "● LIVE" badge; Edit opens the full-screen editor.
+function OperatorThemeCard({
+  theme, pending, churchLogoUrl, onGoLive, onEdit, onDuplicate, onDelete,
+}: {
+  theme: ThemeRow;
+  pending: boolean;
+  churchLogoUrl?: string | null;
+  onGoLive: () => void;
+  onEdit: () => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <li className={cn(
+      "group relative overflow-hidden rounded-xl border bg-card/80",
+      theme.isDefault ? "border-[var(--color-brand)] ring-1 ring-[var(--color-brand)]/40" : "border-border",
+    )}>
+      {theme.isDefault && (
+        <span className="absolute left-2 top-2 z-10 inline-flex items-center gap-1 rounded-full bg-[var(--color-brand)] px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-[var(--color-primary-foreground)]">
+          <span className="h-1.5 w-1.5 rounded-full bg-current" /> Live
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={onGoLive}
+        disabled={pending}
+        title={theme.isDefault ? "This theme is live" : "Click to make this theme live"}
+        className="relative block w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)] disabled:cursor-wait"
+      >
+        <SlidePreview config={theme.config} mode="lyrics" churchLogoUrl={churchLogoUrl} />
+        {!theme.isDefault && (
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
+            <span className="rounded-full bg-[var(--color-brand)] px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-[var(--color-primary-foreground)]">Go live</span>
+          </span>
+        )}
+      </button>
+      <div className="flex items-center gap-1 p-2">
+        <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground" title={theme.name}>{theme.name}</span>
+        <button
+          type="button"
+          onClick={onEdit}
+          disabled={pending}
+          className="inline-flex h-7 items-center rounded-md border border-border px-2 text-[11px] font-semibold text-foreground hover:bg-accent disabled:opacity-50"
+        >
+          Edit
+        </button>
+        <button
+          type="button"
+          onClick={onDuplicate}
+          disabled={pending}
+          title="Duplicate"
+          className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-white/[0.04] hover:text-foreground disabled:opacity-50"
+        >
+          <Copy className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={pending}
+          title="Delete"
+          className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
       </div>
     </li>
   );

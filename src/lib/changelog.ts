@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.180",
+    date: "2026-08-14",
+    headline: "Themes: tap to go live, like ProPresenter",
+    highlights: [
+      "The Themes button now opens a compact panel with a grid of theme previews. Tap any theme and it goes live on the projector, stage and livestream instantly — the live one is marked with a red LIVE badge.",
+      "Each card has an Edit button that opens the full-screen designer. Creating a new theme or saving an edit applies it live right away.",
+      "Removed the separate 'Change theme' top-bar button — the Themes panel now does everything in one place.",
+    ],
+  },
+  {
     version: "0.1.179",
     date: "2026-08-14",
     headline: "Big ProPresenter imports now actually work",

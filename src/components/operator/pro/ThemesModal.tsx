@@ -69,17 +69,17 @@ export function ThemesModal({ open, onClose }: { open: boolean; onClose: () => v
         <Dialog.Overlay className="fixed inset-0 z-[70]" style={{ background: "rgba(0,0,0,0.6)" }} />
         <Dialog.Content
           aria-describedby={undefined}
-          // Centre with `inset-0 m-auto` + fixed size — NOT a translate
-          // transform. A transform would make this box the containing block for
-          // the theme editor's `position: fixed` overlay (and clip it via
-          // overflow-hidden), trapping the "full-screen" editor inside the modal.
-          className="fixed inset-0 m-auto z-[71] w-[94vw] max-w-[1280px] h-[88vh] flex flex-col rounded-xl overflow-hidden border shadow-2xl outline-none"
+          // Compact floating panel (ProPresenter-style), NOT a full-screen
+          // modal. Centre with `inset-0 m-auto` + a max size — NOT a translate
+          // transform, which would make this box the containing block for the
+          // theme editor's `position: fixed` full-screen overlay (and clip it).
+          className="fixed inset-0 m-auto z-[71] h-fit max-h-[78vh] w-[92vw] max-w-[860px] flex flex-col rounded-xl overflow-hidden border shadow-2xl outline-none"
           style={{ borderColor: "var(--color-border)", background: "var(--color-panel)" }}
         >
           <header className="h-12 shrink-0 flex items-center gap-2 px-4 border-b" style={{ borderColor: "var(--color-border)", background: "var(--color-elevated)" }}>
             <Palette className="w-4 h-4 text-[var(--color-brand)]" />
             <Dialog.Title className="text-[13px] font-semibold text-[var(--color-foreground)]">Themes</Dialog.Title>
-            <span className="text-[11px] text-[var(--color-muted-foreground)]">— design the projector, stage &amp; livestream look</span>
+            <span className="text-[11px] text-[var(--color-muted-foreground)]">— tap a theme to go live</span>
             <button
               onClick={onClose}
               className="ml-auto grid h-8 w-8 place-items-center rounded-md text-[var(--color-muted-foreground)] hover:bg-white/[0.06] hover:text-[var(--color-foreground)]"
@@ -94,7 +94,7 @@ export function ThemesModal({ open, onClose }: { open: boolean; onClose: () => v
             ) : rows === null ? (
               <div className="text-[12px] text-[var(--color-muted-foreground)]">Loading themes…</div>
             ) : (
-              <ThemesManager key={epoch} themes={rows} churchLogoUrl={null} onThemeActivated={onThemeActivated} />
+              <ThemesManager key={epoch} themes={rows} churchLogoUrl={null} onThemeActivated={onThemeActivated} operatorMode />
             )}
           </div>
         </Dialog.Content>
