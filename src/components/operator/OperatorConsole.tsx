@@ -555,11 +555,13 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
   useEffect(() => {
     if (aiAutoStartTriedRef.current) return;
     try {
-      // Reviewer 🟡 fix: read the PERSISTED mode, not the `autopilotMode`
-      // state var — hydration commits after this effect, so a saved
-      // "manual" mode would otherwise start the mic and immediately stop
-      // it (permission/pipeline flap on every load for manual-mode users).
-      if (window.localStorage.getItem(AUTOPILOT_MODE_KEY) === "manual") return;
+      // AI listening is independent of the AUTO/MANUAL autopilot toggle
+      // (manual only gates auto-PROJECT, not the mic). The intent key is the
+      // single source of truth: if the operator explicitly turned AI ON, resume
+      // it on reload/relaunch in EITHER mode (2026-08-14 — was skipped in manual,
+      // so AI didn't persist for manual-mode operators). The 600ms defer +
+      // warmStart/resume path below still avoids the mic-flap the mode gate was
+      // added for; the visible toast covers the surprise-hot-mic case.
       if (window.localStorage.getItem(AI_LISTEN_INTENT_KEY) !== "1") return;
     } catch { return; }
     // Reviewer 🟡 fix: defer past the shell's warm-start effect and prefer

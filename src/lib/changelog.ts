@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.192",
+    date: "2026-08-14",
+    headline: "AI stays on across reloads",
+    highlights: [
+      "If you leave AI listening turned on, it now stays on after a refresh or app restart — even in Manual autopilot mode (before, it only auto-resumed in Auto mode). A toast reminds you it resumed so the mic is never secretly live.",
+    ],
+  },
+  {
     version: "0.1.191",
     date: "2026-08-14",
     headline: "Media: bulk delete",
