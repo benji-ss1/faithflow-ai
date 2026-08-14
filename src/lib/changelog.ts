@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.190",
+    date: "2026-08-14",
+    headline: "Scripture always fits — no more text off-screen",
+    highlights: [
+      "Fixed long verses (e.g. Revelation 1:20) running off the edge of the screen. Projected text now auto-sizes so it's as big as possible while GUARANTEEING it fits — long passages shrink just enough to stay fully on screen, never clipped.",
+      "The reference line at the bottom (e.g. JOHN 11:4 (KJV)) is now larger and easier to read.",
+    ],
+  },
+  {
     version: "0.1.189",
     date: "2026-08-14",
     headline: "Songs: bulk select, add & delete",

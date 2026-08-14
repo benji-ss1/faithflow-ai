@@ -163,62 +163,58 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
     // padding instead of shrinking further.
     if (projectorFit) {
       const containerH = box.clientHeight;
-      const floorPx = projectorFloorPx(containerH);
-      // B3 manual scale, projector: A+ RAISES the fit ceiling so short text can
-      // grow bigger while STILL fitting (never clipped); A− is applied as a
-      // post-fit shrink below (always fits). This makes A+/A− both effective
-      // and clip-free — vs a naive post-scale where A+ would just crop.
+      // PREFERRED readable minimum (9% of height). Normal verses land at or above
+      // this via the largest-fit. It is NOT a hard clamp.
+      const prefFloorPx = projectorFloorPx(containerH);
+      // ABSOLUTE minimum — the guaranteed-fit floor. A very long verse (e.g.
+      // Revelation 1:20) that can't fit at the preferred floor is allowed to
+      // shrink BELOW it, down to here, so projected text ALWAYS fits the screen
+      // and NEVER clips out of frame. Guaranteed fit beats preferred size.
+      const absMinPx = Math.max(14, Math.round(0.028 * containerH));
       const scale = fontScaleRef.current;
       const ceilPx = Math.round(projectorCeilingPx(containerH) * Math.max(1, scale));
-      // Projector line spacing tightened 1.15 → 1.08 (2026-08-14): multi-line
-      // verses are height-limited, so tighter leading lets the largest-fit grow
-      // the font ~8% for the same box — noticeably bigger scripture, still
-      // readable. Measure + render use the SAME value so the fit stays exact.
+      // Projector line spacing tightened to 1.08 — measure + render use the SAME
+      // value so the fit stays exact.
       t.style.lineHeight = "1.08";
       const fitsAt = (px: number) => {
         t.style.fontSize = `${px}px`;
         return t.scrollWidth <= bw + 1 && t.scrollHeight <= bh + 1;
       };
 
-      // "Aggressive largest-fit" (2026-08-10): find the TRUE largest size in
-      // [floor, ceil] that fits the safe area — no longer capped at the
-      // word-count band. Short text grows to the ceiling; long text shrinks
-      // only as far as needed, then paginates at the floor. Cached by
-      // text+box+floor/ceil so repeat slides skip the search entirely.
-      const projKey = `proj|${Math.round(bw / 4) * 4}|${Math.round(bh / 4) * 4}|${floorPx}|${ceilPx}|${fontToken}|${currentText}`;
+      // Largest-fit over [absMin, ceil]: the TRUE largest size that fits the safe
+      // area. Short text grows to the ceiling; long text shrinks as far as needed
+      // (below the preferred floor if it must) so it always fits. Cached by
+      // text+box+range so repeat slides skip the search.
+      const projKey = `projv2|${Math.round(bw / 4) * 4}|${Math.round(bh / 4) * 4}|${absMinPx}|${ceilPx}|${fontToken}|${currentText}`;
       let best: number;
       const cachedProj = fitCacheGet(projKey);
       if (cachedProj !== undefined) {
         best = cachedProj;
       } else {
-        // Seed from the word-count band (a good first guess for fast
-        // convergence), then binary-search UP toward the ceiling.
         const seedBand = calculateProjectorFontSize(currentText, containerH);
-        const seed = Math.min(ceilPx, Math.max(floorPx, Math.max(seedBand, Math.round(lastFittedRef.current))));
-        let lo = floorPx, hi = ceilPx, found = -1;
+        const seed = Math.min(ceilPx, Math.max(absMinPx, Math.max(seedBand, Math.round(lastFittedRef.current))));
+        let lo = absMinPx, hi = ceilPx, found = -1;
         if (fitsAt(seed)) { found = seed; lo = seed + 1; } else { hi = seed - 1; }
         while (lo <= hi) {
           const mid = Math.floor((lo + hi) / 2);
           if (fitsAt(mid)) { found = mid; lo = mid + 1; } else { hi = mid - 1; }
         }
-        best = found >= floorPx ? found : floorPx;
+        best = found >= absMinPx ? found : absMinPx;
         fitCacheSet(projKey, best);
       }
-      // At/under the floor a very long slide may still overflow — tighten the
-      // line-height and let the safe-area padding absorb it (never shrink
-      // below the readability floor).
-      const overflowAtFloor = best <= floorPx && !fitsAt(best);
-      if (overflowAtFloor) warnOverflowOnce(currentText, floorPx);
-      // A+ already grew via the raised ceiling (best fits at the bigger size);
-      // A− shrinks post-fit (min(1,scale)). Either way `shown` is a size that
-      // FITS — no clipping. AUTO (1.0) → shown === best (byte-identical).
-      const shown = Math.max(floorPx, Math.min(ceilPx, Math.round(best * Math.min(1, scale))));
+      // Below the preferred floor → a long passage; tighten leading for a touch
+      // more room. Only a pathological single line (wider than the box even at
+      // absMin) can still overflow — paginateForFit already splits long text, so
+      // this is the rare tail; warn once for diagnostics.
+      const belowPref = best < prefFloorPx;
+      const stillOverflows = !fitsAt(best);
+      if (stillOverflows) warnOverflowOnce(currentText, best);
+      const tight = belowPref || stillOverflows;
+      const shown = Math.max(absMinPx, Math.min(ceilPx, Math.round(best * Math.min(1, scale))));
       lastFittedRef.current = best; // seed off the UNSCALED fit
-      // Pin the DOM to the shown size + line-height (the search's last probe
-      // may have been a failing value, and a no-op setState wouldn't re-render).
       t.style.fontSize = `${shown}px`;
-      t.style.lineHeight = overflowAtFloor ? "1.02" : "1.08";
-      setTightLine(overflowAtFloor);
+      t.style.lineHeight = tight ? "1.02" : "1.08";
+      setTightLine(tight);
       setSize(shown);
       return;
     }
@@ -338,7 +334,7 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
         {refSplit.body}
         {refSplit.ref && (
           // Secondary reference — em-relative so it tracks the verse size.
-          <span style={{ fontSize: "0.5em", fontWeight: 600, opacity: 0.82 }}>{"\n\n" + refSplit.ref}</span>
+          <span style={{ fontSize: "0.62em", fontWeight: 600, opacity: 0.85 }}>{"\n\n" + refSplit.ref}</span>
         )}
       </div>
       {pages.length > 1 && (
