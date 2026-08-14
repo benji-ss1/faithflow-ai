@@ -53,7 +53,7 @@ import { ShortcutsHelpOverlay } from "./ShortcutsHelpOverlay";
 import { AICaptionsBanner } from "./AICaptionsBanner";
 import { UpdateBanner } from "./UpdateBanner";
 import { AudioDebugOverlay } from "../dev/AudioDebugOverlay";
-import { CONFIDENCE_THRESHOLD } from "@/lib/audio-thresholds";
+import { CONFIDENCE_THRESHOLD, BIBLE_AUTOFIRE_CONFIDENCE, BIBLE_SUGGEST_CONFIDENCE } from "@/lib/audio-thresholds";
 import { OperatorTour, hasSeenTour } from "@/components/tutorial/OperatorTour";
 import { WhatsNewModal } from "../WhatsNewModal";
 import { dispatchInternal, isInternalEvent, internalPayload } from "@/lib/internal-events";
@@ -1851,7 +1851,9 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     //
     // Step 1: Instant-fire a label-only slide if AUTO is on and confidence qualifies.
     // Uses sendLiveRef directly (doAutoFire isn't defined yet in hook order).
-    const isHighConf = scripture.confidence >= 70 || scripture.forceLive;
+    // HARD floor (JPD sign-off 2026-08-14): auto-fire ONLY at >= 75. No forceLive
+    // bypass — a repeated/whisper-band verse below 75 must SUGGEST, never fire.
+    const isHighConf = scripture.confidence >= BIBLE_AUTOFIRE_CONFIDENCE;
     let autoOn = false;
     try { autoOn = window.sessionStorage.getItem(AUTO_APPROVE_KEY_INSTANT) === "1"; } catch { /* noop */ }
     if (autoOn && isHighConf) {
@@ -2242,14 +2244,18 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // (200-400ms earlier than finals). The 3s micro-cooldown in decideBibleAutoFire
     // absorbs interim→final duplicate detections. The routing effect's instant-fire
     // handles the primary path; this effect is the fallback.
-    // Two tiers: ≥70% auto-fires immediately (preacher clearly spoke a ref);
-    // <70% shows a confirmation toast so the operator can approve/dismiss.
-    // isPhraseMatch and whisper corrections are excluded from both paths.
-    const scripture = suggestions.find((s) => s.type === "scripture" && !s.isPhraseMatch && (s.confidence >= 70 || s.forceLive) && !lowConfBlockedSpans.has(s.id));
-    // Low-confidence prompt path: find the best <70% suggestion that hasn't
-    // been handled yet. Fires a toast with an "Approve" button.
+    // Tiers (JPD sign-off 2026-08-14 — raised 70 → 75, HARD floor):
+    //   >= 75%  → auto-fires immediately (preacher clearly spoke a ref).
+    //   65..74% → SUGGEST ONLY: a confirmation toast the operator must accept.
+    //   < 65%   → nothing (too shaky to even ask about).
+    // NO forceLive bypass — a repeated/mis-heard-as-command verse below 75 must
+    // never push itself live; it can only suggest. isPhraseMatch and whisper
+    // corrections are excluded from both paths.
+    const scripture = suggestions.find((s) => s.type === "scripture" && !s.isPhraseMatch && s.confidence >= BIBLE_AUTOFIRE_CONFIDENCE && !lowConfBlockedSpans.has(s.id));
+    // Manual-accept prompt path: the best sub-75 suggestion that hasn't been
+    // handled yet. Shows a toast with a "Push LIVE" button — never auto-fires.
     if (!scripture || scripture.type !== "scripture") {
-      const lowConf = suggestions.find((s) => s.type === "scripture" && !s.isPhraseMatch && s.confidence >= 50 && s.confidence < 70 && !lowConfBlockedSpans.has(s.id));
+      const lowConf = suggestions.find((s) => s.type === "scripture" && !s.isPhraseMatch && s.confidence >= BIBLE_SUGGEST_CONFIDENCE && s.confidence < BIBLE_AUTOFIRE_CONFIDENCE && !lowConfBlockedSpans.has(s.id));
       if (lowConf && lowConf.type === "scripture" && lastHandledAutoFireSuggestionIdRef.current !== lowConf.id) {
         lastHandledAutoFireSuggestionIdRef.current = lowConf.id;
         const lowCards = autoFireCardsRef.current;
@@ -2258,10 +2264,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           const lowBody = lowFirst.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
           const lowSlide: import("@/lib/broadcast").SlidePayload = { kind: "text", text: `${lowBody}\n\n${lowFirst.label}` };
           const lowRef = `${lowConf.ref.book} ${lowConf.ref.chapter}:${lowConf.ref.verseStart}${lowConf.ref.verseEnd !== lowConf.ref.verseStart ? `-${lowConf.ref.verseEnd}` : ""}`;
-          toast(`${lowRef} detected (${lowConf.confidence}%) — push to LIVE?`, {
+          toast(`We think we heard ${lowRef} (${lowConf.confidence}%) — put it live?`, {
             duration: 8000,
             action: {
-              label: "Push LIVE",
+              label: "Put LIVE",
               onClick: () => {
                 safeSendLive(lowSlide);
                 lastLiveWasSongRef.current = false;
@@ -2283,6 +2289,15 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // R8: skip placeholder cards (loading / no-text / lookup-failed) AND
     // empty-text guard as belt-and-braces.
     if (!first || first.placeholder === true || !first.verses?.length) return;
+    // HARD-floor integrity (2026-08-14): the fire GATE selected the frontmost
+    // >=75 suggestion, but `cards[0]` is populated from the frontmost >=50
+    // routed suggestion — in a rare ordering those differ (a fresh 66% detection
+    // ahead of an older 80%). Never project cards[0] unless it IS the >=75 verse
+    // we gated on, otherwise a sub-75 verse's TEXT could slip live. Mismatch →
+    // skip this cycle (Path 1 handles the real >=75 fire; cards re-populate next).
+    const gateRef = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}${scripture.ref.verseEnd !== scripture.ref.verseStart ? `-${scripture.ref.verseEnd}` : ""}`;
+    const cardRef = /^(.+?:\d+(?:-\d+)?)/.exec(first.label ?? "")?.[1];
+    if (cardRef !== gateRef) return;
     const firstText = first.verses[0]?.text ?? "";
     // 2026-07-29 field bug fix: error cards ("(no verse text available)" for a
     // nonexistent verse like John 3:60, "(lookup failed)") must never project —

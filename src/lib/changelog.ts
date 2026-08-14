@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.181",
+    date: "2026-08-14",
+    headline: "Bible AUTO: no more low-confidence verses projecting themselves",
+    highlights: [
+      "Fixed the big one: while reading scripture, low-confidence verses (and ones you never said) could auto-project. Auto-projection now needs 75%+ confidence — and that floor is hard, so a repeated or mis-heard detection can no longer push itself live.",
+      "Verses in the 65–74% band now only SUGGEST — you get a 'we think we heard John 3:16 — put it live?' prompt to accept or ignore. Below 65% does nothing, and nothing below 75% ever projects on its own.",
+      "'Go to verse X' voice commands and next/back/continue navigation are unchanged, and detection speed, transcription and hearing are untouched.",
+    ],
+  },
+  {
     version: "0.1.180",
     date: "2026-08-14",
     headline: "Themes: tap to go live, like ProPresenter",

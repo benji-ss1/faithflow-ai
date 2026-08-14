@@ -8,7 +8,7 @@ import { matchCustomCommand, readCustomCommands, readAudioInputPref, audioConstr
 import { detectTranslationSwitch } from "@/lib/translation-commands";
 import { dispatchInternal } from "@/lib/internal-events";
 import { readVocabulary, VOCABULARY_CHANGED_EVENT } from "@/lib/audio/customVocabulary";
-import { CONFIDENCE_THRESHOLD } from "@/lib/audio-thresholds";
+import { CONFIDENCE_THRESHOLD, BIBLE_AUTOFIRE_CONFIDENCE } from "@/lib/audio-thresholds";
 import {
   readDeviceChannelPref,
   readDeviceChannelPrefByLabel,
@@ -535,7 +535,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       // live-fire. Gate both on a confidence floor comfortably above that
       // pattern's ceiling; genuine low-confidence-but-real hits (the
       // pre-existing semantic-fallback tier) sit at 72+ and are unaffected.
-      const trustworthyForContext = conf >= 70 && !isPhrase;
+      const trustworthyForContext = conf >= BIBLE_AUTOFIRE_CONFIDENCE && !isPhrase;
       if (trustworthyForContext) lastActiveRefRef.current = { book: r.book, chapter: r.chapter };
       // Restating the exact same reference (even minutes apart) is itself a
       // "make sure this is on screen" signal — flags forceLive so the
