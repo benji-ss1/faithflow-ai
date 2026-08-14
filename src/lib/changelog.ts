@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.198",
+    date: "2026-08-14",
+    headline: "Auto-follow now tells singing from preaching",
+    highlights: [
+      "The multi-mic Auto-follow is now speech-aware: it favours the mic that's actually being spoken into (a preacher's voice) over a mic carrying sustained singing — so during worship it won't chase the loudest choir mic, and when the preacher comes in over the music it follows them.",
+      "Each channel now shows a small live badge — 🎤 for the speaking (preacher) mic and 🎶 for the worship/singing mic — so you can see at a glance who the AI thinks is who. This is early and tuned for African-gospel accents and vocals; it'll keep improving.",
+    ],
+  },
+  {
     version: "0.1.197",
     date: "2026-08-14",
     headline: "'Edit slide' now opens the song you're looking at",

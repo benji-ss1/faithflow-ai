@@ -50,6 +50,17 @@ export interface ChannelLevels {
    * 0..1 (normalized against the theoretical max byte-domain sum).
    */
   vocalBandEnergy: number;
+  /**
+   * Speech-vs-singing score 0..1 (Phase 2). HIGHER = more speech-like (a talking
+   * preacher); LOWER = more song-like (sustained singing / a held note). Blends:
+   *   - spectral flux: speech has rapid frame-to-frame spectral change from
+   *     consonants + articulation; sustained singing is spectrally steady.
+   *   - energy burstiness: speech is bursty (words + pauses); singing is
+   *     continuous. Measured as the coefficient of variation of recent vocal
+   *     energy over a ~2s window.
+   * Thresholds are first-pass and meant to be tuned on real JPD service audio.
+   */
+  speechiness: number;
 }
 
 export interface MultiChannelCaptureOptions {
@@ -153,6 +164,11 @@ export async function openMultiChannelCapture(
   const analysers: AnalyserNode[] = [];
   const timeBuffers: Float32Array<ArrayBuffer>[] = [];
   const freqBuffers: Uint8Array<ArrayBuffer>[] = [];
+  // Phase 2 speech-vs-singing state: last frame's spectrum (for spectral flux)
+  // and a short ring of recent vocal energy (for burstiness) per channel.
+  const prevFreqBuffers: Uint8Array[] = [];
+  const energyRings: number[][] = [];
+  const ENERGY_RING_LEN = 30; // ~2s at the 15fps meter poll
 
   for (let i = 0; i < actualChannelCount; i += 1) {
     const analyser = audioContext.createAnalyser();
@@ -165,6 +181,8 @@ export async function openMultiChannelCapture(
     analysers.push(analyser);
     timeBuffers.push(new Float32Array(new ArrayBuffer(analyser.fftSize * 4), 0, analyser.fftSize));
     freqBuffers.push(new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount), 0, analyser.frequencyBinCount));
+    prevFreqBuffers.push(new Uint8Array(analyser.frequencyBinCount));
+    energyRings.push([]);
   }
 
   // 4. Pre-compute vocal-band bin range for the current sample rate.
@@ -199,15 +217,47 @@ export async function openMultiChannelCapture(
       const rms = Math.sqrt(sumSquares / timeBuf.length);
 
       let vocalSum = 0;
+      // Spectral flux over the vocal band (rectified positive difference from the
+      // previous frame). Speech = high flux (consonants/articulation); sustained
+      // singing = low flux (steady spectrum).
+      const prevFreq = prevFreqBuffers[i]!;
+      let flux = 0;
       for (let b = vocalLoBin; b <= vocalHiBin; b += 1) {
-        vocalSum += freqBuf[b] ?? 0;
+        const cur = freqBuf[b] ?? 0;
+        vocalSum += cur;
+        const d = cur - (prevFreq[b] ?? 0);
+        if (d > 0) flux += d;
+        prevFreq[b] = cur;
       }
-      const vocalBandEnergy = vocalNorm > 0 ? vocalSum / vocalNorm : 0;
+      const vocalBandEnergyRaw = vocalNorm > 0 ? vocalSum / vocalNorm : 0;
+      const vocalBandEnergy = vocalBandEnergyRaw > 1 ? 1 : vocalBandEnergyRaw;
+      const fluxNorm = vocalNorm > 0 ? flux / vocalNorm : 0;
+
+      // Energy burstiness — coefficient of variation of recent vocal energy.
+      // Speech is bursty (words + gaps → high CV); singing is continuous (low CV).
+      const ring = energyRings[i]!;
+      ring.push(vocalBandEnergy);
+      if (ring.length > ENERGY_RING_LEN) ring.shift();
+      let mean = 0;
+      for (const e of ring) mean += e;
+      mean /= Math.max(1, ring.length);
+      let varr = 0;
+      for (const e of ring) varr += (e - mean) * (e - mean);
+      varr /= Math.max(1, ring.length);
+      const cv = mean > 0.005 ? Math.sqrt(varr) / mean : 0;
+
+      // Blend → speechiness. FLUX_REF / CV_REF are first-pass and meant to be
+      // tuned on real JPD service audio (choir vs a thick-accent preacher).
+      const FLUX_REF = 0.06, CV_REF = 0.7;
+      const speechiness = Math.max(0, Math.min(1,
+        Math.min(1, fluxNorm / FLUX_REF) * 0.6 + Math.min(1, cv / CV_REF) * 0.4,
+      ));
 
       out[i] = {
         peak: peak > 1 ? 1 : peak,
         rms: rms > 1 ? 1 : rms,
-        vocalBandEnergy: vocalBandEnergy > 1 ? 1 : vocalBandEnergy,
+        vocalBandEnergy,
+        speechiness,
       };
     }
     return out;

@@ -58,10 +58,16 @@ export function ChannelStrip({ capture, deviceId }: ChannelStripProps) {
   evaluateRef.current = (lv: ChannelLevels[]) => {
     if (!autoFollowRef.current || !deviceId || lv.length < 2) return;
     const now = Date.now();
-    const EMA = 0.3, MIN_VOCAL = 0.02, MARGIN = 1.4, DWELL_MS = 1200, HOLD_MS = 2500;
+    const EMA = 0.3, MIN_VOCAL = 0.012, MARGIN = 1.4, DWELL_MS = 1200, HOLD_MS = 2500;
     const sm = smoothedRef.current;
     for (let i = 0; i < lv.length; i++) {
-      const v = lv[i]?.vocalBandEnergy ?? 0;
+      // Phase 2: SPEECH-weighted score. A loud but sung channel (high vocal
+      // energy, low speechiness — the choir) scores far below a talking channel
+      // (the preacher), so auto-follow prefers whoever is preaching. Weight is
+      // first-pass; tune on real service audio.
+      const energy = lv[i]?.vocalBandEnergy ?? 0;
+      const speechiness = lv[i]?.speechiness ?? 0;
+      const v = energy * (0.15 + 0.85 * speechiness);
       sm[i] = sm[i] === undefined ? v : sm[i] * (1 - EMA) + v * EMA;
     }
     smoothedRef.current = sm.slice(0, lv.length);
@@ -91,6 +97,44 @@ export function ChannelStrip({ capture, deviceId }: ChannelStripProps) {
     candidateRef.current = null;
   };
 
+  // ── Phase 3: role detection (worship leader vs preacher-of-the-day) ────────
+  // Runs always (even when auto-follow is off) so the operator sees who's who.
+  // Slow per-channel EMA of energy + speechiness → the sustained SPEAKER is the
+  // preacher; the sustained loud-but-sung channel is the worship lead.
+  const [roles, setRoles] = useState<Record<number, "preacher" | "worship">>({});
+  const roleStatsRef = useRef<{ energy: number; speech: number }[]>([]);
+  const roleFrameRef = useRef(0);
+  const roleRef = useRef<(lv: ChannelLevels[]) => void>(() => {});
+  roleRef.current = (lv: ChannelLevels[]) => {
+    const rs = roleStatsRef.current;
+    const SLOW = 0.03; // ~ many-second horizon at 15fps
+    for (let i = 0; i < lv.length; i++) {
+      const e = lv[i]?.vocalBandEnergy ?? 0;
+      const s = lv[i]?.speechiness ?? 0;
+      const p = rs[i] ?? { energy: e, speech: s };
+      rs[i] = { energy: p.energy * (1 - SLOW) + e * SLOW, speech: p.speech * (1 - SLOW) + s * SLOW };
+    }
+    roleStatsRef.current = rs.slice(0, lv.length);
+    roleFrameRef.current = (roleFrameRef.current + 1) % 20; // recompute ~1.3s
+    if (roleFrameRef.current !== 0) return;
+    const ACTIVE = 0.02, SPEECH_HI = 0.5, SING_LO = 0.35;
+    let preacher = -1, preacherS = SPEECH_HI, worship = -1, worshipE = ACTIVE;
+    for (let i = 0; i < rs.length; i++) {
+      const { energy, speech } = rs[i]!;
+      if (energy < ACTIVE) continue;
+      if (speech >= preacherS) { preacherS = speech; preacher = i; }
+      if (speech < SING_LO && energy >= worshipE) { worshipE = energy; worship = i; }
+    }
+    const next: Record<number, "preacher" | "worship"> = {};
+    if (preacher >= 0) next[preacher] = "preacher";
+    if (worship >= 0 && worship !== preacher) next[worship] = "worship";
+    setRoles((prev) => {
+      const pk = Object.keys(prev), nk = Object.keys(next);
+      if (pk.length === nk.length && nk.every((k) => prev[+k] === next[+k])) return prev;
+      return next;
+    });
+  };
+
   // Load selected channel and labels from prefs
   useEffect(() => {
     if (!deviceId) return;
@@ -109,6 +153,7 @@ export function ChannelStrip({ capture, deviceId }: ChannelStripProps) {
         const lv = capture.readLevels();
         setLevels(lv);
         evaluateRef.current(lv); // auto-follow (no-op unless enabled)
+        roleRef.current(lv);     // role detection (preacher / worship lead badges)
       } catch { /* capture may be closed */ }
     }, 1000 / METER_FPS);
     intervalRef.current = id;
@@ -173,19 +218,30 @@ export function ChannelStrip({ capture, deviceId }: ChannelStripProps) {
           const isSelected = selectedChannel === i;
           const vocalPct = Math.min(100, Math.round((level.vocalBandEnergy / 0.3) * 100));
           const label = channelLabels[i];
+          const role = roles[i]; // "preacher" | "worship" | undefined
+          const roleTitle = role === "preacher" ? " — Preacher (speaking)" : role === "worship" ? " — Worship (singing)" : "";
           return (
             <button
               key={i}
               type="button"
               onClick={() => handleChannelClick(i)}
               onContextMenu={(e) => { e.preventDefault(); setEditingChannel(i); }}
-              title={label ? `Ch ${i + 1}: ${label}` : `Channel ${i + 1}`}
+              title={`${label ? `Ch ${i + 1}: ${label}` : `Channel ${i + 1}`}${roleTitle}`}
               className={cn(
                 "flex flex-col items-center gap-0.5 rounded-sm cursor-pointer transition-colors",
                 "hover:bg-white/5",
                 isSelected && "ring-1 ring-[var(--color-brand)]",
               )}
             >
+              {/* Role badge — who this mic sounds like right now. Speaking mic
+                  (sustained speech) = 🎤; singing/worship mic = 🎶. Detection
+                  only; does not affect auto-follow's switching. */}
+              <span
+                className="h-3 leading-none text-[9px]"
+                aria-label={role === "preacher" ? "Preacher" : role === "worship" ? "Worship" : undefined}
+              >
+                {role === "preacher" ? "🎤" : role === "worship" ? "🎶" : " "}
+              </span>
               <div
                 className={cn(
                   "relative w-full h-8 rounded-sm overflow-hidden",
