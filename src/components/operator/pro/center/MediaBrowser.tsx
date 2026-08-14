@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import { Upload, Pencil } from "lucide-react";
+import { Upload, Pencil, Trash2, CheckSquare, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload } from "@/lib/broadcast";
@@ -52,6 +52,9 @@ export function MediaBrowser({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [wizardOpen, setWizardOpen] = useState(false);
+  // Multi-select for bulk delete.
+  const [bulkIds, setBulkIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
   // ── Data loading ─────────────────────────────────────────────────────────
@@ -118,6 +121,29 @@ export function MediaBrowser({
     }
   };
 
+  // ── Bulk selection ────────────────────────────────────────────────────────
+  const toggleBulk = (id: string) => setBulkIds((prev) => {
+    const n = new Set(prev);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
+  const allSelected = filtered.length > 0 && filtered.every((a) => bulkIds.has(a.id));
+  const toggleSelectAll = () => setBulkIds(allSelected ? new Set() : new Set(filtered.map((a) => a.id)));
+  const bulkDelete = async () => {
+    const rows = assets.filter((a) => bulkIds.has(a.id));
+    if (rows.length === 0) return;
+    if (!window.confirm(`Permanently delete ${rows.length} item${rows.length === 1 ? "" : "s"}? This cannot be undone.`)) return;
+    setBulkBusy(true);
+    const failed = new Set<string>();
+    let deleted = 0;
+    for (const a of rows) { const res = await deleteMediaAsset(a.id); if (res?.ok) deleted++; else failed.add(a.id); }
+    setBulkBusy(false);
+    setAssets((prev) => prev.filter((a) => !bulkIds.has(a.id) || failed.has(a.id)));
+    if (selectedId && bulkIds.has(selectedId) && !failed.has(selectedId)) setSelectedId(null);
+    setBulkIds(failed);
+    toast[deleted > 0 ? "success" : "error"](`Deleted ${deleted} item${deleted === 1 ? "" : "s"}${failed.size ? ` — ${failed.size} failed` : ""}`);
+  };
+
   // ── Rename ────────────────────────────────────────────────────────────────
   const startRename = (a: Asset) => {
     setRenamingId(a.id);
@@ -180,6 +206,27 @@ export function MediaBrowser({
           </button>
         </div>
 
+        {/* Bulk-select bar: pick many items to delete at once */}
+        {filtered.length > 0 && (
+          <div className="px-1 pb-1 flex items-center gap-1.5">
+            <button type="button" onClick={toggleSelectAll} title={allSelected ? "Deselect all" : "Select all"}
+              className="flex items-center gap-1.5 text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
+              {allSelected ? <CheckSquare className="w-3.5 h-3.5 text-[var(--color-brand)]" /> : <Square className="w-3.5 h-3.5" />}
+              {bulkIds.size > 0 ? `${bulkIds.size} selected` : "Select"}
+            </button>
+            {bulkIds.size > 0 && (
+              <div className="ml-auto flex items-center gap-1">
+                <button type="button" onClick={() => void bulkDelete()} disabled={bulkBusy}
+                  className="h-6 px-2 rounded border border-red-500/40 flex items-center gap-1 text-[10px] font-semibold text-red-300 hover:bg-red-500/10 disabled:opacity-50">
+                  <Trash2 className="w-3 h-3" /> Delete
+                </button>
+                <button type="button" onClick={() => setBulkIds(new Set())} title="Clear selection"
+                  className="grid h-6 w-6 place-items-center rounded text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">×</button>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Grid */}
         <div className="flex-1 overflow-y-auto">
           {filtered.length === 0 && !loading && (
@@ -211,11 +258,26 @@ export function MediaBrowser({
                     title="Click to project · drag to playlist · right-click for options"
                     className={cn(
                       "relative aspect-video rounded-md overflow-hidden border-2 transition-all bg-black text-left group",
-                      selectedId === a.id
-                        ? "border-[var(--color-brand)]"
-                        : "border-[var(--color-border)] hover:border-[var(--color-muted-foreground)]",
+                      bulkIds.has(a.id)
+                        ? "border-[var(--color-brand)] ring-2 ring-[var(--color-brand)]/50"
+                        : selectedId === a.id
+                          ? "border-[var(--color-brand)]"
+                          : "border-[var(--color-border)] hover:border-[var(--color-muted-foreground)]",
                     )}
                   >
+                    {/* Bulk-select checkbox (top-left; stops the click from projecting) */}
+                    <span
+                      role="checkbox"
+                      aria-checked={bulkIds.has(a.id)}
+                      onClick={(e) => { e.stopPropagation(); toggleBulk(a.id); }}
+                      title="Select"
+                      className={cn(
+                        "absolute left-1 top-1 z-10 grid h-5 w-5 place-items-center rounded bg-black/60 cursor-pointer transition-opacity",
+                        bulkIds.has(a.id) ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                      )}
+                    >
+                      {bulkIds.has(a.id) ? <CheckSquare className="w-3.5 h-3.5 text-[var(--color-brand)]" /> : <Square className="w-3.5 h-3.5 text-white/80" />}
+                    </span>
                     {a.kind.startsWith("video") ? (
                       // eslint-disable-next-line jsx-a11y/media-has-caption
                       <video

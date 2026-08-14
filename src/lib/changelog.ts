@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.191",
+    date: "2026-08-14",
+    headline: "Media: bulk delete",
+    highlights: [
+      "Hover a media tile and tick its checkbox (or Select all), then delete any number of images/videos at once — no more deleting one at a time.",
+    ],
+  },
+  {
     version: "0.1.190",
     date: "2026-08-14",
     headline: "Scripture always fits — no more text off-screen",
