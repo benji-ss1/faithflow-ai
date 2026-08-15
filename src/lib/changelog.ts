@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.215",
+    date: "2026-08-15",
+    headline: "Projector now exactly matches the preview — big, ProPresenter-style text",
+    highlights: [
+      "Major rework: PresentFlow now composes every slide on a fixed 1920×1080 presentation canvas and scales that same canvas to each surface — so the operator preview and the projector show the identical layout, just at different physical sizes. What you see is truly what the congregation sees.",
+      "Text is sized ProPresenter-style — it grows as large as it can while fitting cleanly: short scripture/lyrics become very large, longer passages step down only as much as needed, with professional safe margins and no clipping.",
+      "Because everything is measured against the same fixed canvas, the size is consistent and stable — no more preview/projector mismatch and no shrinking to tiny on slide changes.",
+    ],
+  },
+  {
     version: "0.1.214",
     date: "2026-08-15",
     headline: "Consistent projector text size across all slides",

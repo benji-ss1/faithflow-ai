@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
+import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
 import { openLiveChannel, isValidLiveMessage, slideDesignSig, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance } from "@/lib/broadcast";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
@@ -283,10 +284,12 @@ export default function StagePage() {
       <div className="flex-1 grid grid-cols-2 min-h-0">
         <div className="border-r border-white/10 relative">
           <div className="absolute top-3 left-4 text-[10px] font-mono uppercase tracking-widest text-white/60 z-10">Current</div>
-          <TransitionWrapper identityKey={stageIdentity(current)} transition={transition}>
-            <SlideRenderer slide={current} projectorFit fontScale={fontScale} appearance={appearance} />
-          </TransitionWrapper>
-          <ThemeLogoLayer appearance={appearance} />
+          <PresentationCanvas>
+            <TransitionWrapper identityKey={stageIdentity(current)} transition={transition}>
+              <SlideRenderer slide={current} projectorFit fontScale={fontScale} appearance={appearance} />
+            </TransitionWrapper>
+            <ThemeLogoLayer appearance={appearance} />
+          </PresentationCanvas>
           <AnnouncementLayer ann={announcement} />
         </div>
         <div className="relative">
@@ -300,7 +303,7 @@ export default function StagePage() {
             )}
           </div>
           {next && next.kind !== "empty" ? (
-            <div className="opacity-50 w-full h-full"><SlideRenderer slide={next} projectorFit appearance={appearance} /></div>
+            <div className="opacity-50 w-full h-full"><PresentationCanvas><SlideRenderer slide={next} projectorFit appearance={appearance} /></PresentationCanvas></div>
           ) : (
             <div className="w-full h-full flex items-center justify-center text-white/20 text-sm">— end of item —</div>
           )}

@@ -181,33 +181,31 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
         return t.scrollWidth <= bw + 1 && t.scrollHeight <= bh + 1;
       };
 
-      // CONSISTENT word-count sizing (user directive 2026-08-15: "the same size
-      // for absolutely everything, and factor in the amount of words"). We size
-      // to a DETERMINISTIC per-word-count target (calculateProjectorFontSize) and
-      // only shrink it if it genuinely overflows the safe area. We do NOT grow
-      // each slide independently to the largest fit — that made every verse a
-      // different size and let a flaky measurement drop one to tiny. Result: all
-      // similar-length slides render at the SAME big size; longer passages step
-      // down predictably (never randomly small). The A−/A+ scale multiplies the
-      // target. Cached by text+box so repeat slides skip the work.
-      const projKey = `projwc|${Math.round(bw / 4) * 4}|${Math.round(bh / 4) * 4}|${absMinPx}|${ceilPx}|${fontToken}|${currentText}`;
+      // ProPresenter-style SCALE-UP-TO-FIT (maximize space) on the fixed 1920×1080
+      // presentation canvas (PresentationCanvas). Because every surface — the
+      // operator preview and the projector alike — now measures this SAME fixed
+      // canvas, the largest-fit result is deterministic and IDENTICAL everywhere
+      // (the old mismatch came from each surface measuring a different physical
+      // container). Find the TRUE largest font that fits the safe area: short text
+      // grows large (up to the ceiling), long passages shrink only as much as
+      // needed, and pathologically long text bottoms out at the guaranteed-fit
+      // floor rather than clipping. A−/A+ scale rides the ceiling. Seeded by the
+      // word-count band for fast convergence; cached by text+box.
+      const projKey = `projfit|${Math.round(bw / 4) * 4}|${Math.round(bh / 4) * 4}|${absMinPx}|${ceilPx}|${fontToken}|${currentText}`;
       let best: number;
       const cachedProj = fitCacheGet(projKey);
       if (cachedProj !== undefined) {
         best = cachedProj;
       } else {
-        const target = Math.min(ceilPx, Math.max(absMinPx, Math.round(calculateProjectorFontSize(currentText, containerH) * scale)));
-        if (fitsAt(target)) {
-          best = target; // word-count target fits → use it as-is (no grow-up)
-        } else {
-          // Overflows (long passage / small surface) → largest that fits BELOW target.
-          let lo = absMinPx, hi = target, found = absMinPx;
-          while (lo <= hi) {
-            const mid = Math.floor((lo + hi) / 2);
-            if (fitsAt(mid)) { found = mid; lo = mid + 1; } else { hi = mid - 1; }
-          }
-          best = found;
+        const seedBand = calculateProjectorFontSize(currentText, containerH);
+        const seed = Math.min(ceilPx, Math.max(absMinPx, Math.max(seedBand, Math.round(lastFittedRef.current))));
+        let lo = absMinPx, hi = ceilPx, found = -1;
+        if (fitsAt(seed)) { found = seed; lo = seed + 1; } else { hi = seed - 1; }
+        while (lo <= hi) {
+          const mid = Math.floor((lo + hi) / 2);
+          if (fitsAt(mid)) { found = mid; lo = mid + 1; } else { hi = mid - 1; }
         }
+        best = found >= absMinPx ? found : absMinPx;
         fitCacheSet(projKey, best);
       }
       // Below the preferred floor → a long passage; tighten leading for a touch
@@ -217,7 +215,9 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
       const stillOverflows = !fitsAt(best);
       if (stillOverflows) warnOverflowOnce(currentText, best);
       const tight = belowPref || stillOverflows;
-      const shown = best; // scale is already baked into the target above
+      // A+ rides the raised ceiling (in ceilPx); A− multiplies down. Clamped to
+      // the guaranteed-fit range so manual scale can never clip or vanish.
+      const shown = Math.max(absMinPx, Math.min(ceilPx, Math.round(best * Math.min(1, scale))));
       lastFittedRef.current = best;
       t.style.fontSize = `${shown}px`;
       t.style.lineHeight = tight ? "1.02" : "1.08";

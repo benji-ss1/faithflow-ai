@@ -1,6 +1,7 @@
 "use client";
 import { X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
+import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import type { OperatorShellCtx } from "../../shell/types";
 
 // The live slide's text carries its reference/translation as a trailing
@@ -72,7 +73,9 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
             LIVE
           </div>
         )}
-        <SlideRenderer slide={ctx.liveSlide} appearance={ctx.appearance ?? undefined} projectorFit fontScale={ctx.fontScale} onVideoRef={onVideoRef} />
+        <PresentationCanvas>
+          <SlideRenderer slide={ctx.liveSlide} appearance={ctx.appearance ?? undefined} projectorFit fontScale={ctx.fontScale} onVideoRef={onVideoRef} />
+        </PresentationCanvas>
         {ctx.liveSlide.kind !== "empty" && (
           <button
             onClick={ctx.onKill}

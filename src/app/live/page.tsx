@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
+import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import { openLiveChannel, safePost, isValidLiveMessage, slideDesignSig, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
 import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
 import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
@@ -372,17 +373,12 @@ export default function LivePage() {
       onDoubleClick={goFullscreen}
     >
       {/*
-        Aspect-ratio-aware canvas. When operator picks 4:3, we letterbox
-        the slide inside a centered 4:3 box. 16:9 & custom fill.
+        Aspect handling now lives in PresentationCanvas below: it composes the
+        slide on a fixed canvas (1920×1080 for 16:9, 1440×1080 for 4:3) and
+        letterboxes it into the display. This wrapper just fills the window.
       */}
       <div className="absolute inset-0 flex items-center justify-center">
-        <div
-          className={
-            aspectRatio === "4:3"
-              ? "relative bg-black h-full max-w-full aspect-[4/3]"
-              : "relative w-full h-full"
-          }
-        >
+        <div className="relative w-full h-full">
           <div
             style={{
               opacity: translationSwapFading ? 0.2 : 1,
@@ -391,17 +387,23 @@ export default function LivePage() {
               height: "100%",
             }}
           >
-            {hasVideoBackground(videoInput, appearance) ? (
-              // Video behind the slide (camera or theme video bg): no slide-keyed
-              // transition wrapper, so the video stays playing across slide
-              // changes — only the overlay updates.
-              <OutputSlide slide={slide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} projectorFit />
-            ) : (
-              <TransitionWrapper identityKey={slideIdentity(slide)} transition={transition}>
-                <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} videoMuted={false} onVideoRef={handleVideoRef} />
-              </TransitionWrapper>
-            )}
-            <ThemeLogoLayer appearance={appearance} />
+            {/* Compose the slide on the FIXED 1920×1080 presentation canvas and
+                scale it to the display — identical geometry to the operator
+                preview (which wraps the same SlideRenderer in the same canvas),
+                so what the operator sees is exactly what the projector shows. */}
+            <PresentationCanvas canvasW={aspectRatio === "4:3" ? 1440 : 1920} canvasH={1080}>
+              {hasVideoBackground(videoInput, appearance) ? (
+                // Video behind the slide (camera or theme video bg): no slide-keyed
+                // transition wrapper, so the video stays playing across slide
+                // changes — only the overlay updates.
+                <OutputSlide slide={slide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} projectorFit />
+              ) : (
+                <TransitionWrapper identityKey={slideIdentity(slide)} transition={transition}>
+                  <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} videoMuted={false} onVideoRef={handleVideoRef} />
+                </TransitionWrapper>
+              )}
+              <ThemeLogoLayer appearance={appearance} />
+            </PresentationCanvas>
           </div>
           <AnnouncementLayer ann={announcement} />
           {/* z-order: slide < timer (z-20) < message (z-30). Corner/lower-third
