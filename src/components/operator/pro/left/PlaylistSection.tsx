@@ -50,6 +50,7 @@ function SortablePlaylistItem({
   totalItems,
   isActive,
   onItemClick,
+  onSendLive,
   onRemove,
   onMove,
   onDuplicate,
@@ -65,6 +66,7 @@ function SortablePlaylistItem({
   totalItems: number;
   isActive: boolean;
   onItemClick: () => void;
+  onSendLive: () => void;
   onRemove: () => void;
   onMove: (dir: -1 | 1) => void;
   onDuplicate: () => void;
@@ -174,6 +176,13 @@ function SortablePlaylistItem({
 
         <ContextMenu.Portal>
           <ContextMenu.Content className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[140px]">
+            <ContextMenu.Item
+              onSelect={onSendLive}
+              className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer text-[var(--color-brand)] font-semibold"
+            >
+              Send to live
+            </ContextMenu.Item>
+            <ContextMenu.Separator className="h-px my-1 bg-[var(--color-border)]" />
             <ContextMenu.Item
               onSelect={onRemove}
               className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer text-[var(--color-destructive)]"
@@ -447,26 +456,35 @@ export function PlaylistSection({
     handleResult(await reorderServiceItems(ctx.planId, newOrder));
   };
 
-  // ── Item click (unchanged behaviour from 2026-07-25 field fix) ────────────
+  // ── Item click (2026-08-15 directive: clicking a playlist item PREVIEWS it in
+  // the center — it does NOT auto-project to live). To go live the operator
+  // either right-clicks → "Send to live", or single-clicks a slide inside the
+  // center panel. This reverses the 2026-07-25 click-to-project behaviour so an
+  // accidental click can never change what the congregation sees. ────────────
   const handleItemClick = (it: OperatorShellCtx["plan"]["items"][number], idx: number) => {
     try {
-      console.log("[click] playlist item", { id: it.id, idx, type: it.type, title: it.title, slideCount: it.slides?.length ?? 0 });
+      console.log("[click] playlist item (preview only)", { id: it.id, idx, type: it.type, title: it.title, slideCount: it.slides?.length ?? 0 });
     } catch { /* ignore */ }
     onCenterMode?.("slides");
     ctx.onSetPreviewItem(idx);
-    if (it.type === "song") {
-      const first = it.slides?.[0];
-      if (first) {
-        try {
-          ctx.onSendSlideToLive(first);
-          toast.success(`Playing "${it.title}" — slide 1`);
-        } catch (e) {
-          console.warn("[playlist] song click send-live failed", e);
-          toast.error("Couldn't send slide live — check DevTools console.");
-        }
-      } else {
-        toast.info(`"${it.title}" has no slides yet — open the song to add lyrics.`);
-      }
+  };
+
+  // ── Explicit "send to live" (right-click menu). Fires the item's first slide
+  // to the projector — the deliberate operator action that click no longer does.
+  const handleSendItemLive = (it: OperatorShellCtx["plan"]["items"][number], idx: number) => {
+    onCenterMode?.("slides");
+    ctx.onSetPreviewItem(idx);
+    const first = it.slides?.[0];
+    if (!first) {
+      toast.info(`"${it.title}" has no slides yet — open it to add content.`);
+      return;
+    }
+    try {
+      ctx.onSendSlideToLive(first);
+      toast.success(`"${it.title}" — slide 1 → LIVE`);
+    } catch (e) {
+      console.warn("[playlist] send-live failed", e);
+      toast.error("Couldn't send slide live — check DevTools console.");
     }
   };
 
@@ -566,6 +584,7 @@ export function PlaylistSection({
                   totalItems={items.length}
                   isActive={idx === ctx.previewItemIdx}
                   onItemClick={() => handleItemClick(it, idx)}
+                  onSendLive={() => handleSendItemLive(it, idx)}
                   onRemove={() => void remove(it)}
                   onMove={(dir) => void move(idx, dir)}
                   onDuplicate={() => void duplicate(idx)}

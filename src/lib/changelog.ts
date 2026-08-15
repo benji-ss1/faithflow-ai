@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.216",
+    date: "2026-08-15",
+    headline: "Clicking a playlist item no longer projects it live",
+    highlights: [
+      "Clicking a song/item in the playlist now just opens it in the centre to preview — it no longer sends it straight to the projector, so an accidental click can't change what the congregation sees.",
+      "To go live: right-click the playlist item → \"Send to live\", or single-click any slide inside the centre panel.",
+    ],
+  },
+  {
     version: "0.1.215",
     date: "2026-08-15",
     headline: "Projector now exactly matches the preview — big, ProPresenter-style text",
