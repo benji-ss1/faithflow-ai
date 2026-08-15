@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.213",
+    date: "2026-08-15",
+    headline: "Big projector text now stays big when you change slides",
+    highlights: [
+      "Fixed: the projector text was correctly big when a verse/song first appeared, but shrank to a tiny size when you moved to the next slide (auto-advance, next/previous verse, or a song slide). It now keeps the big screen-filling size on every slide change.",
+    ],
+  },
+  {
     version: "0.1.212",
     date: "2026-08-15",
     headline: "No more slide ping-pong on repeated worship lines",

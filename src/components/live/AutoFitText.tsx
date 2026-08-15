@@ -44,6 +44,18 @@ function fitCacheSet(k: string, v: number) {
 // Fix-loop 2026-07-27: the overflow-at-floor warning used to fire on EVERY
 // refit (resize, page change) — warn once per unique text, capped at ~50
 // entries so a long service can't grow this unbounded.
+// Last good projector-fit size, bucketed by output height so the fullscreen
+// projector (~1080) and the small operator preview (~200) never cross-seed each
+// other. On the /live output the transition wrapper REMOUNTS this component on
+// every slide change (to replay the enter animation), which resets the fit state
+// to the tiny readability floor for the first paint — and if the fresh fit
+// happens to measure mid-transition it can stick small. Seeding a remount from
+// the last good size for the SAME output keeps navigation (next verse / song
+// slide / auto-advance) at the big size instead of dropping to tiny. Keyed by
+// rounded height so it's stable across a service; value is the UNSCALED fit px.
+const lastGoodProjectorPx = new Map<number, number>();
+const projectorSizeKey = (containerH: number) => Math.round(containerH / 40) * 40;
+
 const OVERFLOW_WARNED_MAX = 50;
 const overflowWarned = new Set<string>();
 function warnOverflowOnce(text: string, floorPx: number) {
@@ -192,7 +204,8 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
         best = cachedProj;
       } else {
         const seedBand = calculateProjectorFontSize(currentText, containerH);
-        const seed = Math.min(ceilPx, Math.max(absMinPx, Math.max(seedBand, Math.round(lastFittedRef.current))));
+        const lastGood = lastGoodProjectorPx.get(projectorSizeKey(containerH)) ?? 0;
+        const seed = Math.min(ceilPx, Math.max(absMinPx, Math.max(seedBand, lastGood, Math.round(lastFittedRef.current))));
         let lo = absMinPx, hi = ceilPx, found = -1;
         if (fitsAt(seed)) { found = seed; lo = seed + 1; } else { hi = seed - 1; }
         while (lo <= hi) {
@@ -212,6 +225,11 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
       const tight = belowPref || stillOverflows;
       const shown = Math.max(absMinPx, Math.min(ceilPx, Math.round(best * Math.min(1, scale))));
       lastFittedRef.current = best; // seed off the UNSCALED fit
+      // Remember the last good size for THIS output height so the next remount
+      // (slide navigation on /live) starts big instead of the tiny floor. Only
+      // record a healthy fit at/above the preferred floor — never a transient
+      // mid-transition mis-measure — so the seed can't get poisoned small.
+      if (!belowPref && best >= prefFloorPx) lastGoodProjectorPx.set(projectorSizeKey(containerH), best);
       t.style.fontSize = `${shown}px`;
       t.style.lineHeight = tight ? "1.02" : "1.08";
       setTightLine(tight);
@@ -280,13 +298,25 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
 
   useLayoutEffect(() => {
     fit();
-    // A fresh output window (projector) can still be settling its flex height on
-    // the frame the slide first paints — measuring a too-small height makes the
-    // engine pick a single line. Re-fit on the next two frames so the size lands
-    // on the SETTLED dimensions. Cheap (fit is cached by text+box) and idempotent.
+    // Re-fit after layout/transition settles. TWO reasons this is needed:
+    //  1) A fresh projector window can still be settling its flex height on the
+    //     frame the first slide paints.
+    //  2) The /live output REMOUNTS this component on every slide change and
+    //     plays an enter animation — a fit measured mid-animation can under-size
+    //     and (without this) stick tiny for the rest of that slide. That's the
+    //     "next verse/song slide goes small" bug.
+    // rAF catches the fast case with no visible flash; the timeouts land AFTER
+    // the transition animation finishes so the final size is always the correct
+    // big one. All idempotent + cached, so redundant runs are free.
     let r2 = 0;
     const r1 = requestAnimationFrame(() => { fitRef.current(); r2 = requestAnimationFrame(() => fitRef.current()); });
-    return () => { cancelAnimationFrame(r1); if (r2) cancelAnimationFrame(r2); };
+    const t1 = window.setTimeout(() => fitRef.current(), 160);
+    const t2 = window.setTimeout(() => fitRef.current(), 420);
+    const t3 = window.setTimeout(() => fitRef.current(), 750);
+    return () => {
+      cancelAnimationFrame(r1); if (r2) cancelAnimationFrame(r2);
+      clearTimeout(t1); clearTimeout(t2); clearTimeout(t3);
+    };
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, [currentText, fontScale, fontToken]);
 
