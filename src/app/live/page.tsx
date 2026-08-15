@@ -8,7 +8,6 @@ import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
 import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
-import { TransitionWrapper } from "@/components/live/TransitionWrapper";
 
 // Module-scope, capture-phase suppressor. Runs before React/Next dev-overlay
 // listeners so a stray DOM Event rejection (autoplay block, fullscreen deny,
@@ -398,9 +397,14 @@ export default function LivePage() {
                 // changes — only the overlay updates.
                 <OutputSlide slide={slide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} projectorFit />
               ) : (
-                <TransitionWrapper identityKey={slideIdentity(slide)} transition={transition}>
-                  <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} videoMuted={false} onVideoRef={handleVideoRef} />
-                </TransitionWrapper>
+                // 2026-08-15: the slide-keyed TransitionWrapper was REPLACING the
+                // slide's box height inside the fixed canvas (its height:100% didn't
+                // resolve to the canvas's 1080 the way SlideRenderer's own h-full
+                // does), so AutoFitText measured a short box and under-sized the text
+                // on the projector vs the preview. The transition animation now lives
+                // on the fixed canvas's own key below, so the slide renders DIRECTLY
+                // here — structurally identical to the operator preview (true parity).
+                <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} videoMuted={false} onVideoRef={handleVideoRef} />
               )}
               <ThemeLogoLayer appearance={appearance} />
             </PresentationCanvas>
