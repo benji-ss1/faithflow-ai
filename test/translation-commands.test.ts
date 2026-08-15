@@ -74,6 +74,32 @@ async function main() {
     assert.strictEqual(hit?.code, "NKJV");
   });
 
+  // ── "IV" mishearing → NIV (Deepgram drops the leading N) ─────────────────
+  // The booth's natural phrasing must switch to NIV. 2026-08-15 field report:
+  // "do you have IV?" / "can we get IV" / "technical IV please" were all missed.
+  await check("misheard 'do you have IV?' → NIV", () => {
+    const hit = detect("okay technical do you have IV?");
+    assert.strictEqual(hit?.code, "NIV");
+  });
+  await check("misheard 'can we get IV' → NIV", () => {
+    const hit = detect("can we get IV");
+    assert.strictEqual(hit?.code, "NIV");
+  });
+  await check("misheard 'IV please' (trailing intent) → NIV", () => {
+    const hit = detect("IV please");
+    assert.strictEqual(hit?.code, "NIV");
+  });
+  await check("misheard 'do we have IV' → NIV", () => {
+    const hit = detect("do we have IV");
+    assert.strictEqual(hit?.code, "NIV");
+  });
+  // Guard: bare 'IV' with NO intent (roman numeral / medical) must NOT fire.
+  await check("bare 'IV' with no intent does NOT switch (medical/roman-numeral guard)", () => {
+    const hit = detect("the nurse set up an IV drip");
+    // "set up an IV drip" — no switch intent verb before, no trailing intent → no fire.
+    assert.strictEqual(hit, null);
+  });
+
   await check("bare CSB (expanded set) fires", () => {
     const hit = detect("try CSB");
     assert.strictEqual(hit?.code, "CSB");

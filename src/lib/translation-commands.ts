@@ -197,7 +197,14 @@ const FULL_NAMES: Array<{ phrase: RegExp; code: string; ambiguous: boolean }> = 
 // so "can we have ASV" / "I want NLT" / "let us use the WEB" are recognised.
 // "have" alone in "caught in a web of sin" is never adjacent to an ambiguous
 // abbreviation in that phrasing so the false-positive risk is minimal.
-const INTENT_RE = /\b(read|switch|use|open|version|translation|bible|give me|let'?s have|make we read|read am|have|want|need|can we|can i|let us|try|go with|go to)\b/i;
+// 2026-08-15: added "get", "got", "put on", "bring up", "pull up", "technical"
+// and question forms so the booth's natural phrasing switches versions —
+// "can we get NIV", "technical, do you have IV", "pull up the NLT".
+const INTENT_RE = /\b(read|switch|use|open|version|translation|bible|give me|let'?s have|make we read|read am|have|want|need|can we|can i|let us|try|go with|go to|get|got|put on|bring up|pull up|technical|do you have|do we have)\b/i;
+
+// Trailing intent — words that AFTER a (possibly-misheard) code still clearly
+// mean "the <X> translation": "IV please", "IV version", "NIV bible".
+const TRAILING_INTENT_RE = /^\s*(please|version|translation|bible|scripture)\b/i;
 
 function hasIntentBefore(text: string, matchIndex: number): boolean {
   const before = text.slice(0, matchIndex);
@@ -205,6 +212,14 @@ function hasIntentBefore(text: string, matchIndex: number): boolean {
   const words = before.trim().split(/\s+/).filter(Boolean);
   const window = words.slice(-10).join(" ");
   return INTENT_RE.test(window);
+}
+
+// Intent either before OR immediately after the match — used for the misheard
+// path so "IV please" / "IV version" count even with no leading intent verb.
+function hasIntentAround(text: string, matchIndex: number, matchLen: number): boolean {
+  if (hasIntentBefore(text, matchIndex)) return true;
+  const after = text.slice(matchIndex + matchLen);
+  return TRAILING_INTENT_RE.test(after);
 }
 
 // A KJV false-positive we cannot fix by intent alone: "back in King James'
@@ -299,7 +314,7 @@ export function detectTranslationSwitch(
     for (const { phrase, code } of MISHEARD_NAMES) {
       if (!available.has(code)) continue;
       const m = phrase.exec(text);
-      if (m && hasIntentBefore(text, m.index)) { hit = { code, matchedPhrase: m[0] }; break; }
+      if (m && hasIntentAround(text, m.index, m[0].length)) { hit = { code, matchedPhrase: m[0] }; break; }
     }
   }
 

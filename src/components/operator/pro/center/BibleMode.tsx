@@ -215,6 +215,9 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
     setLoading(true);
     try {
       const crossCh = !!(p.chapterEnd && p.chapterEnd !== p.chapter);
+      // Track whether the CHAPTER itself loaded (has any verses) so we can tell a
+      // genuinely-non-existent verse ("Genesis 1:102") apart from a load failure.
+      let chapterHadVerses = true;
       // Single-chapter lookups fetch the WHOLE chapter once (and cache it),
       // so subsequent Next/Prev-verse navigation in ProOperatorShell can be
       // a local, zero-network index move instead of a fetch per click. Only
@@ -229,6 +232,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
           })
         : await (async () => {
             const chapterRes = await fetchChapterCached(p.book, p.chapter, translation);
+            chapterHadVerses = chapterRes.verses.length > 0;
             return {
               verses: chapterRes.verses.filter((v) => v.verse >= p.verseStart && v.verse <= p.verseEnd),
               translation: chapterRes.translation,
@@ -248,7 +252,29 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
           verses: [{ verse: v.verse, text: v.text }],
         };
       });
-      if (pages.length === 0) pages.push({ id: label, label, verses: [] });
+      if (pages.length === 0) {
+        // No verses came back. If the CHAPTER loaded fine (single-chapter path)
+        // but the requested verse simply isn't in it, the reference points at a
+        // verse that doesn't exist in the Bible — e.g. "Genesis 1:102" (Genesis
+        // 1 has 31 verses). Surface a friendly notice instead of a blank slide,
+        // so on the projector the congregation sees a clear "not a real verse"
+        // message rather than an empty screen. If the chapter itself failed to
+        // load (network/transient), fall back to the neutral empty placeholder.
+        const refNoTrans = `${p.book} ${rangeLabel}`;
+        if (!crossCh && chapterHadVerses) {
+          const notice = `This verse isn't in the Bible.\nPlease check the reference.`;
+          pages.push({
+            id: label,
+            label: refNoTrans,
+            verses: [{ verse: p.verseStart, text: notice }],
+            invalid: notice,
+            placeholder: true, // never auto-fires; operator can still send it manually
+          });
+          toast.warning(`"${refNoTrans}" isn't a verse in the Bible — check the reference.`);
+        } else {
+          pages.push({ id: label, label, verses: [], placeholder: true });
+        }
+      }
       setCards(pages);
       setSelectedIdx(0);
     } catch (e) {
@@ -448,6 +474,12 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
     const override = editOverrides[c.id];
     if (typeof override === "string" && override.trim().length > 0) {
       return { kind: "text", text: override };
+    }
+    // Invalid-verse notice — render the friendly message with the reference
+    // below it (no verse numbers). This is what projects if the operator sends
+    // a non-existent reference like "Genesis 1:102".
+    if (c.invalid) {
+      return { kind: "text", text: `${c.invalid}\n\n${c.label}` };
     }
     const separator = opts.breakOnNewVerse ? "\n" : " ";
     const body = c.verses

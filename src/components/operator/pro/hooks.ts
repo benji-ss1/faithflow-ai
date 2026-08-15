@@ -163,6 +163,10 @@ export type VerseCard = {
   verses: Array<{ verse: number; text: string }>;
   /** R8: placeholder cards (loading / lookup-failed / out-of-range) must NEVER auto-fire. */
   placeholder?: boolean;
+  /** 2026-08-15: set when the reference parsed fine but the verse doesn't exist
+   *  in the Bible (e.g. "Genesis 1:102"). Carries a friendly notice to show on
+   *  the operator + projector instead of a blank slide. Never auto-fires. */
+  invalid?: string;
 };
 
 export type BibleSessionState = {

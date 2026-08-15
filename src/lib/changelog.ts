@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.208",
+    date: "2026-08-15",
+    headline: "\"IV\" now means NIV, and non-existent verses are flagged",
+    highlights: [
+      "Voice: the booth's natural phrasing for the NIV now works even when it's misheard as \"IV\" — \"do you have IV?\", \"can we get IV\", \"IV please\" all switch to the NIV (with medical/roman-numeral phrases still ignored).",
+      "If someone calls a verse that isn't in the Bible (e.g. Genesis 1:102), it no longer shows a blank slide — the operator gets a warning and the screen shows a gentle \"this verse isn't in the Bible\" notice instead.",
+      "Switching translation now correctly re-renders the verse that's already live (this was tied to the licensed-verse fix above).",
+    ],
+  },
+  {
     version: "0.1.207",
     date: "2026-08-15",
     headline: "Fixed: NIV/NKJV/NLT verses now show their actual text",
