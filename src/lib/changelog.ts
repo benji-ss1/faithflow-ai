@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.218",
+    date: "2026-08-15",
+    headline: "Projector text is now big on EVERY slide — the tiny-song bug is fixed",
+    highlights: [
+      "Root-caused and fixed the last sizing bug: some songs/verses were projecting as one tiny line. The text engine now sizes against the fixed 1920×1080 presentation canvas directly, instead of re-measuring a slide box that could momentarily collapse on screen-change — which was starving long lyrics of the space to grow. Every song and verse now fills the screen big and clean, wrapping across multiple lines as needed.",
+      "This applies identically to the operator preview and the projector, so what you see stays exactly what the congregation sees.",
+    ],
+  },
+  {
     version: "0.1.217",
     date: "2026-08-15",
     headline: "Fixed: some songs projecting tiny — plus a cleaner notification style",

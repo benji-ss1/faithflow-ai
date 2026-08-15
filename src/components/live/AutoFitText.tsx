@@ -1,6 +1,7 @@
 "use client";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { calculateProjectorFontSize, projectorFloorPx, projectorCeilingPx } from "@/lib/projectorFontSize";
+import { PresentationCanvasContext } from "./PresentationCanvas";
 
 // Congregation-readability floor per operator spec: 24px absolute minimum.
 // Below this on a 1080p projector at sanctuary distance verses become
@@ -99,6 +100,17 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
   }) {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
+  // Fixed presentation-canvas geometry (1920×1080), if this text lives inside a
+  // PresentationCanvas. On the projector/preview surfaces the slide ALWAYS fills
+  // that canvas, so we size against these KNOWN dimensions instead of a measured
+  // DOM box — the box can transiently collapse (percentage-height/flex not yet
+  // resolved on first paint, or a shrink-wrapped width that stops the text ever
+  // wrapping), which is what made some songs/verses project as one tiny line.
+  const canvas = useContext(PresentationCanvasContext);
+  // pad in px used by the render width (kept in a ref so the JSX width matches
+  // the value the fit computed from the canvas, not the flaky box).
+  const projWrapPxRef = useRef<number | null>(null);
+  const [projWrapPx, setProjWrapPx] = useState<number | null>(null);
   // Themes: fontFamily/fontWeight change glyph widths, so they must be part of
   // the fit-cache key AND trigger a refit — otherwise a theme swap reuses the
   // previous font's cached size and the verse overflows / undersizes.
@@ -153,10 +165,22 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
     const box = boxRef.current;
     const t = textRef.current;
     if (!box || !t) return;
-    const padPx = Math.max(4, Math.min(48, Math.round(Math.min(box.clientWidth, box.clientHeight) * paddingRatio)));
+    // AUTHORITATIVE GEOMETRY (2026-08-15 — the definitive "songs project tiny"
+    // fix). On the projector/preview surfaces the slide always fills the fixed
+    // PresentationCanvas, so we size against those KNOWN canvas dimensions rather
+    // than the live DOM box. The measured box can transiently collapse on first
+    // paint (percentage-height not resolved) OR shrink-wrap its width (so the
+    // text's width:100% never constrains and it never wraps), both of which made
+    // the largest-fit cap at a tiny single line. Trusting the canvas removes that
+    // whole class of bug. Grid thumbnails render OUTSIDE a canvas (context null),
+    // so they keep measuring their own box exactly as before.
+    const useCanvas = !!(projectorFit && canvas && canvas.w > 0 && canvas.h > 0);
+    const measW = useCanvas ? canvas!.w : box.clientWidth;
+    const measH = useCanvas ? canvas!.h : box.clientHeight;
+    const padPx = Math.max(4, Math.min(48, Math.round(Math.min(measW, measH) * paddingRatio)));
     setPad(padPx);
-    const bw = box.clientWidth - padPx * 2;
-    const bh = box.clientHeight - padPx * 2;
+    const bw = measW - padPx * 2;
+    const bh = measH - padPx * 2;
     if (bw <= 0 || bh <= 0) return;
 
     // JPD Fix 2 — projector mode: viewport-proportional sizing with a
@@ -182,11 +206,19 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
       // 0.73) is always > 0.45, so this NEVER alters a healthy measurement.
       let ebw = bw;
       let ebh = bh;
-      let containerH = box.clientHeight;
+      let containerH = measH;
       if (ebh < ebw * 0.45) {
         ebh = Math.round(ebw * 0.5625); // 16:9 safe-area height from the width
-        containerH = Math.round(box.clientWidth * 0.5625);
+        containerH = Math.round(measW * 0.5625);
       }
+      // Force the text block to wrap at EXACTLY the safe-area width during
+      // measurement (and, via projWrapPx below, at render). An explicit px width
+      // guarantees wrapping even if the DOM box shrink-wrapped — the failure that
+      // let long lyrics sit on one tiny line. When useCanvas this is the canvas
+      // width; otherwise it's the measured box width (unchanged behaviour).
+      t.style.width = `${ebw}px`;
+      projWrapPxRef.current = ebw;
+      if (projWrapPx !== ebw) setProjWrapPx(ebw);
       // PREFERRED readable minimum (9% of height). Normal verses land at or above
       // this via the largest-fit. It is NOT a hard clamp.
       const prefFloorPx = projectorFloorPx(containerH);
@@ -400,14 +432,18 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
           overflowWrap: "break-word",
           wordBreak: "normal",
           textWrap: "balance",
-          // Projector: force the text block to the FULL container width so long
-          // lines MUST wrap (and the binary search grows the font to fill the
-          // HEIGHT with wrapped lines) instead of shrinking a single line to fit
-          // the width — the exact failure that made verses/lyrics project as one
-          // tiny clipped line. text-align keeps it centred within the full width.
-          // Non-projector surfaces (thumbnails) keep shrink-to-fit (maxWidth only).
-          width: projectorFit ? "100%" : undefined,
-          maxWidth: "100%",
+          // Projector: force the text block to an EXPLICIT safe-area pixel width
+          // (from the fixed canvas) so long lines MUST wrap and the binary search
+          // grows the font to fill the HEIGHT with wrapped lines — instead of a
+          // single tiny line. An explicit px beats width:100%, which silently
+          // collapses when the DOM box shrink-wraps (the one-tiny-line bug). Falls
+          // back to 100% until the first fit computes the width. Non-projector
+          // surfaces (thumbnails) keep shrink-to-fit (maxWidth only).
+          width: projectorFit ? (projWrapPx != null ? `${projWrapPx}px` : "100%") : undefined,
+          // Non-projector keeps maxWidth:100% (shrink-to-fit thumbnails). Projector
+          // uses the explicit px width above as the sole width authority, so a
+          // collapsed box can't re-clamp it back down to one tiny line.
+          maxWidth: projectorFit ? undefined : "100%",
           maxHeight: "100%",
           textTransform: "uppercase", // ProPresenter-style crowd readability (2026-08-11, user: always-on). The fit measures the transformed (wider) glyphs, so sizing stays correct.
         }}

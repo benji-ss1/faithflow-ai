@@ -1,5 +1,14 @@
 "use client";
-import { useLayoutEffect, useRef, useState } from "react";
+import { createContext, useLayoutEffect, useRef, useState } from "react";
+
+/**
+ * The fixed canvas geometry, published to descendants. AutoFitText reads this so
+ * it can size against the KNOWN canvas dimensions (1920×1080) rather than a DOM
+ * box that can transiently collapse on first paint (the "songs project tiny"
+ * bug). Null when a slide is rendered outside a PresentationCanvas (e.g. grid
+ * thumbnails), in which case AutoFitText falls back to measuring its live box.
+ */
+export const PresentationCanvasContext = createContext<{ w: number; h: number } | null>(null);
 
 /**
  * PresentationCanvas — ProPresenter-style fixed presentation surface.
@@ -92,7 +101,9 @@ export function PresentationCanvas({
           outline: DEBUG ? "6px solid #ff2d55" : undefined,
         }}
       >
-        {children}
+        <PresentationCanvasContext.Provider value={{ w: canvasW, h: canvasH }}>
+          {children}
+        </PresentationCanvasContext.Provider>
       </div>
       {DEBUG && (
         <div
