@@ -1,5 +1,5 @@
 {
-  "_comment": "Expanded 2026-07-23. Deepgram nova-3 keyterm biasing — all 66 Bible books + core Christian vocab + common preacher phrasing. Per-church overrides go in <churchId>.json. Deepgram caps at 100 terms per connection.",
+  "_comment": "Expanded 2026-08-15. Deepgram nova-3 keyterm biasing — all 66 Bible books + core Christian vocab + preacher phrasing + distinctive WORSHIP vocabulary (Hebrew names of God + common sung terms Deepgram mishears, e.g. Adonai). Per-church overrides go in <churchId>.json. Deepgram caps at 100 terms per connection — keep total <= 100. Roadmap: per-church song-library-derived session keyterms (sent from the client) will layer on top of this for library-specific words.",
   "terms": [
     "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy",
     "Joshua", "Judges", "Ruth",
@@ -19,6 +19,8 @@
     "1 John", "2 John", "3 John", "Jude", "Revelation",
     "Jesus Christ", "Holy Spirit", "Jehovah", "Yahweh", "Messiah",
     "hallelujah", "amen", "righteousness", "salvation", "covenant",
-    "the Bible says", "turn with me to", "verse", "chapter"
+    "the Bible says", "turn with me to", "verse", "chapter",
+    "Adonai", "Hosanna", "Emmanuel", "El Shaddai", "Elohim",
+    "Abba Father", "Jehovah Jireh", "Alpha and Omega", "Zion", "hosanna in the highest"
   ]
 }
