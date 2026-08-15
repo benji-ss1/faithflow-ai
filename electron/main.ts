@@ -552,6 +552,21 @@ app.whenReady().then(async () => {
   appUrl = resolveAppUrl();
   console.log(`[main] shell loading appUrl=${appUrl}`);
 
+  // Cache hygiene (2026-08-15): the shell is a thin client that loads the hosted
+  // renderer. Clear the HTTP cache on every launch so BOTH the operator window
+  // AND the chromeless projector output window always boot the LATEST deployed
+  // renderer build. The projector window can't be deep-reloaded (⌘⇧R) by the
+  // operator, so without this a web deploy could keep serving it stale code
+  // (the exact "projector shows old layout / doesn't update" failure). The
+  // service worker is already a disabled pass-through, so HTTP cache is the only
+  // staleness source; assets are simply re-fetched once on launch (online app).
+  try {
+    await session.defaultSession.clearCache();
+    console.log("[main] cleared HTTP cache on launch (fresh renderer for all windows)");
+  } catch (e) {
+    console.warn("[main] clearCache on launch failed (continuing)", e);
+  }
+
   registerFirstPartyHosts();
 
   // Inject a shell marker on every request from the desktop app, but only for
