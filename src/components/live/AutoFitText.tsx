@@ -128,6 +128,10 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
   const [tightLine, setTightLine] = useState(false);
   const [pad, setPad] = useState(4);
   const [pageIdx, setPageIdx] = useState(0);
+  // TEMP debug (2026-08-15): surface what the fit actually measured so a tiny
+  // slide tells us whether the box height collapsed. Remove once resolved.
+  const AF_DEBUG = true;
+  const [afDbg, setAfDbg] = useState({ bw: 0, bh: 0, best: 0 });
 
   // 2026-07-25: skip pagination entirely when the caller opts out (grid
   // thumbnails prefer shrink-to-fit over page-split since a page indicator
@@ -219,6 +223,7 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
       // the guaranteed-fit range so manual scale can never clip or vanish.
       const shown = Math.max(absMinPx, Math.min(ceilPx, Math.round(best * Math.min(1, scale))));
       lastFittedRef.current = best;
+      if (AF_DEBUG) setAfDbg({ bw: Math.round(bw), bh: Math.round(bh), best });
       t.style.fontSize = `${shown}px`;
       t.style.lineHeight = tight ? "1.02" : "1.08";
       setTightLine(tight);
@@ -353,6 +358,11 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
 
   return (
     <div ref={boxRef} className="w-full h-full flex items-center justify-center overflow-hidden relative" style={{ padding: pad }}>
+      {AF_DEBUG && projectorFit && (
+        <div style={{ position: "absolute", bottom: 4, left: 4, zIndex: 9999, background: "#0a84ff", color: "#fff", font: "700 13px monospace", padding: "2px 6px", borderRadius: 4, pointerEvents: "none" }}>
+          AF box {afDbg.bw}×{afDbg.bh} fit={afDbg.best}px
+        </div>
+      )}
       <div
         ref={textRef}
         className={className}
