@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.212",
+    date: "2026-08-15",
+    headline: "No more slide ping-pong on repeated worship lines",
+    highlights: [
+      "Fixed the projector flipping back and forth between two slides on its own during repetitive worship (songs where consecutive slides share most of the same words, e.g. \"lifted high, lifted high\"). When it detects that bouncing, it now holds the slide still and pauses auto-advance briefly so you can move with the ← → keys.",
+    ],
+  },
+  {
     version: "0.1.211",
     date: "2026-08-15",
     headline: "Projector text now fills the screen (big, wrapped, no clipping)",

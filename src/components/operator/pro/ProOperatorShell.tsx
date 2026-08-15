@@ -515,6 +515,42 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   const cooldownUntilRef = useRef(0);
   const lastAdvanceTsRef = useRef(0);
   const progressionHandledForRef = useRef<Set<string>>(new Set());
+  // ── Anti-oscillation guard (2026-08-15) ────────────────────────────────────
+  // Highly repetitive worship songs have near-duplicate slides that share most
+  // words (e.g. "The name of Jesus is lifted high, lifted high" vs "...lifted
+  // high in this place"). The word-match auto-advance can't tell them apart, so
+  // it advances A→B then bounce-backs B→A endlessly — the projector visibly
+  // ping-pongs. This guard detects a move that REVERSES the previous one within
+  // a short window; after one such reversal it PAUSES all auto-advance for a
+  // spell so the slide holds still and the operator navigates with ← →. A clean
+  // forward progression resets it. Every auto-move site routes through it.
+  const lastAutoMoveRef = useRef<{ from: number; to: number; ts: number } | null>(null);
+  const autoOscillationCountRef = useRef(0);
+  const OSC_REVERSAL_WINDOW_MS = 9000;
+  const OSC_PAUSE_MS = 20000;
+  const tryAutoMoveRef = useRef<(from: number, to: number) => boolean>(() => true);
+  tryAutoMoveRef.current = (from: number, to: number): boolean => {
+    const now = Date.now();
+    const lm = lastAutoMoveRef.current;
+    const isReversal = !!lm && lm.to === from && lm.from === to && now - lm.ts < OSC_REVERSAL_WINDOW_MS;
+    if (isReversal) {
+      autoOscillationCountRef.current += 1;
+      // Allow ONE legitimate bounce-back (moved too early → correct back), but a
+      // second reversal is a confirmed ping-pong on repeated lyrics → pause.
+      if (autoOscillationCountRef.current >= 2) {
+        cooldownUntilRef.current = now + OSC_PAUSE_MS;
+        autoOscillationCountRef.current = 0;
+        lastAutoMoveRef.current = null;
+        console.warn(`[song-autoprogression] oscillation ${from}<->${to} — pausing auto-advance ${OSC_PAUSE_MS}ms (repeated lyrics); operator navigates manually`);
+        try { toast.info("Auto-advance paused — repeated lyrics. Use ← → to move slides.", { id: "song-osc", duration: 4000 }); } catch { /* noop */ }
+        return false;
+      }
+    } else {
+      autoOscillationCountRef.current = 0;
+    }
+    lastAutoMoveRef.current = { from, to, ts: now };
+    return true;
+  };
 
   // Keep sendLiveStableRef current every render so the setInterval-based
   // Part 7c (silence ticker) never holds a stale closure.
@@ -970,6 +1006,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     const currCoverage = scoreCoverage(recentWordsRef.current, live.slides[live.currentIdx]);
     const requiredStreak = currCoverage >= 0.80 ? 1 : 2;
     if (matchStreakRef.current >= requiredStreak) {
+      if (!tryAutoMoveRef.current(live.currentIdx, nextIdx)) { matchStreakRef.current = 0; return; }
       const text = live.slides[nextIdx];
       ctx.onSendSlideToLive({ kind: "text", text });
       liveSongRef.current = { ...live, currentIdx: nextIdx };
@@ -1022,6 +1059,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       interimMatchStreakRef.current = 0;
     }
     if (interimMatchStreakRef.current >= 2) {
+      if (!tryAutoMoveRef.current(live.currentIdx, nextIdx)) { interimMatchStreakRef.current = 0; return; }
       const text = live.slides[nextIdx];
       ctx.onSendSlideToLive({ kind: "text", text });
       liveSongRef.current = { ...live, currentIdx: nextIdx };
@@ -1060,6 +1098,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       if (nextIdx >= live.slides.length) return;
       const cov = scoreCoverage(recentWordsRef.current, live.slides[live.currentIdx]);
       if (cov < SONG_COVERAGE_THRESHOLD) return; // haven't heard enough of this slide
+      if (!tryAutoMoveRef.current(live.currentIdx, nextIdx)) return;
       // Silence after ≥ 65% of slide spoken → done, advance
       const text = live.slides[nextIdx];
       sendLiveStableRef.current({ kind: "text", text });
@@ -1101,6 +1140,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       bounceBackStreakRef.current = 0;
     }
     if (bounceBackStreakRef.current >= 1) {
+      if (!tryAutoMoveRef.current(live.currentIdx, live.currentIdx - 1)) { bounceBackStreakRef.current = 0; return; }
       const text = live.slides[live.currentIdx - 1];
       ctx.onSendSlideToLive({ kind: "text", text });
       liveSongRef.current = { ...live, currentIdx: live.currentIdx - 1 };
