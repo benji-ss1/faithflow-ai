@@ -142,7 +142,16 @@ export function createOutputWindow(
   // the transparent BrowserWindow shows through — the /livestream page
   // reads `bg=transparent` for that.
   const livestreamBgParam = isLivestream ? "&bg=transparent" : "";
-  const url = `${appUrl}${ROLE_TO_PATH[role]}?preset=${encodeURIComponent(preset)}&role=${encodeURIComponent(role)}${singleDisplay ? "&windowed=1" : ""}${livestreamObsParam}${livestreamBgParam}`;
+  // Cache-bust the output document. The projector window is chromeless and can't
+  // be deep-reloaded (⌘⇧R) by the operator, and it loads /live ONCE at app start
+  // — so after a web deploy it kept serving the OLD renderer build (e.g. the
+  // small-text projector layout) even though the operator's own window had
+  // updated. A per-load token forces a fresh HTML fetch every time this window
+  // is (re)created, so recreating output or relaunching the app always boots the
+  // latest deployed code. Hashed JS/CSS chunks the fresh HTML references stay
+  // immutable-cached, so the only extra fetch is the tiny HTML document.
+  const cacheBust = `&_cb=${Date.now()}`;
+  const url = `${appUrl}${ROLE_TO_PATH[role]}?preset=${encodeURIComponent(preset)}&role=${encodeURIComponent(role)}${singleDisplay ? "&windowed=1" : ""}${livestreamObsParam}${livestreamBgParam}${cacheBust}`;
 
   // ---- Self-recovery: a projector must NEVER show a blank/error/crashed page
   // to a congregation. On any load failure or renderer crash we show the
