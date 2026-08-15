@@ -130,7 +130,7 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
   const [pageIdx, setPageIdx] = useState(0);
   // TEMP debug (2026-08-15): surface what the fit actually measured so a tiny
   // slide tells us whether the box height collapsed. Remove once resolved.
-  const AF_DEBUG = true;
+  const AF_DEBUG = false;
   const [afDbg, setAfDbg] = useState({ bw: 0, bh: 0, best: 0 });
 
   // 2026-07-25: skip pagination entirely when the caller opts out (grid
@@ -166,7 +166,27 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
     // floor, tighten line-height and allow clipping into the safe-area
     // padding instead of shrinking further.
     if (projectorFit) {
-      const containerH = box.clientHeight;
+      // COLLAPSED-BOX GUARD (2026-08-15 — the "some songs are tiny" root cause).
+      // Every projector slide now lives inside the FIXED PresentationCanvas
+      // (1920×1080, or 1440×1080 for 4:3), so the safe-area box is ALWAYS close
+      // to 16:9 (bh ≈ bw × 0.54 after padding) or 4:3 (× 0.73). When the measured
+      // height comes back far below what the width implies (bh < bw × 0.45) the
+      // box has NOT finished laying out on the frame the slide first paints — a
+      // transient flex/percentage-height collapse. Trusting that stunted height
+      // makes `fitsAt` reject every multi-line size (only ONE line fits a sliver
+      // of height), so long lyrics/verses collapse to a tiny font while a single
+      // word still rides the ceiling — EXACTLY the inverted "short = huge, long =
+      // tiny" bug seen on the projector. Fix: when the box looks collapsed,
+      // substitute the height the width implies (canvas 16:9 aspect) so the fit
+      // is correct even mid-collapse. A correctly-measured box (bh/bw ≈ 0.54 or
+      // 0.73) is always > 0.45, so this NEVER alters a healthy measurement.
+      let ebw = bw;
+      let ebh = bh;
+      let containerH = box.clientHeight;
+      if (ebh < ebw * 0.45) {
+        ebh = Math.round(ebw * 0.5625); // 16:9 safe-area height from the width
+        containerH = Math.round(box.clientWidth * 0.5625);
+      }
       // PREFERRED readable minimum (9% of height). Normal verses land at or above
       // this via the largest-fit. It is NOT a hard clamp.
       const prefFloorPx = projectorFloorPx(containerH);
@@ -182,7 +202,7 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
       t.style.lineHeight = "1.08";
       const fitsAt = (px: number) => {
         t.style.fontSize = `${px}px`;
-        return t.scrollWidth <= bw + 1 && t.scrollHeight <= bh + 1;
+        return t.scrollWidth <= ebw + 1 && t.scrollHeight <= ebh + 1;
       };
 
       // ProPresenter-style SCALE-UP-TO-FIT (maximize space) on the fixed 1920×1080
@@ -195,7 +215,7 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
       // needed, and pathologically long text bottoms out at the guaranteed-fit
       // floor rather than clipping. A−/A+ scale rides the ceiling. Seeded by the
       // word-count band for fast convergence; cached by text+box.
-      const projKey = `projfit|${Math.round(bw / 4) * 4}|${Math.round(bh / 4) * 4}|${absMinPx}|${ceilPx}|${fontToken}|${currentText}`;
+      const projKey = `projfit|${Math.round(ebw / 4) * 4}|${Math.round(ebh / 4) * 4}|${absMinPx}|${ceilPx}|${fontToken}|${currentText}`;
       let best: number;
       const cachedProj = fitCacheGet(projKey);
       if (cachedProj !== undefined) {

@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.217",
+    date: "2026-08-15",
+    headline: "Fixed: some songs projecting tiny — plus a cleaner notification style",
+    highlights: [
+      "Fixed the last projector-sizing bug: some song slides (and long verses) were rendering tiny while single words looked huge. The text engine was occasionally measuring the slide before its box had finished laying out and crushing multi-line text to fit a sliver of height. It now always sizes against the full presentation canvas, so every song and verse fills the screen the same big, clean way.",
+      "New notification style: on-screen messages (added, removed, undo, saved, errors) now all use one clean, strong dark card with a crisp action button — no more mismatched loud colours.",
+    ],
+  },
+  {
     version: "0.1.216",
     date: "2026-08-15",
     headline: "Clicking a playlist item no longer projects it live",

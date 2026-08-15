@@ -47,7 +47,7 @@ export function PresentationCanvas({
   // TEMP debug (2026-08-15): surface the measured surface size + scale so we can
   // see, on the actual projector output, whether the fixed-canvas scaling is
   // active. Remove once the projector/preview parity is confirmed.
-  const DEBUG = true;
+  const DEBUG = false;
 
   useLayoutEffect(() => {
     const outer = outerRef.current;

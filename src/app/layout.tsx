@@ -48,7 +48,50 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         {children}
         <ServiceWorkerRegister />
         <OfflineIndicator />
-        <Toaster position="top-right" theme={isDark ? "dark" : "light"} richColors closeButton />
+        {/* Notification style (2026-08-15): the clean, strong dark card — the
+            "Added: … [Undo]" look the user asked to standardise on. richColors
+            (loud green/red fills) is OFF so EVERY toast — success, error, info,
+            undo — renders as the same premium neutral card with a white action
+            pill. Semantic meaning still reads via sonner's status icon + the
+            message text, without the shouty backgrounds. */}
+        <Toaster
+          position="top-right"
+          theme={isDark ? "dark" : "light"}
+          closeButton
+          gap={10}
+          toastOptions={{
+            style: {
+              background: isDark ? "rgba(15,15,17,0.96)" : "rgba(255,255,255,0.98)",
+              color: isDark ? "#f4f4f5" : "#18181b",
+              border: isDark
+                ? "1px solid rgba(255,255,255,0.10)"
+                : "1px solid rgba(0,0,0,0.08)",
+              borderRadius: "14px",
+              boxShadow: isDark
+                ? "0 14px 44px rgba(0,0,0,0.55)"
+                : "0 14px 44px rgba(0,0,0,0.16)",
+              fontSize: "15px",
+              fontWeight: 600,
+              letterSpacing: "-0.01em",
+              padding: "15px 17px",
+              backdropFilter: "blur(14px)",
+              WebkitBackdropFilter: "blur(14px)",
+            },
+            actionButtonStyle: {
+              background: isDark ? "#ffffff" : "#18181b",
+              color: isDark ? "#0f0f11" : "#ffffff",
+              fontWeight: 700,
+              fontSize: "14px",
+              borderRadius: "9px",
+              padding: "8px 15px",
+            },
+            cancelButtonStyle: {
+              background: "transparent",
+              color: isDark ? "#a1a1aa" : "#71717a",
+              fontWeight: 600,
+            },
+          }}
+        />
         {isVercelProd ? <Analytics /> : null}
         {isVercelProd ? <SpeedInsights /> : null}
       </body>
