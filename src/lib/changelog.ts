@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.206",
+    date: "2026-08-15",
+    headline: "NIV/NKJV/NLT now actually show in the Bible picker",
+    highlights: [
+      "The Bible translation dropdown was hardcoded to KJV/WEB/ASV — it now loads the full list your church can use, so NIV, NKJV and NLT appear there and can be picked for lookups and going live.",
+      "The Settings → Bible tab now shows NIV/NKJV/NLT as included (unlocked) for your church, with your own API key optional.",
+    ],
+  },
+  {
     version: "0.1.205",
     date: "2026-08-15",
     headline: "NIV, NKJV & NLT now on for every church — no setup",

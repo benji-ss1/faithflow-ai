@@ -5,7 +5,7 @@ import { getDb } from "@/lib/db/client";
 import { licensedTranslations } from "@/lib/db/schema";
 import { encrypt } from "@/lib/server/encryption";
 import { API_BIBLE_TRANSLATIONS } from "@/lib/server/api-bible";
-import { invalidateLicensedCache } from "@/lib/server/bible";
+import { invalidateLicensedCache, getGlobalApiBibleKey } from "@/lib/server/bible";
 
 export const runtime = "nodejs";
 
@@ -39,12 +39,16 @@ export async function GET() {
       ),
     );
 
+  // A platform-wide global key unlocks the supported set for every church, so
+  // report those as active even without a church-specific row (matches what the
+  // picker + verse lookups actually do). A church's own active row also counts.
+  const globalActive = !!getGlobalApiBibleKey();
   const status = API_BIBLE_TRANSLATIONS.map((t) => {
     const row = rows.find((r) => r.displayCode === t.code);
-    return { code: t.code, name: t.name, active: row?.active ?? false };
+    return { code: t.code, name: t.name, active: globalActive || (row?.active ?? false) };
   });
 
-  return NextResponse.json({ status });
+  return NextResponse.json({ status, globalKey: globalActive });
 }
 
 /**

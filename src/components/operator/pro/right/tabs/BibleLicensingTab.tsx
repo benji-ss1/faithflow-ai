@@ -227,7 +227,8 @@ export function BibleLicensingTab() {
           )}
         </div>
         <p className="text-[10px] text-[var(--color-muted-foreground)] leading-relaxed mb-2">
-          Unlocks NIV, NKJV, NLT, and AMP via{" "}
+          NIV, NKJV and NLT are already included for your church — no key needed.
+          You can optionally add your own{" "}
           <a
             href="https://scripture.api.bible"
             target="_blank"
@@ -235,8 +236,8 @@ export function BibleLicensingTab() {
             className="underline hover:text-[var(--color-foreground)]"
           >
             api.scripture.api.bible
-          </a>
-          . Free account required. The key is stored encrypted.
+          </a>{" "}
+          key to use your own quota. The key is stored encrypted.
         </p>
         <div className="flex gap-2">
           <input
@@ -277,7 +278,7 @@ export function BibleLicensingTab() {
         </p>
         <div className="flex flex-col gap-1">
           {translations.length === 0
-            ? (["NIV", "NKJV", "NLT", "AMP"] as const).map((code) => (
+            ? (["NIV", "NKJV", "NLT"] as const).map((code) => (
                 <TranslationRow key={code} code={code} active={false} />
               ))
             : translations.map((t) => (

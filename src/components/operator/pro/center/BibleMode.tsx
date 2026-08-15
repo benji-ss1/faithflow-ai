@@ -95,6 +95,33 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
   const [showAllCrossRefs, setShowAllCrossRefs] = useState(false);
   const dropdownDebounceRef = useRef<number | null>(null);
 
+  // Translation options — fetched from /api/bible/translations so the picker
+  // shows EVERY version available to this church (public-domain KJV/WEB/ASV plus
+  // any licensed NIV/NKJV/NLT unlocked by the church's own key OR the platform
+  // global key). Previously these were hardcoded to KJV/WEB/ASV, so licensed
+  // translations never appeared in the operator's Bible picker even when active.
+  // Seeded with the public-domain trio so the control is never empty on first paint.
+  const [translationOptions, setTranslationOptions] = useState<Array<{ code: string; name: string }>>([
+    { code: "KJV", name: "King James Version" },
+    { code: "WEB", name: "World English Bible" },
+    { code: "ASV", name: "American Standard Version" },
+  ]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/bible/translations").then((r) => r.json());
+        const list = Array.isArray(res?.translations)
+          ? (res.translations as Array<{ code?: string; name?: string }>)
+              .map((t) => ({ code: String(t.code || "").toUpperCase(), name: String(t.name || t.code || "") }))
+              .filter((t) => t.code)
+          : [];
+        if (!cancelled && list.length > 0) setTranslationOptions(list);
+      } catch { /* keep the seeded public-domain trio */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   // Pending guards against duplicate-add: a rapid double-click or impatient
   // repeat-click on the `+` button (or the batch "add all" button) could
   // fire the add action twice while the first call is still in flight. Track
@@ -600,9 +627,9 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
           }}
           className="h-9 px-2 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded-md text-sm"
         >
-          <option value="KJV">King James Version</option>
-          <option value="WEB">World English Bible</option>
-          <option value="ASV">American Standard Version</option>
+          {translationOptions.map((t) => (
+            <option key={t.code} value={t.code}>{t.name}</option>
+          ))}
         </select>
         <button
           onClick={() => {
