@@ -47,12 +47,16 @@ async function main() {
   section("3. Licensed translation metadata seeding");
   const allRows = await db.select({ code: bibleTranslations.code, licenseRequired: bibleTranslations.licenseRequired })
     .from(bibleTranslations);
-  const seeded = ["NIV","NKJV","NLT","AMP"].filter(c => allRows.some(r => r.code === c && r.licenseRequired));
-  if (seeded.length === 4) {
-    pass(`All 4 licensed translations seeded in bible_translations: ${seeded.join(", ")}`);
+  // AMP was dropped 2026-08-15 (not offered on the Starter API.Bible tier); the
+  // supported set is NIV/NKJV/NLT. AMP's legacy metadata row may still exist and
+  // is harmless (degrades to "not available"), so we don't assert on it.
+  const SUPPORTED = ["NIV","NKJV","NLT"];
+  const seeded = SUPPORTED.filter(c => allRows.some(r => r.code === c && r.licenseRequired));
+  if (seeded.length === SUPPORTED.length) {
+    pass(`All ${SUPPORTED.length} licensed translations seeded in bible_translations: ${seeded.join(", ")}`);
   } else {
-    fail(`Only ${seeded.length}/4 seeded: ${seeded.join(", ")}`);
-    const missing = ["NIV","NKJV","NLT","AMP"].filter(c => !seeded.includes(c));
+    fail(`Only ${seeded.length}/${SUPPORTED.length} seeded: ${seeded.join(", ")}`);
+    const missing = SUPPORTED.filter(c => !seeded.includes(c));
     console.error(`    Missing: ${missing.join(", ")}`);
   }
 
@@ -141,12 +145,7 @@ async function main() {
     const nltVerses = await lookupReference(nlt.id, "Romans", 8, 28, 28, undefined, "NLT", TEST_CHURCH_ID);
     if (nltVerses.length > 0) pass(`NLT Romans 8:28: "${nltVerses[0].text.slice(0, 80)}..."`);
     else fail("NLT Romans 8:28 returned 0 verses");
-
-    // AMP
-    const amp = allTranslations.find(t => t.code === "AMP")!;
-    const ampVerses = await lookupReference(amp.id, "Philippians", 4, 13, 13, undefined, "AMP", TEST_CHURCH_ID);
-    if (ampVerses.length > 0) pass(`AMP Phil 4:13: "${ampVerses[0].text.slice(0, 80)}..."`);
-    else fail("AMP Phil 4:13 returned 0 verses");
+    // AMP dropped 2026-08-15 (not on the Starter API.Bible tier) — no lookup test.
   }
 
   // 9. CCLI save/read

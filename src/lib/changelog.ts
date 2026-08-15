@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.204",
+    date: "2026-08-15",
+    headline: "NIV, NKJV & NLT — add your API.Bible key to unlock them",
+    highlights: [
+      "You can now project the NIV, NKJV and New Living Translation. In Settings → Bible, paste your free API.Bible key and these versions turn on for your church — verses are fetched live and cached, so voice-detection and the translation switcher work with them too.",
+      "Fixed the version wiring so each translation now returns its correct text (an earlier build had NKJV/NLT pointing at the wrong Bibles).",
+    ],
+  },
+  {
     version: "0.1.203",
     date: "2026-08-14",
     headline: "Smarter: knows a spoken Bible verse from a sung song",

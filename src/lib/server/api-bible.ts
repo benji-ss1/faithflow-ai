@@ -243,16 +243,26 @@ export function clearApiBibleCache(): void {
   cache.clear();
 }
 
-/** The four licensed translations this integration supports (via API.Bible). */
+/** Licensed translations this integration supports via API.Bible.
+ *  The bibleId is the provider's opaque Bible ID and MUST match the exact
+ *  translation — a wrong ID silently returns a DIFFERENT Bible's text.
+ *  Verified 2026-08-15 against a live API.Bible key by fetching John 3:16 and
+ *  confirming the wording:
+ *    NIV  78a9f6124f344018-01 → "one and only Son … eternal life"
+ *    NKJV 63097d2a0a2f7db3-01 → "only begotten Son … everlasting life"
+ *    NLT  d6e14a625393b4da-01 → "For this is how God loved the world …"
+ *  (The previous NKJV/NLT/AMP IDs pointed at the Cambridge-Paragraph KJV, the
+ *  Free Bible Version, and the Literal Standard Version respectively — wrong
+ *  text. AMP is not offered on the Starter API.Bible tier, so it's dropped;
+ *  re-add with a verified ID if a plan includes it.) */
 export const API_BIBLE_TRANSLATIONS: Array<{
   code: string;
   name: string;
   bibleId: string;
 }> = [
   { code: "NIV",  name: "New International Version",  bibleId: "78a9f6124f344018-01" },
-  { code: "NKJV", name: "New King James Version",     bibleId: "55212e3cf5d04d49-01" },
-  { code: "NLT",  name: "New Living Translation",     bibleId: "65eec8e0b60e656b-01" },
-  { code: "AMP",  name: "Amplified Bible",            bibleId: "01b29f4b342acc35-01" },
+  { code: "NKJV", name: "New King James Version",     bibleId: "63097d2a0a2f7db3-01" },
+  { code: "NLT",  name: "New Living Translation",     bibleId: "d6e14a625393b4da-01" },
 ];
 
 /**

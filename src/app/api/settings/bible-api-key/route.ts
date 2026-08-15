@@ -97,7 +97,10 @@ export async function POST(req: Request) {
     if (existing.length > 0) {
       await db
         .update(licensedTranslations)
-        .set({ apiKeyEncrypted, active: true })
+        // Refresh providerBibleId + displayName too, not just the key — an
+        // earlier save may have stored a stale/incorrect provider Bible ID
+        // (the 2026-08-15 ID correction). Re-saving the key now heals the row.
+        .set({ apiKeyEncrypted, active: true, providerBibleId: t.bibleId, displayName: t.name })
         .where(
           and(
             eq(licensedTranslations.churchId, user.churchId),
