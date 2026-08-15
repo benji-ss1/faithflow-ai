@@ -36,7 +36,13 @@
  * vs licensed split, and the ESV.org API scaffold.
  */
 
-export type TranslationSwitchMatch = { code: string; matchedPhrase: string };
+export type TranslationSwitchMatch = { code: string; matchedPhrase: string; revert?: boolean };
+
+// "Go back" to the PREVIOUS translation. Deliberately translation-anchored so a
+// bare "go back to your seats" / "let's go back to the point" can't fire — it
+// must name a translation/version or be an unambiguous "switch back". The shell
+// resolves the actual previous code (the detector doesn't track state).
+const REVERT_RE = /\b(switch back|change back|(?:go|put it|take it|bring it|read it) back to (?:the )?(?:previous|last|other|old)(?: one| version| translation)?|back to (?:the )?(?:previous|last|other) (?:one|version|translation)|(?:the )?previous (?:version|translation)|(?:the )?other (?:version|translation))\b/i;
 
 /** Public-domain set seeded by scripts/seed-bible.ts — the fallback when
  * the shell hasn't hydrated the live list yet. */
@@ -316,6 +322,14 @@ export function detectTranslationSwitch(
       const m = phrase.exec(text);
       if (m && hasIntentAround(text, m.index, m[0].length)) { hit = { code, matchedPhrase: m[0] }; break; }
     }
+  }
+
+  // 5) Revert — "switch back" / "go back to the previous translation". Only when
+  //    no specific code was named (a named code like "go back to KJV" already
+  //    fired above). The shell holds the previous-translation state.
+  if (!hit) {
+    const m = REVERT_RE.exec(text);
+    if (m) hit = { code: "", matchedPhrase: m[0], revert: true };
   }
 
   if (!hit) return null;

@@ -1702,7 +1702,9 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
             const tHit = detectTranslationSwitch(msg.text);
             if (tHit && typeof window !== "undefined") {
               dispatchInternal("presentflow:voice-command", {
-                action: `switch_translation:${tHit.code}`,
+                // Revert ("switch back") carries no code — the shell resolves the
+                // previous translation. A normal switch carries the target code.
+                action: tHit.revert ? "revert_translation" : `switch_translation:${tHit.code}`,
                 phrase: tHit.matchedPhrase,
               });
             }

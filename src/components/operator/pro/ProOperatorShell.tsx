@@ -3142,6 +3142,9 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       });
       return;
     }
+    // Remember the outgoing translation so "switch back" can revert to it.
+    const outgoing = bibleSession.state.translation;
+    if (outgoing && outgoing.toUpperCase() !== upper) prevTranslationRef.current = outgoing.toUpperCase();
     bibleSession.setTranslation(upper);
     try {
       window.dispatchEvent(new CustomEvent("presentflow:switch-translation", { detail: { code: upper } }));
@@ -3258,6 +3261,17 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const applyTranslationSwitchRef = useRef(applyTranslationSwitch);
   useEffect(() => { applyTranslationSwitchRef.current = applyTranslationSwitch; }, [applyTranslationSwitch]);
 
+  // "Switch back" — revert to the translation active before the last switch.
+  // Reuses applyTranslationSwitch so the current live verse + preview re-render.
+  const prevTranslationRef = useRef<string | null>(null);
+  const revertTranslation = useCallback((spokenPhrase: string) => {
+    const prev = prevTranslationRef.current;
+    if (!prev) { toast.info(`Heard "${spokenPhrase}" — no previous translation to switch back to.`, { id: "translation-switch" }); return; }
+    void applyTranslationSwitchRef.current(prev, spokenPhrase);
+  }, []);
+  const revertTranslationRef = useRef(revertTranslation);
+  useEffect(() => { revertTranslationRef.current = revertTranslation; }, [revertTranslation]);
+
   // Runtime hook for user-added voice commands. useAudioStream matches the
   // transcript against `presentflow.pro.voiceCommands.v1` and dispatches
   // `presentflow:voice-command` with { action, phrase }. Route the action to
@@ -3290,6 +3304,22 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           });
         }
         return; // handled — skip generic "Voice command" toast below
+      }
+      // Revert to the previous translation ("switch back", "go back to the
+      // previous version"). AUTO fires immediately; manual offers a tap-confirm.
+      if (action === "revert_translation") {
+        const prev = prevTranslationRef.current;
+        if (!prev) { toast.info(`Heard "${phrase}" — no previous translation to switch back to.`, { id: "translation-switch" }); return; }
+        if (ctx.autoApproveOn) {
+          void revertTranslationRef.current(phrase ?? "switch back");
+        } else {
+          toast.info(`Switch back to ${prev}? — heard "${phrase ?? "switch back"}"`, {
+            id: "translation-switch",
+            duration: 12000,
+            action: { label: `Back to ${prev}`, onClick: () => { void revertTranslationRef.current(phrase ?? "switch back"); } },
+          });
+        }
+        return;
       }
       switch (action) {
         case "next_verse":

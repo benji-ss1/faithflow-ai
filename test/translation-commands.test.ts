@@ -100,6 +100,41 @@ async function main() {
     assert.strictEqual(hit, null);
   });
 
+  // ── "can we go to X" phrasing ────────────────────────────────────────────
+  await check("'can we go to the NIV' → NIV", () => {
+    const hit = detect("can we go to the NIV");
+    assert.strictEqual(hit?.code, "NIV");
+  });
+  await check("'can we go to the New Living Translation' → NLT", () => {
+    const hit = detect("can we go to the new living translation");
+    assert.strictEqual(hit?.code, "NLT");
+  });
+
+  // ── Revert / "switch back" ───────────────────────────────────────────────
+  await check("'switch back' → revert flag (no code)", () => {
+    const hit = detect("okay switch back");
+    assert.strictEqual(hit?.revert, true);
+  });
+  await check("'go back to the previous translation' → revert", () => {
+    const hit = detect("can we go back to the previous translation");
+    assert.strictEqual(hit?.revert, true);
+  });
+  await check("'go back to the other version' → revert", () => {
+    const hit = detect("let's go back to the other version");
+    assert.strictEqual(hit?.revert, true);
+  });
+  // Guard: a named 'go back to KJV' resolves to KJV (code path), NOT bare revert.
+  await check("'go back to KJV' → KJV (named, not revert)", () => {
+    const hit = detect("go back to KJV");
+    assert.strictEqual(hit?.code, "KJV");
+    assert.notStrictEqual(hit?.revert, true);
+  });
+  // Guard: sermon "go back to your seats" must NOT trigger a revert.
+  await check("'go back to your seats' does NOT revert", () => {
+    const hit = detect("please go back to your seats");
+    assert.strictEqual(hit, null);
+  });
+
   await check("bare CSB (expanded set) fires", () => {
     const hit = detect("try CSB");
     assert.strictEqual(hit?.code, "CSB");

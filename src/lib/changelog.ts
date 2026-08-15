@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.210",
+    date: "2026-08-15",
+    highlights: [
+      "You can now say \"can we go to the NIV\" (or any version) to switch, and \"switch back\" / \"go back to the previous translation\" to return to the version you had before — it re-renders the live verse too.",
+      "Careful guards: \"go back to your seats\" during a sermon won't switch anything, and \"go back to KJV\" goes straight to the KJV.",
+    ],
+    headline: "Say \"can we go to…\" and \"switch back\" for translations",
+  },
+  {
     version: "0.1.209",
     date: "2026-08-15",
     headline: "AI-detected non-existent verses show the notice too",
