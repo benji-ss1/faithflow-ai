@@ -5,7 +5,45 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import { getDb } from "../db/client";
 import { bibleTranslations, bibleVerses, licensedTranslations } from "../db/schema";
 import { embed, toVectorLiteral } from "../embeddings";
-import { fetchApiBibleVerses, decryptApiKey } from "./api-bible";
+import { fetchApiBibleVerses, decryptApiKey, API_BIBLE_TRANSLATIONS } from "./api-bible";
+
+/**
+ * Global (platform-wide) API.Bible key. Optional. When set, every church gets
+ * the supported licensed translations (NIV/NKJV/NLT) with no per-church setup —
+ * a church's OWN key (licensed_translations row) always takes precedence over
+ * this. Read lazily so a missing env var never throws at import time. All calls
+ * share this one key's quota, so keep an eye on the API.Bible dashboard.
+ */
+export function getGlobalApiBibleKey(): string | null {
+  const k = process.env.API_BIBLE_KEY?.trim();
+  return k && k.length >= 8 ? k : null;
+}
+
+/** Map a display code (e.g. "NIV") → the verified provider Bible ID, or null. */
+function globalBibleIdForCode(code: string): string | null {
+  const t = API_BIBLE_TRANSLATIONS.find((x) => x.code.toUpperCase() === code.toUpperCase());
+  return t?.bibleId ?? null;
+}
+
+/**
+ * Which licensed codes are available to a church RIGHT NOW — via the church's
+ * own active key, plus (if a platform key is configured) the globally-supported
+ * set. Used by the translations API so the picker + voice switcher only offer
+ * codes that will actually resolve. Returns UPPERCASE codes.
+ */
+export async function availableLicensedCodes(churchId: string): Promise<Set<string>> {
+  const out = new Set<string>();
+  const db = getDb();
+  const rows = await db
+    .select({ displayCode: licensedTranslations.displayCode, active: licensedTranslations.active })
+    .from(licensedTranslations)
+    .where(eq(licensedTranslations.churchId, churchId));
+  for (const r of rows) if (r.active) out.add(r.displayCode.toUpperCase());
+  if (getGlobalApiBibleKey()) {
+    for (const t of API_BIBLE_TRANSLATIONS) out.add(t.code.toUpperCase());
+  }
+  return out;
+}
 
 export type Translation = { id: string; code: string; name: string; isPublicDomain: boolean; licenseRequired: boolean };
 export type Verse = { id: string; book: string; bookOrder: number; chapter: number; verse: number; text: string };
@@ -158,19 +196,32 @@ export async function lookupReference(
     return rows;
   }
 
-  // Licensed translation path — no verses stored locally.
-  // Fall back to API.Bible when church has an active licensed row.
-  if (!churchId || !translationCode) return [];
-  const licensed = await getLicensedRow(churchId, translationCode);
-  if (!licensed) return [];
-  const apiKey = decryptApiKey(licensed.apiKeyEncrypted);
-  if (!apiKey) return [];
+  // Licensed translation path — no verses stored locally. Resolve API.Bible
+  // access: the church's OWN active key wins; otherwise fall back to the
+  // platform-wide global key (getGlobalApiBibleKey) so churches that haven't
+  // configured their own still get NIV/NKJV/NLT.
+  if (!translationCode) return [];
+  let providerBibleId: string | null = null;
+  let apiKey: string | null = null;
+  if (churchId) {
+    const licensed = await getLicensedRow(churchId, translationCode);
+    if (licensed) {
+      const k = decryptApiKey(licensed.apiKeyEncrypted);
+      if (k) { providerBibleId = licensed.providerBibleId; apiKey = k; }
+    }
+  }
+  if (!apiKey) {
+    const globalKey = getGlobalApiBibleKey();
+    const bibleId = globalBibleIdForCode(translationCode);
+    if (globalKey && bibleId) { providerBibleId = bibleId; apiKey = globalKey; }
+  }
+  if (!apiKey || !providerBibleId) return [];
 
   // For cross-chapter licensed lookups, iterate per chapter.
   const chEnd = chapterEnd && chapterEnd > chapter ? chapterEnd : chapter;
   if (chEnd === chapter) {
     return (await fetchApiBibleVerses(
-      licensed.providerBibleId, apiKey, book, chapter, verseStart, verseEnd, translationId,
+      providerBibleId, apiKey, book, chapter, verseStart, verseEnd, translationId,
     )) ?? [];
   }
   // Multi-chapter: fetch each chapter's segment and concatenate.
@@ -179,7 +230,7 @@ export async function lookupReference(
     const vStart = ch === chapter ? verseStart : 1;
     const vEnd = ch === chEnd ? verseEnd : 200; // 200 is a safe upper bound
     const seg = await fetchApiBibleVerses(
-      licensed.providerBibleId, apiKey, book, ch, vStart, vEnd, translationId,
+      providerBibleId, apiKey, book, ch, vStart, vEnd, translationId,
     );
     if (seg) segments.push(seg);
   }

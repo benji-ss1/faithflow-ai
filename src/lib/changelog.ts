@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.205",
+    date: "2026-08-15",
+    headline: "NIV, NKJV & NLT now on for every church — no setup",
+    highlights: [
+      "The NIV, NKJV and New Living Translation are now available to every church automatically — no API key to enter. They show up in the translation picker beside KJV/WEB/ASV, and you can switch to them by voice while preaching (\"switch to the NIV\").",
+      "A church can still add its own API.Bible key to use its own quota, but it's no longer required.",
+    ],
+  },
+  {
     version: "0.1.204",
     date: "2026-08-15",
     headline: "NIV, NKJV & NLT — add your API.Bible key to unlock them",
