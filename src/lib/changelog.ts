@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.211",
+    date: "2026-08-15",
+    headline: "Projector text now fills the screen (big, wrapped, no clipping)",
+    highlights: [
+      "Fixed the big one: verses and lyrics were projecting as a single tiny line clipped at the edges, even though they looked perfect in the app. They now wrap and fill the screen on the projector — large and readable from the back — matching the operator preview.",
+      "Also added a bit more safe-area margin so projectors that crop the edges (overscan) no longer cut off the first and last words.",
+    ],
+  },
+  {
     version: "0.1.210",
     date: "2026-08-15",
     highlights: [

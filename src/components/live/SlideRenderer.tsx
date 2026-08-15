@@ -179,7 +179,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
               text={soleText.text}
               maxPx={120}
               minPx={textMinPx}
-              paddingRatio={projectorFit ? 0.035 : 0.06}
+              paddingRatio={projectorFit ? 0.05 : 0.06}
               disablePagination={disablePagination}
               projectorFit={projectorFit}
               fontScale={fontScale}
@@ -207,7 +207,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
           // Tighter safe-area on the projector path (6% → 3.5%) so scripture &
           // lyrics use more of the screen — bigger crowd-readable text. Still
           // enough inset that letters never touch the bezel.
-          paddingRatio={projectorFit ? 0.035 : 0.06}
+          paddingRatio={projectorFit ? 0.05 : 0.06}
           disablePagination={disablePagination}
           projectorFit={projectorFit}
           fontScale={fontScale}

@@ -268,14 +268,39 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
     setSize(shown);
   };
 
-  useLayoutEffect(() => { fit(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [currentText, fontScale, fontToken]);
+  // Always call the LATEST fit closure from listeners set up once. Without this,
+  // the ResizeObserver below (empty deps) captured the FIRST render's `fit`,
+  // which held stale `currentText`/dimensions — so when a FRESH projector window
+  // settled its real height AFTER the initial fit, the observer's re-fit ran the
+  // stale closure and the wrong size (one tiny line, text measured against a
+  // not-yet-settled height) never self-corrected. The operator preview never hit
+  // this because its aspect-video box has a stable height on first paint.
+  const fitRef = useRef(fit);
+  fitRef.current = fit;
+
+  useLayoutEffect(() => {
+    fit();
+    // A fresh output window (projector) can still be settling its flex height on
+    // the frame the slide first paints — measuring a too-small height makes the
+    // engine pick a single line. Re-fit on the next two frames so the size lands
+    // on the SETTLED dimensions. Cheap (fit is cached by text+box) and idempotent.
+    let r2 = 0;
+    const r1 = requestAnimationFrame(() => { fitRef.current(); r2 = requestAnimationFrame(() => fitRef.current()); });
+    return () => { cancelAnimationFrame(r1); if (r2) cancelAnimationFrame(r2); };
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [currentText, fontScale, fontToken]);
 
   useEffect(() => {
     const box = boxRef.current;
     if (!box) return;
-    const ro = new ResizeObserver(() => fit());
+    const ro = new ResizeObserver(() => fitRef.current());
     ro.observe(box);
-    return () => ro.disconnect();
+    // Belt-and-braces: a projector window going fullscreen / a display
+    // connecting fires a window resize that a box-scoped ResizeObserver can miss
+    // on some compositors. Re-fit on those too.
+    const onResize = () => fitRef.current();
+    window.addEventListener("resize", onResize);
+    return () => { ro.disconnect(); window.removeEventListener("resize", onResize); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -288,7 +313,7 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
   useEffect(() => {
     if (typeof document === "undefined" || !document.fonts?.ready) return;
     let cancelled = false;
-    document.fonts.ready.then(() => { if (!cancelled) fit(); });
+    document.fonts.ready.then(() => { if (!cancelled) fitRef.current(); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -326,6 +351,13 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
           overflowWrap: "break-word",
           wordBreak: "normal",
           textWrap: "balance",
+          // Projector: force the text block to the FULL container width so long
+          // lines MUST wrap (and the binary search grows the font to fill the
+          // HEIGHT with wrapped lines) instead of shrinking a single line to fit
+          // the width — the exact failure that made verses/lyrics project as one
+          // tiny clipped line. text-align keeps it centred within the full width.
+          // Non-projector surfaces (thumbnails) keep shrink-to-fit (maxWidth only).
+          width: projectorFit ? "100%" : undefined,
           maxWidth: "100%",
           maxHeight: "100%",
           textTransform: "uppercase", // ProPresenter-style crowd readability (2026-08-11, user: always-on). The fit measures the transformed (wider) glyphs, so sizing stays correct.
