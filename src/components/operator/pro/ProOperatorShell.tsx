@@ -1952,6 +1952,49 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           verses: [{ verse: v.verse, text: v.text }],
         }));
         if (cards.length === 0) {
+          // AI-detected reference returned no verses. Distinguish a genuinely
+          // non-existent verse ("Genesis 1:102") from a transient/unknown
+          // failure by probing verse 1 of the same chapter: if that EXISTS, the
+          // chapter is real and the requested verse number is out of range, so
+          // it's not a real verse → show the friendly notice (and replace the
+          // label-only slide already on the projector). If verse 1 is also empty
+          // (garbled book/chapter, or a transient failure), keep the neutral
+          // placeholder — so a mangled mishearing never projects "not in the
+          // Bible" to the congregation.
+          let chapterExists = false;
+          try {
+            const probe = await cachedLookup({
+              book: scripture.ref.book, chapter: scripture.ref.chapter,
+              verseStart: 1, verseEnd: 1,
+              translationCode: bibleSession.state.translation, source: "ai",
+            });
+            chapterExists = probe.verses.length > 0;
+          } catch { /* treat as unknown */ }
+
+          if (chapterExists) {
+            const refLabel = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}${scripture.ref.verseStart !== scripture.ref.verseEnd ? `-${scripture.ref.verseEnd}` : ""}`;
+            const notice = "This verse isn't in the Bible.\nPlease check the reference.";
+            autoFireCardsRef.current = [{
+              id: `ai-invalid-${key}`,
+              label: refLabel,
+              verses: [{ verse: scripture.ref.verseStart, text: notice }],
+              invalid: notice,
+              placeholder: true, // never auto-fires; already handled here
+            }];
+            // Replace the label-only slide we instant-fired with the notice, so
+            // the projector shows the message instead of a bare reference.
+            if (autoOn && isHighConf) {
+              try {
+                sendLiveRef.current({ kind: "text", text: `${notice}\n\n${refLabel}` }, null, { instant: true });
+              } catch { /* noop */ }
+              bibleSession.setCards(autoFireCardsRef.current);
+              bibleSession.setSelectedIdx(0);
+            }
+            toast.warning(`"${refLabel}" isn't a verse in the Bible — check the reference.`);
+            setAutoFireCardsTick((t) => t + 1);
+            return;
+          }
+
           autoFireCardsRef.current = [{
             id: `ai-error-${key}`,
             label,

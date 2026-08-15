@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.209",
+    date: "2026-08-15",
+    headline: "AI-detected non-existent verses show the notice too",
+    highlights: [
+      "When the AI hears a reference that isn't a real verse (e.g. a slip like \"Genesis 1:102\"), it now shows the \"this verse isn't in the Bible\" notice on the projector instead of a bare reference with no text — the same friendly message as a manual lookup.",
+      "It's careful: the notice only appears when the chapter genuinely exists but the verse number is out of range, so a garbled mishearing never projects it.",
+    ],
+  },
+  {
     version: "0.1.208",
     date: "2026-08-15",
     headline: "\"IV\" now means NIV, and non-existent verses are flagged",
