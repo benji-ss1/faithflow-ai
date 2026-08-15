@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.207",
+    date: "2026-08-15",
+    headline: "Fixed: NIV/NKJV/NLT verses now show their actual text",
+    highlights: [
+      "Critical fix — licensed verses (NIV, NKJV, NLT) were projecting with only the reference label and no verse text. They now show the full verse correctly, for single verses, ranges and whole chapters, verified live against every version.",
+    ],
+  },
+  {
     version: "0.1.206",
     date: "2026-08-15",
     headline: "NIV/NKJV/NLT now actually show in the Bible picker",

@@ -121,11 +121,21 @@ const BOOK_ORDER: Record<string, number> = Object.fromEntries([
   "HEB","JAS","1PE","2PE","1JN","2JN","3JN","JUD","REV",
 ].map((code, i) => [code, i + 1]));
 
-// Parse an API.Bible verse passage response into our Verse type.
-// The /passages endpoint returns HTML-ish content; we use the text endpoint
-// with include-verse-numbers=false and parse the returned JSON items array.
-function parsePassageItems(
-  items: ApiBibleItem[],
+// Parse the API.Bible `content-type=text` passage body into Verse[].
+//
+// With include-verse-numbers=true, the plain-text `data.content` looks like:
+//   "     [16] For God so loved the world … life.  [17] God sent his Son … \n"
+// i.e. each verse is prefixed by its number in square brackets, text following
+// until the next "[N]" or end. This is stable across every translation (NIV/
+// NKJV/NLT all verified 2026-08-15). We split on the "[N]" markers.
+//
+// (The previous parser walked the content-type=json tree looking for top-level
+// items of type "verse" — but API.Bible nests the actual words several levels
+// deep inside para → char → items[].text, so it extracted NOTHING and licensed
+// verses projected as an empty slide with only the reference label. The text
+// endpoint sidesteps that entirely.)
+function parseVerseNumberedText(
+  content: string,
   book: string,
   chapter: number,
   verseStart: number,
@@ -135,18 +145,12 @@ function parsePassageItems(
   const bookCode = toApiBibleBookCode(book) ?? "UNK";
   const bookOrder = BOOK_ORDER[bookCode] ?? 0;
   const verses: Verse[] = [];
-
-  for (const item of items) {
-    if (!("type" in item) || item.type !== "verse") continue;
-    const vNum = item.number ? parseInt(String(item.number), 10) : 0;
-    if (vNum < verseStart || vNum > verseEnd) continue;
-    // Content array: we want the text from "text" type items.
-    const text = (item.content ?? [])
-      .filter((c): c is { type: "text"; text: string } => typeof c === "object" && "type" in c && c.type === "text")
-      .map((c) => c.text)
-      .join("")
-      .replace(/\s+/g, " ")
-      .trim();
+  const re = /\[(\d+)\]([\s\S]*?)(?=\[\d+\]|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    const vNum = parseInt(m[1]!, 10);
+    if (!Number.isFinite(vNum) || vNum < verseStart || vNum > verseEnd) continue;
+    const text = (m[2] ?? "").replace(/\s+/g, " ").trim();
     if (text) {
       verses.push({
         id: `${translationId}|${bookCode}|${chapter}|${vNum}`,
@@ -161,17 +165,8 @@ function parsePassageItems(
   return verses;
 }
 
-type ApiBibleItem = {
-  type?: string;
-  number?: string | number;
-  content?: Array<{ type: string; text?: string }>;
-};
-
-type ApiBiblePassageResponse = {
-  data?: {
-    content?: ApiBibleItem[];
-    passages?: Array<{ content?: ApiBibleItem[] }>;
-  };
+type ApiBibleTextResponse = {
+  data?: { content?: string };
 };
 
 /**
@@ -202,33 +197,28 @@ export async function fetchApiBibleVerses(
   const bookCode = toApiBibleBookCode(book);
   if (!bookCode) return null;
 
-  // Build verse IDs: GEN.1.1 through GEN.1.5
-  const verseIds = [];
-  for (let v = verseStart; v <= verseEnd; v++) {
-    verseIds.push(`${bookCode}.${chapter}.${v}`);
-  }
-
-  // Use the passages endpoint with verse IDs
-  const passageId = verseIds.join(",");
-  const url = `https://api.scripture.api.bible/v1/bibles/${encodeURIComponent(bibleId)}/passages/${encodeURIComponent(passageId)}?content-type=json&include-notes=false&include-titles=false&include-chapter-numbers=false&include-verse-numbers=true&include-verse-spans=false`;
+  // Range passage ID: "JHN.3.16" (single) or "JHN.3.16-JHN.3.17" (range).
+  const passageId = verseStart === verseEnd
+    ? `${bookCode}.${chapter}.${verseStart}`
+    : `${bookCode}.${chapter}.${verseStart}-${bookCode}.${chapter}.${verseEnd}`;
+  // content-type=text + include-verse-numbers=true → the "[N] text" body we parse.
+  const url = `https://api.scripture.api.bible/v1/bibles/${encodeURIComponent(bibleId)}/passages/${encodeURIComponent(passageId)}?content-type=text&include-notes=false&include-titles=false&include-chapter-numbers=false&include-verse-numbers=true&include-verse-spans=false`;
 
   try {
     const res = await fetch(url, {
       headers: { "api-key": apiKey },
       signal: AbortSignal.timeout(4000),
     });
+    // 404 = the passage doesn't exist (e.g. Genesis 1:102). Distinguish that
+    // from a transient failure so callers can surface "not a real verse".
+    if (res.status === 404) return [];
     if (!res.ok) return null;
 
-    const data = await res.json() as ApiBiblePassageResponse;
+    const data = await res.json() as ApiBibleTextResponse;
+    const content = data?.data?.content;
+    if (typeof content !== "string" || !content.trim()) return [];
 
-    // Try to extract verse items from passages[0].content or data.content
-    const items: ApiBibleItem[] =
-      (data?.data?.passages?.[0]?.content ?? data?.data?.content ?? []) as ApiBibleItem[];
-
-    if (!items.length) return null;
-
-    const verses = parsePassageItems(items, book, chapter, verseStart, verseEnd, translationId);
-    if (verses.length === 0) return null;
+    const verses = parseVerseNumberedText(content, book, chapter, verseStart, verseEnd, translationId);
 
     cache.set(ck, { at: Date.now(), value: verses });
     trimCache();
