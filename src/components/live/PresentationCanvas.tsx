@@ -43,6 +43,11 @@ export function PresentationCanvas({
 }) {
   const outerRef = useRef<HTMLDivElement | null>(null);
   const [scale, setScale] = useState(0);
+  const [dbg, setDbg] = useState({ w: 0, h: 0 });
+  // TEMP debug (2026-08-15): surface the measured surface size + scale so we can
+  // see, on the actual projector output, whether the fixed-canvas scaling is
+  // active. Remove once the projector/preview parity is confirmed.
+  const DEBUG = true;
 
   useLayoutEffect(() => {
     const outer = outerRef.current;
@@ -51,6 +56,7 @@ export function PresentationCanvas({
       const w = outer.clientWidth;
       const h = outer.clientHeight;
       if (w <= 0 || h <= 0) return;
+      setDbg({ w, h });
       // Contain: the largest uniform scale that fits the fixed canvas inside the
       // surface while preserving aspect ratio (letterbox the remainder).
       const s = Math.min(w / canvasW, h / canvasH);
@@ -83,10 +89,29 @@ export function PresentationCanvas({
           transform: `translate(-50%, -50%) scale(${scale})`,
           transformOrigin: "center center",
           visibility: scale > 0 ? "visible" : "hidden",
+          outline: DEBUG ? "6px solid #ff2d55" : undefined,
         }}
       >
         {children}
       </div>
+      {DEBUG && (
+        <div
+          style={{
+            position: "absolute",
+            top: 4,
+            left: 4,
+            zIndex: 9999,
+            background: "#ff2d55",
+            color: "#fff",
+            font: "700 14px monospace",
+            padding: "2px 6px",
+            borderRadius: 4,
+            pointerEvents: "none",
+          }}
+        >
+          PC {dbg.w}×{dbg.h} → {canvasW}×{canvasH} s={scale.toFixed(3)}
+        </div>
+      )}
     </div>
   );
 }
