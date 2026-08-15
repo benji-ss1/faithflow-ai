@@ -51,11 +51,17 @@ export function countWords(text: string): number {
 export function calculateProjectorFontSize(text: string, displayHeightPx: number): number {
   const h = Number.isFinite(displayHeightPx) && displayHeightPx > 0 ? displayHeightPx : 1080;
   const words = countWords(text);
+  // Word-count-banded size, deliberately FLATTENED (2026-08-15) so slides look
+  // consistent — a short verse and a normal verse project at nearly the same big
+  // size, and only long passages step down. Anchored so a typical verse (~John
+  // 3:16, ~26 words) lands at ~12% of height (a big, sanctuary-readable size the
+  // operator confirmed looked right). AutoFitText only shrinks below this if the
+  // text genuinely overflows the safe area.
   let fraction: number;
-  if (words <= 10) fraction = 0.16;
-  else if (words <= 25) fraction = 0.125;
-  else if (words <= 50) fraction = 0.10;
-  else if (words <= 80) fraction = 0.09;
+  if (words <= 18) fraction = 0.13;
+  else if (words <= 34) fraction = 0.12;
+  else if (words <= 55) fraction = 0.105;
+  else if (words <= 85) fraction = 0.09;
   else fraction = PROJECTOR_MIN_BODY_FRACTION;
   const clamped = Math.min(PROJECTOR_MAX_BODY_FRACTION, Math.max(PROJECTOR_MIN_BODY_FRACTION, fraction));
   return Math.round(clamped * h);

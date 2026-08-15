@@ -44,18 +44,6 @@ function fitCacheSet(k: string, v: number) {
 // Fix-loop 2026-07-27: the overflow-at-floor warning used to fire on EVERY
 // refit (resize, page change) — warn once per unique text, capped at ~50
 // entries so a long service can't grow this unbounded.
-// Last good projector-fit size, bucketed by output height so the fullscreen
-// projector (~1080) and the small operator preview (~200) never cross-seed each
-// other. On the /live output the transition wrapper REMOUNTS this component on
-// every slide change (to replay the enter animation), which resets the fit state
-// to the tiny readability floor for the first paint — and if the fresh fit
-// happens to measure mid-transition it can stick small. Seeding a remount from
-// the last good size for the SAME output keeps navigation (next verse / song
-// slide / auto-advance) at the big size instead of dropping to tiny. Keyed by
-// rounded height so it's stable across a service; value is the UNSCALED fit px.
-const lastGoodProjectorPx = new Map<number, number>();
-const projectorSizeKey = (containerH: number) => Math.round(containerH / 40) * 40;
-
 const OVERFLOW_WARNED_MAX = 50;
 const overflowWarned = new Set<string>();
 function warnOverflowOnce(text: string, floorPx: number) {
@@ -193,43 +181,44 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
         return t.scrollWidth <= bw + 1 && t.scrollHeight <= bh + 1;
       };
 
-      // Largest-fit over [absMin, ceil]: the TRUE largest size that fits the safe
-      // area. Short text grows to the ceiling; long text shrinks as far as needed
-      // (below the preferred floor if it must) so it always fits. Cached by
-      // text+box+range so repeat slides skip the search.
-      const projKey = `projv2|${Math.round(bw / 4) * 4}|${Math.round(bh / 4) * 4}|${absMinPx}|${ceilPx}|${fontToken}|${currentText}`;
+      // CONSISTENT word-count sizing (user directive 2026-08-15: "the same size
+      // for absolutely everything, and factor in the amount of words"). We size
+      // to a DETERMINISTIC per-word-count target (calculateProjectorFontSize) and
+      // only shrink it if it genuinely overflows the safe area. We do NOT grow
+      // each slide independently to the largest fit — that made every verse a
+      // different size and let a flaky measurement drop one to tiny. Result: all
+      // similar-length slides render at the SAME big size; longer passages step
+      // down predictably (never randomly small). The A−/A+ scale multiplies the
+      // target. Cached by text+box so repeat slides skip the work.
+      const projKey = `projwc|${Math.round(bw / 4) * 4}|${Math.round(bh / 4) * 4}|${absMinPx}|${ceilPx}|${fontToken}|${currentText}`;
       let best: number;
       const cachedProj = fitCacheGet(projKey);
       if (cachedProj !== undefined) {
         best = cachedProj;
       } else {
-        const seedBand = calculateProjectorFontSize(currentText, containerH);
-        const lastGood = lastGoodProjectorPx.get(projectorSizeKey(containerH)) ?? 0;
-        const seed = Math.min(ceilPx, Math.max(absMinPx, Math.max(seedBand, lastGood, Math.round(lastFittedRef.current))));
-        let lo = absMinPx, hi = ceilPx, found = -1;
-        if (fitsAt(seed)) { found = seed; lo = seed + 1; } else { hi = seed - 1; }
-        while (lo <= hi) {
-          const mid = Math.floor((lo + hi) / 2);
-          if (fitsAt(mid)) { found = mid; lo = mid + 1; } else { hi = mid - 1; }
+        const target = Math.min(ceilPx, Math.max(absMinPx, Math.round(calculateProjectorFontSize(currentText, containerH) * scale)));
+        if (fitsAt(target)) {
+          best = target; // word-count target fits → use it as-is (no grow-up)
+        } else {
+          // Overflows (long passage / small surface) → largest that fits BELOW target.
+          let lo = absMinPx, hi = target, found = absMinPx;
+          while (lo <= hi) {
+            const mid = Math.floor((lo + hi) / 2);
+            if (fitsAt(mid)) { found = mid; lo = mid + 1; } else { hi = mid - 1; }
+          }
+          best = found;
         }
-        best = found >= absMinPx ? found : absMinPx;
         fitCacheSet(projKey, best);
       }
       // Below the preferred floor → a long passage; tighten leading for a touch
-      // more room. Only a pathological single line (wider than the box even at
-      // absMin) can still overflow — paginateForFit already splits long text, so
-      // this is the rare tail; warn once for diagnostics.
+      // more room. Only a pathological single line can still overflow (paginateForFit
+      // already splits long text) — warn once for diagnostics.
       const belowPref = best < prefFloorPx;
       const stillOverflows = !fitsAt(best);
       if (stillOverflows) warnOverflowOnce(currentText, best);
       const tight = belowPref || stillOverflows;
-      const shown = Math.max(absMinPx, Math.min(ceilPx, Math.round(best * Math.min(1, scale))));
-      lastFittedRef.current = best; // seed off the UNSCALED fit
-      // Remember the last good size for THIS output height so the next remount
-      // (slide navigation on /live) starts big instead of the tiny floor. Only
-      // record a healthy fit at/above the preferred floor — never a transient
-      // mid-transition mis-measure — so the seed can't get poisoned small.
-      if (!belowPref && best >= prefFloorPx) lastGoodProjectorPx.set(projectorSizeKey(containerH), best);
+      const shown = best; // scale is already baked into the target above
+      lastFittedRef.current = best;
       t.style.fontSize = `${shown}px`;
       t.style.lineHeight = tight ? "1.02" : "1.08";
       setTightLine(tight);

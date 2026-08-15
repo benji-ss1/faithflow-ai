@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.214",
+    date: "2026-08-15",
+    headline: "Consistent projector text size across all slides",
+    highlights: [
+      "Projector text now uses one consistent, big size for every slide based on how many words are on it — so a verse, the next verse, and song slides all look the same size, instead of each one being sized differently (which sometimes dropped to tiny). Longer passages step down just enough to fit; nothing goes randomly small.",
+    ],
+  },
+  {
     version: "0.1.213",
     date: "2026-08-15",
     headline: "Big projector text now stays big when you change slides",
