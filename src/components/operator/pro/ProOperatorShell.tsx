@@ -161,6 +161,28 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
       finally { songPreviewInFlightRef.current.delete(songId); }
     })();
   };
+  // Same idea for SCRIPTURE / Whisper chips: a small bubble with a bit of the
+  // verse text so the operator can confirm the reference is right BEFORE
+  // manually clicking it live. Lazy, cached by ref key, best-effort; never
+  // auto-projects. Uses the operator's default translation for the snippet.
+  const [versePreview, setVersePreview] = useState<Record<string, string>>({});
+  const versePreviewInFlightRef = useRef<Set<string>>(new Set());
+  const loadVersePreview = (key: string, ref: { book: string; chapter: number; verseStart: number; verseEnd: number }) => {
+    if (!key || versePreview[key] !== undefined || versePreviewInFlightRef.current.has(key)) return;
+    versePreviewInFlightRef.current.add(key);
+    void (async () => {
+      try {
+        const res = await cachedLookup({
+          book: ref.book, chapter: ref.chapter, verseStart: ref.verseStart, verseEnd: ref.verseEnd,
+          translationCode: ctx.defaultTranslationCode || "KJV", source: "ai",
+        });
+        const text = (res.verses ?? []).map((v) => v.text).join(" ").replace(/\s+/g, " ").trim();
+        const snippet = text.length > 160 ? text.slice(0, 157) + "…" : text;
+        setVersePreview((prev) => ({ ...prev, [key]: snippet || "(no text found)" }));
+      } catch { setVersePreview((prev) => ({ ...prev, [key]: "(couldn't load preview)" })); }
+      finally { versePreviewInFlightRef.current.delete(key); }
+    })();
+  };
 
   const threshold = ctx.confidenceThreshold ?? 50;
   const scriptureCards = audio.suggestions
@@ -289,6 +311,11 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
             return (
               <div
                 key={s.id}
+                className="relative group"
+                onMouseEnter={() => loadVersePreview(s.id, { book: s.ref.book, chapter: s.ref.chapter, verseStart: s.ref.verseStart, verseEnd: s.ref.verseEnd })}
+                onFocusCapture={() => loadVersePreview(s.id, { book: s.ref.book, chapter: s.ref.chapter, verseStart: s.ref.verseStart, verseEnd: s.ref.verseEnd })}
+              >
+              <div
                 role="button"
                 tabIndex={0}
                 title={tip}
@@ -338,6 +365,18 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
                 >
                   ×
                 </span>
+              </div>
+                {/* Hover bubble (2026-08-16): a bit of the verse text so the
+                    operator can confirm the reference is right BEFORE clicking it
+                    live. Informational only — no auto-projection. */}
+                <div
+                  className="pointer-events-none hidden group-hover:block absolute bottom-full left-0 mb-1.5 z-[60] w-max max-w-[360px] rounded-xl px-3 py-2 text-[11px] leading-snug text-white shadow-2xl"
+                  style={{ background: "rgba(15,15,17,0.98)", border: "1px solid rgba(255,255,255,0.12)", backdropFilter: "blur(10px)" }}
+                  role="tooltip"
+                >
+                  <div className="font-semibold text-[12px] mb-0.5">{ref} <span className="font-mono opacity-50 text-[10px]">{s.confidence}%{isPhrase ? " · phrase" : ""}</span></div>
+                  <div className="text-white/85">{versePreview[s.id] === undefined ? "loading…" : versePreview[s.id]}</div>
+                </div>
               </div>
             );
           })}
@@ -436,6 +475,11 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
             return (
               <div
                 key={c.id}
+                className="relative group"
+                onMouseEnter={() => loadVersePreview(c.id, { book: c.corrected.book, chapter: c.corrected.chapter, verseStart: c.corrected.verseStart, verseEnd: c.corrected.verseEnd })}
+                onFocusCapture={() => loadVersePreview(c.id, { book: c.corrected.book, chapter: c.corrected.chapter, verseStart: c.corrected.verseStart, verseEnd: c.corrected.verseEnd })}
+              >
+              <div
                 role="button"
                 tabIndex={0}
                 title={`Whisper double-check: ${corrRef} (not ${origRef}). Click to load the corrected reference.`}
@@ -458,6 +502,15 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
                 <span className="text-[9px] font-mono opacity-70">🔁</span>
                 <span className="font-semibold">{corrRef}</span>
                 <span className="text-[9px] font-mono opacity-60 line-through">{origRef}</span>
+              </div>
+                <div
+                  className="pointer-events-none hidden group-hover:block absolute bottom-full left-0 mb-1.5 z-[60] w-max max-w-[360px] rounded-xl px-3 py-2 text-[11px] leading-snug text-white shadow-2xl"
+                  style={{ background: "rgba(15,15,17,0.98)", border: "1px solid rgba(255,255,255,0.12)", backdropFilter: "blur(10px)" }}
+                  role="tooltip"
+                >
+                  <div className="font-semibold text-[12px] mb-0.5">{corrRef} <span className="font-mono opacity-50 text-[10px]">Whisper</span></div>
+                  <div className="text-white/85">{versePreview[c.id] === undefined ? "loading…" : versePreview[c.id]}</div>
+                </div>
               </div>
             );
           })}

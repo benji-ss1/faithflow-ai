@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.224",
+    date: "2026-08-16",
+    headline: "Hover a scripture chip to preview the verse before projecting",
+    highlights: [
+      "AI scripture chips (and the purple \"Whisper\" correction chips) now show a small bubble on hover with a bit of the actual verse text — so you can confirm the reference is right before you click it live. Same idea as the song chips.",
+    ],
+  },
+  {
     version: "0.1.223",
     date: "2026-08-16",
     headline: "Songs no longer trigger off the sermon; Bible tab doesn't auto-project",
