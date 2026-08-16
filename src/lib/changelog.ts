@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.225",
+    date: "2026-08-16",
+    headline: "Verse ◀/▶ previews instead of projecting; \"from\" no longer misread",
+    highlights: [
+      "The Verse ◀ / ▶ buttons at the bottom now PREVIEW the next/previous verse in the centre panel instead of pushing it straight to the projector. Once it's the right verse, click the slide to go live — nothing changes on screen until you do.",
+      "\"from\" (and a few other common words) can no longer be misheard as a Bible book (it was turning into Romans and corrupting scripture calls).",
+    ],
+  },
+  {
     version: "0.1.224",
     date: "2026-08-16",
     headline: "Hover a scripture chip to preview the verse before projecting",

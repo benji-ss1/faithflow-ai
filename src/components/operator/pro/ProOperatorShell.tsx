@@ -3090,7 +3090,11 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         bibleSession.setCards(next);
         bibleSession.setSelectedIdx(dir > 0 ? next.length - 1 : 0);
       }
-      sendLiveRef.current({ kind: "text", text: `${text}\n\n${card.label}` });
+      // 2026-08-16 (user directive): Verse ◀ / ▶ are PREVIEW-ONLY. They advance
+      // the verse in the centre Bible panel (cards + selection) but DO NOT push
+      // it to the projector — the operator clicks the slide in the centre to go
+      // live once it's the right verse. (Voice-driven auto-advance is a separate
+      // path and is unaffected by this.)
     };
 
     // Background prefetch of the adjacent chapter once the operator is

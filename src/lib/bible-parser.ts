@@ -990,6 +990,11 @@ const FUZZY_BOOK_STOPWORDS = new Set([
   "dear", "fear", "year", "tear", "wear", "bear", "pray", "play", "stay", "away",
   "days", "ways", "wait", "want", "will", "well", "walk", "talk", "fall", "call",
   "tall", "ball", "hall", "wall", "amen", "adonai",
+  // 2026-08-16 (JPD live report): "from" was surfacing as Romans and corrupting
+  // scripture calls ("a reading FROM…", "the word FROM God"). "from" is now a
+  // hard stopword; plus common connectors that sit near book variants.
+  "from", "form", "true", "free", "them", "then", "than", "that", "this", "with",
+  "have", "hath", "unto", "into", "upon", "such", "much", "very", "even", "also",
 ]);
 
 function fuzzyBookMatch(normalized: string): string | undefined {
