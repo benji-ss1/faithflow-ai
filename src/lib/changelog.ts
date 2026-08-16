@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.228",
+    date: "2026-08-16",
+    headline: "Projector slide transitions are back + a New Slide button",
+    highlights: [
+      "Slide transitions (fade/cut/etc.) work on the projector again — they'd been disabled as a side-effect of the big text-sizing fix. Now that text sizes against the fixed canvas, the transition wrapper is safely restored, so the projector animates slide changes just like the stage screen.",
+      "New \"+ New slide\" button at the bottom of the playlist to quickly create a blank slide (the small + still offers From Songs / Bible / Media).",
+    ],
+  },
+  {
     version: "0.1.227",
     date: "2026-08-16",
     highlights: [

@@ -5,6 +5,7 @@ import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import { openLiveChannel, type LiveChannelLike, safePost, isValidLiveMessage, slideDesignSig, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
 import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
+import { TransitionWrapper } from "@/components/live/TransitionWrapper";
 import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
@@ -427,14 +428,15 @@ export default function LivePage() {
                 // changes — only the overlay updates.
                 <OutputSlide slide={slide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} projectorFit />
               ) : (
-                // 2026-08-15: the slide-keyed TransitionWrapper was REPLACING the
-                // slide's box height inside the fixed canvas (its height:100% didn't
-                // resolve to the canvas's 1080 the way SlideRenderer's own h-full
-                // does), so AutoFitText measured a short box and under-sized the text
-                // on the projector vs the preview. The transition animation now lives
-                // on the fixed canvas's own key below, so the slide renders DIRECTLY
-                // here — structurally identical to the operator preview (true parity).
-                <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} videoMuted={false} onVideoRef={handleVideoRef} />
+                // 2026-08-16: TransitionWrapper RESTORED. It was removed 2026-08-15
+                // because its height:100% collapsed the measured box and under-sized
+                // the projector text — but AutoFitText now sizes against the fixed
+                // PresentationCanvas geometry via context (not the DOM box), so the
+                // wrapper can't affect text size anymore. This brings the projector's
+                // slide transitions (fade/cut/etc.) back, matching /stage.
+                <TransitionWrapper identityKey={liveIdentity(slide)} transition={transition}>
+                  <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} videoMuted={false} onVideoRef={handleVideoRef} />
+                </TransitionWrapper>
               )}
               <ThemeLogoLayer appearance={appearance} />
             </PresentationCanvas>
@@ -509,6 +511,18 @@ export default function LivePage() {
       )}
     </div>
   );
+}
+
+// Identity key for the projector transition: change it and TransitionWrapper
+// plays the configured enter animation. Keyed by slide content (+ design sig)
+// so a repeat of the SAME slide doesn't re-trigger a transition.
+function liveIdentity(s: SlidePayload): string {
+  if (s.kind === "text") return `t:${s.text}|${slideDesignSig(s)}`;
+  if (s.kind === "image") return `i:${s.url}`;
+  if (s.kind === "video") return `v:${s.url}`;
+  if (s.kind === "blank") return `b:${s.bgColor ?? ""}`;
+  if (s.kind === "logo") return `l:${s.url ?? ""}`;
+  return "e";
 }
 
 function formatTimerMMSS(sec: number): string {
