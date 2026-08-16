@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.220",
+    date: "2026-08-16",
+    headline: "AUTO now stays on across restarts + a cleaner bottom bar",
+    highlights: [
+      "AUTO now persists when you close and reopen the app — no more re-arming it every service. Combined with AI auto-resuming your last session, the console starts hot instead of cold.",
+      "Removed the duplicate grid/list/text view buttons from the bottom bar (they're still in the panel header).",
+    ],
+  },
+  {
     version: "0.1.219",
     date: "2026-08-16",
     highlights: [

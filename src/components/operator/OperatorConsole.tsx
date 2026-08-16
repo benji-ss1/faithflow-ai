@@ -131,6 +131,14 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
       const autoRaw = window.sessionStorage.getItem("presentflow.pro.autoApprove.v1");
       if (autoRaw === "1") { setAutopilotModeInner("active"); return; }
       if (autoRaw === "0") { setAutopilotModeInner("suggestion"); return; }
+      // 2026-08-16 (user sign-off): restore the operator's AUTO choice ACROSS
+      // restarts from the persistent key, so the service starts hot. This is a
+      // deliberate override of the session-only re-arm policy for the church's
+      // own desktop machine — the operator asked for AUTO to stay ON. sessionKey
+      // (above) still wins within a session; this only fills the cold-start gap.
+      const autoPersist = window.localStorage.getItem("presentflow.pro.autoApprove.persist.v1");
+      if (autoPersist === "1") { setAutopilotModeInner("active"); return; }
+      if (autoPersist === "0") { setAutopilotModeInner("suggestion"); return; }
       const raw = window.localStorage.getItem(AUTOPILOT_MODE_KEY);
       if (raw === "manual" || raw === "suggestion" || raw === "armed") {
         setAutopilotModeInner(raw);

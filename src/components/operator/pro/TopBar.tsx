@@ -173,6 +173,12 @@ export function TopBar({
   // confirm() ceremony is preserved when toggling ON.
   const autoApproveOn = ctx.autopilotMode === "active";
   const AUTO_APPROVE_KEY = "presentflow.pro.autoApprove.v1";
+  // 2026-08-16 (user sign-off): persist the operator's AUTO choice ACROSS app
+  // restarts. The original sessionStorage-only design forced a re-arm every
+  // launch as an XSS hardening measure; on the church's own desktop machine the
+  // operator explicitly wants AUTO to stay ON so the service starts hot, not
+  // cold. This localStorage key restores the last explicit toggle on launch.
+  const AUTO_APPROVE_PERSIST_KEY = "presentflow.pro.autoApprove.persist.v1";
 
   // B3 — manual projector text-size. Persisted to localStorage; the change
   // event is picked up by OperatorConsole, which syncs it to all output
@@ -193,8 +199,10 @@ export function TopBar({
     // localStorage key so a compromised value there can't override.
     try {
       window.sessionStorage.setItem(AUTO_APPROVE_KEY, autoApproveOn ? "1" : "0");
-      // Retire the legacy localStorage entry.
+      // Retire the legacy localStorage entry (its old semantics).
       window.localStorage.removeItem(AUTO_APPROVE_KEY);
+      // Persist the operator's explicit choice so it survives an app restart.
+      window.localStorage.setItem(AUTO_APPROVE_PERSIST_KEY, autoApproveOn ? "1" : "0");
     } catch { /* ignore */ }
     // R4: notify the shell so any live auto-advance interval is cleared.
     try {

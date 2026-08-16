@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { Pause, Play, SkipForward, SkipBack, LayoutGrid, List, Type, HelpCircle } from "lucide-react";
+import { Pause, Play, SkipForward, SkipBack, HelpCircle } from "lucide-react";
 import { toast } from "sonner";
 import type { OperatorShellCtx } from "../shell/types";
 import { TransitionChooser } from "./BottomBar/TransitionChooser";
@@ -44,7 +44,6 @@ export function BottomBar({
 }) {
   const [transitionName, setTransitionName] = useState("Amoeba");
   const [transitionDuration, setTransitionDuration] = useState(0.6);
-  const [viewMode, setViewMode] = useState<SlideViewMode>("grid");
 
   useEffect(() => {
     try {
@@ -193,13 +192,9 @@ export function BottomBar({
         )}
       </div>
 
-      {/* Right */}
+      {/* Right — 2026-08-16: the grid/list/text view toggles were REMOVED here;
+          they duplicated the ones already in the center-panel header. */}
       <div className="flex items-center gap-2">
-        <div className="inline-flex rounded border border-[var(--color-border)] overflow-hidden">
-          <button title="Grid view" aria-pressed={viewMode === "grid"} onClick={() => { setViewMode("grid"); try { window.dispatchEvent(new CustomEvent("presentflow:slide-view-mode", { detail: "grid" })); } catch { /* noop */ } }} className={cn("w-7 h-7 flex items-center justify-center hover:bg-white/5", viewMode === "grid" ? "text-[var(--color-foreground)] bg-white/5" : "text-[var(--color-muted-foreground)]")}><LayoutGrid className="w-3.5 h-3.5" /></button>
-          <button title="List view" aria-pressed={viewMode === "list"} onClick={() => { setViewMode("list"); try { window.dispatchEvent(new CustomEvent("presentflow:slide-view-mode", { detail: "list" })); } catch { /* noop */ } }} className={cn("w-7 h-7 flex items-center justify-center border-l border-[var(--color-border)] hover:bg-white/5", viewMode === "list" ? "text-[var(--color-foreground)] bg-white/5" : "text-[var(--color-muted-foreground)]")}><List className="w-3.5 h-3.5" /></button>
-          <button title="Text view" aria-pressed={viewMode === "text"} onClick={() => { setViewMode("text"); try { window.dispatchEvent(new CustomEvent("presentflow:slide-view-mode", { detail: "text" })); } catch { /* noop */ } }} className={cn("w-7 h-7 flex items-center justify-center border-l border-[var(--color-border)] hover:bg-white/5", viewMode === "text" ? "text-[var(--color-foreground)] bg-white/5" : "text-[var(--color-muted-foreground)]")}><Type className="w-3.5 h-3.5" /></button>
-        </div>
         <button
           type="button"
           onClick={onOpenShortcutsHelp}
