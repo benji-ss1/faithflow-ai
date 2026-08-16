@@ -2984,6 +2984,27 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       const { book, chapter, verseStart, verseEnd, live } = payload;
       void (async () => {
         try {
+          // 2026-08-16 (user directive): if the operator has a WHOLE CHAPTER
+          // loaded (Load Chapter) and the requested verse is inside it, just
+          // SELECT that verse — do NOT collapse the chapter down to one verse.
+          // Keeps the full chapter in the centre; the preview moves to the verse.
+          const loaded = bibleSession.state.cards;
+          if (loaded.length > 1) {
+            const prefix = `${book} ${chapter}:`;
+            const idxInChapter = loaded.findIndex(
+              (c) => (c.label ?? "").startsWith(prefix) && c.verses?.[0]?.verse === verseStart,
+            );
+            if (idxInChapter >= 0) {
+              bibleSession.setSelectedIdx(idxInChapter);
+              setCenterMode("bible");
+              if (live) {
+                const card = loaded[idxInChapter];
+                const body = card.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
+                ctx.onSendSlideToLive({ kind: "text", text: `${body}\n\n${card.label}` }, undefined, { instant: true });
+              }
+              return;
+            }
+          }
           const res = await cachedLookup({ book, chapter, verseStart, verseEnd, translationCode: bibleSession.state.translation });
           if (!res.verses || res.verses.length === 0) return;
           // Each reference owns its own Bible slides section: jumping to a new

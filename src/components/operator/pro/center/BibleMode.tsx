@@ -502,6 +502,10 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
 
   return (
     <div className="p-4 flex flex-col gap-4">
+      {/* 2026-08-16: STICKY search header — stays pinned at the top of the panel
+          so the operator can look up a verse without scrolling all the way back
+          up a loaded chapter. */}
+      <div className="sticky top-0 z-30 -mx-4 -mt-4 px-4 pt-4 pb-3 bg-[var(--color-panel)] border-b border-[var(--color-border)] flex flex-col gap-4">
       {/* Reference / Browse tab switcher */}
       <div className="inline-flex rounded-md border border-[var(--color-border)] overflow-hidden text-[11px] uppercase tracking-wider font-mono h-8 w-fit">
         {(["reference", "browse"] as const).map((t) => (
@@ -706,6 +710,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
         </button>
         <BibleOptionsPopover />
       </div>
+      </div>{/* end sticky search header */}
 
       {editingId && (
         <div className="flex flex-col gap-2 border-2 border-dashed border-[var(--color-brand)] rounded-md p-3 bg-[var(--color-elevated)]">

@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.227",
+    date: "2026-08-16",
+    highlights: [
+      "Load Chapter no longer collapses to one verse: with a whole chapter loaded, jumping to a verse (spoken or clicked) now just moves the preview to that verse and keeps the rest of the chapter loaded.",
+      "The Bible search box now stays pinned at the top of the panel, so you can look up a verse without scrolling all the way back up a loaded chapter.",
+    ],
+    headline: "Bible panel: keep the chapter loaded + a sticky search bar",
+  },
+  {
     version: "0.1.226",
     date: "2026-08-16",
     headline: "Songs stop popping up while the preacher is just talking",
