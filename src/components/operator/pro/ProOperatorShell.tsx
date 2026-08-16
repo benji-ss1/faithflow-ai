@@ -134,12 +134,40 @@ import {
 function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
   const audio = ctx.audio;
 
+  // 2026-08-16 — manual chip housekeeping. The rail auto-caps at the latest 3
+  // per kind (older detections roll off on their own), but a busy service can
+  // still leave stale chips the operator wants gone. `dismissedIds` hides a
+  // chip on its × click; "Clear" hides every chip currently shown. New
+  // detections (new ids) still appear, so clearing never blinds the AI.
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+  const dismissChip = (id: string) => setDismissedIds((prev) => { const n = new Set(prev); n.add(id); return n; });
+  // Lazy per-song lyric preview for the hover card (C): first line(s) of the
+  // song so the operator can disambiguate near-identical titles (e.g. two
+  // "Great Is Thy Faithfulness") before pushing live. Cached by songId; one
+  // best-effort fetch per song, never blocks and never auto-projects.
+  const [songPreview, setSongPreview] = useState<Record<string, string>>({});
+  const songPreviewInFlightRef = useRef<Set<string>>(new Set());
+  const loadSongPreview = (songId: string) => {
+    if (!songId || songPreview[songId] !== undefined || songPreviewInFlightRef.current.has(songId)) return;
+    songPreviewInFlightRef.current.add(songId);
+    void (async () => {
+      try {
+        const res = await fetch(`/api/songs/${songId}/slides`).then((r) => r.json());
+        const slides = Array.isArray(res.slides) ? (res.slides as { lyrics?: string }[]) : [];
+        const first = slides.map((s) => (typeof s.lyrics === "string" ? s.lyrics : "")).find((t) => t.trim().length > 0) ?? "";
+        const preview = first.split(/\n+/).slice(0, 2).join(" · ").slice(0, 120);
+        setSongPreview((prev) => ({ ...prev, [songId]: preview || "(no lyrics saved)" }));
+      } catch { setSongPreview((prev) => ({ ...prev, [songId]: "(couldn't load preview)" })); }
+      finally { songPreviewInFlightRef.current.delete(songId); }
+    })();
+  };
+
   const threshold = ctx.confidenceThreshold ?? 50;
   const scriptureCards = audio.suggestions
-    .filter((s) => s.type === "scripture" && s.confidence >= threshold)
+    .filter((s) => s.type === "scripture" && s.confidence >= threshold && !dismissedIds.has(s.id))
     .slice(0, 3);
   const songCards = audio.suggestions
-    .filter((s) => (s.type === "song" || s.type === "lyric") && s.confidence >= threshold)
+    .filter((s) => (s.type === "song" || s.type === "lyric") && s.confidence >= threshold && !dismissedIds.has(s.id))
     .slice(0, 3);
   // Roadmap #2 — canonical (Whisper) corrections chip strip. 8-second
   // staleness ceiling: a Whisper round trip is ~1–3s but under load can
@@ -299,6 +327,17 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
                     AI
                   </span>
                 )}
+                <span
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Dismiss ${ref}`}
+                  title="Dismiss this chip"
+                  onClick={(e) => { e.stopPropagation(); dismissChip(s.id); }}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); dismissChip(s.id); } }}
+                  className="ml-0.5 -mr-0.5 text-[12px] leading-none text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] cursor-pointer px-0.5"
+                >
+                  ×
+                </span>
               </div>
             );
           })}
@@ -319,31 +358,69 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
               : `${title} (${s.confidence}%) — click to play slide 1 live (also adds to playlist)`;
             const tip = rawTip.length > 140 ? rawTip.slice(0, 137) + "…" : rawTip;
             const ariaLabel = `${title}, ${s.confidence}% match${inPlaylist ? ", in playlist" : ""}, click to play slide 1 live`;
+            const matchedLine = (s.match as { matchedLine?: string }).matchedLine?.trim();
             return (
-              <button
+              <div
                 key={s.id}
-                type="button"
-                data-in-playlist={inPlaylist ? "true" : "false"}
-                title={tip}
-                aria-label={ariaLabel}
-                onClick={() => handleSongChipClick(songId, title, inPlaylist)}
-                className={
-                  "relative flex items-center gap-1 px-2 py-0.5 rounded text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)] " +
-                  (inPlaylist
-                    ? "border border-amber-400/70 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20"
-                    : "border border-[var(--color-brand)] bg-[var(--color-elevated)] hover:bg-[var(--color-panel)]")
-                }
+                className="relative group"
+                onMouseEnter={() => loadSongPreview(songId)}
+                onFocusCapture={() => loadSongPreview(songId)}
               >
-                <span aria-hidden className="text-[11px] leading-none">♪</span>
-                <span className="font-semibold max-w-[160px] truncate">{title}</span>
-                <span className="text-[9px] font-mono opacity-60">{s.confidence}%</span>
-                <span
-                  className="ml-1 text-[8px] font-bold px-1 py-[1px] rounded bg-[var(--color-success,#10b981)] text-white"
-                  aria-label="AI detected"
+                <div
+                  role="button"
+                  tabIndex={0}
+                  data-in-playlist={inPlaylist ? "true" : "false"}
+                  title={tip}
+                  aria-label={ariaLabel}
+                  onClick={() => handleSongChipClick(songId, title, inPlaylist)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleSongChipClick(songId, title, inPlaylist); }}
+                  className={
+                    "relative flex items-center gap-1 px-2 py-0.5 rounded text-[11px] cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)] " +
+                    (inPlaylist
+                      ? "border border-amber-400/70 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20"
+                      : "border border-[var(--color-brand)] bg-[var(--color-elevated)] hover:bg-[var(--color-panel)]")
+                  }
                 >
-                  AI
-                </span>
-              </button>
+                  <span aria-hidden className="text-[11px] leading-none">♪</span>
+                  <span className="font-semibold max-w-[160px] truncate">{title}</span>
+                  <span className="text-[9px] font-mono opacity-60">{s.confidence}%</span>
+                  <span
+                    className="ml-1 text-[8px] font-bold px-1 py-[1px] rounded bg-[var(--color-success,#10b981)] text-white"
+                    aria-label="AI detected"
+                  >
+                    AI
+                  </span>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Dismiss ${title}`}
+                    title="Dismiss this chip"
+                    onClick={(e) => { e.stopPropagation(); dismissChip(s.id); }}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); dismissChip(s.id); } }}
+                    className="ml-0.5 -mr-0.5 text-[12px] leading-none opacity-60 hover:opacity-100 cursor-pointer px-0.5"
+                  >
+                    ×
+                  </span>
+                </div>
+                {/* Hover disambiguation card (C, 2026-08-16): shows the matched
+                    lyric line + the song's opening line so near-identical titles
+                    (two "Great Is Thy Faithfulness") can be told apart BEFORE
+                    pushing live. Purely informational — no auto-projection. */}
+                <div
+                  className="pointer-events-none hidden group-hover:block absolute bottom-full left-0 mb-1.5 z-[60] w-max max-w-[340px] rounded-xl px-3 py-2 text-[11px] leading-snug text-white shadow-2xl"
+                  style={{ background: "rgba(15,15,17,0.98)", border: "1px solid rgba(255,255,255,0.12)", backdropFilter: "blur(10px)" }}
+                  role="tooltip"
+                >
+                  <div className="font-semibold text-[12px] mb-0.5">{title} <span className="font-mono opacity-50 text-[10px]">{s.confidence}%{inPlaylist ? " · in playlist" : ""}</span></div>
+                  {matchedLine ? (
+                    <div className="text-white/70"><span className="opacity-50">heard:</span> “{matchedLine}”</div>
+                  ) : null}
+                  <div className="text-white/85 mt-0.5">
+                    <span className="opacity-50">song starts:</span>{" "}
+                    {songPreview[songId] === undefined ? "loading…" : songPreview[songId]}
+                  </div>
+                </div>
+              </div>
             );
           })}
         </div>
@@ -385,6 +462,20 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
             );
           })}
         </div>
+      )}
+      {(scriptureCards.length > 0 || songCards.length > 0) && (
+        <button
+          type="button"
+          onClick={() => {
+            const ids = [...scriptureCards, ...songCards].map((s) => s.id);
+            setDismissedIds((prev) => { const n = new Set(prev); ids.forEach((id) => n.add(id)); return n; });
+          }}
+          title="Clear the AI chips (new detections still appear)"
+          aria-label="Clear AI chips"
+          className="ml-auto shrink-0 text-[10px] font-medium text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] px-2 py-0.5 rounded border border-[var(--color-border)] hover:bg-white/5"
+        >
+          Clear
+        </button>
       )}
     </div>
   );

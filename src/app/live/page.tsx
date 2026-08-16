@@ -92,6 +92,12 @@ export default function LivePage() {
   const lastMsgAt = useRef<number>(Date.now());
   const videoElRef = useRef<HTMLVideoElement | null>(null);
   const broadcastChRef = useRef<BroadcastChannel | null>(null);
+  // 2026-08-16 durable-sync: signature of the slide currently applied, so the
+  // periodic self-heal ping (below) can re-pull the operator's live slide and
+  // apply it ONLY when it actually changed — catching a missed update (e.g. a
+  // translation swap that didn't reach the projector) without re-rendering on
+  // every heartbeat. Keeps a 2-3 hour service reliably in sync.
+  const appliedLiveSigRef = useRef<string>("");
 
   useEffect(() => {
     try {
@@ -112,6 +118,17 @@ export default function LivePage() {
     let ch: BroadcastChannel | null = openLiveChannel();
     broadcastChRef.current = ch;
     let reopenCount = 0;
+    let tick = 0;
+    const slideSig = (s: SlidePayload): string => { try { return JSON.stringify(s); } catch { return String(Date.now()); } };
+    // Apply a live slide only when its content actually changed — lets the
+    // periodic self-heal ping re-pull state harmlessly (a static verse never
+    // re-renders) while still catching a genuinely missed update.
+    const applyLive = (s: SlidePayload) => {
+      const sig = slideSig(s);
+      if (sig === appliedLiveSigRef.current) return;
+      appliedLiveSigRef.current = sig;
+      setSlide(s);
+    };
     if (!ch) {
       setWarning("This browser doesn't support BroadcastChannel — projector cannot sync with the operator window.");
       return;
@@ -126,14 +143,17 @@ export default function LivePage() {
         const msg = raw as LiveMessage;
         lastMsgAt.current = Date.now();
         setConnected(true);
+        reopenCount = 0; // healthy traffic — reset the reopen budget so a long
+        // (2-3 hour) service never exhausts the recovery cap and permanently
+        // desyncs the projector.
         if (msg.type === "set") {
           if (msg.transition !== undefined) setTransition(msg.transition);
-          setSlide(msg.slide);
+          applyLive(msg.slide);
         }
-        else if (msg.type === "clear") setSlide({ kind: "empty" });
-        else if (msg.type === "pong") setSlide(msg.slide);
+        else if (msg.type === "clear") applyLive({ kind: "empty" });
+        else if (msg.type === "pong") applyLive(msg.slide);
         else if (msg.type === "output") {
-          setSlide(msg.state.live);
+          applyLive(msg.state.live);
           setAnnouncement(msg.state.announcement ?? null);
           setTransition(msg.state.transition ?? null);
           setAspectRatio(msg.state.aspectRatio);
@@ -197,6 +217,12 @@ export default function LivePage() {
     const timer = setInterval(() => {
       const stale = Date.now() - lastMsgAt.current;
       if (stale > 3000) setConnected(false);
+      // Self-heal ping every ~3s: pull the operator's CURRENT live slide even
+      // while nominally connected, so a set/output that never arrived (a dropped
+      // translation swap, a throttled frame) is corrected within seconds for ALL
+      // translations. applyLive() dedups, so a held verse never re-renders.
+      tick += 1;
+      if (ch && tick % 3 === 0) safePost(ch, { type: "ping" });
       // Stale-timer sweep: operator posts every second while a timer is
       // shown. 5s of silence means the operator is gone — take it down.
       if (lastTimerMsgAt.current > 0 && Date.now() - lastTimerMsgAt.current > 5000) {

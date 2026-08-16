@@ -90,6 +90,8 @@ export default function LivestreamPage() {
         const msg = e.data as LiveMessage;
         lastMsgAt.current = Date.now();
         setConnected(true);
+        reopenCount = 0; // healthy traffic resets the recovery budget so a long
+        // (2-3 hour) service never exhausts the reopen cap and permanently desyncs.
         if (msg.type === "set") setSlide(msg.slide);
         else if (msg.type === "clear") setSlide({ kind: "empty" });
         else if (msg.type === "pong") setSlide(msg.slide);

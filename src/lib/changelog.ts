@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.221",
+    date: "2026-08-16",
+    headline: "Translation switches reach the projector reliably + tidier AI chips",
+    highlights: [
+      "Translation switches (NIV, NKJV, NLT — any version) now reliably reach the projector, and the current verse changes over immediately. The projector re-checks the operator's live slide every few seconds and self-heals if an update was ever missed — so it stays in sync through a full 2-3 hour service instead of drifting.",
+      "AI chips: hover a song chip to see its opening line + the words that were heard, so you can tell near-identical songs apart (two \"Great Is Thy Faithfulness\") before sending it live.",
+      "AI chips can now be cleared — an × on each chip dismisses it, and a \"Clear\" button empties the row. New detections still appear normally.",
+    ],
+  },
+  {
     version: "0.1.220",
     date: "2026-08-16",
     headline: "AUTO now stays on across restarts + a cleaner bottom bar",
