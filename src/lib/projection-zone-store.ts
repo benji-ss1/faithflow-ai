@@ -72,7 +72,7 @@ export type ProjectionZoneStore = {
   activeId: string | null;
   activeProfile: ProjectionZoneProfile | null;
   create: (name: string, copyFromActive: boolean) => string;
-  update: (id: string, patch: Partial<ProjectionZone> & { name?: string }) => void;
+  update: (id: string, patch: Partial<ProjectionZone> & { name?: string; targetScreenName?: string | null; outputResolution?: { width: number; height: number } | null }) => void;
   remove: (id: string) => void;
   setActive: (id: string) => void;
   setDefault: (id: string) => void;
@@ -130,10 +130,13 @@ export function useProjectionZoneStore(): ProjectionZoneStore {
     return newId;
   }, []);
 
-  const update = useCallback((id: string, patch: Partial<ProjectionZone> & { name?: string }) => {
+  const update = useCallback((id: string, patch: Partial<ProjectionZone> & { name?: string; targetScreenName?: string | null; outputResolution?: { width: number; height: number } | null }) => {
     setState((prev) => {
       const profiles = prev.profiles.map((p) => p.id === id
-        ? { ...p, ...normalizeZone({ ...p, ...patch }), name: patch.name ?? p.name, updatedAt: now() }
+        ? { ...p, ...normalizeZone({ ...p, ...patch }), name: patch.name ?? p.name,
+            targetScreenName: patch.targetScreenName !== undefined ? patch.targetScreenName : p.targetScreenName,
+            outputResolution: patch.outputResolution !== undefined ? patch.outputResolution : p.outputResolution,
+            updatedAt: now() }
         : p);
       const next = { ...prev, profiles };
       selfWriteRef.current = true; writeRaw(next);
