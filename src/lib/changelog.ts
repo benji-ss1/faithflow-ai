@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.223",
+    date: "2026-08-16",
+    headline: "Songs no longer trigger off the sermon; Bible tab doesn't auto-project",
+    highlights: [
+      "Song detection is now much stricter so a preacher's speech can't be mistaken for a song: a song only auto-projects at ≥90% confidence (was 85%), and song suggestion chips only appear at ≥80% (was 70%). Nothing below 80% surfaces at all.",
+      "Clicking \"Bible\" in the top bar no longer projects a verse instantly — it just opens the Bible panel. To go live, click the verse slide in the centre (same as songs/playlist). Navigating never goes live on its own now.",
+    ],
+  },
+  {
     version: "0.1.222",
     date: "2026-08-16",
     headline: "Playlist clicks never go live, a cleaner Stage screen, bigger reference",

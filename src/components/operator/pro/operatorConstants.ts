@@ -77,7 +77,11 @@ export const SONG_AUTOSTAGE_CONFIRM_KEY = "KeyG";
  *  70-84 band is now suggest-ONLY (operator clicks the chip / presses G to go
  *  live); nothing below 70 surfaces. See CLAUDE.md rule 7.
  */
-export const SONG_STAGE_CONFIDENCE = 70;
+// 2026-08-16 RAISED 70 → 80 (user sign-off, mid-JPD-service): during the sermon
+// the preacher's SPEECH was being matched to songs and surfaced/auto-projected.
+// Lifting the suggestion floor to 80 keeps ordinary speech from ever becoming a
+// song chip. Nothing below 80 surfaces at all now.
+export const SONG_STAGE_CONFIDENCE = 80;
 
 /** Minimum confidence for zero-click auto-live.
  *  Raised 70 → 85 on 2026-08-14 (user sign-off) to match the "high bar before
@@ -87,7 +91,11 @@ export const SONG_STAGE_CONFIDENCE = 70;
  *  projecting the wrong song. Paired with SONG_DISAMBIG_MARGIN below. See
  *  CLAUDE.md rule 7.
  */
-export const SONG_AUTOLIVE_CONFIDENCE = 85;
+// 2026-08-16 RAISED 85 → 90 (user sign-off, mid-JPD-service): songs were
+// auto-projecting off the preacher's speech during the sermon. Auto-live now
+// requires ≥90% (near-certain), so only a clearly-sung, clearly-matched song
+// projects itself; the 80-89 band is manual (chip / G key).
+export const SONG_AUTOLIVE_CONFIDENCE = 90;
 
 /** Similar-song disambiguation margin (confidence points). Even at ≥85%, a song
  *  only auto-projects if it leads the next-best DIFFERENT song by at least this

@@ -2988,35 +2988,16 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     return () => window.removeEventListener("presentflow:show-slides", handler);
   }, []);
 
-  // ── Mode-switch live follow ──────────────────────────────────────────────
-  // When operator switches centerMode AND auto-approve is ON, auto-send the
-  // first available slide of the target mode's content. Empty target → no-op.
-  const prevCenterModeRef = useRef(centerMode);
-  useEffect(() => {
-    if (prevCenterModeRef.current === centerMode) return;
-    prevCenterModeRef.current = centerMode;
-    let autoOn = false;
-    // 2026-07-25 security fix (review 🔴): sessionStorage ONLY (was localStorage).
-    try { autoOn = window.sessionStorage.getItem(AUTO_APPROVE_KEY_INSTANT) === "1"; } catch { /* noop */ }
-    if (!autoOn) return;
-    if (centerMode === "bible") {
-      const cards = bibleSession.state.cards;
-      const first = cards[0];
-      if (first && first.verses?.length && first.verses[0].text !== "Loading…") {
-        const body = first.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
-        ctx.onSendSlideToLive({ kind: "text", text: `${body}\n\n${first.label}` });
-      }
-    }
-    // 2026-08-16 FIX: switching to "slides" mode NO LONGER auto-projects the
-    // previewed item. Clicking a playlist item switches centerMode to "slides"
-    // (handleItemClick), which used to trip this branch and send the item to
-    // LIVE in AUTO mode — exactly the "clicking a playlist item shouldn't go
-    // live" bug the operator reported repeatedly (e.g. STEADFAST LOVE OF THE
-    // LORD). Playlist/slide navigation is preview-only now; the operator goes
-    // live via right-click → Send to live, a slide click in the centre grid, or
-    // the AI auto-fire path. Songs / Media never auto-project either (rule 7).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [centerMode]);
+  // ── Mode-switch live follow: REMOVED 2026-08-16 ──────────────────────────
+  // This effect used to auto-send the first slide of the target mode to LIVE
+  // when the operator switched centerMode in AUTO — which meant simply clicking
+  // "Bible" in the top bar instantly projected a verse, and clicking a playlist
+  // item (which switches to "slides") projected it. Both are the "don't go live
+  // just because I navigated" bugs the operator reported. Switching modes /
+  // navigating is now PREVIEW-ONLY across the board. To go live: click the slide
+  // in the centre panel, right-click a playlist item → Send to live, click an AI
+  // chip, or let the AI auto-fire path project it. (Nothing else references the
+  // old prevCenterModeRef.)
 
   // ── Bible-mode verse-nav bridge ──────────────────────────────────────────
   // BottomBar dispatches presentflow:bible-next / bible-prev events. If the
