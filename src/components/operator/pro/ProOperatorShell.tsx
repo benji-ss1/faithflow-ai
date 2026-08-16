@@ -3298,6 +3298,11 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     return () => { cancelled = true; };
   }, []);
 
+  // Tracks the last translation code fully APPLIED to the live output (session +
+  // live re-render), so the picker-sync effect (below applyTranslationSwitch)
+  // doesn't redundantly re-apply a code that a voice switch already handled.
+  const lastAppliedTranslationRef = useRef((bibleSession.state.translation ?? "").toUpperCase());
+
   // JPD Fix 6 — apply a spoken translation switch: update the shared Bible
   // session (Bible panel dropdown + all subsequent detections/lookups read
   // bibleSession.state.translation), notify OperatorConsole's
@@ -3326,6 +3331,9 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     const outgoing = bibleSession.state.translation;
     if (outgoing && outgoing.toUpperCase() !== upper) prevTranslationRef.current = outgoing.toUpperCase();
     bibleSession.setTranslation(upper);
+    // Mark that THIS code has been fully applied (session + live re-render below),
+    // so the picker-sync effect doesn't redundantly re-apply it.
+    lastAppliedTranslationRef.current = upper;
     try {
       window.dispatchEvent(new CustomEvent("presentflow:switch-translation", { detail: { code: upper } }));
     } catch { /* noop */ }
@@ -3440,6 +3448,26 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   }, [bibleSession, ctx.liveSlide]);
   const applyTranslationSwitchRef = useRef(applyTranslationSwitch);
   useEffect(() => { applyTranslationSwitchRef.current = applyTranslationSwitch; }, [applyTranslationSwitch]);
+
+  // 2026-08-16 — LIVE VERSE FOLLOWS THE VERSION, ALWAYS. Previously only the
+  // VOICE switch path re-rendered the live scripture; if the session translation
+  // changed another way (the operator picks it from the Bible-mode dropdown, or a
+  // voice switch fired but its re-render was missed), the projected verse stayed
+  // on the OLD version even though the picker showed the new one — exactly the
+  // "it never changed on screen" report (1 Cor 7:4 stuck on NIV while the picker
+  // read NKJV). This effect watches the shared session translation and, whenever
+  // it changes to a code that hasn't been applied to the live output yet,
+  // re-projects the current verse in that version. Guarded by
+  // lastAppliedTranslationRef so the voice path (which already re-rendered) never
+  // double-fires, and applyTranslationSwitch no-ops when the live verse is
+  // already in the target code — so there is no loop.
+  useEffect(() => {
+    const target = (bibleSession.state.translation ?? "").toUpperCase();
+    if (!target || lastAppliedTranslationRef.current === target) return;
+    lastAppliedTranslationRef.current = target;
+    void applyTranslationSwitchRef.current(target, "translation picker");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bibleSession.state.translation]);
 
   // "Switch back" — revert to the translation active before the last switch.
   // Reuses applyTranslationSwitch so the current live verse + preview re-render.
