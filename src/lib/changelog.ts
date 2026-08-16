@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.226",
+    date: "2026-08-16",
+    headline: "Songs stop popping up while the preacher is just talking",
+    highlights: [
+      "Much more context-aware song detection: a song now only surfaces on an explicit call to worship (\"let's sing…\", \"next song is…\") or a near-exact title — an ambient \"sing\" mid-sentence or a common worship phrase (\"thank you Lord\", \"his faithfulness\") no longer pulls a song up while someone is preaching. Fewer, more accurate suggestions.",
+      "Also fixed: a verse already on screen no longer flickers/re-projects when the preacher repeats it.",
+    ],
+  },
+  {
     version: "0.1.225",
     date: "2026-08-16",
     headline: "Verse ◀/▶ previews instead of projecting; \"from\" no longer misread",

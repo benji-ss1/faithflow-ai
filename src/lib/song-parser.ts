@@ -101,11 +101,29 @@ export function fuzzyMatchSong(candidate: SongCandidate, library: { id: string; 
   // semantic fallback, weak cue and weak match is not.
   const combined = Math.round(0.65 * rawScore + 0.35 * candidate.cueConfidence);
 
+  // 2026-08-16 (JPD live report — songs surfacing while the preacher was just
+  // talking, esp. common phrases like "thank you Lord" / "his faithfulness").
+  // A bare/ambient "sing …" mid-sentence (weight 0.55 → cueConfidence 55) is the
+  // main false-positive source during preaching + worship talk. Require a much
+  // STRONGER title match for such weak cues before it counts as a real song;
+  // explicit calls to worship ("let's sing X", "next song is X", cueConfidence
+  // ≥ 70) keep the normal floor. Also lift the base fuzzy floor 60 → 70.
+  const strongCue = candidate.cueConfidence >= 70;
+  const scoreFloor = strongCue ? 70 : 82;
+  // Distinctiveness guard: a candidate that boils down to one common worship
+  // word ("hallelujah", "praise", "lord") can't confidently identify a specific
+  // song on a weak cue — it needs the explicit call to worship.
+  const distinctiveEnough = candTokens.length >= 2 || strongCue;
+  const passes = rawScore >= scoreFloor && distinctiveEnough;
+
   return {
-    songId: rawScore >= 60 ? best.id : null,
+    songId: passes ? best.id : null,
     title: best.title,
-    confidence: rawScore >= 60 ? combined : Math.round(0.4 * combined),
+    confidence: passes ? combined : Math.round(0.4 * combined),
     matchedText: candidate.text,
-    needsSemanticFallback: rawScore < 60 && candidate.cueConfidence >= 70,
+    // Semantic fallback only for a STRONG explicit cue that just missed on the
+    // fuzzy title — never for ambient "sing" mentions (that was pulling songs in
+    // off ordinary speech).
+    needsSemanticFallback: rawScore < scoreFloor && candidate.cueConfidence >= 80,
   };
 }
