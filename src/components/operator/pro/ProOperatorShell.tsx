@@ -2386,6 +2386,16 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // R7: wrap send with error handling + toast.
   const safeSendLive = useCallback((slide: import("@/lib/broadcast").SlidePayload): boolean => {
     try {
+      // 2026-08-16 ANTI-FLICKER: if this EXACT slide is already live, do NOT
+      // re-send it. A preacher repeating a verse that's already on the screen
+      // used to re-fire it, causing a visible flicker / re-transition back to the
+      // same verse. If it's already showing, just leave it there. (Only skips an
+      // identical CURRENTLY-live slide — a repeat after moving to something else
+      // still re-projects, preserving the "preacher repeats a verse" behaviour.)
+      const liveNow = bibleLiveSlideRef.current;
+      if (slide.kind === "text" && liveNow?.kind === "text" && liveNow.text === slide.text) {
+        return true;
+      }
       // AI auto-fire uses an instant one-shot transition while preserving the
       // operator's configured transition for subsequent manual sends.
       // Transition-replay guard: fade only on the first projection of this
