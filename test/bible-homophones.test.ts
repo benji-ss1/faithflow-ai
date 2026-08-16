@@ -80,5 +80,18 @@ test('"Psalm 23" → Psalm 23 whole chapter', () => {
   const r = parseReference("Psalm 23"); assert.ok(r); assert.equal(r!.chapter, 23); assert.equal(r!.verseEnd, null);
 });
 
+console.log("\n2026-08-16 — 'machu' → Matthew (Nigerian ASR) + lyric-corruption guards:");
+test('"Machu five four" → Matthew 5:4', () => expectRef("Machu five four", "Matthew", 5, 4));
+test('"Machu 5:4" → Matthew 5:4', () => expectRef("Machu 5:4", "Matthew", 5, 4));
+test('"matchu chapter five verse four" → Matthew 5:4', () => expectRef("matchu chapter five verse four", "Matthew", 5, 4));
+// The reported lyric-corruption cases — these must NOT parse to a book.
+test('"sing like never before" → no reference (not Song of Solomon / Luke)', () => assert.equal(parseReference("sing like never before"), null));
+test('"worship his holy name" → no reference', () => assert.equal(parseReference("worship his holy name"), null));
+test('"I will sing" → no reference', () => assert.equal(parseReference("I will sing"), null));
+test('"songs of praise" → no reference (bare song/songs no longer a book alias)', () => assert.equal(parseReference("songs of praise"), null));
+// But the genuine full name still detects — "strong to Song of Solomon".
+test('"Song of Solomon 3:1" → Song of Solomon 3:1', () => expectRef("Song of Solomon 3:1", "Song of Solomon", 3, 1));
+test('"Song of Songs two one" → Song of Solomon 2:1', () => expectRef("Song of Songs two one", "Song of Solomon", 2, 1));
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

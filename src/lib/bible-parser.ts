@@ -54,7 +54,13 @@ const RAW_BOOKS: [string, string[]][] = [
   ["Psalms", ["psalms", "psalm", "ps", "pslm", "psa", "pss"]],
   ["Proverbs", ["proverbs", "proverb", "prov", "prv", "pro"]],
   ["Ecclesiastes", ["ecclesiastes", "eccl", "ecc", "qoh"]],
-  ["Song of Solomon", ["song of solomon", "song of songs", "songs", "song", "sos", "cant", "canticles"]],
+  // 2026-08-16: bare "song"/"songs" REMOVED as aliases — they are extremely
+  // common worship-lyric words ("Sing…", "songs of praise") and were matching
+  // Song of Solomon, corrupting live lyrics ("Sing like never before" →
+  // "Song of Solomon Luke never before"). Detection stays strong via the full
+  // phrases "song of solomon"/"song of songs" (what preachers actually say) plus
+  // the unambiguous "canticles"/"sos". A bare "song 3:1" now needs the full name.
+  ["Song of Solomon", ["song of solomon", "song of songs", "sos", "canticles"]],
   ["Isaiah", ["isaiah", "isa"]],
   ["Jeremiah", ["jeremiah", "jer"]],
   ["Lamentations", ["lamentations", "lam"]],
@@ -74,7 +80,10 @@ const RAW_BOOKS: [string, string[]][] = [
   ["Haggai", ["haggai", "hag"]],
   ["Zechariah", ["zechariah", "zech", "zec"]],
   ["Malachi", ["malachi", "mal"]],
-  ["Matthew", ["matthew", "matt", "mt"]],
+  // "machu"/"matchu"/"mathew" — Nigerian/African-English ASR renderings of
+  // "Matthew" (user report 2026-08-16: "any time you get machu that's always
+  // Matthew"). The "-tthew" ending softens to "-chu".
+  ["Matthew", ["matthew", "matt", "mt", "machu", "matchu", "mathew", "mattew"]],
   // "mac" / "mak" — Nigerian/African-English ASR renderings of "mark"
   // (the "rk" cluster softens to a hard "c"/"k"). fuzzyBookMatch won't
   // catch 3-char inputs (threshold < 4), so explicit variants are needed.
@@ -965,8 +974,27 @@ function levenshtein(a: string, b: string): number {
   return prev[n];
 }
 
+// 2026-08-16: common English/worship words that sit within edit-distance 1-2 of
+// a real book variant and must NEVER fuzzy-expand to a book — they wreck live
+// lyrics and speech. "like"→Luke, "look"→Luke, "sing/song/sons/son"→Song of
+// Solomon, "roman(ce)"→Romans, "acts→act" etc. EXACT book aliases still match
+// (this only blocks the FUZZY path); a genuine "Luke 4" still parses because
+// "luke" is an exact variant, not a fuzzy hit off "like".
+const FUZZY_BOOK_STOPWORDS = new Set([
+  "like", "look", "looks", "liked", "likes", "sing", "sings", "song", "songs",
+  "son", "sons", "come", "came", "some", "same", "hope", "love", "loves", "life",
+  "live", "lives", "lord", "word", "words", "work", "works", "hold", "holy",
+  "soul", "sold", "told", "gold", "bold", "roll", "role", "real", "read", "road",
+  "load", "lead", "loud", "mark", "make", "made", "more", "mind", "mine", "name",
+  "none", "know", "grow", "glow", "flow", "slow", "show", "here", "hear", "near",
+  "dear", "fear", "year", "tear", "wear", "bear", "pray", "play", "stay", "away",
+  "days", "ways", "wait", "want", "will", "well", "walk", "talk", "fall", "call",
+  "tall", "ball", "hall", "wall", "amen", "adonai",
+]);
+
 function fuzzyBookMatch(normalized: string): string | undefined {
   if (normalized.length < 4) return undefined; // too short to fuzz safely
+  if (FUZZY_BOOK_STOPWORDS.has(normalized)) return undefined; // common word — never fuzz
   const maxDist = normalized.length <= 6 ? 1 : 2;
   let best: { canonical: string; dist: number } | null = null;
   for (const [variant, canonical] of VARIANT_TO_BOOK) {

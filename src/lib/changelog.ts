@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.219",
+    date: "2026-08-16",
+    highlights: [
+      "Songs no longer auto-advance. When a song goes live you'll get a clear notice — advance the slides yourself with → or by clicking the next slide. Worship is too spontaneous (repeated lines, leaders jumping stanzas) for reliable auto-advance, so this prevents wrong jumps mid-song. Scripture still auto-advances as the preacher reads on.",
+      "Fixed live lyrics being corrupted by Bible detection: \"Sing like never before\" was turning into \"Song of Solomon / Luke\". Common worship words (sing, like, song, sons…) can no longer be mistaken for a book name — but a genuine \"Song of Solomon\" is still detected.",
+      "\"Matthew\" now recognised even when the transcript hears it as \"Machu\"/\"Matchu\" (common with African-accented speech).",
+      "Scripture reference line (e.g. \"1 Kings 9:6 (NKJV)\") is now a bit larger and easier to read on the projector.",
+    ],
+    headline: "Manual song advance, no more lyric corruption, and detection fixes",
+  },
+  {
     version: "0.1.218",
     date: "2026-08-15",
     headline: "Projector text is now big on EVERY slide — the tiny-song bug is fixed",

@@ -528,8 +528,33 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   const autoOscillationCountRef = useRef(0);
   const OSC_REVERSAL_WINDOW_MS = 9000;
   const OSC_PAUSE_MS = 20000;
+  // 2026-08-16 (user sign-off): SONG slide auto-advance is DISABLED. Worship is
+  // too repetitive/spontaneous for reliable word-tracking (near-duplicate slides,
+  // leaders jumping stanzas) and a wrong auto-advance mid-worship is worse than a
+  // manual press. The operator advances song slides manually (← → / click); a
+  // strong one-time notification tells them so when a song goes live. VERSE
+  // auto-advance (preacher reading on to the next verse) is UNAFFECTED — it lives
+  // in the Bible AUTO-approve path, not here. Flip to true to restore word-track.
+  const SONG_SLIDE_AUTO_ADVANCE = false;
+  // Fire a strong, one-time-per-song notice when a song goes live, telling the
+  // operator that song slides do NOT auto-advance (see above) and they must move
+  // them manually. Deduped by songId so a re-fire of the same live song is quiet.
+  const manualSongNoticeShownRef = useRef<Set<string>>(new Set());
+  const notifyManualSongAdvance = (songId: string, title: string) => {
+    if (SONG_SLIDE_AUTO_ADVANCE) return;
+    if (manualSongNoticeShownRef.current.has(songId)) return;
+    manualSongNoticeShownRef.current.add(songId);
+    try {
+      toast(`Manual mode — advance "${title}" yourself`, {
+        description: "Song slides do NOT auto-advance. Press → (or click the next slide) to move through the song. Verses still auto-advance.",
+        duration: 7000,
+        id: `manual-song-${songId}`,
+      });
+    } catch { /* noop */ }
+  };
   const tryAutoMoveRef = useRef<(from: number, to: number) => boolean>(() => true);
   tryAutoMoveRef.current = (from: number, to: number): boolean => {
+    if (!SONG_SLIDE_AUTO_ADVANCE) return false; // songs: manual advance only
     const now = Date.now();
     const lm = lastAutoMoveRef.current;
     const isReversal = !!lm && lm.to === from && lm.from === to && now - lm.ts < OSC_REVERSAL_WINDOW_MS;
@@ -643,6 +668,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       liveSongRef.current = { songId, title, slides, currentIdx: 0, confirmedAt: now };
       lastAdvanceTsRef.current = now;
       matchStreakRef.current = 0;
+      notifyManualSongAdvance(songId, title);
       // 2026-07-25 field bug fix: when the AI auto-projects a song, also
       // update the operator's visible playlist selection + scroll it into
       // view + pulse-highlight it. Before this, operators had no visual
@@ -883,6 +909,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       matchStreakRef.current = 0;
       console.log(`[song-autoprogression] human-confirmed LIVE: "${stagedSong.title}" (${stagedSong.songId}) slide ${stagedSong.currentIdx + 1}/${stagedSong.slides.length}`, { ts: Date.now() });
       toast.success(`"${stagedSong.title}" → LIVE`);
+      notifyManualSongAdvance(stagedSong.songId, stagedSong.title);
       // Switch center panel to slides so the operator can navigate between
       // song slides after confirming. AUTO-mode guard in the show-slides
       // handler prevents the live-follow effect from re-sending the wrong slide.
