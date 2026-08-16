@@ -83,6 +83,11 @@ export default function LivestreamPage() {
     let ch: BroadcastChannel | null = openLiveChannel();
     broadcastChRef.current = ch;
     let reopenCount = 0;
+    // Dedup the slide so the projector's 3s self-heal pong (broadcast to all
+    // windows) never re-renders a held static slide on the livestream output.
+    let appliedSig = "";
+    const slideSig = (s: SlidePayload): string => { try { return JSON.stringify(s); } catch { return String(Date.now()); } };
+    const applySlide = (s: SlidePayload) => { const sig = slideSig(s); if (sig === appliedSig) return; appliedSig = sig; setSlide(s); };
     if (!ch) return;
     const onMessage = (e: MessageEvent) => {
       try {
@@ -92,11 +97,11 @@ export default function LivestreamPage() {
         setConnected(true);
         reopenCount = 0; // healthy traffic resets the recovery budget so a long
         // (2-3 hour) service never exhausts the reopen cap and permanently desyncs.
-        if (msg.type === "set") setSlide(msg.slide);
-        else if (msg.type === "clear") setSlide({ kind: "empty" });
-        else if (msg.type === "pong") setSlide(msg.slide);
+        if (msg.type === "set") applySlide(msg.slide);
+        else if (msg.type === "clear") applySlide({ kind: "empty" });
+        else if (msg.type === "pong") applySlide(msg.slide);
         else if (msg.type === "output") {
-          setSlide(msg.state.live);
+          applySlide(msg.state.live);
           setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);
           setAppearance(msg.state.appearance ?? null);
           setVideoInput(msg.state.videoInput ?? null);

@@ -75,6 +75,11 @@ export default function StagePage() {
   useEffect(() => {
     let ch: BroadcastChannel | null = openLiveChannel();
     let reopenCount = 0;
+    // Dedup the current slide so the projector's 3s self-heal pong (broadcast to
+    // all windows) never re-renders a held static slide on the stage display.
+    let appliedCurSig = "";
+    const curSig = (s: SlidePayload): string => { try { return JSON.stringify(s); } catch { return String(Date.now()); } };
+    const applyCurrent = (s: SlidePayload) => { const sig = curSig(s); if (sig === appliedCurSig) return; appliedCurSig = sig; setCurrent(s); };
     if (!ch) return;
     const onMessage = (e: MessageEvent) => {
       try {
@@ -84,11 +89,11 @@ export default function StagePage() {
         setConnected(true);
         reopenCount = 0; // healthy traffic resets the recovery budget so a long
         // (2-3 hour) service never exhausts the reopen cap and permanently desyncs.
-        if (msg.type === "set") setCurrent(msg.slide);
-        else if (msg.type === "clear") setCurrent({ kind: "empty" });
-        else if (msg.type === "pong") setCurrent(msg.slide);
+        if (msg.type === "set") applyCurrent(msg.slide);
+        else if (msg.type === "clear") applyCurrent({ kind: "empty" });
+        else if (msg.type === "pong") applyCurrent(msg.slide);
         else if (msg.type === "output") {
-          setCurrent(msg.state.live);
+          applyCurrent(msg.state.live);
           setNext(msg.state.next);
           setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);
           setAppearance(msg.state.appearance ?? null);
