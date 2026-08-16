@@ -450,7 +450,7 @@ function SortableSlideCard(props: {
     opacity: isDragging ? 0.5 : 1,
   };
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners} className="w-full min-w-0">
       <SlideCard
         slide={props.slide}
         index={props.index}
@@ -499,7 +499,11 @@ function SlideCard({
           onClick={onSelect}
           onDoubleClick={onDouble}
           className={cn(
-            "relative aspect-video rounded-[6px] overflow-hidden transition-all text-left",
+            // w-full so every card fills its grid cell → uniform size regardless
+            // of word count (a <button> otherwise shrinks to its text content,
+            // which made short slides like "AMEN" tiny). aspect-video then gives
+            // a consistent 16:9 box for all.
+            "relative w-full min-w-0 aspect-video rounded-[6px] overflow-hidden transition-all text-left",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
             selected
               ? "border-2 border-[var(--color-brand)] shadow-[0_2px_8px_rgba(0,0,0,0.25)]"
