@@ -1228,29 +1228,45 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     <div className="shrink-0 px-3 py-2 flex flex-col gap-2" data-testid="song-autostage-banner">
       {stagedSong && (
         <div
-          className="border-2 border-orange-500 bg-orange-500/10 rounded-lg px-3 py-2 flex flex-col gap-1.5 shadow-lg"
+          // 2026-08-16: restyled to the clean dark-card look (matches the app's
+          // notification toasts) — a premium near-black panel with a thin orange
+          // accent instead of the old loud orange-filled box. Orange is retained
+          // only where it carries meaning: the STAGED badge, the confidence, the
+          // active line, and the GO LIVE action.
+          className="rounded-2xl px-4 py-3 flex flex-col gap-2.5"
+          style={{
+            background: "rgba(15,15,17,0.96)",
+            border: "1px solid rgba(255,255,255,0.10)",
+            borderLeft: "3px solid #ff7a2c",
+            boxShadow: "0 16px 48px rgba(0,0,0,0.55)",
+            backdropFilter: "blur(14px)",
+            WebkitBackdropFilter: "blur(14px)",
+          }}
           role="alert"
           aria-live="assertive"
         >
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-orange-300 px-1.5 py-0.5 rounded bg-orange-500/20">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#ff7a2c] px-2 py-0.5 rounded-full" style={{ background: "rgba(255,122,44,0.14)", border: "1px solid rgba(255,122,44,0.3)" }}>
               AI staged — not live
             </span>
-            <span className="text-[13px] font-semibold truncate">{stagedSong.title}</span>
-            <span className="text-[10px] font-mono text-orange-300">{Math.round(stagedSong.confidence)}%</span>
+            <span className="text-[13px] font-semibold truncate text-white">{stagedSong.title}</span>
+            <span className="text-[10px] font-mono text-[#ff9d5c]">{Math.round(stagedSong.confidence)}%</span>
             {stagedSong.source === "progression" && (
-              <span className="text-[9px] font-mono text-[var(--color-muted-foreground)]">next in plan</span>
+              <span className="text-[9px] font-mono text-white/40">next in plan</span>
             )}
             <button
               type="button"
               aria-label="Dismiss staged song"
               onClick={dismissStaged}
-              className="ml-auto text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] px-1"
+              className="ml-auto text-[13px] leading-none text-white/40 hover:text-white/90 px-1"
             >
               ×
             </button>
           </div>
-          <div className="max-h-[120px] overflow-y-auto rounded bg-[var(--color-elevated)] border border-[var(--color-border)] px-2 py-1 text-[12px] leading-snug whitespace-pre-wrap">
+          <div
+            className="max-h-[120px] overflow-y-auto rounded-lg px-2 py-1.5 text-[12px] leading-snug whitespace-pre-wrap"
+            style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}
+          >
             {stagedSong.slides.map((s, i) => (
               <div
                 key={i}
@@ -1258,15 +1274,18 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
                 tabIndex={0}
                 onClick={() => setStagedSong({ ...stagedSong, currentIdx: i })}
                 className={cn(
-                  "px-1 py-0.5 rounded cursor-pointer",
-                  i === stagedSong.currentIdx ? "bg-orange-500/20 font-semibold" : "opacity-70 hover:opacity-100",
+                  "px-1.5 py-0.5 rounded cursor-pointer transition-colors",
+                  i === stagedSong.currentIdx
+                    ? "font-semibold text-white"
+                    : "text-white/60 hover:text-white/90",
                 )}
+                style={i === stagedSong.currentIdx ? { background: "rgba(255,122,44,0.18)" } : undefined}
               >
                 {s}
               </div>
             ))}
           </div>
-          <div className="flex items-center gap-3 text-[11px] font-bold text-orange-200">
+          <div className="flex items-center gap-3 text-[11px] font-medium text-white/55">
             {/* 2026-07-25 field bug fix — explicit clickable "Go LIVE" button.
                 Some operators didn't realize G was a keyboard hotkey, or the
                 key was blocked by focus/overlay. This button is the same
@@ -1274,13 +1293,13 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
             <button
               type="button"
               onClick={confirmStagedSongLive}
-              className="px-3 py-1.5 rounded bg-orange-500 hover:bg-orange-600 text-white text-[12px] font-bold shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300"
+              className="px-3.5 py-1.5 rounded-lg bg-[#ff7a2c] hover:bg-[#ff8f4d] text-white text-[12px] font-bold shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300/60"
               data-testid="staged-song-go-live-btn"
             >
               GO LIVE →
             </button>
             <span>
-              Slide {stagedSong.currentIdx + 1} of {stagedSong.slides.length} · or press <kbd className="px-1.5 py-0.5 rounded bg-orange-500 text-white font-mono">G</kbd>
+              Slide {stagedSong.currentIdx + 1} of {stagedSong.slides.length} · or press <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono border border-white/15">G</kbd>
             </span>
           </div>
         </div>

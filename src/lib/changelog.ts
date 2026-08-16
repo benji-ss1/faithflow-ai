@@ -22,6 +22,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "Fixed live lyrics being corrupted by Bible detection: \"Sing like never before\" was turning into \"Song of Solomon / Luke\". Common worship words (sing, like, song, sons…) can no longer be mistaken for a book name — but a genuine \"Song of Solomon\" is still detected.",
       "\"Matthew\" now recognised even when the transcript hears it as \"Machu\"/\"Matchu\" (common with African-accented speech).",
       "Scripture reference line (e.g. \"1 Kings 9:6 (NKJV)\") is now a bit larger and easier to read on the projector.",
+      "The \"AI staged\" song panel got a cleaner look — a premium dark card matching the rest of the UI instead of the heavy orange box.",
     ],
     headline: "Manual song advance, no more lyric corruption, and detection fixes",
   },
