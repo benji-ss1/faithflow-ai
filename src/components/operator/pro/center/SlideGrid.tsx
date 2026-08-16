@@ -106,6 +106,27 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
     return false;
   };
 
+  // Paste the clipboard slide at a chosen position (insertIdx). Shared by the
+  // per-slide "Paste after" and the empty-space "Paste at end" menus, so the
+  // operator can decide WHERE the copied slide lands.
+  const canPasteHere = clipboardHasSlide && item?.type === "song" && !!(item as { songId?: string }).songId;
+  const pasteSlideAt = (insertIdx: number) => {
+    if (guardObjectSong()) return;
+    const copied = slideClipboardRef.current;
+    if (!copied) { void import("sonner").then(({ toast }) => toast.error("Nothing to paste")); return; }
+    const songId = (item as { songId?: string })?.songId;
+    if (item?.type !== "song" || !songId) return;
+    void (async () => {
+      const at = Math.max(0, Math.min(insertIdx, slides.length));
+      const newSlides = [...slides];
+      newSlides.splice(at, 0, copied);
+      const updatedSlides = newSlides.map((sl) => ({ lyrics: sl.kind === "text" ? ((sl as { text?: string }).text ?? "") : "" }));
+      const res = await updateSongSlides(songId, updatedSlides);
+      const { toast } = await import("sonner");
+      if (!res.ok) toast.error(res.error ?? "Paste failed"); else toast.success("Slide pasted");
+    })();
+  };
+
   const handleQuickEditSave = async (newText: string) => {
     if (!quickEdit) return;
     const trimmed = newText.trim();
@@ -174,10 +195,14 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
       {/* Main slide grid — Task B: 6px gutter. Y10: semantic grid + gridcell roles. */}
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={slideIds} strategy={rectSortingStrategy}>
+          <ContextMenu.Root>
+          <ContextMenu.Trigger asChild>
           <div
             role="grid"
             aria-label="Slides"
-            className={cn(viewMode === "text" ? "flex flex-col" : "grid")}
+            // min-h so the empty area below the cards is part of the grid and can
+            // be right-clicked to paste a copied slide at the end.
+            className={cn(viewMode === "text" ? "flex flex-col" : "grid", "min-h-[45vh]")}
             style={viewMode === "text"
               ? { gap: 4 }
               : viewMode === "list"
@@ -299,34 +324,21 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                   setClipboardHasSlide(true);
                   void import("sonner").then(({ toast }) => toast.success("Slide copied"));
                 }}
-                canPaste={clipboardHasSlide && item?.type === "song" && !!(item as { songId?: string }).songId}
-                onPasteSlide={() => {
-                  if (guardObjectSong()) return;
-                  const copied = slideClipboardRef.current;
-                  if (!copied) {
-                    void import("sonner").then(({ toast }) => toast.error("Nothing to paste"));
-                    return;
-                  }
-                  void (async () => {
-                    if (item?.type === "song" && (item as { songId?: string }).songId) {
-                      const songId = (item as { songId?: string }).songId!;
-                      const newSlides = [...slides];
-                      newSlides.splice(idx + 1, 0, copied);
-                      const updatedSlides = newSlides.map((sl) => ({
-                        lyrics: sl.kind === "text" ? ((sl as { text?: string }).text ?? "") : "",
-                      }));
-                      const res = await updateSongSlides(songId, updatedSlides);
-                      if (!res.ok) {
-                        void import("sonner").then(({ toast }) => toast.error(res.error ?? "Paste failed"));
-                      } else {
-                        void import("sonner").then(({ toast }) => toast.success("Slide pasted"));
-                      }
-                    }
-                  })();
-                }}
+                canPaste={canPasteHere}
+                onPasteSlide={() => pasteSlideAt(idx + 1)}
               />
             ))}
           </div>
+          </ContextMenu.Trigger>
+          <ContextMenu.Portal>
+            <ContextMenu.Content className="min-w-[180px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
+              <ContextMenu.Item disabled={!canPasteHere} onSelect={() => pasteSlideAt(slides.length)}
+                className={cn("px-3 py-1.5 rounded outline-none cursor-pointer", canPasteHere ? "hover:bg-[var(--color-panel)] text-[var(--color-foreground)]" : "opacity-40 cursor-not-allowed")}>
+                {canPasteHere ? "Paste slide (at end)" : "Paste slide"}
+              </ContextMenu.Item>
+            </ContextMenu.Content>
+          </ContextMenu.Portal>
+          </ContextMenu.Root>
         </SortableContext>
       </DndContext>
 
