@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Play, Pause, RotateCcw, Volume2, VolumeX, Repeat } from "lucide-react";
-import { openLiveChannel, type LiveMessage } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, type LiveMessage } from "@/lib/broadcast";
 
 /**
  * Compact video control bar for the operator console. Controls the local
@@ -15,7 +15,7 @@ export function VideoControlBar({ videoRef }: { videoRef: RefObject<HTMLVideoEle
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
   const [loop, setLoop] = useState(true);
-  const chRef = useRef<BroadcastChannel | null>(null);
+  const chRef = useRef<LiveChannelLike | null>(null);
   const seekingRef = useRef(false);
   const rafRef = useRef<number>(0);
 

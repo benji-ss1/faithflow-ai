@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ArrowLeft, ChevronLeft, ChevronRight, Monitor, Radio, Square, Sun, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { openLiveChannel, safePost, isValidMessageOverlay, AI_AUTO_TRANSITION, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, AI_AUTO_TRANSITION, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
 import { readFontScale } from "./pro/operatorConstants";
 import { openOutputChannel } from "@/lib/realtime";
 import { SyncControl } from "./SyncControl";
@@ -462,7 +462,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     if (useFastTransition) fastTransitionSlideRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, effectiveAppearance, videoInput]);
-  const chRef = useRef<BroadcastChannel | null>(null);
+  const chRef = useRef<LiveChannelLike | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;
 

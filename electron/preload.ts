@@ -113,6 +113,21 @@ const api = {
     installNow: () => ipcRenderer.invoke("update:install-now"),
     retryDownload: () => ipcRenderer.invoke("update:retry-download"),
   },
+  // 2026-08-16 — same-machine live-sync RELAY. BroadcastChannel was proving
+  // unreliable across separate Electron BrowserWindows (operator ↔ projector),
+  // leaving the projector stuck ("Operator disconnected") and not picking up
+  // e.g. a translation switch. This bridges every LiveMessage through the main
+  // process, which fans it out to all OTHER windows — a delivery path that does
+  // not depend on BroadcastChannel. The renderer uses it ALONGSIDE
+  // BroadcastChannel (belt-and-braces); duplicates are deduped by message id.
+  live: {
+    post: (msg: unknown) => ipcRenderer.send("pf:live", msg),
+    onMessage: (cb: (msg: unknown) => void) => {
+      const handler = (_e: IpcRendererEvent, msg: unknown) => cb(msg);
+      ipcRenderer.on("pf:live", handler);
+      return () => ipcRenderer.removeListener("pf:live", handler);
+    },
+  },
   on: (channel: string, handler: Handler) => {
     const wrapped = (_e: IpcRendererEvent, ...args: any[]) => handler(...args);
     listeners.set(handler, wrapped);

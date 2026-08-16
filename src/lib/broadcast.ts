@@ -676,17 +676,116 @@ export function livestreamUrl(
 
 const CHANNEL = "presentflow-live";
 
-export function openLiveChannel(): BroadcastChannel | null {
-  if (typeof window === "undefined" || typeof BroadcastChannel === "undefined") return null;
+/**
+ * The minimal surface the operator/output pages use on a live channel. A real
+ * BroadcastChannel already satisfies this; the LiveChannel wrapper below adds an
+ * Electron main-process relay ALONGSIDE it so cross-window delivery survives
+ * BroadcastChannel flaking between separate Electron BrowserWindows (the
+ * "Operator disconnected" / translation-not-projecting symptom on some Macs).
+ */
+export interface LiveChannelLike {
+  onmessage: ((ev: MessageEvent) => void) | null;
+  onmessageerror: ((ev: MessageEvent) => void) | null;
+  postMessage: (msg: LiveMessage) => void;
+  close: () => void;
+}
+
+type ElectronLive = { post: (m: unknown) => void; onMessage: (cb: (m: unknown) => void) => () => void };
+function getElectronLive(): ElectronLive | null {
+  if (typeof window === "undefined") return null;
+  const api = (window as unknown as { electronAPI?: { live?: ElectronLive } }).electronAPI;
+  const live = api?.live;
+  return live && typeof live.post === "function" && typeof live.onMessage === "function" ? live : null;
+}
+
+// Per-window id + monotonic counter to tag every outgoing message, so the SAME
+// message arriving via BOTH BroadcastChannel and the Electron relay is applied
+// once. Bounded recent-id set. (Renderer context — Date.now/Math.random are fine
+// here; they only break inside workflow scripts.)
+const PF_WIN_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+let pfSeq = 0;
+const RECENT_MID_MAX = 256;
+const recentMids: Set<string> = new Set();
+function markSeen(mid: string): boolean {
+  if (recentMids.has(mid)) return true;
+  recentMids.add(mid);
+  if (recentMids.size > RECENT_MID_MAX) {
+    // drop the oldest ~quarter to keep it bounded without per-message cost
+    let i = 0; const drop = RECENT_MID_MAX >> 2;
+    for (const k of recentMids) { recentMids.delete(k); if (++i >= drop) break; }
+  }
+  return false;
+}
+
+/**
+ * A live channel that multiplexes BroadcastChannel (primary, same-origin) AND
+ * the Electron main-process relay (belt-and-braces, cross-BrowserWindow). Either
+ * transport alone delivers; duplicates are deduped by message id. When neither
+ * is available (SSR, plain browser without the relay) it degrades to whichever
+ * exists — a normal browser keeps pure BroadcastChannel behaviour, and the relay
+ * simply stays dormant until an Electron build exposes `electronAPI.live`.
+ */
+class LiveChannel implements LiveChannelLike {
+  onmessage: ((ev: MessageEvent) => void) | null = null;
+  onmessageerror: ((ev: MessageEvent) => void) | null = null;
+  private bc: BroadcastChannel | null = null;
+  private ipcOff: (() => void) | null = null;
+  private closed = false;
+
+  constructor() {
+    try {
+      this.bc = new BroadcastChannel(CHANNEL);
+      this.bc.onmessage = (e: MessageEvent) => this.receive(e.data, e);
+      this.bc.onmessageerror = (e: MessageEvent) => { try { this.onmessageerror?.(e); } catch { /* noop */ } };
+    } catch (e) {
+      console.warn("[broadcast] BroadcastChannel unavailable:", e instanceof Error ? e.message : String(e));
+      this.bc = null;
+    }
+    const live = getElectronLive();
+    if (live) {
+      try { this.ipcOff = live.onMessage((m) => this.receive(m, { data: m } as MessageEvent)); }
+      catch { this.ipcOff = null; }
+    }
+  }
+
+  private receive(data: unknown, ev: MessageEvent) {
+    if (this.closed) return;
+    const mid = (data as { pfMid?: unknown })?.pfMid;
+    if (typeof mid === "string" && markSeen(mid)) return; // duplicate from the other transport
+    try { this.onmessage?.(ev); } catch (e) { console.warn("[broadcast] onmessage handler threw:", e instanceof Error ? e.message : String(e)); }
+  }
+
+  postMessage(msg: LiveMessage) {
+    // Tag with a dedup id (harmless extra field; validators ignore it) so the
+    // twin BroadcastChannel + relay deliveries collapse to one on the receiver.
+    const tagged = { ...(msg as Record<string, unknown>), pfMid: `${PF_WIN_ID}:${++pfSeq}` } as unknown as LiveMessage;
+    try { this.bc?.postMessage(tagged); } catch (e) { console.warn("[broadcast] BC postMessage failed:", e instanceof Error ? e.message : String(e)); }
+    try { getElectronLive()?.post(tagged); } catch { /* relay best-effort */ }
+  }
+
+  close() {
+    this.closed = true;
+    try { this.bc?.close(); } catch { /* noop */ }
+    try { this.ipcOff?.(); } catch { /* noop */ }
+    this.ipcOff = null;
+    this.bc = null;
+  }
+}
+
+export function openLiveChannel(): LiveChannelLike | null {
+  if (typeof window === "undefined") return null;
+  // Need at least one transport. BroadcastChannel is the common case; the relay
+  // alone (exotic) also qualifies.
+  if (typeof BroadcastChannel === "undefined" && !getElectronLive()) return null;
   try {
-    return new BroadcastChannel(CHANNEL);
+    return new LiveChannel();
   } catch (e) {
-    console.warn("[broadcast] BroadcastChannel unavailable:", e instanceof Error ? e.message : String(e));
+    console.warn("[broadcast] openLiveChannel failed:", e instanceof Error ? e.message : String(e));
     return null;
   }
 }
 
-export function safePost(ch: BroadcastChannel | null, msg: LiveMessage): boolean {
+export function safePost(ch: LiveChannelLike | null, msg: LiveMessage): boolean {
   if (!ch) return false;
   try {
     ch.postMessage(msg);

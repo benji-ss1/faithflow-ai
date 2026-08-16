@@ -602,6 +602,25 @@ app.whenReady().then(async () => {
   ipcMain.handle("app:version", () => app.getVersion());
   ipcMain.handle("app:platform", () => process.platform);
 
+  // 2026-08-16 — same-machine live-sync RELAY (operator ↔ projector/stage/
+  // livestream). BroadcastChannel proved unreliable across separate Electron
+  // BrowserWindows, leaving the projector stuck ("Operator disconnected") and
+  // missing updates like a translation switch. Every LiveMessage a renderer
+  // posts is mirrored here and fanned out to ALL OTHER windows' webContents —
+  // a delivery path independent of BroadcastChannel. Fire-and-forget; the
+  // renderer dedups against the BroadcastChannel copy by message id. The
+  // payload is opaque here (validated on the receiving renderer, as it already
+  // is for BroadcastChannel), so no trust is added by this hop.
+  ipcMain.on("pf:live", (e, msg) => {
+    const senderId = e.sender.id;
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win.isDestroyed()) continue;
+      const wc = win.webContents;
+      if (!wc || wc.isDestroyed() || wc.id === senderId) continue;
+      try { wc.send("pf:live", msg); } catch { /* window torn down mid-send */ }
+    }
+  });
+
   // Open external URLs in the default browser. Used by the desktop sidebar's
   // "Manage your church online" link to route admins to the web portal.
   ipcMain.handle("shell:openExternal", async (_e, url: string) => {

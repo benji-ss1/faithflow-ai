@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
-import { openLiveChannel, safePost, isValidLiveMessage, slideDesignSig, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, safePost, isValidLiveMessage, slideDesignSig, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
 import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
 import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
@@ -91,7 +91,7 @@ export default function LivePage() {
   const [pairBadge, setPairBadge] = useState<string | null>(null);
   const lastMsgAt = useRef<number>(Date.now());
   const videoElRef = useRef<HTMLVideoElement | null>(null);
-  const broadcastChRef = useRef<BroadcastChannel | null>(null);
+  const broadcastChRef = useRef<LiveChannelLike | null>(null);
   // 2026-08-16 durable-sync: signature of the slide currently applied, so the
   // periodic self-heal ping (below) can re-pull the operator's live slide and
   // apply it ONLY when it actually changed — catching a missed update (e.g. a
@@ -115,7 +115,7 @@ export default function LivePage() {
     // reset, GC of stale channel). If we go >5s with no message we close and
     // re-open. Uses a local mutable holder so both the message handler and
     // the reconnect timer see the current instance.
-    let ch: BroadcastChannel | null = openLiveChannel();
+    let ch: LiveChannelLike | null = openLiveChannel();
     broadcastChRef.current = ch;
     let reopenCount = 0;
     let tick = 0;
@@ -207,7 +207,7 @@ export default function LivePage() {
         console.warn("[live] message handler error:", err instanceof Error ? err.message : String(err));
       }
     };
-    const attachHandlers = (channel: BroadcastChannel) => {
+    const attachHandlers = (channel: LiveChannelLike) => {
       channel.onmessage = onMessage;
       channel.onmessageerror = () => console.warn("[live] messageerror — malformed message received, ignoring");
     };

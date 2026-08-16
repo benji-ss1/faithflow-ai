@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState, type RefCallback } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { openLiveChannel, isValidLiveMessage, slideDesignSig, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, isValidLiveMessage, slideDesignSig, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
 import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
 import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
@@ -55,7 +55,7 @@ export default function LivestreamPage() {
   const [showHelp, setShowHelp] = useState(true);
   const lastMsgAt = useRef<number>(Date.now());
   const videoElRef = useRef<HTMLVideoElement | null>(null);
-  const broadcastChRef = useRef<BroadcastChannel | null>(null);
+  const broadcastChRef = useRef<LiveChannelLike | null>(null);
 
   // ?bg=transparent → strip our own bg so OBS chroma / alpha keys directly
   const [transparent, setTransparent] = useState(false);
@@ -80,7 +80,7 @@ export default function LivestreamPage() {
   }, []);
 
   useEffect(() => {
-    let ch: BroadcastChannel | null = openLiveChannel();
+    let ch: LiveChannelLike | null = openLiveChannel();
     broadcastChRef.current = ch;
     let reopenCount = 0;
     // Dedup the slide so the projector's 3s self-heal pong (broadcast to all
@@ -148,7 +148,7 @@ export default function LivestreamPage() {
         console.warn("[livestream] message handler error:", err instanceof Error ? err.message : String(err));
       }
     };
-    const attach = (c: BroadcastChannel) => {
+    const attach = (c: LiveChannelLike) => {
       c.onmessage = onMessage;
       c.onmessageerror = () => console.warn("[livestream] messageerror");
     };
