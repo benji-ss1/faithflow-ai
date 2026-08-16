@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.231",
+    date: "2026-08-16",
+    headline: "Paste slides into any song, move the Projection Zone button, sharper verse hearing",
+    highlights: [
+      "Copy a slide, then right-click a song in your playlist (or right-click anywhere in the slide grid) and choose \"Paste slide\" — the copied slide drops straight into that song. Copy from one song and paste into another.",
+      "The amber Projection Zone button can now be dragged anywhere on your operator screen — park it wherever suits you and it stays there across restarts.",
+      "Voice detection now understands \"John Trever 17\" as \"John 3 verse 17\" (John 3:17) — a common mishearing of \"3 verse\" in worship, now corrected automatically.",
+    ],
+  },
+  {
     version: "0.1.230",
     date: "2026-08-16",
     headline: "New: Projection Zone Customizer — place & size content on your screen",

@@ -241,6 +241,12 @@ function chunkToNum(raw: string): number {
 // by the patterns, never here. This pass repairs only the TH-fronted number
 // words, each with a guard against the obvious non-number meaning.
 function repairNumberHomophones(s: string): string {
+  // 2026-08-16 field bug fix: Deepgram hears "three verse" (i.e. "3 verse N")
+  // as the name "Trever"/"Trevor" in African-accented speech — "John Trever 17"
+  // is meant to be "John 3 verse 17" → John 3:17. Expand it back to "3 verse"
+  // so the downstream chapter/verse patterns resolve it. Never a real Bible
+  // word, so the global replace is safe.
+  s = s.replace(/\btrev(?:er|or)\b/gi, "3 verse");
   // Only the guarded "tree" rule matters in practice; apply the TH-fronted
   // set. The list is intentionally conservative — every entry is a word that
   // is virtually never a real English word in a Bible-reference context.

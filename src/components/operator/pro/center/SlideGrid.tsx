@@ -6,6 +6,7 @@ import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload } from "@/lib/broadcast";
+import { useSlideClipboard, setSlideClipboard, getSlideClipboard } from "@/lib/slide-clipboard";
 import { updateSongSlides } from "@/lib/actions";
 import { X, Pencil } from "lucide-react";
 
@@ -86,8 +87,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   const [quickEdit, setQuickEdit] = useState<{ slideIdx: number; text: string } | null>(null);
   const [qeSaving, setQeSaving] = useState(false);
   // App-level clipboard for cut/copy/paste within the grid
-  const slideClipboardRef = useRef<SlidePayload | null>(null);
-  const [clipboardHasSlide, setClipboardHasSlide] = useState(false);
+  const clipboardSlide = useSlideClipboard();
 
   // Data-loss guard: the grid's Quick Edit / Duplicate / Delete / Paste rewrite
   // the WHOLE song from lyrics only (updateSongSlides), which drops every slide's
@@ -109,10 +109,10 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   // Paste the clipboard slide at a chosen position (insertIdx). Shared by the
   // per-slide "Paste after" and the empty-space "Paste at end" menus, so the
   // operator can decide WHERE the copied slide lands.
-  const canPasteHere = clipboardHasSlide && item?.type === "song" && !!(item as { songId?: string }).songId;
+  const canPasteHere = !!clipboardSlide && item?.type === "song" && !!(item as { songId?: string }).songId;
   const pasteSlideAt = (insertIdx: number) => {
     if (guardObjectSong()) return;
-    const copied = slideClipboardRef.current;
+    const copied = getSlideClipboard();
     if (!copied) { void import("sonner").then(({ toast }) => toast.error("Nothing to paste")); return; }
     const songId = (item as { songId?: string })?.songId;
     if (item?.type !== "song" || !songId) return;
@@ -320,8 +320,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                   }
                 }}
                 onCopySlide={() => {
-                  slideClipboardRef.current = s;
-                  setClipboardHasSlide(true);
+                  setSlideClipboard(s);
                   void import("sonner").then(({ toast }) => toast.success("Slide copied"));
                 }}
                 canPaste={canPasteHere}

@@ -1647,9 +1647,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
           (never the projector). The editor is a live sheet; changes flow to the
           output through OutputState.zone. */}
       {shell === "desktop" && (
-        <div className="fixed z-[150]" style={{ right: 16, bottom: 56 }}>
-          <ZoneToolbarButton onOpen={() => setZoneEditorOpen(true)} hasCustomProfile={zoneStore.profiles.some((p) => p.name !== "Default")} />
-        </div>
+        <ZoneToolbarButton onOpen={() => setZoneEditorOpen(true)} hasCustomProfile={zoneStore.profiles.some((p) => p.name !== "Default")} />
       )}
       <ZoneEditor open={zoneEditorOpen} onClose={() => setZoneEditorOpen(false)} />
     </>

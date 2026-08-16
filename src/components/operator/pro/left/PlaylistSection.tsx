@@ -34,6 +34,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong, createSongSlide, deleteSongSlide, setServiceItemTheme, renameSong } from "@/lib/actions";
+import { useSlideClipboard, getSlideClipboard } from "@/lib/slide-clipboard";
 
 function itemIcon(type: string) {
   if (type === "song") return Music;
@@ -55,6 +56,8 @@ function SortablePlaylistItem({
   onMove,
   onDuplicate,
   onAddSlide,
+  onPasteSlide,
+  canPasteSlide = false,
   onDeleteSong,
   onRename,
   themes = [],
@@ -71,6 +74,8 @@ function SortablePlaylistItem({
   onMove: (dir: -1 | 1) => void;
   onDuplicate: () => void;
   onAddSlide?: () => void;
+  onPasteSlide?: () => void;
+  canPasteSlide?: boolean;
   onDeleteSong?: () => void;
   onRename?: (newTitle: string) => void;
   themes?: { id: string; name: string }[];
@@ -225,6 +230,14 @@ function SortablePlaylistItem({
                 Add slide
               </ContextMenu.Item>
             )}
+            {onPasteSlide && canPasteSlide && (
+              <ContextMenu.Item
+                onSelect={onPasteSlide}
+                className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer"
+              >
+                Paste slide
+              </ContextMenu.Item>
+            )}
             {onSetTheme && themes.length > 0 && (
               <ContextMenu.Sub>
                 <ContextMenu.SubTrigger className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between data-[state=open]:bg-[var(--color-panel)]">
@@ -282,6 +295,7 @@ export function PlaylistSection({
   const [dropOver, setDropOver] = useState(false);
   const router = useRouter();
   const items = ctx.plan.items;
+  const clipboardSlide = useSlideClipboard(); // reactive: enables "Paste slide"
 
   // 8px activation distance prevents accidental drags on regular clicks.
   const sensors = useSensors(
@@ -424,6 +438,20 @@ export function PlaylistSection({
     if (!res.ok) { toast.error(res.error ?? "Add slide failed"); return; }
     router.refresh();
     if (res.data) undoToast("Slide added", () => deleteSongSlide(res.data!.id));
+  };
+
+  // Paste the app-clipboard slide into a song item (appends its text as a new
+  // lyric slide). Same path as Add slide, but seeded with the copied slide.
+  const pasteSlideToItem = async (it: OperatorShellCtx["plan"]["items"][number]) => {
+    if (it.type !== "song" || !it.songId) return;
+    if (blockedIfOffline()) return;
+    const copied = getSlideClipboard();
+    if (!copied) { toast.error("Nothing to paste"); return; }
+    const lyrics = copied.kind === "text" ? ((copied as { text?: string }).text ?? "") : "";
+    const res = await createSongSlide(it.songId, undefined, { objects: [], lyrics });
+    if (!res.ok) { toast.error(res.error ?? "Paste failed"); return; }
+    router.refresh();
+    if (res.data) undoToast(`Slide pasted into "${it.title}"`, () => deleteSongSlide(res.data!.id));
   };
 
   const duplicate = async (idx: number) => {
@@ -590,6 +618,8 @@ export function PlaylistSection({
                   onMove={(dir) => void move(idx, dir)}
                   onDuplicate={() => void duplicate(idx)}
                   onAddSlide={it.type === "song" && it.songId ? () => void addSlideToItem(it) : undefined}
+                  onPasteSlide={it.type === "song" && it.songId ? () => void pasteSlideToItem(it) : undefined}
+                  canPasteSlide={!!clipboardSlide && it.type === "song" && !!it.songId}
                   onDeleteSong={it.type === "song" && it.songId ? () => void deleteFromLibrary(it) : undefined}
                   onRename={it.type === "song" && it.songId ? (newTitle) => void renameItem(it, newTitle) : undefined}
                   themes={themes}
