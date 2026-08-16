@@ -451,7 +451,7 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
         {refSplit.body}
         {refSplit.ref && (
           // Secondary reference — em-relative so it tracks the verse size.
-          <span style={{ fontSize: "0.72em", fontWeight: 600, opacity: 0.9 }}>{"\n\n" + refSplit.ref}</span>
+          <span style={{ fontSize: "0.82em", fontWeight: 600, opacity: 0.9 }}>{"\n\n" + refSplit.ref}</span>
         )}
       </div>
       {pages.length > 1 && (

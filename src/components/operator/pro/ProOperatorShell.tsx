@@ -42,7 +42,7 @@ import { TranscriptDisplay } from "./TranscriptDisplay";
 import { BottomBar } from "./BottomBar";
 import { MediaStrip } from "./MediaStrip";
 import { useTimerSession, useMessagesSession, useBibleSession } from "./hooks";
-import { openLiveChannel, safePost } from "@/lib/broadcast";
+import { openLiveChannel, safePost, type LiveChannelLike } from "@/lib/broadcast";
 import { cachedLookup } from "@/lib/bible-client-cache";
 import { setAvailableTranslationCodes, getAvailableTranslationCodes } from "@/lib/translation-commands";
 import { BIBLE_MICRO_COOLDOWN_MS, decideBibleAutoFire } from "@/lib/bible-antireplay";
@@ -1932,7 +1932,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // via BroadcastChannel. The output pages already know how to render these —
   // ProOperatorShell just wasn't posting. Channel is same-machine only per
   // CLAUDE.md rule 8 (primary sync path).
-  const overlayChRef = useRef<BroadcastChannel | null>(null);
+  const overlayChRef = useRef<LiveChannelLike | null>(null);
   useEffect(() => {
     overlayChRef.current = openLiveChannel();
     return () => { try { overlayChRef.current?.close(); } catch { /* noop */ } overlayChRef.current = null; };
@@ -3006,12 +3006,15 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         const body = first.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
         ctx.onSendSlideToLive({ kind: "text", text: `${body}\n\n${first.label}` });
       }
-    } else if (centerMode === "slides") {
-      const item = ctx.plan.items[ctx.previewItemIdx];
-      const slide = item?.slides?.[0];
-      if (slide) ctx.onSendSlideToLive(slide as unknown as import("@/lib/broadcast").SlidePayload);
     }
-    // Songs / Media never auto-project (CLAUDE.md rule 7 + safety).
+    // 2026-08-16 FIX: switching to "slides" mode NO LONGER auto-projects the
+    // previewed item. Clicking a playlist item switches centerMode to "slides"
+    // (handleItemClick), which used to trip this branch and send the item to
+    // LIVE in AUTO mode — exactly the "clicking a playlist item shouldn't go
+    // live" bug the operator reported repeatedly (e.g. STEADFAST LOVE OF THE
+    // LORD). Playlist/slide navigation is preview-only now; the operator goes
+    // live via right-click → Send to live, a slide click in the centre grid, or
+    // the AI auto-fire path. Songs / Media never auto-project either (rule 7).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centerMode]);
 

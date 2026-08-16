@@ -4,7 +4,7 @@ import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
-import { openLiveChannel, isValidLiveMessage, slideDesignSig, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, isValidLiveMessage, slideDesignSig, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance } from "@/lib/broadcast";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
 import { TransitionWrapper } from "@/components/live/TransitionWrapper";
@@ -73,7 +73,7 @@ export default function StagePage() {
   }, []);
 
   useEffect(() => {
-    let ch: BroadcastChannel | null = openLiveChannel();
+    let ch: LiveChannelLike | null = openLiveChannel();
     let reopenCount = 0;
     // Dedup the current slide so the projector's 3s self-heal pong (broadcast to
     // all windows) never re-renders a held static slide on the stage display.
@@ -128,7 +128,7 @@ export default function StagePage() {
         console.warn("[stage] message handler error:", err instanceof Error ? err.message : String(err));
       }
     };
-    const attach = (c: BroadcastChannel) => {
+    const attach = (c: LiveChannelLike) => {
       c.onmessage = onMessage;
       c.onmessageerror = () => console.warn("[stage] messageerror");
     };
@@ -252,84 +252,67 @@ export default function StagePage() {
       style={{ margin: 0, padding: 0, background: "#000", color: "#e9edee" }}
       onDoubleClick={goFullscreen}
     >
-      {/* Header row: clock + countdown + connection status */}
-      <div className="h-24 shrink-0 border-b border-white/10 flex items-stretch">
-        <div className="flex-1 flex items-center justify-center border-r border-white/10">
-          <div className="text-6xl font-mono font-light tracking-tight" style={{ color: "var(--color-brand)" }}>
-            {now ? now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }) : "--:--:--"}
+      {/* 2026-08-16 stage redesign (JPD): the time-of-day clock and the
+          placeholder notes row are GONE. The screen is now dedicated to what the
+          platform actually needs — the CURRENT lyrics/verse BIG, with the NEXT
+          slide as a smaller strip below so singers see what's coming. A sermon
+          timer/countdown only appears as a small corner chip when one is set. */}
+
+      {/* CURRENT — dominant, full width so text is as large as possible */}
+      <div className="relative flex-1 min-h-0">
+        <div className="absolute top-3 left-4 text-[11px] font-mono uppercase tracking-widest text-white/45 z-10">Current</div>
+        {(timerOverlay || countdownStr) && (
+          <div className="absolute top-3 right-4 z-10 flex items-center gap-2 bg-white/[0.06] border border-white/10 rounded-xl px-3 py-1.5 backdrop-blur-sm">
+            <span className="text-[9px] font-mono uppercase tracking-widest text-white/40">
+              {timerOverlay ? (timerOverlay.name || "Timer") : "Countdown"}{timerOverlay && !timerOverlay.running ? " (paused)" : ""}
+            </span>
+            <span className={`text-3xl font-mono font-light tabular-nums ${timerOverlay && timerOverlay.remainingSec < 0 ? "text-red-400" : "text-white/85"}`}>
+              {timerOverlay ? formatStageTimer(timerOverlay.remainingSec) : countdownStr}
+            </span>
           </div>
-        </div>
-        {timerOverlay ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-1">
-            <div className="text-[10px] font-mono uppercase tracking-widest text-white/50">
-              {timerOverlay.name || "Timer"}{!timerOverlay.running && " (paused)"}
-            </div>
-            <div className={`text-5xl font-mono font-light tabular-nums ${timerOverlay.remainingSec < 0 ? "text-red-400" : ""}`}>
-              {formatStageTimer(timerOverlay.remainingSec)}
-            </div>
-          </div>
-        ) : countdownStr ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-1">
-            <div className="text-[10px] font-mono uppercase tracking-widest text-white/50">Countdown</div>
-            <div className="text-5xl font-mono font-light">{countdownStr}</div>
-          </div>
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center gap-1">
-            <div className="text-[10px] font-mono uppercase tracking-widest text-white/40">No countdown</div>
+        )}
+        <PresentationCanvas>
+          <TransitionWrapper identityKey={stageIdentity(current)} transition={transition}>
+            <SlideRenderer slide={current} projectorFit fontScale={fontScale} appearance={appearance} />
+          </TransitionWrapper>
+          <ThemeLogoLayer appearance={appearance} />
+        </PresentationCanvas>
+        <AnnouncementLayer ann={announcement} />
+        {/* Operator message — a slim bar over the bottom of the current area, only
+            when the operator actually sends one (no dead placeholder). */}
+        {operatorMessage && (
+          <div className="absolute left-0 right-0 bottom-0 z-20 bg-black/70 backdrop-blur-sm border-t-2 px-6 py-2.5" style={{ borderColor: "var(--color-brand, #ff7a2c)" }}>
+            <div className="text-white text-2xl font-semibold leading-tight">{operatorMessage}</div>
           </div>
         )}
       </div>
+
+      {/* NEXT — smaller strip so the platform sees what's coming up */}
+      <div className="relative shrink-0 h-[28%] border-t-2 border-white/10 bg-white/[0.02]">
+        <div className="absolute top-2 left-4 z-10 flex items-center gap-2">
+          <span className="text-[10px] font-mono uppercase tracking-widest text-white/40">Next</span>
+          {nextItem && (
+            <span className="text-sm font-semibold text-white/70 max-w-[70vw] truncate">
+              <span className="text-[9px] font-mono uppercase tracking-widest text-white/30 mr-2">{nextItem.type}</span>
+              {nextItem.title}
+            </span>
+          )}
+        </div>
+        {next && next.kind !== "empty" ? (
+          <div className="opacity-75 w-full h-full"><PresentationCanvas><SlideRenderer slide={next} projectorFit appearance={appearance} /></PresentationCanvas></div>
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-white/20 text-sm">— end of item —</div>
+        )}
+      </div>
+
+      {/* Spoken message overlay (operator "message" broadcast) — kept. */}
       {messageOverlay && (
-        <div className="absolute left-[6%] right-[6%] bottom-[36%] pointer-events-none z-20">
-          <div className="bg-black/70 backdrop-blur-sm border-l-4 p-4 rounded-sm" style={{ borderColor: "var(--color-brand, #06b6d4)" }}>
-            <div className="text-white text-xl md:text-3xl font-semibold leading-tight text-left">{messageOverlay}</div>
+        <div className="absolute left-[6%] right-[6%] top-[8%] pointer-events-none z-30">
+          <div className="bg-black/75 backdrop-blur-sm border-l-4 p-4 rounded-sm" style={{ borderColor: "var(--color-brand, #ff7a2c)" }}>
+            <div className="text-white text-2xl md:text-4xl font-semibold leading-tight text-left">{messageOverlay}</div>
           </div>
         </div>
       )}
-
-      {/* Middle row: current + next slide */}
-      <div className="flex-1 grid grid-cols-2 min-h-0">
-        <div className="border-r border-white/10 relative">
-          <div className="absolute top-3 left-4 text-[10px] font-mono uppercase tracking-widest text-white/60 z-10">Current</div>
-          <PresentationCanvas>
-            <TransitionWrapper identityKey={stageIdentity(current)} transition={transition}>
-              <SlideRenderer slide={current} projectorFit fontScale={fontScale} appearance={appearance} />
-            </TransitionWrapper>
-            <ThemeLogoLayer appearance={appearance} />
-          </PresentationCanvas>
-          <AnnouncementLayer ann={announcement} />
-        </div>
-        <div className="relative">
-          <div className="absolute top-3 left-4 z-10 flex flex-col gap-0.5">
-            <div className="text-[10px] font-mono uppercase tracking-widest text-white/40">Next</div>
-            {nextItem && (
-              <div className="text-base font-semibold text-white/80 max-w-[80vw] truncate">
-                <span className="text-[10px] font-mono uppercase tracking-widest text-white/40 mr-2">{nextItem.type}</span>
-                {nextItem.title}
-              </div>
-            )}
-          </div>
-          {next && next.kind !== "empty" ? (
-            <div className="opacity-50 w-full h-full"><PresentationCanvas><SlideRenderer slide={next} projectorFit appearance={appearance} /></PresentationCanvas></div>
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-white/20 text-sm">— end of item —</div>
-          )}
-        </div>
-      </div>
-
-      {/* Bottom row: operator message + notes */}
-      <div className="h-32 shrink-0 border-t border-white/10 flex items-stretch">
-        <div className="flex-1 flex flex-col justify-center px-6 border-r border-white/10">
-          <div className="text-[10px] font-mono uppercase tracking-widest text-white/40 mb-1">Operator message</div>
-          <div className="text-lg leading-tight text-white/90">
-            {operatorMessage || <span className="text-white/30 italic">no message</span>}
-          </div>
-        </div>
-        <div className="flex-1 flex flex-col justify-center px-6">
-          <div className="text-[10px] font-mono uppercase tracking-widest text-white/40 mb-1">Sermon notes / confidence lyrics</div>
-          <div className="text-sm text-white/40 italic">Content coming when the operator populates the notes/lyrics tabs.</div>
-        </div>
-      </div>
 
       {showHelp && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/80 text-white text-xs px-3 py-2 rounded-md flex items-center gap-3 cursor-pointer pointer-events-auto"

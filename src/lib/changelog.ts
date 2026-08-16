@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.222",
+    date: "2026-08-16",
+    headline: "Playlist clicks never go live, a cleaner Stage screen, bigger reference",
+    highlights: [
+      "Fixed for good: clicking a song in the playlist (e.g. \"Steadfast Love of the Lord\") no longer sends it to the projector — even in AUTO mode. It only previews in the centre; to go live, right-click → Send to live, click a slide in the centre, or let the AI fire it.",
+      "Stage screen redesigned for the platform: the time-of-day clock is gone, the current lyrics/verse now fill the screen big, and the next slide sits in a strip below so singers and preachers can see what's coming. A sermon timer only shows as a small corner chip when one is set.",
+      "Scripture reference line (e.g. \"2 Kings 4:7 (NKJV)\") is a little bigger again on the projector.",
+    ],
+  },
+  {
     version: "0.1.221",
     date: "2026-08-16",
     headline: "Translation switches reach the projector reliably + tidier AI chips",
