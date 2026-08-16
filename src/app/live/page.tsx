@@ -271,7 +271,11 @@ export default function LivePage() {
         realtime.subscribe((state) => {
           lastMsgAt.current = Date.now();
           setConnected(true);
-          setSlide(state.live);
+          // Route through applyLive so appliedLiveSigRef stays authoritative
+          // across BOTH transports (BroadcastChannel + pair realtime) — otherwise
+          // a later BC re-assert of a slide the pair path set could be wrongly
+          // deduped and wedge the projector (correctness-review 🟡).
+          applyLive(state.live);
           setAnnouncement(state.announcement ?? null);
           setTransition(state.transition ?? null);
           setFontScale(typeof state.fontScale === "number" ? state.fontScale : 1);

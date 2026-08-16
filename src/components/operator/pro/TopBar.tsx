@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -192,11 +192,17 @@ export function TopBar({
     try { window.dispatchEvent(new CustomEvent("presentflow:font-scale-changed", { detail: { scale: clamped } })); } catch { /* noop */ }
   };
   const fontIsAuto = Math.abs(fontScale - 1) < 1e-6;
+  // CRITICAL (2026-08-16 correctness-review 🔴): SKIP the very first (hydration)
+  // run of this effect. `autoApproveOn` derives from `ctx.autopilotMode`, which
+  // OperatorConsole ALWAYS initialises to "suggestion"/"armed" (never "active")
+  // and only restores post-mount. React fires this child effect BEFORE the
+  // parent's hydration effect, so on launch the first run would write "0" —
+  // clobbering the persisted "1" before OperatorConsole can read it, and AUTO
+  // would wrongly come up OFF every restart. Guarding the mount run lets the
+  // parent hydrate from the persist key first; only genuine toggles persist.
+  const autoPersistMountRef = useRef(false);
   useEffect(() => {
-    // Y3: sessionStorage instead of localStorage. Cleared on tab close;
-    // operator must re-arm each session — XSS-flipping the flag no longer
-    // arms auto-live silently across restarts. We ALSO wipe the legacy
-    // localStorage key so a compromised value there can't override.
+    if (!autoPersistMountRef.current) { autoPersistMountRef.current = true; return; }
     try {
       window.sessionStorage.setItem(AUTO_APPROVE_KEY, autoApproveOn ? "1" : "0");
       // Retire the legacy localStorage entry (its old semantics).
