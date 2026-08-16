@@ -700,22 +700,14 @@ function getElectronLive(): ElectronLive | null {
 
 // Per-window id + monotonic counter to tag every outgoing message, so the SAME
 // message arriving via BOTH BroadcastChannel and the Electron relay is applied
-// once. Bounded recent-id set. (Renderer context — Date.now/Math.random are fine
-// here; they only break inside workflow scripts.)
+// once. (Renderer context — Date.now/Math.random are fine here; they only break
+// inside workflow scripts.) The seen-id set is PER LiveChannel INSTANCE (not
+// module-global): it must collapse the twin delivery of ONE channel, but two
+// distinct receiving channels in the same window must NOT share it or the second
+// would wrongly drop the first's messages.
 const PF_WIN_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 let pfSeq = 0;
 const RECENT_MID_MAX = 256;
-const recentMids: Set<string> = new Set();
-function markSeen(mid: string): boolean {
-  if (recentMids.has(mid)) return true;
-  recentMids.add(mid);
-  if (recentMids.size > RECENT_MID_MAX) {
-    // drop the oldest ~quarter to keep it bounded without per-message cost
-    let i = 0; const drop = RECENT_MID_MAX >> 2;
-    for (const k of recentMids) { recentMids.delete(k); if (++i >= drop) break; }
-  }
-  return false;
-}
 
 /**
  * A live channel that multiplexes BroadcastChannel (primary, same-origin) AND
@@ -731,6 +723,17 @@ class LiveChannel implements LiveChannelLike {
   private bc: BroadcastChannel | null = null;
   private ipcOff: (() => void) | null = null;
   private closed = false;
+  private readonly seen: Set<string> = new Set();
+
+  private markSeen(mid: string): boolean {
+    if (this.seen.has(mid)) return true;
+    this.seen.add(mid);
+    if (this.seen.size > RECENT_MID_MAX) {
+      let i = 0; const drop = RECENT_MID_MAX >> 2;
+      for (const k of this.seen) { this.seen.delete(k); if (++i >= drop) break; }
+    }
+    return false;
+  }
 
   constructor() {
     try {
@@ -751,7 +754,7 @@ class LiveChannel implements LiveChannelLike {
   private receive(data: unknown, ev: MessageEvent) {
     if (this.closed) return;
     const mid = (data as { pfMid?: unknown })?.pfMid;
-    if (typeof mid === "string" && markSeen(mid)) return; // duplicate from the other transport
+    if (typeof mid === "string" && this.markSeen(mid)) return; // duplicate from the other transport (same channel)
     try { this.onmessage?.(ev); } catch (e) { console.warn("[broadcast] onmessage handler threw:", e instanceof Error ? e.message : String(e)); }
   }
 
