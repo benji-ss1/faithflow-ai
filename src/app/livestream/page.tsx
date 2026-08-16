@@ -277,18 +277,29 @@ export default function LivestreamPage() {
           )}
         </>
       )}
-      {mode === "lower_third" && lowerThird && (
-        <div className="absolute bottom-0 left-0 right-0 p-8">
-          <div className="bg-black/80 border-l-4 border-[color:var(--color-brand)] p-6 max-w-2xl">
-            <div className="text-white font-semibold text-3xl leading-tight">{lowerThird.line1}</div>
-            {lowerThird.line2 && <div className="text-white/70 text-xl mt-2">{lowerThird.line2}</div>}
+      {/* 2026-08-16 (user request): the livestream LOWER-THIRD now shows the
+          CURRENT LIVE lyrics/verse as a caption for the stream — not just an
+          explicit operator lower-third. The operator chooses full vs lower-third
+          via Hardware → Screens → Livestream, so this is opt-in per surface; it
+          only renders what's already live on the projector (their own service). */}
+      {mode === "lower_third" && (() => {
+        const liveText = slide.kind === "text" && typeof slide.text === "string" && slide.text.trim() ? slide.text : null;
+        if (!lowerThird && !liveText) return null;
+        return (
+          <div className="absolute bottom-0 left-0 right-0 p-8">
+            <div className="bg-black/80 border-l-4 border-[color:var(--color-brand)] p-6 max-w-4xl">
+              {lowerThird ? (
+                <>
+                  <div className="text-white font-semibold text-3xl leading-tight">{lowerThird.line1}</div>
+                  {lowerThird.line2 && <div className="text-white/70 text-xl mt-2">{lowerThird.line2}</div>}
+                </>
+              ) : (
+                <div className="text-white font-semibold text-3xl leading-snug whitespace-pre-wrap max-h-[42vh] overflow-hidden">{liveText}</div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
-      {/* Y2: In lower_third OBS mode we require an EXPLICIT `lowerThird`
-          payload. The previous fallback of rendering any text-kind slide
-          leaked song lyrics into the OBS overlay. Cleaner boundary: only
-          the operator's explicit lower-third string ever renders here. */}
+        );
+      })()}
 
       {/* allowWeb === false → operator said in-building only; never show on
           this public OBS-facing surface. */}

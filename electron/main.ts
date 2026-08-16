@@ -314,6 +314,23 @@ async function createMainWindow() {
   });
   mainWindow.webContents.setBackgroundThrottling(false);
 
+  // 2026-08-16 — universal right-click Copy/Cut/Paste/Select-All. Chromium shows
+  // NO context menu by default in a packaged Electron app, so the operator could
+  // only paste with ⌘V. This gives a native edit menu on EVERY editable field
+  // and text selection across the whole app — rename song, theme editing, new
+  // slide text, Bible search, slide content, anywhere — in one place. Clipboard
+  // interop with other apps/browsers is native (the OS clipboard).
+  mainWindow.webContents.on("context-menu", (_event, params) => {
+    const hasSelection = !!params.selectionText && params.selectionText.trim().length > 0;
+    if (!params.isEditable && !hasSelection) return;
+    const template: Electron.MenuItemConstructorOptions[] = [];
+    if (params.isEditable) template.push({ label: "Cut", role: "cut", enabled: params.editFlags.canCut });
+    template.push({ label: "Copy", role: "copy", enabled: params.editFlags.canCopy });
+    if (params.isEditable) template.push({ label: "Paste", role: "paste", enabled: params.editFlags.canPaste });
+    template.push({ type: "separator" }, { label: "Select All", role: "selectAll", enabled: params.editFlags.canSelectAll });
+    try { Menu.buildFromTemplate(template).popup({ window: mainWindow ?? undefined }); } catch { /* window torn down */ }
+  });
+
   mainWindow.once("ready-to-show", () => mainWindow?.show());
   mainWindow.on("closed", () => {
     mainWindow = null;

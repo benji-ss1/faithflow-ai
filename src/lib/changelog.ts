@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.229",
+    date: "2026-08-16",
+    headline: "Right-click copy/paste everywhere + live lyrics on the livestream",
+    highlights: [
+      "Right-click now gives Copy / Cut / Paste / Select All on every text field across the app — renaming songs, editing themes, new-slide text, Bible search, anywhere — and it works with content copied from your browser or other apps. (Requires the new desktop app update.)",
+      "Livestream lower-third now shows the current live lyrics/verse as a caption for your stream (choose full-screen or lower-third under Hardware → Screens → Livestream).",
+    ],
+  },
+  {
     version: "0.1.228",
     date: "2026-08-16",
     headline: "Projector slide transitions are back + a New Slide button",
