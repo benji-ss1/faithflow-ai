@@ -5,6 +5,7 @@ import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
 import { openLiveChannel, type LiveChannelLike, isValidLiveMessage, slideDesignSig, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance } from "@/lib/broadcast";
+import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
 import { TransitionWrapper } from "@/components/live/TransitionWrapper";
@@ -37,6 +38,7 @@ export default function StagePage() {
   const [next, setNext] = useState<SlidePayload | null>(null);
   const [fontScale, setFontScale] = useState(1); // B3 operator manual text size
   const [appearance, setAppearance] = useState<ThemeAppearance | null>(null); // Themes Phase 1
+  const [zone, setZone] = useState<ProjectionZone | null>(null); // Projection Zone geometry
   const [nextItem, setNextItem] = useState<{ title: string; type: string } | null>(null);
   const [operatorMessage, setOperatorMessage] = useState<string | null>(null);
   const [countdownEndsAt, setCountdownEndsAt] = useState<number | null>(null);
@@ -97,6 +99,7 @@ export default function StagePage() {
           setNext(msg.state.next);
           setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);
           setAppearance(msg.state.appearance ?? null);
+          setZone(msg.state.zone ?? null);
           setNextItem(msg.state.nextItem ?? null);
           setOperatorMessage(msg.state.operatorMessage);
           setCountdownEndsAt(msg.state.countdownEndsAt);
@@ -175,6 +178,7 @@ export default function StagePage() {
         realtime.subscribe((state) => {
           setFontScale(typeof state.fontScale === "number" ? state.fontScale : 1);
           setAppearance(state.appearance ?? null);
+          setZone(state.zone ?? null);
           lastMsgAt.current = Date.now();
           setConnected(true);
           setCurrent(state.live);
@@ -271,7 +275,7 @@ export default function StagePage() {
             </span>
           </div>
         )}
-        <PresentationCanvas>
+        <PresentationCanvas zone={zone}>
           <TransitionWrapper identityKey={stageIdentity(current)} transition={transition}>
             <SlideRenderer slide={current} projectorFit fontScale={fontScale} appearance={appearance} />
           </TransitionWrapper>

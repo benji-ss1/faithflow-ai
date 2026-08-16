@@ -4,6 +4,7 @@ import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import { openLiveChannel, type LiveChannelLike, safePost, isValidLiveMessage, slideDesignSig, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
+import type { ProjectionZone } from "@/lib/projection-zone";
 import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
 import { TransitionWrapper } from "@/components/live/TransitionWrapper";
 import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
@@ -73,6 +74,7 @@ export default function LivePage() {
   const [fontScale, setFontScale] = useState(1); // B3 operator manual text size
   const [appearance, setAppearance] = useState<ThemeAppearance | null>(null); // Themes Phase 1
   const [videoInput, setVideoInput] = useState<VideoInputState | null>(null); // Phase 2a live video
+  const [zone, setZone] = useState<ProjectionZone | null>(null); // Projection Zone geometry
   const [messageOverlay, setMessageOverlay] = useState<{ text: string; position: OverlayPosition } | null>(null);
   const messageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Content key (text|dismissAfterMs) of the currently shown message — the
@@ -161,6 +163,7 @@ export default function LivePage() {
           setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);
           setAppearance(msg.state.appearance ?? null);
           setVideoInput(msg.state.videoInput ?? null);
+          setZone(msg.state.zone ?? null);
         } else if (msg.type === "message") {
           // Auto-dismiss timer is client-side, so multiple output windows
           // stay in sync without needing a shared wall-clock deadline.
@@ -282,6 +285,7 @@ export default function LivePage() {
           setFontScale(typeof state.fontScale === "number" ? state.fontScale : 1);
           setAppearance(state.appearance ?? null);
           setVideoInput(state.videoInput ?? null);
+          setZone(state.zone ?? null);
           if (firstMsg) {
             firstMsg = false;
             setPairBadge(code);
@@ -421,7 +425,7 @@ export default function LivePage() {
                 scale it to the display — identical geometry to the operator
                 preview (which wraps the same SlideRenderer in the same canvas),
                 so what the operator sees is exactly what the projector shows. */}
-            <PresentationCanvas canvasW={aspectRatio === "4:3" ? 1440 : 1920} canvasH={1080}>
+            <PresentationCanvas canvasW={aspectRatio === "4:3" ? 1440 : 1920} canvasH={1080} zone={zone}>
               {hasVideoBackground(videoInput, appearance) ? (
                 // Video behind the slide (camera or theme video bg): no slide-keyed
                 // transition wrapper, so the video stays playing across slide

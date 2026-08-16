@@ -34,6 +34,10 @@ import { EndServiceButton } from "./EndServiceButton";
 import { OperatorShell } from "./OperatorShell";
 import { ProOperatorShell } from "./pro/ProOperatorShell";
 import type { OperatorShellCtx } from "./shell/types";
+import { useProjectionZoneStore } from "@/lib/projection-zone-store";
+import { normalizeZone, DEFAULT_ZONE, type ProjectionZone } from "@/lib/projection-zone";
+import { ZoneEditor } from "./zone/ZoneEditor";
+import { ZoneToolbarButton } from "./zone/ZoneToolbarButton";
 import { useShell } from "@/hooks/useShell";
 
 type Cursor = { itemIdx: number; slideIdx: number };
@@ -241,6 +245,13 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
   // via OutputState. Read from localStorage on mount; TopBar A−/AUTO/A+ writes
   // the pref and fires `presentflow:font-scale-changed` which we listen for.
   const [fontScale, setFontScale] = useState(1);
+  // Projection Zone Customizer: the active profile's geometry drives both the
+  // preview and every output (via OutputState.zone). Its fontScale multiplier is
+  // folded into the fontScale field so a single number reaches AutoFitText.
+  const zoneStore = useProjectionZoneStore();
+  const activeZone: ProjectionZone = zoneStore.activeProfile ? normalizeZone(zoneStore.activeProfile) : DEFAULT_ZONE;
+  const effectiveFontScale = fontScale * activeZone.fontScale;
+  const [zoneEditorOpen, setZoneEditorOpen] = useState(false);
   useEffect(() => {
     setFontScale(readFontScale());
     const onChange = (e: Event) => {
@@ -442,9 +453,10 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
       announcement,
       transition: useFastTransition ? fastMarker!.transition : transitionSpec,
       nextItem: nextItemForStage,
-      fontScale,
+      fontScale: effectiveFontScale,
       appearance: effectiveAppearance,
       videoInput,
+      zone: activeZone,
     };
     // Shallow signature — good enough for the fields we actually emit.
     let key: string;
@@ -461,7 +473,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     if (rtRef.current) { void rtRef.current.publish(state.videoInput ? { ...state, videoInput: null } : state); }
     if (useFastTransition) fastTransitionSlideRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, effectiveAppearance, videoInput]);
+  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, effectiveAppearance, videoInput, effectiveFontScale, activeZone]);
   const chRef = useRef<LiveChannelLike | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;
@@ -1262,16 +1274,17 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
       announcement,
       transition: transitionSpec,
       nextItem: nextItemForStage,
-      fontScale,
+      fontScale: effectiveFontScale,
       appearance: effectiveAppearance,
       videoInput,
+      zone: activeZone,
     };
     const state: OutputState = { ...base, lowerThird: (line1 || line2) ? { line1, line2 } : null };
     safePost(chRef.current, { type: "output", state });
     publishRealtime(state.videoInput ? { ...state, videoInput: null } : state); // local-only camera id
     lastOutputStateRef.current = state;
     toast.success(line1 || line2 ? "Lower third sent" : "Lower third cleared");
-  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, publishRealtime, fontScale, effectiveAppearance, videoInput]);
+  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, publishRealtime, fontScale, effectiveAppearance, videoInput, effectiveFontScale, activeZone]);
 
   /**
    * P2 message overlay — a transient lower-third bubble that displays on
@@ -1401,8 +1414,10 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     plan,
     previewSlide,
     liveSlide: live,
-    fontScale,
+    // Effective (zone-folded) font scale so preview surfaces match the projector.
+    fontScale: effectiveFontScale,
     appearance: effectiveAppearance,
+    zone: activeZone,
     previewItemIdx: preview.itemIdx,
     previewSlideIdx: preview.slideIdx,
     liveItemIdx,
@@ -1564,7 +1579,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
   }), [
     // Y6: only re-pack when the values consumers actually read change.
     plan, previewSlide, live, preview.itemIdx, preview.slideIdx, liveItemIdx,
-    aspectRatio, fitMode, safeArea, autopilotMode, autoApprove.enabled,
+    aspectRatio, fitMode, safeArea, autopilotMode, autoApprove.enabled, activeZone,
     autoApprove.autoSendToLive, audio, confidenceThreshold, defaultTranslationCode,
     countdownEndsAt, announcement, transitionSpec,
     effectiveBank, currentBankIdx, internetMatches, historyKey,
@@ -1628,6 +1643,15 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
         onClose={() => setEditing(null)}
         onSaved={onSuggestionEdited}
       />
+      {/* Projection Zone Customizer — button lives on the operator screen only
+          (never the projector). The editor is a live sheet; changes flow to the
+          output through OutputState.zone. */}
+      {shell === "desktop" && (
+        <div className="fixed z-[150]" style={{ right: 16, bottom: 56 }}>
+          <ZoneToolbarButton onOpen={() => setZoneEditorOpen(true)} hasCustomProfile={zoneStore.profiles.some((p) => p.name !== "Default")} />
+        </div>
+      )}
+      <ZoneEditor open={zoneEditorOpen} onClose={() => setZoneEditorOpen(false)} />
     </>
   );
 }

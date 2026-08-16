@@ -6,6 +6,10 @@
 // digest 2696263515). Browser APIs (BroadcastChannel) are only touched inside
 // functions that guard on `typeof window === "undefined"`, so server-side
 // evaluation is safe. Do not re-add the directive.
+//
+// projection-zone is a pure module (types + math, no browser APIs / no
+// "use client"), so importing it here keeps this file server-safe.
+import { isValidZone, type ProjectionZone } from "./projection-zone";
 
 // Rich slide objects for the projector (Phase 5D-2 → live). Coordinates are in
 // the 1920×1080 virtual canvas the editor uses; renderers scale by percentage.
@@ -209,6 +213,11 @@ export type OutputState = {
   appearance?: ThemeAppearance | null;
   // Phase 2a: active live video input composited behind the slide. Null ⇒ off.
   videoInput?: VideoInputState | null;
+  // Projection Zone Customizer (2026-08-16): normalised content-zone geometry.
+  // Undefined/full ⇒ full-bleed (unchanged). PresentationCanvas positions +
+  // sizes the composed slide inside this rect; its fontScale is folded into the
+  // fontScale field above by the operator, so only the RECT travels here.
+  zone?: ProjectionZone | null;
 };
 
 /**
@@ -651,6 +660,7 @@ export function isValidOutputState(s: unknown): s is OutputState {
   // it reach the renderer's style props).
   if (st.appearance !== undefined && !isValidThemeAppearance(st.appearance)) return false;
   if (st.videoInput !== undefined && !isValidVideoInput(st.videoInput)) return false;
+  if (st.zone !== undefined && st.zone !== null && !isValidZone(st.zone)) return false;
   return true;
 }
 

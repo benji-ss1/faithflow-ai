@@ -19,6 +19,11 @@ export type OperatorShellCtx = {
   // B3 operator manual text-size multiplier (A−/AUTO/A+). Threaded so the live-
   // mirror previews size text identically to the projector.
   fontScale: number;
+  // Projection Zone Customizer: the active zone geometry, same value on the wire
+  // (OutputState.zone). Preview surfaces pass it to PresentationCanvas so the
+  // operator preview matches the projector's zone WYSIWYG. Its fontScale is
+  // folded into `fontScale` above by OperatorConsole.
+  zone?: import("@/lib/projection-zone").ProjectionZone | null;
   // Bug-fix 2026-08-11 (font mismatch): the ACTIVE theme appearance, same value
   // OperatorConsole puts on the wire for /live. Preview surfaces must pass this
   // to <SlideRenderer appearance={...}> so preview === projector (one source of

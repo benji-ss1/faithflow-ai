@@ -73,7 +73,7 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
             LIVE
           </div>
         )}
-        <PresentationCanvas>
+        <PresentationCanvas zone={ctx.zone}>
           <SlideRenderer slide={ctx.liveSlide} appearance={ctx.appearance ?? undefined} projectorFit fontScale={ctx.fontScale} onVideoRef={onVideoRef} />
         </PresentationCanvas>
         {ctx.liveSlide.kind !== "empty" && (

@@ -1,5 +1,6 @@
 "use client";
 import { createContext, useLayoutEffect, useRef, useState } from "react";
+import { FULL_ZONE, resolveZoneRects, type ProjectionZone } from "@/lib/projection-zone";
 
 /**
  * The fixed canvas geometry, published to descendants. AutoFitText reads this so
@@ -41,6 +42,7 @@ export function PresentationCanvas({
   className,
   canvasW = CANVAS_W,
   canvasH = CANVAS_H,
+  zone,
 }: {
   children: React.ReactNode;
   className?: string;
@@ -49,6 +51,10 @@ export function PresentationCanvas({
    *  the physical surface, so the design geometry is independent of the display. */
   canvasW?: number;
   canvasH?: number;
+  /** Projection Zone: places + sizes the composed slide inside a sub-rect of the
+   *  fixed canvas (Projection Zone Customizer). Undefined/full ⇒ full-bleed
+   *  (identical to before). Themes are untouched — this is geometry only. */
+  zone?: ProjectionZone | null;
 }) {
   const outerRef = useRef<HTMLDivElement | null>(null);
   const [scale, setScale] = useState(0);
@@ -101,9 +107,23 @@ export function PresentationCanvas({
           outline: DEBUG ? "6px solid #ff2d55" : undefined,
         }}
       >
-        <PresentationCanvasContext.Provider value={{ w: canvasW, h: canvasH }}>
-          {children}
-        </PresentationCanvasContext.Provider>
+        {/* Projection Zone: the composed slide fills `outer` (its own background
+            included), positioned within the fixed canvas; the content-area
+            (`inner`, after margins) is published to AutoFitText so text sizes to
+            the zone. A full/absent zone makes outer == inner == the whole canvas,
+            i.e. identical to the pre-feature full-bleed output. Area outside the
+            zone stays the canvas background (off-screen / overscan on a real
+            projector). */}
+        {(() => {
+          const { outer, inner } = resolveZoneRects(zone ?? FULL_ZONE, canvasW, canvasH);
+          return (
+            <div style={{ position: "absolute", left: outer.x, top: outer.y, width: outer.w, height: outer.h, overflow: "hidden" }}>
+              <PresentationCanvasContext.Provider value={{ w: inner.w, h: inner.h }}>
+                {children}
+              </PresentationCanvasContext.Provider>
+            </div>
+          );
+        })()}
       </div>
       {DEBUG && (
         <div

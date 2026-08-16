@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.230",
+    date: "2026-08-16",
+    headline: "New: Projection Zone Customizer — place & size content on your screen",
+    highlights: [
+      "There's a new amber button (bottom-right of the operator screen) that opens a Projection Zone editor: drag and resize a content zone over a preview of your projector, adjust size, font scale and margins, and everything moves live on the projector and stage as you go.",
+      "Save named profiles (e.g. \"Main Hall\", \"Youth Room\") and switch between them instantly — they persist across restarts and adapt to any resolution. This gives you direct control when auto-sizing can't match your exact screen/overscan.",
+    ],
+  },
+  {
     version: "0.1.229",
     date: "2026-08-16",
     headline: "Right-click copy/paste everywhere + live lyrics on the livestream",
