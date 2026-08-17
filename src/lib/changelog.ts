@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.235",
+    date: "2026-08-17",
+    headline: "The whole Bible, ready offline",
+    highlights: [
+      "PresentFlow now quietly downloads every public-domain translation (KJV, ASV, WEB and more) to your machine in the background, so ANY verse — not just ones you've already opened — projects instantly with no internet. It runs when nothing's live and pauses itself during a service, so it never slows your projection. Licensed translations (NIV/NKJV/NLT) still cache the chapters you actually open.",
+    ],
+  },
+  {
     version: "0.1.234",
     date: "2026-08-17",
     headline: "Scripture keeps working when the internet drops",

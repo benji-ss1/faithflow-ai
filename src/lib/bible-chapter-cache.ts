@@ -35,21 +35,23 @@ export function chapterKey(translationCode: string, book: string, chapter: numbe
   return `${translationCode.toUpperCase()}:${book.toLowerCase()}:${chapter}`;
 }
 
-// Only PUBLIC-DOMAIN translations are persisted offline. The licensed ones
-// (NIV/NKJV/NLT/ESV…) are live API.Bible snapshots — rate-limited (so a short/
-// partial response is a real risk), server-correctable, and licensing-sensitive
-// — none of which should be frozen into a permanent local copy. Public-domain
-// translations are locally-seeded atomic DB reads: complete and truly
-// immutable. Allowlist (fail-closed): an unknown code simply isn't cached.
-const PERSISTABLE_CODES = new Set([
+// PUBLIC-DOMAIN translations are locally-seeded, complete, and truly immutable,
+// so they're read CACHE-FIRST (fast + offline-safe) and bulk pre-hydrated.
+// Licensed ones (NIV/NKJV/NLT/ESV…) are live API.Bible snapshots — rate-limited
+// (partial-response risk), server-correctable, licensing-sensitive — so they're
+// read NETWORK-FIRST when online (always authoritative; a stale/partial copy is
+// never served while connected) and their persisted copy is used ONLY as an
+// offline fallback. Both are persisted on a complete fetch; a later complete
+// fetch overwrites, so a partial licensed copy self-heals next time online.
+const PUBLIC_DOMAIN_CODES = new Set([
   "KJV", "ASV", "WEB", "YLT", "DARBY", "DRC", "DRA", "GEN1599", "WBS", "BBE",
 ]);
-// Even public-domain copies expire after this so a server-side re-seed/fix
+// Public-domain cache-first reads expire after this so a server-side re-seed/fix
 // eventually wins when the operator is back online (offline reads ignore it).
 const STORE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
-function isPersistable(translationCode: string): boolean {
-  return PERSISTABLE_CODES.has(translationCode.toUpperCase());
+function isPublicDomain(translationCode: string): boolean {
+  return PUBLIC_DOMAIN_CODES.has(translationCode.toUpperCase());
 }
 // Guard against persisting an obviously-truncated chapter: real chapters begin
 // at verse 1. (Public-domain reads are atomic so tail-truncation is a non-event
@@ -83,38 +85,39 @@ export async function fetchChapterCached(book: string, chapter: number, translat
   const pending = inFlight.get(key);
   if (pending) return pending;
   const online = typeof navigator === "undefined" ? true : navigator.onLine;
-  const persistable = isPersistable(translationCode);
+  const pd = isPublicDomain(translationCode);
   const promise = (async () => {
     try {
-      // 1. Persisted copy first (public-domain only) — immutable text, so
+      // 1. PUBLIC-DOMAIN only: persisted copy first — immutable text, so
       //    IndexedDB is faster than the network AND works offline. When ONLINE
       //    and the copy is older than the TTL, fall through to re-fetch so a
       //    server-side correction can win; when OFFLINE, use it at any age.
-      if (persistable) {
+      //    Licensed skips this — it's read network-first (authoritative).
+      if (pd) {
         const stored = await loadOfflineChapter(key);
         if (stored && stored.verses.length > 0) {
           const fresh = Date.now() - stored.at < STORE_TTL_MS;
           if (!online || fresh) return setCachedChapter(key, stored.verses, stored.translation);
         }
       }
-      // 2. Network fetch — persist only complete, public-domain chapters.
+      // 2. Network fetch — persist any COMPLETE chapter (public-domain OR
+      //    licensed-on-demand). A later complete fetch overwrites, so a partial
+      //    licensed copy self-heals next time online.
       try {
         const res = await cachedLookup({
           book, chapter, verseStart: 1, verseEnd: MAX_CHAPTER_VERSE, translationCode,
         });
         const entry = setCachedChapter(key, res.verses, res.translation);
-        if (persistable && looksComplete(res.verses)) {
+        if (looksComplete(res.verses)) {
           void saveOfflineChapter(key, { verses: res.verses, translation: res.translation, at: Date.now() });
         }
         return entry;
       } catch (netErr) {
         // 3. Network failed (offline / server down). Last-chance persisted read
-        //    (public-domain, any age) before surfacing the error.
-        if (persistable) {
-          const fallback = await loadOfflineChapter(key);
-          if (fallback && fallback.verses.length > 0) {
-            return setCachedChapter(key, fallback.verses, fallback.translation);
-          }
+        //    (public-domain OR a previously-cached licensed chapter, any age).
+        const fallback = await loadOfflineChapter(key);
+        if (fallback && fallback.verses.length > 0) {
+          return setCachedChapter(key, fallback.verses, fallback.translation);
         }
         throw netErr;
       }

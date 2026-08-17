@@ -12,6 +12,7 @@ import { SyncControl } from "./SyncControl";
 import type { ExpandedPlan, ExpandedItem } from "@/lib/server/services";
 import { cn } from "@/lib/utils";
 import { setAiHealth, startDataHealthPolling } from "@/lib/connection/connectionHealth";
+import { hydratePublicDomainBibleInBackground } from "@/lib/offline/bibleHydration";
 import { ServiceModeBanner } from "@/components/system/ServiceModeBanner";
 import { useAudioStream, type Detection, type SongSuggestion, type CommandSuggestion, type UnifiedSuggestion } from "./useAudioStream";
 import type { IndexedSong } from "@/lib/ai-detection/lyric-fragment";
@@ -598,6 +599,17 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
   // Background Supabase-reachability poll → DATA_DEGRADED when it can't be
   // reached even though the internet is up. Ref-counted; stops on unmount.
   useEffect(() => startDataHealthPolling(), []);
+
+  // Offline resilience: idle-time, download every public-domain translation so
+  // ANY verse projects with no network (licensed are cached on-demand instead).
+  // Resumable — re-runs when the AI listener flips OFF so it hydrates during
+  // setup/after a service, and defers (isBusy) while a service is live so it
+  // never janks a verse projection. No-ops offline / once fully hydrated.
+  const listeningRef = useRef(audio.listening);
+  listeningRef.current = audio.listening;
+  useEffect(() => {
+    hydratePublicDomainBibleInBackground(() => listeningRef.current);
+  }, [audio.listening]);
 
   // In "manual" mode we force the audio stream off — no suggestions at all.
   useEffect(() => {

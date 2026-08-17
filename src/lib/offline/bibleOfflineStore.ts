@@ -29,8 +29,9 @@ import type { BibleVerse } from "../bible-client-cache";
 export type StoredChapter = { verses: BibleVerse[]; translation: string; at: number };
 
 const DB_NAME = "presentflow-bible";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = "chapters";
+const META = "meta"; // hydration manifest: which translations are fully downloaded
 
 function idbAvailable(): boolean {
   return typeof window !== "undefined" && typeof window.indexedDB !== "undefined";
@@ -64,6 +65,7 @@ function openDb(): Promise<IDBDatabase | null> {
       req.onupgradeneeded = () => {
         const d = req.result;
         if (!d.objectStoreNames.contains(STORE)) d.createObjectStore(STORE, { keyPath: "key" });
+        if (!d.objectStoreNames.contains(META)) d.createObjectStore(META, { keyPath: "code" });
       };
       req.onsuccess = () => { clearTimeout(timer); done(req.result); };
       req.onerror = () => { clearTimeout(timer); done(null); };
@@ -94,6 +96,78 @@ export async function saveOfflineChapter(key: string, entry: StoredChapter): Pro
     });
   } catch {
     /* best-effort */
+  }
+}
+
+// Bulk write is CHUNKED (not one giant transaction) so it never holds the
+// `chapters` store lock long enough to delay a concurrent live-projection read
+// (loadOfflineChapter), and so the synchronous structured-clone cost is broken
+// up rather than janking a frame mid-service. Returns true only if EVERY batch
+// committed — a partial write must NOT be marked "fully hydrated" by the caller.
+const SAVE_CHUNK = 100;
+export async function saveOfflineChapters(entries: { key: string; entry: StoredChapter }[]): Promise<boolean> {
+  if (entries.length === 0) return true;
+  try {
+    const database = await openDb();
+    if (!database) return false;
+    let allOk = true;
+    for (let i = 0; i < entries.length; i += SAVE_CHUNK) {
+      const batch = entries.slice(i, i + SAVE_CHUNK);
+      const ok = await new Promise<boolean>((resolve) => {
+        const tx = database.transaction(STORE, "readwrite");
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+        tx.onabort = () => resolve(false);
+        try {
+          const store = tx.objectStore(STORE);
+          for (const { key, entry } of batch) store.put({ key, ...entry });
+        } catch {
+          resolve(false);
+        }
+      });
+      if (!ok) allOk = false;
+      // Yield so a live verse read can interleave between batches.
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    return allOk;
+  } catch {
+    return false;
+  }
+}
+
+/** Record that a translation code has been fully hydrated (offline manifest). */
+export async function markTranslationHydrated(code: string, at: number): Promise<void> {
+  try {
+    const database = await openDb();
+    if (!database) return;
+    await new Promise<void>((resolve) => {
+      const tx = database.transaction(META, "readwrite");
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
+      try { tx.objectStore(META).put({ code: code.toUpperCase(), at }); } catch { resolve(); }
+    });
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** When (ms) a translation was last fully hydrated, or null. Never throws. */
+export async function getTranslationHydratedAt(code: string): Promise<number | null> {
+  try {
+    const database = await openDb();
+    if (!database) return null;
+    return await new Promise<number | null>((resolve) => {
+      const tx = database.transaction(META, "readonly");
+      const req = tx.objectStore(META).get(code.toUpperCase());
+      req.onsuccess = () => {
+        const v = req.result as { code: string; at: number } | undefined;
+        resolve(v && typeof v.at === "number" ? v.at : null);
+      };
+      req.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
   }
 }
 

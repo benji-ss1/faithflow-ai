@@ -142,6 +142,37 @@ export async function getChapter(translationId: string, book: string, chapter: n
   return rows.map((r) => ({ id: r.id, book: r.book, bookOrder: r.bookOrder, chapter: r.chapter, verse: r.verse, text: r.text }));
 }
 
+export type FullTranslationChapter = { book: string; chapter: number; verses: { verse: number; text: string }[] };
+export type FullTranslation = { code: string; name: string; chapters: FullTranslationChapter[] };
+
+/**
+ * Whole-translation dump for OFFLINE hydration. PUBLIC-DOMAIN ONLY — returns
+ * null for licensed or unknown codes so a bulk request can never hit API.Bible
+ * (the shared 5k/month quota would be destroyed by ~1,189 chapter fetches).
+ * Reads local Postgres in one ordered scan and groups into chapters.
+ */
+export async function getFullPublicDomainTranslation(code: string): Promise<FullTranslation | null> {
+  const db = getDb();
+  const [t] = await db.select().from(bibleTranslations)
+    .where(eq(bibleTranslations.code, code.toUpperCase())).limit(1);
+  if (!t || !t.isPublicDomain || t.licenseRequired) return null;
+  const rows = await db.select({
+    book: bibleVerses.book, chapter: bibleVerses.chapter, verse: bibleVerses.verse, text: bibleVerses.text,
+  }).from(bibleVerses)
+    .where(eq(bibleVerses.translationId, t.id))
+    .orderBy(asc(bibleVerses.bookOrder), asc(bibleVerses.chapter), asc(bibleVerses.verse));
+  const chapters: FullTranslationChapter[] = [];
+  let cur: FullTranslationChapter | null = null;
+  for (const r of rows) {
+    if (!cur || cur.book !== r.book || cur.chapter !== r.chapter) {
+      cur = { book: r.book, chapter: r.chapter, verses: [] };
+      chapters.push(cur);
+    }
+    cur.verses.push({ verse: r.verse, text: r.text });
+  }
+  return { code: t.code, name: t.name, chapters };
+}
+
 /**
  * Look up a verse range for a book. Supports cross-chapter ranges via the
  * optional `chapterEnd` param — when provided (and > `chapter`), returns
