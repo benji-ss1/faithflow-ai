@@ -6,6 +6,14 @@ import { getToken } from "next-auth/jwt";
 // operator's session cookies (same-origin loadURL) so they continue to
 // work. External browsers holding a pair code redirect to /login.
 const PUBLIC_PATHS = [
+  // Public marketing landing page (Vercel-hosted beta). A logged-in browser
+  // still sees it — no auto-redirect to the dashboard. The desktop shell is
+  // bounced off "/" to "/operator" *before* this list is consulted (see the
+  // root guard in middleware()), so the desktop app never renders marketing.
+  "/",
+  // Public marketing sub-pages (ported from the beta site). Kept in sync with
+  // the routes under src/app/(marketing)/.
+  "/apply", "/how-it-works", "/what-it-can-do", "/why-were-building",
   "/login", "/signup", "/verify-email", "/forgot-password", "/reset-password", "/accept-invite",
   "/api/auth", "/api/health", "/api/stripe",
   // Vercel Cron invocations pass through this middleware; without an allowlist
@@ -159,6 +167,8 @@ const CSRF_ALLOWED_ORIGINS = [
   "https://faithflow-ai.vercel.app",
   "https://presentflow.app",
   "https://app.presentflow.com",
+  "https://presentflow.org",
+  "https://www.presentflow.org",
 ];
 // Preview deploys land under our project's Vercel scope only. Tightened from
 // the broader ".vercel.app" catch-all so an attacker page hosted on any other
@@ -212,6 +222,27 @@ export async function middleware(req: NextRequest) {
     if (origin && origin !== selfOrigin && !isAllowedOrigin(origin)) {
       return NextResponse.json({ error: "Origin not allowed" }, { status: 403 });
     }
+  }
+
+  // Root guard: "/" is a public marketing page for browsers, but the desktop
+  // shell loads the root URL (electron/main.ts loadURL keeps `?ff_shell=desktop`)
+  // and must land on the operator console, never the marketing page. Handle it
+  // here — before PUBLIC_PATHS lets "/" through — so we don't need to touch the
+  // Electron shell (owned by the offline-first worktree).
+  if (pathname === "/" && (isDesktopShell(req) || setShellCookie)) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/operator";
+    url.search = "";
+    const res = NextResponse.redirect(url);
+    // Persist the shell marker so the /operator load (and the rest of the
+    // session) is recognized as desktop even after the query param is dropped.
+    res.cookies.set("pf_shell", "desktop", {
+      path: "/",
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+    });
+    return res;
   }
 
   if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))) {

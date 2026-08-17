@@ -1,0 +1,47 @@
+"use server";
+
+import { sendBetaApplicationNotification } from "@/lib/email";
+
+// Server Action backing the public marketing Apply flow (10-question beta
+// application). Emails the team inbox (contact@presentflow.org) via the
+// existing Resend helper. No DB write — the schema is intentionally untouched.
+
+export type ApplyResult = { ok: true } | { ok: false; error: string };
+
+const EMAIL_RE = /[^\s@]+@[^\s@]+\.[^\s@]+/;
+
+function cleanAnswers(raw: unknown): { question: string; answer: string }[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
+    .map((x) => ({
+      question: typeof x.question === "string" ? x.question.trim().slice(0, 300) : "",
+      answer: typeof x.answer === "string" ? x.answer.trim().slice(0, 2000) : "",
+    }))
+    .filter((x) => x.question)
+    .slice(0, 40);
+}
+
+export async function submitApplication(raw: unknown): Promise<ApplyResult> {
+  const input = (raw ?? {}) as Record<string, unknown>;
+
+  // Honeypot: bots fill hidden fields. Pretend success, send nothing.
+  if (typeof input.hp === "string" && input.hp.trim()) return { ok: true };
+
+  const answers = cleanAnswers(input.answers);
+  const answered = answers.filter((a) => a.answer);
+  if (answered.length < 3) {
+    return { ok: false, error: "Please answer a few more questions before submitting." };
+  }
+
+  // Best-effort identity for the notification subject line.
+  const all = answered.map((a) => a.answer).join(" — ");
+  const contact = EMAIL_RE.exec(all)?.[0];
+  const churchName =
+    answered.find((a) => /church name/i.test(a.question))?.answer ||
+    answered.find((a) => /church/i.test(a.question))?.answer;
+
+  const res = await sendBetaApplicationNotification({ answers: answered, churchName, contact });
+  if (!res.ok) return { ok: false, error: "Something went wrong sending your application. Please try again." };
+  return { ok: true };
+}

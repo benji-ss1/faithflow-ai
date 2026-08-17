@@ -83,6 +83,36 @@ This link expires in 7 days.
   return deliver(to, `You're invited to ${churchName} on PresentFlow`, html, text);
 }
 
+// Beta application notification. Sent to the team inbox (not the applicant).
+// Called from the /actions/apply server action. Falls back to console in dev
+// when RESEND_API_KEY is unset, like every other message here. The public
+// marketing site's Apply flow is a one-question-at-a-time form; each answer
+// arrives as a { question, answer } pair so this stays decoupled from the
+// exact question set (which the marketing team may reword freely).
+const APPLY_INBOX = process.env.APPLY_INBOX || "contact@presentflow.org";
+
+export type BetaApplication = {
+  answers: { question: string; answer: string }[];
+  // Best-effort extracted identity for the subject line / at-a-glance triage.
+  churchName?: string;
+  contact?: string;
+};
+
+export async function sendBetaApplicationNotification(app: BetaApplication) {
+  const rows = app.answers.filter((a) => a.answer?.trim());
+  const text = `New PresentFlow beta application\n\n${rows
+    .map(({ question, answer }) => `${question}\n  ${answer}`)
+    .join("\n\n")}\n`;
+  const html = `<h2>New PresentFlow beta application</h2><table cellpadding="6" style="border-collapse:collapse">${rows
+    .map(
+      ({ question, answer }) =>
+        `<tr><td style="color:#888;vertical-align:top"><b>${escapeHtml(question)}</b></td><td>${escapeHtml(answer).replace(/\n/g, "<br>")}</td></tr>`,
+    )
+    .join("")}</table>`;
+  const subjectWho = [app.churchName, app.contact].filter(Boolean).join(" — ") || "new applicant";
+  return deliver(APPLY_INBOX, `Beta application: ${subjectWho}`, html, text);
+}
+
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 }
