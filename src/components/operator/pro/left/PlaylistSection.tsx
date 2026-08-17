@@ -401,9 +401,10 @@ export function PlaylistSection({
   };
 
   const move = async (idx: number, dir: -1 | 1) => {
-    const newOrder = items.map((it) => it.id).filter(Boolean) as string[];
     const to = idx + dir;
+    const newOrder = items.map((it) => it.id).filter(Boolean) as string[];
     if (to < 0 || to >= newOrder.length) return;
+    if (blockedIfOffline()) return; // reorder needs the server — block honestly offline
     [newOrder[idx], newOrder[to]] = [newOrder[to], newOrder[idx]];
     handleResult(await reorderServiceItems(ctx.planId, newOrder));
   };
@@ -477,6 +478,9 @@ export function PlaylistSection({
     const oldIdx = ids.indexOf(String(active.id));
     const newIdx = ids.indexOf(String(over.id));
     if (oldIdx === -1 || newIdx === -1) return;
+    // Reorder is a server write; block honestly offline (consistent with every
+    // other plan edit) rather than letting the drag silently fail.
+    if (blockedIfOffline()) return;
 
     // Build the new order from item IDs for the server action.
     const reordered = arrayMove(items, oldIdx, newIdx);
