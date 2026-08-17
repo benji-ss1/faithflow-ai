@@ -30,10 +30,18 @@ async function deliver(to: string, subject: string, html: string, text: string) 
     return { ok: true, dev: true } as const;
   }
   try {
-    await r.emails.send({ from: FROM, to, subject, html, text });
-    return { ok: true, dev: false } as const;
+    // The Resend SDK returns { data, error } and does NOT throw on API errors
+    // (unverified sender domain, sandbox recipient restriction, bad key, …).
+    // Must inspect `error` explicitly, or a rejected send looks like success.
+    const { data, error } = await r.emails.send({ from: FROM, to, subject, html, text });
+    if (error) {
+      const msg = (error as { message?: string }).message ?? String(error);
+      console.error("[email] Resend rejected:", msg);
+      return { ok: false, dev: false, error: msg } as const;
+    }
+    return { ok: true, dev: false, id: data?.id } as const;
   } catch (e) {
-    console.error("[email] send failed:", e instanceof Error ? e.message : e);
+    console.error("[email] send threw:", e instanceof Error ? e.message : e);
     return { ok: false, dev: false, error: e instanceof Error ? e.message : "Send failed" } as const;
   }
 }
