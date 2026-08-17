@@ -514,7 +514,11 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   const rtRef = useRef<ReturnType<typeof openOutputChannel> | null>(null);
   const lastOutputStateRef = useRef<OutputState | null>(null);
   const [pairCode, setPairCode] = useState<string | null>(null);
-  const churchIdForChannel = (plan as unknown as { churchId?: string }).churchId ?? "";
+  // Real church id (was read off `plan`, which never carries it → always "" →
+  // the church-scoping of the Realtime output channel silently never engaged).
+  // realtime.ts subscribes to BOTH scoped and unscoped channel names, so
+  // activating the scope is compatible with any already-paired projector.
+  const churchIdForChannel = churchId;
   useEffect(() => {
     if (rtRef.current) { try { rtRef.current.close(); } catch { /* ignore */ } rtRef.current = null; }
     if (pairCode) {
@@ -595,14 +599,14 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   const planSongIds = useMemo(() => plan.items.map((it) => (it as unknown as { songId?: string }).songId).filter(Boolean) as string[], [plan.items]);
 
   const getDetectContext = useCallback(() => ({
-    churchId: (plan as unknown as { churchId?: string }).churchId || "",
+    churchId,
     planId: plan.id,
     planSongIds,
     recentSongIds: [] as string[],
     hasVerseContext: false,
     hasSlideContext: true, // always assume some slide context in operator
     hasSongContext: false, // updated below via ref
-  }), [plan.id, planSongIds, plan]);
+  }), [plan.id, planSongIds, plan, churchId]);
 
   const { state: audio, start: startAudio, stop: stopAudio, resume: resumeAudio, restart: restartAudio, warmStart: warmStartAudio, dismissDetection, dismissSong, dismissCommand, dismissSuggestion, simulateTranscript, multiChannelCapture, currentDeviceId } = useAudioStream(plan.id, {
     library: songLibrary,
@@ -1543,7 +1547,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     onSetAnnouncement: setAnnouncement,
     transitionSpec,
     onSetTransitionSpec: setTransitionSpec,
-    churchId: (plan as unknown as { churchId?: string }).churchId ?? "",
+    churchId,
     // Bible-panel wiring
     onSendSlideToLive: sendSlideToLive,
     onStageSlide: stageSlide,
