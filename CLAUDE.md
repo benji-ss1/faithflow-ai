@@ -1,5 +1,7 @@
 # CLAUDE.md — Working standard for AI-assisted work on this repo
 
+**START HERE every session:** read [docs/AI_HANDOFF.md](docs/AI_HANDOFF.md) — the fast onboarding for how this repo ships (renderer→Vercel/reload vs Electron→DMG vs parser→Fly), how work is done (the loop + 3-agent review), the current offline-first epic status, and the traps. Then this file for the rules.
+
 Before you make any non-trivial change, read [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md).
 
 ## Non-negotiables
