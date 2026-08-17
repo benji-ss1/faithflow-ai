@@ -14,6 +14,7 @@
 // fetched here also warms that cache for other call sites that still look
 // up individual verses/ranges.
 import { cachedLookup, type BibleVerse } from "./bible-client-cache";
+import { loadOfflineChapter, saveOfflineChapter } from "./offline/bibleOfflineStore";
 
 export type ChapterEntry = { verses: BibleVerse[]; translation: string; ts: number };
 
@@ -32,6 +33,29 @@ export const MAX_CHAPTER_VERSE = 200;
 
 export function chapterKey(translationCode: string, book: string, chapter: number): string {
   return `${translationCode.toUpperCase()}:${book.toLowerCase()}:${chapter}`;
+}
+
+// Only PUBLIC-DOMAIN translations are persisted offline. The licensed ones
+// (NIV/NKJV/NLT/ESV…) are live API.Bible snapshots — rate-limited (so a short/
+// partial response is a real risk), server-correctable, and licensing-sensitive
+// — none of which should be frozen into a permanent local copy. Public-domain
+// translations are locally-seeded atomic DB reads: complete and truly
+// immutable. Allowlist (fail-closed): an unknown code simply isn't cached.
+const PERSISTABLE_CODES = new Set([
+  "KJV", "ASV", "WEB", "YLT", "DARBY", "DRC", "DRA", "GEN1599", "WBS", "BBE",
+]);
+// Even public-domain copies expire after this so a server-side re-seed/fix
+// eventually wins when the operator is back online (offline reads ignore it).
+const STORE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+function isPersistable(translationCode: string): boolean {
+  return PERSISTABLE_CODES.has(translationCode.toUpperCase());
+}
+// Guard against persisting an obviously-truncated chapter: real chapters begin
+// at verse 1. (Public-domain reads are atomic so tail-truncation is a non-event
+// for them; this is belt-and-suspenders.)
+function looksComplete(verses: BibleVerse[]): boolean {
+  return verses.length > 0 && verses[0]?.verse === 1;
 }
 
 export function getCachedChapter(key: string): ChapterEntry | null {
@@ -58,12 +82,42 @@ export async function fetchChapterCached(book: string, chapter: number, translat
   if (hit) return hit;
   const pending = inFlight.get(key);
   if (pending) return pending;
+  const online = typeof navigator === "undefined" ? true : navigator.onLine;
+  const persistable = isPersistable(translationCode);
   const promise = (async () => {
     try {
-      const res = await cachedLookup({
-        book, chapter, verseStart: 1, verseEnd: MAX_CHAPTER_VERSE, translationCode,
-      });
-      return setCachedChapter(key, res.verses, res.translation);
+      // 1. Persisted copy first (public-domain only) — immutable text, so
+      //    IndexedDB is faster than the network AND works offline. When ONLINE
+      //    and the copy is older than the TTL, fall through to re-fetch so a
+      //    server-side correction can win; when OFFLINE, use it at any age.
+      if (persistable) {
+        const stored = await loadOfflineChapter(key);
+        if (stored && stored.verses.length > 0) {
+          const fresh = Date.now() - stored.at < STORE_TTL_MS;
+          if (!online || fresh) return setCachedChapter(key, stored.verses, stored.translation);
+        }
+      }
+      // 2. Network fetch — persist only complete, public-domain chapters.
+      try {
+        const res = await cachedLookup({
+          book, chapter, verseStart: 1, verseEnd: MAX_CHAPTER_VERSE, translationCode,
+        });
+        const entry = setCachedChapter(key, res.verses, res.translation);
+        if (persistable && looksComplete(res.verses)) {
+          void saveOfflineChapter(key, { verses: res.verses, translation: res.translation, at: Date.now() });
+        }
+        return entry;
+      } catch (netErr) {
+        // 3. Network failed (offline / server down). Last-chance persisted read
+        //    (public-domain, any age) before surfacing the error.
+        if (persistable) {
+          const fallback = await loadOfflineChapter(key);
+          if (fallback && fallback.verses.length > 0) {
+            return setCachedChapter(key, fallback.verses, fallback.translation);
+          }
+        }
+        throw netErr;
+      }
     } finally {
       inFlight.delete(key);
     }

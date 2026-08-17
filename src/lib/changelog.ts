@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.234",
+    date: "2026-08-17",
+    headline: "Scripture keeps working when the internet drops",
+    highlights: [
+      "Bible chapters you've opened are now saved on your machine, so they load instantly, survive an app restart, and keep projecting even if your connection drops mid-service — the operator can carry on with scripture offline. (Public-domain translations like KJV; licensed ones such as NIV/NKJV still need a connection.) This is the next step in the offline-resilience work.",
+    ],
+  },
+  {
     version: "0.1.233",
     date: "2026-08-17",
     headline: "Clearer status when something's offline",
