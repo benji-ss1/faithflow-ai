@@ -11,7 +11,10 @@ const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
 // Hosted Next.js app URL. Override with PF_APP_URL for staging/local testing.
 // The desktop shell is a thin client — all auth/DB/API stays on Vercel and
 // no secrets ship inside the .app bundle.
-const DEFAULT_HOSTED_URL = "https://faithflow-ai.vercel.app";
+// 2026-08-17: repointed from faithflow-ai.vercel.app to the primary domain
+// presentflow.org (the same Vercel project, now aliased). NEXT_PUBLIC_APP_URL
+// does NOT drive the load URL — this constant (or PF_APP_URL) does.
+const DEFAULT_HOSTED_URL = "https://presentflow.org";
 let mainWindow: BrowserWindow | null = null;
 // Set when a presentflow://auth?token=... deep link arrives before the main
 // window exists yet (cold launch via the link). Consumed once by
@@ -51,6 +54,7 @@ const STATIC_SAFE_HOST_ALLOWLIST: ReadonlyArray<RegExp> = [
   /^127\.0\.0\.1$/,
   /^([a-z0-9-]+\.)*presentflow\.app$/i,
   /^([a-z0-9-]+\.)*presentflow\.com$/i,
+  /^([a-z0-9-]+\.)*presentflow\.org$/i,
   /^faithflow-ai\.vercel\.app$/i,
 ];
 function isStaticSafeHost(hostname: string): boolean {
@@ -119,7 +123,7 @@ function installApplicationMenu() {
     // gets misconfigured (e.g., someone points it at a staging host that later
     // expires and gets squatted), we would happily open the malicious URL.
     // Validate against the same static safe host list the IPC handler uses.
-    const base = process.env.NEXT_PUBLIC_APP_URL || "https://presentflow.app";
+    const base = process.env.NEXT_PUBLIC_APP_URL || "https://presentflow.org";
     let u: URL;
     try {
       u = new URL(base.replace(/\/$/, "") + path);
