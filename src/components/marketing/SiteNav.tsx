@@ -118,6 +118,7 @@ export default function SiteNav() {
         }}
       >
         <div
+          className="pf-nav-row"
           style={{
             maxWidth: 1160,
             margin: "0 auto",
@@ -135,6 +136,7 @@ export default function SiteNav() {
               e.preventDefault();
               navTo("/");
             }}
+            className="pf-nav-logolink"
             style={{ display: "flex", alignItems: "center" }}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}

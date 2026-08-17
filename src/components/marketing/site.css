@@ -131,8 +131,15 @@
   transform: translateX(-50%);
   width: 120%;
   height: 150%;
-  background: linear-gradient(100deg, rgba(150,70,232,.5), rgba(217,65,140,.42), rgba(247,148,29,.42));
-  filter: blur(64px);
+  /* Deep wine blend: aubergine → wine → oxblood → warm ember. Analogous hues
+     across the red arc so it reads rich and smooth, not electric-violet→neon-
+     orange. Wine (#7A1E44) carries the middle. */
+  background: linear-gradient(105deg,
+    rgba(58,24,64,.52) 0%,
+    rgba(122,30,68,.50) 34%,
+    rgba(143,44,30,.44) 66%,
+    rgba(198,110,50,.40) 100%);
+  filter: blur(72px);
 }
 .pf-hero-word {
   position: absolute;
@@ -152,20 +159,28 @@
 @media (max-width: 640px) {
   .pf-hero-wordwrap { height: 92px; padding-top: 12px; }
   .pf-hero-glow {
-    width: 148%;
-    height: 82%;
-    bottom: 3%;
-    filter: blur(44px);
-    background: linear-gradient(100deg, rgba(150,70,232,.24), rgba(217,65,140,.20), rgba(247,148,29,.24));
+    width: 150%;
+    height: 84%;
+    bottom: 2%;
+    filter: blur(50px);
+    background: linear-gradient(105deg,
+      rgba(58,24,64,.30) 0%,
+      rgba(122,30,68,.28) 40%,
+      rgba(143,44,30,.22) 72%,
+      rgba(198,110,50,.22) 100%);
   }
   .pf-hero-word { font-size: 14.5vw; letter-spacing: -.05em; }
 }
 
-/* Nav logo: keep crisp and proportional; trim on small screens so it never
-   crowds the Apply / Menu controls. */
-.pf-nav-logo { height: 88px; margin: -24px 0 -24px -22px; display: block; image-rendering: -webkit-optimize-contrast; }
+/* Nav logo: keep crisp and proportional, and NEVER let flexbox shrink its
+   width (which squishes the mark on narrow screens). */
+.pf-nav-logolink { flex-shrink: 0; }
+.pf-nav-logo { height: 88px; width: auto; flex-shrink: 0; margin: -24px 0 -24px -22px; display: block; image-rendering: -webkit-optimize-contrast; }
 @media (max-width: 640px) {
-  .pf-nav-logo { height: 62px; margin: -16px 0 -16px -14px; }
+  .pf-nav-row { padding-left: 16px !important; padding-right: 16px !important; gap: 10px !important; }
+  .pf-nav-logo { height: 44px; margin: -11px 0 -11px -10px; }
+  .pf-nav-apply { font-size: 12px !important; padding: 8px 11px !important; }
+  .pf-menu-btn { padding: 8px 10px !important; gap: 7px !important; }
 }
 
 /* Belt-and-braces: the marketing site must never scroll sideways on mobile. */
