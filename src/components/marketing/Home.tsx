@@ -304,48 +304,9 @@ export default function Home() {
               </span>
             </div>
           </div>
-          <div
-            style={{
-              position: "relative",
-              marginTop: "auto",
-              paddingTop: 26,
-              height: "clamp(110px,15vw,240px)",
-              pointerEvents: "none",
-            }}
-          >
-            <div
-              style={{
-                position: "absolute",
-                left: "50%",
-                bottom: "-12%",
-                transform: "translateX(-50%)",
-                width: "120%",
-                height: "150%",
-                background:
-                  "linear-gradient(100deg,rgba(150,70,232,.6),rgba(217,65,140,.5),rgba(247,148,29,.48))",
-                filter: "blur(64px)",
-              }}
-            />
-            <div
-              style={{
-                position: "absolute",
-                left: "50%",
-                bottom: "-0.26em",
-                transform: "translateX(-50%)",
-                fontWeight: 800,
-                fontSize: "clamp(90px,13vw,230px)",
-                lineHeight: 1,
-                letterSpacing: "-.04em",
-                whiteSpace: "nowrap",
-                background:
-                  "linear-gradient(180deg,#8A8781 0%,rgba(90,88,84,.55) 55%,rgba(20,20,21,0) 100%)",
-                WebkitBackgroundClip: "text",
-                backgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-              }}
-            >
-              PresentFlow
-            </div>
+          <div className="pf-hero-wordwrap">
+            <div className="pf-hero-glow" />
+            <div className="pf-hero-word">PresentFlow</div>
           </div>
         </section>
 

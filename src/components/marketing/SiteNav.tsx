@@ -141,7 +141,7 @@ export default function SiteNav() {
             <img
               src="/marketing/logo-trans.png"
               alt="PresentFlow"
-              style={{ height: 88, margin: "-24px 0 -24px -22px", display: "block" }}
+              className="pf-nav-logo"
             />
           </a>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>

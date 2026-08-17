@@ -112,3 +112,61 @@
 
 /* next button hover */
 .pf-next:hover { filter: brightness(1.08); }
+
+/* ── Hero ghost wordmark + glow (responsive) ───────────────────────────
+   The giant "PresentFlow" wordmark peeks up from the bottom of the hero.
+   On mobile the desktop sizing overflowed hard and the mesh glow became a
+   heavy purple→ember block; these rules tame both without changing desktop. */
+.pf-hero-wordwrap {
+  position: relative;
+  margin-top: auto;
+  padding-top: 26px;
+  height: clamp(110px, 15vw, 240px);
+  pointer-events: none;
+}
+.pf-hero-glow {
+  position: absolute;
+  left: 50%;
+  bottom: -12%;
+  transform: translateX(-50%);
+  width: 120%;
+  height: 150%;
+  background: linear-gradient(100deg, rgba(150,70,232,.5), rgba(217,65,140,.42), rgba(247,148,29,.42));
+  filter: blur(64px);
+}
+.pf-hero-word {
+  position: absolute;
+  left: 50%;
+  bottom: -0.26em;
+  transform: translateX(-50%);
+  font-weight: 800;
+  font-size: clamp(64px, 13vw, 230px);
+  line-height: 1;
+  letter-spacing: -.04em;
+  white-space: nowrap;
+  background: linear-gradient(180deg, #8A8781 0%, rgba(90,88,84,.55) 55%, rgba(20,20,21,0) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+@media (max-width: 640px) {
+  .pf-hero-wordwrap { height: 92px; padding-top: 12px; }
+  .pf-hero-glow {
+    width: 148%;
+    height: 82%;
+    bottom: 3%;
+    filter: blur(44px);
+    background: linear-gradient(100deg, rgba(150,70,232,.24), rgba(217,65,140,.20), rgba(247,148,29,.24));
+  }
+  .pf-hero-word { font-size: 14.5vw; letter-spacing: -.05em; }
+}
+
+/* Nav logo: keep crisp and proportional; trim on small screens so it never
+   crowds the Apply / Menu controls. */
+.pf-nav-logo { height: 88px; margin: -24px 0 -24px -22px; display: block; image-rendering: -webkit-optimize-contrast; }
+@media (max-width: 640px) {
+  .pf-nav-logo { height: 62px; margin: -16px 0 -16px -14px; }
+}
+
+/* Belt-and-braces: the marketing site must never scroll sideways on mobile. */
+.pf-site { overflow-x: hidden; }
