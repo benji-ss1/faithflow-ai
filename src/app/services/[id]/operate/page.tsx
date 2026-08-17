@@ -36,6 +36,7 @@ export default async function OperatePage({ params }: { params: Promise<{ id: st
   return (
     <OperatorConsole
       plan={plan}
+      churchId={user.churchId}
       defaultTranslationCode={translationCode}
       confidenceThreshold={confidenceThreshold}
       autoApprove={autoApprove}

@@ -114,6 +114,7 @@ export default async function OperatorLandingPage() {
   return (
     <OperatorConsole
       plan={plan}
+      churchId={user.churchId}
       defaultTranslationCode={translationCode}
       confidenceThreshold={confidenceThreshold}
       autoApprove={autoApprove}

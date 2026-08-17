@@ -73,8 +73,9 @@ export type AutopilotMode = "manual" | "suggestion" | "armed" | "active";
 
 const AUTOPILOT_MODE_KEY = "presentflow.autopilot.mode";
 
-export function OperatorConsole({ plan: planProp, defaultTranslationCode: initialTranslationCode, confidenceThreshold, autoApprove: autoApproveProp, initialShell }: {
+export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCode: initialTranslationCode, confidenceThreshold, autoApprove: autoApproveProp, initialShell }: {
   plan: ExpandedPlan;
+  churchId: string;
   defaultTranslationCode: string;
   confidenceThreshold: number;
   autoApprove: AutoApproveConfig;
@@ -104,17 +105,41 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
   // BroadcastChannel output state (CLAUDE.md rule 8).
   const [plan, setPlan] = useState<ExpandedPlan>(planProp);
   useEffect(() => { setPlan(planProp); }, [planProp]);
-  // Hybrid Phase 1 — durably snapshot the current service plan (church-scoped)
-  // for offline fallback. Best-effort + dynamically imported so it can never
-  // affect the online path. Snapshots the server-rendered plan, so it stays a
-  // clean copy even as the operator makes optimistic edits.
+  // Hybrid Phase 1 — durably snapshot the current service (church-scoped) for
+  // offline fallback. Best-effort + dynamically imported so it can never affect
+  // the online path. Snapshots the LIVE `plan` (including the operator's
+  // optimistic edits), debounced, so an offline restore reflects exactly what
+  // they last saw — not a stale server copy.
   useEffect(() => {
-    const churchId = (planProp as unknown as { churchId?: string }).churchId ?? "";
+    if (!churchId || !plan?.id) return;
+    const t = setTimeout(() => {
+      void import("@/lib/offline/serviceCache").then(({ saveServiceSnapshot }) =>
+        saveServiceSnapshot(churchId, plan.id, plan),
+      ).catch(() => { /* best-effort */ });
+    }, 1000);
+    return () => clearTimeout(t);
+  }, [plan, churchId]);
+
+  // Hybrid Phase 3 — offline plan RESTORE. When the operator screen loads with
+  // no network (the Electron-cache path serves a possibly-stale cached page),
+  // the server-rendered `planProp` may be old or empty. Restore the last-saved
+  // live snapshot from IndexedDB so the service is exactly where they left it.
+  // Runs once, ONLY when offline — online, the server plan is authoritative and
+  // is never overridden. loadServiceSnapshot enforces the church_id boundary.
+  const planRestoreTriedRef = useRef(false);
+  useEffect(() => {
+    if (planRestoreTriedRef.current) return;
+    planRestoreTriedRef.current = true;
+    if (typeof navigator !== "undefined" && navigator.onLine) return;
     if (!churchId || !planProp?.id) return;
-    void import("@/lib/offline/serviceCache").then(({ saveServiceSnapshot }) =>
-      saveServiceSnapshot(churchId, planProp.id, planProp),
-    ).catch(() => { /* best-effort */ });
-  }, [planProp]);
+    void import("@/lib/offline/serviceCache").then(async ({ loadServiceSnapshot }) => {
+      const snap = await loadServiceSnapshot<ExpandedPlan>(churchId, planProp.id);
+      if (snap?.plan && snap.plan.id === planProp.id && Array.isArray(snap.plan.items) && snap.plan.items.length > 0) {
+        setPlan(snap.plan);
+      }
+    }).catch(() => { /* best-effort — fall back to planProp */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // --- Four-mode autopilot (Phase 5) ---------------------------------------
   // On page load we ALWAYS downgrade "active" to "armed" as a safety
   // measure — the operator must consciously re-arm live-firing every session.
@@ -280,7 +305,8 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     let cancelled = false;
     const userTouched = { current: false }; // an Apply during the in-flight fetch wins
     type ThemeRow = { id?: string; config?: unknown; isDefault?: boolean };
-    const churchId = (planProp as unknown as { churchId?: string }).churchId ?? "";
+    // Uses the real `churchId` prop (was previously read off planProp, which
+    // never carries churchId — so the offline theme cache silently no-op'd).
     const applyList = async (list: ThemeRow[]) => {
       themesByIdRef.current = new Map(list.filter((t) => typeof t.id === "string").map((t) => [t.id as string, t.config]));
       if (!cancelled) setThemesVersion((v) => v + 1);

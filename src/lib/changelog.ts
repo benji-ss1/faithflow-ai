@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.236",
+    date: "2026-08-17",
+    headline: "Your service is remembered offline",
+    highlights: [
+      "Your current service (all its songs, slides and edits) is now continuously saved to your machine, so if the operator screen ever reloads with no internet it comes back exactly where you left it instead of blank. Groundwork for running a whole service fully offline.",
+    ],
+  },
+  {
     version: "0.1.235",
     date: "2026-08-17",
     headline: "The whole Bible, ready offline",
