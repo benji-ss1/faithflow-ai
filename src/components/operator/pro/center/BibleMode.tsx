@@ -175,7 +175,12 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
         verses: [{ verse: v.verse, text: v.text }],
       }));
       setCards(pages);
-      setSelectedIdx(0);
+      // Keep the operator ON the verse they were viewing (e.g. Psalm 91:5),
+      // not verse 1. Loading the whole chapter should widen the surrounding
+      // context WITHOUT scrolling them out of scope of their current slide.
+      // Fall back to the first verse only if the current verse isn't found.
+      const keepIdx = pages.findIndex((p) => p.verses[0]?.verse === parsed.verseStart);
+      setSelectedIdx(keepIdx >= 0 ? keepIdx : 0);
       toast.success(`Loaded ${pages.length} verses of ${parsed.book} ${parsed.chapter}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Chapter load failed");

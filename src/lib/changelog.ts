@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.232",
+    date: "2026-08-17",
+    headline: "Load Chapter keeps you on your current verse",
+    highlights: [
+      "When you press \"Load Chapter\" while viewing a verse (e.g. Psalm 91:5), the grid now stays selected on that verse instead of jumping back to verse 1 — so you're never scrolled out of scope of the slide you're on. Loading the chapter just widens the surrounding context around where you already are.",
+    ],
+  },
+  {
     version: "0.1.231",
     date: "2026-08-16",
     headline: "Paste slides into any song, move the Projection Zone button, sharper verse hearing",
