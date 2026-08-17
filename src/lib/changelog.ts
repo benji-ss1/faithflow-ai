@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.233",
+    date: "2026-08-17",
+    headline: "Clearer status when something's offline",
+    highlights: [
+      "The operator screen now tells you honestly when a service is degraded: a quiet bottom strip appears if the database can't be reached (you keep running from your saved service, and changes sync when the connection returns). This is the first piece of the bigger offline-resilience work.",
+    ],
+  },
+  {
     version: "0.1.232",
     date: "2026-08-17",
     headline: "Load Chapter keeps you on your current verse",

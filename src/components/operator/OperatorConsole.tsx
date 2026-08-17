@@ -11,6 +11,8 @@ import { openOutputChannel } from "@/lib/realtime";
 import { SyncControl } from "./SyncControl";
 import type { ExpandedPlan, ExpandedItem } from "@/lib/server/services";
 import { cn } from "@/lib/utils";
+import { setAiHealth, startDataHealthPolling } from "@/lib/connection/connectionHealth";
+import { ServiceModeBanner } from "@/components/system/ServiceModeBanner";
 import { useAudioStream, type Detection, type SongSuggestion, type CommandSuggestion, type UnifiedSuggestion } from "./useAudioStream";
 import type { IndexedSong } from "@/lib/ai-detection/lyric-fragment";
 import { AIAssistantPanel, ListeningToggle } from "./AIAssistantPanel";
@@ -579,6 +581,23 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
     library: songLibrary,
     getDetectContext,
   });
+
+  // Feed the AI pipeline's health into the unified connection-health store so
+  // the graceful-degradation banner + (later) offline data layer can react.
+  // A give-up (reconnectFailed) is AI "down" → MANUAL MODE; an in-flight
+  // reconnect stays "reconnecting" (no scary banner for a 2s blip).
+  useEffect(() => {
+    const aiHealth = audio.reconnectFailed
+      ? "down"
+      : audio.listening
+        ? (audio.ready ? "live" : "reconnecting")
+        : "idle";
+    setAiHealth(aiHealth);
+  }, [audio.reconnectFailed, audio.listening, audio.ready]);
+
+  // Background Supabase-reachability poll → DATA_DEGRADED when it can't be
+  // reached even though the internet is up. Ref-counted; stops on unmount.
+  useEffect(() => startDataHealthPolling(), []);
 
   // In "manual" mode we force the audio stream off — no suggestions at all.
   useEffect(() => {
@@ -1599,6 +1618,7 @@ export function OperatorConsole({ plan: planProp, defaultTranslationCode: initia
 
   return (
     <>
+      <ServiceModeBanner />
       <div className="fixed top-2 right-3 z-40 flex items-center gap-2">
         {/* R2: persistent "Message live" indicator so the operator can't
             forget a pinned overlay is still up (dismissAfterMs=null case). */}
