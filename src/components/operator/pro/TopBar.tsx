@@ -59,14 +59,16 @@ function IconBtn({
   );
 }
 
-function ModeBtn({
-  icon: Icon, label, active, onClick, emphasized,
+// Segmented-pill nav item (iOS-style). Lives inside one rounded-full container;
+// the ACTIVE item becomes a filled/elevated pill. Keeps the same onClick /
+// mode-switch behaviour as the old bordered ModeBtn group.
+function SegNavItem({
+  icon: Icon, label, active, onClick,
 }: {
   icon: typeof BookOpen;
   label: string;
   active: boolean;
   onClick: () => void;
-  emphasized?: boolean;
 }) {
   return (
     <button
@@ -74,18 +76,14 @@ function ModeBtn({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "flex items-center justify-center gap-1.5 h-[34px] rounded-md transition-colors",
-        "border text-[12px] font-medium",
-        emphasized ? "min-w-[88px] px-3" : "min-w-[72px] px-2.5",
+        "flex items-center justify-center gap-1.5 h-[30px] px-3 rounded-full text-[12px] font-medium transition-all",
         active
-          ? "bg-[var(--color-elevated)] text-[var(--color-foreground)] border-[var(--color-brand)]"
-          : "bg-transparent text-[var(--color-muted-foreground)] border-[var(--color-border)] hover:text-[var(--color-foreground)] hover:bg-white/5",
-        emphasized && active && "border-b-[3px]",
-        emphasized && !active && "border-[var(--color-border)] hover:border-[var(--color-brand)]",
+          ? "bg-[var(--color-elevated)] text-[var(--color-foreground)] shadow-sm ring-1 ring-[var(--color-brand)]/60"
+          : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/5",
       )}
     >
-      <Icon className={cn(emphasized ? "w-4 h-4" : "w-3.5 h-3.5")} />
-      <span className={cn(emphasized && "font-semibold")}>{label}</span>
+      <Icon className="w-3.5 h-3.5 shrink-0" />
+      <span className={cn(active && "font-semibold")}>{label}</span>
     </button>
   );
 }
@@ -315,11 +313,11 @@ export function TopBar({
       </div>
 
       <div className="mx-2 h-6 w-px bg-[var(--color-border)]" />
-      <div className="flex items-center gap-1">
-        <ModeBtn icon={Music} label="Songs" active={centerMode === "songs"} onClick={toggleMode("songs")} />
-        <ModeBtn icon={BookOpen} label="Bible" active={centerMode === "bible"} onClick={toggleMode("bible")} emphasized />
-        <ModeBtn icon={ImageIcon} label="Media" active={centerMode === "media"} onClick={toggleMode("media")} />
-        <ModeBtn
+      <div className="flex items-center gap-0.5 p-0.5 rounded-full border border-[var(--color-border)] bg-[var(--color-panel)]">
+        <SegNavItem icon={Music} label="Songs" active={centerMode === "songs"} onClick={toggleMode("songs")} />
+        <SegNavItem icon={BookOpen} label="Bible" active={centerMode === "bible"} onClick={toggleMode("bible")} />
+        <SegNavItem icon={ImageIcon} label="Media" active={centerMode === "media"} onClick={toggleMode("media")} />
+        <SegNavItem
           icon={Palette}
           label="Themes"
           active={false}

@@ -53,6 +53,8 @@ export type UseSlideEditorReturn = {
   addObject: (obj: SlideObject) => void;
   moveObject: (id: string, dx: number, dy: number) => void;
   addSlide: () => void;
+  addBlankSlide: () => void;
+  applyToAll: () => void;
   duplicateSlide: () => void;
   deleteSlide: (index?: number) => boolean;
   restoreSlide: (index: number, slide: EditableSlide, expectedItemId?: string | null) => void;
@@ -93,6 +95,10 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
   slidesRef.current = slides;
   const currentIndexRef = useRef(currentIndex);
   currentIndexRef.current = currentIndex;
+  // Mirror the selection so imperative bulk ops (applyToAll) can read the
+  // current single-selected object without being in the callback's dep list.
+  const selectedIdsRef = useRef(selectedIds);
+  selectedIdsRef.current = selectedIds;
   // Tracks the item currently loaded in the editor so a deferred action (a
   // slide-delete Undo fired after the operator switched items) can refuse to
   // mutate the wrong song.
@@ -437,6 +443,68 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     setSelectedIds([]);
   }, [isEditable, slides.length]);
 
+  // Insert a GENUINELY empty slide (zero objects) — distinct from addSlide,
+  // which seeds a "New slide" text object. Selects the new slide.
+  const addBlankSlide = useCallback(() => {
+    if (!isEditable) return;
+    setSlides((prev) => {
+      const blank: EditableSlide = { id: `pending_${Date.now()}`, objects: [] };
+      return [...prev, blank];
+    });
+    setDirty(true);
+    setCurrentIndex(slides.length);
+    setSelectedIds([]);
+  }, [isEditable, slides.length]);
+
+  // Apply the current slide's styling to EVERY other slide in the song:
+  //  • Always copies the background (bgColor + bgImageUrl).
+  //  • If a single object is selected, copies its STYLE + GEOMETRY (never its
+  //    text/url content) onto the first same-kind object of each other slide
+  //    (first text object = the "primary" lyric box). Slides with no matching
+  //    object just get the background. Mutates `slides` + sets dirty so the
+  //    existing onSave persists it; recorded as one undoable history step.
+  const applyToAll = useCallback(() => {
+    if (!isEditable) return;
+    const prev = slidesRef.current;
+    const curIdx = currentIndexRef.current;
+    const cur = prev[curIdx];
+    if (!cur) return;
+    const selId = selectedIdsRef.current.length === 1 ? selectedIdsRef.current[0] : null;
+    const source = selId ? cur.objects.find((o) => o.id === selId) ?? null : null;
+
+    let stylePatch: Partial<SlideObject> | null = null;
+    let sourceKind: SlideObject["kind"] | null = null;
+    if (source) {
+      sourceKind = source.kind;
+      // Strip identity + content + per-object behaviour; keep style + geometry.
+      const rest = { ...source } as Record<string, unknown>;
+      delete rest.id;
+      delete rest.kind;
+      delete rest.hidden;
+      delete rest.locked;
+      delete rest.anim;
+      delete rest.animDelayMs;
+      if (source.kind === "text") delete rest.text;
+      if (source.kind === "image" || source.kind === "video") delete rest.url;
+      stylePatch = rest as Partial<SlideObject>;
+    }
+
+    const next = prev.map((s, i) => {
+      if (i === curIdx) return s;
+      let objects = s.objects;
+      if (stylePatch && sourceKind) {
+        const targetIdx = s.objects.findIndex((o) => o.kind === sourceKind);
+        if (targetIdx >= 0) {
+          objects = s.objects.map((o, oi) =>
+            oi === targetIdx ? ({ ...o, ...stylePatch } as SlideObject) : o);
+        }
+      }
+      return { ...s, bgColor: cur.bgColor, bgImageUrl: cur.bgImageUrl, objects };
+    });
+    setSlides(next);
+    setDirty(true);
+  }, [isEditable]);
+
   const duplicateSlide = useCallback(() => {
     if (!isEditable) return;
     setSlides((prev) => {
@@ -562,6 +630,8 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     addObject,
     moveObject,
     addSlide,
+    addBlankSlide,
+    applyToAll,
     duplicateSlide,
     deleteSlide,
     restoreSlide,

@@ -149,27 +149,32 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null 
             if (k === "z" && !e.shiftKey) { e.preventDefault(); editor.undo(); }
             else if ((k === "z" && e.shiftKey) || k === "y") { e.preventDefault(); editor.redo(); }
           }}
-          className="fixed left-1/2 top-1/2 z-[71] -translate-x-1/2 -translate-y-1/2 w-[95vw] h-[92vh] flex flex-col rounded-xl overflow-hidden border shadow-2xl outline-none"
-          style={{ borderColor: "#2a3232", background: "#171c1c" }}
+          className="fixed inset-0 z-[71] flex flex-col overflow-hidden outline-none"
+          style={{ background: "#0f0f11" }}
         >
-          <header className="h-11 shrink-0 flex items-center gap-2 px-3 border-b" style={{ borderColor: "#2a3232", background: "#1a2020" }}>
-            <Type className="w-4 h-4 text-teal-300" />
-            <Dialog.Title className="text-[12px] font-semibold text-zinc-100">Edit slide</Dialog.Title>
-            <span className="text-[11px] text-zinc-500 truncate">— {title}</span>
+          <header className="h-12 shrink-0 flex items-center gap-2 px-4 border-b" style={{ borderColor: "#ffffff14", background: "#0f0f11" }}>
+            <span className="grid h-7 w-7 place-items-center rounded-lg" style={{ background: "#ff7a2c1a" }}>
+              <Type className="w-4 h-4" style={{ color: "#ff7a2c" }} />
+            </span>
+            <Dialog.Title className="text-[14px] font-semibold text-white">Edit slide</Dialog.Title>
+            <span className="text-[12px] text-white/45 truncate">— {title}</span>
+            {editor.hasDirtyChanges
+              ? <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#ff7a2c" }}>Unsaved</span>
+              : <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-400/80">Saved</span>}
             {!songId && <span className="text-[10px] italic text-amber-300/80 ml-1">Only song slides are editable</span>}
             <div className="ml-auto flex items-center gap-1">
               <button onClick={editor.undo} disabled={!editor.canUndo} title="Undo (⌘Z)"
-                className="grid h-8 w-8 place-items-center rounded-md text-zinc-300 hover:bg-white/[0.06] disabled:opacity-30">
+                className="grid h-9 w-9 place-items-center rounded-lg text-white/70 hover:bg-white/[0.06] hover:text-white disabled:opacity-30">
                 <Undo2 className="w-4 h-4" />
               </button>
               <button onClick={editor.redo} disabled={!editor.canRedo} title="Redo (⌘⇧Z)"
-                className="grid h-8 w-8 place-items-center rounded-md text-zinc-300 hover:bg-white/[0.06] disabled:opacity-30">
+                className="grid h-9 w-9 place-items-center rounded-lg text-white/70 hover:bg-white/[0.06] hover:text-white disabled:opacity-30">
                 <Redo2 className="w-4 h-4" />
               </button>
             </div>
             <button
               onClick={requestClose}
-              className="grid h-8 w-8 place-items-center rounded-md text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100"
+              className="grid h-9 w-9 place-items-center rounded-lg text-white/60 hover:bg-white/[0.06] hover:text-white"
               aria-label="Close editor"
             >
               <X className="w-4 h-4" />
@@ -208,7 +213,7 @@ function ObjectInspector({ churchId }: { churchId: string }) {
   const [clip, setClip] = useState<SlideObject | null>(null);
   const [bgLib, setBgLib] = useState(false);
   if (!editor || !editor.isEditable) {
-    return <aside className="w-64 shrink-0 border-l p-3 text-[11px] text-zinc-500" style={{ borderColor: "#2a3232", background: "#1a2020" }}>Editing is available for song slides.</aside>;
+    return <aside className="w-64 shrink-0 border-l p-3 text-[11px] text-zinc-500" style={{ borderColor: "#26262b", background: "#0f0f11" }}>Editing is available for song slides.</aside>;
   }
   const slide = editor.currentSlide;
   const selected = slide?.objects.find((o) => o.id === editor.selectedObjectId) ?? null;
@@ -248,15 +253,15 @@ function ObjectInspector({ churchId }: { churchId: string }) {
   const removeCustom = (id: string) => setCustomTpls(deleteCustomTemplate(churchId, id));
 
   return (
-    <aside className="w-64 shrink-0 border-l overflow-y-auto" style={{ borderColor: "#2a3232", background: "#1a2020" }}>
+    <aside className="w-72 shrink-0 border-l overflow-y-auto" style={{ borderColor: "#26262b", background: "#0f0f11" }}>
       {/* Start from a template */}
-      <div className="p-2 border-b" style={{ borderColor: "#2a3232" }}>
+      <div className="p-2 border-b" style={{ borderColor: "#26262b" }}>
         <label className="block text-[9px] uppercase tracking-wide text-zinc-500 mb-1">Start from template</label>
         <div className="grid grid-cols-2 gap-1.5">
           {SLIDE_TEMPLATES.map((tpl) => (
             <button key={tpl.id} onClick={() => applyTemplate(tpl.id)}
               className="h-7 rounded border text-[10px] font-semibold text-zinc-200 hover:bg-white/[0.04]"
-              style={{ borderColor: "#2a3232", background: "#1e2525" }}>
+              style={{ borderColor: "#26262b", background: "#17171b" }}>
               {tpl.name}
             </button>
           ))}
@@ -269,11 +274,11 @@ function ObjectInspector({ churchId }: { churchId: string }) {
                 <div key={ct.id} className="flex gap-1">
                   <button onClick={() => applyCustom(ct)} title={`Apply "${ct.name}"`}
                     className="flex-1 h-7 rounded border text-[10px] font-semibold text-zinc-200 hover:bg-white/[0.04] truncate px-2 text-left"
-                    style={{ borderColor: "#2a3232", background: "#1e2525" }}>
+                    style={{ borderColor: "#26262b", background: "#17171b" }}>
                     {ct.name}
                   </button>
                   <button onClick={() => removeCustom(ct.id)} title="Delete template"
-                    className="grid h-7 w-7 place-items-center rounded border text-red-300 hover:bg-red-500/10" style={{ borderColor: "#2a3232" }}>
+                    className="grid h-7 w-7 place-items-center rounded border text-red-300 hover:bg-red-500/10" style={{ borderColor: "#26262b" }}>
                     <Trash2 className="w-3 h-3" />
                   </button>
                 </div>
@@ -286,20 +291,20 @@ function ObjectInspector({ churchId }: { churchId: string }) {
             <input autoFocus value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} placeholder="Template name"
               onKeyDown={(e) => { if (e.key === "Enter") commitSaveTemplate(); else if (e.key === "Escape") setNaming(false); }}
               maxLength={60}
-              className="flex-1 h-7 px-1.5 rounded border text-[11px] text-zinc-100 bg-[#151a1a] outline-none focus:border-teal-500/60" style={{ borderColor: "#2a3232" }} />
+              className="flex-1 h-7 px-1.5 rounded border text-[11px] text-zinc-100 bg-[#0b0b0e] outline-none focus:border-teal-500/60" style={{ borderColor: "#26262b" }} />
             <button onClick={commitSaveTemplate} className="h-7 px-2 rounded border text-[10px] font-bold uppercase text-teal-200 border-teal-500/60 bg-teal-500/20">Save</button>
-            <button onClick={() => setNaming(false)} className="grid h-7 w-7 place-items-center rounded border text-zinc-400" style={{ borderColor: "#2a3232" }}><X className="w-3 h-3" /></button>
+            <button onClick={() => setNaming(false)} className="grid h-7 w-7 place-items-center rounded border text-zinc-400" style={{ borderColor: "#26262b" }}><X className="w-3 h-3" /></button>
           </div>
         ) : (
           <button onClick={beginSaveTemplate}
             className="mt-2 w-full h-7 rounded border text-[10px] font-bold uppercase text-zinc-200 inline-flex items-center justify-center gap-1.5 hover:bg-white/[0.04]"
-            style={{ borderColor: "#2a3232", background: "#1e2525" }}>
+            style={{ borderColor: "#26262b", background: "#17171b" }}>
             <Plus className="w-3 h-3" /> Save current as template
           </button>
         )}
       </div>
       {/* Add-object toolbar */}
-      <div className="p-2 border-b grid grid-cols-2 gap-1.5" style={{ borderColor: "#2a3232" }}>
+      <div className="p-2 border-b grid grid-cols-2 gap-1.5" style={{ borderColor: "#26262b" }}>
         <ToolBtn icon={Type} label="Text" onClick={editor.addTextObject} />
         <ToolBtn icon={Square} label="Rect" onClick={() => editor.addShape("rect")} />
         <ToolBtn icon={Circle} label="Ellipse" onClick={() => editor.addShape("ellipse")} />
@@ -307,26 +312,50 @@ function ObjectInspector({ churchId }: { churchId: string }) {
         {clip && <ToolBtn icon={ClipboardPaste} label="Paste" onClick={() => editor.addObject(clip)} />}
       </div>
 
+      {/* Blank slide + Apply-to-all — friendly bulk affordances */}
+      <div className="p-2 border-b space-y-1.5" style={{ borderColor: "#26262b" }}>
+        <button onClick={editor.addBlankSlide}
+          className="w-full h-9 rounded-lg text-[12px] font-semibold text-white inline-flex items-center justify-center gap-1.5 transition-colors"
+          style={{ background: "#17171b", border: "1px solid #ffffff1a" }}>
+          <Plus className="w-4 h-4" style={{ color: "#ff7a2c" }} /> Blank slide
+        </button>
+        <button
+          onClick={() => {
+            const styled = editor.selectedObjectId ? " and the selected object's style/position" : "";
+            if (confirm(`Apply this slide's background${styled} to ALL ${editor.slides.length} slides in this song?\n\nText and media content are never overwritten. You can undo this.`)) {
+              editor.applyToAll();
+              void import("sonner").then(({ toast }) => toast.success("Applied to all slides"));
+            }
+          }}
+          className="w-full h-9 rounded-lg text-[12px] font-bold text-white inline-flex items-center justify-center gap-1.5 transition-colors hover:brightness-110"
+          style={{ background: "#ff7a2c", color: "#0b0b0e" }}>
+          <Copy className="w-4 h-4" /> Apply to all slides
+        </button>
+        <p className="text-[10px] text-white/40 leading-snug">
+          Copies the background{editor.selectedObjectId ? " + the selected object's style and position" : ""} to every slide. Lyrics/text are kept.
+        </p>
+      </div>
+
       {/* Add media — image or video, from the library or by URL */}
-      <div className="p-2 border-b space-y-1.5" style={{ borderColor: "#2a3232" }}>
+      <div className="p-2 border-b space-y-1.5" style={{ borderColor: "#26262b" }}>
         <label className="block text-[9px] uppercase tracking-wide text-zinc-500">Add media</label>
         <div className="grid grid-cols-2 gap-1.5">
           <button onClick={() => setLibKind("image")}
             className="h-7 rounded border text-[10px] font-bold uppercase text-zinc-200 inline-flex items-center justify-center gap-1 hover:bg-white/[0.04]"
-            style={{ borderColor: "#2a3232", background: "#1e2525" }}>
+            style={{ borderColor: "#26262b", background: "#17171b" }}>
             <ImageIcon className="w-3 h-3" /> Image
           </button>
           <button onClick={() => setLibKind("video")}
             className="h-7 rounded border text-[10px] font-bold uppercase text-zinc-200 inline-flex items-center justify-center gap-1 hover:bg-white/[0.04]"
-            style={{ borderColor: "#2a3232", background: "#1e2525" }}>
+            style={{ borderColor: "#26262b", background: "#17171b" }}>
             <Film className="w-3 h-3" /> Video
           </button>
         </div>
         <div className="flex gap-1">
           <input value={imgUrl} onChange={(e) => setImgUrl(e.target.value)} placeholder="…or paste an image URL"
-            className="flex-1 h-7 px-1.5 rounded border text-[11px] text-zinc-200 bg-[#151a1a] outline-none focus:border-teal-500/60" style={{ borderColor: "#2a3232" }} />
+            className="flex-1 h-7 px-1.5 rounded border text-[11px] text-zinc-200 bg-[#0b0b0e] outline-none focus:border-teal-500/60" style={{ borderColor: "#26262b" }} />
           <button onClick={() => { if (imgUrl.trim()) { editor.addImage(imgUrl.trim()); setImgUrl(""); } }}
-            className="h-7 px-2 rounded border text-[10px] font-bold uppercase text-zinc-200" style={{ borderColor: "#2a3232", background: "#1e2525" }}>
+            className="h-7 px-2 rounded border text-[10px] font-bold uppercase text-zinc-200" style={{ borderColor: "#26262b", background: "#17171b" }}>
             Add
           </button>
         </div>
@@ -342,7 +371,7 @@ function ObjectInspector({ churchId }: { churchId: string }) {
       {/* Layers — every object on the slide, top layer first. Click to select;
           eye = show/hide on the projector; lock = protect from drag/resize. */}
       {slide && slide.objects.length > 0 && (
-        <div className="p-2 border-b" style={{ borderColor: "#2a3232" }}>
+        <div className="p-2 border-b" style={{ borderColor: "#26262b" }}>
           <label className="block text-[9px] uppercase tracking-wide text-zinc-500 mb-1">Layers</label>
           <div className="space-y-0.5 max-h-40 overflow-y-auto">
             {slide.objects.slice().reverse().map((o) => {
@@ -374,7 +403,7 @@ function ObjectInspector({ churchId }: { churchId: string }) {
 
       {/* Group panel — shown when 2+ objects are selected (marquee or ⇧-click) */}
       {multi ? (
-        <div className="p-2 space-y-2 border-b" style={{ borderColor: "#2a3232" }}>
+        <div className="p-2 space-y-2 border-b" style={{ borderColor: "#26262b" }}>
           <div className="flex items-center justify-between">
             <span className="text-[9px] uppercase tracking-wide text-zinc-400">{selIds.length} objects selected</span>
             <div className="flex items-center gap-0.5">
@@ -416,7 +445,7 @@ function ObjectInspector({ churchId }: { churchId: string }) {
           <p className="text-[10px] text-zinc-500 leading-snug">Drag any selected object to move the group. Align snaps edges/centres to the selection&rsquo;s bounds. ⇧-click to add or remove one.</p>
         </div>
       ) : selected ? (
-        <div className="p-2 space-y-2 border-b" style={{ borderColor: "#2a3232" }}>
+        <div className="p-2 space-y-2 border-b" style={{ borderColor: "#26262b" }}>
           <div className="flex items-center justify-between">
             <span className="text-[9px] uppercase tracking-wide text-zinc-400">{selected.kind} object</span>
             <div className="flex items-center gap-0.5">
@@ -471,22 +500,22 @@ function ObjectInspector({ churchId }: { churchId: string }) {
             <span className={rowCls}>Entrance</span>
             <div className="flex gap-1">
               <select value={selected.anim ?? "none"} onChange={(e) => upd({ anim: e.target.value as ObjectAnim })}
-                className={inCls} style={{ borderColor: "#2a3232" }}>
+                className={inCls} style={{ borderColor: "#26262b" }}>
                 {(["none", "fade", "slide-up", "slide-down", "slide-left", "slide-right", "zoom"] as const).map((a) => (
                   <option key={a} value={a}>{a}</option>
                 ))}
               </select>
               <input type="number" min={0} max={10000} step={100} value={selected.animDelayMs ?? 0}
                 onChange={(e) => upd({ animDelayMs: Number(e.target.value) })} title="Delay before it appears (ms)"
-                className="w-14 h-7 px-1.5 rounded border text-[11px] text-zinc-200 bg-[#151a1a] outline-none" style={{ borderColor: "#2a3232" }} />
+                className="w-14 h-7 px-1.5 rounded border text-[11px] text-zinc-200 bg-[#0b0b0e] outline-none" style={{ borderColor: "#26262b" }} />
             </div>
           </div>
           {/* Precise position & size (canvas units, 1920×1080) */}
           <div className="grid grid-cols-2 gap-1.5">
-            <div><span className={rowCls}>X</span><input type="number" value={Math.round(selected.x)} onChange={(e) => upd({ x: Number(e.target.value) })} className={inCls} style={{ borderColor: "#2a3232" }} /></div>
-            <div><span className={rowCls}>Y</span><input type="number" value={Math.round(selected.y)} onChange={(e) => upd({ y: Number(e.target.value) })} className={inCls} style={{ borderColor: "#2a3232" }} /></div>
-            <div><span className={rowCls}>W</span><input type="number" value={Math.round(selected.w)} onChange={(e) => upd({ w: Math.max(20, Number(e.target.value)) })} className={inCls} style={{ borderColor: "#2a3232" }} /></div>
-            <div><span className={rowCls}>H</span><input type="number" value={Math.round(selected.h)} onChange={(e) => upd({ h: Math.max(20, Number(e.target.value)) })} className={inCls} style={{ borderColor: "#2a3232" }} /></div>
+            <div><span className={rowCls}>X</span><input type="number" value={Math.round(selected.x)} onChange={(e) => upd({ x: Number(e.target.value) })} className={inCls} style={{ borderColor: "#26262b" }} /></div>
+            <div><span className={rowCls}>Y</span><input type="number" value={Math.round(selected.y)} onChange={(e) => upd({ y: Number(e.target.value) })} className={inCls} style={{ borderColor: "#26262b" }} /></div>
+            <div><span className={rowCls}>W</span><input type="number" value={Math.round(selected.w)} onChange={(e) => upd({ w: Math.max(20, Number(e.target.value)) })} className={inCls} style={{ borderColor: "#26262b" }} /></div>
+            <div><span className={rowCls}>H</span><input type="number" value={Math.round(selected.h)} onChange={(e) => upd({ h: Math.max(20, Number(e.target.value)) })} className={inCls} style={{ borderColor: "#26262b" }} /></div>
           </div>
           <div><span className={rowCls}>Rotation — {Math.round(selected.rotation ?? 0)}°</span>
             <input type="range" min={-180} max={180} value={selected.rotation ?? 0} onChange={(e) => upd({ rotation: Number(e.target.value) })} className="w-full" />
@@ -500,17 +529,17 @@ function ObjectInspector({ churchId }: { churchId: string }) {
           {selected.kind === "video" && <VideoProps o={selected} upd={upd} />}
         </div>
       ) : (
-        <div className="p-2 text-[11px] text-zinc-500 border-b" style={{ borderColor: "#2a3232" }}>Select an object on the canvas to edit it.</div>
+        <div className="p-2 text-[11px] text-zinc-500 border-b" style={{ borderColor: "#26262b" }}>Select an object on the canvas to edit it.</div>
       )}
 
       {/* Slide background — colour + optional image */}
       <div className="p-2 space-y-1.5">
         <label className="block text-[9px] uppercase tracking-wide text-zinc-500">Slide background</label>
         <input type="color" value={slide?.bgColor ?? "#0b0b0b"} onChange={(e) => editor.setBg({ bgColor: e.target.value })}
-          className="h-7 w-full rounded border cursor-pointer bg-transparent" style={{ borderColor: "#2a3232" }} />
+          className="h-7 w-full rounded border cursor-pointer bg-transparent" style={{ borderColor: "#26262b" }} />
         <button onClick={() => setBgLib(true)}
           className="w-full h-7 rounded border text-[10px] font-semibold text-zinc-200 inline-flex items-center justify-center gap-1.5 hover:bg-white/[0.04]"
-          style={{ borderColor: "#2a3232", background: "#1e2525" }}>
+          style={{ borderColor: "#26262b", background: "#17171b" }}>
           <ImageIcon className="w-3 h-3" /> {slide?.bgImageUrl ? "Change background image" : "Background image…"}
         </button>
         {slide?.bgImageUrl && (
@@ -528,7 +557,7 @@ function ZBtn({ icon: Icon, title, onClick }: { icon: typeof Type; title: string
   return (
     <button onClick={onClick} title={title}
       className="flex-1 h-7 rounded border inline-flex items-center justify-center text-zinc-300 hover:bg-white/[0.04]"
-      style={{ borderColor: "#2a3232", background: "#1e2525" }}>
+      style={{ borderColor: "#26262b", background: "#17171b" }}>
       <Icon className="w-3 h-3" />
     </button>
   );
@@ -538,7 +567,7 @@ function AlignBtn({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <button onClick={onClick} title={`Align ${label}`}
       className="flex-1 h-7 rounded border text-[10px] font-bold text-zinc-300 hover:bg-white/[0.04]"
-      style={{ borderColor: "#2a3232", background: "#1e2525" }}>
+      style={{ borderColor: "#26262b", background: "#17171b" }}>
       {label}
     </button>
   );
@@ -547,48 +576,48 @@ function AlignBtn({ label, onClick }: { label: string; onClick: () => void }) {
 function ToolBtn({ icon: Icon, label, onClick }: { icon: typeof Type; label: string; onClick: () => void }) {
   return (
     <button onClick={onClick} className="h-8 rounded-md border text-[10px] font-bold uppercase inline-flex items-center justify-center gap-1 text-zinc-200 hover:bg-white/[0.04]"
-      style={{ borderColor: "#2a3232", background: "#1e2525" }}>
+      style={{ borderColor: "#26262b", background: "#17171b" }}>
       <Icon className="w-3 h-3" /> {label}
     </button>
   );
 }
 
 const rowCls = "block text-[9px] uppercase tracking-wide text-zinc-500 mb-0.5";
-const inCls = "w-full h-7 px-1.5 rounded border text-[11px] text-zinc-200 bg-[#151a1a] outline-none focus:border-teal-500/60";
+const inCls = "w-full h-7 px-1.5 rounded border text-[11px] text-zinc-200 bg-[#0b0b0e] outline-none focus:border-teal-500/60";
 
 function TextProps({ o, upd }: { o: TextObject; upd: (p: Partial<SlideObject>) => void }) {
   return (
     <>
       <div><span className={rowCls}>Text</span>
         <textarea value={o.text} onChange={(e) => upd({ text: e.target.value })} rows={3}
-          className="w-full px-1.5 py-1 rounded border text-[12px] text-zinc-100 bg-[#151a1a] outline-none focus:border-teal-500/60 resize-y"
-          style={{ borderColor: "#2a3232" }} />
+          className="w-full px-1.5 py-1 rounded border text-[12px] text-zinc-100 bg-[#0b0b0e] outline-none focus:border-teal-500/60 resize-y"
+          style={{ borderColor: "#26262b" }} />
       </div>
       <div><span className={rowCls}>Font</span>
-        <select value={o.fontFamily ?? "Inter"} onChange={(e) => upd({ fontFamily: e.target.value })} className={inCls} style={{ borderColor: "#2a3232" }}>
+        <select value={o.fontFamily ?? "Inter"} onChange={(e) => upd({ fontFamily: e.target.value })} className={inCls} style={{ borderColor: "#26262b" }}>
           {FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
         </select>
       </div>
       <div className="grid grid-cols-2 gap-1.5">
         <div><span className={rowCls}>Size (px)</span>
-          <input type="number" min={8} max={800} value={o.fontSize ?? 96} onChange={(e) => upd({ fontSize: Number(e.target.value) })} className={inCls} style={{ borderColor: "#2a3232" }} />
+          <input type="number" min={8} max={800} value={o.fontSize ?? 96} onChange={(e) => upd({ fontSize: Number(e.target.value) })} className={inCls} style={{ borderColor: "#26262b" }} />
         </div>
         <div><span className={rowCls}>Weight</span>
-          <select value={String(o.fontWeight ?? 600)} onChange={(e) => upd({ fontWeight: Number(e.target.value) })} className={inCls} style={{ borderColor: "#2a3232" }}>
+          <select value={String(o.fontWeight ?? 600)} onChange={(e) => upd({ fontWeight: Number(e.target.value) })} className={inCls} style={{ borderColor: "#26262b" }}>
             {[300, 400, 500, 600, 700, 800, 900].map((w) => <option key={w} value={w}>{w}</option>)}
           </select>
         </div>
       </div>
       <div className="grid grid-cols-2 gap-1.5">
         <div><span className={rowCls}>Colour</span>
-          <input type="color" value={o.color ?? "#ffffff"} onChange={(e) => upd({ color: e.target.value })} className="h-7 w-full rounded border cursor-pointer bg-transparent" style={{ borderColor: "#2a3232" }} />
+          <input type="color" value={o.color ?? "#ffffff"} onChange={(e) => upd({ color: e.target.value })} className="h-7 w-full rounded border cursor-pointer bg-transparent" style={{ borderColor: "#26262b" }} />
         </div>
         <div><span className={rowCls}>Align</span>
           <div className="flex gap-0.5">
             {(["left", "center", "right"] as const).map((a) => (
               <button key={a} onClick={() => upd({ align: a })}
                 className={`flex-1 h-7 rounded border text-[9px] uppercase ${(o.align ?? "center") === a ? "border-teal-400 bg-teal-500/20 text-teal-100" : "text-zinc-400"}`}
-                style={(o.align ?? "center") === a ? undefined : { borderColor: "#2a3232" }}>{a[0]}</button>
+                style={(o.align ?? "center") === a ? undefined : { borderColor: "#26262b" }}>{a[0]}</button>
             ))}
           </div>
         </div>
@@ -596,33 +625,33 @@ function TextProps({ o, upd }: { o: TextObject; upd: (p: Partial<SlideObject>) =
       <div className="flex gap-1.5">
         <button onClick={() => upd({ italic: !o.italic })}
           className={`flex-1 h-7 rounded border text-[10px] italic ${o.italic ? "border-teal-400 bg-teal-500/20 text-teal-100" : "text-zinc-400"}`}
-          style={o.italic ? undefined : { borderColor: "#2a3232" }}>Italic</button>
+          style={o.italic ? undefined : { borderColor: "#26262b" }}>Italic</button>
         <button onClick={() => upd({ underline: !o.underline })}
           className={`flex-1 h-7 rounded border text-[10px] underline ${o.underline ? "border-teal-400 bg-teal-500/20 text-teal-100" : "text-zinc-400"}`}
-          style={o.underline ? undefined : { borderColor: "#2a3232" }}>Underline</button>
+          style={o.underline ? undefined : { borderColor: "#26262b" }}>Underline</button>
       </div>
       <div className="flex gap-1.5">
         <button onClick={() => upd({ uppercase: !o.uppercase })}
           className={`flex-1 h-7 rounded border text-[10px] uppercase ${o.uppercase ? "border-teal-400 bg-teal-500/20 text-teal-100" : "text-zinc-400"}`}
-          style={o.uppercase ? undefined : { borderColor: "#2a3232" }}>Uppercase</button>
+          style={o.uppercase ? undefined : { borderColor: "#26262b" }}>Uppercase</button>
         <button onClick={() => upd({ shadow: !(o.shadow ?? true) })}
           className={`flex-1 h-7 rounded border text-[10px] ${(o.shadow ?? true) ? "border-teal-400 bg-teal-500/20 text-teal-100" : "text-zinc-400"}`}
-          style={(o.shadow ?? true) ? undefined : { borderColor: "#2a3232" }}>Shadow</button>
+          style={(o.shadow ?? true) ? undefined : { borderColor: "#26262b" }}>Shadow</button>
       </div>
       <div className="grid grid-cols-2 gap-1.5">
         <div><span className={rowCls}>Line height</span>
-          <input type="number" min={0.5} max={4} step={0.05} value={o.lineHeight ?? 1.1} onChange={(e) => upd({ lineHeight: Number(e.target.value) })} className={inCls} style={{ borderColor: "#2a3232" }} />
+          <input type="number" min={0.5} max={4} step={0.05} value={o.lineHeight ?? 1.1} onChange={(e) => upd({ lineHeight: Number(e.target.value) })} className={inCls} style={{ borderColor: "#26262b" }} />
         </div>
         <div><span className={rowCls}>Letter spacing</span>
-          <input type="number" min={-20} max={100} step={1} value={o.letterSpacing ?? 0} onChange={(e) => upd({ letterSpacing: Number(e.target.value) })} className={inCls} style={{ borderColor: "#2a3232" }} />
+          <input type="number" min={-20} max={100} step={1} value={o.letterSpacing ?? 0} onChange={(e) => upd({ letterSpacing: Number(e.target.value) })} className={inCls} style={{ borderColor: "#26262b" }} />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-1.5">
         <div><span className={rowCls}>Outline</span>
-          <input type="color" value={o.stroke ?? "#000000"} onChange={(e) => upd({ stroke: e.target.value })} className="h-7 w-full rounded border cursor-pointer bg-transparent" style={{ borderColor: "#2a3232" }} />
+          <input type="color" value={o.stroke ?? "#000000"} onChange={(e) => upd({ stroke: e.target.value })} className="h-7 w-full rounded border cursor-pointer bg-transparent" style={{ borderColor: "#26262b" }} />
         </div>
         <div><span className={rowCls}>Outline width</span>
-          <input type="number" min={0} max={40} step={1} value={o.strokeWidth ?? 0} onChange={(e) => upd({ strokeWidth: Number(e.target.value) })} className={inCls} style={{ borderColor: "#2a3232" }} />
+          <input type="number" min={0} max={40} step={1} value={o.strokeWidth ?? 0} onChange={(e) => upd({ strokeWidth: Number(e.target.value) })} className={inCls} style={{ borderColor: "#26262b" }} />
         </div>
       </div>
     </>
@@ -634,19 +663,19 @@ function ShapeProps({ o, upd }: { o: ShapeObject; upd: (p: Partial<SlideObject>)
     <>
       <div className="grid grid-cols-2 gap-1.5">
         <div><span className={rowCls}>Fill</span>
-          <input type="color" value={o.fill ?? "#14b8a6"} onChange={(e) => upd({ fill: e.target.value })} className="h-7 w-full rounded border cursor-pointer bg-transparent" style={{ borderColor: "#2a3232" }} />
+          <input type="color" value={o.fill ?? "#14b8a6"} onChange={(e) => upd({ fill: e.target.value })} className="h-7 w-full rounded border cursor-pointer bg-transparent" style={{ borderColor: "#26262b" }} />
         </div>
         <div><span className={rowCls}>Border</span>
-          <input type="color" value={o.stroke ?? "#0f766e"} onChange={(e) => upd({ stroke: e.target.value })} className="h-7 w-full rounded border cursor-pointer bg-transparent" style={{ borderColor: "#2a3232" }} />
+          <input type="color" value={o.stroke ?? "#0f766e"} onChange={(e) => upd({ stroke: e.target.value })} className="h-7 w-full rounded border cursor-pointer bg-transparent" style={{ borderColor: "#26262b" }} />
         </div>
       </div>
       <button onClick={() => upd({ fill2: o.fill2 ? undefined : "#0f766e" })}
         className={`w-full h-7 rounded border text-[10px] uppercase ${o.fill2 ? "border-teal-400 bg-teal-500/20 text-teal-100" : "text-zinc-400"}`}
-        style={o.fill2 ? undefined : { borderColor: "#2a3232" }}>Gradient {o.fill2 ? "on" : "off"}</button>
+        style={o.fill2 ? undefined : { borderColor: "#26262b" }}>Gradient {o.fill2 ? "on" : "off"}</button>
       {o.fill2 && (
         <div className="grid grid-cols-2 gap-1.5">
           <div><span className={rowCls}>Fill 2</span>
-            <input type="color" value={o.fill2} onChange={(e) => upd({ fill2: e.target.value })} className="h-7 w-full rounded border cursor-pointer bg-transparent" style={{ borderColor: "#2a3232" }} />
+            <input type="color" value={o.fill2} onChange={(e) => upd({ fill2: e.target.value })} className="h-7 w-full rounded border cursor-pointer bg-transparent" style={{ borderColor: "#26262b" }} />
           </div>
           <div><span className={rowCls}>Angle — {o.fillAngle ?? 135}°</span>
             <input type="range" min={0} max={360} value={o.fillAngle ?? 135} onChange={(e) => upd({ fillAngle: Number(e.target.value) })} className="w-full" />
@@ -672,7 +701,7 @@ function ImageProps({ o, upd }: { o: ImageObject; upd: (p: Partial<SlideObject>)
         {(["contain", "cover"] as const).map((f) => (
           <button key={f} onClick={() => upd({ fit: f })}
             className={`flex-1 h-7 rounded border text-[9px] uppercase ${(o.fit ?? "contain") === f ? "border-teal-400 bg-teal-500/20 text-teal-100" : "text-zinc-400"}`}
-            style={(o.fit ?? "contain") === f ? undefined : { borderColor: "#2a3232" }}>{f}</button>
+            style={(o.fit ?? "contain") === f ? undefined : { borderColor: "#26262b" }}>{f}</button>
         ))}
       </div>
     </div>
@@ -687,17 +716,17 @@ function VideoProps({ o, upd }: { o: VideoObject; upd: (p: Partial<SlideObject>)
           {(["contain", "cover"] as const).map((f) => (
             <button key={f} onClick={() => upd({ fit: f })}
               className={`flex-1 h-7 rounded border text-[9px] uppercase ${(o.fit ?? "contain") === f ? "border-teal-400 bg-teal-500/20 text-teal-100" : "text-zinc-400"}`}
-              style={(o.fit ?? "contain") === f ? undefined : { borderColor: "#2a3232" }}>{f}</button>
+              style={(o.fit ?? "contain") === f ? undefined : { borderColor: "#26262b" }}>{f}</button>
           ))}
         </div>
       </div>
       <div className="grid grid-cols-2 gap-1.5">
         <button onClick={() => upd({ loop: !(o.loop ?? true) })}
           className={`h-7 rounded border text-[9px] uppercase ${(o.loop ?? true) ? "border-teal-400 bg-teal-500/20 text-teal-100" : "text-zinc-400"}`}
-          style={(o.loop ?? true) ? undefined : { borderColor: "#2a3232" }}>Loop {(o.loop ?? true) ? "on" : "off"}</button>
+          style={(o.loop ?? true) ? undefined : { borderColor: "#26262b" }}>Loop {(o.loop ?? true) ? "on" : "off"}</button>
         <button onClick={() => upd({ muted: !(o.muted ?? true) })}
           className={`h-7 rounded border text-[9px] uppercase ${(o.muted ?? true) ? "border-teal-400 bg-teal-500/20 text-teal-100" : "text-zinc-400"}`}
-          style={(o.muted ?? true) ? undefined : { borderColor: "#2a3232" }}>{(o.muted ?? true) ? "Muted" : "Sound on"}</button>
+          style={(o.muted ?? true) ? undefined : { borderColor: "#26262b" }}>{(o.muted ?? true) ? "Muted" : "Sound on"}</button>
       </div>
     </>
   );
