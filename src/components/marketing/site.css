@@ -169,5 +169,6 @@
    single CTA fit the screen cleanly (requested). ─────────────────────────── */
 @media (max-width: 720px) {
   .pf-site .pf-hero-lede,
-  .pf-site .pf-hero-meta { display: none !important; }
+  .pf-site .pf-hero-meta,
+  .pf-site .pf-hero-cta { display: none !important; }
 }

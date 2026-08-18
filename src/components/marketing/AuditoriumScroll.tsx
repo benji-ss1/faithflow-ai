@@ -52,7 +52,7 @@ const CSS = `
   .aud .au-step{grid-template-columns:32px 1fr;padding:8px 0 8px 12px;margin-left:-14px}
   .aud .au-step .sn{font-size:13px}
   .aud .au-step .sl{font-size:19px}
-  .aud .au-step .sd{font-size:13px;max-width:none;max-height:200px;opacity:1}
+  .aud .au-steps{display:none}
   .aud .au-rail{display:none}
 }
 @media (prefers-reduced-motion:reduce){

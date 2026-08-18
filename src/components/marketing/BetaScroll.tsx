@@ -139,7 +139,9 @@ const CSS = `
 .pfb .bs-card ol{margin:6px 0 0;padding:0;list-style:none;counter-reset:it;display:flex;flex-direction:column;gap:10px}
 .pfb .bs-card ol li{counter-increment:it;display:grid;grid-template-columns:26px 1fr;gap:6px;font-size:15px;line-height:1.5;color:var(--ink)}
 .pfb .bs-card ol li::before{content:counter(it) ".";color:var(--ember);font-weight:600}
-.pfb .bs-foot{border-top:1px solid var(--line);margin-top:22px;padding-top:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;color:var(--muted);flex-wrap:wrap}
+/* footer removed per request */
+.pfb .bs-foot{display:none}
+.pfb .bs-foot-x{border-top:1px solid var(--line);margin-top:22px;padding-top:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;color:var(--muted);flex-wrap:wrap}
 .pfb .bs-tags{display:flex;gap:6px}
 .pfb .bs-tag{font-family:var(--pf-mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;padding:5px 10px;border:1px solid var(--line);border-radius:999px;color:var(--muted)}
 .pfb .bs-hint{position:absolute;bottom:20px;right:26px;font-family:var(--pf-mono);font-size:10px;letter-spacing:.16em;color:var(--faint);text-transform:uppercase}

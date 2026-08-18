@@ -195,6 +195,7 @@ export default function Home() {
               seconds. No one scrambling at the back.
             </p>
             <div
+              className="pf-hero-cta"
               style={{
                 display: "flex",
                 flexWrap: "wrap",
