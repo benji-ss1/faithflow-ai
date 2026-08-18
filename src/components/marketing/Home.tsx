@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import Link from "next/link";
 import ImageSlot from "./ImageSlot";
 import AuditoriumBg from "./AuditoriumBg";
+import BetaScroll from "./BetaScroll";
 
 const WORDS = ["the room.", "the sermon.", "the setlist.", "the moment."];
 const CH = "!<>-_\\/[]{}—=+*^?#________abcdefghjkmnpqrstuvwxyz";
@@ -162,7 +163,7 @@ export default function Home() {
               zIndex: 1,
               pointerEvents: "none",
               background:
-                "linear-gradient(180deg, rgba(8,4,8,.55) 0%, rgba(8,4,8,.35) 40%, rgba(8,4,8,.75) 100%), linear-gradient(90deg, rgba(8,4,8,.82) 0%, rgba(8,4,8,.5) 34%, rgba(8,4,8,0) 62%)",
+                "linear-gradient(180deg, rgba(8,4,8,.44) 0%, rgba(8,4,8,.28) 40%, rgba(8,4,8,.60) 100%), linear-gradient(90deg, rgba(8,4,8,.66) 0%, rgba(8,4,8,.40) 30%, rgba(8,4,8,0) 52%)",
             }}
           />
           <div
@@ -183,7 +184,7 @@ export default function Home() {
                 fontSize: "clamp(40px,6.4vw,76px)",
                 lineHeight: 1.05,
                 letterSpacing: "-.03em",
-                maxWidth: 860,
+                maxWidth: 600,
               }}
             >
               The screen finally keeps up with
@@ -205,7 +206,7 @@ export default function Home() {
             <p
               style={{
                 margin: "22px 0 0",
-                maxWidth: 560,
+                maxWidth: 480,
                 fontSize: 17,
                 lineHeight: 1.6,
                 color: "var(--muted)",
@@ -303,266 +304,8 @@ export default function Home() {
           </div>
         </section>
 
-        {/* WHAT'S IN THE BETA */}
-        <section
-          id="beta"
-          style={{ borderTop: "1px solid rgba(255,255,255,.07)", background: "#0D0D0F" }}
-        >
-          <div style={{ maxWidth: 1160, margin: "0 auto", padding: "110px 24px 90px" }}>
-            <div
-              style={{
-                font: `500 12px ${MONO}`,
-                letterSpacing: "0.16em",
-                textTransform: "uppercase",
-                color: "var(--ember)",
-              }}
-            >
-              What&apos;s in the beta
-            </div>
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 28,
-                alignItems: "flex-end",
-                justifyContent: "space-between",
-                marginTop: 18,
-              }}
-            >
-              <h2
-                style={{
-                  margin: 0,
-                  fontWeight: 800,
-                  fontSize: "clamp(34px,5vw,58px)",
-                  letterSpacing: "-.03em",
-                  lineHeight: 1.04,
-                  maxWidth: 560,
-                }}
-              >
-                Everything you need. Nothing you don&apos;t.
-              </h2>
-              <p
-                style={{
-                  margin: 0,
-                  maxWidth: 400,
-                  fontSize: 16,
-                  lineHeight: 1.6,
-                  color: "var(--muted)",
-                  textWrap: "pretty",
-                }}
-              >
-                A cleaner, smarter way to run your services. Built for the person behind
-                the screen every Sunday.
-              </p>
-            </div>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))",
-                gap: 18,
-                marginTop: 56,
-              }}
-            >
-              {/* Card 1: library migration */}
-              <div
-                className="pf-card"
-                style={{
-                  background: "var(--panel)",
-                  border: "1px solid rgba(255,255,255,.08)",
-                  borderRadius: 16,
-                  padding: 28,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 22,
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    alignItems: "center",
-                    gap: 8,
-                    minHeight: 76,
-                  }}
-                >
-                  <span style={monoTag}>ProPresenter</span>
-                  <span style={monoTag}>EasyWorship</span>
-                  <span style={monoTag}>Proclaim</span>
-                  <span style={monoTag}>CCLI</span>
-                  <span
-                    style={{
-                      color: "var(--ember)",
-                      fontSize: 18,
-                      display: "inline-block",
-                      animation: "pfArrow 1.6s ease infinite",
-                    }}
-                  >
-                    →
-                  </span>
-                  <span
-                    style={{
-                      font: `600 11px ${MONO}`,
-                      letterSpacing: "0.06em",
-                      padding: "7px 11px",
-                      borderRadius: 8,
-                      background: "linear-gradient(100deg,#ff7a2c,#ffb861)",
-                      color: "#1A1005",
-                    }}
-                  >
-                    PresentFlow
-                  </span>
-                </div>
-                <div>
-                  <h3
-                    style={{
-                      margin: "0 0 8px",
-                      fontWeight: 700,
-                      fontSize: 20,
-                      letterSpacing: "-.01em",
-                    }}
-                  >
-                    Bring your library with you
-                  </h3>
-                  <p style={{ margin: 0, fontSize: 15, lineHeight: 1.6, color: "var(--muted)" }}>
-                    Migrate songs and scripture from wherever you&apos;re coming from.
-                    Connect CCLI and your verses come too. No starting from scratch.
-                  </p>
-                </div>
-              </div>
-
-              {/* Card 2: schedule builder */}
-              <div
-                className="pf-card"
-                style={{
-                  background: "var(--panel)",
-                  border: "1px solid rgba(255,255,255,.08)",
-                  borderRadius: 16,
-                  padding: 28,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 22,
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 6,
-                    minHeight: 76,
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: "8px 12px",
-                      borderRadius: 8,
-                      background: "var(--panel-2)",
-                      border: "1px solid rgba(255,255,255,.07)",
-                      font: `500 11px ${MONO}`,
-                      color: "var(--faint)",
-                    }}
-                  >
-                    <span style={{ letterSpacing: 2 }}>⠿</span> 01 · WELCOME &amp; OPENER
-                  </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: "8px 12px",
-                      borderRadius: 8,
-                      background: "#1B160E",
-                      border: "1px solid rgba(255,122,44,.5)",
-                      font: `500 11px ${MONO}`,
-                      color: "var(--gold)",
-                      animation: "pfBob 3.4s ease-in-out infinite",
-                    }}
-                  >
-                    <span style={{ letterSpacing: 2 }}>⠿</span> 02 · WORSHIP SET × 4
-                  </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: "8px 12px",
-                      borderRadius: 8,
-                      background: "var(--panel-2)",
-                      border: "1px solid rgba(255,255,255,.07)",
-                      font: `500 11px ${MONO}`,
-                      color: "var(--faint)",
-                    }}
-                  >
-                    <span style={{ letterSpacing: 2 }}>⠿</span> 03 · MESSAGE · ROMANS 8
-                  </div>
-                </div>
-                <div>
-                  <h3
-                    style={{
-                      margin: "0 0 8px",
-                      fontWeight: 700,
-                      fontSize: 20,
-                      letterSpacing: "-.01em",
-                    }}
-                  >
-                    Plan your service in minutes
-                  </h3>
-                  <p style={{ margin: 0, fontSize: 15, lineHeight: 1.6, color: "var(--muted)" }}>
-                    A simple schedule builder. Lay out the whole order, drag it into shape,
-                    and hand it off to whoever&apos;s on tech. No clutter, no learning
-                    curve.
-                  </p>
-                </div>
-              </div>
-
-              {/* Card 3: themes */}
-              <div
-                className="pf-card"
-                style={{
-                  background: "var(--panel)",
-                  border: "1px solid rgba(255,255,255,.08)",
-                  borderRadius: 16,
-                  padding: 28,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 22,
-                }}
-              >
-                <div
-                  style={{
-                    position: "relative",
-                    width: "100%",
-                    aspectRatio: "16/7",
-                    borderRadius: 10,
-                    overflow: "hidden",
-                    border: "1px solid rgba(255,255,255,.08)",
-                  }}
-                >
-                  <ImageSlot placeholder="Drop a theme or lyrics screenshot" />
-                </div>
-                <div>
-                  <h3
-                    style={{
-                      margin: "0 0 8px",
-                      fontWeight: 700,
-                      fontSize: 20,
-                      letterSpacing: "-.01em",
-                    }}
-                  >
-                    Themes that actually look good
-                  </h3>
-                  <p style={{ margin: 0, fontSize: 15, lineHeight: 1.6, color: "var(--muted)" }}>
-                    Clean, modern visuals out of the box. Lyrics and scripture look sharp
-                    on screen, no design degree, no templates from 2012.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
+        {/* WHAT'S IN THE BETA — pinned, scroll-scrubbed 3-card section */}
+        <BetaScroll />
 
         {/* CLOSED BETA CTA */}
         <section style={{ maxWidth: 1160, margin: "0 auto", padding: "110px 24px 130px" }}>
