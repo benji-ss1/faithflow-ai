@@ -35,13 +35,20 @@ export default function SiteFooter() {
           <div
             style={{
               marginTop: 14,
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              gap: 18,
               font: "500 11px var(--pf-mono)",
-              letterSpacing: "0.18em",
+              letterSpacing: "0.14em",
               textTransform: "uppercase",
               color: "var(--faint)",
             }}
           >
-            © 2026 PresentFlow
+            <span>© 2026 PresentFlow</span>
+            <Link href="/our-story" className="pf-link-gold" style={{ color: "var(--faint)" }}>Our Story</Link>
+            <Link href="/privacy" className="pf-link-gold" style={{ color: "var(--faint)" }}>Privacy</Link>
+            <Link href="/terms" className="pf-link-gold" style={{ color: "var(--faint)" }}>Terms</Link>
           </div>
         </div>
         {/* church line-drawing, mirroring the editorial mark above */}

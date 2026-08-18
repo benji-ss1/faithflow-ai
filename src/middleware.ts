@@ -14,6 +14,7 @@ const PUBLIC_PATHS = [
   // Public marketing sub-pages (ported from the beta site). Kept in sync with
   // the routes under src/app/(marketing)/.
   "/apply", "/how-it-works", "/what-it-can-do", "/our-story", "/why-were-building",
+  "/privacy", "/terms",
   "/login", "/signup", "/verify-email", "/forgot-password", "/reset-password", "/accept-invite",
   "/api/auth", "/api/health", "/api/stripe",
   // Vercel Cron invocations pass through this middleware; without an allowlist

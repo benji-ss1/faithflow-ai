@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import Link from "next/link";
 import ImageSlot from "./ImageSlot";
 import AuditoriumBg from "./AuditoriumBg";
 import BetaScroll from "./BetaScroll";
@@ -179,46 +178,6 @@ export default function Home() {
                 {scramble}
               </span>
             </h1>
-            <p
-              className="pf-hero-lede"
-              style={{
-                margin: "22px 0 0",
-                maxWidth: 480,
-                fontSize: 17,
-                lineHeight: 1.6,
-                color: "var(--muted)",
-                textWrap: "pretty",
-              }}
-            >
-              PresentFlow listens to what&apos;s being preached and what&apos;s being
-              sung, and puts the right verse or the right line on screen in under two
-              seconds. No one scrambling at the back.
-            </p>
-            <div
-              className="pf-hero-cta"
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 14,
-                marginTop: 30,
-              }}
-            >
-              <Link
-                href="/apply"
-                className="pf-btn-primary"
-                style={{
-                  fontWeight: 700,
-                  fontSize: 15,
-                  padding: "15px 26px",
-                  borderRadius: 10,
-                  background: "linear-gradient(100deg,#ff7a2c,#ffb861)",
-                  color: "#1A1005",
-                  boxShadow: "0 10px 40px rgba(255,122,44,.28)",
-                }}
-              >
-                Apply for the beta&nbsp;→
-              </Link>
-            </div>
           </div>
         </section>
 

@@ -10,7 +10,7 @@ export async function register() {
   }
 }
 
-// onRequestError re-export omitted — Sentry's public export surface for this
-// hook varies between minor versions. When DSN is set, Sentry's own auto-
-// instrumentation still captures unhandled request errors via the runtime
-// init above, so skipping this manual re-export is safe.
+// App Router server error capture (RSC / route handlers / server actions).
+// @sentry/nextjs v10 exposes captureRequestError for this hook; it no-ops when
+// no DSN is configured, so it's safe to always export.
+export { captureRequestError as onRequestError } from "@sentry/nextjs";

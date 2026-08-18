@@ -165,11 +165,8 @@
    page into a scroll container — hidden would break position:sticky pinning. */
 .pf-site { overflow-x: clip; }
 
-/* ── Mobile hero: drop the lede paragraph so the headline fits the screen
-   cleanly (requested). ────────────────────────────────────────────────────── */
+/* ── Mobile hero ─────────────────────────────────────────────────────────── */
 @media (max-width: 720px) {
-  .pf-site .pf-hero-lede,
-  .pf-site .pf-hero-cta { display: none !important; }
   /* Push the auditorium scene down on mobile so its projector (Psalm 23:3)
      clears the left-aligned headline instead of colliding with "the room." */
   .pf-site .pf-aud { transform: translateY(24%); }
