@@ -111,12 +111,20 @@ const QUESTIONS: Question[] = [
   },
   {
     kicker: "REACHING YOU",
-    label: "Who should we invite?",
-    sub: "So we know what to call you — and where to send your wave-one invite.",
+    label: "What's your name?",
+    sub: "So we know what to call you.",
     type: "fields",
     fields: [
-      { key: "fullName", label: "Full name", placeholder: "e.g. Sam Lee" },
-      { key: "role", label: "Role", placeholder: "e.g. Media lead / Tech director" },
+      { key: "firstName", label: "First name", placeholder: "e.g. Sam" },
+      { key: "lastName", label: "Last name", placeholder: "e.g. Lee" },
+    ],
+  },
+  {
+    kicker: "YOUR INVITE",
+    label: "What's the best email to reach you?",
+    sub: "This is where your wave-one invite and any updates will go.",
+    type: "fields",
+    fields: [
       { key: "email", label: "Email", placeholder: "e.g. sam@yourchurch.org" },
     ],
   },

@@ -51,12 +51,12 @@ export async function submitApplication(raw: unknown): Promise<ApplyResult> {
   // must not break the applicant's "You're on the list" success — the team
   // notification above already captured the application.
   if (contact) {
-    const contactAnswer = answered.find((a) => a.answer.includes(contact))?.answer ?? "";
-    // Structured "Full name: Sam Lee · Role: … · Email: …" (new form) with a
-    // fallback to the old single free-text field ("Sam Lee, …, email").
+    // Name and email are now separate questions. Pull the first name from the
+    // "First name:" field (new form), falling back to older formats.
     const name = (
-      /full name:\s*([^·]+)/i.exec(contactAnswer)?.[1] ??
-      contactAnswer.replace(EMAIL_RE, "").split(",")[0]
+      /first name:\s*([^·—]+)/i.exec(all)?.[1] ??
+      /full name:\s*([^·—]+)/i.exec(all)?.[1] ??
+      ""
     ).trim();
     try {
       await sendBetaApplicantConfirmation(contact, name);
