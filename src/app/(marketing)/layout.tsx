@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
+import { Plus_Jakarta_Sans, JetBrains_Mono, Fraunces, Caveat } from "next/font/google";
 import SiteNav from "@/components/marketing/SiteNav";
 import SiteFooter from "@/components/marketing/SiteFooter";
 import "@/components/marketing/site.css";
@@ -15,6 +15,21 @@ const mono = JetBrains_Mono({
   subsets: ["latin"],
   weight: ["400", "500", "600"],
   variable: "--pf-mono",
+  display: "swap",
+});
+
+// Editorial serif + handwritten face for the light-mode CTA section / footer.
+const fraunces = Fraunces({
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600"],
+  style: ["normal", "italic"],
+  variable: "--pf-serif",
+  display: "swap",
+});
+const caveat = Caveat({
+  subsets: ["latin"],
+  weight: ["400", "600"],
+  variable: "--pf-hand",
   display: "swap",
 });
 
@@ -35,7 +50,7 @@ export default function MarketingLayout({
 }) {
   return (
     <div
-      className={`pf-site ${jakarta.variable} ${mono.variable}`}
+      className={`pf-site ${jakarta.variable} ${mono.variable} ${fraunces.variable} ${caveat.variable}`}
       style={{ fontFamily: "var(--pf-sans)" }}
     >
       <SiteNav />

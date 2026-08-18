@@ -7,6 +7,7 @@ import AuditoriumBg from "./AuditoriumBg";
 import BetaScroll from "./BetaScroll";
 import AuditoriumScroll from "./AuditoriumScroll";
 import RailConnector from "./RailConnector";
+import CtaSection from "./CtaSection";
 
 const WORDS = ["the room.", "the sermon.", "the setlist.", "the moment."];
 const CH = "!<>-_\\/[]{}—=+*^?#________abcdefghjkmnpqrstuvwxyz";
@@ -278,92 +279,8 @@ export default function Home() {
         {/* HOW IT WORKS — pinned full-bleed 3D auditorium */}
         <AuditoriumScroll />
 
-        {/* CLOSED BETA CTA */}
-        <section style={{ maxWidth: 1160, margin: "0 auto", padding: "110px 24px 130px" }}>
-          <div
-            style={{
-              position: "relative",
-              overflow: "hidden",
-              background: "var(--panel)",
-              border: "1px solid rgba(255,255,255,.09)",
-              borderRadius: 22,
-              padding: "90px 40px",
-              textAlign: "center",
-            }}
-          >
-            <div
-              style={{
-                position: "absolute",
-                top: -160,
-                left: "50%",
-                transform: "translateX(-50%)",
-                width: 700,
-                height: 380,
-                background:
-                  "radial-gradient(ellipse at center,rgba(255,122,44,.2),rgba(217,65,140,.08) 55%,transparent 75%)",
-                filter: "blur(36px)",
-                animation: "pfDrift 9s ease-in-out infinite",
-              }}
-            />
-            <div style={{ position: "relative" }}>
-              <div
-                style={{
-                  font: `500 12px ${MONO}`,
-                  letterSpacing: "0.16em",
-                  textTransform: "uppercase",
-                  color: "var(--ember)",
-                }}
-              >
-                Spots are limited
-              </div>
-              <h2
-                style={{
-                  margin: "20px auto 0",
-                  fontWeight: 800,
-                  fontSize: "clamp(34px,5vw,60px)",
-                  letterSpacing: "-.03em",
-                  lineHeight: 1.05,
-                  maxWidth: 640,
-                  textWrap: "balance",
-                }}
-              >
-                This is a closed beta.
-              </h2>
-              <p
-                style={{
-                  margin: "20px auto 0",
-                  maxWidth: 520,
-                  fontSize: 16,
-                  lineHeight: 1.65,
-                  color: "var(--muted)",
-                  textWrap: "pretty",
-                }}
-              >
-                We&apos;re starting with a small group of churches who want to help shape
-                what church presentation software should be in 2026 and beyond. If you
-                want something cleaner, smarter, and built for how your team actually
-                works, this is your chance to get in early.
-              </p>
-              <div style={{ display: "flex", justifyContent: "center", marginTop: 36 }}>
-                <Link
-                  href="/apply"
-                  className="pf-btn-primary"
-                  style={{
-                    fontWeight: 700,
-                    fontSize: 16,
-                    padding: "17px 32px",
-                    borderRadius: 10,
-                    background: "linear-gradient(100deg,#ff7a2c,#ffb861)",
-                    color: "#1A1005",
-                    boxShadow: "0 10px 40px rgba(255,122,44,.3)",
-                  }}
-                >
-                  Apply for the beta&nbsp;→
-                </Link>
-              </div>
-            </div>
-          </div>
-        </section>
+        {/* CLOSING CTA — light editorial panel + pencil-drawn church */}
+        <CtaSection />
       </main>
 
     </>
