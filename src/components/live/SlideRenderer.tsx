@@ -292,6 +292,7 @@ function VideoSlide({ slide, base, className, videoMuted, onVideoRef }: {
         src={slide.url}
         loop={slide.loop !== false}
         muted={videoMuted}
+        preload="auto"
         playsInline
         onError={(e) => console.warn("[slide] video error:", (e.currentTarget as HTMLVideoElement).error?.message || "unknown")}
         ref={setRef}

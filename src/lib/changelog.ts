@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.245",
+    date: "2026-08-18",
+    headline: "Video stays in sync with the projector",
+    highlights: [
+      "Video now plays in step on your screen and the projector instead of drifting apart — the operator preview acts as the clock and the projector keeps itself lined up to it.",
+      "Videos start faster and smoother thanks to earlier buffering.",
+    ],
+  },
+  {
     version: "0.1.244",
     date: "2026-08-18",
     headline: "Faster translation switches on the projector",

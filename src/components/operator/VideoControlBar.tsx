@@ -26,6 +26,23 @@ export function VideoControlBar({ videoRef }: { videoRef: RefObject<HTMLVideoEle
     return () => { try { ch?.close(); } catch {} };
   }, []);
 
+  // Playback-clock heartbeat: this operator preview video is the MASTER. Every
+  // second, broadcast our position + play state so the projector reconciles any
+  // drift and starts/stays aligned with what the operator sees — instead of
+  // both <video>s free-running from independent buffer-ready moments. Cheap on
+  // the same machine (BroadcastChannel) and still corrective across devices.
+  useEffect(() => {
+    const beat = () => {
+      const el = videoRef.current;
+      const ch = chRef.current;
+      if (!el || !ch) return;
+      try { ch.postMessage({ type: "media-sync", currentTime: el.currentTime, paused: el.paused } as LiveMessage); } catch {}
+    };
+    beat(); // align immediately when the bar mounts (video just went live)
+    const iv = setInterval(beat, 1000);
+    return () => clearInterval(iv);
+  }, [videoRef]);
+
   // Poll the video element for playback state at ~15fps
   useEffect(() => {
     const tick = () => {

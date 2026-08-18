@@ -259,7 +259,12 @@ export type LiveMessage =
   | { type: "message"; overlay: MessageOverlay }       // P2: transient message overlay
   | { type: "timer"; overlay: TimerOverlay }            // F1: timer overlay on outputs
   | { type: "media-control"; command: "play" | "pause" | "seek" | "volume" | "mute" | "unmute" | "restart" | "loop" | "unloop"; value?: number }
-  | { type: "media-status"; currentTime: number; duration: number; paused: boolean; volume: number; muted: boolean; loop: boolean };
+  | { type: "media-status"; currentTime: number; duration: number; paused: boolean; volume: number; muted: boolean; loop: boolean }
+  // Continuous playback-clock heartbeat: the operator's live preview video is
+  // the master; it broadcasts its position ~1×/sec so the projector can
+  // reconcile drift (seek only past a threshold) and match play/pause — keeping
+  // the projector frame-aligned with what the operator sees, not free-running.
+  | { type: "media-sync"; currentTime: number; paused: boolean };
 
 /**
  * Runtime validator for LiveMessage. Renderer pages should NEVER trust an
@@ -305,6 +310,8 @@ export function isValidLiveMessage(m: unknown): m is LiveMessage {
       return isValidMediaControl(m);
     case "media-status":
       return isValidMediaStatus(m);
+    case "media-sync":
+      return isValidMediaSync(m);
     default:
       return false;
   }
@@ -345,6 +352,14 @@ function isValidMediaStatus(m: unknown): boolean {
   if (typeof o.volume !== "number" || !Number.isFinite(o.volume)) return false;
   if (typeof o.muted !== "boolean") return false;
   if (typeof o.loop !== "boolean") return false;
+  return true;
+}
+
+function isValidMediaSync(m: unknown): boolean {
+  if (!m || typeof m !== "object") return false;
+  const o = m as Record<string, unknown>;
+  if (typeof o.currentTime !== "number" || !Number.isFinite(o.currentTime)) return false;
+  if (typeof o.paused !== "boolean") return false;
   return true;
 }
 

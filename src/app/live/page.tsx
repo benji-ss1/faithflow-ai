@@ -206,6 +206,22 @@ export default function LivePage() {
             case "loop": el.loop = true; break;
             case "unloop": el.loop = false; break;
           }
+        } else if (msg.type === "media-sync") {
+          // Reconcile to the operator's master clock. Only seek past a
+          // threshold so we don't stutter on sub-second jitter or the
+          // transport latency of the message itself; always match play/pause.
+          const el = videoElRef.current;
+          if (!el) return;
+          const SYNC_THRESHOLD = 0.4; // seconds
+          if (Number.isFinite(el.duration) && el.duration > 0) {
+            const drift = Math.abs(el.currentTime - msg.currentTime);
+            // Guard the loop wrap-around (near-end vs near-start reads as huge
+            // drift but is really the loop point) — skip correcting there.
+            const nearWrap = drift > el.duration - SYNC_THRESHOLD;
+            if (drift > SYNC_THRESHOLD && !nearWrap) el.currentTime = msg.currentTime;
+          }
+          if (msg.paused && !el.paused) el.pause();
+          else if (!msg.paused && el.paused) el.play().catch(() => {});
         }
       } catch (err) {
         console.warn("[live] message handler error:", err instanceof Error ? err.message : String(err));
