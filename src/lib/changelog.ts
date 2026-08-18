@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.241",
+    date: "2026-08-18",
+    headline: "Editor now fully matches the Projection Zone look",
+    highlights: [
+      "The slide editor's selection handles, guides and highlights are now the same warm orange as the Projection Zone — no more mismatched teal.",
+      "Your slides list on the left is now collapsible: hide it for a bigger canvas and pop it back with one click. Your choice is remembered.",
+    ],
+  },
+  {
     version: "0.1.240",
     date: "2026-08-18",
     headline: "The edit-slide layout you asked for",

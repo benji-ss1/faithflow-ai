@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Plus, Square, Circle, Type, Image as ImageIcon, Film, Trash2, Copy, ClipboardCopy, ClipboardPaste, ChevronsUp, ChevronsDown, ArrowUp, ArrowDown, Undo2, Redo2, Eye, EyeOff, Lock, Unlock, Save, Play, Loader2, SlidersHorizontal, PlusSquare, LayoutTemplate, Layers as LayersIcon } from "lucide-react";
+import { X, Plus, Square, Circle, Type, Image as ImageIcon, Film, Trash2, Copy, ClipboardCopy, ClipboardPaste, ChevronsUp, ChevronsDown, ArrowUp, ArrowDown, Undo2, Redo2, Eye, EyeOff, Lock, Unlock, Save, Play, Loader2, SlidersHorizontal, PlusSquare, LayoutTemplate, Layers as LayersIcon, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { OperatorShellCtx } from "../shell/types";
 import { useSlideEditor, type EditableSlide } from "../editor/useSlideEditor";
 import { SlideCanvas, SlideThumb } from "../editor/SlideCanvas";
@@ -73,6 +73,14 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
   const editor = useSlideEditor({ itemId, itemType: itemType ?? "blank", songId, initialSlides });
   const [saveState, setSaveState] = useState<"idle" | "saving" | "error">("idle");
   const [tab, setTab] = useState<DrawerTab>("add");
+  // Left slide rail is collapsible; remember the operator's choice.
+  const [railOpen, setRailOpen] = useState(true);
+  useEffect(() => {
+    try { const v = window.localStorage.getItem("presentflow.editor.railOpen"); if (v === "0") setRailOpen(false); } catch { /* noop */ }
+  }, []);
+  const toggleRail = useCallback(() => {
+    setRailOpen((v) => { const next = !v; try { window.localStorage.setItem("presentflow.editor.railOpen", next ? "1" : "0"); } catch { /* noop */ } return next; });
+  }, []);
   const router = useRouter();
 
   // Persist: mirror OperatorShell.onSave — delete removed, create new, save
@@ -247,8 +255,8 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
 
           {/* ── Body: slides (left) · canvas + zone controls (center) · features (right) ── */}
           <div className="flex-1 min-h-0 flex">
-            {/* Left: vertical slide rail (1,2,3,4…) */}
-            <SlideRail editor={editor} isSong={isSong} itemId={itemId} />
+            {/* Left: vertical slide rail (1,2,3,4…) — collapsible */}
+            <SlideRail editor={editor} isSong={isSong} itemId={itemId} open={railOpen} onToggle={toggleRail} />
 
             {/* Center: big checkerboard canvas, projection-zone controls kept below */}
             <div className="flex-1 min-w-0 min-h-0 flex flex-col">
@@ -299,16 +307,49 @@ function deleteSlideWithUndo(editor: Editor, index: number, itemId: string | nul
   });
 }
 
-function SlideRail({ editor, isSong, itemId }: { editor: Editor; isSong: boolean; itemId: string | null }) {
+function SlideRail({ editor, isSong, itemId, open, onToggle }: { editor: Editor; isSong: boolean; itemId: string | null; open: boolean; onToggle: () => void }) {
   const [dragIdx, setDragIdx] = useState<number | null>(null);
+
+  // Collapsed: a thin strip with just the slide numbers + an expand button, so
+  // the canvas gets maximum room but the slides are one click away.
+  if (!open) {
+    return (
+      <aside className="shrink-0 w-12 border-r flex flex-col min-h-0 items-center" style={{ borderColor: HAIR, background: PANEL }}>
+        <button onClick={onToggle} title="Show slides" className="shrink-0 my-2 grid h-8 w-8 place-items-center rounded-lg text-white/70 hover:bg-white/[0.06] hover:text-white">
+          <PanelLeftOpen className="w-4 h-4" />
+        </button>
+        <div className="flex-1 min-h-0 overflow-y-auto w-full flex flex-col items-center gap-1.5 pb-2">
+          {editor.slides.map((s, i) => {
+            const active = i === editor.currentIndex;
+            return (
+              <button key={s.id} onClick={() => editor.setCurrentIndex(i)} title={`Slide ${i + 1}`}
+                className="shrink-0 h-8 w-8 rounded-md text-[12px] font-mono tabular-nums grid place-items-center"
+                style={active ? { background: `${AMBER}22`, color: AMBER, outline: `1px solid ${AMBER}` } : { color: "#a1a1aa", border: "1px solid #ffffff14" }}>
+                {i + 1}
+              </button>
+            );
+          })}
+        </div>
+      </aside>
+    );
+  }
+
   return (
     <aside className="shrink-0 w-[184px] border-r flex flex-col min-h-0" style={{ borderColor: HAIR, background: PANEL }}>
       {/* Slide actions */}
-      <div className="shrink-0 p-2 grid grid-cols-2 gap-1.5 border-b" style={{ borderColor: HAIR }}>
-        <RailBtn label="Add" icon={Plus} onClick={editor.addSlide} disabled={!isSong} />
-        <RailBtn label="Blank" icon={PlusSquare} onClick={editor.addBlankSlide} disabled={!isSong} accent />
-        <RailBtn label="Copy" icon={Copy} onClick={editor.duplicateSlide} disabled={!isSong || !editor.currentSlide} />
-        <RailBtn label="Del" icon={Trash2} onClick={() => deleteSlideWithUndo(editor, editor.currentIndex, itemId)} disabled={!isSong || !editor.currentSlide} danger />
+      <div className="shrink-0 p-2 border-b" style={{ borderColor: HAIR }}>
+        <div className="flex items-center justify-between mb-1.5 px-0.5">
+          <span className="text-[9px] font-semibold uppercase tracking-wide text-white/40">Slides</span>
+          <button onClick={onToggle} title="Hide slides" className="grid h-6 w-6 place-items-center rounded-md text-white/55 hover:bg-white/[0.06] hover:text-white">
+            <PanelLeftClose className="w-3.5 h-3.5" />
+          </button>
+        </div>
+        <div className="grid grid-cols-2 gap-1.5">
+          <RailBtn label="Add" icon={Plus} onClick={editor.addSlide} disabled={!isSong} />
+          <RailBtn label="Blank" icon={PlusSquare} onClick={editor.addBlankSlide} disabled={!isSong} accent />
+          <RailBtn label="Copy" icon={Copy} onClick={editor.duplicateSlide} disabled={!isSong || !editor.currentSlide} />
+          <RailBtn label="Del" icon={Trash2} onClick={() => deleteSlideWithUndo(editor, editor.currentIndex, itemId)} disabled={!isSong || !editor.currentSlide} danger />
+        </div>
       </div>
       {/* Thumbnails (1,2,3,4…) */}
       <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-2">
