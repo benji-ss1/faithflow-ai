@@ -1,16 +1,27 @@
 /* PresentFlow marketing site — brand tokens scoped under .pf-site */
 .pf-site {
-  --bg: #0A0A0B;
+  --bg: #0B0B0B;
   --panel: #121214;
   --panel-2: #17171A;
   --line: rgba(255, 255, 255, 0.08);
   --ink: #F4F1EA;
   --muted: #A29D93;
   --faint: #6E6A62;
-  --ember: #F7941D;
-  --gold: #FDB748;
+
+  /* Brand orange ramp (canonical PresentFlow tokens). NO CYAN. */
+  --ember: #ff7a2c;       /* THE brand orange */
+  --ember-deep: #cf5f1e;  /* muted / deep companion */
+  --gold: #ffb861;        /* glow end of the ramp */
   --magenta: #D9418C;
   --violet: #9646E8;
+  --brand-grad: linear-gradient(100deg, #ff7a2c, #ffb861);
+
+  /* Auditorium scene stage colours (kept available for one-world feel) */
+  --brass: #C6912F;
+  --wine: #7A1E44;
+  --oxblood: #8F2C10;
+  --petrol: #12595E;
+  --wine-deep: #1A0A14;
 
   background: var(--bg);
   color: var(--ink);
@@ -34,7 +45,7 @@
 }
 
 .pf-site ::selection {
-  background: rgba(247, 148, 29, 0.35);
+  background: rgba(255, 122, 44, 0.35);
 }
 
 .pf-site input,
@@ -68,15 +79,15 @@
   50% { transform: translateX(5px); opacity: 1; }
 }
 @keyframes pfRing {
-  0% { box-shadow: 0 0 0 0 rgba(247, 148, 29, 0.5); }
-  100% { box-shadow: 0 0 0 18px rgba(247, 148, 29, 0); }
+  0% { box-shadow: 0 0 0 0 rgba(255, 122, 44, 0.5); }
+  100% { box-shadow: 0 0 0 18px rgba(255, 122, 44, 0); }
 }
 
 /* ---- hover/focus interaction helpers (replacing DC style-hover/style-focus) ---- */
 
 /* primary ember button */
 .pf-btn-primary { transition: transform 0.25s ease, box-shadow 0.25s ease, filter 0.25s ease; }
-.pf-btn-primary:hover { transform: translateY(-1px); box-shadow: 0 14px 48px rgba(247, 148, 29, 0.4); color: #1A1005; }
+.pf-btn-primary:hover { transform: translateY(-1px); box-shadow: 0 14px 48px rgba(255, 122, 44, 0.4); color: #1A1005; }
 
 /* ghost button */
 .pf-btn-ghost { transition: border-color 0.25s ease; }
@@ -88,7 +99,7 @@
 
 /* beta feature cards */
 .pf-card { transition: border-color 0.3s, transform 0.3s; }
-.pf-card:hover { border-color: rgba(247, 148, 29, 0.45); transform: translateY(-3px); }
+.pf-card:hover { border-color: rgba(255, 122, 44, 0.45); transform: translateY(-3px); }
 
 /* mono links that go gold on hover */
 .pf-link-gold { transition: color 0.3s; }
@@ -113,63 +124,29 @@
 /* next button hover */
 .pf-next:hover { filter: brightness(1.08); }
 
-/* ── Hero ghost wordmark + glow (responsive) ───────────────────────────
-   The giant "PresentFlow" wordmark peeks up from the bottom of the hero.
-   On mobile the desktop sizing overflowed hard and the mesh glow became a
-   heavy purple→ember block; these rules tame both without changing desktop. */
-.pf-hero-wordwrap {
-  position: relative;
-  margin-top: auto;
-  padding-top: 26px;
-  height: clamp(110px, 15vw, 240px);
-  pointer-events: none;
-}
-.pf-hero-glow {
-  position: absolute;
-  left: 50%;
-  bottom: -12%;
-  transform: translateX(-50%);
-  width: 120%;
-  height: 150%;
-  /* Deep wine blend: aubergine → wine → oxblood → warm ember. Analogous hues
-     across the red arc so it reads rich and smooth, not electric-violet→neon-
-     orange. Wine (#7A1E44) carries the middle. */
-  background: linear-gradient(105deg,
-    rgba(58,24,64,.52) 0%,
-    rgba(122,30,68,.50) 34%,
-    rgba(143,44,30,.44) 66%,
-    rgba(198,110,50,.40) 100%);
-  filter: blur(72px);
-}
-.pf-hero-word {
-  position: absolute;
-  left: 50%;
-  bottom: -0.26em;
-  transform: translateX(-50%);
-  font-weight: 800;
-  font-size: clamp(64px, 13vw, 230px);
-  line-height: 1;
-  letter-spacing: -.04em;
-  white-space: nowrap;
-  background: linear-gradient(180deg, #8A8781 0%, rgba(90,88,84,.55) 55%, rgba(20,20,21,0) 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-@media (max-width: 640px) {
-  .pf-hero-wordwrap { height: 92px; padding-top: 12px; }
-  .pf-hero-glow {
-    width: 150%;
-    height: 84%;
-    bottom: 2%;
-    filter: blur(50px);
-    background: linear-gradient(105deg,
-      rgba(58,24,64,.30) 0%,
-      rgba(122,30,68,.28) 40%,
-      rgba(143,44,30,.22) 72%,
-      rgba(198,110,50,.22) 100%);
-  }
-  .pf-hero-word { font-size: 14.5vw; letter-spacing: -.05em; }
+/* ── Auditorium hero scene (ported from the DC "Auditorium" background) ──
+   Animations live here; reduced-motion disables them below. Classes are
+   namespaced under .pf-aud so they never collide with the rest of the site. */
+@keyframes pfPushIn { from { transform: scale(1.0); } to { transform: scale(1.04); } }
+@keyframes pfFlicker { 0%,100%{opacity:1} 16%{opacity:.96} 32%{opacity:1} 47%{opacity:.94} 63%{opacity:1} 78%{opacity:.97} }
+@keyframes pfScreenPulse { 0%,100%{opacity:.96} 50%{opacity:1} }
+@keyframes pfHazeDrift { 0%,100%{transform:translate(0,0)} 50%{transform:translate(-2%,-1.5%)} }
+@keyframes pfDustFloat { from{transform:translate(0,0);opacity:0} 12%{opacity:var(--o,.55)} 88%{opacity:var(--o,.55)} to{transform:translate(-3vw,-70vh);opacity:0} }
+@keyframes pfGrain { 0%{transform:translate(0,0)} 20%{transform:translate(-5%,-3%)} 40%{transform:translate(6%,4%)} 60%{transform:translate(-4%,5%)} 80%{transform:translate(3%,-6%)} 100%{transform:translate(0,0)} }
+@keyframes pfLedBlink { 0%,92%,100%{opacity:1} 94%,98%{opacity:.3} }
+@keyframes pfMeter { 0%,100%{height:22%} 30%{height:68%} 45%{height:42%} 70%{height:84%} 85%{height:38%} }
+@keyframes pfMeter2 { 0%,100%{height:34%} 25%{height:76%} 55%{height:28%} 80%{height:62%} }
+
+.pf-aud-scene { animation: pfPushIn 40s ease-in-out infinite alternate; }
+.pf-aud-screen { animation: pfScreenPulse 8s ease-in-out infinite; }
+.pf-aud-keylight { animation: pfFlicker 8s ease-in-out infinite; }
+.pf-aud-haze { animation: pfHazeDrift 26s ease-in-out infinite alternate; }
+.pf-aud-grain { animation: pfGrain 0.55s steps(6) infinite; }
+
+/* Reduced motion — mirror the source's blanket disable, scoped to the scene */
+@media (prefers-reduced-motion: reduce) {
+  .pf-aud *[class],
+  .pf-aud [class] { animation: none !important; }
 }
 
 /* Nav logo: keep crisp and proportional, and NEVER let flexbox shrink its

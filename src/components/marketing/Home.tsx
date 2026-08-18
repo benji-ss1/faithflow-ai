@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import ImageSlot from "./ImageSlot";
+import AuditoriumBg from "./AuditoriumBg";
 
 const WORDS = ["the room.", "the sermon.", "the setlist.", "the moment."];
 const CH = "!<>-_\\/[]{}—=+*^?#________abcdefghjkmnpqrstuvwxyz";
@@ -145,39 +146,36 @@ export default function Home() {
             display: "flex",
             flexDirection: "column",
             minHeight: "100vh",
+            background:
+              "linear-gradient(135deg,#0B0B0B 0%,#1A0A14 40%,#0B0B0B 100%)",
           }}
         >
+          {/* Cinematic Auditorium scene (full-bleed, behind everything) */}
+          <AuditoriumBg />
+          {/* Readability scrim: top→bottom darken + left-side darkening so the
+              left-aligned headline/lede stay crisp over the scene. */}
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 1,
+              pointerEvents: "none",
+              background:
+                "linear-gradient(180deg, rgba(8,4,8,.55) 0%, rgba(8,4,8,.35) 40%, rgba(8,4,8,.75) 100%), linear-gradient(90deg, rgba(8,4,8,.82) 0%, rgba(8,4,8,.5) 34%, rgba(8,4,8,0) 62%)",
+            }}
+          />
           <div
             style={{
               position: "relative",
+              zIndex: 2,
               maxWidth: 1160,
               margin: "0 auto",
               padding: "0 24px",
+              width: "100%",
               animation: "pfFadeUp .8s cubic-bezier(.22,1,.36,1) both",
             }}
           >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                font: `500 12px ${MONO}`,
-                letterSpacing: "0.16em",
-                textTransform: "uppercase",
-                color: "var(--ember)",
-              }}
-            >
-              <span
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: "50%",
-                  background: "var(--ember)",
-                  animation: "pfPulse 2.2s ease infinite",
-                }}
-              />
-              AI-native presentation&nbsp;&nbsp;·&nbsp;&nbsp;Private beta
-            </div>
             <h1
               style={{
                 margin: "20px 0 0",
@@ -194,7 +192,7 @@ export default function Home() {
                   display: "block",
                   minHeight: "1.1em",
                   whiteSpace: "nowrap",
-                  background: "linear-gradient(100deg,#F7941D,#FDB748)",
+                  background: "linear-gradient(100deg,#ff7a2c,#ffb861)",
                   WebkitBackgroundClip: "text",
                   backgroundClip: "text",
                   WebkitTextFillColor: "transparent",
@@ -216,8 +214,7 @@ export default function Home() {
             >
               PresentFlow listens to what&apos;s being preached and what&apos;s being
               sung, and puts the right verse or the right line on screen in under two
-              seconds. No one scrambling at the back. No dead slide while the pastor
-              waits.
+              seconds. No one scrambling at the back.
             </p>
             <div
               style={{
@@ -235,9 +232,9 @@ export default function Home() {
                   fontSize: 15,
                   padding: "15px 26px",
                   borderRadius: 10,
-                  background: "linear-gradient(100deg,#F7941D,#FDB748)",
+                  background: "linear-gradient(100deg,#ff7a2c,#ffb861)",
                   color: "#1A1005",
-                  boxShadow: "0 10px 40px rgba(247,148,29,.28)",
+                  boxShadow: "0 10px 40px rgba(255,122,44,.28)",
                 }}
               >
                 Apply for the beta&nbsp;→
@@ -303,10 +300,6 @@ export default function Home() {
                 macOS today · Windows next
               </span>
             </div>
-          </div>
-          <div className="pf-hero-wordwrap">
-            <div className="pf-hero-glow" />
-            <div className="pf-hero-word">PresentFlow</div>
           </div>
         </section>
 
@@ -413,7 +406,7 @@ export default function Home() {
                       letterSpacing: "0.06em",
                       padding: "7px 11px",
                       borderRadius: 8,
-                      background: "linear-gradient(100deg,#F7941D,#FDB748)",
+                      background: "linear-gradient(100deg,#ff7a2c,#ffb861)",
                       color: "#1A1005",
                     }}
                   >
@@ -482,7 +475,7 @@ export default function Home() {
                       padding: "8px 12px",
                       borderRadius: 8,
                       background: "#1B160E",
-                      border: "1px solid rgba(247,148,29,.5)",
+                      border: "1px solid rgba(255,122,44,.5)",
                       font: `500 11px ${MONO}`,
                       color: "var(--gold)",
                       animation: "pfBob 3.4s ease-in-out infinite",
@@ -567,235 +560,6 @@ export default function Home() {
                   </p>
                 </div>
               </div>
-
-              {/* Card 4: dual output */}
-              <div
-                className="pf-card"
-                style={{
-                  background: "var(--panel)",
-                  border: "1px solid rgba(255,255,255,.08)",
-                  borderRadius: 16,
-                  padding: 28,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 22,
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 12,
-                    alignItems: "stretch",
-                    minHeight: 76,
-                  }}
-                >
-                  <div
-                    style={{
-                      flex: 1,
-                      borderRadius: 10,
-                      background: "var(--panel-2)",
-                      border: "1px solid rgba(255,255,255,.08)",
-                      padding: "10px 12px",
-                      display: "flex",
-                      flexDirection: "column",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <span
-                      style={{
-                        font: `500 9px ${MONO}`,
-                        letterSpacing: "0.16em",
-                        color: "var(--faint)",
-                      }}
-                    >
-                      OPERATOR
-                    </span>
-                    <div>
-                      <div
-                        style={{
-                          height: 5,
-                          width: "82%",
-                          borderRadius: 3,
-                          background: "rgba(253,183,72,.65)",
-                          marginBottom: 5,
-                        }}
-                      />
-                      <div
-                        style={{
-                          height: 5,
-                          width: "55%",
-                          borderRadius: 3,
-                          background: "rgba(255,255,255,.16)",
-                        }}
-                      />
-                    </div>
-                  </div>
-                  <div
-                    style={{
-                      alignSelf: "center",
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      gap: 5,
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: "50%",
-                        background: "#3DD68C",
-                        animation: "pfRing 1.8s ease-out infinite",
-                      }}
-                    />
-                    <span
-                      style={{
-                        font: `500 8px ${MONO}`,
-                        letterSpacing: "0.14em",
-                        color: "var(--faint)",
-                      }}
-                    >
-                      SYNC
-                    </span>
-                  </div>
-                  <div
-                    style={{
-                      flex: 1,
-                      borderRadius: 10,
-                      background: "var(--panel-2)",
-                      border: "1px solid rgba(255,255,255,.08)",
-                      padding: "10px 12px",
-                      display: "flex",
-                      flexDirection: "column",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <span
-                      style={{
-                        font: `500 9px ${MONO}`,
-                        letterSpacing: "0.16em",
-                        color: "var(--faint)",
-                      }}
-                    >
-                      AUDIENCE
-                    </span>
-                    <div>
-                      <div
-                        style={{
-                          height: 5,
-                          width: "82%",
-                          borderRadius: 3,
-                          background: "rgba(253,183,72,.65)",
-                          marginBottom: 5,
-                        }}
-                      />
-                      <div
-                        style={{
-                          height: 5,
-                          width: "55%",
-                          borderRadius: 3,
-                          background: "rgba(255,255,255,.16)",
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <h3
-                    style={{
-                      margin: "0 0 8px",
-                      fontWeight: 700,
-                      fontSize: 20,
-                      letterSpacing: "-.01em",
-                    }}
-                  >
-                    Dual output that just works
-                  </h3>
-                  <p style={{ margin: 0, fontSize: 15, lineHeight: 1.6, color: "var(--muted)" }}>
-                    Operator screen. Audience screen. Both running exactly what they
-                    should, every time. Reliable, stable, no surprises mid-service.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* stats band */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
-                gap: 32,
-                marginTop: 64,
-                paddingTop: 52,
-                borderTop: "1px solid rgba(255,255,255,.08)",
-              }}
-            >
-              <div>
-                <div
-                  style={{
-                    fontWeight: 800,
-                    fontSize: 46,
-                    letterSpacing: "-.03em",
-                    background: "linear-gradient(100deg,#F7941D,#FDB748)",
-                    WebkitBackgroundClip: "text",
-                    backgroundClip: "text",
-                    WebkitTextFillColor: "transparent",
-                  }}
-                >
-                  1.6s
-                </div>
-                <div
-                  style={{
-                    marginTop: 8,
-                    font: `500 11px ${MONO}`,
-                    letterSpacing: "0.16em",
-                    color: "var(--faint)",
-                  }}
-                >
-                  AVG. VERSE TO SCREEN
-                </div>
-              </div>
-              <div>
-                <div style={{ fontWeight: 800, fontSize: 46, letterSpacing: "-.03em" }}>15</div>
-                <div
-                  style={{
-                    marginTop: 8,
-                    font: `500 11px ${MONO}`,
-                    letterSpacing: "0.16em",
-                    color: "var(--faint)",
-                  }}
-                >
-                  CHURCHES IN WAVE ONE
-                </div>
-              </div>
-              <div>
-                <div style={{ fontWeight: 800, fontSize: 46, letterSpacing: "-.03em" }}>$0</div>
-                <div
-                  style={{
-                    marginTop: 8,
-                    font: `500 11px ${MONO}`,
-                    letterSpacing: "0.16em",
-                    color: "var(--faint)",
-                  }}
-                >
-                  THROUGHOUT THE BETA
-                </div>
-              </div>
-              <div>
-                <div style={{ fontWeight: 800, fontSize: 46, letterSpacing: "-.03em" }}>
-                  4 weeks
-                </div>
-                <div
-                  style={{
-                    marginTop: 8,
-                    font: `500 11px ${MONO}`,
-                    letterSpacing: "0.16em",
-                    color: "var(--faint)",
-                  }}
-                >
-                  TO YOUR FIRST LIVE SUNDAY
-                </div>
-              </div>
             </div>
           </div>
         </section>
@@ -822,7 +586,7 @@ export default function Home() {
                 width: 700,
                 height: 380,
                 background:
-                  "radial-gradient(ellipse at center,rgba(247,148,29,.2),rgba(217,65,140,.08) 55%,transparent 75%)",
+                  "radial-gradient(ellipse at center,rgba(255,122,44,.2),rgba(217,65,140,.08) 55%,transparent 75%)",
                 filter: "blur(36px)",
                 animation: "pfDrift 9s ease-in-out infinite",
               }}
@@ -875,9 +639,9 @@ export default function Home() {
                     fontSize: 16,
                     padding: "17px 32px",
                     borderRadius: 10,
-                    background: "linear-gradient(100deg,#F7941D,#FDB748)",
+                    background: "linear-gradient(100deg,#ff7a2c,#ffb861)",
                     color: "#1A1005",
-                    boxShadow: "0 10px 40px rgba(247,148,29,.3)",
+                    boxShadow: "0 10px 40px rgba(255,122,44,.3)",
                   }}
                 >
                   Apply for the beta&nbsp;→
@@ -951,7 +715,7 @@ export default function Home() {
                 width: 76,
                 height: 76,
                 borderRadius: "50%",
-                background: "linear-gradient(120deg,#9646E8,#D9418C,#F7941D)",
+                background: "linear-gradient(120deg,#9646E8,#D9418C,#ff7a2c)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
