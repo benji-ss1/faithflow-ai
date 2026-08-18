@@ -111,10 +111,14 @@ const QUESTIONS: Question[] = [
   },
   {
     kicker: "REACHING YOU",
-    label: "Your name, role & email?",
-    sub: "Phone or WhatsApp optional.",
-    type: "text",
-    placeholder: "Sam Lee, Tech Director, sam@church.org",
+    label: "Who should we invite?",
+    sub: "So we know what to call you — and where to send your wave-one invite.",
+    type: "fields",
+    fields: [
+      { key: "fullName", label: "Full name", placeholder: "e.g. Sam Lee" },
+      { key: "role", label: "Role", placeholder: "e.g. Media lead / Tech director" },
+      { key: "email", label: "Email", placeholder: "e.g. sam@yourchurch.org" },
+    ],
   },
 ];
 

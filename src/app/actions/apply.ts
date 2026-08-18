@@ -52,7 +52,12 @@ export async function submitApplication(raw: unknown): Promise<ApplyResult> {
   // notification above already captured the application.
   if (contact) {
     const contactAnswer = answered.find((a) => a.answer.includes(contact))?.answer ?? "";
-    const name = contactAnswer.replace(EMAIL_RE, "").split(",")[0].trim();
+    // Structured "Full name: Sam Lee · Role: … · Email: …" (new form) with a
+    // fallback to the old single free-text field ("Sam Lee, …, email").
+    const name = (
+      /full name:\s*([^·]+)/i.exec(contactAnswer)?.[1] ??
+      contactAnswer.replace(EMAIL_RE, "").split(",")[0]
+    ).trim();
     try {
       await sendBetaApplicantConfirmation(contact, name);
     } catch (e) {
