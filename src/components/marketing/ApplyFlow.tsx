@@ -197,11 +197,13 @@ type Page =
   | { kind: "question"; qi: number; roman: string; chapter: Chapter }
   | { kind: "final" };
 
+// Chapter interstitial pages were removed (per request) — questions flow
+// straight from the cover to the covenant. Chapters still group the questions
+// for the running header only.
 const PAGES: Page[] = (() => {
   const out: Page[] = [{ kind: "cover" }];
   let g = 0;
-  CHAPTERS.forEach((ch, ci) => {
-    out.push({ kind: "chapter", ci });
+  CHAPTERS.forEach((ch) => {
     ch.qs.forEach((qi) => {
       out.push({ kind: "question", qi, roman: ROMAN[g], chapter: ch });
       g += 1;
@@ -211,15 +213,11 @@ const PAGES: Page[] = (() => {
   return out;
 })();
 const TOTAL = PAGES.length;
+const NUM_QUESTIONS = QUESTIONS.length;
 
 const STOPS = [
   { pct: 0, label: "Start" },
-  ...PAGES.map((p, i) => ({ p, i }))
-    .filter((x) => x.p.kind === "chapter")
-    .map((x) => ({
-      pct: (x.i / (TOTAL - 1)) * 100,
-      label: CHAPTERS[(x.p as { ci: number }).ci].name,
-    })),
+  { pct: 50, label: "Halfway" },
   { pct: 100, label: "The Cross" },
 ];
 
@@ -677,21 +675,6 @@ export default function ApplyFlow() {
                 </div>
               )}
 
-              {p.kind === "chapter" && (
-                <div className="chapter-cover">
-                  <div className="cap">Chapter {CHAPTERS[p.ci].roman}</div>
-                  <h1>{CHAPTERS[p.ci].name}</h1>
-                  <div className="verse-block">
-                    &ldquo;{CHAPTERS[p.ci].verse}&rdquo;
-                    <span className="ref">{CHAPTERS[p.ci].ref}</span>
-                  </div>
-                  <div className="p-nav center-nav">
-                    <button className="btn ghost" onClick={() => go(idx - 1)}>← Back</button>
-                    <button className="btn" onClick={() => go(idx + 1)}>Turn the page →</button>
-                  </div>
-                </div>
-              )}
-
               {p.kind === "question" && (() => {
                 const q = QUESTIONS[p.qi];
                 const val = answers[p.qi] ?? (q.type === "fields" ? {} : "");
@@ -702,10 +685,9 @@ export default function ApplyFlow() {
                 return (
                   <>
                     <div className="p-head">
-                      <span className="rune">{p.chapter.roman}</span>
-                      <span className="chapter">{p.chapter.name}</span>
+                      <span className="chapter">The Road to Wave I</span>
                       <span className="fill" />
-                      <span className="folio">Question {p.roman}</span>
+                      <span className="folio">Question {p.roman} · of {NUM_QUESTIONS}</span>
                     </div>
                     <span className="q-num">{p.roman}</span>
                     <div className="kind">{KIND_LABEL(q)}</div>

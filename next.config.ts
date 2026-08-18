@@ -20,7 +20,7 @@ const CSP_REPORT_ONLY = [
   "media-src 'self' blob: https:",
   "font-src 'self' data:",
   // Deepgram (Fly bridge) via wss://; Supabase Realtime via wss://; Stripe.
-  "connect-src 'self' wss://faithflow-audio.fly.dev wss://*.supabase.co https://*.supabase.co https://api.stripe.com https://api.github.com",
+  "connect-src 'self' wss://faithflow-audio.fly.dev wss://*.supabase.co https://*.supabase.co https://api.stripe.com https://api.github.com https://us.i.posthog.com https://us-assets.i.posthog.com https://*.posthog.com",
   "frame-src https://js.stripe.com https://hooks.stripe.com",
   "worker-src 'self' blob:", // AudioWorklet uses blob: URLs
   "object-src 'none'",
@@ -50,6 +50,12 @@ const nextConfig: NextConfig = {
       // The service worker script must always revalidate so a new SW deploy is
       // picked up promptly (defense-in-depth beyond the browser's updateViaCache).
       { source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }] },
+    ];
+  },
+  async redirects() {
+    return [
+      // "Why we're building" was renamed to "Our Story" — keep old links alive.
+      { source: "/why-were-building", destination: "/our-story", permanent: true },
     ];
   },
   // Keep native / heavy Node-only modules out of the webpack graph entirely.

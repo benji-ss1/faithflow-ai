@@ -1,9 +1,15 @@
 "use server";
 
+import { headers } from "next/headers";
 import {
   sendBetaApplicationNotification,
   sendBetaApplicantConfirmation,
 } from "@/lib/email";
+import { createLimiter } from "@/lib/rate-limit";
+
+// 5 applications per 10 minutes per client IP — generous for a real applicant,
+// tight enough to blunt spam / abusive resubmits on this public endpoint.
+const applyLimiter = createLimiter("apply", 5, 10 * 60 * 1000);
 
 // Server Action backing the public marketing Apply flow (10-question beta
 // application). Emails the team inbox (contact@presentflow.org) via the
@@ -30,6 +36,25 @@ export async function submitApplication(raw: unknown): Promise<ApplyResult> {
 
   // Honeypot: bots fill hidden fields. Pretend success, send nothing.
   if (typeof input.hp === "string" && input.hp.trim()) return { ok: true };
+
+  // Rate limit per client IP — blunt spam / abusive resubmits on this public
+  // endpoint.
+  try {
+    const h = await headers();
+    const ip =
+      (h.get("x-forwarded-for") || "").split(",")[0].trim() ||
+      h.get("x-real-ip") ||
+      "unknown";
+    const allowed = await applyLimiter(ip);
+    if (!allowed) {
+      return {
+        ok: false,
+        error: "Too many applications from this connection. Please try again in a few minutes.",
+      };
+    }
+  } catch {
+    // headers() unavailable (shouldn't happen in a server action) — fail open.
+  }
 
   const answers = cleanAnswers(input.answers);
   const answered = answers.filter((a) => a.answer);

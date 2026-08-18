@@ -157,11 +157,13 @@ export default function Home() {
             <h1
               style={{
                 margin: "20px 0 0",
-                fontWeight: 800,
-                fontSize: "clamp(30px,7vw,76px)",
-                lineHeight: 1.05,
-                letterSpacing: "-.03em",
-                maxWidth: 600,
+                fontFamily: "var(--pf-serif), 'Iowan Old Style', Georgia, serif",
+                fontWeight: 400,
+                fontSize: "clamp(34px,7.4vw,84px)",
+                lineHeight: 1.02,
+                letterSpacing: "-.02em",
+                maxWidth: 640,
+                color: "#f4efe4",
               }}
             >
               The screen finally keeps up with
@@ -170,11 +172,8 @@ export default function Home() {
                   display: "block",
                   minHeight: "1.1em",
                   whiteSpace: "nowrap",
-                  background: "linear-gradient(100deg,#ff7a2c,#ffb861)",
-                  WebkitBackgroundClip: "text",
-                  backgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
-                  color: "var(--ember)",
+                  fontStyle: "italic",
+                  color: "#c9552b",
                 }}
               >
                 {scramble}

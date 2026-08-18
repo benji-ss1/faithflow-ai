@@ -13,7 +13,7 @@ import Link from "next/link";
 type LinkDef = { label: string; href: string; apply?: boolean };
 const LINKS: LinkDef[] = [
   { label: "Home", href: "/" },
-  { label: "Why we're building", href: "/why-were-building" },
+  { label: "Our Story", href: "/our-story" },
   { label: "Apply for the beta", href: "/apply", apply: true },
 ];
 
