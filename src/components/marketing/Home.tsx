@@ -143,7 +143,7 @@ export default function Home() {
         <section
           style={{
             position: "relative",
-            padding: "150px 0 0",
+            padding: "clamp(104px,16vw,150px) 0 40px",
             overflow: "hidden",
             display: "flex",
             flexDirection: "column",
