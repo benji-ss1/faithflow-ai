@@ -56,8 +56,16 @@ const CSS = `
 .pfnav-wrap.scrolled .pfnav-bar{width:min(760px,94%);padding:10px 14px 10px 20px;border-radius:999px;
   background:rgba(20,18,16,.62);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
   box-shadow:0 10px 40px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.06)}
-.pfnav-logo{height:76px;width:auto;margin-left:-18px;display:block;transition:height .4s ease,margin .4s ease}
-.pfnav-wrap.scrolled .pfnav-logo{height:40px;margin-left:0}
+/* Crisp vector-style lockup: the mark PNG (downscaled, never upscaled) + real
+   text wordmark. Replaces the old 370px raster that softened on retina. */
+.pfnav-logo{display:flex;align-items:center;gap:11px;text-decoration:none}
+.pfnav-mark{height:44px;width:auto;display:block;transition:height .4s ease}
+.pfnav-wrap.scrolled .pfnav-mark{height:32px}
+.pfnav-word{font-family:var(--pf-sans),system-ui,sans-serif;font-weight:800;font-size:24px;
+  letter-spacing:-.02em;color:#f5f0e5;line-height:1;transition:font-size .4s ease;white-space:nowrap}
+.pfnav-wrap.scrolled .pfnav-word{font-size:19px}
+.pfnav-flow{background:linear-gradient(100deg,#ff7a2c,#ffb861);
+  -webkit-background-clip:text;background-clip:text;color:transparent}
 .pfnav-right{display:flex;align-items:center;gap:12px}
 .pfnav-apply{font-weight:700;font-size:14px;padding:10px 18px;border-radius:10px;
   background:linear-gradient(100deg,#ff7a2c,#ffb861);color:#1A1005;transition:filter .2s}
@@ -104,7 +112,8 @@ const CSS = `
   .pfnav-scroll{padding:64px 24px 60px;width:94vw}
   .pfnav-list .lb{font-size:30px}
   .pfnav-corner{transform:scale(.55)!important;opacity:.5}
-  .pfnav-logo{height:44px;margin-left:-8px}
+  .pfnav-mark{height:34px}
+  .pfnav-word{font-size:20px}
   .pfnav-apply{display:none}
 }
 @media (prefers-reduced-motion:reduce){
@@ -140,9 +149,10 @@ export default function SiteNav() {
 
       <div className={`pfnav-wrap ${scrolled ? "scrolled" : ""}`}>
         <div className="pfnav-bar">
-          <Link href="/" aria-label="PresentFlow home">
+          <Link href="/" aria-label="PresentFlow home" className="pfnav-logo">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img className="pfnav-logo" src="/marketing/logo-trans.png" alt="PresentFlow" />
+            <img className="pfnav-mark" src="/brand/pf-logo-mark.png" alt="" />
+            <span className="pfnav-word">Present<span className="pfnav-flow">Flow</span></span>
           </Link>
           <div className="pfnav-right">
             <Link href="/apply" className="pfnav-apply">Apply for the beta</Link>

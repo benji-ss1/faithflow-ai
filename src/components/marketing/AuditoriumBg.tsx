@@ -212,14 +212,18 @@ export default function AuditoriumBg() {
               }}
             >
               <div
-                style={monoFace("clamp(6px,.6vw,10px)", "#8F2C10", {
-                  letterSpacing: ".28em",
-                  textTransform: "uppercase",
-                  opacity: 0.85,
+                style={{
+                  fontFamily: SERIF,
+                  fontStyle: "italic",
+                  fontWeight: 600,
+                  fontSize: "clamp(8px,.95vw,14px)",
+                  color: "#8a2410",
+                  letterSpacing: ".01em",
+                  opacity: 0.92,
                   marginBottom: "4%",
-                })}
+                }}
               >
-                PSALM 23:3 · KJV
+                Psalm 23:3 · KJV
               </div>
               <div
                 style={{

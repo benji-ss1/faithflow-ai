@@ -220,52 +220,6 @@ export default function Home() {
                 Apply for the beta&nbsp;→
               </Link>
             </div>
-            <div
-              className="pf-hero-meta"
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 26,
-                marginTop: 26,
-                font: `500 12px ${MONO}`,
-                letterSpacing: "0.1em",
-                color: "var(--faint)",
-              }}
-            >
-              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span
-                  style={{
-                    width: 5,
-                    height: 5,
-                    borderRadius: "50%",
-                    background: "var(--ember)",
-                  }}
-                />
-                15 churches · wave one
-              </span>
-              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span
-                  style={{
-                    width: 5,
-                    height: 5,
-                    borderRadius: "50%",
-                    background: "var(--ember)",
-                  }}
-                />
-                Free throughout beta
-              </span>
-              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span
-                  style={{
-                    width: 5,
-                    height: 5,
-                    borderRadius: "50%",
-                    background: "var(--ember)",
-                  }}
-                />
-                macOS today · Windows next
-              </span>
-            </div>
           </div>
         </section>
 
