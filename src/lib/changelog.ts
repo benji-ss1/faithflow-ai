@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.243",
+    date: "2026-08-18",
+    highlights: [
+      "A new verse box now appears only when a genuinely new scripture is spoken — the same verse being detected a few times in a row (as you read it) no longer keeps spawning fresh boxes.",
+      "\"Load full chapter\" now keeps you on the verse you were viewing even in long chapters like Psalm 119, and no longer flickers/jumps when it loads.",
+    ],
+    headline: "Steadier Bible boxes + smoother full-chapter load",
+  },
+  {
     version: "0.1.242",
     date: "2026-08-18",
     headline: "Voice \"next verse\" projects instantly again",

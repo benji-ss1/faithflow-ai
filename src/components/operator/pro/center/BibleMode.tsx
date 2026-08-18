@@ -169,8 +169,12 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
     try {
       const chapterRes = await fetchChapterCached(parsed.book, parsed.chapter, translation);
       if (chapterRes.verses.length === 0) { toast.error("Chapter has no verses"); return; }
-      const pages: VerseCard[] = chapterRes.verses.map((v, i) => ({
-        id: `${parsed.book}-${parsed.chapter}-${v.verse}-${i}-${Date.now()}`,
+      // Stable, deterministic ids (NOT Date.now()) so re-loading the same
+      // chapter yields identical ids — React keeps the existing grid tiles
+      // instead of remounting every SlideRenderer, and id-based dedup stays
+      // valid. (Part of the "load full chapter glitch" fix.)
+      const pages: VerseCard[] = chapterRes.verses.map((v) => ({
+        id: `chapter-${chapterRes.translation}-${parsed.book}-${parsed.chapter}-${v.verse}`,
         label: `${parsed.book} ${parsed.chapter}:${v.verse} (${chapterRes.translation})`,
         verses: [{ verse: v.verse, text: v.text }],
       }));
@@ -938,12 +942,27 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
             returns 176 verses which would render 176 aspect-video previews
             in one grid and jank the shell. Full text is still in `cards`
             and reachable via next-verse nav; this only trims the DOM. */}
-        {cards.length > 50 && (
+        {(() => {
+          // Cap the grid at 50 previews (176-verse Psalm 119 would render 176
+          // aspect-video previews and jank the shell), but WINDOW it around the
+          // selected verse. Without this, "Load full chapter" on a long chapter
+          // strands the operator's verse (e.g. Psalm 119:100) off-grid behind a
+          // fixed verses-1–50 view — the "load full chapter glitch". idx stays
+          // ABSOLUTE so selection / go-live / next-verse nav are unaffected.
+          const GRID_CAP = 50;
+          const total = cards.length;
+          const sel = selectedIdx ?? 0;
+          const windowStart = total <= GRID_CAP ? 0 : Math.max(0, Math.min(sel - Math.floor(GRID_CAP / 2), total - GRID_CAP));
+          const windowEnd = Math.min(total, windowStart + GRID_CAP);
+          return (
+          <>
+        {total > GRID_CAP && (
           <div className="col-span-full text-[11px] text-[var(--color-muted-foreground)] py-2 text-center">
-            Showing first 50 of {cards.length} verses — refine the range or use the Verse ▸ button to walk through them all.
+            Showing verses {windowStart + 1}–{windowEnd} of {total} — use the Verse ▸ button to walk through them all.
           </div>
         )}
-        {cards.slice(0, 50).map((c, idx) => {
+        {cards.slice(windowStart, windowEnd).map((c, i) => {
+          const idx = windowStart + i;
           const selected = selectedIdx === idx;
           const slide = cardToSlide(c, idx, cards.length);
           return (
@@ -1000,6 +1019,9 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
             </div>
           );
         })}
+          </>
+          );
+        })()}
       </div>
       )}
 

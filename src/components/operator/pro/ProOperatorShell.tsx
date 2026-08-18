@@ -2099,6 +2099,12 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // into Bible mode shows the detected passage immediately — even if the
   // operator was on the slides / songs / media tab when it fired.
   const lastRoutedScriptureRef = useRef<string | null>(null);
+  // v1 (2026-08-18 user directive): a NEW on-screen verse box should appear
+  // ONLY when a genuinely NEW scripture is spoken. These track the last-routed
+  // reference + when, so the interim→final→whisper cascade (and rapid
+  // re-utterances) of the SAME reference don't each spawn a fresh box.
+  const lastRoutedRefKeyRef = useRef<string | null>(null);
+  const lastRoutedRefTsRef = useRef<number>(0);
   useEffect(() => {
     const suggestions = ctx.audio.suggestions;
     if (!suggestions || suggestions.length === 0) return;
@@ -2120,6 +2126,21 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // triggering a redundant setCards call on every React re-render.
     if (lastRoutedScriptureRef.current === scripture.id) return;
     lastRoutedScriptureRef.current = scripture.id;
+    // v1: suppress re-routing the SAME reference within the micro-cooldown so
+    // the interim→final→whisper cascade of one spoken verse (all sharing this
+    // refKey but carrying different suggestion ids) creates ONE box, not a new
+    // box each time. A DIFFERENT reference — including the next verse the
+    // preacher moves to — has a different refKey and always passes through.
+    // The projector-fire paths below keep their own anti-replay cooldowns, so
+    // this only governs box creation, and anything already cooled-down there
+    // would have been suppressed anyway.
+    const routeRefKey = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}`;
+    const nowRoute = Date.now();
+    if (lastRoutedRefKeyRef.current === routeRefKey && nowRoute - lastRoutedRefTsRef.current < BIBLE_MICRO_COOLDOWN_MS) {
+      return;
+    }
+    lastRoutedRefKeyRef.current = routeRefKey;
+    lastRoutedRefTsRef.current = nowRoute;
     const refText = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}${scripture.ref.verseStart !== scripture.ref.verseEnd ? `-${scripture.ref.verseEnd}` : ""}`;
     // Populate cards for auto-fire + AI-chip display only.
     // DO NOT call setSelectedIdx here — that would hijack the center Bible
