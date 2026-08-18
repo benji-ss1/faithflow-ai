@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import Link from "next/link";
 import ImageSlot from "./ImageSlot";
 import AuditoriumBg from "./AuditoriumBg";
 import BetaScroll from "./BetaScroll";
@@ -178,6 +179,48 @@ export default function Home() {
                 {scramble}
               </span>
             </h1>
+            {/* Desktop CTA — back in its original place, below the headline. */}
+            <div
+              className="pf-hero-cta-d"
+              style={{ display: "flex", flexWrap: "wrap", gap: 14, marginTop: 30 }}
+            >
+              <Link
+                href="/apply"
+                className="pf-btn-primary"
+                style={{
+                  fontWeight: 700,
+                  fontSize: 15,
+                  padding: "15px 26px",
+                  borderRadius: 10,
+                  background: "linear-gradient(100deg,#ff7a2c,#ffb861)",
+                  color: "#1A1005",
+                  boxShadow: "0 10px 40px rgba(255,122,44,.28)",
+                }}
+              >
+                Apply for the beta&nbsp;→
+              </Link>
+            </div>
+          </div>
+          {/* Mobile CTA — centered in the lower-middle third, over the auditorium. */}
+          <div
+            className="pf-hero-cta-m"
+            style={{ position: "absolute", left: "50%", top: "66%", transform: "translateX(-50%)", zIndex: 3 }}
+          >
+            <Link
+              href="/apply"
+              className="pf-btn-primary"
+              style={{
+                fontWeight: 700,
+                fontSize: 15,
+                padding: "15px 30px",
+                borderRadius: 10,
+                background: "linear-gradient(100deg,#ff7a2c,#ffb861)",
+                color: "#1A1005",
+                boxShadow: "0 10px 40px rgba(255,122,44,.28)",
+              }}
+            >
+              Apply for the beta&nbsp;→
+            </Link>
           </div>
         </section>
 

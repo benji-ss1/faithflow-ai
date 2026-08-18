@@ -64,7 +64,7 @@ const SECTIONS: LegalSection[] = [
   {
     heading: "Governing law",
     paragraphs: [
-      "These terms are governed by the laws of the jurisdiction in which PresentFlow operates, and any disputes will be handled by the courts of that jurisdiction. <em>[Confirm the specific governing law with your legal adviser.]</em>",
+      "These terms, and any dispute arising from them or from your use of the site, are governed by the laws of Ireland, and the courts of Ireland will have exclusive jurisdiction. If you use the site from elsewhere, you remain responsible for complying with your own local laws.",
     ],
   },
   {

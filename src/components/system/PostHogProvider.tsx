@@ -9,6 +9,11 @@
  * Helpers `track()` / `identifyLead()` are safe to call anywhere — they check
  * that PostHog actually loaded before doing anything, so the beta form can fire
  * events without worrying about init order or missing keys.
+ *
+ * COOKIE CONSENT: analytics cookies only fire AFTER the visitor accepts (GDPR /
+ * ePrivacy). Until `pf.cookie.consent.v1 === "accepted"`, `ensureInit()` no-ops,
+ * so every track/identify call is silently dropped. The CookieConsent banner
+ * calls `setCookieConsent(true)` to opt in (and boots PostHog immediately).
  */
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
@@ -16,8 +21,42 @@ import posthog from "posthog-js";
 
 let inited = false;
 
+const CONSENT_KEY = "pf.cookie.consent.v1";
+
+export function getCookieConsent(): "accepted" | "declined" | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const v = localStorage.getItem(CONSENT_KEY);
+    return v === "accepted" || v === "declined" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Record the visitor's choice. Accepting boots PostHog + captures the first view. */
+export function setCookieConsent(accepted: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(CONSENT_KEY, accepted ? "accepted" : "declined");
+  } catch {
+    /* ignore */
+  }
+  if (accepted) {
+    ensureInit();
+    if (inited) {
+      try {
+        posthog.capture("$pageview", { $current_url: window.location.href });
+      } catch {
+        /* no-op */
+      }
+    }
+  }
+}
+
 function ensureInit() {
   if (inited || typeof window === "undefined") return;
+  // Analytics cookies require explicit consent.
+  if (getCookieConsent() !== "accepted") return;
   const key = process.env.NEXT_PUBLIC_POSTHOG_KEY;
   if (!key) return;
   posthog.init(key, {

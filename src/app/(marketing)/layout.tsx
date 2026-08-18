@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, JetBrains_Mono, Fraunces, Caveat, Cormorant_Garamond, Lora } from "next/font/google";
 import SiteNav from "@/components/marketing/SiteNav";
 import SiteFooter from "@/components/marketing/SiteFooter";
+import CookieConsent from "@/components/marketing/CookieConsent";
 import "@/components/marketing/site.css";
 
 const jakarta = Plus_Jakarta_Sans({
@@ -70,6 +71,7 @@ export default function MarketingLayout({
       <SiteNav />
       {children}
       <SiteFooter />
+      <CookieConsent />
     </div>
   );
 }

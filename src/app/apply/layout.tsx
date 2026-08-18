@@ -1,4 +1,5 @@
 import { Cormorant_Garamond, Lora, JetBrains_Mono } from "next/font/google";
+import CookieConsent from "@/components/marketing/CookieConsent";
 
 // The beta application is a full-bleed, immersive "book" experience and
 // deliberately does NOT sit under the dark marketing chrome (SiteNav/SiteFooter).
@@ -33,6 +34,7 @@ export default function ApplyLayout({ children }: { children: React.ReactNode })
       style={{ minHeight: "100vh", background: "#efeae0" }}
     >
       {children}
+      <CookieConsent />
     </div>
   );
 }

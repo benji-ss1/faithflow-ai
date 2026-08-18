@@ -165,9 +165,15 @@
    page into a scroll container — hidden would break position:sticky pinning. */
 .pf-site { overflow-x: clip; }
 
+/* Hero CTA: desktop keeps the button below the headline; mobile floats it
+   centered over the auditorium (lower-middle third). */
+.pf-site .pf-hero-cta-m { display: none; }
+
 /* ── Mobile hero ─────────────────────────────────────────────────────────── */
 @media (max-width: 720px) {
   /* Push the auditorium scene down on mobile so its projector (Psalm 23:3)
      clears the left-aligned headline instead of colliding with "the room." */
   .pf-site .pf-aud { transform: translateY(24%); }
+  .pf-site .pf-hero-cta-d { display: none !important; }
+  .pf-site .pf-hero-cta-m { display: block !important; }
 }
