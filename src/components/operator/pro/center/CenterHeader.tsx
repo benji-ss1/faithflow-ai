@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { LayoutGrid, List, Eye, Play, Music, BookOpen, Image as ImageIcon, Type, Pencil, FilePlus } from "lucide-react";
+import { LayoutGrid, List, Eye, Play, Music, BookOpen, Image as ImageIcon, Type, Pencil, FilePlus, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { dispatchInternal } from "@/lib/internal-events";
@@ -68,6 +68,13 @@ export function CenterHeader({
             className="shrink-0 h-7 px-2.5 rounded-md border border-[var(--color-border)] flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-foreground)] hover:bg-[var(--color-elevated)]"
           >
             <Pencil className="w-3.5 h-3.5" /> Edit slide
+          </button>
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent("presentflow:open-slide-editor", { detail: { add: true } }))}
+            title="Add a new slide and open it in the editor"
+            className="shrink-0 h-7 px-2.5 rounded-md border border-[var(--color-border)] flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-foreground)] hover:bg-[var(--color-elevated)]"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add slide
           </button>
           <button
             onClick={() => window.dispatchEvent(new CustomEvent("presentflow:open-slide-editor", { detail: { blank: true } }))}

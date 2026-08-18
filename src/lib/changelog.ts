@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.240",
+    date: "2026-08-18",
+    headline: "The edit-slide layout you asked for",
+    highlights: [
+      "Edit slide now has your slides listed down the LEFT (1, 2, 3, 4…), a big Projection-Zone-style canvas in the middle, and all your tools — fonts, text, image, lower third, templates — on the RIGHT.",
+      "The simple Size / Font / Margins / screen-resolution bar now sits right under the canvas, unchanged, so you can tune where text lands while you design.",
+      "New \"Add slide\" button next to Edit slide and Blank slide, so you can add a slide straight from the song toolbar.",
+      "Copy and paste now work with ⌘C / ⌘V / ⌘X in the editor — copy an object and paste it onto any slide.",
+    ],
+  },
+  {
     version: "0.1.239",
     date: "2026-08-18",
     headline: "One-tap blank slide",

@@ -1480,10 +1480,12 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // When the "Blank slide" toolbar button opens the editor it passes
   // { blank: true } so the modal drops in and selects a fresh empty slide.
   const [slideEditorBlank, setSlideEditorBlank] = useState(false);
+  const [slideEditorAdd, setSlideEditorAdd] = useState(false);
   useEffect(() => {
     const open = (e: Event) => {
-      const detail = (e as CustomEvent<{ songId?: string; title?: string; blank?: boolean } | undefined>).detail;
+      const detail = (e as CustomEvent<{ songId?: string; title?: string; blank?: boolean; add?: boolean } | undefined>).detail;
       setSlideEditorBlank(!!detail?.blank);
+      setSlideEditorAdd(!!detail?.add);
       if (detail?.songId) {
         const songId = detail.songId;
         const title = detail.title ?? "Song";
@@ -3814,7 +3816,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
 
       <SongAutopilotStaging ctx={ctx} />
       <AITranscriptTicker ctx={ctx} />
-      <DesktopSlideEditorModal ctx={ctx} open={slideEditorOpen} targetSong={slideEditorTargetSong} openBlank={slideEditorBlank} onClose={() => { setSlideEditorOpen(false); setSlideEditorTargetSong(null); setSlideEditorBlank(false); }} />
+      <DesktopSlideEditorModal ctx={ctx} open={slideEditorOpen} targetSong={slideEditorTargetSong} openBlank={slideEditorBlank} openAdd={slideEditorAdd} onClose={() => { setSlideEditorOpen(false); setSlideEditorTargetSong(null); setSlideEditorBlank(false); setSlideEditorAdd(false); }} />
 
       <div data-tour="bottom">
         <BottomBar

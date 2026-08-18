@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -8,6 +8,7 @@ import type { OperatorShellCtx } from "../shell/types";
 import { useSlideEditor, type EditableSlide } from "../editor/useSlideEditor";
 import { SlideCanvas, SlideThumb } from "../editor/SlideCanvas";
 import { CanvasWarnings } from "../editor/CanvasWarnings";
+import { ProjectionZoneControls } from "../zone/ProjectionZoneControls";
 import { SlideContextMenu } from "../SlideContextMenu";
 import { MediaLibraryPicker } from "@/components/library/MediaLibraryPicker";
 import { SLIDE_TEMPLATES } from "@/lib/slide-templates";
@@ -45,12 +46,13 @@ export type SlideEditorTargetSong = {
   slides: { id: string; lyrics: string; objectsJson?: unknown }[];
 };
 
-export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null, openBlank = false }: {
+export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null, openBlank = false, openAdd = false }: {
   ctx: OperatorShellCtx;
   open: boolean;
   onClose: () => void;
   targetSong?: SlideEditorTargetSong | null;
   openBlank?: boolean;
+  openAdd?: boolean;
 }) {
   const playlistItem = ctx.plan.items[ctx.previewItemIdx];
   const item = targetSong ? null : playlistItem;
@@ -125,6 +127,10 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
       // "Blank slide" toolbar entry — drop straight onto a fresh empty slide.
       editor.addBlankSlide();
       setTab("add");
+    } else if (openAdd && editor.isEditable) {
+      // "Add slide" toolbar entry — drop onto a fresh seeded slide.
+      editor.addSlide();
+      setTab("add");
     } else {
       editor.setCurrentIndex(targetSong ? 0 : ctx.previewSlideIdx);
     }
@@ -150,6 +156,23 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
   // Add an object then focus its Design drawer.
   const addFocus = (fn: () => void) => { fn(); setTab("design"); };
 
+  // App-wide copy/paste for objects (⌘C / ⌘V / ⌘X) — clipboard persists while
+  // the editor is open, so you can copy an object and paste it on any slide.
+  const clipRef = useRef<SlideObject[]>([]);
+  const copySelection = useCallback(() => {
+    const slide = editor.currentSlide;
+    if (!slide) return false;
+    const objs = slide.objects.filter((o) => editor.selectedObjectIds.includes(o.id));
+    if (!objs.length) return false;
+    clipRef.current = objs.map((o) => ({ ...o }));
+    return true;
+  }, [editor]);
+  const pasteClipboard = useCallback(() => {
+    if (!clipRef.current.length) return;
+    for (const o of clipRef.current) editor.addObject(o);
+    setTab("design");
+  }, [editor]);
+
   return (
     <Dialog.Root open={open} onOpenChange={(next) => { if (!next) requestClose(); }}>
       <Dialog.Portal>
@@ -165,6 +188,9 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
             const k = e.key.toLowerCase();
             if (k === "z" && !e.shiftKey) { e.preventDefault(); editor.undo(); }
             else if ((k === "z" && e.shiftKey) || k === "y") { e.preventDefault(); editor.redo(); }
+            else if (k === "c") { if (copySelection()) e.preventDefault(); }
+            else if (k === "v") { if (clipRef.current.length) { e.preventDefault(); pasteClipboard(); } }
+            else if (k === "x") { if (copySelection()) { e.preventDefault(); editor.removeObjects(editor.selectedObjectIds); } }
           }}
           className="fixed inset-0 z-[71] flex flex-col overflow-hidden outline-none"
           style={{ background: "#08080c" }}
@@ -219,9 +245,12 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
             </div>
           </header>
 
-          {/* ── Body: stage + right drawer ────────────────────────────────── */}
+          {/* ── Body: slides (left) · canvas + zone controls (center) · features (right) ── */}
           <div className="flex-1 min-h-0 flex">
-            {/* Stage + slide rail */}
+            {/* Left: vertical slide rail (1,2,3,4…) */}
+            <SlideRail editor={editor} isSong={isSong} itemId={itemId} />
+
+            {/* Center: big checkerboard canvas, projection-zone controls kept below */}
             <div className="flex-1 min-w-0 min-h-0 flex flex-col">
               <div className="flex-1 min-h-0 min-w-0 relative" style={{ backgroundColor: "#0d0d10", backgroundImage: CHECKER, backgroundSize: "28px 28px" }}>
                 {isSong ? (
@@ -245,11 +274,11 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
                 )}
               </div>
               {isSong && <CanvasWarnings slide={editor.currentSlide} />}
-              {/* Horizontal slide rail */}
-              <SlideRail editor={editor} isSong={isSong} itemId={itemId} />
+              {/* Simple size / resolution bar — kept exactly as the Projection Zone */}
+              <ProjectionZoneControls className="shrink-0 border-t" />
             </div>
 
-            {/* Right contextual drawer */}
+            {/* Right contextual drawer (fonts, text, image, lower third, templates…) */}
             <RightDrawer editor={editor} churchId={ctx.churchId} tab={tab} setTab={setTab} addFocus={addFocus} />
           </div>
         </Dialog.Content>
@@ -273,22 +302,17 @@ function deleteSlideWithUndo(editor: Editor, index: number, itemId: string | nul
 function SlideRail({ editor, isSong, itemId }: { editor: Editor; isSong: boolean; itemId: string | null }) {
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   return (
-    <div className="shrink-0 h-[112px] border-t flex items-center gap-3 px-3" style={{ borderColor: HAIR, background: PANEL }}>
+    <aside className="shrink-0 w-[184px] border-r flex flex-col min-h-0" style={{ borderColor: HAIR, background: PANEL }}>
       {/* Slide actions */}
-      <div className="shrink-0 flex flex-col gap-1.5">
-        <div className="flex gap-1.5">
-          <RailBtn label="Add" icon={Plus} onClick={editor.addSlide} disabled={!isSong} />
-          <RailBtn label="Blank" icon={PlusSquare} onClick={editor.addBlankSlide} disabled={!isSong} accent />
-        </div>
-        <div className="flex gap-1.5">
-          <RailBtn label="Copy" icon={Copy} onClick={editor.duplicateSlide} disabled={!isSong || !editor.currentSlide} />
-          <RailBtn label="Del" icon={Trash2} onClick={() => deleteSlideWithUndo(editor, editor.currentIndex, itemId)} disabled={!isSong || !editor.currentSlide} danger />
-        </div>
+      <div className="shrink-0 p-2 grid grid-cols-2 gap-1.5 border-b" style={{ borderColor: HAIR }}>
+        <RailBtn label="Add" icon={Plus} onClick={editor.addSlide} disabled={!isSong} />
+        <RailBtn label="Blank" icon={PlusSquare} onClick={editor.addBlankSlide} disabled={!isSong} accent />
+        <RailBtn label="Copy" icon={Copy} onClick={editor.duplicateSlide} disabled={!isSong || !editor.currentSlide} />
+        <RailBtn label="Del" icon={Trash2} onClick={() => deleteSlideWithUndo(editor, editor.currentIndex, itemId)} disabled={!isSong || !editor.currentSlide} danger />
       </div>
-      <div className="h-16 w-px shrink-0" style={{ background: HAIR }} />
-      {/* Thumbnails */}
-      <div className="flex-1 min-w-0 h-full flex items-center gap-2 overflow-x-auto py-2">
-        {editor.slides.length === 0 && <span className="text-[11px] text-white/40 italic px-1">No slides yet — add one.</span>}
+      {/* Thumbnails (1,2,3,4…) */}
+      <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-2">
+        {editor.slides.length === 0 && <span className="block text-[11px] text-white/40 italic px-1 py-2">No slides yet — add one.</span>}
         {editor.slides.map((s, i) => {
           const active = i === editor.currentIndex;
           return (
@@ -300,18 +324,20 @@ function SlideRail({ editor, isSong, itemId }: { editor: Editor; isSong: boolean
                 onDrop={(e) => { e.preventDefault(); if (!isSong || dragIdx === null || dragIdx === i) { setDragIdx(null); return; } editor.reorderSlide(dragIdx, i); setDragIdx(null); }}
                 onDragEnd={() => setDragIdx(null)}
                 onClick={() => editor.setCurrentIndex(i)}
-                className="relative shrink-0 w-[136px] rounded-lg overflow-hidden cursor-pointer transition-shadow"
-                style={{ outline: active ? `2px solid ${AMBER}` : "1px solid #ffffff1a", boxShadow: active ? `0 0 0 4px ${AMBER}22` : undefined }}
+                className="relative rounded-lg overflow-hidden cursor-pointer flex items-center gap-1.5"
                 title={`Slide ${i + 1}${isSong ? " — drag to reorder" : ""}`}
               >
-                <SlideThumb slide={s} />
-                <span className="absolute top-0.5 left-0.5 text-[9px] font-mono text-white bg-black/70 px-1 rounded-sm">{i + 1}</span>
+                <span className="shrink-0 w-5 text-center text-[11px] font-mono tabular-nums" style={{ color: active ? AMBER : "#71717a" }}>{i + 1}</span>
+                <div className="relative flex-1 rounded-md overflow-hidden"
+                  style={{ outline: active ? `2px solid ${AMBER}` : "1px solid #ffffff1a", boxShadow: active ? `0 0 0 3px ${AMBER}22` : undefined }}>
+                  <SlideThumb slide={s} />
+                </div>
               </div>
             </SlideContextMenu>
           );
         })}
       </div>
-    </div>
+    </aside>
   );
 }
 
