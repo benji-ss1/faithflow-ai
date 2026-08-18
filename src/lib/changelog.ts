@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.237",
+    date: "2026-08-18",
+    headline: "A bigger, friendlier slide editor",
+    highlights: [
+      "Edit slide now opens full-screen with a cleaner, easier layout — the same big live canvas, drag-to-move, templates, text/shapes/media, layers and backgrounds, just roomier and simpler to use.",
+      "New \"Apply to all slides\" button: set a background or style one text box the way you want, then apply it to every slide in the song at once. It only copies the look — never your lyrics — and you can undo it.",
+      "New \"Blank slide\" button adds a genuinely empty slide to build from scratch.",
+      "The Songs / Bible / Media / Themes switcher up top is now a cleaner pill.",
+    ],
+  },
+  {
     version: "0.1.236",
     date: "2026-08-17",
     headline: "Your service is remembered offline",
