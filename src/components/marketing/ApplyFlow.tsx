@@ -173,21 +173,21 @@ const CHAPTERS: Chapter[] = [
     name: "The House",
     verse: "Unless the Lord builds the house, the builders labour in vain.",
     ref: "Psalm 127:1 · NIV",
-    qs: [0, 1, 2, 3], // attendance · library · current tools · device
+    qs: [8, 0, 1, 2], // church basics (first) · attendance · library · current tools
   },
   {
     roman: "II",
     name: "The Steward",
     verse: "Each of you should use whatever gift you have received to serve others.",
     ref: "1 Peter 4:10 · NIV",
-    qs: [4, 5, 6, 7], // prep time · mixer · translation · the dream
+    qs: [3, 4, 5, 6], // device · prep time · mixer · translation
   },
   {
     roman: "III",
     name: "The Covenant",
     verse: "Let us hold unswervingly to the hope we profess, for he who promised is faithful.",
     ref: "Hebrews 10:23 · NIV",
-    qs: [8, 9, 10], // church basics · name · email
+    qs: [7, 9, 10], // the dream · name · email
   },
 ];
 

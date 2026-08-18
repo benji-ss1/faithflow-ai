@@ -201,15 +201,28 @@ export default function Home() {
               </Link>
             </div>
           </div>
-          {/* Mobile CTA — centered in the lower-middle third, over the auditorium. */}
+          {/* Mobile CTA — single pill, centered in the lower third, below the
+              projected scripture. display:flex comes from the media query so it
+              can't collide with the desktop CTA. */}
           <div
             className="pf-hero-cta-m"
-            style={{ position: "absolute", left: "50%", top: "66%", transform: "translateX(-50%)", zIndex: 3 }}
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              bottom: "13%",
+              justifyContent: "center",
+              alignItems: "center",
+              zIndex: 3,
+              pointerEvents: "none",
+            }}
           >
             <Link
               href="/apply"
               className="pf-btn-primary"
               style={{
+                pointerEvents: "auto",
+                whiteSpace: "nowrap",
                 fontWeight: 700,
                 fontSize: 15,
                 padding: "15px 30px",
