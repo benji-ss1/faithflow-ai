@@ -6,6 +6,7 @@ import ImageSlot from "./ImageSlot";
 import AuditoriumBg from "./AuditoriumBg";
 import BetaScroll from "./BetaScroll";
 import AuditoriumScroll from "./AuditoriumScroll";
+import RailConnector from "./RailConnector";
 
 const WORDS = ["the room.", "the sermon.", "the setlist.", "the moment."];
 const CH = "!<>-_\\/[]{}—=+*^?#________abcdefghjkmnpqrstuvwxyz";
@@ -124,6 +125,21 @@ export default function Home() {
               pointerEvents: "none",
               background:
                 "linear-gradient(180deg, rgba(8,4,8,.37) 0%, rgba(8,4,8,.24) 40%, rgba(8,4,8,.51) 100%), linear-gradient(90deg, rgba(8,4,8,.56) 0%, rgba(8,4,8,.34) 30%, rgba(8,4,8,0) 52%)",
+            }}
+          />
+          {/* Bottom fade — dissolves the hero scene into the next section's
+              background (var(--bg)) for a smooth flow, no hard seam. */}
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: "clamp(120px,26vh,300px)",
+              zIndex: 1,
+              pointerEvents: "none",
+              background: "linear-gradient(180deg, rgba(11,11,11,0) 0%, var(--bg) 100%)",
             }}
           />
           <div
@@ -254,7 +270,11 @@ export default function Home() {
         {/* WHAT'S IN THE BETA — pinned, scroll-scrubbed 3-card section */}
         <BetaScroll />
 
-        {/* HOW IT WORKS — pinned 3D auditorium (live 3D desktop, poster mobile) */}
+        {/* Rail connector — line + square travels from BetaScroll's left rail
+            across to the auditorium's right rail as you scroll the gap. */}
+        <RailConnector />
+
+        {/* HOW IT WORKS — pinned full-bleed 3D auditorium */}
         <AuditoriumScroll />
 
         {/* CLOSED BETA CTA */}
