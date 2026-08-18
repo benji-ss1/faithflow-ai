@@ -5,6 +5,7 @@ import Link from "next/link";
 import ImageSlot from "./ImageSlot";
 import AuditoriumBg from "./AuditoriumBg";
 import BetaScroll from "./BetaScroll";
+import AuditoriumScroll from "./AuditoriumScroll";
 
 const WORDS = ["the room.", "the sermon.", "the setlist.", "the moment."];
 const CH = "!<>-_\\/[]{}—=+*^?#________abcdefghjkmnpqrstuvwxyz";
@@ -306,6 +307,9 @@ export default function Home() {
 
         {/* WHAT'S IN THE BETA — pinned, scroll-scrubbed 3-card section */}
         <BetaScroll />
+
+        {/* HOW IT WORKS — pinned 3D auditorium (live 3D desktop, poster mobile) */}
+        <AuditoriumScroll />
 
         {/* CLOSED BETA CTA */}
         <section style={{ maxWidth: 1160, margin: "0 auto", padding: "110px 24px 130px" }}>
