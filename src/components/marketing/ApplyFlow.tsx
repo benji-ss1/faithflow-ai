@@ -4,7 +4,6 @@ import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } f
 import Link from "next/link";
 import { submitApplication } from "@/app/actions/apply";
 
-const MONO = "var(--pf-mono)";
 const SANS = "var(--pf-sans)";
 
 type Field = { key: string; label: string; placeholder: string };
@@ -257,7 +256,7 @@ export default function ApplyFlow() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div
           style={{
-            font: `500 12px ${MONO}`,
+            font: `500 12px ${SANS}`,
             letterSpacing: "0.16em",
             color: "var(--ember)",
           }}
@@ -268,7 +267,7 @@ export default function ApplyFlow() {
           href="/"
           className="pf-link-gold"
           style={{
-            font: `500 12px ${MONO}`,
+            font: `500 12px ${SANS}`,
             letterSpacing: "0.14em",
             color: "var(--faint)",
           }}
@@ -320,7 +319,7 @@ export default function ApplyFlow() {
         >
           <div
             style={{
-              font: `500 12px ${MONO}`,
+              font: `500 12px ${SANS}`,
               letterSpacing: "0.16em",
               color: "var(--faint)",
             }}
@@ -330,6 +329,7 @@ export default function ApplyFlow() {
           <h1
             style={{
               margin: "14px 0 0",
+              fontFamily: SANS,
               fontWeight: 800,
               fontSize: "clamp(26px,3.6vw,40px)",
               letterSpacing: "-.02em",
@@ -350,7 +350,7 @@ export default function ApplyFlow() {
                   <div key={f.key} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     <label
                       style={{
-                        font: `500 11px ${MONO}`,
+                        font: `500 11px ${SANS}`,
                         letterSpacing: "0.16em",
                         textTransform: "uppercase",
                         color: "var(--faint)",
@@ -472,7 +472,7 @@ export default function ApplyFlow() {
                     >
                       <span
                         style={{
-                          font: `600 11px ${MONO}`,
+                          font: `600 11px ${SANS}`,
                           width: 22,
                           height: 22,
                           borderRadius: 6,
@@ -539,7 +539,7 @@ export default function ApplyFlow() {
                 className="pf-link-gold"
                 style={{
                   cursor: "pointer",
-                  font: `500 12px ${MONO}`,
+                  font: `500 12px ${SANS}`,
                   letterSpacing: "0.14em",
                   color: "var(--faint)",
                 }}
@@ -547,7 +547,7 @@ export default function ApplyFlow() {
                 ← BACK
               </a>
             )}
-            <span style={{ font: `400 11px ${MONO}`, color: "#3F3C37" }}>{enterHint}</span>
+            <span style={{ font: `400 11px ${SANS}`, color: "#3F3C37" }}>{enterHint}</span>
           </div>
 
           {error && (
