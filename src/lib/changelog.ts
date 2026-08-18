@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.242",
+    date: "2026-08-18",
+    headline: "Voice \"next verse\" projects instantly again",
+    highlights: [
+      "Saying \"next verse\", \"continue\" or \"go back\" now puts the verse on the projector immediately, as a clean cut — no more waiting or flicker.",
+      "The manual Verse ◀ / ▶ buttons stay preview-only on purpose: they move the verse in your Bible panel without sending it live, so you click the slide when you're ready.",
+    ],
+  },
+  {
     version: "0.1.241",
     date: "2026-08-18",
     headline: "Editor now fully matches the Projection Zone look",
