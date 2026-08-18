@@ -140,6 +140,45 @@ export async function sendBetaApplicationNotification(app: BetaApplication) {
   return deliver(APPLY_INBOX, `New beta application — ${who}`, html, text);
 }
 
+// Confirmation sent to the APPLICANT after they submit the beta application —
+// a warm thank-you + "we've got it, we'll be in touch". From the verified
+// presentflow.org domain, so it reaches any recipient.
+export async function sendBetaApplicantConfirmation(to: string, name?: string) {
+  const first = (name || "").trim().split(/\s+/)[0];
+  const greeting = first ? `Hi ${first},` : "Hi there,";
+  const text = `${greeting}
+
+Thank you for applying to the PresentFlow beta — we've received your application.
+
+We're opening wave one to a small group of churches, oldest applications first. We'll be in touch by email with your invitation and any updates before your first live Sunday. There's nothing you need to do in the meantime.
+
+Grateful you want to help shape what church presentation should be.
+
+— The PresentFlow team
+presentflow.org`;
+
+  const html = `<!doctype html><html><body style="margin:0;background:#f2ede4;padding:26px 12px;font-family:-apple-system,'Segoe UI',Roboto,sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+      <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 10px 44px rgba(26,10,20,.12);">
+        <tr><td style="background:#14090f;padding:26px 30px;">
+          <div style="font:700 21px/1 -apple-system,'Segoe UI',sans-serif;color:#f4efe6;letter-spacing:-.01em;">Present<span style="color:#ff7a2c;">Flow</span></div>
+          <div style="margin-top:9px;font:600 12px/1.4 ui-monospace,Menlo,monospace;letter-spacing:.16em;text-transform:uppercase;color:#c69a6a;">You're on the list</div>
+        </td></tr>
+        <tr><td style="padding:28px 30px;color:#1a140f;">
+          <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">${escapeHtml(greeting)}</p>
+          <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Thank you for applying to the <b>PresentFlow</b> beta — we've received your application.</p>
+          <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#4a423a;">We're opening <b>wave one</b> to a small group of churches, oldest applications first. We'll be in touch by email with your invitation and any updates before your first live Sunday. There's nothing you need to do in the meantime.</p>
+          <p style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#4a423a;">Grateful you want to help shape what church presentation should be.</p>
+          <p style="margin:20px 0 0;font-size:15px;line-height:1.5;color:#1a140f;">— The PresentFlow team</p>
+        </td></tr>
+        <tr><td style="padding:16px 30px;background:#faf6ef;font:400 12px/1.5 ui-monospace,Menlo,monospace;color:#8a7f70;">presentflow.org · You received this because you applied to the PresentFlow beta.</td></tr>
+      </table>
+    </td></tr></table>
+  </body></html>`;
+
+  return deliver(to, "Thanks — your PresentFlow beta application is in", html, text);
+}
+
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 }

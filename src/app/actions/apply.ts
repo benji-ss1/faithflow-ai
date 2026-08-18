@@ -1,6 +1,9 @@
 "use server";
 
-import { sendBetaApplicationNotification } from "@/lib/email";
+import {
+  sendBetaApplicationNotification,
+  sendBetaApplicantConfirmation,
+} from "@/lib/email";
 
 // Server Action backing the public marketing Apply flow (10-question beta
 // application). Emails the team inbox (contact@presentflow.org) via the
@@ -43,5 +46,19 @@ export async function submitApplication(raw: unknown): Promise<ApplyResult> {
 
   const res = await sendBetaApplicationNotification({ answers: answered, churchName, contact });
   if (!res.ok) return { ok: false, error: "Something went wrong sending your application. Please try again." };
+
+  // Send the applicant a thank-you / confirmation. Best-effort: a failure here
+  // must not break the applicant's "You're on the list" success — the team
+  // notification above already captured the application.
+  if (contact) {
+    const contactAnswer = answered.find((a) => a.answer.includes(contact))?.answer ?? "";
+    const name = contactAnswer.replace(EMAIL_RE, "").split(",")[0].trim();
+    try {
+      await sendBetaApplicantConfirmation(contact, name);
+    } catch (e) {
+      console.error("[apply] confirmation email failed:", e instanceof Error ? e.message : e);
+    }
+  }
+
   return { ok: true };
 }
