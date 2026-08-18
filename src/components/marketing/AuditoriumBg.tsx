@@ -132,7 +132,7 @@ export default function AuditoriumBg() {
     <div
       className="pf-aud"
       aria-hidden="true"
-      style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}
+      style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden", filter: "brightness(1.15)" }}
     >
       {/* Aspect-locked stage that fills (covers) the parent */}
       <div

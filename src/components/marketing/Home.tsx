@@ -166,7 +166,7 @@ export default function Home() {
               zIndex: 1,
               pointerEvents: "none",
               background:
-                "linear-gradient(180deg, rgba(8,4,8,.44) 0%, rgba(8,4,8,.28) 40%, rgba(8,4,8,.60) 100%), linear-gradient(90deg, rgba(8,4,8,.66) 0%, rgba(8,4,8,.40) 30%, rgba(8,4,8,0) 52%)",
+                "linear-gradient(180deg, rgba(8,4,8,.37) 0%, rgba(8,4,8,.24) 40%, rgba(8,4,8,.51) 100%), linear-gradient(90deg, rgba(8,4,8,.56) 0%, rgba(8,4,8,.34) 30%, rgba(8,4,8,0) 52%)",
             }}
           />
           <div
@@ -174,8 +174,8 @@ export default function Home() {
               position: "relative",
               zIndex: 2,
               maxWidth: 1160,
-              margin: "0 auto",
-              padding: "0 24px",
+              margin: 0,
+              padding: "0 clamp(28px,5vw,72px)",
               width: "100%",
               animation: "pfFadeUp .8s cubic-bezier(.22,1,.36,1) both",
             }}
