@@ -146,17 +146,17 @@ const CSS = `
 /* card-2 light flip — scoped to this section only */
 .pfb.bs-light{--bg:#F5F1EA;--panel:#ffffff;--panel-2:#faf6ef;--ink:#17130c;--muted:#6a635a;--faint:#a8a094;--line:#e3ddd2}
 .pfb{transition:background 600ms cubic-bezier(.2,0,.2,1)}
+/* Mobile KEEPS the sticky scrub (one continuous pinned animation) — single-
+   column card (art on top, copy below), no rail. */
 @media (max-width:960px){
-  .pfb .bs-scrub{height:auto;background:transparent}
-  .pfb .bs-sticky{position:relative;height:auto;grid-template-columns:1fr;padding:0;gap:16px;overflow:visible}
+  .pfb .bs-sticky{grid-template-columns:1fr;padding:2vh 4vw;gap:10px}
   .pfb .bs-rail{display:none}
-  .pfb .bs-deck{height:auto;display:flex;flex-direction:column;gap:16px;overflow:visible;border-radius:0}
-  .pfb .bs-card{position:relative;inset:auto;opacity:1;transform:none;grid-template-columns:1fr;gap:20px;padding:24px}
-  .pfb .bs-card.out{opacity:1;transform:none}
-  .pfb .bs-art{aspect-ratio:16/11}
+  .pfb .bs-card{grid-template-columns:1fr;grid-template-rows:auto 1fr;gap:14px;padding:18px}
+  .pfb .bs-art{aspect-ratio:16/10;max-height:36vh;min-height:0}
+  .pfb .bs-copy{overflow:hidden}
+  .pfb .bs-card h3{font-size:22px}
+  .pfb .bs-card p{font-size:14px}
   .pfb .bs-hint{display:none}
-  /* mobile shows all three statically, no page-wide light flip */
-  .pfb.bs-light{--bg:#0B0B0B;--panel:#121214;--panel-2:#17171A;--ink:#F4F1EA;--muted:#A29D93;--faint:#6E6A62;--line:rgba(255,255,255,.08)}
 }
 @media (prefers-reduced-motion: reduce){
   .pfb .bs-scrub{height:auto}

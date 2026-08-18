@@ -386,7 +386,7 @@ export default function AuditoriumBg() {
               bottom: 0,
               height: "52%",
               background:
-                "linear-gradient(180deg, rgba(3,1,4,0) 0%, rgba(3,1,4,.6) 30%, #030103 70%, #020002 100%)",
+                "linear-gradient(180deg, rgba(3,1,4,0) 0%, rgba(3,1,4,.24) 46%, rgba(3,1,4,.58) 82%, #030103 100%)",
               zIndex: 4,
             }}
           />
@@ -819,14 +819,15 @@ export default function AuditoriumBg() {
                       gap: 6,
                     }}
                   >
-                    <div
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src="/marketing/logo-mark.png"
+                      alt=""
                       style={{
-                        width: 0,
-                        height: 0,
-                        borderLeft: "9px solid #C6912F",
-                        borderTop: "6px solid transparent",
-                        borderBottom: "6px solid transparent",
-                        filter: "drop-shadow(0 0 4px rgba(198,145,47,.6))",
+                        width: "clamp(11px,1.1vw,17px)",
+                        height: "auto",
+                        display: "block",
+                        filter: "drop-shadow(0 0 5px rgba(255,122,44,.45))",
                       }}
                     />
                     <div
@@ -838,7 +839,7 @@ export default function AuditoriumBg() {
                         color: "#ECE7E0",
                       }}
                     >
-                      Present<span style={{ color: "#C6912F" }}>Flow</span>
+                      Present<span style={{ color: "#ff7a2c" }}>Flow</span>
                     </div>
                     <div style={{ flex: 1 }} />
                     <div

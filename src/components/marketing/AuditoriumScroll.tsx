@@ -41,20 +41,19 @@ const CSS = `
 .aud .au-step.on .sl{color:var(--ember)}
 .aud .au-step .sd{grid-column:2;color:var(--muted);font-size:14px;line-height:1.55;margin-top:6px;max-width:52ch;max-height:0;overflow:hidden;opacity:0;transition:max-height .5s,opacity .4s}
 .aud .au-step.on .sd{max-height:220px;opacity:1}
-.aud .au-hud{position:absolute;top:8vh;right:6vw;pointer-events:none;font-family:var(--pf-mono);font-size:12px;letter-spacing:.14em;color:var(--ink);display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border:1px solid rgba(255,255,255,.16);border-radius:99px;background:rgba(0,0,0,.5);backdrop-filter:blur(6px)}
-.aud .au-rail{position:absolute;left:calc(6vw - 20px);top:8vh;bottom:8vh;width:2px;pointer-events:none}
+.aud .au-rail{position:absolute;right:calc(6vw - 20px);top:8vh;bottom:8vh;width:2px;pointer-events:none}
 .aud .au-rail::before{content:"";position:absolute;left:0;top:0;bottom:0;width:1px;background:var(--ink);opacity:.28}
 .aud .au-marker{position:absolute;left:-5px;width:12px;height:12px;border-radius:2px;background:var(--ink);top:calc(var(--p,0) * 100% - 6px);transition:top 140ms linear}
+/* Mobile KEEPS the full-bleed pinned 3D — just shrink the overlaid copy so it
+   reads over the scene; rail hidden. */
 @media (max-width:960px){
-  .aud .au-scrub{height:auto;background:transparent}
-  .aud .au-sticky{position:relative;height:auto;min-height:auto;overflow:visible;background:transparent}
-  .aud .au-stage{position:relative;inset:auto;aspect-ratio:16/12;border-radius:16px;overflow:hidden}
-  .aud .au-scrim{border-radius:16px}
-  .aud .au-overlay{position:relative;inset:auto;padding:18px 4vw 0;gap:22px;justify-content:flex-start}
-  .aud .au-rail,.aud .au-hud{display:none}
-  .aud .au-step .sd{max-height:220px;opacity:1}
-  .aud .au-step.off{opacity:1}
-  .aud .au-step.off .sn{color:var(--brass)}
+  .aud .au-overlay{padding:13vh 6vw 6vh}
+  .aud .au-h2{font-size:clamp(30px,9vw,54px)}
+  .aud .au-step{grid-template-columns:32px 1fr;padding:8px 0 8px 12px;margin-left:-14px}
+  .aud .au-step .sn{font-size:13px}
+  .aud .au-step .sl{font-size:19px}
+  .aud .au-step .sd{font-size:13px;max-width:none;max-height:200px;opacity:1}
+  .aud .au-rail{display:none}
 }
 @media (prefers-reduced-motion:reduce){
   .aud .au-scrub{height:auto}
@@ -73,10 +72,9 @@ export default function AuditoriumScroll() {
   const [use3d, setUse3d] = useState(false);
 
   useEffect(() => {
-    const smallOrReduced =
-      window.matchMedia("(max-width: 960px)").matches ||
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (smallOrReduced) return; // mobile / reduced-motion → static poster, no WebGL
+    // Run the live 3D on mobile too (the big auditorium should be full-screen
+    // everywhere). Only reduced-motion falls back to the static poster.
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
     setUse3d(true);
     let disposed = false;
@@ -133,12 +131,8 @@ export default function AuditoriumScroll() {
           <div className="au-rail" ref={railRef}>
             <div className="au-marker" />
           </div>
-          <div className="au-hud">
-            <span style={{ color: "var(--ember)" }}>●</span> 0{chapter} / 03 · {STEPS[chapter - 1].label}
-          </div>
           <div className="au-overlay">
             <div className="au-top">
-              <div className="au-eyebrow">§ 02 · Real time</div>
               <h2 className="au-h2">It hears the whole service — <em>live.</em></h2>
             </div>
             <div className="au-steps">

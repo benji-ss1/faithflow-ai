@@ -164,3 +164,10 @@
 /* clip (not hidden) so horizontal overflow is contained WITHOUT turning the
    page into a scroll container — hidden would break position:sticky pinning. */
 .pf-site { overflow-x: clip; }
+
+/* ── Mobile hero: drop the lede paragraph + meta line so the headline + the
+   single CTA fit the screen cleanly (requested). ─────────────────────────── */
+@media (max-width: 720px) {
+  .pf-site .pf-hero-lede,
+  .pf-site .pf-hero-meta { display: none !important; }
+}

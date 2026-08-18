@@ -14,7 +14,6 @@ const MONO = "var(--pf-mono)";
 
 export default function Home() {
   const [scramble, setScramble] = useState("the room.");
-  const [videoOpen, setVideoOpen] = useState(false);
 
   const wi = useRef(0);
   const stepTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -82,23 +81,6 @@ export default function Home() {
     };
   }, [scrambleTo]);
 
-  const closeVideo = useCallback(() => {
-    setVideoOpen(false);
-    document.body.style.overflow = "";
-  }, []);
-
-  const openVideo = useCallback(() => {
-    setVideoOpen(true);
-    document.body.style.overflow = "hidden";
-  }, []);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && videoOpen) closeVideo();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [videoOpen, closeVideo]);
 
   const monoTag: CSSProperties = {
     font: `500 11px ${MONO}`,
@@ -109,32 +91,7 @@ export default function Home() {
     color: "var(--muted)",
   };
 
-  const videoWrapStyle: CSSProperties = {
-    position: "fixed",
-    inset: 0,
-    zIndex: 140,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-    visibility: videoOpen ? "visible" : "hidden",
-    opacity: videoOpen ? 1 : 0,
-    transition: videoOpen
-      ? "opacity .35s ease"
-      : "opacity .25s ease, visibility 0s linear .25s",
-  };
 
-  const videoFrameStyle: CSSProperties = {
-    position: "relative",
-    width: "min(960px,100%)",
-    background: "#101012",
-    border: "1px solid rgba(255,255,255,.1)",
-    borderRadius: 16,
-    overflow: "hidden",
-    boxShadow: "0 40px 120px rgba(0,0,0,.7)",
-    transform: videoOpen ? "scale(1)" : "scale(.96)",
-    transition: "transform .35s cubic-bezier(.22,1,.36,1)",
-  };
 
   return (
     <>
@@ -184,7 +141,7 @@ export default function Home() {
               style={{
                 margin: "20px 0 0",
                 fontWeight: 800,
-                fontSize: "clamp(40px,6.4vw,76px)",
+                fontSize: "clamp(30px,7vw,76px)",
                 lineHeight: 1.05,
                 letterSpacing: "-.03em",
                 maxWidth: 600,
@@ -207,6 +164,7 @@ export default function Home() {
               </span>
             </h1>
             <p
+              className="pf-hero-lede"
               style={{
                 margin: "22px 0 0",
                 maxWidth: 480,
@@ -243,23 +201,9 @@ export default function Home() {
               >
                 Apply for the beta&nbsp;→
               </Link>
-              <a
-                onClick={openVideo}
-                className="pf-btn-ghost"
-                style={{
-                  cursor: "pointer",
-                  fontWeight: 600,
-                  fontSize: 15,
-                  padding: "15px 26px",
-                  borderRadius: 10,
-                  border: "1px solid rgba(255,255,255,.14)",
-                  color: "var(--ink)",
-                }}
-              >
-                ▶&nbsp;&nbsp;Watch it work in 90 seconds
-              </a>
             </div>
             <div
+              className="pf-hero-meta"
               style={{
                 display: "flex",
                 flexWrap: "wrap",
@@ -401,97 +345,6 @@ export default function Home() {
         </section>
       </main>
 
-      {/* VIDEO LIGHTBOX */}
-      <div style={videoWrapStyle}>
-        <div
-          onClick={closeVideo}
-          style={{
-            position: "absolute",
-            inset: 0,
-            background: "rgba(4,4,5,.85)",
-            backdropFilter: "blur(8px)",
-            WebkitBackdropFilter: "blur(8px)",
-            cursor: "pointer",
-          }}
-        />
-        <div style={videoFrameStyle}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "14px 18px",
-              borderBottom: "1px solid rgba(255,255,255,.08)",
-            }}
-          >
-            <span
-              style={{
-                font: `500 11px ${MONO}`,
-                letterSpacing: "0.16em",
-                color: "var(--ember)",
-              }}
-            >
-              WATCH IT WORK · 90 SECONDS
-            </span>
-            <a
-              onClick={closeVideo}
-              className="pf-link-gold"
-              style={{
-                cursor: "pointer",
-                font: `500 12px ${MONO}`,
-                letterSpacing: "0.14em",
-                color: "var(--faint)",
-              }}
-            >
-              ESC / CLOSE ✕
-            </a>
-          </div>
-          <div
-            style={{
-              position: "relative",
-              width: "100%",
-              aspectRatio: "16/9",
-              background: "#050506",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 22,
-            }}
-          >
-            <div
-              style={{
-                width: 76,
-                height: 76,
-                borderRadius: "50%",
-                background: "linear-gradient(120deg,#9646E8,#D9418C,#ff7a2c)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                animation: "pfRing 2s ease-out infinite",
-                cursor: "pointer",
-              }}
-            >
-              <span style={{ color: "#fff", fontSize: 26, marginLeft: 5 }}>▶</span>
-            </div>
-            <div style={{ textAlign: "center", padding: "0 24px" }}>
-              <div style={{ fontWeight: 700, fontSize: 18 }}>
-                The 90-second demo lands here
-              </div>
-              <div
-                style={{
-                  marginTop: 8,
-                  font: `500 11px ${MONO}`,
-                  letterSpacing: "0.14em",
-                  color: "var(--faint)",
-                }}
-              >
-                PLACEHOLDER · VIDEO AUTOPLAYS ONCE IT&apos;S DROPPED IN
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
     </>
   );
 }
