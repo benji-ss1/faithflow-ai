@@ -45,11 +45,12 @@ export type SlideEditorTargetSong = {
   slides: { id: string; lyrics: string; objectsJson?: unknown }[];
 };
 
-export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null }: {
+export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null, openBlank = false }: {
   ctx: OperatorShellCtx;
   open: boolean;
   onClose: () => void;
   targetSong?: SlideEditorTargetSong | null;
+  openBlank?: boolean;
 }) {
   const playlistItem = ctx.plan.items[ctx.previewItemIdx];
   const item = targetSong ? null : playlistItem;
@@ -119,7 +120,14 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null 
   // Open on the slide the operator double-clicked (playlist mode); target song
   // opens at the top.
   useEffect(() => {
-    if (open) editor.setCurrentIndex(targetSong ? 0 : ctx.previewSlideIdx);
+    if (!open) return;
+    if (openBlank && editor.isEditable) {
+      // "Blank slide" toolbar entry — drop straight onto a fresh empty slide.
+      editor.addBlankSlide();
+      setTab("add");
+    } else {
+      editor.setCurrentIndex(targetSong ? 0 : ctx.previewSlideIdx);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 

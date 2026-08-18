@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.239",
+    date: "2026-08-18",
+    headline: "One-tap blank slide",
+    highlights: [
+      "There's now a \"Blank slide\" button right next to \"Edit slide\" at the top of a song — one tap drops you into the editor on a fresh empty slide, ready to build.",
+      "Nicer error and \"page not found\" screens that match PresentFlow's look instead of a raw browser error.",
+    ],
+  },
+  {
     version: "0.1.238",
     date: "2026-08-18",
     headline: "The slide editor, reborn in the Projection Zone look",

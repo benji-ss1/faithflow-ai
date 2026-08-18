@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { LayoutGrid, List, Eye, Play, Music, BookOpen, Image as ImageIcon, Type, Pencil } from "lucide-react";
+import { LayoutGrid, List, Eye, Play, Music, BookOpen, Image as ImageIcon, Type, Pencil, FilePlus } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { dispatchInternal } from "@/lib/internal-events";
@@ -61,13 +61,23 @@ export function CenterHeader({
           song is the SongsBrowser selection (not the playlist item), so its own
           "Edit slide" button lives there and passes the selected song along. */}
       {centerMode === "slides" && item?.type === "song" && (
-        <button
-          onClick={() => window.dispatchEvent(new CustomEvent("presentflow:open-slide-editor"))}
-          title="Edit slide — fonts, layout, backgrounds"
-          className="shrink-0 h-7 px-2.5 rounded-md border border-[var(--color-border)] flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-foreground)] hover:bg-[var(--color-elevated)]"
-        >
-          <Pencil className="w-3.5 h-3.5" /> Edit slide
-        </button>
+        <>
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent("presentflow:open-slide-editor"))}
+            title="Edit slide — fonts, layout, backgrounds"
+            className="shrink-0 h-7 px-2.5 rounded-md border border-[var(--color-border)] flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-foreground)] hover:bg-[var(--color-elevated)]"
+          >
+            <Pencil className="w-3.5 h-3.5" /> Edit slide
+          </button>
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent("presentflow:open-slide-editor", { detail: { blank: true } }))}
+            title="Add a blank slide and open it in the editor"
+            className="shrink-0 h-7 px-2.5 rounded-md border flex items-center gap-1.5 text-[11px] font-semibold hover:brightness-110"
+            style={{ borderColor: "#ff7a2c55", color: "#ff7a2c" }}
+          >
+            <FilePlus className="w-3.5 h-3.5" /> Blank slide
+          </button>
+        </>
       )}
       <div className="flex-1" />
       {/* Unified size slider — slides mode uses the ctx-supplied setter,
