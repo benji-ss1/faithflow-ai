@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.238",
+    date: "2026-08-18",
+    headline: "The slide editor, reborn in the Projection Zone look",
+    highlights: [
+      "\"Edit slide\" now opens the same sleek full-screen editor as the orange Projection Zone — a big checkerboard stage with your slide front and centre, instead of the old cramped, cluttered panel.",
+      "All your tools live in clean tabbed drawers on the right — Design, Add, Templates, Background, Layers — so you only ever see what you need. Add or click a text box, shape, image or video and its Design panel (font, size, colour, rotation, shadow, position — everything) opens automatically.",
+      "The slide filmstrip now runs along the bottom with Add, Blank, Copy and Delete right there. Templates, Apply-to-all and backgrounds are all still here — just tidier and easier to find.",
+      "Everything is orange and consistent now, and every change still saves exactly as before.",
+    ],
+  },
+  {
     version: "0.1.237",
     date: "2026-08-18",
     headline: "A bigger, friendlier slide editor",
