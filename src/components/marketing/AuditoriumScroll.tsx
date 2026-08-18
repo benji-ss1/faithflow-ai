@@ -1,14 +1,15 @@
 "use client";
 
 /**
- * "How it works" — pinned, scroll-scrubbed 3D auditorium section.
- * Sits directly below BetaScroll and mirrors its framing (art box + step copy +
- * progress rail) so the two sections read as one flow.
+ * "How it works" — FULL-BLEED pinned, scroll-scrubbed 3D auditorium.
+ * The 3D scene fills the whole viewport (like the original export) with the
+ * eyebrow + headline overlaid top-left, LISTEN/MATCH/SHOW steps bottom-left,
+ * a HUD top-right, and a progress rail on the far left.
  *
- * DESKTOP: the real three.js scene (auditoriumScene.js, lifted verbatim from the
- * design export) renders live into the box and scrubs LISTEN → MATCH → SHOW with
- * page scroll. MOBILE / reduced-motion: a static poster (how-show.jpg) + the same
- * step copy — no WebGL, so phones stay fast and clean (mobile-first).
+ * DESKTOP: the real three.js scene (auditoriumScene.js, verbatim from the export)
+ * renders live and scrubs LISTEN → MATCH → SHOW with page scroll. MOBILE /
+ * reduced-motion: a static full-bleed poster + the same overlaid copy — no WebGL,
+ * mobile-first.
  */
 import { useEffect, useRef, useState } from "react";
 
@@ -20,46 +21,46 @@ const STEPS = [
 
 const CSS = `
 .aud{position:relative}
-.aud .au-scrub{position:relative;height:340vh;background:var(--bg)}
-.aud .au-sticky{position:sticky;top:0;height:100vh;display:grid;grid-template-columns:44px 1fr;padding:8vh 6vw 8vh 3vw;gap:24px;overflow:hidden}
-.aud .au-rail{position:relative;width:2px;margin-left:16px}
+.aud .au-scrub{position:relative;height:360vh;background:var(--bg)}
+.aud .au-sticky{position:sticky;top:0;height:100vh;width:100%;overflow:hidden;background:#050405}
+.aud .au-stage{position:absolute;inset:0}
+.aud .au-stage canvas,.aud .au-poster{width:100%;height:100%;display:block;object-fit:cover}
+.aud .au-scrim{position:absolute;inset:0;pointer-events:none;background:linear-gradient(90deg,rgba(5,4,5,.74) 0%,rgba(5,4,5,.38) 32%,rgba(5,4,5,0) 60%),linear-gradient(180deg,rgba(5,4,5,.55) 0%,rgba(5,4,5,0) 26%,rgba(5,4,5,0) 62%,rgba(5,4,5,.6) 100%)}
+.aud .au-overlay{position:absolute;inset:0;pointer-events:none;padding:8vh 6vw;display:flex;flex-direction:column;justify-content:space-between}
+.aud .au-top{max-width:640px}
+.aud .au-eyebrow{font-family:var(--pf-mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--ember)}
+.aud .au-h2{font-family:'Fraunces',var(--pf-sans),serif;font-weight:300;font-size:clamp(38px,6vw,84px);line-height:1;margin:14px 0 0;letter-spacing:-.02em;color:var(--ink)}
+.aud .au-h2 em{font-style:italic;color:var(--gold)}
+.aud .au-steps{max-width:620px;display:flex;flex-direction:column;gap:2px}
+.aud .au-step{display:grid;grid-template-columns:44px 1fr;gap:14px;align-items:baseline;padding:12px 0 12px 16px;margin-left:-18px;border-left:2px solid transparent;transition:border-color .5s,opacity .5s}
+.aud .au-step.on{border-left-color:var(--ember)}
+.aud .au-step.off{opacity:.42}
+.aud .au-step .sn{font-family:var(--pf-mono);font-size:15px;letter-spacing:.14em;color:var(--brass)}
+.aud .au-step.on .sn{color:var(--ember)}
+.aud .au-step .sl{font-family:'Fraunces',serif;font-size:clamp(20px,2.4vw,30px);color:var(--ink)}
+.aud .au-step.on .sl{color:var(--ember)}
+.aud .au-step .sd{grid-column:2;color:var(--muted);font-size:14px;line-height:1.55;margin-top:6px;max-width:52ch;max-height:0;overflow:hidden;opacity:0;transition:max-height .5s,opacity .4s}
+.aud .au-step.on .sd{max-height:220px;opacity:1}
+.aud .au-hud{position:absolute;top:8vh;right:6vw;pointer-events:none;font-family:var(--pf-mono);font-size:12px;letter-spacing:.14em;color:var(--ink);display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border:1px solid rgba(255,255,255,.16);border-radius:99px;background:rgba(0,0,0,.5);backdrop-filter:blur(6px)}
+.aud .au-rail{position:absolute;left:calc(6vw - 20px);top:8vh;bottom:8vh;width:2px;pointer-events:none}
 .aud .au-rail::before{content:"";position:absolute;left:0;top:0;bottom:0;width:1px;background:var(--ink);opacity:.28}
 .aud .au-marker{position:absolute;left:-5px;width:12px;height:12px;border-radius:2px;background:var(--ink);top:calc(var(--p,0) * 100% - 6px);transition:top 140ms linear}
-.aud .au-tick{position:absolute;left:2px;height:1px;background:var(--ink);width:20px;top:calc(var(--p,0) * 100%);transition:top 140ms linear}
-.aud .au-card{display:grid;grid-template-columns:1.25fr 1fr;gap:48px;height:100%;padding:36px;background:var(--panel);border:1px solid var(--line);border-radius:24px;overflow:hidden}
-.aud .au-art{position:relative;background:#050405;border:1px solid var(--line);border-radius:18px;overflow:hidden;min-height:0}
-.aud .au-art canvas,.aud .au-poster{width:100%;height:100%;display:block;object-fit:cover}
-.aud .au-copy{display:flex;flex-direction:column;justify-content:center;gap:22px;min-width:0;padding:6px 4px}
-.aud .au-eyebrow{font-family:var(--pf-mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--ember)}
-.aud .au-h2{font-family:'Fraunces',var(--pf-sans),serif;font-weight:300;font-size:clamp(28px,3vw,44px);line-height:1.06;margin:0;letter-spacing:-.02em;color:var(--ink)}
-.aud .au-h2 em{font-style:italic;color:var(--gold)}
-.aud .au-steps{display:flex;flex-direction:column;gap:2px;margin-top:4px}
-.aud .au-step{display:grid;grid-template-columns:34px 1fr;gap:12px;align-items:baseline;padding:10px 0 10px 14px;margin-left:-16px;border-left:2px solid transparent;transition:border-color .5s,opacity .5s}
-.aud .au-step.on{border-left-color:var(--ember)}
-.aud .au-step.off{opacity:.34}
-.aud .au-step .sn{font-family:var(--pf-mono);font-size:13px;letter-spacing:.14em;color:var(--brass)}
-.aud .au-step.on .sn{color:var(--ember)}
-.aud .au-step .sl{font-family:'Fraunces',serif;font-size:18px;color:var(--ink)}
-.aud .au-step.on .sl{color:var(--ember)}
-.aud .au-step .sd{grid-column:2;color:var(--muted);font-size:12.5px;line-height:1.55;margin-top:4px;max-height:0;overflow:hidden;opacity:0;transition:max-height .5s,opacity .4s}
-.aud .au-step.on .sd{max-height:200px;opacity:1}
-.aud .au-hud{position:absolute;top:22px;right:24px;font-family:var(--pf-mono);font-size:11px;letter-spacing:.14em;color:var(--ink);display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid rgba(255,255,255,.14);border-radius:99px;background:rgba(0,0,0,.5)}
 @media (max-width:960px){
   .aud .au-scrub{height:auto;background:transparent}
-  .aud .au-sticky{position:relative;height:auto;grid-template-columns:1fr;padding:0;overflow:visible}
-  .aud .au-rail{display:none}
-  .aud .au-card{grid-template-columns:1fr;height:auto;gap:22px;padding:22px}
-  .aud .au-art{aspect-ratio:16/11}
-  .aud .au-copy{justify-content:flex-start}
-  .aud .au-step .sd{max-height:200px;opacity:1}
-  .aud .au-hud{display:none}
+  .aud .au-sticky{position:relative;height:auto;min-height:auto;overflow:visible;background:transparent}
+  .aud .au-stage{position:relative;inset:auto;aspect-ratio:16/12;border-radius:16px;overflow:hidden}
+  .aud .au-scrim{border-radius:16px}
+  .aud .au-overlay{position:relative;inset:auto;padding:18px 4vw 0;gap:22px;justify-content:flex-start}
+  .aud .au-rail,.aud .au-hud{display:none}
+  .aud .au-step .sd{max-height:220px;opacity:1}
+  .aud .au-step.off{opacity:1}
+  .aud .au-step.off .sn{color:var(--brass)}
 }
 @media (prefers-reduced-motion:reduce){
   .aud .au-scrub{height:auto}
-  .aud .au-sticky{position:relative;height:auto;grid-template-columns:1fr;padding:0}
+  .aud .au-sticky{position:relative;height:auto;overflow:visible}
   .aud .au-rail{display:none}
-  .aud .au-card{grid-template-columns:1fr;height:auto}
-  .aud .au-step .sd{max-height:200px;opacity:1}
+  .aud .au-step .sd{max-height:220px;opacity:1}
 }
 `;
 
@@ -120,34 +121,34 @@ export default function AuditoriumScroll() {
       <style>{CSS}</style>
       <div className="au-scrub" ref={scrubRef}>
         <div className="au-sticky">
+          <div className="au-stage">
+            {use3d ? (
+              <canvas ref={canvasRef} />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img className="au-poster" src="/marketing/how-show.jpg" alt="PresentFlow listening live during a church service" />
+            )}
+          </div>
+          <div className="au-scrim" />
           <div className="au-rail" ref={railRef}>
-            <div className="au-tick" />
             <div className="au-marker" />
           </div>
-          <div className="au-card">
-            <div className="au-art">
-              {use3d ? (
-                <canvas ref={canvasRef} />
-              ) : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img className="au-poster" src="/marketing/how-show.jpg" alt="PresentFlow listening live during a church service" />
-              )}
-              <div className="au-hud">
-                <span style={{ color: "var(--ember)" }}>●</span> 0{chapter} / 03 · {STEPS[chapter - 1].label}
-              </div>
-            </div>
-            <div className="au-copy">
+          <div className="au-hud">
+            <span style={{ color: "var(--ember)" }}>●</span> 0{chapter} / 03 · {STEPS[chapter - 1].label}
+          </div>
+          <div className="au-overlay">
+            <div className="au-top">
               <div className="au-eyebrow">§ 02 · Real time</div>
               <h2 className="au-h2">It hears the whole service — <em>live.</em></h2>
-              <div className="au-steps">
-                {STEPS.map((s, i) => (
-                  <div key={s.n} className={`au-step ${chapter === i + 1 ? "on" : "off"}`}>
-                    <span className="sn">{s.n}</span>
-                    <span className="sl">{s.label}</span>
-                    <span className="sd">{s.desc}</span>
-                  </div>
-                ))}
-              </div>
+            </div>
+            <div className="au-steps">
+              {STEPS.map((s, i) => (
+                <div key={s.n} className={`au-step ${chapter === i + 1 ? "on" : "off"}`}>
+                  <span className="sn">{s.n}</span>
+                  <span className="sl">{s.label}</span>
+                  <span className="sd">{s.desc}</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>

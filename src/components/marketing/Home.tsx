@@ -138,7 +138,9 @@ export default function Home() {
 
   return (
     <>
-      <main style={{ overflow: "hidden" }}>
+      {/* overflowX clip (not overflow hidden) — hidden made <main> a scroll
+          container and broke position:sticky pinning on the scroll sections. */}
+      <main style={{ overflowX: "clip" }}>
         {/* HERO */}
         <section
           style={{
