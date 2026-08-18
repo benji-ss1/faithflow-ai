@@ -67,8 +67,8 @@ export default function RailConnector() {
       >
         {/* faint full track */}
         <path d={PATH} fill="none" stroke="var(--ink)" strokeOpacity="0.14" strokeWidth="0.35" />
-        {/* drawn-on-scroll leading line */}
-        <path ref={pathRef} d={PATH} fill="none" stroke="var(--ink)" strokeOpacity="0.6" strokeWidth="0.5" strokeLinecap="round" />
+        {/* drawn-on-scroll leading line — ember so the connection reads */}
+        <path ref={pathRef} d={PATH} fill="none" stroke="var(--ember)" strokeOpacity="0.9" strokeWidth="0.55" strokeLinecap="round" />
       </svg>
       {/* traveling square marker */}
       <div
@@ -77,13 +77,13 @@ export default function RailConnector() {
           position: "absolute",
           left: "4%",
           top: 0,
-          width: 12,
-          height: 12,
-          borderRadius: 2,
-          background: "var(--ink)",
+          width: 13,
+          height: 13,
+          borderRadius: 3,
+          background: "var(--ember)",
           transform: "translate(-50%,-50%)",
-          transition: "opacity .2s",
-          boxShadow: "0 0 0 3px rgba(244,241,234,.12)",
+          transition: "opacity .3s ease",
+          boxShadow: "0 0 0 4px rgba(255,122,44,.18), 0 0 18px rgba(255,122,44,.55)",
         }}
       />
     </div>

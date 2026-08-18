@@ -153,8 +153,8 @@ const CSS = `
 @media (max-width:960px){
   .pfb .bs-sticky{grid-template-columns:1fr;padding:2vh 4vw;gap:10px}
   .pfb .bs-rail{display:none}
-  .pfb .bs-card{grid-template-columns:1fr;grid-template-rows:auto 1fr;gap:14px;padding:18px}
-  .pfb .bs-art{aspect-ratio:16/10;max-height:36vh;min-height:0}
+  .pfb .bs-card{grid-template-columns:1fr;grid-template-rows:auto 1fr;gap:16px;padding:16px}
+  .pfb .bs-art{aspect-ratio:16/10;max-height:46vh;min-height:0}
   .pfb .bs-copy{overflow:hidden}
   .pfb .bs-card h3{font-size:22px}
   .pfb .bs-card p{font-size:14px}

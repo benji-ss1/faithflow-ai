@@ -427,9 +427,7 @@ export class AuditoriumScene {
     // Torso
     const pTorso = new THREE.Mesh(new THREE.CapsuleGeometry(0.36, 0.55, 8, 12), preachSuit);
     pTorso.position.set(0, 1.35, 0); preacher.add(pTorso);
-    // Shirt V
-    const shirtV = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.35, 0.06), preachShirt);
-    shirtV.position.set(0, 1.35, 0.34); preacher.add(shirtV);
+    // (Shirt-V chest panel removed — it read as a stray pale/orange box.)
     // Neck
     const pNeck = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.16, 12), preachSkin);
     pNeck.position.set(0, 1.78, 0); preacher.add(pNeck);
