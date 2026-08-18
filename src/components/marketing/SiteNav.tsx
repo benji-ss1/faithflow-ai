@@ -9,11 +9,13 @@ type LinkDef = { label: string; href: string; apply?: boolean };
 
 const LINKS: LinkDef[] = [
   { label: "Home", href: "/" },
-  { label: "How it works", href: "/how-it-works" },
-  { label: "What it can do", href: "/what-it-can-do" },
   { label: "Why we're building", href: "/why-were-building" },
   { label: "Apply for the beta", href: "/apply", apply: true },
 ];
+
+// Pencil-drawn church mark, blended into the menu (draws itself in on open).
+const CHURCH_PATH =
+  "M60 8 L60 24 M20 52 L60 24 L100 52 M24 52 L24 86 M96 52 L96 86 M16 86 L104 86 M52 86 L52 64 L68 64 L68 86";
 
 type Trans = "idle" | "cover" | "reveal";
 
@@ -364,19 +366,31 @@ export default function SiteNav() {
                 </div>
               ))}
             </nav>
-            <div
+            <svg
+              viewBox="0 0 120 100"
+              width="108"
+              height="90"
+              aria-hidden="true"
               style={{
-                marginTop: 42,
-                font: "500 11px 'JetBrains Mono',monospace",
-                letterSpacing: "0.15em",
-                color: "var(--faint)",
-                opacity: o ? 1 : 0,
-                transform: o ? "translateY(0)" : "translateY(20px)",
-                transition: `all .6s ${MAIN} ${o ? 0.6 : 0}s`,
+                marginTop: 44,
+                opacity: o ? 0.5 : 0,
+                transition: `opacity .6s ${MAIN} ${o ? 0.55 : 0}s`,
               }}
             >
-              FREE THROUGHOUT BETA · MACOS TODAY · WINDOWS NEXT
-            </div>
+              <path
+                d={CHURCH_PATH}
+                fill="none"
+                stroke="var(--ink)"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{
+                  strokeDasharray: 640,
+                  strokeDashoffset: o ? 0 : 640,
+                  transition: `stroke-dashoffset 1.5s ${MAIN} ${o ? 0.6 : 0}s`,
+                }}
+              />
+            </svg>
           </div>
         </div>
       </div>
