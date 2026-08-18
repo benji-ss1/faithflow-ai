@@ -49,6 +49,7 @@ export default function SiteFooter() {
             <Link href="/our-story" className="pf-link-gold" style={{ color: "var(--faint)" }}>Our Story</Link>
             <Link href="/privacy" className="pf-link-gold" style={{ color: "var(--faint)" }}>Privacy</Link>
             <Link href="/terms" className="pf-link-gold" style={{ color: "var(--faint)" }}>Terms</Link>
+            <Link href="/refund" className="pf-link-gold" style={{ color: "var(--faint)" }}>Refunds</Link>
           </div>
         </div>
         {/* church line-drawing, mirroring the editorial mark above */}
