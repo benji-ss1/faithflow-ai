@@ -3450,10 +3450,15 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       window.dispatchEvent(new CustomEvent("presentflow:switch-translation", { detail: { code: upper } }));
     } catch { /* noop */ }
     // Re-fetch the Bible panel cards in the new translation so the center
-    // preview updates immediately (not just the live projector). Parse each
-    // card's label to get the reference, fetch in new code, rebuild cards.
+    // preview updates. 2026-08-18 latency fix: this is now DEFERRED until AFTER
+    // the live-verse re-render below. A full-chapter card set fires 50+
+    // concurrent cachedLookup calls here; running them first starved the single
+    // live-verse lookup that reaches the projector of a connection, so NKJV→NIV
+    // took seconds to appear on screen. Projecting the live verse first, then
+    // rebuilding the preview cards, makes the on-screen swap prompt.
     const existingCards = bibleSession.state.cards;
-    if (existingCards.length > 0 && !existingCards[0]?.placeholder) {
+    const rebuildPanelCards = () => {
+      if (existingCards.length === 0 || existingCards[0]?.placeholder) return;
       const cardLabelRe = /^(.+?)\s+(\d+):(\d+)(?:-(\d+))?\s+\([A-Za-z0-9]+\)$/;
       void (async () => {
         try {
@@ -3479,7 +3484,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           bibleSession.setCards(newCards);
         } catch { /* non-fatal — preview re-fetch is best-effort */ }
       })();
-    }
+    };
     // Live scripture re-render. Bible slides go live as
     // `${text}\n\n${Book C:V[-V] (CODE)}` — parse the label off the live
     // slide; anything that doesn't match that shape (songs, plain slides)
@@ -3551,6 +3556,9 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         }
       }
     }
+    // Live verse is now projecting in the new translation — rebuild the preview
+    // cards in the background so they no longer compete for the connection.
+    rebuildPanelCards();
     toast.success(
       liveUpdated
         ? `Switched to ${upper} — "${spokenPhrase}"`

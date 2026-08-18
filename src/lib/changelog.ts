@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.244",
+    date: "2026-08-18",
+    headline: "Faster translation switches on the projector",
+    highlights: [
+      "Switching version (e.g. NKJV → NIV) now updates the projected verse much faster — the live verse is fetched and shown first, and the rest of the Bible panel refreshes quietly afterward instead of holding up the screen.",
+    ],
+  },
+  {
     version: "0.1.243",
     date: "2026-08-18",
     highlights: [
