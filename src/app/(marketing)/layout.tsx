@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans, JetBrains_Mono, Fraunces, Caveat } from "next/font/google";
+import { Plus_Jakarta_Sans, JetBrains_Mono, Fraunces, Caveat, Cormorant_Garamond, Lora } from "next/font/google";
 import SiteNav from "@/components/marketing/SiteNav";
 import SiteFooter from "@/components/marketing/SiteFooter";
 import "@/components/marketing/site.css";
@@ -32,6 +32,20 @@ const caveat = Caveat({
   variable: "--pf-hand",
   display: "swap",
 });
+// Parchment menu faces.
+const cormorant = Cormorant_Garamond({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  style: ["normal", "italic"],
+  variable: "--pf-cormorant",
+  display: "swap",
+});
+const lora = Lora({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--pf-lora",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "PresentFlow — AI-native presentation for churches",
@@ -50,7 +64,7 @@ export default function MarketingLayout({
 }) {
   return (
     <div
-      className={`pf-site ${jakarta.variable} ${mono.variable} ${fraunces.variable} ${caveat.variable}`}
+      className={`pf-site ${jakarta.variable} ${mono.variable} ${fraunces.variable} ${caveat.variable} ${cormorant.variable} ${lora.variable}`}
       style={{ fontFamily: "var(--pf-sans)" }}
     >
       <SiteNav />

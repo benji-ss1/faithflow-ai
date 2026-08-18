@@ -1,457 +1,179 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { usePathname, useRouter } from "next/navigation";
-
-const MAIN = "cubic-bezier(0.65,0.01,0.05,0.99)";
+/**
+ * SiteNav — a resize-on-scroll bar (shrinks to a centered blurred pill past
+ * ~80px) + a PARCHMENT overlay menu ported from the design pack:
+ * ivory scroll, hamburger→X, veil + scale-in, quill/inkwell + open-Bible corner
+ * drawings, bullet items, Cormorant Garamond labels + Lora body. Keeps the real
+ * PresentFlow logo. Resize behaviour is native CSS/JS (no framer-motion dep).
+ */
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 
 type LinkDef = { label: string; href: string; apply?: boolean };
-
 const LINKS: LinkDef[] = [
   { label: "Home", href: "/" },
   { label: "Why we're building", href: "/why-were-building" },
   { label: "Apply for the beta", href: "/apply", apply: true },
 ];
 
-// Pencil-drawn church mark, blended into the menu (draws itself in on open).
-const CHURCH_PATH =
-  "M60 8 L60 24 M20 52 L60 24 L100 52 M24 52 L24 86 M96 52 L96 86 M16 86 L104 86 M52 86 L52 64 L68 64 L68 86";
+const QUILL = (
+  <svg width="120" height="120" viewBox="0 0 120 120" fill="none" stroke="#8a2410" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M18 96h34l-3 12h-28z" fill="#8a2410" fillOpacity=".12" />
+    <path d="M22 96V84h26v12" />
+    <ellipse cx="35" cy="84" rx="13" ry="3" />
+    <path d="M28 108q7 3 14 0" stroke="#5a1206" />
+    <path d="M35 84 L82 22" strokeWidth="1.6" />
+    <path d="M76 28 q6 -2 10 -8 M72 32 q8 -2 12 -8 M68 36 q10 -2 14 -8 M64 40 q10 -2 14 -8 M60 44 q10 -2 12 -6" />
+    <path d="M82 22 q4 -6 10 -8 q0 6 -4 12 z" fill="#8a2410" fillOpacity=".2" />
+    <path d="M35 84 l-3 -2 l3 -3 l3 3 z" fill="#5a1206" />
+    <circle cx="38" cy="90" r="1.4" fill="#5a1206" />
+  </svg>
+);
 
-type Trans = "idle" | "cover" | "reveal";
+const BIBLE = (
+  <svg width="130" height="110" viewBox="0 0 130 110" fill="none" stroke="#8a2410" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10 84 q55 -8 110 0 v10 q-55 -8 -110 0 z" fill="#8a2410" fillOpacity=".1" />
+    <path d="M10 78 q30 -22 55 -8 v-56 q-25 -14 -55 8 z" fill="#f5f0e5" fillOpacity=".6" />
+    <path d="M65 70 q30 -22 55 -8 v-56 q-25 -14 -55 8 z" fill="#f5f0e5" fillOpacity=".6" />
+    <path d="M65 14 v56" />
+    <path d="M65 14 v-8 M60 6 h10" stroke="#8a2410" />
+    <path d="M18 22 q22 -10 42 -4 M18 32 q22 -10 42 -4 M18 42 q22 -10 42 -4 M18 52 q22 -10 42 -4 M18 62 q22 -10 42 -4" strokeDasharray="2 3" />
+    <path d="M72 18 q20 -8 40 -2 M72 28 q20 -8 40 -2 M72 38 q20 -8 40 -2 M72 48 q20 -8 40 -2 M72 58 q20 -8 40 -2" strokeDasharray="2 3" />
+    <path d="M92 66 v10 M87 71 h10" stroke="#8a2410" />
+  </svg>
+);
+
+const CSS = `
+.pfnav{--ivory:#efeae0;--ivory-hi:#f5f0e5;--ivory-lo:#dcd4c2;--scorch:#1a1410;--ash:#5c534a;--oxblood:#8a2410}
+/* resize-on-scroll bar */
+.pfnav-wrap{position:fixed;top:0;left:0;right:0;z-index:50;display:flex;justify-content:center;pointer-events:none;
+  transition:padding .4s cubic-bezier(.2,.7,.2,1)}
+.pfnav-wrap.scrolled{padding-top:16px}
+.pfnav-bar{pointer-events:auto;display:flex;align-items:center;justify-content:space-between;gap:18px;width:100%;
+  padding:16px clamp(18px,4vw,40px);border-radius:0;background:transparent;box-shadow:none;backdrop-filter:none;
+  transition:width .45s cubic-bezier(.2,.7,.2,1),background .45s ease,box-shadow .45s ease,border-radius .45s ease,padding .45s ease,backdrop-filter .45s ease}
+.pfnav-wrap.scrolled .pfnav-bar{width:min(760px,94%);padding:10px 14px 10px 20px;border-radius:999px;
+  background:rgba(20,18,16,.62);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  box-shadow:0 10px 40px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.06)}
+.pfnav-logo{height:76px;width:auto;margin-left:-18px;display:block;transition:height .4s ease,margin .4s ease}
+.pfnav-wrap.scrolled .pfnav-logo{height:40px;margin-left:0}
+.pfnav-right{display:flex;align-items:center;gap:12px}
+.pfnav-apply{font-weight:700;font-size:14px;padding:10px 18px;border-radius:10px;
+  background:linear-gradient(100deg,#ff7a2c,#ffb861);color:#1A1005;transition:filter .2s}
+.pfnav-apply:hover{filter:brightness(1.08)}
+/* ivory hamburger */
+.pfnav-burger{pointer-events:auto;cursor:pointer;width:52px;height:52px;padding:0;position:relative;flex:none;
+  background:radial-gradient(ellipse at 30% 20%,rgba(220,212,194,.4),transparent 60%),linear-gradient(180deg,var(--ivory-hi),var(--ivory) 60%,var(--ivory-lo));
+  border:1.5px solid var(--scorch);border-radius:8px;box-shadow:0 2px 6px rgba(120,100,72,.15);transition:transform .2s ease}
+.pfnav-burger:hover{transform:translateY(-1px)}
+.pfnav-burger .l{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:24px;height:16px}
+.pfnav-burger .l span{position:absolute;left:0;right:0;height:2px;background:var(--scorch);
+  transition:transform 240ms cubic-bezier(.2,0,.2,1),opacity 200ms,top 240ms cubic-bezier(.2,0,.2,1),width 240ms}
+.pfnav-burger .l span:nth-child(1){top:0}
+.pfnav-burger .l span:nth-child(2){top:7px}
+.pfnav-burger .l span:nth-child(3){top:14px;width:60%}
+.pfnav-burger.open .l span:nth-child(1){top:7px;transform:rotate(45deg)}
+.pfnav-burger.open .l span:nth-child(2){opacity:0}
+.pfnav-burger.open .l span:nth-child(3){top:7px;width:100%;transform:rotate(-45deg)}
+/* parchment overlay */
+.pfnav-veil{position:fixed;inset:0;z-index:60;background:radial-gradient(ellipse at 50% 50%,rgba(220,212,194,.65),rgba(180,164,132,.9));
+  opacity:0;pointer-events:none;transition:opacity 300ms ease}
+.pfnav-veil.open{opacity:1;pointer-events:auto}
+.pfnav-scroll{position:fixed;z-index:70;top:50%;left:50%;transform:translate(-50%,-50%) scale(.94);opacity:0;pointer-events:none;
+  transition:transform 520ms cubic-bezier(.2,0,.2,1),opacity 320ms ease;width:min(940px,92vw);max-height:92vh;overflow:auto;padding:80px 84px;
+  background:radial-gradient(ellipse at 12% 18%,rgba(220,212,194,.5),transparent 24%),radial-gradient(ellipse at 88% 14%,rgba(138,36,16,.06),transparent 22%),radial-gradient(ellipse at 78% 82%,rgba(220,212,194,.4),transparent 22%),repeating-linear-gradient(92deg,transparent 0 5px,rgba(120,105,80,.05) 5px 6px),repeating-linear-gradient(1deg,transparent 0 9px,rgba(120,105,80,.04) 9px 10px),linear-gradient(180deg,var(--ivory-hi),var(--ivory) 40%,var(--ivory-lo) 100%);
+  box-shadow:0 20px 40px rgba(120,100,72,.2);
+  clip-path:polygon(0% 3%,3% 1%,8% 2%,14% 0%,20% 2%,28% 1%,36% 3%,44% 1%,52% 2%,60% 0%,68% 2%,76% 1%,84% 3%,92% 1%,97% 2%,100% 3%,99% 10%,100% 20%,98% 32%,100% 44%,99% 56%,100% 68%,98% 80%,100% 92%,97% 99%,90% 100%,82% 98%,72% 100%,62% 99%,52% 100%,42% 98%,32% 100%,22% 99%,14% 100%,6% 98%,2% 100%,0% 96%,1% 84%,0% 72%,2% 60%,0% 48%,1% 36%,0% 24%,1% 12%)}
+.pfnav-scroll.open{transform:translate(-50%,-50%) scale(1);opacity:1;pointer-events:auto}
+.pfnav-x{position:absolute;top:22px;right:26px;z-index:3;width:44px;height:44px;border-radius:8px;background:var(--scorch);color:var(--ivory-hi);
+  font-family:var(--pf-cormorant),serif;font-size:22px;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .12s,background .2s}
+.pfnav-x:hover{transform:translateY(-1px);background:#000}
+.pfnav-list{position:relative;z-index:2;list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:2px}
+.pfnav-list li{opacity:0;transform:translateY(8px);transition:opacity 300ms ease,transform 300ms cubic-bezier(.2,0,.2,1)}
+.pfnav-scroll.open .pfnav-list li{opacity:1;transform:none}
+.pfnav-list a{display:grid;grid-template-columns:26px 1fr;align-items:baseline;gap:16px;padding:18px 8px;color:var(--scorch);text-decoration:none;border-bottom:1px solid rgba(22,19,16,.15);transition:background .18s,transform .18s}
+.pfnav-list a:hover{background:rgba(22,19,16,.04);transform:translateX(4px)}
+.pfnav-list .b{font-family:var(--pf-lora),serif;font-size:22px;color:var(--oxblood);line-height:1}
+.pfnav-list .lb{font-family:var(--pf-cormorant),serif;font-weight:700;font-size:clamp(30px,4.6vw,46px);color:var(--scorch);line-height:1.1;letter-spacing:-.005em}
+.pfnav-list a.apply .lb{color:var(--oxblood);font-style:italic}
+.pfnav-corner{position:absolute;z-index:1;opacity:.7;pointer-events:none}
+.pfnav-corner.bible{right:36px;top:88px;transform:rotate(6deg)}
+.pfnav-corner.quill{left:36px;top:88px;transform:rotate(-8deg)}
+@media (max-width:820px){
+  .pfnav-scroll{padding:64px 24px 60px;width:94vw}
+  .pfnav-list .lb{font-size:30px}
+  .pfnav-corner{transform:scale(.55)!important;opacity:.5}
+  .pfnav-logo{height:44px;margin-left:-8px}
+  .pfnav-apply{display:none}
+}
+@media (prefers-reduced-motion:reduce){
+  .pfnav-scroll,.pfnav-veil,.pfnav-list li,.pfnav-burger .l span,.pfnav-bar{transition:none!important}
+}
+`;
 
 export default function SiteNav() {
-  const router = useRouter();
-  const pathname = usePathname();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [trans, setTrans] = useState<Trans>("idle");
-  const pendingHref = useRef<string | null>(null);
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const [open, setOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
 
-  const setMenu = useCallback((open: boolean) => {
-    setMenuOpen(open);
-    document.body.style.overflow = open ? "hidden" : "";
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 80);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Escape closes the menu
+  const setMenu = useCallback((v: boolean) => {
+    setOpen(v);
+    document.body.style.overflow = v ? "hidden" : "";
+  }, []);
+
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && menuOpen) setMenu(false);
-    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMenu(false); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [menuOpen, setMenu]);
-
-  // When the route actually changes after a "cover", play the reveal.
-  useEffect(() => {
-    if (pendingHref.current && pendingHref.current === pathname) {
-      pendingHref.current = null;
-      setTrans("reveal");
-      const t = setTimeout(() => {
-        setTrans("idle");
-        document.body.style.overflow = "";
-      }, 700);
-      timers.current.push(t);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname]);
-
-  useEffect(() => {
-    const list = timers.current;
-    return () => {
-      list.forEach(clearTimeout);
-      document.body.style.overflow = "";
-    };
-  }, []);
-
-  const navTo = useCallback(
-    (href: string) => {
-      if (href === pathname) {
-        setMenu(false);
-        return;
-      }
-      setMenuOpen(false);
-      document.body.style.overflow = "hidden";
-      setTrans("cover");
-      pendingHref.current = href;
-      const t = setTimeout(() => router.push(href), 620);
-      timers.current.push(t);
-    },
-    [pathname, router, setMenu],
-  );
-
-  const o = menuOpen;
-  const t = trans;
-  const covered = t === "cover";
-
-  const panel = (bg: string, i: number): CSSProperties => ({
-    position: "absolute",
-    inset: 0,
-    background: bg,
-    transform: o ? "translateX(0)" : "translateX(101%)",
-    transition: `transform .6s ${MAIN} ${(o ? i * 0.1 : (2 - i) * 0.06)}s`,
-  });
-
-  const col = (i: number): CSSProperties => ({
-    position: "absolute",
-    top: 0,
-    left: i * 20 + "%",
-    width: "calc(20% + 1px)",
-    height: "calc(100% + 140px)",
-    transform: covered ? "translateY(0)" : "translateY(-115%)",
-    transition:
-      t === "idle"
-        ? "none"
-        : `transform .6s cubic-bezier(.7,0,.2,1) ${(t === "reveal" ? 4 - i : i) * 0.055}s`,
-  });
+  }, [setMenu]);
 
   return (
-    <>
-      <header
-        style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          right: 0,
-          zIndex: 120,
-          background: "rgba(10,10,11,.72)",
-          backdropFilter: "blur(14px)",
-          WebkitBackdropFilter: "blur(14px)",
-          borderBottom: "1px solid rgba(255,255,255,.06)",
-        }}
-      >
-        <div
-          className="pf-nav-row"
-          style={{
-            maxWidth: 1160,
-            margin: "0 auto",
-            padding: "0 24px",
-            height: 66,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 16,
-          }}
-        >
-          <a
-            href="/"
-            onClick={(e) => {
-              e.preventDefault();
-              navTo("/");
-            }}
-            className="pf-nav-logolink"
-            style={{ display: "flex", alignItems: "center" }}
-          >
+    <div className="pfnav">
+      <style>{CSS}</style>
+
+      <div className={`pfnav-wrap ${scrolled ? "scrolled" : ""}`}>
+        <div className="pfnav-bar">
+          <Link href="/" aria-label="PresentFlow home">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/marketing/logo-trans.png"
-              alt="PresentFlow"
-              className="pf-nav-logo"
-            />
-          </a>
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <a
-              href="/apply"
-              onClick={(e) => {
-                e.preventDefault();
-                navTo("/apply");
-              }}
-              className="pf-nav-apply"
-              style={{
-                fontWeight: 600,
-                fontSize: 13,
-                padding: "9px 16px",
-                borderRadius: 10,
-                background: "linear-gradient(100deg,#F7941D,#FDB748)",
-                color: "#1A1005",
-                whiteSpace: "nowrap",
-              }}
-            >
-              Apply for the beta
-            </a>
+            <img className="pfnav-logo" src="/marketing/logo-trans.png" alt="PresentFlow" />
+          </Link>
+          <div className="pfnav-right">
+            <Link href="/apply" className="pfnav-apply">Apply for the beta</Link>
             <button
-              onClick={() => setMenu(!o)}
-              className="pf-menu-btn"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                background: "none",
-                border: "1px solid rgba(255,255,255,.14)",
-                borderRadius: 10,
-                padding: "9px 14px",
-                cursor: "pointer",
-                color: "var(--ink)",
-              }}
+              className={`pfnav-burger ${open ? "open" : ""}`}
+              aria-label={open ? "Close menu" : "Open menu"}
+              aria-expanded={open}
+              onClick={() => setMenu(!open)}
             >
-              <span style={{ display: "block", overflow: "hidden", height: 15 }}>
-                <span
-                  style={{
-                    display: "block",
-                    transform: o ? "translateY(-15px)" : "translateY(0)",
-                    transition: `transform .45s ${MAIN}`,
-                  }}
-                >
-                  <span
-                    style={{
-                      display: "block",
-                      font: "600 12px/15px 'JetBrains Mono',monospace",
-                      letterSpacing: "0.14em",
-                      textTransform: "uppercase",
-                    }}
-                  >
-                    Menu
-                  </span>
-                  <span
-                    style={{
-                      display: "block",
-                      font: "600 12px/15px 'JetBrains Mono',monospace",
-                      letterSpacing: "0.14em",
-                      textTransform: "uppercase",
-                      color: "var(--gold)",
-                    }}
-                  >
-                    Close
-                  </span>
-                </span>
-              </span>
-              <span
-                style={{
-                  display: "block",
-                  fontSize: 17,
-                  lineHeight: "15px",
-                  fontWeight: 400,
-                  color: o ? "var(--gold)" : "var(--ink)",
-                  transform: o ? "rotate(315deg)" : "rotate(0deg)",
-                  transition: `transform .5s ${MAIN},color .3s`,
-                }}
-              >
-                +
-              </span>
+              <span className="l"><span /><span /><span /></span>
             </button>
           </div>
         </div>
-      </header>
-
-      {/* KINETIC OVERLAY MENU */}
-      <div
-        style={{
-          position: "fixed",
-          inset: 0,
-          zIndex: 110,
-          visibility: o ? "visible" : "hidden",
-          transition: o ? "visibility 0s" : "visibility 0s linear .75s",
-        }}
-      >
-        <div
-          onClick={() => setMenu(false)}
-          style={{
-            position: "absolute",
-            inset: 0,
-            background: "rgba(5,5,6,.6)",
-            backdropFilter: "blur(6px)",
-            WebkitBackdropFilter: "blur(6px)",
-            opacity: o ? 1 : 0,
-            transition: "opacity .5s ease",
-            cursor: "pointer",
-          }}
-        />
-        <div
-          style={{
-            position: "absolute",
-            top: 0,
-            right: 0,
-            bottom: 0,
-            width: "min(640px,100%)",
-            overflow: "hidden",
-          }}
-        >
-          <div style={panel("linear-gradient(160deg,#F7941D,#D9418C)", 0)} />
-          <div style={panel("#2A1240", 1)} />
-          <div style={panel("#0C0C0E", 2)} />
-          <div
-            style={{
-              position: "absolute",
-              top: "-15%",
-              right: "-25%",
-              width: "70%",
-              height: "60%",
-              background: "radial-gradient(circle,rgba(150,70,232,.22),transparent 65%)",
-              filter: "blur(50px)",
-              animation: "pfDrift 8s ease-in-out infinite",
-              pointerEvents: "none",
-            }}
-          />
-          <div
-            style={{
-              position: "absolute",
-              bottom: "-15%",
-              left: "-20%",
-              width: "75%",
-              height: "55%",
-              background: "radial-gradient(circle,rgba(247,148,29,.16),transparent 65%)",
-              filter: "blur(50px)",
-              animation: "pfDrift 11s ease-in-out infinite reverse",
-              pointerEvents: "none",
-            }}
-          />
-          <div
-            style={{
-              position: "relative",
-              height: "100%",
-              display: "flex",
-              flexDirection: "column",
-              justifyContent: "center",
-              padding: "96px 56px 56px",
-            }}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/marketing/logo-trans.png"
-              alt="PresentFlow"
-              style={{
-                height: 76,
-                width: "auto",
-                alignSelf: "flex-start",
-                marginLeft: -18,
-                opacity: o ? 1 : 0,
-                transform: o ? "translateY(0)" : "translateY(24px)",
-                transition: `all .6s ${MAIN} ${o ? 0.35 : 0}s`,
-              }}
-            />
-            <nav
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 2,
-                marginTop: 30,
-              }}
-            >
-              {LINKS.map((l, i) => (
-                <div key={l.href} style={{ overflow: "hidden", padding: "2px 0" }}>
-                  <a
-                    href={l.href}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      navTo(l.href);
-                    }}
-                    className="pf-menu-link"
-                    style={{
-                      display: "block",
-                      cursor: "pointer",
-                      padding: "5px 0",
-                      font: "800 clamp(28px,4.2vw,46px)/1.15 'Plus Jakarta Sans',sans-serif",
-                      letterSpacing: "-.02em",
-                      color: l.apply ? "var(--ember)" : "var(--ink)",
-                      transform: o
-                        ? "translateY(0) rotate(0deg)"
-                        : "translateY(140%) rotate(5deg)",
-                      transition: `transform .7s ${MAIN} ${
-                        o ? 0.28 + i * 0.05 : 0
-                      }s, color .3s, padding-left .3s`,
-                    }}
-                  >
-                    <span
-                      style={{
-                        font: "500 12px 'JetBrains Mono',monospace",
-                        letterSpacing: "0.14em",
-                        color: "var(--faint)",
-                        marginRight: 18,
-                        verticalAlign: "super",
-                      }}
-                    >
-                      {"0" + (i + 1)}
-                    </span>
-                    {l.label}
-                  </a>
-                </div>
-              ))}
-            </nav>
-            <svg
-              viewBox="0 0 120 100"
-              width="108"
-              height="90"
-              aria-hidden="true"
-              style={{
-                marginTop: 44,
-                opacity: o ? 0.5 : 0,
-                transition: `opacity .6s ${MAIN} ${o ? 0.55 : 0}s`,
-              }}
-            >
-              <path
-                d={CHURCH_PATH}
-                fill="none"
-                stroke="var(--ink)"
-                strokeWidth="2.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                style={{
-                  strokeDasharray: 640,
-                  strokeDashoffset: o ? 0 : 640,
-                  transition: `stroke-dashoffset 1.5s ${MAIN} ${o ? 0.6 : 0}s`,
-                }}
-              />
-            </svg>
-          </div>
-        </div>
       </div>
 
-      {/* PAGE TRANSITION CURTAIN */}
-      <div
-        style={{
-          position: "fixed",
-          inset: 0,
-          zIndex: 200,
-          overflow: "hidden",
-          pointerEvents: t === "idle" ? "none" : "auto",
-          visibility: t === "idle" ? "hidden" : "visible",
-        }}
-      >
-        {[0, 1, 2, 3, 4].map((i) => (
-          <div key={i} style={col(i)}>
-            <div
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                background: "linear-gradient(120deg,#9646E8,#D9418C,#F7941D)",
-                borderRadius: "0 0 50% 50% / 0 0 120px 120px",
-              }}
-            />
-            <div
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 9,
-                background: "#0C0C0E",
-                borderRadius: "0 0 50% 50% / 0 0 110px 110px",
-              }}
-            />
-          </div>
-        ))}
-        <div
-          style={{
-            position: "absolute",
-            top: "50%",
-            left: "50%",
-            transform: "translate(-50%,-50%)",
-            font: "800 clamp(34px,6vw,64px) 'Plus Jakarta Sans',sans-serif",
-            letterSpacing: "-.03em",
-            whiteSpace: "nowrap",
-            background: "linear-gradient(100deg,#F7941D,#FDB748)",
-            WebkitBackgroundClip: "text",
-            backgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-            opacity: covered ? 1 : 0,
-            transition: covered ? "opacity .3s ease .22s" : "opacity .2s ease",
-          }}
-        >
-          PresentFlow
-        </div>
+      <div className={`pfnav-veil ${open ? "open" : ""}`} onClick={() => setMenu(false)} aria-hidden="true" />
+      <div className={`pfnav-scroll ${open ? "open" : ""}`} role="dialog" aria-modal="true" aria-label="Main menu">
+        <button className="pfnav-x" aria-label="Close menu" onClick={() => setMenu(false)}>×</button>
+        <div className="pfnav-corner quill">{QUILL}</div>
+        <div className="pfnav-corner bible">{BIBLE}</div>
+        <ul className="pfnav-list">
+          {LINKS.map((l, i) => (
+            <li key={l.href} style={{ transitionDelay: open ? `${120 + i * 70}ms` : "0ms" }}>
+              <Link href={l.href} className={l.apply ? "apply" : ""} onClick={() => setMenu(false)}>
+                <span className="b">•</span>
+                <span className="lb">{l.label}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
       </div>
-    </>
+    </div>
   );
 }
