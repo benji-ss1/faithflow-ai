@@ -3,7 +3,8 @@ import ApplyFlow from "@/components/marketing/ApplyFlow";
 
 export const metadata: Metadata = {
   title: "Apply for the beta — PresentFlow",
-  description: "Apply to join the PresentFlow closed beta. Wave one is 15 churches.",
+  description:
+    "The Road to Wave I — apply to join the PresentFlow closed beta. Wave one is 15 churches, free through the beta.",
 };
 
 export default function Page() {
