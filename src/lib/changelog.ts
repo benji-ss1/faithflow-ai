@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.269",
+    date: "2026-08-19",
+    headline: "See the projection zone update live in the editor",
+    highlights: [
+      "The slide editor now draws a live \"Projection area\" box that moves and resizes as you drag Size / Margins / Center — so you can see exactly where content lands on the projector.",
+      "This mirrors what the live screen and the projected output already show in real time.",
+    ],
+  },
+  {
     version: "0.1.268",
     date: "2026-08-19",
     headline: "Drag a slide into any song in the playlist",

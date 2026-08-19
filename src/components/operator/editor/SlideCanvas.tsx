@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CANVAS_W, CANVAS_H, type EditableSlide, type SlideObject } from "@/lib/slide-objects";
 import { cn } from "@/lib/utils";
+import { useProjectionZoneStore } from "@/lib/projection-zone-store";
+import { normalizeZone, isFullZone, resolveZoneRects, FULL_ZONE } from "@/lib/projection-zone";
 
 type HandleKey = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 
@@ -208,6 +210,17 @@ export function SlideCanvas({
 
   const selSet = new Set(selectedIds);
 
+  // Live Projection-Zone preview. Subscribing to the store re-renders this
+  // canvas the instant the Size / Font / Margins / Center controls change, so
+  // the operator SEES where content lands on the projector as they drag —
+  // exactly the rect the live output + projector use (resolveZoneRects). Shown
+  // only when the zone isn't full-bleed (nothing to show otherwise).
+  const zoneStore = useProjectionZoneStore();
+  const zone = zoneStore.activeProfile ? normalizeZone(zoneStore.activeProfile) : FULL_ZONE;
+  const showZone = !isFullZone(zone);
+  const zoneRects = resolveZoneRects(zone, CANVAS_W, CANVAS_H);
+  const pct = (v: number, total: number) => `${(v / total) * 100}%`;
+
   return (
     <div ref={wrapRef} className="w-full h-full flex items-center justify-center p-4 min-h-0 min-w-0">
       <div className="relative w-full max-w-full max-h-full" style={{ aspectRatio: "16 / 9" }}>
@@ -230,6 +243,32 @@ export function SlideCanvas({
             if (e.target === e.currentTarget) beginMarquee(e);
           }}
         >
+          {/* Live Projection-Zone preview — the solid box is where the whole
+              slide maps on the projector; the dashed box is the text area after
+              margins. Updates in real time as the operator drags Size / Margins
+              / Center below, so they can SEE the zone working (the same rect the
+              live output + projector use). */}
+          {showZone && (
+            <>
+              <div
+                className="pointer-events-none absolute z-40 border-2 border-[#e8501a] rounded-[2px]"
+                style={{
+                  left: pct(zoneRects.outer.x, CANVAS_W), top: pct(zoneRects.outer.y, CANVAS_H),
+                  width: pct(zoneRects.outer.w, CANVAS_W), height: pct(zoneRects.outer.h, CANVAS_H),
+                  boxShadow: "0 0 0 100vmax rgba(0,0,0,0.28)",
+                }}
+              >
+                <span className="absolute top-0.5 left-1 text-[9px] font-mono uppercase tracking-wider text-[#ffd9bf] bg-black/60 px-1 rounded">Projection area</span>
+              </div>
+              <div
+                className="pointer-events-none absolute z-40 border border-dashed border-[#e8501a]/50"
+                style={{
+                  left: pct(zoneRects.inner.x, CANVAS_W), top: pct(zoneRects.inner.y, CANVAS_H),
+                  width: pct(zoneRects.inner.w, CANVAS_W), height: pct(zoneRects.inner.h, CANVAS_H),
+                }}
+              />
+            </>
+          )}
           {/* Alignment snap guides (positioned at the snapped canvas coordinate) */}
           {guides.x !== null && <div className="pointer-events-none absolute inset-y-0 w-px bg-[#e8501a]/80 z-50" style={{ left: `${(guides.x / CANVAS_W) * 100}%` }} />}
           {guides.y !== null && <div className="pointer-events-none absolute inset-x-0 h-px bg-[#e8501a]/80 z-50" style={{ top: `${(guides.y / CANVAS_H) * 100}%` }} />}
