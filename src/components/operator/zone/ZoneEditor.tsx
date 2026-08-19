@@ -5,7 +5,7 @@ import { MIN_ZONE, normalizeZone, DEFAULT_ZONE, type ProjectionZone } from "@/li
 
 // Match the app's clean dark "sonar" palette: brand orange accent + near-black
 // panels + a MUTED (not loud) boundary red. Kept as hex so alpha suffixes work.
-const AMBER = "#ff7a2c"; // --color-brand
+const AMBER = "#e8501a"; // --color-brand
 const RED = "#ff5a4d";   // muted boundary guide
 const PANEL = "#0f0f11"; // clean dark card (matches the toasts/staged panel)
 const ELEV = "#17171b";  // input/select surface

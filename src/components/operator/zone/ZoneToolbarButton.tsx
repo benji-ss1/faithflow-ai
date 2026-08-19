@@ -121,7 +121,7 @@ export function ZoneToolbarButton({ onOpen, hasCustomProfile }: { onOpen: () => 
 
   return (
     <>
-      <style>{`@keyframes pf-zone-pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,122,44,0.0)}50%{box-shadow:0 0 0 6px rgba(255,122,44,0.35)}}`}</style>
+      <style>{`@keyframes pf-zone-pulse{0%,100%{box-shadow:0 0 0 0 rgba(232,80,26,0.0)}50%{box-shadow:0 0 0 6px rgba(232,80,26,0.35)}}`}</style>
       <button
         type="button"
         onPointerDown={onPointerDown}
@@ -132,12 +132,12 @@ export function ZoneToolbarButton({ onOpen, hasCustomProfile }: { onOpen: () => 
           left: pos.x,
           top: pos.y,
           background: "rgba(15,15,17,0.85)",
-          border: "1px solid rgba(255,122,44,0.55)",
-          color: "#ff7a2c",
+          border: "1px solid rgba(232,80,26,0.55)",
+          color: "#e8501a",
           cursor: dragging ? "grabbing" : "grab",
           animation: pulse && !dragging ? "pf-zone-pulse 1.8s ease-in-out infinite" : undefined,
         }}
-        onMouseEnter={(e) => { if (!dragging) e.currentTarget.style.background = "rgba(255,122,44,0.20)"; }}
+        onMouseEnter={(e) => { if (!dragging) e.currentTarget.style.background = "rgba(232,80,26,0.20)"; }}
         onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(15,15,17,0.85)"; }}
       >
         {/* resize / layout glyph */}

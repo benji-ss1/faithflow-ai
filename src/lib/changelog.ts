@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.256",
+    date: "2026-08-19",
+    headline: "A richer, deeper orange",
+    highlights: [
+      "PresentFlow's accent is now a deeper, richer burnt-orange across the whole app — selection, buttons, the AI chips, sliders, section outlines and highlights all share the new colour.",
+    ],
+  },
+  {
     version: "0.1.255",
     date: "2026-08-19",
     headline: "Nicer verse buttons, fade slider & AI chips",

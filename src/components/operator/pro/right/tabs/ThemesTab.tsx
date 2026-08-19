@@ -273,7 +273,7 @@ function CreateSwatchDialog({ onAdd, big = false }: { onAdd: (t: { name: string;
   const [name, setName] = useState("");
   const [textColor, setTextColor] = useState("#ffffff");
   const [bgColor, setBgColor] = useState("#111111");
-  const [accentColor, setAccentColor] = useState("#ff7a2c");
+  const [accentColor, setAccentColor] = useState("#e8501a");
   const [fontFamilyId, setFontFamilyId] = useState(FONT_FAMILIES[0].id);
   const font = FONT_FAMILIES.find((f) => f.id === fontFamilyId) || FONT_FAMILIES[0];
 

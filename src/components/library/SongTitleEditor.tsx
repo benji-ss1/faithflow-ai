@@ -82,7 +82,7 @@ export function SongTitleEditor({
               }}
               onBlur={commit}
               aria-label="Song title"
-              className="w-full max-w-xl rounded-md border border-[var(--pf-admin-border,#2a3232)] bg-transparent px-2 py-1 text-2xl font-semibold tracking-[-0.01em] text-[var(--pf-admin-text)] outline-none focus:border-[var(--color-brand,#ff7a2c)] md:text-[28px]"
+              className="w-full max-w-xl rounded-md border border-[var(--pf-admin-border,#2a3232)] bg-transparent px-2 py-1 text-2xl font-semibold tracking-[-0.01em] text-[var(--pf-admin-text)] outline-none focus:border-[var(--color-brand,#e8501a)] md:text-[28px]"
             />
             <button onMouseDown={(e) => e.preventDefault()} onClick={commit} aria-label="Save title" className="text-emerald-500 hover:opacity-80">
               <Check className="h-5 w-5" />

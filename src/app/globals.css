@@ -36,17 +36,17 @@
   --color-card-foreground:       #ece7e0;
   --color-popover-foreground:    #ece7e0;
   --color-muted-foreground:      #aca498;
-  --color-primary:               #ff7a2c;
+  --color-primary:               #e8501a;
   --color-primary-foreground:    #17130c;
   --color-secondary:             #1f1f22;
   --color-secondary-foreground:  #ece7e0;
-  --color-accent:                #ff9048;
+  --color-accent:                #f26a34;
   --color-accent-foreground:     #17130c;
 
   /* Semantic accents — warm brand + universal signals */
-  --color-brand:          #ff7a2c;
-  --color-brand-muted:    #cf5f1e;
-  --color-brand-hi:       #ffb861;
+  --color-brand:          #e8501a;
+  --color-brand-muted:    #c23e0f;
+  --color-brand-hi:       #ff8a52;
   --color-success:        #4fd18b;
   --color-warning:        #f0b35a;
   --color-destructive:    #ff6d6d;
@@ -55,7 +55,7 @@
   /* Borders and inputs */
   --color-border:  rgba(255,255,255,0.12);
   --color-input:   rgba(255,255,255,0.12);
-  --color-ring:    #ff7a2c;
+  --color-ring:    #e8501a;
 
   /* Sidebar-specific */
   --color-sidebar-bg:         #08080a;
@@ -66,8 +66,8 @@
 
   /* AI + audio status tokens */
   --color-ai-idle:      #6f685e;
-  --color-ai-listening: #ff9048;
-  --color-ai-processing:#ffb861;
+  --color-ai-listening: #f26a34;
+  --color-ai-processing:#ff8a52;
   --color-ai-approved:  #4fd18b;
 
   --font-sans:    "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "SF Pro Text", "Inter", "Segoe UI", Roboto, sans-serif;
@@ -235,7 +235,7 @@ html.light {
 /* Warm-ember selection glow — the "this is what I'm working with" cue for the
  * selected slide card / active item. Ring + soft outer bloom, no hard border. */
 .pf-selected-glow {
-  box-shadow: 0 0 0 1.5px var(--color-brand), 0 0 14px 1px rgba(255,122,44,0.22);
+  box-shadow: 0 0 0 1.5px var(--color-brand), 0 0 14px 1px rgba(232,80,26,0.22);
 }
 /* Section header with a trailing hairline rule that fades out — marks a
  * section's territory without a heavy divider. Put on a flex row. */

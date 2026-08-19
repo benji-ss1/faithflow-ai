@@ -60,7 +60,7 @@ export function DesktopDownloadPanel({ deepLinkHref, showSkipLink = true }: { de
             href={deepLinkHref}
             style={{
               display: "inline-block", padding: "12px 28px", borderRadius: 10,
-              background: "linear-gradient(90deg,#ffb861,#ff7a2c)", color: "#0a0a0a",
+              background: "linear-gradient(90deg,#ffb861,#e8501a)", color: "#0a0a0a",
               fontWeight: 600, fontSize: 15, textDecoration: "none", marginBottom: 12,
             }}
           >

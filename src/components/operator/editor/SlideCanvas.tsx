@@ -231,11 +231,11 @@ export function SlideCanvas({
           }}
         >
           {/* Alignment snap guides (positioned at the snapped canvas coordinate) */}
-          {guides.x !== null && <div className="pointer-events-none absolute inset-y-0 w-px bg-[#ff7a2c]/80 z-50" style={{ left: `${(guides.x / CANVAS_W) * 100}%` }} />}
-          {guides.y !== null && <div className="pointer-events-none absolute inset-x-0 h-px bg-[#ff7a2c]/80 z-50" style={{ top: `${(guides.y / CANVAS_H) * 100}%` }} />}
+          {guides.x !== null && <div className="pointer-events-none absolute inset-y-0 w-px bg-[#e8501a]/80 z-50" style={{ left: `${(guides.x / CANVAS_W) * 100}%` }} />}
+          {guides.y !== null && <div className="pointer-events-none absolute inset-x-0 h-px bg-[#e8501a]/80 z-50" style={{ top: `${(guides.y / CANVAS_H) * 100}%` }} />}
           {/* Marquee rubber-band */}
           {marquee && (
-            <div className="pointer-events-none absolute z-50 border border-[#ff7a2c] bg-[#ff7a2c]/10"
+            <div className="pointer-events-none absolute z-50 border border-[#e8501a] bg-[#e8501a]/10"
               style={{
                 left: `${(marquee.x / CANVAS_W) * 100}%`, top: `${(marquee.y / CANVAS_H) * 100}%`,
                 width: `${(marquee.w / CANVAS_W) * 100}%`, height: `${(marquee.h / CANVAS_H) * 100}%`,
@@ -373,8 +373,8 @@ function ObjectView({
         className="w-full h-full"
         style={{
           background: obj.fill2
-            ? `linear-gradient(${obj.fillAngle ?? 135}deg, ${obj.fill ?? "#ff7a2c"}, ${obj.fill2})`
-            : (obj.fill ?? "#ff7a2c"),
+            ? `linear-gradient(${obj.fillAngle ?? 135}deg, ${obj.fill ?? "#e8501a"}, ${obj.fill2})`
+            : (obj.fill ?? "#e8501a"),
           border: obj.strokeWidth ? `${((obj.strokeWidth / CANVAS_W) * 100)}cqw solid ${obj.stroke ?? "#c2410c"}` : undefined,
           borderRadius: obj.shape === "ellipse" ? "50%" : `${(((obj.radius ?? 0) / CANVAS_W) * 100)}cqw`,
           opacity: obj.opacity ?? 1,
@@ -434,7 +434,7 @@ function ObjectView({
       )}
       {selected && !readOnly && !editing && (
         <>
-          <div className={cn("absolute inset-0 pointer-events-none ring-2", soleSelected ? "ring-[#ff7a2c]" : "ring-[#ff7a2c]/70")} />
+          <div className={cn("absolute inset-0 pointer-events-none ring-2", soleSelected ? "ring-[#e8501a]" : "ring-[#e8501a]/70")} />
           {/* Resize handles only for an unlocked sole selection — a group moves
               as a unit and locked objects can't be resized. */}
           {soleSelected && !locked && (["nw", "n", "ne", "e", "se", "s", "sw", "w"] as HandleKey[]).map((k) => (
@@ -447,7 +447,7 @@ function ObjectView({
 }
 
 function Handle({ k, onBegin }: { k: HandleKey; onBegin: (e: React.MouseEvent) => void }) {
-  const pos: React.CSSProperties = { position: "absolute", width: 10, height: 10, background: "#ff7a2c", border: "1px solid #fff", borderRadius: 2 };
+  const pos: React.CSSProperties = { position: "absolute", width: 10, height: 10, background: "#e8501a", border: "1px solid #fff", borderRadius: 2 };
   const map: Record<HandleKey, React.CSSProperties> = {
     nw: { left: -5, top: -5, cursor: "nwse-resize" },
     n:  { left: "50%", top: -5, transform: "translateX(-50%)", cursor: "ns-resize" },

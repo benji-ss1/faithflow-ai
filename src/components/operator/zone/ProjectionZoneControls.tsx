@@ -9,7 +9,7 @@ import { normalizeZone, DEFAULT_ZONE, type ProjectionZone } from "@/lib/projecti
 // edits below, don't change anything there"). It reads/writes the SAME global
 // projection-zone store as the full ZoneEditor, so tuning here moves the real
 // projector output live. Geometry only — it never touches slide content.
-const AMBER = "#ff7a2c";
+const AMBER = "#e8501a";
 
 type Display = { id: number; label: string; width: number; height: number; isPrimary: boolean };
 
@@ -63,13 +63,13 @@ export function ProjectionZoneControls({ className }: { className?: string }) {
           <span className="w-14 shrink-0 text-white/50">Size</span>
           <input type="range" min={0.25} max={1} step={0.01} value={Math.min(z.w, z.h)}
             onChange={(e) => { const s = Number(e.target.value); const cx = z.x + z.w / 2, cy = z.y + z.h / 2; patch({ w: s, h: s, x: Math.max(0, Math.min(1 - s, cx - s / 2)), y: Math.max(0, Math.min(1 - s, cy - s / 2)) }); }}
-            className="flex-1 accent-[#ff7a2c]" />
+            className="flex-1 accent-[#e8501a]" />
           <span className="w-10 text-right tabular-nums">{Math.round(Math.min(z.w, z.h) * 100)}%</span>
         </label>
         <label className="flex items-center gap-3">
           <span className="w-14 shrink-0 text-white/50">Font</span>
           <input type="range" min={0.5} max={2} step={0.05} value={z.fontScale}
-            onChange={(e) => patch({ fontScale: Number(e.target.value) })} className="flex-1 accent-[#ff7a2c]" />
+            onChange={(e) => patch({ fontScale: Number(e.target.value) })} className="flex-1 accent-[#e8501a]" />
           <span className="w-10 text-right tabular-nums">{z.fontScale.toFixed(2)}×</span>
         </label>
         <div className="flex items-center gap-2">

@@ -31,8 +31,8 @@ export default function Error({ error, reset }: { error: Error & { digest?: stri
           className="font-black leading-none select-none"
           style={{
             fontSize: "clamp(90px, 20vw, 220px)",
-            color: "#ff7a2c14",
-            WebkitTextStroke: "2px #ff7a2c",
+            color: "#e8501a14",
+            WebkitTextStroke: "2px #e8501a",
             letterSpacing: "0.02em",
           }}
         >
@@ -49,7 +49,7 @@ export default function Error({ error, reset }: { error: Error & { digest?: stri
           <button
             onClick={reset}
             className="inline-flex items-center gap-2 h-12 px-6 rounded-xl text-[15px] font-bold transition-[filter] hover:brightness-110"
-            style={{ background: "#ff7a2c", color: "#0b0b0e" }}
+            style={{ background: "#e8501a", color: "#0b0b0e" }}
           >
             Try again <RotateCcw className="w-4 h-4" />
           </button>

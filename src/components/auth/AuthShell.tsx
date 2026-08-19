@@ -98,7 +98,7 @@ function BrandPanel() {
           <div
             key={wordIdx}
             className="font-display font-semibold text-[15px]"
-            style={{ color: "#ff7a2c", animation: "pfSlideWord 0.55s ease both" }}
+            style={{ color: "#e8501a", animation: "pfSlideWord 0.55s ease both" }}
           >
             {ROTATING_WORDS[wordIdx % ROTATING_WORDS.length]}
           </div>
@@ -198,7 +198,7 @@ export function AuthHeader({
         {showBrandInHeading && (
           <span className="inline-flex items-center gap-1.5">
             <Image src="/brand/pf-logo-mark.png" alt="" width={30} height={30} className="object-contain" />
-            Present<span style={{ color: "#ff7a2c" }}>Flow</span>
+            Present<span style={{ color: "#e8501a" }}>Flow</span>
           </span>
         )}
       </h2>

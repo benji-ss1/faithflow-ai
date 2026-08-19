@@ -1385,7 +1385,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
           style={{
             background: "rgba(15,15,17,0.96)",
             border: "1px solid rgba(255,255,255,0.10)",
-            borderLeft: "3px solid #ff7a2c",
+            borderLeft: "3px solid #e8501a",
             boxShadow: "0 16px 48px rgba(0,0,0,0.55)",
             backdropFilter: "blur(14px)",
             WebkitBackdropFilter: "blur(14px)",
@@ -1394,7 +1394,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
           aria-live="assertive"
         >
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#ff7a2c] px-2 py-0.5 rounded-full" style={{ background: "rgba(255,122,44,0.14)", border: "1px solid rgba(255,122,44,0.3)" }}>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#e8501a] px-2 py-0.5 rounded-full" style={{ background: "rgba(232,80,26,0.14)", border: "1px solid rgba(232,80,26,0.3)" }}>
               AI staged — not live
             </span>
             <span className="text-[13px] font-semibold truncate text-white">{stagedSong.title}</span>
@@ -1427,7 +1427,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
                     ? "font-semibold text-white"
                     : "text-white/60 hover:text-white/90",
                 )}
-                style={i === stagedSong.currentIdx ? { background: "rgba(255,122,44,0.18)" } : undefined}
+                style={i === stagedSong.currentIdx ? { background: "rgba(232,80,26,0.18)" } : undefined}
               >
                 {s}
               </div>
@@ -1441,7 +1441,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
             <button
               type="button"
               onClick={confirmStagedSongLive}
-              className="px-3.5 py-1.5 rounded-lg bg-[#ff7a2c] hover:bg-[#ff8f4d] text-white text-[12px] font-bold shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300/60"
+              className="px-3.5 py-1.5 rounded-lg bg-[#e8501a] hover:bg-[#ff8f4d] text-white text-[12px] font-bold shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300/60"
               data-testid="staged-song-go-live-btn"
             >
               GO LIVE →

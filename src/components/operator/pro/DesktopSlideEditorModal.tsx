@@ -32,7 +32,7 @@ import { cn } from "@/lib/utils";
  */
 
 // ── ZoneEditor palette (verbatim) ───────────────────────────────────────────
-const AMBER = "#ff7a2c";
+const AMBER = "#e8501a";
 const PANEL = "#0f0f11";
 const ELEV = "#17171b";
 const HAIR = "#ffffff14"; // hairline divider
@@ -396,7 +396,7 @@ function RailBtn({ label, icon: Icon, onClick, disabled, accent, danger }: { lab
 // ── Right drawer ────────────────────────────────────────────────────────────
 const FONTS = ["Inter", "Sora", "Plus Jakarta Sans", "Georgia", "Helvetica", "Arial", "Times New Roman"];
 const rowCls = "block text-[9px] uppercase tracking-wide text-white/40 mb-1";
-const inCls = "w-full h-8 px-2 rounded-md border text-[12px] text-zinc-100 bg-[#0b0b0e] outline-none focus:border-[#ff7a2c]/70";
+const inCls = "w-full h-8 px-2 rounded-md border text-[12px] text-zinc-100 bg-[#0b0b0e] outline-none focus:border-[#e8501a]/70";
 const segOn = { borderColor: AMBER, background: `${AMBER}22`, color: "#ffd9bf" };
 const segOff: React.CSSProperties = { borderColor: "#ffffff1a" };
 
@@ -543,9 +543,9 @@ function DesignPanel({ editor }: { editor: Editor }) {
         <div><span className={rowCls}>H</span><input type="number" value={Math.round(selected.h)} onChange={(e) => upd({ h: Math.max(20, Number(e.target.value)) })} className={inCls} style={{ borderColor: "#26262b" }} /></div>
       </div>
       <div><span className={rowCls}>Rotation — {Math.round(selected.rotation ?? 0)}°</span>
-        <input type="range" min={-180} max={180} value={selected.rotation ?? 0} onChange={(e) => upd({ rotation: Number(e.target.value) })} className="w-full accent-[#ff7a2c]" /></div>
+        <input type="range" min={-180} max={180} value={selected.rotation ?? 0} onChange={(e) => upd({ rotation: Number(e.target.value) })} className="w-full accent-[#e8501a]" /></div>
       <div><span className={rowCls}>Opacity — {Math.round((selected.opacity ?? 1) * 100)}%</span>
-        <input type="range" min={0} max={100} value={(selected.opacity ?? 1) * 100} onChange={(e) => upd({ opacity: Number(e.target.value) / 100 })} className="w-full accent-[#ff7a2c]" /></div>
+        <input type="range" min={0} max={100} value={(selected.opacity ?? 1) * 100} onChange={(e) => upd({ opacity: Number(e.target.value) / 100 })} className="w-full accent-[#e8501a]" /></div>
 
       {selected.kind === "text" && <TextProps o={selected} upd={upd} />}
       {selected.kind === "shape" && <ShapeProps o={selected} upd={upd} />}
@@ -579,7 +579,7 @@ function AddPanel({ editor, churchId, addFocus }: { editor: Editor; churchId: st
         </div>
         <div className="flex gap-1.5 mt-1.5">
           <input value={imgUrl} onChange={(e) => setImgUrl(e.target.value)} placeholder="…or paste an image URL"
-            className="flex-1 h-8 px-2 rounded-md border text-[12px] text-zinc-200 bg-[#0b0b0e] outline-none focus:border-[#ff7a2c]/70" style={{ borderColor: "#26262b" }} />
+            className="flex-1 h-8 px-2 rounded-md border text-[12px] text-zinc-200 bg-[#0b0b0e] outline-none focus:border-[#e8501a]/70" style={{ borderColor: "#26262b" }} />
           <button onClick={() => { if (imgUrl.trim()) { addFocus(() => editor.addImage(imgUrl.trim())); setImgUrl(""); } }}
             className="h-8 px-3 rounded-md border text-[11px] font-bold text-white/80" style={segOff}>Add</button>
         </div>
@@ -659,7 +659,7 @@ function TemplatesPanel({ editor, churchId }: { editor: Editor; churchId: string
         <div className="flex gap-1">
           <input autoFocus value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} placeholder="Template name" maxLength={60}
             onKeyDown={(e) => { if (e.key === "Enter") commitSave(); else if (e.key === "Escape") setNaming(false); }}
-            className="flex-1 h-8 px-2 rounded-md border text-[12px] text-zinc-100 bg-[#0b0b0e] outline-none focus:border-[#ff7a2c]/70" style={{ borderColor: "#26262b" }} />
+            className="flex-1 h-8 px-2 rounded-md border text-[12px] text-zinc-100 bg-[#0b0b0e] outline-none focus:border-[#e8501a]/70" style={{ borderColor: "#26262b" }} />
           <button onClick={commitSave} className="h-8 px-3 rounded-md text-[11px] font-bold" style={{ background: AMBER, color: "#0b0b0e" }}>Save</button>
           <button onClick={() => setNaming(false)} className="grid h-8 w-8 place-items-center rounded-md border text-zinc-400" style={segOff}><X className="w-3.5 h-3.5" /></button>
         </div>
@@ -782,7 +782,7 @@ function TextProps({ o, upd }: { o: TextObject; upd: (p: Partial<SlideObject>) =
     <>
       <div><span className={rowCls}>Text</span>
         <textarea value={o.text} onChange={(e) => upd({ text: e.target.value })} rows={3}
-          className="w-full px-2 py-1.5 rounded-md border text-[12px] text-zinc-100 bg-[#0b0b0e] outline-none focus:border-[#ff7a2c]/70 resize-y" style={{ borderColor: "#26262b" }} />
+          className="w-full px-2 py-1.5 rounded-md border text-[12px] text-zinc-100 bg-[#0b0b0e] outline-none focus:border-[#e8501a]/70 resize-y" style={{ borderColor: "#26262b" }} />
       </div>
       <div><span className={rowCls}>Font</span>
         <select value={o.fontFamily ?? "Inter"} onChange={(e) => upd({ fontFamily: e.target.value })} className={inCls} style={{ borderColor: "#26262b" }}>
@@ -829,19 +829,19 @@ function ShapeProps({ o, upd }: { o: ShapeObject; upd: (p: Partial<SlideObject>)
   return (
     <>
       <div className="grid grid-cols-2 gap-2">
-        <div><span className={rowCls}>Fill</span><input type="color" value={o.fill ?? "#ff7a2c"} onChange={(e) => upd({ fill: e.target.value })} className="h-8 w-full rounded-md border cursor-pointer bg-transparent" style={{ borderColor: "#26262b" }} /></div>
+        <div><span className={rowCls}>Fill</span><input type="color" value={o.fill ?? "#e8501a"} onChange={(e) => upd({ fill: e.target.value })} className="h-8 w-full rounded-md border cursor-pointer bg-transparent" style={{ borderColor: "#26262b" }} /></div>
         <div><span className={rowCls}>Border</span><input type="color" value={o.stroke ?? "#0f766e"} onChange={(e) => upd({ stroke: e.target.value })} className="h-8 w-full rounded-md border cursor-pointer bg-transparent" style={{ borderColor: "#26262b" }} /></div>
       </div>
       <Toggle on={!!o.fill2} label={`Gradient ${o.fill2 ? "on" : "off"}`} onClick={() => upd({ fill2: o.fill2 ? undefined : "#0f766e" })} className="uppercase" />
       {o.fill2 && (
         <div className="grid grid-cols-2 gap-2">
           <div><span className={rowCls}>Fill 2</span><input type="color" value={o.fill2} onChange={(e) => upd({ fill2: e.target.value })} className="h-8 w-full rounded-md border cursor-pointer bg-transparent" style={{ borderColor: "#26262b" }} /></div>
-          <div><span className={rowCls}>Angle — {o.fillAngle ?? 135}°</span><input type="range" min={0} max={360} value={o.fillAngle ?? 135} onChange={(e) => upd({ fillAngle: Number(e.target.value) })} className="w-full accent-[#ff7a2c]" /></div>
+          <div><span className={rowCls}>Angle — {o.fillAngle ?? 135}°</span><input type="range" min={0} max={360} value={o.fillAngle ?? 135} onChange={(e) => upd({ fillAngle: Number(e.target.value) })} className="w-full accent-[#e8501a]" /></div>
         </div>
       )}
-      <div><span className={rowCls}>Border width — {o.strokeWidth ?? 0}px</span><input type="range" min={0} max={40} value={o.strokeWidth ?? 0} onChange={(e) => upd({ strokeWidth: Number(e.target.value) })} className="w-full accent-[#ff7a2c]" /></div>
+      <div><span className={rowCls}>Border width — {o.strokeWidth ?? 0}px</span><input type="range" min={0} max={40} value={o.strokeWidth ?? 0} onChange={(e) => upd({ strokeWidth: Number(e.target.value) })} className="w-full accent-[#e8501a]" /></div>
       {o.shape === "rect" && (
-        <div><span className={rowCls}>Corner radius — {o.radius ?? 0}px</span><input type="range" min={0} max={200} value={o.radius ?? 0} onChange={(e) => upd({ radius: Number(e.target.value) })} className="w-full accent-[#ff7a2c]" /></div>
+        <div><span className={rowCls}>Corner radius — {o.radius ?? 0}px</span><input type="range" min={0} max={200} value={o.radius ?? 0} onChange={(e) => upd({ radius: Number(e.target.value) })} className="w-full accent-[#e8501a]" /></div>
       )}
     </>
   );

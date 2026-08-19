@@ -224,7 +224,7 @@ export function OnboardingWizard({
             key={i}
             className="h-[4px] flex-1 rounded-[3px] transition-all"
             style={{
-              background: i <= step ? "linear-gradient(90deg,#ffb861,#ff7a2c)" : "rgba(255,255,255,0.09)",
+              background: i <= step ? "linear-gradient(90deg,#ffb861,#e8501a)" : "rgba(255,255,255,0.09)",
             }}
           />
         ))}
@@ -441,7 +441,7 @@ export function OnboardingWizard({
               >
                 <div
                   className="flex h-[30px] w-[30px] items-center justify-center rounded-full text-[13px] font-bold text-white"
-                  style={{ background: "linear-gradient(135deg,#ff7a2c,#8a6f96)" }}
+                  style={{ background: "linear-gradient(135deg,#e8501a,#8a6f96)" }}
                 >
                   {inv.email[0]?.toUpperCase()}
                 </div>
@@ -618,7 +618,7 @@ function ImportOptionCard({
       style={{
         background: selected ? "rgba(255,144,72,0.10)" : "rgba(255,255,255,0.03)",
         border: selected ? "1px solid rgba(255,144,72,0.55)" : "1px solid rgba(255,255,255,0.08)",
-        boxShadow: selected ? "0 8px 26px rgba(255,122,44,0.22)" : "none",
+        boxShadow: selected ? "0 8px 26px rgba(232,80,26,0.22)" : "none",
       }}
     >
       <div className="flex items-start gap-3">

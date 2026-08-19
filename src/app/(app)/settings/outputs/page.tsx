@@ -19,7 +19,7 @@ export default function OutputsSettingsPage() {
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           <Link
             href="/onboarding/download"
-            style={{ display: "inline-block", padding: "10px 16px", borderRadius: 8, background: "linear-gradient(90deg,#ffb861,#ff7a2c)", color: "#0a0a0a", fontWeight: 600, textDecoration: "none", fontSize: 14 }}
+            style={{ display: "inline-block", padding: "10px 16px", borderRadius: 8, background: "linear-gradient(90deg,#ffb861,#e8501a)", color: "#0a0a0a", fontWeight: 600, textDecoration: "none", fontSize: 14 }}
           >
             Download desktop app
           </Link>

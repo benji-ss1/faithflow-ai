@@ -285,7 +285,7 @@ export default function StagePage() {
         {/* Operator message — a slim bar over the bottom of the current area, only
             when the operator actually sends one (no dead placeholder). */}
         {operatorMessage && (
-          <div className="absolute left-0 right-0 bottom-0 z-20 bg-black/70 backdrop-blur-sm border-t-2 px-6 py-2.5" style={{ borderColor: "var(--color-brand, #ff7a2c)" }}>
+          <div className="absolute left-0 right-0 bottom-0 z-20 bg-black/70 backdrop-blur-sm border-t-2 px-6 py-2.5" style={{ borderColor: "var(--color-brand, #e8501a)" }}>
             <div className="text-white text-2xl font-semibold leading-tight">{operatorMessage}</div>
           </div>
         )}
@@ -312,7 +312,7 @@ export default function StagePage() {
       {/* Spoken message overlay (operator "message" broadcast) — kept. */}
       {messageOverlay && (
         <div className="absolute left-[6%] right-[6%] top-[8%] pointer-events-none z-30">
-          <div className="bg-black/75 backdrop-blur-sm border-l-4 p-4 rounded-sm" style={{ borderColor: "var(--color-brand, #ff7a2c)" }}>
+          <div className="bg-black/75 backdrop-blur-sm border-l-4 p-4 rounded-sm" style={{ borderColor: "var(--color-brand, #e8501a)" }}>
             <div className="text-white text-2xl md:text-4xl font-semibold leading-tight text-left">{messageOverlay}</div>
           </div>
         </div>
