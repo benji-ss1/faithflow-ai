@@ -1,5 +1,5 @@
 // Server-only. Do not import from client components.
-import { eq, asc, and } from "drizzle-orm";
+import { eq, asc, and, sql } from "drizzle-orm";
 import { getDb } from "../db/client";
 import { sanitizeLyrics } from "../pro6-parser";
 import { desc } from "drizzle-orm";
@@ -68,8 +68,33 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
       // in actions.ts is the first line at write; this ensures a legacy row
       // or a future direct-DB write path can't leak another church's slides.
       const candidateSongId = String(payload.songId);
-      const [ownedSong] = await db.select({ id: songs.id }).from(songs)
+      let [ownedSong] = await db.select({ id: songs.id }).from(songs)
         .where(and(eq(songs.id, candidateSongId), eq(songs.churchId, churchId))).limit(1);
+      // Resilience: a dangling payload.songId (the song was re-imported/re-synced
+      // under a NEW id while the plan item still points at the old one) would
+      // otherwise fall through to a single blank slide with no lyrics. Resolve
+      // the song by (church, title) instead so the plan still loads and can
+      // project. Church-scoped, so it can never surface another church's song.
+      // Pick the title match with the MOST slides so a stray empty duplicate
+      // can't win over the real song; require > 0 slides so we never "resolve"
+      // to an equally-empty row.
+      if (!ownedSong) {
+        const titleKey = (it.title || "").trim().toLowerCase();
+        if (titleKey) {
+          const byTitle = await db
+            .select({ id: songs.id, n: sql<number>`count(${songSlides.id})::int` })
+            .from(songs)
+            .leftJoin(songSlides, eq(songSlides.songId, songs.id))
+            .where(and(eq(songs.churchId, churchId), sql`lower(trim(${songs.title})) = ${titleKey}`))
+            .groupBy(songs.id)
+            .orderBy(sql`count(${songSlides.id}) desc`)
+            .limit(1);
+          if (byTitle[0] && byTitle[0].n > 0) {
+            ownedSong = { id: byTitle[0].id };
+            console.log(`[services] re-linked stale song ref for "${it.title}" (${candidateSongId} → ${byTitle[0].id}, ${byTitle[0].n} slides)`);
+          }
+        }
+      }
       if (ownedSong) {
         songId = ownedSong.id;
         const rows = await db.select().from(songSlides).where(eq(songSlides.songId, songId)).orderBy(asc(songSlides.order));
