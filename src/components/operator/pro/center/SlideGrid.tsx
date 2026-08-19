@@ -524,7 +524,11 @@ function SlideCard({
           tabIndex={0}
           onClick={onSelect}
           onDoubleClick={onDouble}
+          // Staggered pop-in when a song's slides first mount (keyed by slide id,
+          // so it fires on song switch, not on every re-render).
+          style={{ animationDelay: `${Math.min(Math.max(index - 1, 0), 14) * 22}ms` }}
           className={cn(
+            "pf-slide-pop",
             // w-full so every card fills its grid cell → uniform size regardless
             // of word count (a <button> otherwise shrinks to its text content,
             // which made short slides like "AMEN" tiny). aspect-video then gives

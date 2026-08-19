@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.257",
+    date: "2026-08-19",
+    headline: "Slides pop in smoothly",
+    highlights: [
+      "When you open a song, its slides now gently pop in one after another instead of appearing all at once — a smoother, more polished reveal.",
+    ],
+  },
+  {
     version: "0.1.256",
     date: "2026-08-19",
     headline: "A richer, deeper orange",

@@ -275,6 +275,9 @@ html.light {
 @keyframes pfPulse { 0%,100% { transform: scale(1); opacity: 0.9; } 50% { transform: scale(1.06); opacity: 1; } }
 @keyframes pfSlideWord { from { transform: translateX(-10px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 @keyframes pfListenWave { 0%,100% { transform: scaleY(0.35); } 50% { transform: scaleY(1); } }
+@keyframes pfSlidePop { from { opacity: 0; transform: translateY(7px) scale(0.982); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.pf-slide-pop { animation: pfSlidePop .3s cubic-bezier(.2,.7,.2,1) both; }
+@media (prefers-reduced-motion: reduce) { .pf-slide-pop { animation: none; } }
 
 /*
  * Themes 3 — animated theme backgrounds for the projector (AnimatedThemeBg).
