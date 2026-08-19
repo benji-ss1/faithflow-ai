@@ -12,7 +12,7 @@ import { cachedLookup } from "@/lib/bible-client-cache";
 import { bibleSearchCacheKey, getBibleSearchCached, setBibleSearchCached } from "@/lib/bible-search-cache";
 import { fetchChapterCached } from "@/lib/bible-chapter-cache";
 import { addServiceItem, addServiceItems } from "@/lib/actions";
-import { Plus, Pencil, Check, BookOpen } from "lucide-react";
+import { Plus, Check, BookOpen } from "lucide-react";
 import { DropdownDisclosure } from "../DropdownDisclosure";
 import { useRouter } from "next/navigation";
 import { isInternalEvent } from "@/lib/internal-events";
@@ -696,30 +696,8 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
         >
           {loading ? "…" : "Lookup"}
         </button>
-        <button
-          type="button"
-          title={editingId ? "Exit edit mode (Esc)" : "Edit the selected verse card"}
-          aria-label="Edit selected verse"
-          aria-pressed={!!editingId}
-          onClick={() => {
-            if (editingId) { setEditingId(null); return; }
-            const idx = selectedIdx ?? 0;
-            const card = cards[idx];
-            if (!card) { toast.info("Select a verse card first"); return; }
-            const slide = cardToSlide(card, idx, cards.length);
-            const current = editOverrides[card.id] ?? (slide.kind === "text" ? slide.text : "");
-            setEditDraft(current);
-            setEditingId(card.id);
-          }}
-          className={cn(
-            "h-9 w-9 flex items-center justify-center rounded-md border transition-colors",
-            editingId
-              ? "border-[var(--color-brand)] bg-[var(--color-brand)]/15 text-[var(--color-brand)]"
-              : "border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",
-          )}
-        >
-          <Pencil className="w-4 h-4" />
-        </button>
+        {/* Scripture is read-only — the edit-verse pencil was removed so
+            operators can't alter the biblical text. */}
         <BibleOptionsPopover />
       </div>
       </div>{/* end sticky search header */}

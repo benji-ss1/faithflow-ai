@@ -15,6 +15,18 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.266",
+    date: "2026-08-19",
+    headline: "Faster voice nav, redesigned transitions, and fixes",
+    highlights: [
+      "Spoken \"next verse\" / \"go back\" / \"continue\" now projects almost instantly — it no longer waits out the manual-action cooldown.",
+      "Redesigned the transition picker with live animated previews of each effect (Fade, Slide, Wipe, Iris and more).",
+      "The copy button on the live reference now works reliably in the desktop app (with the tick confirmation).",
+      "Scripture is now read-only — removed the verse-edit pencil from the Bible panel.",
+      "If the AI can't connect, it now tells you why instead of silently switching back off.",
+    ],
+  },
+  {
     version: "0.1.265",
     date: "2026-08-19",
     headline: "Removed the floating Projection Zone button",

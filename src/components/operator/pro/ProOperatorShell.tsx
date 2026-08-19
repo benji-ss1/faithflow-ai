@@ -2944,11 +2944,15 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // Enforce a floor here so a low-confidence pattern can't silently act
     // as if it were a confirmed command.
     if (cmd.confidence < 70) return;
-    // Share the word-timing effect's cooldown/floor so a voice command and
-    // a sustained lyric/verse word-match can't both advance the same verse
-    // in the same transcript update.
-    if (Date.now() < bibleCooldownUntilRef.current) return;
-    if (Date.now() - bibleLastAdvanceTsRef.current < BIBLE_SLIDE_FLOOR_MS) return;
+    // EXPLICIT spoken navigation ("next verse", "go back", "continue") is a
+    // direct operator command — it must project immediately. Unlike the
+    // AUTO word-match / silence paths, it deliberately BYPASSES the 4s manual
+    // cooldown (bibleCooldownUntilRef) so an operator click a moment earlier
+    // doesn't freeze the spoken command, and uses only a short same-utterance
+    // dedupe floor (300ms) to absorb Deepgram interim→final duplicates of the
+    // SAME phrase rather than the full 1s BIBLE_SLIDE_FLOOR_MS min-gap.
+    const VOICE_NAV_DEDUPE_MS = 300;
+    if (Date.now() - bibleLastAdvanceTsRef.current < VOICE_NAV_DEDUPE_MS) return;
     if (cmd.verb === "next_verse" || cmd.verb === "continue") {
       dispatchInternal("presentflow:bible-next", { live: true });
       bibleLastAdvanceTsRef.current = Date.now();

@@ -1235,7 +1235,19 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       wsSheddingRef.current = false;
       uplinkCongestedRef.current = false;
       ringFlushSettleUntilRef.current = 0;
-      setState((s) => ({ ...s, reconnectFailed: true, listening: false, ready: false, error: null, uplinkCongested: false }));
+      // Surface a clear, actionable reason. Previously this set error:null,
+      // which contradicted the "exhaustion surfaces a real error" note below
+      // and left the operator with a pill that silently flipped back OFF and
+      // zero explanation ("I clicked it and it didn't turn on — why?"). The
+      // message is non-transient so the sticky toast stays until they act.
+      setState((s) => ({
+        ...s,
+        reconnectFailed: true,
+        listening: false,
+        ready: false,
+        error: "AI couldn't connect to the audio service. Check your internet connection, then toggle AI Off and On again.",
+        uplinkCongested: false,
+      }));
       return;
     }
     // Fast bounded backoff: 500ms, 1s, 2s, 4s, then 5s max including
