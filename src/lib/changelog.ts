@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.274",
+    date: "2026-08-19",
+    headline: "Smarter AI model for the assistant features",
+    highlights: [
+      "The AI helper features now run on a stronger Groq model (gpt-oss-120b). Live speech→scripture detection is unchanged and just as fast.",
+    ],
+  },
+  {
     version: "0.1.273",
     date: "2026-08-19",
     headline: "Load Chapter stays put when the preacher calls a verse",

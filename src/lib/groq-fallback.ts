@@ -1,7 +1,12 @@
 // Groq rate-limit fallback (server-only) — pattern borrowed from FreeFlow.
 //
 // Model ladder (Groq ONLY — no other providers, hard project rule):
-//   primary : llama-3.3-70b-versatile  (quality; env-overridable via GROQ_MODEL)
+//   primary : openai/gpt-oss-120b      (strongest general model on Groq; quality.
+//             2026-08-19 upgrade from llama-3.3-70b-versatile. env-overridable
+//             via GROQ_MODEL. Only the LLM-assisted helper routes use this —
+//             the real-time speech→scripture path is Deepgram + the
+//             deterministic parser and never calls an LLM, so this does not
+//             affect live-detection latency.)
 //   fallback: llama-3.1-8b-instant     (fast/cheap, same OpenAI-compatible API)
 //
 // Behaviour:
@@ -20,7 +25,7 @@
 // primary, hit the 429 again, and re-learn the limit. No DB/external store
 // is used for this by design.
 
-export const GROQ_PRIMARY_MODEL = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+export const GROQ_PRIMARY_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
 export const GROQ_FALLBACK_MODEL = "llama-3.1-8b-instant";
 
 const DEFAULT_LIMIT_MS = 60_000;
