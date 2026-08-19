@@ -102,13 +102,13 @@ export default function Home() {
       <main style={{ overflowX: "clip" }}>
         {/* HERO */}
         <section
+          className="pf-hero"
           style={{
             position: "relative",
             padding: "clamp(104px,16vw,150px) 0 40px",
             overflow: "hidden",
             display: "flex",
             flexDirection: "column",
-            minHeight: "100vh",
             background:
               "linear-gradient(135deg,#0B0B0B 0%,#1A0A14 40%,#0B0B0B 100%)",
           }}

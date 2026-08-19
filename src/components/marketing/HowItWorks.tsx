@@ -47,7 +47,7 @@ const CSS = `
   position:relative;color:var(--ink)}
 .hiw *{box-sizing:border-box}
 .hiw .hiw-scrub{position:relative;height:300vh;background:var(--paper)}
-.hiw .hiw-sticky{position:sticky;top:0;height:100vh;overflow:hidden;background:var(--paper);
+.hiw .hiw-sticky{position:sticky;top:0;height:100vh;height:100dvh;overflow:hidden;background:var(--paper);
   display:flex;flex-direction:column;padding:9vh 6vw 5vh}
 
 .hiw .hiw-head{max-width:820px;flex:0 0 auto}
@@ -84,15 +84,21 @@ const CSS = `
   top:calc(var(--p,0) * 100% - 6px);transition:top 140ms linear;box-shadow:0 0 0 4px rgba(201,85,43,.14)}
 
 @media (max-width:960px){
-  .hiw .hiw-sticky{padding:11vh 7vw 4vh}
-  .hiw .hiw-body{grid-template-columns:1fr;grid-template-rows:1fr auto;gap:14px;padding-top:2vh}
-  .hiw .hiw-shot{max-height:52vh;max-width:96%}
-  .hiw .hiw-shot.portrait{max-height:54vh}
+  /* Clear the fixed nav, then split the remaining height into [shot | card].
+     The shot fits its own row (max-height:100%) and the stage clips, so it can
+     never bleed up into the heading or down into the card (fixes overlap). */
+  .hiw .hiw-sticky{padding:10vh 6vw 3vh}
+  .hiw .hiw-h2{font-size:clamp(26px,7vw,40px)}
+  .hiw .hiw-body{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto;gap:12px;padding-top:1vh;align-items:stretch}
+  .hiw .hiw-stage{overflow:hidden;height:auto}
+  .hiw .hiw-shot{max-height:100%;max-width:100%}
+  .hiw .hiw-shot.portrait{max-height:100%}
   .hiw .hiw-rail{display:none}
   /* on mobile only the active card shows, under the shot */
   .hiw .hiw-cards{max-width:none}
-  .hiw .hiw-card{opacity:0;position:absolute;left:7vw;right:7vw;pointer-events:none}
+  .hiw .hiw-card{opacity:0;position:absolute;left:6vw;right:6vw;pointer-events:none;padding:18px 20px}
   .hiw .hiw-card.on{opacity:1;position:relative;left:auto;right:auto;pointer-events:auto}
+  .hiw .hiw-card p{font-size:14px}
 }
 
 @media (prefers-reduced-motion:reduce){

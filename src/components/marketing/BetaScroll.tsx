@@ -15,7 +15,7 @@ import { useEffect, useRef, useState } from "react";
 const CSS = `
 .pfb{position:relative}
 .pfb .bs-scrub{position:relative;height:400vh;background:var(--bg)}
-.pfb .bs-sticky{position:sticky;top:0;height:100vh;display:grid;grid-template-columns:44px 1fr;padding:8vh 6vw 8vh 3vw;gap:24px;overflow:hidden}
+.pfb .bs-sticky{position:sticky;top:0;height:100vh;height:100dvh;display:grid;grid-template-columns:44px 1fr;padding:8vh 6vw 8vh 3vw;gap:24px;overflow:hidden}
 .pfb .bs-rail{position:relative;width:2px;margin-left:16px}
 .pfb .bs-rail::before{content:"";position:absolute;left:0;top:0;bottom:0;width:1px;background:var(--ink);opacity:.28}
 .pfb .bs-marker{position:absolute;left:-5px;width:12px;height:12px;border-radius:2px;background:var(--ink);top:calc(var(--p,0) * 100% - 6px);transition:top 140ms linear}

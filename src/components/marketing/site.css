@@ -165,6 +165,10 @@
    page into a scroll container — hidden would break position:sticky pinning. */
 .pf-site { overflow-x: clip; }
 
+/* Hero fills the visible viewport. dvh accounts for the mobile address bar
+   (avoids the 100vh jump on Android Chrome / iOS Safari); vh is the fallback. */
+.pf-site .pf-hero { min-height: 100vh; min-height: 100dvh; }
+
 /* Hero CTA: desktop keeps the button below the headline; mobile floats it
    centered over the auditorium (lower-middle third). */
 .pf-site .pf-hero-cta-m { display: none; }
