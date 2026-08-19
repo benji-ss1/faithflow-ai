@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { Pause, Play, SkipForward, SkipBack, HelpCircle } from "lucide-react";
+import { Pause, Play, SkipForward, SkipBack, HelpCircle, ArrowLeft, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import type { OperatorShellCtx } from "../shell/types";
 import { TransitionChooser } from "./BottomBar/TransitionChooser";
@@ -164,9 +164,25 @@ export function BottomBar({
 
       {/* Center — verse-nav is Bible-mode only; other modes just show
           the transition selector so the space isn't dead. */}
-      <div className="flex-1 flex items-center justify-center gap-2 text-[11px] text-[var(--color-muted-foreground)]">
+      <div className="flex-1 flex items-center justify-center gap-3 text-[11px] text-[var(--color-muted-foreground)]">
         {centerMode === "bible" && (
-          <button onClick={versePrev} className="h-7 px-2 rounded hover:bg-white/5">&lt; Verse</button>
+          // Segmented Prev/Next verse control (joined pill with a shared divider).
+          <div className="inline-flex items-center rounded-lg border border-[var(--color-border)] overflow-hidden bg-[var(--color-panel)]">
+            <button
+              onClick={versePrev}
+              title="Previous verse (preview)"
+              className="h-7 pl-2 pr-2.5 inline-flex items-center gap-1.5 text-[11px] font-medium text-[var(--color-foreground)] hover:bg-white/[0.06] border-r border-[var(--color-border)] transition-colors"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" /> Verse
+            </button>
+            <button
+              onClick={verseNext}
+              title="Next verse (preview)"
+              className="h-7 pl-2.5 pr-2 inline-flex items-center gap-1.5 text-[11px] font-medium text-[var(--color-foreground)] hover:bg-white/[0.06] transition-colors"
+            >
+              Verse <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
         )}
         <TransitionChooser
           transitionName={transitionName}
@@ -181,15 +197,11 @@ export function BottomBar({
           step={0.1}
           value={transitionDuration}
           onChange={(e) => setTransitionDuration(parseFloat(e.target.value))}
-          className="w-24"
-          style={{ accentColor: "var(--color-brand)" }}
+          className="pf-fade-slider w-28"
           title={`Transition Speed: ${transitionDuration.toFixed(1)}s`}
           aria-label="Transition Speed"
         />
         <span className="text-[10px] uppercase tracking-wider font-mono text-[var(--color-muted-foreground)]">Speed: {transitionDuration.toFixed(1)}s</span>
-        {centerMode === "bible" && (
-          <button onClick={verseNext} className="h-7 px-2 rounded hover:bg-white/5">Verse &gt;</button>
-        )}
       </div>
 
       {/* Right — 2026-08-16: the grid/list/text view toggles were REMOVED here;

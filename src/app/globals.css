@@ -203,6 +203,35 @@ html.light {
 [data-sonner-toast][data-type="error"] [data-title] { color: #ff8a8a !important; }
 [data-sonner-toast][data-type="error"] [data-description] { color: rgba(255,154,154,0.85) !important; }
 
+/* Polished fade / speed slider — rounded track + clean orange thumb with a
+ * soft focus halo (replaces the raw native range look in the bottom bar). */
+.pf-fade-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-elevated);
+  outline: none;
+  cursor: pointer;
+}
+.pf-fade-slider::-webkit-slider-runnable-track { height: 6px; border-radius: 999px; }
+.pf-fade-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px; height: 14px; margin-top: -4px;
+  border-radius: 50%;
+  background: var(--color-brand);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.45), 0 0 0 3px color-mix(in oklab, var(--color-brand) 22%, transparent);
+  transition: box-shadow .15s ease;
+}
+.pf-fade-slider:hover::-webkit-slider-thumb { box-shadow: 0 1px 6px rgba(0,0,0,0.5), 0 0 0 5px color-mix(in oklab, var(--color-brand) 28%, transparent); }
+.pf-fade-slider::-moz-range-track { height: 6px; border-radius: 999px; background: var(--color-elevated); }
+.pf-fade-slider::-moz-range-thumb {
+  width: 14px; height: 14px; border: none; border-radius: 50%;
+  background: var(--color-brand);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.45);
+}
+
 /* Warm-ember selection glow — the "this is what I'm working with" cue for the
  * selected slide card / active item. Ring + soft outer bloom, no hard border. */
 .pf-selected-glow {

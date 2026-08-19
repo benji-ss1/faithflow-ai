@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.255",
+    date: "2026-08-19",
+    headline: "Nicer verse buttons, fade slider & AI chips",
+    highlights: [
+      "The Bible ‹ Verse / Verse › buttons are now one clean segmented control with arrows.",
+      "The fade / speed slider has a smoother rounded track and a polished orange knob.",
+      "The AI chips are now glassy rounded bubbles with a soft glow, easier to read at a glance.",
+    ],
+  },
+  {
     version: "0.1.254",
     date: "2026-08-19",
     headline: "Listening waveform + one-tap copy",

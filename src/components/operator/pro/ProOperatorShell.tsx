@@ -332,7 +332,12 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
                     book: s.ref.book, chapter: s.ref.chapter, verseStart: s.ref.verseStart, verseEnd: s.ref.verseEnd, live: e.shiftKey,
                   });
                 }}
-                className="relative flex items-center gap-1 px-2 py-0.5 rounded border border-[var(--color-brand)] bg-[var(--color-elevated)] text-[11px] cursor-pointer hover:bg-[var(--color-elevated-hover,var(--color-elevated))] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
+                className="relative flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] cursor-pointer transition-all backdrop-blur-md hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
+                style={{
+                  border: "1px solid color-mix(in oklab, var(--color-brand) 55%, transparent)",
+                  background: "color-mix(in oklab, var(--color-brand) 12%, var(--color-elevated))",
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 8px rgba(0,0,0,0.35)",
+                }}
               >
                 <span className="font-semibold">{ref}</span>
                 <span className="text-[9px] font-mono opacity-60">{s.confidence}%</span>
@@ -414,12 +419,10 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
                   aria-label={ariaLabel}
                   onClick={() => handleSongChipClick(songId, title, inPlaylist)}
                   onKeyDown={(e) => { if (e.key === "Enter") handleSongChipClick(songId, title, inPlaylist); }}
-                  className={
-                    "relative flex items-center gap-1 px-2 py-0.5 rounded text-[11px] cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)] " +
-                    (inPlaylist
-                      ? "border border-amber-400/70 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20"
-                      : "border border-[var(--color-brand)] bg-[var(--color-elevated)] hover:bg-[var(--color-panel)]")
-                  }
+                  className="relative flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] cursor-pointer transition-all backdrop-blur-md hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
+                  style={inPlaylist
+                    ? { border: "1px solid color-mix(in oklab, #f0b35a 60%, transparent)", background: "color-mix(in oklab, #f0b35a 14%, var(--color-elevated))", color: "#f4d9a8", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 8px rgba(0,0,0,0.35)" }
+                    : { border: "1px solid color-mix(in oklab, var(--color-brand) 55%, transparent)", background: "color-mix(in oklab, var(--color-brand) 12%, var(--color-elevated))", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 8px rgba(0,0,0,0.35)" }}
                 >
                   <span aria-hidden className="text-[11px] leading-none">♪</span>
                   <span className="font-semibold max-w-[160px] truncate">{title}</span>
