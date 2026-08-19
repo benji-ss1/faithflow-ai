@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.264",
+    date: "2026-08-19",
+    headline: "In-app confirmations for templates & backgrounds",
+    highlights: [
+      "Applying a template over a slide that already has content now shows the styled in-app confirmation instead of the browser pop-up.",
+      "\"Apply background to all slides\" uses the same styled confirmation.",
+    ],
+  },
+  {
     version: "0.1.263",
     date: "2026-08-19",
     headline: "In-app \"Apply to all slides\" confirmation",

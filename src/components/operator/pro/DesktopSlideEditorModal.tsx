@@ -624,11 +624,17 @@ function TemplatesPanel({ editor, churchId }: { editor: Editor; churchId: string
   const [customTpls, setCustomTpls] = useState<CustomTemplate[]>([]);
   const [naming, setNaming] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
+  // Pending template application awaiting in-app confirmation (only set when the
+  // current slide already has content, so applying would replace it).
+  const [pendingReplace, setPendingReplace] = useState<(() => void) | null>(null);
   useEffect(() => { setCustomTpls(loadCustomTemplates(churchId)); }, [churchId]);
 
-  const confirmReplace = () => (slide?.objects.length ?? 0) === 0 || confirm("Replace this slide's content with the template?");
-  const applyTemplate = (tid: string) => { const tpl = SLIDE_TEMPLATES.find((x) => x.id === tid); if (!tpl || !confirmReplace()) return; editor.updateSlideDirect(tpl.build()); };
-  const applyCustom = (ct: CustomTemplate) => { if (!confirmReplace()) return; const objects = ct.objects.map((o) => ({ ...o, id: newObjectId() })); editor.updateSlideDirect({ objects, bgColor: ct.bgColor, bgImageUrl: ct.bgImageUrl }); };
+  const guardReplace = (apply: () => void) => {
+    if ((slide?.objects.length ?? 0) === 0) apply();
+    else setPendingReplace(() => apply);
+  };
+  const applyTemplate = (tid: string) => { const tpl = SLIDE_TEMPLATES.find((x) => x.id === tid); if (!tpl) return; guardReplace(() => editor.updateSlideDirect(tpl.build())); };
+  const applyCustom = (ct: CustomTemplate) => { guardReplace(() => { const objects = ct.objects.map((o) => ({ ...o, id: newObjectId() })); editor.updateSlideDirect({ objects, bgColor: ct.bgColor, bgImageUrl: ct.bgImageUrl }); }); };
   const beginSave = () => { if (!slide || slide.objects.length === 0) { toast.error("Add something to the slide first"); return; } setNameDraft(""); setNaming(true); };
   const commitSave = () => { const name = nameDraft.trim() || "Untitled template"; if (!slide) return; setCustomTpls(saveCustomTemplate(churchId, { name, bgColor: slide.bgColor, bgImageUrl: slide.bgImageUrl, objects: slide.objects })); setNaming(false); toast.success(`Saved template "${name}"`); };
   const removeCustom = (id: string) => setCustomTpls(deleteCustomTemplate(churchId, id));
@@ -671,6 +677,14 @@ function TemplatesPanel({ editor, churchId }: { editor: Editor; churchId: string
           <Plus className="w-3.5 h-3.5" /> Save current slide as template
         </button>
       )}
+      <ConfirmDialog
+        open={pendingReplace !== null}
+        title="Replace slide content?"
+        confirmLabel="Replace"
+        body={<>This slide already has content. Applying the template replaces the objects on this slide. You can undo this.</>}
+        onCancel={() => setPendingReplace(null)}
+        onConfirm={() => { pendingReplace?.(); setPendingReplace(null); }}
+      />
     </div>
   );
 }
@@ -679,6 +693,7 @@ function TemplatesPanel({ editor, churchId }: { editor: Editor; churchId: string
 function BackgroundPanel({ editor }: { editor: Editor }) {
   const slide = editor.currentSlide;
   const [bgLib, setBgLib] = useState(false);
+  const [confirmBgAll, setConfirmBgAll] = useState(false);
   return (
     <div className="p-3 space-y-3">
       <div>
@@ -699,10 +714,18 @@ function BackgroundPanel({ editor }: { editor: Editor }) {
       </div>
       <div className="h-px" style={{ background: HAIR }} />
       <button
-        onClick={() => { if (confirm(`Apply this background to ALL ${editor.slides.length} slides? You can undo this.`)) { editor.applyToAll(); toast.success("Background applied to all slides"); } }}
+        onClick={() => setConfirmBgAll(true)}
         className="w-full h-9 rounded-lg text-[12px] font-bold inline-flex items-center justify-center gap-1.5 hover:brightness-110" style={{ background: AMBER, color: "#0b0b0e" }}>
         <Copy className="w-4 h-4" /> Apply background to all slides
       </button>
+      <ConfirmDialog
+        open={confirmBgAll}
+        title="Apply background to all slides?"
+        confirmLabel="Apply to all"
+        body={<>Copies this background to all <b className="text-white/80">{editor.slides.length}</b> slides in this song. You can undo this.</>}
+        onCancel={() => setConfirmBgAll(false)}
+        onConfirm={() => { editor.applyToAll(); toast.success("Background applied to all slides"); setConfirmBgAll(false); }}
+      />
     </div>
   );
 }
