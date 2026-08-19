@@ -568,6 +568,23 @@ export function slideDesignSig(s: Extract<SlidePayload, { kind: "text" }>): stri
   return sig;
 }
 
+/**
+ * Content-only identity for an output slide. The projector/stage/livestream
+ * remount the TransitionWrapper (and replay the enter animation) only when this
+ * changes — so it must reflect visible CONTENT and nothing volatile (no
+ * fontScale, zone, appearance, timestamps). A repeat of the same slide keeps the
+ * same identity and therefore never re-animates. Consolidated here (was inlined
+ * identically in live/stage/livestream).
+ */
+export function slideOutputIdentity(s: SlidePayload): string {
+  if (s.kind === "text") return `t:${s.text}|${slideDesignSig(s)}`;
+  if (s.kind === "image") return `i:${s.url}`;
+  if (s.kind === "video") return `v:${s.url}`;
+  if (s.kind === "blank") return `b:${s.bgColor ?? ""}`;
+  if (s.kind === "logo") return `l:${s.url ?? ""}`;
+  return "e";
+}
+
 function isValidSlide(s: unknown): s is SlidePayload {
   if (!s || typeof s !== "object") return false;
   if (hasPollutionKey(s)) return false;

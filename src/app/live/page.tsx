@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
-import { openLiveChannel, type LiveChannelLike, safePost, isValidLiveMessage, slideDesignSig, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, safePost, isValidLiveMessage, slideOutputIdentity, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
 import { TransitionWrapper } from "@/components/live/TransitionWrapper";
@@ -454,7 +454,7 @@ export default function LivePage() {
                 // PresentationCanvas geometry via context (not the DOM box), so the
                 // wrapper can't affect text size anymore. This brings the projector's
                 // slide transitions (fade/cut/etc.) back, matching /stage.
-                <TransitionWrapper identityKey={liveIdentity(slide)} transition={transition}>
+                <TransitionWrapper identityKey={slideOutputIdentity(slide)} transition={transition}>
                   <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} videoMuted={false} onVideoRef={handleVideoRef} />
                 </TransitionWrapper>
               )}
@@ -536,14 +536,7 @@ export default function LivePage() {
 // Identity key for the projector transition: change it and TransitionWrapper
 // plays the configured enter animation. Keyed by slide content (+ design sig)
 // so a repeat of the SAME slide doesn't re-trigger a transition.
-function liveIdentity(s: SlidePayload): string {
-  if (s.kind === "text") return `t:${s.text}|${slideDesignSig(s)}`;
-  if (s.kind === "image") return `i:${s.url}`;
-  if (s.kind === "video") return `v:${s.url}`;
-  if (s.kind === "blank") return `b:${s.bgColor ?? ""}`;
-  if (s.kind === "logo") return `l:${s.url ?? ""}`;
-  return "e";
-}
+// (Identity helper consolidated into broadcast.ts → slideOutputIdentity.)
 
 function formatTimerMMSS(sec: number): string {
   const negative = sec < 0;
@@ -551,13 +544,4 @@ function formatTimerMMSS(sec: number): string {
   const mm = Math.floor(abs / 60);
   const ss = abs % 60;
   return `${negative ? "-" : ""}${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
-}
-
-function slideIdentity(s: SlidePayload): string {
-  if (s.kind === "text") return `t:${s.text}|${slideDesignSig(s)}`;
-  if (s.kind === "image") return `i:${s.url}`;
-  if (s.kind === "video") return `v:${s.url}`;
-  if (s.kind === "blank") return `b:${s.bgColor ?? ""}`;
-  if (s.kind === "logo") return `l:${s.url ?? ""}`;
-  return "e";
 }

@@ -94,12 +94,9 @@ export type BibleAntiReplayDecision = {
   suppress: boolean;
   /** for observability / test assertions. */
   reason:
-    | "fire:no-prior-entry"
-    | "fire:stale-entry"
     | "fire:different-ref-live"
-    | "fire:force-live-bypass"
     | "fire:voice-command-bypass"
-    | "suppress:within-cooldown";
+    | "suppress:already-live";
 };
 
 /**
@@ -108,32 +105,35 @@ export type BibleAntiReplayDecision = {
  *
  * Ordering matters:
  *   1. voiceCommand — always fires (explicit operator/preacher navigation).
- *   2. Different reference currently live — always fires (legit swap-back).
- *   3. Same ref fired within the micro-window (and same ref still live) —
- *      SUPPRESS, even under forceLive. This is the key correctness point:
- *      `forceLive` (occurrenceCount >= 2) is ALSO set for the FINAL of a
- *      first-time utterance (interim = occ 1, final = occ 2), and for a verse
- *      that Deepgram fragments into two finals — neither is a genuine
- *      restatement. A real restatement is seconds-to-minutes apart (→ stale
- *      entry, fires) or lands while a DIFFERENT ref is live (→ bypassed at
- *      step 2). So forceLive must NOT short-circuit the same-utterance 3s
- *      micro-window, or one spoken verse double-projects to the projector/NDI.
- *   4. forceLive past the micro-window — fires (real repeat / low-conf boost).
- *   5. No prior entry OR entry older than cooldown — fires.
+ *   2. Different reference (or non-scripture) currently live — fires. This is a
+ *      real content change / swap-back; no cooldown gate, so a fast bounce
+ *      (Matt → Gen → Matt within seconds) projects each hop.
+ *   3. Otherwise the EXACT reference is already the live slide — SUPPRESS
+ *      (fade-pulse fix, 2026-08-19). Re-projecting an identical, on-screen verse
+ *      changes nothing and only replays the transition (the audience-visible
+ *      pulse). Same-utterance interim/final/whisper duplicates land here too and
+ *      are covered by the same rule — which is why the former firedMap /
+ *      micro-cooldown / forceLive gating is gone. Mirrors the song path's
+ *      same-song-already-live skip. `firedMap`/`now`/`forceLive`/`cooldownMs`
+ *      remain on the input type for the sessionStorage analytics shape but no
+ *      longer affect the decision.
  */
 export function decideBibleAutoFire(input: BibleAntiReplayInput): BibleAntiReplayDecision {
-  const cooldown = input.cooldownMs ?? BIBLE_MICRO_COOLDOWN_MS;
+  // Voice commands are explicit navigation — always project.
   if (input.voiceCommand) return { suppress: false, reason: "fire:voice-command-bypass" };
+  // A DIFFERENT reference (or non-scripture) is live → this is a genuine content
+  // change / swap-back. Fire IMMEDIATELY — no cooldown gate, so a fast bounce
+  // (Matt → Gen → Matt within seconds) still projects each hop.
   if (isDifferentRefLive(input.liveText, input.target)) {
     return { suppress: false, reason: "fire:different-ref-live" };
   }
-  const firedAt = input.firedMap[input.key];
-  if (typeof firedAt === "number" && input.now - firedAt < cooldown) {
-    // Same reference, still live, within the micro-window → same-utterance
-    // duplicate. Suppress regardless of forceLive.
-    return { suppress: true, reason: "suppress:within-cooldown" };
-  }
-  if (input.forceLive) return { suppress: false, reason: "fire:force-live-bypass" };
-  if (typeof firedAt !== "number") return { suppress: false, reason: "fire:no-prior-entry" };
-  return { suppress: false, reason: "fire:stale-entry" };
+  // FADE-PULSE FIX (2026-08-19): the EXACT reference is ALREADY the live slide.
+  // Re-projecting an identical, unchanged verse changes nothing on screen and
+  // only republishes OutputState + replays the transition — the audience-visible
+  // "fade pulse" a preacher triggers by holding/re-citing the same verse. Never
+  // re-fire it (mirrors the song path's same-song-already-live skip). Same-
+  // utterance interim/final/whisper duplicates land here too and are covered by
+  // the same rule, which is why the old firedMap / micro-cooldown / forceLive
+  // gating (only ever reached in this same-ref-live branch) is no longer needed.
+  return { suppress: true, reason: "suppress:already-live" };
 }

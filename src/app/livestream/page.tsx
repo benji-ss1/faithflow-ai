@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState, type RefCallback } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { openLiveChannel, type LiveChannelLike, isValidLiveMessage, slideDesignSig, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, isValidLiveMessage, slideOutputIdentity, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
 import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
 import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
@@ -259,7 +259,7 @@ export default function LivestreamPage() {
           {hasVideoBackground(videoInput, appearance) ? (
             <OutputSlide slide={slide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} projectorFit />
           ) : transitionsEnabled ? (
-            <TransitionWrapper identityKey={liveIdentity(slide)} transition={transition}>
+            <TransitionWrapper identityKey={slideOutputIdentity(slide)} transition={transition}>
               <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} videoMuted={false} onVideoRef={handleVideoRef} />
             </TransitionWrapper>
           ) : (
@@ -346,11 +346,3 @@ export default function LivestreamPage() {
   );
 }
 
-function liveIdentity(s: SlidePayload): string {
-  if (s.kind === "text") return `t:${s.text}|${slideDesignSig(s)}`;
-  if (s.kind === "image") return `i:${s.url}`;
-  if (s.kind === "video") return `v:${s.url}`;
-  if (s.kind === "blank") return `b:${s.bgColor ?? ""}`;
-  if (s.kind === "logo") return `l:${s.url ?? ""}`;
-  return "e";
-}

@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.272",
+    date: "2026-08-19",
+    headline: "Fixed the projector scripture fade-pulse",
+    highlights: [
+      "A held Bible verse no longer fades out and back in on a loop while the AI keeps hearing it preached — the transition now plays once per verse and stays put.",
+      "The AI no longer re-projects a verse that's already on screen (it only projects a new/changed reference).",
+    ],
+  },
+  {
     version: "0.1.271",
     date: "2026-08-19",
     headline: "Font slider now actually resizes song/designed slides",

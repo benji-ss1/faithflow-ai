@@ -4,7 +4,7 @@ import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
-import { openLiveChannel, type LiveChannelLike, isValidLiveMessage, slideDesignSig, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, isValidLiveMessage, slideOutputIdentity, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance } from "@/lib/broadcast";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
@@ -276,7 +276,7 @@ export default function StagePage() {
           </div>
         )}
         <PresentationCanvas zone={zone}>
-          <TransitionWrapper identityKey={stageIdentity(current)} transition={transition}>
+          <TransitionWrapper identityKey={slideOutputIdentity(current)} transition={transition}>
             <SlideRenderer slide={current} projectorFit fontScale={fontScale} appearance={appearance} />
           </TransitionWrapper>
           <ThemeLogoLayer appearance={appearance} />
@@ -349,15 +349,6 @@ function formatStageTimer(sec: number): string {
   const mm = Math.floor(abs / 60);
   const ss = abs % 60;
   return `${negative ? "-" : ""}${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
-}
-
-function stageIdentity(s: SlidePayload): string {
-  if (s.kind === "text") return `t:${s.text}|${slideDesignSig(s)}`;
-  if (s.kind === "image") return `i:${s.url}`;
-  if (s.kind === "video") return `v:${s.url}`;
-  if (s.kind === "blank") return `b:${s.bgColor ?? ""}`;
-  if (s.kind === "logo") return `l:${s.url ?? ""}`;
-  return "e";
 }
 
 function formatCountdown(ms: number): string {
