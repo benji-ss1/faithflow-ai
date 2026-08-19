@@ -12,72 +12,6 @@
  */
 import { useEffect, useRef } from "react";
 
-// ── raw SVG art (kept as HTML strings; the tick loop queries them by id) ──────
-const ART2 = `
-<svg viewBox="0 0 800 560" preserveAspectRatio="xMidYMid meet" id="art2">
-  <line x1="40" y1="470" x2="760" y2="470" style="stroke:#3a2f24;stroke-width:1;fill:none"/>
-  <g id="slots">
-    <rect x="440" y="140" width="300" height="56" rx="10" style="stroke:#C6912F;stroke-dasharray:6 4;stroke-width:1.5;fill:none" opacity=".55"/>
-    <rect x="440" y="210" width="300" height="56" rx="10" style="stroke:#C6912F;stroke-dasharray:6 4;stroke-width:1.5;fill:none" opacity=".55"/>
-    <rect x="440" y="280" width="300" height="56" rx="10" style="stroke:#C6912F;stroke-dasharray:6 4;stroke-width:1.5;fill:none" opacity=".55"/>
-  </g>
-  <g id="row0"><rect x="120" y="140" width="300" height="56" rx="10" style="stroke:#17130c;stroke-width:1.5;fill:#faf6ef"/><text x="140" y="174" style="font-family:'JetBrains Mono',monospace;font-size:13px;fill:#17130c;letter-spacing:.06em">01 · WELCOME &amp; OPENER</text></g>
-  <g id="row1"><rect x="120" y="210" width="300" height="56" rx="10" style="stroke:#ff7a2c;stroke-width:1.5;fill:rgba(255,122,44,.14)"/><text x="140" y="244" style="font-family:'JetBrains Mono',monospace;font-size:13px;fill:#a24818;letter-spacing:.06em">02 · WORSHIP SET × 4</text></g>
-  <g id="row2"><rect x="120" y="280" width="300" height="56" rx="10" style="stroke:#17130c;stroke-width:1.5;fill:#faf6ef"/><text x="140" y="314" style="font-family:'JetBrains Mono',monospace;font-size:13px;fill:#17130c;letter-spacing:.06em">03 · MESSAGE · ROMANS 8</text></g>
-  <g id="op2" transform="translate(30 0)" style="stroke:#17130c">
-    <circle cx="80" cy="310" r="18" fill="none" stroke-width="2"/>
-    <circle cx="74" cy="308" r="1.6" fill="#17130c"/>
-    <circle cx="86" cy="308" r="1.6" fill="#17130c"/>
-    <line x1="80" y1="328" x2="80" y2="410" stroke-width="2"/>
-    <line x1="80" y1="352" x2="120" y2="345" stroke-width="2" id="op2-arm"/>
-    <line x1="80" y1="352" x2="52" y2="380" stroke-width="2"/>
-    <line x1="80" y1="410" x2="60" y2="460" stroke-width="2"/>
-    <line x1="80" y1="410" x2="100" y2="460" stroke-width="2"/>
-  </g>
-  <g id="drag-tag" transform="translate(120 335)">
-    <rect x="0" y="0" width="52" height="22" rx="4" class="orange" style="stroke:#ff7a2c;stroke-width:2;fill:none"/>
-    <text x="26" y="15" text-anchor="middle" style="font-family:'JetBrains Mono',monospace;fill:#ff7a2c;font-size:11px;letter-spacing:.06em">DRAG</text>
-  </g>
-</svg>`;
-
-const ART3 = `
-<svg viewBox="0 0 800 560" preserveAspectRatio="xMidYMid meet" id="art3">
-  <line x1="40" y1="470" x2="760" y2="470" style="stroke:#3a2f24;stroke-width:1;fill:none"/>
-  <g id="uglySlide">
-    <rect x="360" y="170" width="360" height="220" rx="10" style="stroke:#c8bfb2;fill:#e8e2d6" stroke-width="1.5"/>
-    <path d="M 400 220 Q 500 210, 620 240" style="stroke:#a8a094;fill:none" stroke-width="2" opacity=".7"/>
-    <path d="M 400 260 Q 520 250, 660 280" style="stroke:#a8a094;fill:none" stroke-width="2" opacity=".6"/>
-    <path d="M 400 300 Q 500 290, 600 320" style="stroke:#a8a094;fill:none" stroke-width="2" opacity=".5"/>
-    <text x="380" y="370" style="font-family:'JetBrains Mono',monospace;fill:#6a635a;font-size:14px">untitled slide</text>
-  </g>
-  <g id="niceSlide">
-    <defs>
-      <clipPath id="reveal3"><rect id="reveal3rect" x="360" y="170" width="0" height="220"/></clipPath>
-      <linearGradient id="paper" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#f2e6cf"/><stop offset="1" stop-color="#c88c5e"/></linearGradient>
-    </defs>
-    <g clip-path="url(#reveal3)">
-      <rect x="360" y="170" width="360" height="220" rx="10" fill="url(#paper)"/>
-      <text x="540" y="220" text-anchor="middle" style="font-family:'JetBrains Mono',monospace;fill:#8F2C10;font-size:12px;letter-spacing:.14em">PSALM 23:3  ·  KJV</text>
-      <text x="540" y="270" text-anchor="middle" style="font-family:'Fraunces',serif;font-size:22px;fill:#1a0f0a;font-style:italic;font-weight:400">He restoreth my soul:</text>
-      <text x="540" y="302" text-anchor="middle" style="font-family:'Fraunces',serif;font-size:22px;fill:#1a0f0a;font-style:italic;font-weight:400"><tspan fill="#8F2C10">He leadeth me</tspan> in the paths</text>
-      <text x="540" y="334" text-anchor="middle" style="font-family:'Fraunces',serif;font-size:22px;fill:#1a0f0a;font-style:italic;font-weight:400">of righteousness.</text>
-    </g>
-  </g>
-  <line id="wand" x1="360" y1="160" x2="360" y2="400" stroke="#ff7a2c" stroke-width="3" stroke-linecap="round"/>
-  <circle id="wandDot" cx="360" cy="150" r="6" fill="#ff7a2c"/>
-  <g transform="translate(30 0)" style="stroke:#F4EFE6">
-    <circle cx="120" cy="310" r="18" fill="none" stroke-width="2"/>
-    <circle cx="114" cy="308" r="1.6" fill="#F4EFE6"/>
-    <circle cx="126" cy="308" r="1.6" fill="#F4EFE6"/>
-    <line x1="120" y1="328" x2="120" y2="410" stroke-width="2"/>
-    <line x1="120" y1="352" x2="170" y2="330" stroke-width="2"/>
-    <line x1="120" y1="352" x2="92" y2="380" stroke-width="2"/>
-    <line x1="120" y1="410" x2="100" y2="460" stroke-width="2"/>
-    <line x1="120" y1="410" x2="140" y2="460" stroke-width="2"/>
-    <rect x="165" y="322" width="14" height="14" rx="2" style="fill:#ff7a2c;stroke:none"/>
-  </g>
-</svg>`;
-
 const CSS = `
 .pfb{position:relative}
 .pfb .bs-scrub{position:relative;height:400vh;background:var(--bg)}
@@ -94,6 +28,8 @@ const CSS = `
 .pfb .bs-art svg{width:100%;height:100%;display:block}
 .pfb .bs-art-video{background:#0b0b0b;padding:0}
 .pfb .bs-video{width:100%;height:100%;object-fit:cover;display:block}
+.pfb .bs-shot{width:100%;height:100%;object-fit:cover;display:block}
+.pfb .bs-shot-top{object-position:top}
 .pfb .bs-copy{display:flex;flex-direction:column;position:relative;padding:6px 4px 0;min-width:0}
 .pfb .bs-top{display:flex;flex-direction:column;gap:14px;flex:1}
 .pfb .bs-num{font-family:var(--pf-mono);font-size:11px;color:var(--muted);letter-spacing:.16em;text-transform:uppercase}
@@ -322,7 +258,10 @@ export default function BetaScroll() {
 
             {/* CARD 2 — PLAN */}
             <article className="bs-card">
-              <div className="bs-art" dangerouslySetInnerHTML={{ __html: ART2 }} />
+              <div className="bs-art bs-art-video">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img className="bs-shot bs-shot-top" src="/marketing/plan-playlist.jpg" alt="PresentFlow service plan — a playlist of songs, message and media items in order" />
+              </div>
               <div className="bs-copy">
                 <div className="bs-top">
                   <div className="bs-num">02 · Plan</div>
@@ -344,7 +283,10 @@ export default function BetaScroll() {
 
             {/* CARD 3 — THEME */}
             <article className="bs-card">
-              <div className="bs-art" dangerouslySetInnerHTML={{ __html: ART3 }} />
+              <div className="bs-art bs-art-video">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img className="bs-shot" src="/marketing/theme-editor.jpg" alt="PresentFlow slide editor — design, templates, backgrounds and layers for a lyric slide" />
+              </div>
               <div className="bs-copy">
                 <div className="bs-top">
                   <div className="bs-num">03 · Theme</div>
