@@ -20,7 +20,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     headline: "No more verse re-flash + Load Chapter lands on your verse",
     highlights: [
       "Re-hearing a verse that's already on screen (\"did I say John 3:16?\") no longer re-projects it — the projector stays steady instead of flashing.",
-      "After Load Chapter the preview now scrolls straight to the verse you were on, so you don't have to hunt for it.",
+      "After Load Chapter the preview now jumps straight to the verse you were on and centres it, so you don't have to scroll the chapter to find it.",
     ],
   },
   {

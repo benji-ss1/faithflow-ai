@@ -47,11 +47,19 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
   // verse 17 instead of having to scroll the whole chapter to find it.
   const selectedCardRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    // Defer to after the grid has painted the new selection/cards.
-    const id = requestAnimationFrame(() => {
-      selectedCardRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    // Center the selected verse in the grid after the new cards/selection paint.
+    // block:"center" (not "nearest") so a Load-Chapter that lands on e.g. verse
+    // 17 puts it in the MIDDLE of the view — the operator sees it immediately
+    // and can glance at 18 / 16 for a split-second next/back decision. Double
+    // rAF so a tall freshly-rendered chapter grid has laid out before we scroll,
+    // and behavior:"auto" (instant) so a long jump lands reliably rather than
+    // smooth-scrolling across the whole chapter.
+    const raf1 = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        selectedCardRef.current?.scrollIntoView({ block: "center", behavior: "auto" });
+      });
     });
-    return () => cancelAnimationFrame(id);
+    return () => cancelAnimationFrame(raf1);
   }, [selectedIdx, cards]);
   const [tab, setTab] = useState<"reference" | "browse">("reference");
   const searchAbortRef = useRef<AbortController | null>(null);
