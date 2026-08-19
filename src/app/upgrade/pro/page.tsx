@@ -1,6 +1,7 @@
 import { Check, Music4, Sparkles, Radio, MonitorPlay, Palette } from "lucide-react";
 import { Reveal } from "../Reveal";
 import { UpgradeCta } from "../UpgradeCta";
+import { FeatureCards } from "@/components/operator/pro/FeatureCards";
 
 export const metadata = {
   title: "PresentFlow Pro — Everything you need, every Sunday",
@@ -139,6 +140,18 @@ export default function ProUpgradePage() {
           </div>
         </Reveal>
       </section>
+
+      {/* At-a-glance highlight cards */}
+      <Reveal delay={200} className="mx-auto mt-20 max-w-4xl px-4 sm:px-6">
+        <FeatureCards
+          columns={3}
+          items={[
+            { icon: Sparkles, title: "AI that follows", desc: "Speak a verse or start a song and it appears on the projector — no clicking, no lag." },
+            { icon: Palette, title: "Your look, everywhere", desc: "Design a theme once; songs, scripture and the stage display all match it automatically." },
+            { icon: Radio, title: "One click to live", desc: "Projector, stage screen and livestream stay in sync the moment you go live." },
+          ]}
+        />
+      </Reveal>
 
       {/* Feature showcase */}
       <section id="features" className="px-4 py-24 sm:px-6">

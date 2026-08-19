@@ -294,6 +294,18 @@ html.light {
 @keyframes pfDotDrift { from { background-position: 0 0; } to { background-position: 26px 52px; } }
 @media (prefers-reduced-motion: reduce) { .pf-dotgrid { animation: none; } }
 
+/* Graph-paper grid pattern for feature cards (Faaast/Customization reference) —
+ * a faint square lattice fading toward a corner. */
+.pf-grid-pattern {
+  background-image:
+    linear-gradient(var(--color-border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-border) 1px, transparent 1px);
+  background-size: 34px 34px;
+  mask-image: radial-gradient(ellipse 85% 85% at 78% 12%, #000 5%, transparent 72%);
+  -webkit-mask-image: radial-gradient(ellipse 85% 85% at 78% 12%, #000 5%, transparent 72%);
+  opacity: 0.55;
+}
+
 /* Infinite-ribbon marquee — a rotated bar of scrolling text (brand fill). Two of
  * them crossed makes the "pro / pro-max" flourish. */
 .pf-ribbon { position: absolute; left: -30%; right: -30%; height: 26px; display: flex; align-items: center; overflow: hidden; background: var(--color-brand); color: #17130c; box-shadow: 0 6px 18px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.25); }

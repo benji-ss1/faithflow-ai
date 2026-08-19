@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.260",
+    date: "2026-08-19",
+    headline: "Dot-grid on the songs list & themes, new feature cards",
+    highlights: [
+      "The songs browser and the theme picker now sit on the same subtle drifting dot-grid texture.",
+      "New graph-paper feature cards (on the Pro page) with icon, big title and description — clean and premium.",
+    ],
+  },
+  {
     version: "0.1.259",
     date: "2026-08-19",
     headline: "Living backgrounds + a Pro flourish",

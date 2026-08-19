@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Palette, X, Plus, Upload, ChevronDown, ChevronRight, Check } from "lucide-react";
 import { DropdownDisclosure } from "../../DropdownDisclosure";
+import { DotGridBackground } from "../../DotGridBackground";
 import { useTier } from "@/hooks/useTier";
 import { canAccess } from "@/lib/tier";
 import { useCustomThemes, useBlankSlides } from "@/hooks/useCustomThemes";
@@ -115,7 +116,8 @@ export function ThemesTab({ layout = "panel" }: { layout?: "panel" | "modal" } =
           Use + Create Quick Swatch below
         </div>
       ) : (
-        <div className={cn("grid gap-2", modal ? "grid-cols-3 xl:grid-cols-4 gap-4" : "grid-cols-2")}>
+        <div className={cn("relative grid gap-2", modal ? "grid-cols-3 xl:grid-cols-4 gap-4" : "grid-cols-2")}>
+          <DotGridBackground />
           {dbThemes.map((t) => {
             const cfg = t.config;
             const textColor = (cfg.textColor as string) || "#F1EFE8";
