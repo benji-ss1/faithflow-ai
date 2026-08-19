@@ -9,11 +9,26 @@ import { OfflineIndicator } from "@/components/system/OfflineIndicator";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "PresentFlow",
-  description: "AI-native production console for live services",
+  metadataBase: new URL("https://presentflow.org"),
+  title: "PresentFlow — AI-native presentation for churches",
+  description:
+    "The screen finally keeps up with the room. AI-native presentation for churches — apply for the Wave I beta.",
   icons: {
     icon: [{ url: "/brand/pf-logo-mark.png", type: "image/png" }],
     apple: [{ url: "/brand/pf-logo-mark.png" }],
+  },
+  openGraph: {
+    title: "PresentFlow — AI-native presentation for churches",
+    description:
+      "The screen finally keeps up with the room. AI-native presentation for churches.",
+    url: "https://presentflow.org",
+    siteName: "PresentFlow",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "PresentFlow — AI-native presentation for churches",
+    description: "The screen finally keeps up with the room.",
   },
 };
 

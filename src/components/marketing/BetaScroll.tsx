@@ -10,7 +10,7 @@
  * The "Everything you need. Nothing you don't." header from the export is
  * intentionally dropped per the brief.
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const CSS = `
 .pfb{position:relative}
@@ -28,6 +28,10 @@ const CSS = `
 .pfb .bs-art svg{width:100%;height:100%;display:block}
 .pfb .bs-art-video{background:#0b0b0b;padding:0}
 .pfb .bs-video{width:100%;height:100%;object-fit:cover;display:block}
+.pfb .bs-play{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:64px;height:64px;
+  border-radius:50%;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  padding-left:4px;color:#1a1005;background:linear-gradient(100deg,#ff7a2c,#ffb861);
+  box-shadow:0 8px 30px rgba(255,122,44,.5);z-index:2}
 .pfb .bs-shot{width:100%;height:100%;object-fit:contain;display:block;padding:14px}
 .pfb .bs-shot-top{object-position:top}
 .pfb .bs-copy{display:flex;flex-direction:column;position:relative;padding:6px 4px 0;min-width:0}
@@ -53,7 +57,7 @@ const CSS = `
   .pfb .bs-sticky{grid-template-columns:1fr;padding:2vh 4vw;gap:10px}
   .pfb .bs-rail{display:none}
   .pfb .bs-card{grid-template-columns:1fr;grid-template-rows:auto 1fr;gap:16px;padding:16px}
-  .pfb .bs-art{aspect-ratio:16/10;max-height:46vh;min-height:0}
+  .pfb .bs-art{aspect-ratio:16/10;max-height:52vh;min-height:0}
   .pfb .bs-copy{overflow:hidden}
   .pfb .bs-card h3{font-size:22px}
   .pfb .bs-card p{font-size:14px}
@@ -71,6 +75,21 @@ const CSS = `
 
 export default function BetaScroll() {
   const rootRef = useRef<HTMLElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  // iOS Low Power Mode blocks muted autoplay — expose a tap-to-play affordance
+  // so people can always watch the library video on mobile.
+  const [vidPaused, setVidPaused] = useState(false);
+
+  useEffect(() => {
+    videoRef.current?.play().catch(() => setVidPaused(true));
+  }, []);
+
+  const toggleVideo = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) v.play().catch(() => {});
+    else v.pause();
+  };
 
   useEffect(() => {
     const root = rootRef.current;
@@ -224,8 +243,9 @@ export default function BetaScroll() {
           <div className="bs-deck">
             {/* CARD 1 — MIGRATE */}
             <article className="bs-card on">
-              <div className="bs-art bs-art-video">
+              <div className="bs-art bs-art-video" onClick={toggleVideo} style={{ cursor: "pointer" }}>
                 <video
+                  ref={videoRef}
                   className="bs-video"
                   src="/marketing/bring-library.mp4"
                   poster="/marketing/bring-library-poster.jpg"
@@ -234,8 +254,16 @@ export default function BetaScroll() {
                   loop
                   playsInline
                   preload="auto"
-                  aria-hidden="true"
+                  onPlay={() => setVidPaused(false)}
+                  onPause={() => setVidPaused(true)}
                 />
+                {vidPaused && (
+                  <button className="bs-play" onClick={toggleVideo} aria-label="Play the library video">
+                    <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <path d="M8 5v14l11-7z" />
+                    </svg>
+                  </button>
+                )}
               </div>
               <div className="bs-copy">
                 <div className="bs-top">
