@@ -46,7 +46,7 @@ import { useTimerSession, useMessagesSession, useBibleSession } from "./hooks";
 import { openLiveChannel, safePost, type LiveChannelLike } from "@/lib/broadcast";
 import { cachedLookup } from "@/lib/bible-client-cache";
 import { setAvailableTranslationCodes, getAvailableTranslationCodes } from "@/lib/translation-commands";
-import { BIBLE_MICRO_COOLDOWN_MS, decideBibleAutoFire, parseLiveScriptureRef } from "@/lib/bible-antireplay";
+import { BIBLE_MICRO_COOLDOWN_MS, decideBibleAutoFire, parseLiveScriptureRef, isDifferentRefLive } from "@/lib/bible-antireplay";
 import { fetchChapterCached, getCachedChapter, chapterKey, prefetchChapter } from "@/lib/bible-chapter-cache";
 import { cn } from "@/lib/utils";
 import { useOperatorHotkeys } from "@/hooks/useOperatorHotkeys";
@@ -1995,6 +1995,11 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // grid — the source of the intermittent "sometimes collapses" behaviour.
   const bibleSessionRef = useRef(bibleSession);
   bibleSessionRef.current = bibleSession;
+  // Always-current live slide, readable from the early instant-fire effect
+  // (which runs before safeSendLive/bibleLiveSlideRef exist in hook order).
+  // Used to skip re-projecting a verse that is ALREADY on the projector.
+  const currentLiveSlideRef = useRef(ctx.liveSlide);
+  currentLiveSlideRef.current = ctx.liveSlide;
 
   // Sync the CENTER Bible grid to an auto-detected/projected verse WITHOUT
   // collapsing a loaded chapter. Field request (2026-08-19 video): after "Load
@@ -2203,7 +2208,16 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     const isHighConf = scripture.confidence >= BIBLE_AUTOFIRE_CONFIDENCE;
     let autoOn = false;
     try { autoOn = window.sessionStorage.getItem(AUTO_APPROVE_KEY_INSTANT) === "1"; } catch { /* noop */ }
-    if (autoOn && isHighConf) {
+    // FADE/FLASH FIX (2026-08-20): if this reference is ALREADY the live slide,
+    // the verse is on the projector — re-detecting it (preacher re-reads / says
+    // "did I say John 3:16?") must NOT re-fire. Firing again flashes the
+    // label-only placeholder (black screen + the reference) and replays the
+    // fade — the audience-visible pulse. Skip the instant label-fire entirely
+    // when the ref is already live; the full-text step below is separately
+    // guarded by exact-text identity.
+    const liveTextForGuard = currentLiveSlideRef.current?.kind === "text" ? currentLiveSlideRef.current.text : null;
+    const refAlreadyLive = !isDifferentRefLive(liveTextForGuard, scripture.ref);
+    if (autoOn && isHighConf && !refAlreadyLive) {
       const labelSlide: import("@/lib/broadcast").SlidePayload = { kind: "text", text: `\n\n${label}` };
       const fireKey = `ai-instant-${key}`;
       // Anti-replay check before instant-fire (same 3s cooldown as the full path).
@@ -2309,10 +2323,14 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           const first = cards[0];
           const body = first.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
           const fullSlide: import("@/lib/broadcast").SlidePayload = { kind: "text", text: `${body}\n\n${first.label}` };
+          // Skip if this EXACT verse is already on the projector (re-detection of
+          // a held verse) — re-sending identical text just replays the fade.
+          const liveNowFull = currentLiveSlideRef.current;
+          const identicalLive = liveNowFull?.kind === "text" && liveNowFull.text === fullSlide.text;
           try {
             // Transition-replay guard: fade only on the first projection of
             // this reference family; cascade re-fires hard-cut (see aiShouldFade).
-            sendLiveRef.current(fullSlide, null, aiShouldFade(fullSlide.text) ? { preserveConfiguredTransition: true } : { instant: true });
+            if (!identicalLive) sendLiveRef.current(fullSlide, null, aiShouldFade(fullSlide.text) ? { preserveConfiguredTransition: true } : { instant: true });
           } catch { /* noop */ }
           // Sync the center preview WITHOUT collapsing a loaded chapter: if this
           // verse is already a tile in the current grid (e.g. after Load

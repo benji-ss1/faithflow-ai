@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.275",
+    date: "2026-08-20",
+    headline: "No more verse re-flash + Load Chapter lands on your verse",
+    highlights: [
+      "Re-hearing a verse that's already on screen (\"did I say John 3:16?\") no longer re-projects it — the projector stays steady instead of flashing.",
+      "After Load Chapter the preview now scrolls straight to the verse you were on, so you don't have to hunt for it.",
+    ],
+  },
+  {
     version: "0.1.274",
     date: "2026-08-19",
     headline: "Smarter AI model for the assistant features",

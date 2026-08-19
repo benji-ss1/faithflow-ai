@@ -42,6 +42,17 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
   const { state, setRef, setTranslation, setCards, setSelectedIdx, setLoading } = session;
   const { ref, translation, cards, selectedIdx, loading } = state;
   const [opts] = useBibleOptions();
+  // Ref on the currently-selected verse tile so the grid auto-scrolls it into
+  // view — e.g. after Load Chapter while on John 3:17, the operator lands ON
+  // verse 17 instead of having to scroll the whole chapter to find it.
+  const selectedCardRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    // Defer to after the grid has painted the new selection/cards.
+    const id = requestAnimationFrame(() => {
+      selectedCardRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [selectedIdx, cards]);
   const [tab, setTab] = useState<"reference" | "browse">("reference");
   const searchAbortRef = useRef<AbortController | null>(null);
   // Abort any in-flight search when the component unmounts (mode switch).
@@ -953,6 +964,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
             // sends to live (mirrors the single-click / double-click mouse UX).
             <div
               key={c.id}
+              ref={selected ? selectedCardRef : undefined}
               role="button"
               tabIndex={0}
               onClick={() => { setSelectedIdx(idx); ctx.onSendSlideToLive(slide, undefined, { instant: true }); }}
