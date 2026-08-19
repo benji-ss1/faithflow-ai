@@ -312,6 +312,20 @@ html.light {
 .pf-ribbon-track { display: inline-block; white-space: nowrap; font: 700 11px/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; animation: pfRibbon 20s linear infinite; }
 .pf-ribbon-track--rev { animation-direction: reverse; }
 @keyframes pfRibbon { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+/* Flat horizontal ribbon strip — self-contained, sits inline under a header. */
+.pf-ribbon-strip {
+  position: relative;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  border-radius: 5px;
+  color: #17130c;
+  background: linear-gradient(90deg, var(--color-brand), var(--color-brand-hi, #ff8a52), var(--color-brand));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.3), 0 2px 8px rgba(232,80,26,0.22);
+  pointer-events: none;
+}
+.pf-ribbon-strip .pf-ribbon-track { animation-duration: 16s; }
 @media (prefers-reduced-motion: reduce) { .pf-ribbon-track { animation: none; } }
 
 /*

@@ -420,10 +420,10 @@ function RightDrawer({ editor, churchId, tab, setTab, addFocus }: { editor: Edit
           const on = tab === t.id;
           return (
             <button key={t.id} onClick={() => setTab(t.id)} title={t.label}
-              className="h-12 rounded-lg flex flex-col items-center justify-center gap-1 border transition-colors"
+              className="h-12 rounded-lg flex flex-col items-center justify-center gap-1 border transition-all hover:brightness-125"
               style={on ? segOn : segOff}>
-              <t.icon className="w-4 h-4" style={{ color: on ? AMBER : "#a1a1aa" }} />
-              <span className="text-[8.5px] font-semibold uppercase tracking-wide" style={{ color: on ? "#ffd9bf" : "#a1a1aa" }}>{t.label}</span>
+              <t.icon className="w-4 h-4 shrink-0" style={{ color: on ? AMBER : "#a1a1aa" }} />
+              <span className="w-full px-0.5 text-center truncate text-[7.5px] font-semibold uppercase tracking-[0.02em] leading-none" style={{ color: on ? "#ffd9bf" : "#a1a1aa" }}>{t.label}</span>
             </button>
           );
         })}
@@ -581,7 +581,7 @@ function AddPanel({ editor, churchId, addFocus }: { editor: Editor; churchId: st
           <input value={imgUrl} onChange={(e) => setImgUrl(e.target.value)} placeholder="…or paste an image URL"
             className="flex-1 h-8 px-2 rounded-md border text-[12px] text-zinc-200 bg-[#0b0b0e] outline-none focus:border-[#e8501a]/70" style={{ borderColor: "#26262b" }} />
           <button onClick={() => { if (imgUrl.trim()) { addFocus(() => editor.addImage(imgUrl.trim())); setImgUrl(""); } }}
-            className="h-8 px-3 rounded-md border text-[11px] font-bold text-white/80" style={segOff}>Add</button>
+            className="h-8 px-3.5 rounded-md border text-[11px] font-bold text-white/80 transition-all hover:border-[#e8501a]/60 hover:bg-[#e8501a]/[0.08] hover:text-white" style={segOff}>Add</button>
         </div>
         {libKind && (
           <MediaLibraryPicker kind={libKind} onClose={() => setLibKind(null)}
@@ -593,7 +593,7 @@ function AddPanel({ editor, churchId, addFocus }: { editor: Editor; churchId: st
 
       <div className="space-y-1.5">
         <button onClick={editor.addBlankSlide}
-          className="w-full h-9 rounded-lg text-[12px] font-semibold text-white inline-flex items-center justify-center gap-1.5" style={{ background: ELEV, border: `1px solid ${AMBER}55` }}>
+          className="w-full h-10 rounded-lg text-[12px] font-semibold text-white inline-flex items-center justify-center gap-1.5 transition-all hover:bg-[#e8501a]/[0.1] hover:border-[#e8501a]/80" style={{ background: ELEV, border: `1px solid ${AMBER}55` }}>
           <PlusSquare className="w-4 h-4" style={{ color: AMBER }} /> Blank slide
         </button>
         <button
@@ -604,7 +604,7 @@ function AddPanel({ editor, churchId, addFocus }: { editor: Editor; churchId: st
               toast.success("Applied to all slides");
             }
           }}
-          className="w-full h-9 rounded-lg text-[12px] font-bold inline-flex items-center justify-center gap-1.5 hover:brightness-110" style={{ background: AMBER, color: "#0b0b0e" }}>
+          className="w-full h-10 rounded-lg text-[12px] font-bold inline-flex items-center justify-center gap-1.5 transition-all hover:brightness-110 hover:-translate-y-px" style={{ background: `linear-gradient(180deg, ${AMBER}, #c23e0f)`, color: "#0b0b0e", boxShadow: "0 4px 14px rgba(232,80,26,0.32), inset 0 1px 0 rgba(255,255,255,0.25)" }}>
           <Copy className="w-4 h-4" /> Apply to all slides
         </button>
         <p className="text-[10px] text-white/40 leading-snug">
@@ -763,8 +763,8 @@ function AlignBtn({ label, onClick }: { label: string; onClick: () => void }) {
 
 function ToolBtn({ icon: Icon, label, onClick }: { icon: typeof Type; label: string; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="h-9 rounded-lg border text-[11px] font-bold inline-flex flex-col items-center justify-center gap-0.5 text-zinc-200 hover:bg-white/[0.04]" style={{ ...segOff, background: ELEV }}>
-      <Icon className="w-3.5 h-3.5" /> {label}
+    <button onClick={onClick} className="group h-12 rounded-lg border text-[11px] font-semibold inline-flex flex-col items-center justify-center gap-1 text-zinc-200 transition-all hover:border-[#e8501a]/50 hover:bg-[#e8501a]/[0.06] hover:text-white" style={{ ...segOff, background: ELEV }}>
+      <Icon className="w-4 h-4 text-zinc-400 transition-colors group-hover:text-[#e8501a]" /> {label}
     </button>
   );
 }

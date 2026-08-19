@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.262",
+    date: "2026-08-19",
+    headline: "Media Pro strip + polished slide-editor Add panel",
+    highlights: [
+      "The Media section now shows a permanent animated PRO strip instead of a pop-up banner.",
+      "Slide editor: cleaner tab labels, refreshed Text/Rect/Ellipse/Image/Video buttons and a bolder \"Apply to all slides\".",
+      "Removed the unused \"Default\" output selector from the top bar.",
+    ],
+  },
+  {
     version: "0.1.261",
     date: "2026-08-19",
     headline: "Dock-style icons + integrations cards",

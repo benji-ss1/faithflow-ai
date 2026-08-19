@@ -29,11 +29,10 @@ export function MediaSection({
   centerMode?: CenterMode;
 }) {
   const [open, setOpen] = useState(true);
-  const [showBanner, setShowBanner] = useState(false);
 
   const handleClick = (c: Category) => {
     if (c.locked) {
-      setShowBanner(true);
+      toast.info("Pro plan is on the way — you're on the free beta.");
       return;
     }
     // Toggle behavior — matches Songs/Bible topbar buttons.
@@ -59,6 +58,10 @@ export function MediaSection({
           </span>
         </button>
       </header>
+      {/* Permanent Pro ribbon strip — sits directly under the Media header. */}
+      <div className="px-2 pb-1.5">
+        <RibbonMarquee variant="single" text="PRO PLAN" opacity={0.92} />
+      </div>
       {open && (
         <>
           <ul className="pb-1">
@@ -80,43 +83,6 @@ export function MediaSection({
               </li>
             ))}
           </ul>
-          {showBanner && (
-            <div
-              className="mx-2 mb-2 p-2 rounded border relative overflow-hidden"
-              style={{
-                background: "linear-gradient(135deg, rgba(232,116,42,0.10), rgba(155,143,232,0.10))",
-                borderColor: "rgba(232,116,42,0.30)",
-              }}
-            >
-              <RibbonMarquee text="PRO PLAN" opacity={0.4} />
-              <div className="relative flex items-start gap-1.5">
-                <Lock className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#f97316]" />
-                <div className="flex-1 min-w-0">
-                  <div className="text-[11px] font-semibold text-[var(--color-foreground)]">Pro Plan feature</div>
-                  <div className="text-[10px] leading-snug text-[var(--color-muted-foreground)] mt-0.5">
-                    Premium motion backgrounds, cinematic loops and intro videos.
-                  </div>
-                  <div className="flex items-center gap-2 mt-1.5">
-                    <button
-                      type="button"
-                      onClick={() => toast.info("Pro plan is on the way — you're on the free beta.")}
-                      className="h-5 px-2 rounded text-[9px] font-semibold uppercase tracking-wider text-white"
-                      style={{ background: "#f97316" }}
-                    >
-                      Upgrade
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowBanner(false)}
-                      className="text-[10px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
-                    >
-                      Dismiss
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
         </>
       )}
     </section>

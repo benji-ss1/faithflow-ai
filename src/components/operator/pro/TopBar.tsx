@@ -63,22 +63,6 @@ function IconBtn({
 }
 
 const PREVIEW_DISPLAY_KEY = "presentflow.pro.previewDisplay";
-const DEFAULT_OUTPUT_KEY = "presentflow.pro.defaultOutput.v1";
-
-type DefaultOutputOption =
-  | { kind: "default" }
-  | { kind: "in-house" }
-  | { kind: "livestream" }
-  | { kind: "custom"; name: string };
-
-function labelForOutput(o: DefaultOutputOption): string {
-  switch (o.kind) {
-    case "default": return "Default";
-    case "in-house": return "In-house Stream";
-    case "livestream": return "Livestream";
-    case "custom": return o.name || "Custom";
-  }
-}
 
 export function TopBar({
   centerMode, onCenterMode, onToggleMediaStrip, mediaStripOpen, ctx,
@@ -132,11 +116,6 @@ export function TopBar({
   const canProContent = tier !== null && canAccess(tier, "pro-content");
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
   const [previewDisplay, setPreviewDisplay] = useState<number | null>(null);
-  // Task F: Max-gated default output selection. Persists to localStorage.
-  const [defaultOutput, setDefaultOutput] = useState<DefaultOutputOption>({ kind: "default" });
-  const [customDialogOpen, setCustomDialogOpen] = useState(false);
-  const [customName, setCustomName] = useState("");
-  const [maxPromptOpen, setMaxPromptOpen] = useState(false);
 
   // #4 — Big Auto-approve toggle. Simplifies the 4-mode autopilot to on/off:
   //   OFF => "suggestion" (chips shown, operator must click)
@@ -198,21 +177,6 @@ export function TopBar({
       if (!ok) return;
       ctx.onAutopilotModeChange("active");
     }
-  };
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const raw = window.localStorage.getItem(DEFAULT_OUTPUT_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as DefaultOutputOption;
-        if (parsed && typeof parsed.kind === "string") setDefaultOutput(parsed);
-      }
-    } catch { /* noop */ }
-  }, []);
-  const persistOutput = (o: DefaultOutputOption) => {
-    setDefaultOutput(o);
-    try { window.localStorage.setItem(DEFAULT_OUTPUT_KEY, JSON.stringify(o)); } catch { /* noop */ }
   };
 
   useEffect(() => {
@@ -326,92 +290,6 @@ export function TopBar({
               </Popover.Content>
             </Popover.Portal>
           </Popover.Root>
-        )}
-        {/* Task F — Max-gated default output profile dropdown. */}
-        {canProContent ? (
-          <DropdownMenu.Root>
-            <DropdownMenu.Trigger asChild>
-              <button
-                type="button"
-                title="Default output profile"
-                className="flex items-center gap-1 h-[22px] px-1.5 rounded-md border border-[var(--color-border)] text-[11px] text-[var(--color-muted-foreground)] hover:bg-white/5 hover:text-[var(--color-foreground)]"
-              >
-                <span>{labelForOutput(defaultOutput)}</span>
-                <ChevronDown className="w-3 h-3" />
-              </button>
-            </DropdownMenu.Trigger>
-            <DropdownMenu.Portal>
-              <DropdownMenu.Content
-                align="end"
-                sideOffset={4}
-                className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[180px]"
-              >
-                <DropdownMenu.Item onSelect={() => persistOutput({ kind: "default" })} className="px-3 py-1.5 rounded hover:bg-white/5 outline-none cursor-pointer">Default</DropdownMenu.Item>
-                <DropdownMenu.Item onSelect={() => persistOutput({ kind: "in-house" })} className="px-3 py-1.5 rounded hover:bg-white/5 outline-none cursor-pointer">In-house Stream</DropdownMenu.Item>
-                <DropdownMenu.Item onSelect={() => persistOutput({ kind: "livestream" })} className="px-3 py-1.5 rounded hover:bg-white/5 outline-none cursor-pointer">Livestream</DropdownMenu.Item>
-                <DropdownMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
-                <DropdownMenu.Item onSelect={(e) => { e.preventDefault(); setCustomDialogOpen(true); }} className="px-3 py-1.5 rounded hover:bg-white/5 outline-none cursor-pointer">Custom…</DropdownMenu.Item>
-              </DropdownMenu.Content>
-            </DropdownMenu.Portal>
-          </DropdownMenu.Root>
-        ) : (
-          <Popover.Root open={maxPromptOpen} onOpenChange={setMaxPromptOpen}>
-            <Popover.Trigger asChild>
-              <button
-                type="button"
-                title="Default output profile — Max feature"
-                className="flex items-center gap-1 h-[22px] px-1.5 rounded-md border border-[var(--color-border)] text-[11px] text-[var(--color-muted-foreground)] opacity-60 hover:opacity-100 hover:bg-white/5"
-              >
-                <span>{labelForOutput(defaultOutput)}</span>
-                <ChevronDown className="w-3 h-3" />
-              </button>
-            </Popover.Trigger>
-            <Popover.Portal>
-              <Popover.Content
-                side="bottom"
-                align="end"
-                sideOffset={4}
-                className="w-[280px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-3 text-[12px] shadow-xl z-50"
-              >
-                <MaxUpgradePrompt feature="pro-content" variant="card" />
-              </Popover.Content>
-            </Popover.Portal>
-          </Popover.Root>
-        )}
-        {customDialogOpen && (
-          <div
-            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50"
-            role="dialog"
-            aria-modal="true"
-            onClick={() => setCustomDialogOpen(false)}
-          >
-            <div
-              className="w-[320px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-4"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="text-[13px] font-medium mb-2">Custom output profile</div>
-              <input
-                autoFocus
-                value={customName}
-                onChange={(e) => setCustomName(e.target.value)}
-                placeholder="Profile name"
-                className="w-full h-8 px-2 rounded-md border border-[var(--color-border)] bg-[var(--color-app-bg)] text-[12px]"
-              />
-              <div className="mt-3 flex justify-end gap-2">
-                <button type="button" onClick={() => setCustomDialogOpen(false)} className="px-2 h-7 rounded-md text-[11px] hover:bg-white/5">Cancel</button>
-                <button
-                  type="button"
-                  disabled={!customName.trim()}
-                  onClick={() => {
-                    persistOutput({ kind: "custom", name: customName.trim() });
-                    setCustomDialogOpen(false);
-                    setCustomName("");
-                  }}
-                  className="px-2 h-7 rounded-md text-[11px] border border-[var(--color-brand)] text-[var(--color-brand)] disabled:opacity-50"
-                >Save</button>
-              </div>
-            </div>
-          </div>
         )}
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
