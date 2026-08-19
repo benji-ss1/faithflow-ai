@@ -12,7 +12,8 @@ import { cachedLookup } from "@/lib/bible-client-cache";
 import { bibleSearchCacheKey, getBibleSearchCached, setBibleSearchCached } from "@/lib/bible-search-cache";
 import { fetchChapterCached } from "@/lib/bible-chapter-cache";
 import { addServiceItem, addServiceItems } from "@/lib/actions";
-import { Plus, Pencil, Check } from "lucide-react";
+import { Plus, Pencil, Check, BookOpen } from "lucide-react";
+import { DropdownDisclosure } from "../DropdownDisclosure";
 import { useRouter } from "next/navigation";
 import { isInternalEvent } from "@/lib/internal-events";
 import { phraseSearch, findPhraseByReference, type PhraseSearchResult } from "@/services/bible/phraseSearch";
@@ -657,10 +658,9 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
             </div>
           )}
         </div>
-        <select
-          value={translation}
-          onChange={(e) => {
-            const next = e.target.value;
+        <DropdownDisclosure
+          selectedId={translation}
+          onSelect={(next) => {
             setTranslation(next);
             // Immediately re-fetch so the visible cards reflect the new
             // translation. Was previously updating only the trailing label
@@ -670,12 +670,15 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
               setTimeout(() => void lookup(), 0);
             }
           }}
-          className="h-9 px-2 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded-md text-sm"
-        >
-          {translationOptions.map((t) => (
-            <option key={t.code} value={t.code}>{t.name}</option>
-          ))}
-        </select>
+          align="end"
+          panelWidth={260}
+          items={translationOptions.map((t) => ({
+            id: t.code,
+            name: t.code,
+            description: t.name && t.name !== t.code ? t.name : undefined,
+            icon: <BookOpen className="w-4 h-4" />,
+          }))}
+        />
         <button
           onClick={() => {
             if (!isRef && dropdownHits.length > 0) {

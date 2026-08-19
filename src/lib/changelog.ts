@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.252",
+    date: "2026-08-19",
+    headline: "Fluid tabs + a nicer version picker",
+    highlights: [
+      "The Songs / Bible / Media switcher up top now has a smooth sliding highlight that glides between tabs.",
+      "The Bible version picker is now a proper dropdown — each translation shows its code and full name, with a clear tick on the one you're using.",
+    ],
+  },
+  {
     version: "0.1.251",
     date: "2026-08-19",
     headline: "Deeper, cleaner black",

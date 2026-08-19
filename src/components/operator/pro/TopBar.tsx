@@ -17,6 +17,7 @@ import type { OperatorShellCtx } from "../shell/types";
 import type { CenterMode } from "./ProOperatorShell";
 import { cn } from "@/lib/utils";
 import { SearchPalette } from "./SearchPalette";
+import { FluidTabs } from "./FluidTabs";
 import { AIDiagnosticModal, type LiveAudioStats } from "../AIDiagnosticModal";
 import { readNativeDevicePref } from "@/lib/audio/nativeDeviceStore";
 import type { DisplayInfo } from "@/types/electron";
@@ -56,35 +57,6 @@ function IconBtn({
         </Tooltip.Portal>
       </Tooltip.Root>
     </Tooltip.Provider>
-  );
-}
-
-// Segmented-pill nav item (iOS-style). Lives inside one rounded-full container;
-// the ACTIVE item becomes a filled/elevated pill. Keeps the same onClick /
-// mode-switch behaviour as the old bordered ModeBtn group.
-function SegNavItem({
-  icon: Icon, label, active, onClick,
-}: {
-  icon: typeof BookOpen;
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        "flex items-center justify-center gap-1.5 h-[30px] px-3 rounded-full text-[12px] font-medium transition-all",
-        active
-          ? "bg-[var(--color-elevated)] text-[var(--color-foreground)] shadow-sm ring-1 ring-[var(--color-brand)]/60"
-          : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/5",
-      )}
-    >
-      <Icon className="w-3.5 h-3.5 shrink-0" />
-      <span className={cn(active && "font-semibold")}>{label}</span>
-    </button>
   );
 }
 
@@ -313,17 +285,16 @@ export function TopBar({
       </div>
 
       <div className="mx-2 h-6 w-px bg-[var(--color-border)]" />
-      <div className="flex items-center gap-0.5 p-0.5 rounded-full border border-[var(--color-border)] bg-[var(--color-panel)]">
-        <SegNavItem icon={Music} label="Songs" active={centerMode === "songs"} onClick={toggleMode("songs")} />
-        <SegNavItem icon={BookOpen} label="Bible" active={centerMode === "bible"} onClick={toggleMode("bible")} />
-        <SegNavItem icon={ImageIcon} label="Media" active={centerMode === "media"} onClick={toggleMode("media")} />
-        <SegNavItem
-          icon={Palette}
-          label="Themes"
-          active={false}
-          onClick={() => window.dispatchEvent(new CustomEvent("presentflow:open-themes-settings"))}
-        />
-      </div>
+      <FluidTabs
+        tabs={[
+          { id: "songs", label: "Songs", icon: Music },
+          { id: "bible", label: "Bible", icon: BookOpen },
+          { id: "media", label: "Media", icon: ImageIcon },
+        ]}
+        activeId={centerMode}
+        onSelect={(id) => toggleMode(id as CenterMode)()}
+        action={{ label: "Themes", icon: Palette, onClick: () => window.dispatchEvent(new CustomEvent("presentflow:open-themes-settings")) }}
+      />
 
       <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-muted-foreground)] truncate px-4">
         {currentTitle}
