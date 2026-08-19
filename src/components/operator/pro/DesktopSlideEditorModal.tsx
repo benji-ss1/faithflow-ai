@@ -560,6 +560,7 @@ function AddPanel({ editor, churchId, addFocus }: { editor: Editor; churchId: st
   void churchId;
   const [imgUrl, setImgUrl] = useState("");
   const [libKind, setLibKind] = useState<"image" | "video" | null>(null);
+  const [confirmAll, setConfirmAll] = useState(false);
   return (
     <div className="p-3 space-y-3">
       <div>
@@ -597,16 +598,18 @@ function AddPanel({ editor, churchId, addFocus }: { editor: Editor; churchId: st
           <PlusSquare className="w-4 h-4" style={{ color: AMBER }} /> Blank slide
         </button>
         <button
-          onClick={() => {
-            const styled = editor.selectedObjectId ? " and the selected object's style/position" : "";
-            if (confirm(`Apply this slide's background${styled} to ALL ${editor.slides.length} slides in this song?\n\nText and media content are never overwritten. You can undo this.`)) {
-              editor.applyToAll();
-              toast.success("Applied to all slides");
-            }
-          }}
+          onClick={() => setConfirmAll(true)}
           className="w-full h-10 rounded-lg text-[12px] font-bold inline-flex items-center justify-center gap-1.5 transition-all hover:brightness-110 hover:-translate-y-px" style={{ background: `linear-gradient(180deg, ${AMBER}, #c23e0f)`, color: "#0b0b0e", boxShadow: "0 4px 14px rgba(232,80,26,0.32), inset 0 1px 0 rgba(255,255,255,0.25)" }}>
           <Copy className="w-4 h-4" /> Apply to all slides
         </button>
+        <ConfirmDialog
+          open={confirmAll}
+          title="Apply to all slides?"
+          confirmLabel="Apply to all"
+          body={<>Copies this slide&rsquo;s background{editor.selectedObjectId ? " and the selected object's style/position" : ""} to all <b className="text-white/80">{editor.slides.length}</b> slides in this song. Text and media content are never overwritten — and you can undo this.</>}
+          onCancel={() => setConfirmAll(false)}
+          onConfirm={() => { editor.applyToAll(); toast.success("Applied to all slides"); setConfirmAll(false); }}
+        />
         <p className="text-[10px] text-white/40 leading-snug">
           Copies the background{editor.selectedObjectId ? " + the selected object's style and position" : ""} to every slide. Lyrics/text are kept.
         </p>
@@ -758,6 +761,43 @@ function ZBtn({ icon: Icon, title, onClick }: { icon: typeof Type; title: string
 function AlignBtn({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <button onClick={onClick} title={`Align ${label}`} className="flex-1 h-8 rounded-md border text-[10px] font-bold text-zinc-300 hover:bg-white/[0.04]" style={{ ...segOff, background: ELEV }}>{label}</button>
+  );
+}
+
+// In-app confirmation modal — replaces the native window.confirm(). Sits above
+// the editor Dialog (z-[70]) at z-[80]. Plain fixed overlay (no nested Radix
+// Dialog) to avoid focus-trap fights with the parent editor Dialog.
+function ConfirmDialog({ open, title, body, confirmLabel = "Confirm", onConfirm, onCancel }: {
+  open: boolean;
+  title: string;
+  body: React.ReactNode;
+  confirmLabel?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+      else if (e.key === "Enter") { e.preventDefault(); onConfirm(); }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open, onConfirm, onCancel]);
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onCancel}>
+      <div className="w-[360px] max-w-full rounded-xl border p-4" style={{ borderColor: HAIR, background: PANEL, boxShadow: "0 20px 60px rgba(0,0,0,0.55)" }} onClick={(e) => e.stopPropagation()}>
+        <div className="text-[14px] font-semibold text-white">{title}</div>
+        <div className="mt-1.5 text-[12px] leading-relaxed text-white/60">{body}</div>
+        <div className="mt-4 flex justify-end gap-2">
+          <button type="button" onClick={onCancel}
+            className="h-9 px-3.5 rounded-lg border text-[12px] font-semibold text-white/80 transition-colors hover:bg-white/[0.05]" style={segOff}>Cancel</button>
+          <button type="button" autoFocus onClick={onConfirm}
+            className="h-9 px-4 rounded-lg text-[12px] font-bold inline-flex items-center gap-1.5 transition-all hover:brightness-110" style={{ background: `linear-gradient(180deg, ${AMBER}, #c23e0f)`, color: "#0b0b0e", boxShadow: "0 4px 14px rgba(232,80,26,0.32), inset 0 1px 0 rgba(255,255,255,0.25)" }}>{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
   );
 }
 

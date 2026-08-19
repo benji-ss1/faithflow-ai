@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.263",
+    date: "2026-08-19",
+    headline: "In-app \"Apply to all slides\" confirmation",
+    highlights: [
+      "\"Apply to all slides\" now shows a styled in-app confirmation instead of the plain browser pop-up (Enter to confirm, Esc to cancel).",
+    ],
+  },
+  {
     version: "0.1.262",
     date: "2026-08-19",
     headline: "Media Pro strip + polished slide-editor Add panel",
