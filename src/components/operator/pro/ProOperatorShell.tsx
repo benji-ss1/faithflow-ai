@@ -46,7 +46,7 @@ import { useTimerSession, useMessagesSession, useBibleSession } from "./hooks";
 import { openLiveChannel, safePost, type LiveChannelLike } from "@/lib/broadcast";
 import { cachedLookup } from "@/lib/bible-client-cache";
 import { setAvailableTranslationCodes, getAvailableTranslationCodes } from "@/lib/translation-commands";
-import { BIBLE_MICRO_COOLDOWN_MS, decideBibleAutoFire } from "@/lib/bible-antireplay";
+import { BIBLE_MICRO_COOLDOWN_MS, decideBibleAutoFire, parseLiveScriptureRef } from "@/lib/bible-antireplay";
 import { fetchChapterCached, getCachedChapter, chapterKey, prefetchChapter } from "@/lib/bible-chapter-cache";
 import { cn } from "@/lib/utils";
 import { useOperatorHotkeys } from "@/hooks/useOperatorHotkeys";
@@ -1990,6 +1990,45 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const timer = useTimerSession();
   const messages = useMessagesSession();
   const bibleSession = useBibleSession(ctx.defaultTranslationCode);
+  // Always-current handle to the session so the callback below (captured by
+  // effects that don't re-subscribe on every grid change) never reads a stale
+  // grid — the source of the intermittent "sometimes collapses" behaviour.
+  const bibleSessionRef = useRef(bibleSession);
+  bibleSessionRef.current = bibleSession;
+
+  // Sync the CENTER Bible grid to an auto-detected/projected verse WITHOUT
+  // collapsing a loaded chapter. Field request (2026-08-19 video): after "Load
+  // Chapter", when the preacher says a bare verse of the SAME chapter (e.g.
+  // "verse one"), the whole-chapter grid must stay on screen and only the
+  // orange selection moves to that verse (which is separately projected). Only a
+  // genuinely NEW scripture — one whose verse ISN'T already a tile in the
+  // current grid — replaces the grid.
+  const syncBibleCenterToDetection = useCallback((
+    ref: { book: string; chapter: number; verseStart: number; verseEnd: number },
+    fallbackRef: string,
+    fallbackCards: import("./hooks").VerseCard[],
+  ): void => {
+    const bs = bibleSessionRef.current;
+    const detBook = ref.book.toLowerCase().replace(/\s+/g, " ");
+    // A single-verse detection whose exact verse is already a tile in the loaded
+    // grid = navigation within the same (usually full-chapter) view.
+    const idx = ref.verseStart === ref.verseEnd
+      ? bs.state.cards.findIndex((c) => {
+          const r = parseLiveScriptureRef(c.label);
+          return r != null && r.book === detBook && r.chapter === ref.chapter
+            && r.verseStart === ref.verseStart && r.verseStart === r.verseEnd;
+        })
+      : -1;
+    if (idx >= 0) {
+      // Keep the whole grid; just move the selection to the called verse.
+      bs.setSelectedIdx(idx);
+      return;
+    }
+    // New scripture (not in the current grid) → replace with its cards.
+    bs.setRef(fallbackRef);
+    bs.setCards(fallbackCards);
+    bs.setSelectedIdx(0);
+  }, []);
 
   // F1/F2: publish timer + message overlays to the live/stage/livestream outputs
   // via BroadcastChannel. The output pages already know how to render these —
@@ -2275,9 +2314,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
             // this reference family; cascade re-fires hard-cut (see aiShouldFade).
             sendLiveRef.current(fullSlide, null, aiShouldFade(fullSlide.text) ? { preserveConfiguredTransition: true } : { instant: true });
           } catch { /* noop */ }
-          // Sync preview with full cards
-          bibleSession.setCards(cards);
-          bibleSession.setSelectedIdx(0);
+          // Sync the center preview WITHOUT collapsing a loaded chapter: if this
+          // verse is already a tile in the current grid (e.g. after Load
+          // Chapter), keep the whole grid and just move the selection.
+          syncBibleCenterToDetection(scripture.ref, refText, cards);
           console.log(`[latency] verse-text-update ref="${refText}" (full text now on projector)`);
         }
         // Bump tick so the auto-approve effect re-runs for non-instant-fire cases
@@ -2748,10 +2788,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     lastHandledAutoFireSuggestionIdRef.current = scripture.id;
     doAutoFire(slide, key, ref, scripture.confidence, !!(scripture.forceLive || scripture.voiceCommand));
     // Update the center Bible panel so the operator sees the auto-projected
-    // verse in the preview — keeps preview and LIVE in sync.
-    bibleSession.setRef(ref);
-    bibleSession.setCards(cards);
-    bibleSession.setSelectedIdx(0);
+    // verse in the preview — keeps preview and LIVE in sync. If the verse is
+    // already a tile in the loaded grid (Load Chapter), keep the whole grid and
+    // just move the selection instead of collapsing to a single box.
+    syncBibleCenterToDetection(scripture.ref, ref, cards);
     lastLiveWasSongRef.current = false;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   // eslint-disable-next-line react-hooks/exhaustive-deps

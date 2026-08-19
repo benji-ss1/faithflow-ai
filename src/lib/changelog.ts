@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.273",
+    date: "2026-08-19",
+    headline: "Load Chapter stays put when the preacher calls a verse",
+    highlights: [
+      "After Load Chapter, saying a verse of that same chapter now just moves the highlight to it and projects it — the whole chapter grid stays on screen instead of collapsing to one box.",
+      "It only switches to a single box when a genuinely new scripture (different chapter) is called.",
+    ],
+  },
+  {
     version: "0.1.272",
     date: "2026-08-19",
     headline: "Fixed the projector scripture fade-pulse",
