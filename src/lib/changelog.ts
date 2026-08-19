@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.246",
+    date: "2026-08-19",
+    headline: "A crisper operator console",
+    highlights: [
+      "The operator panels now have a bit more depth and cleaner edges, so the library, stage and live areas read as distinct surfaces instead of blending into the black.",
+      "Labels and secondary text are a touch brighter and easier to scan at a glance.",
+      "Fixed the small Stage preview thumbnails clipping long lyrics — they now shrink text to fit like the main slides do.",
+    ],
+  },
+  {
     version: "0.1.245",
     date: "2026-08-18",
     headline: "Video stays in sync with the projector",

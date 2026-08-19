@@ -33,7 +33,7 @@
   --color-foreground:            #ece7e0;
   --color-card-foreground:       #ece7e0;
   --color-popover-foreground:    #ece7e0;
-  --color-muted-foreground:      #9c958b;
+  --color-muted-foreground:      #aca498;
   --color-primary:               #ff7a2c;
   --color-primary-foreground:    #17130c;
   --color-secondary:             #1c1820;
@@ -51,8 +51,8 @@
   --color-destructive-foreground: #17130c;
 
   /* Borders and inputs */
-  --color-border:  rgba(255,255,255,0.10);
-  --color-input:   rgba(255,255,255,0.10);
+  --color-border:  rgba(255,255,255,0.12);
+  --color-input:   rgba(255,255,255,0.12);
   --color-ring:    #ff7a2c;
 
   /* Sidebar-specific */
@@ -60,7 +60,7 @@
   --color-sidebar-item-hover: #171319;
   --color-sidebar-item-active:#1c1820;
   --color-sidebar-fg:         #d5cdc1;
-  --color-sidebar-fg-muted:   #847d72;
+  --color-sidebar-fg-muted:   #968e82;
 
   /* AI + audio status tokens */
   --color-ai-idle:      #6f685e;
@@ -161,10 +161,20 @@ html.light {
  * (No override needed — dark is default.)
  */
 
-/* Utility: subtle raised card surface */
+/* Utility: subtle raised card surface. A hairline top highlight + soft drop
+ * shadow give the raised tiers real physical depth against the near-black
+ * console, so panels read as distinct surfaces rather than blending in. */
 .surface-panel  { background: var(--color-panel); border: 1px solid var(--color-border); }
-.surface-shell  { background: var(--color-raised-shell); border: 1px solid var(--color-border); }
-.surface-elev   { background: var(--color-elevated); border: 1px solid var(--color-border); }
+.surface-shell  {
+  background: var(--color-raised-shell);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.035);
+}
+.surface-elev   {
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.04);
+}
 .ff-card-premium {
   background:
     linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.02)),

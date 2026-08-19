@@ -357,8 +357,10 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                 key={idx}
                 className="relative aspect-video rounded-md border border-[var(--color-border)] overflow-hidden opacity-70"
               >
-                <SlideRenderer slide={s} />
-                <div className="absolute bottom-1 right-1 text-[9px] font-mono uppercase tracking-wider text-white/60 bg-black/50 px-1 rounded">
+                {/* Fit text down to a small floor so the half-size stage mirror
+                    doesn't clip long lyrics (matches the main grid's textMinPx). */}
+                <SlideRenderer slide={s} textMinPx={8} />
+                <div className="absolute bottom-1 right-1 text-[8px] font-mono uppercase tracking-wider text-white/55 bg-black/60 px-1 py-px rounded-sm pointer-events-none">
                   Stage
                 </div>
               </div>
