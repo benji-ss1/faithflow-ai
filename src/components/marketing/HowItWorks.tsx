@@ -56,12 +56,12 @@ const CSS = `
   font-size:clamp(30px,5vw,60px);line-height:1.02;letter-spacing:-.02em;margin:12px 0 0}
 .hiw .hiw-h2 em{font-style:italic;color:var(--ember)}
 
-.hiw .hiw-body{flex:1;min-height:0;display:grid;grid-template-columns:1.05fr .95fr;gap:clamp(28px,4vw,64px);align-items:center;padding-top:3vh}
+.hiw .hiw-body{flex:1;min-height:0;display:grid;grid-template-columns:1.35fr .85fr;gap:clamp(28px,4vw,64px);align-items:center;padding-top:3vh}
 .hiw .hiw-stage{position:relative;height:100%;min-height:0;display:flex;align-items:center;justify-content:center}
-.hiw .hiw-shot{position:absolute;max-width:100%;max-height:70vh;width:auto;height:auto;object-fit:contain;
+.hiw .hiw-shot{position:absolute;max-width:100%;max-height:82vh;width:auto;height:auto;object-fit:contain;
   border-radius:16px;border:1px solid rgba(23,19,12,.14);box-shadow:0 24px 70px rgba(60,44,24,.22);
   opacity:0;transform:translateY(14px) scale(.985);transition:opacity .6s cubic-bezier(.2,0,.2,1),transform .6s cubic-bezier(.2,0,.2,1)}
-.hiw .hiw-shot.portrait{max-height:74vh}
+.hiw .hiw-shot.portrait{max-height:84vh}
 .hiw .hiw-shot.on{opacity:1;transform:none}
 
 .hiw .hiw-cards{display:flex;flex-direction:column;gap:14px;max-width:520px}
@@ -86,8 +86,8 @@ const CSS = `
 @media (max-width:960px){
   .hiw .hiw-sticky{padding:5vh 7vw 4vh}
   .hiw .hiw-body{grid-template-columns:1fr;grid-template-rows:1fr auto;gap:14px;padding-top:2vh}
-  .hiw .hiw-shot{max-height:42vh}
-  .hiw .hiw-shot.portrait{max-height:44vh}
+  .hiw .hiw-shot{max-height:52vh;max-width:96%}
+  .hiw .hiw-shot.portrait{max-height:54vh}
   .hiw .hiw-rail{display:none}
   /* on mobile only the active card shows, under the shot */
   .hiw .hiw-cards{max-width:none}

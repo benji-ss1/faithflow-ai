@@ -28,7 +28,7 @@ const CSS = `
 .pfb .bs-art svg{width:100%;height:100%;display:block}
 .pfb .bs-art-video{background:#0b0b0b;padding:0}
 .pfb .bs-video{width:100%;height:100%;object-fit:cover;display:block}
-.pfb .bs-shot{width:100%;height:100%;object-fit:cover;display:block}
+.pfb .bs-shot{width:100%;height:100%;object-fit:contain;display:block;padding:14px}
 .pfb .bs-shot-top{object-position:top}
 .pfb .bs-copy{display:flex;flex-direction:column;position:relative;padding:6px 4px 0;min-width:0}
 .pfb .bs-top{display:flex;flex-direction:column;gap:14px;flex:1}
