@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.247",
+    date: "2026-08-19",
+    headline: "Add slide without leaving the grid",
+    highlights: [
+      "\"Add slide\" now adds a new slide straight onto the end of the song in the main grid — it no longer pushes you into the editor. (Use \"Edit slide\" or \"Blank slide\" when you want the editor.)",
+      "Fixed the big empty gap that appeared between slide rows (e.g. slide 6 sitting way below slides 1–5) — rows now pack neatly under each other.",
+      "Removed the duplicate \"New slide\" button from the playlist panel; the \"+\" menu there still offers Blank / Song / Bible / Media.",
+    ],
+  },
+  {
     version: "0.1.246",
     date: "2026-08-19",
     headline: "A crisper operator console",

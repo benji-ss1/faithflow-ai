@@ -205,9 +205,12 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
             className={cn(viewMode === "text" ? "flex flex-col" : "grid", "min-h-[45vh]")}
             style={viewMode === "text"
               ? { gap: 4 }
+              // alignContent:start packs rows at the top so a wrapped row (e.g.
+              // slide 6 under slides 1-5) sits directly below the first row
+              // instead of the grid stretching rows to fill the 45vh min-height.
               : viewMode === "list"
-                ? { gap: 6, gridTemplateColumns: `repeat(auto-fill, minmax(${Math.max(slideSize * 2, 220)}px, 1fr))` }
-                : { gap: 6, gridTemplateColumns: `repeat(auto-fill, minmax(${slideSize}px, 1fr))` }
+                ? { gap: 6, alignContent: "start", gridTemplateColumns: `repeat(auto-fill, minmax(${Math.max(slideSize * 2, 220)}px, 1fr))` }
+                : { gap: 6, alignContent: "start", gridTemplateColumns: `repeat(auto-fill, minmax(${slideSize}px, 1fr))` }
             }
           >
             {slides.length === 0 && (

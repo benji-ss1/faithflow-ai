@@ -634,18 +634,9 @@ export function PlaylistSection({
             </ol>
           </SortableContext>
         </DndContext>
-        {/* 2026-08-16: prominent create-slide button in the playlist area. Adds a
-            new blank slide the operator can then edit; the small + popover above
-            still offers From Songs / Bible / Media. */}
-        <button
-          type="button"
-          onClick={addBlank}
-          className="mt-1.5 mx-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md border border-dashed border-[var(--color-border)] text-[12px] font-medium text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:border-[var(--color-brand)] hover:bg-white/5 transition-colors"
-          title="Create a new blank slide"
-          data-testid="playlist-new-slide"
-        >
-          <Plus className="w-3.5 h-3.5" /> New slide
-        </button>
+        {/* The playlist "New slide" button was removed 2026-08-19 (user directive);
+            new slides are added from the center header's "Add slide", and the
+            "+" popover above still offers Blank / From Songs / Bible / Media. */}
         </>
       )}
     </section>

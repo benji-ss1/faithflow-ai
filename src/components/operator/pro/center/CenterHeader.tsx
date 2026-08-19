@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState } from "react";
 import { LayoutGrid, List, Eye, Play, Music, BookOpen, Image as ImageIcon, Type, Pencil, FilePlus, Plus } from "lucide-react";
 import { toast } from "sonner";
+import { useRouter } from "next/navigation";
+import { createSongSlide } from "@/lib/actions";
 import { cn } from "@/lib/utils";
 import { dispatchInternal } from "@/lib/internal-events";
 import type { OperatorShellCtx } from "../../shell/types";
@@ -30,6 +32,19 @@ export function CenterHeader({
   onSlideSize?: (n: number) => void;
 }) {
   const item = ctx.plan.items[ctx.previewItemIdx];
+  const router = useRouter();
+  // "Add slide" appends a new slide to the END of the current song's grid
+  // WITHOUT opening the editor (user directive 2026-08-19). createSongSlide
+  // inserts one slide server-side; router.refresh() re-fetches the plan so the
+  // new card shows up in the main grid.
+  const onAddSlide = async () => {
+    const songId = (item as { songId?: string } | undefined)?.songId;
+    if (!songId) return;
+    const res = await createSongSlide(songId, undefined, { lyrics: "New slide", objects: [] });
+    if (!res.ok) { toast.error(res.error ?? "Couldn't add slide"); return; }
+    toast.success("Slide added");
+    router.refresh();
+  };
   // R6/Y4: mode-aware titles. Read-only per the earlier decision — rename
   // routes through the item edit flow in slides mode only.
   const Icon =
@@ -70,8 +85,8 @@ export function CenterHeader({
             <Pencil className="w-3.5 h-3.5" /> Edit slide
           </button>
           <button
-            onClick={() => window.dispatchEvent(new CustomEvent("presentflow:open-slide-editor", { detail: { add: true } }))}
-            title="Add a new slide and open it in the editor"
+            onClick={() => void onAddSlide()}
+            title="Add a new slide to the end of this song"
             className="shrink-0 h-7 px-2.5 rounded-md border border-[var(--color-border)] flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-foreground)] hover:bg-[var(--color-elevated)]"
           >
             <Plus className="w-3.5 h-3.5" /> Add slide
