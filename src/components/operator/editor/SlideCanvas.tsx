@@ -294,6 +294,7 @@ export function SlideCanvas({
               onStartEdit={() => setEditingId(o.id)}
               onEndEdit={() => setEditingId(null)}
               onText={(t) => onUpdateObject(o.id, { text: t } as Partial<SlideObject>)}
+              textScale={zone.fontScale}
             />
           ))}
         </div>
@@ -304,7 +305,7 @@ export function SlideCanvas({
 
 function ObjectView({
   obj, selected, soleSelected, selectedNow, onSelect, beginDrag, readOnly,
-  editing, onStartEdit, onEndEdit, onText,
+  editing, onStartEdit, onEndEdit, onText, textScale = 1,
 }: {
   obj: SlideObject;
   selected: boolean;
@@ -317,6 +318,9 @@ function ObjectView({
   onStartEdit: () => void;
   onEndEdit: () => void;
   onText: (t: string) => void;
+  // Live preview of the Projection-Zone Font multiplier (zone.fontScale). 1 =
+  // no change (WYSIWYG). >1 grows text to match how the projector renders it.
+  textScale?: number;
 }) {
   const locked = !!obj.locked;
   const hidden = !!obj.hidden;
@@ -341,8 +345,9 @@ function ObjectView({
     const textStyle: React.CSSProperties = {
       fontFamily: obj.fontFamily || "Inter, system-ui, sans-serif",
       // fontSize is expressed in canvas px (1920×1080 virtual space) so we
-      // scale via a container-derived em unit. Approximation with cqw:
-      fontSize: `${((obj.fontSize ?? 96) / CANVAS_H) * 100}cqh`,
+      // scale via a container-derived em unit. Approximation with cqw.
+      // textScale previews the Projection-Zone Font multiplier live.
+      fontSize: `${((obj.fontSize ?? 96) * textScale / CANVAS_H) * 100}cqh`,
       fontWeight: obj.fontWeight ?? 600,
       color: obj.color ?? "#ffffff",
       fontStyle: obj.italic ? "italic" : undefined,

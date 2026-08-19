@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.270",
+    date: "2026-08-19",
+    headline: "Font-scale preview in the slide editor",
+    highlights: [
+      "The editor now previews the Projection-Zone Font slider live — text grows or shrinks on the canvas to match the projector as you drag it.",
+    ],
+  },
+  {
     version: "0.1.269",
     date: "2026-08-19",
     headline: "See the projection zone update live in the editor",
