@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.253",
+    date: "2026-08-19",
+    headline: "Sliding switches + a What's-new bell",
+    highlights: [
+      "AI On/Off and Auto/Manual are now smooth sliding switches — green when the AI is on, orange when Auto is on — with the live-status dot kept right beside them.",
+      "A new bell in the top bar lets you reopen \"What's new\" any time to browse recent features, even after you've dismissed the pop-up.",
+    ],
+  },
+  {
     version: "0.1.252",
     date: "2026-08-19",
     headline: "Fluid tabs + a nicer version picker",

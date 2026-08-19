@@ -18,6 +18,8 @@ import type { CenterMode } from "./ProOperatorShell";
 import { cn } from "@/lib/utils";
 import { SearchPalette } from "./SearchPalette";
 import { FluidTabs } from "./FluidTabs";
+import { SwitchMode } from "./SwitchMode";
+import { FeaturesBell } from "./ActivitiesCard";
 import { AIDiagnosticModal, type LiveAudioStats } from "../AIDiagnosticModal";
 import { readNativeDevicePref } from "@/lib/audio/nativeDeviceStore";
 import type { DisplayInfo } from "@/types/electron";
@@ -454,27 +456,16 @@ export function TopBar({
           <div className="flex items-center gap-1">
             <Tooltip.Root>
               <Tooltip.Trigger asChild>
-                <button
-                  type="button"
-                  onClick={ctx.onListenToggle}
-                  aria-pressed={listening}
-                  aria-label={aiTitle}
-                  className={cn(
-                    "flex items-center gap-1.5 h-[28px] min-w-[90px] px-2 rounded-full border text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
-                    listening
-                      ? "bg-green-500/20 text-green-200 border-green-500/50 hover:bg-green-500/25"
-                      : "bg-red-500/15 text-red-300 border-red-500/40 hover:bg-red-500/25",
-                  )}
-                >
-                  <span
-                    aria-hidden
-                    className={cn(
-                      "inline-block w-2 h-2 rounded-full shrink-0",
-                      listening ? "bg-green-400" : "bg-red-500",
-                    )}
-                  />
-                  <span className="truncate">{listening ? "AI ON" : "AI OFF"}</span>
-                </button>
+                <SwitchMode
+                  checked={listening}
+                  onChange={ctx.onListenToggle}
+                  onLabel="AI On"
+                  offLabel="AI Off"
+                  onColor="#4fd18b"
+                  offColor="#ff6d6d"
+                  width={92}
+                  ariaLabel={aiTitle}
+                />
               </Tooltip.Trigger>
               {/* SR-only live region so screen readers announce the binary
                   ON ↔ OFF transition. The pill button's own aria-label
@@ -713,30 +704,16 @@ export function TopBar({
                 </Tooltip.Portal>
               </Tooltip.Root>
             )}
-            {/* #4 — Big Auto-approve toggle. Sits next to the AI Live pill so
-                operators can spot the mode at a glance. */}
-            <button
-              type="button"
-              role="switch"
-              aria-checked={autoApproveOn}
-              onClick={toggleAutoApprove}
+            {/* #4 — Big Auto-approve toggle (SwitchMode). Sits next to the AI
+                Live pill so operators can spot the mode at a glance. */}
+            <SwitchMode
+              checked={autoApproveOn}
+              onChange={toggleAutoApprove}
+              onLabel="Auto"
+              offLabel="Manual"
+              width={96}
               title={autoApproveOn ? "Auto-approve is ON — high-confidence detections auto-send to LIVE" : "Auto-approve is OFF — click chips to send"}
-              className={cn(
-                "relative flex items-center gap-1.5 h-[28px] w-[100px] px-2 rounded-full border text-[10px] font-bold uppercase tracking-wider transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
-                autoApproveOn
-                  ? "bg-[var(--color-brand)] text-white border-[var(--color-brand)] hover:brightness-110"
-                  : "bg-[var(--color-panel)] text-[var(--color-muted-foreground)] border-[var(--color-border)] hover:bg-white/5",
-              )}
-            >
-              <span
-                aria-hidden
-                className={cn(
-                  "inline-block w-3 h-3 rounded-full shrink-0 transition-transform",
-                  autoApproveOn ? "bg-white translate-x-0" : "bg-[var(--color-muted-foreground)]",
-                )}
-              />
-              <span className="truncate">{autoApproveOn ? "AUTO" : "Manual"}</span>
-            </button>
+            />
             {/* B3 — projector text-size control. AUTO = auto-fit; A−/A+ bias the
                 fitted size (clamped so text never runs off-screen). */}
             <div
@@ -848,6 +825,8 @@ export function TopBar({
           <span className="hidden sm:inline">Stage</span>
           <ScreenShare className="w-3 h-3 sm:hidden" />
         </div>
+        {/* Recent features / What's-new bell — revisit updates any time */}
+        <FeaturesBell />
         {/* Task G — Present Flow logo */}
         <Popover.Root>
           <Popover.Trigger asChild>
