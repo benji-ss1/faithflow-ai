@@ -52,17 +52,21 @@ export default function RailConnector() {
   return (
     <div
       ref={ref}
+      className="pf-railconn"
       aria-hidden="true"
       style={{
         position: "relative",
         height: "clamp(240px, 42vh, 440px)",
         /* Roll the dark BetaScroll above into the white "How it works" below —
-           the connector line + square carry the rail across the seam. */
+           the connector line + square carry the rail across the seam. On mobile
+           (no side rails) we keep just this gradient blend and drop the line. */
         background: "linear-gradient(180deg, var(--bg) 0%, var(--bg) 22%, #F6F3EC 100%)",
         overflow: "hidden",
       }}
     >
+      <style>{`@media (max-width:960px){.pf-railconn{height:clamp(120px,20vh,200px)}.pf-railconn .rc-line{display:none}}`}</style>
       <svg
+        className="rc-line"
         viewBox="0 0 100 100"
         preserveAspectRatio="none"
         style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
@@ -75,6 +79,7 @@ export default function RailConnector() {
       {/* traveling square marker */}
       <div
         ref={markerRef}
+        className="rc-line"
         style={{
           position: "absolute",
           left: "4%",
