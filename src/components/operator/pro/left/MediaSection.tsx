@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Lock } from "lucide-react";
+import { RibbonMarquee } from "../RibbonMarquee";
 import { toast } from "sonner";
 import type { CenterMode } from "../ProOperatorShell";
 
@@ -81,13 +82,14 @@ export function MediaSection({
           </ul>
           {showBanner && (
             <div
-              className="mx-2 mb-2 p-2 rounded border relative"
+              className="mx-2 mb-2 p-2 rounded border relative overflow-hidden"
               style={{
                 background: "linear-gradient(135deg, rgba(232,116,42,0.10), rgba(155,143,232,0.10))",
                 borderColor: "rgba(232,116,42,0.30)",
               }}
             >
-              <div className="flex items-start gap-1.5">
+              <RibbonMarquee text="PRO PLAN" opacity={0.14} />
+              <div className="relative flex items-start gap-1.5">
                 <Lock className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#f97316]" />
                 <div className="flex-1 min-w-0">
                   <div className="text-[11px] font-semibold text-[var(--color-foreground)]">Pro Plan feature</div>

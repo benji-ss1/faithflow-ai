@@ -279,6 +279,29 @@ html.light {
 .pf-slide-pop { animation: pfSlidePop .3s cubic-bezier(.2,.7,.2,1) both; }
 @media (prefers-reduced-motion: reduce) { .pf-slide-pop { animation: none; } }
 
+/* Animated dot-grid background texture — a faint brand-tinted dot lattice that
+ * slowly drifts, edge-faded so it never competes with content. Purely
+ * decorative; sits in an absolutely-positioned, pointer-events-none layer. */
+.pf-dotgrid {
+  position: absolute; inset: -25%;
+  background-image: radial-gradient(circle, color-mix(in oklab, var(--color-brand) 26%, transparent) 1px, transparent 1.5px);
+  background-size: 26px 26px;
+  mask-image: radial-gradient(ellipse 72% 62% at 50% 42%, #000 12%, transparent 78%);
+  -webkit-mask-image: radial-gradient(ellipse 72% 62% at 50% 42%, #000 12%, transparent 78%);
+  opacity: 0.35;
+  animation: pfDotDrift 26s linear infinite;
+}
+@keyframes pfDotDrift { from { background-position: 0 0; } to { background-position: 26px 52px; } }
+@media (prefers-reduced-motion: reduce) { .pf-dotgrid { animation: none; } }
+
+/* Infinite-ribbon marquee — a rotated bar of scrolling text (brand fill). Two of
+ * them crossed makes the "pro / pro-max" flourish. */
+.pf-ribbon { position: absolute; left: -30%; right: -30%; height: 26px; display: flex; align-items: center; overflow: hidden; background: var(--color-brand); color: #17130c; box-shadow: 0 6px 18px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.25); }
+.pf-ribbon-track { display: inline-block; white-space: nowrap; font: 700 11px/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; animation: pfRibbon 20s linear infinite; }
+.pf-ribbon-track--rev { animation-direction: reverse; }
+@keyframes pfRibbon { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@media (prefers-reduced-motion: reduce) { .pf-ribbon-track { animation: none; } }
+
 /*
  * Themes 3 — animated theme backgrounds for the projector (AnimatedThemeBg).
  * Transform-only (GPU-composited, no repaint) so they're safe behind live

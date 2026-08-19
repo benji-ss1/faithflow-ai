@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.259",
+    date: "2026-08-19",
+    headline: "Living backgrounds + a Pro flourish",
+    highlights: [
+      "The slide area now has a subtle, slowly-drifting dot-grid texture behind it, so the empty space feels alive instead of flat black.",
+      "The Pro Plan upsell now has an animated ribbon flourish, giving the premium content a bit of special sparkle.",
+    ],
+  },
+  {
     version: "0.1.258",
     date: "2026-08-19",
     headline: "Polished dropdowns in the panels",

@@ -10,6 +10,7 @@ import { useSlideClipboard, setSlideClipboard, getSlideClipboard } from "@/lib/s
 import { updateSongSlides, deleteSongSlide } from "@/lib/actions";
 import { useRouter } from "next/navigation";
 import { X, Pencil, LayoutGrid } from "lucide-react";
+import { DotGridBackground } from "../DotGridBackground";
 
 type ViewMode = "grid" | "list" | "text";
 const VIEW_MODE_KEY = "presentflow.operator.slideViewMode";
@@ -204,7 +205,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
             aria-label="Slides"
             // min-h so the empty area below the cards is part of the grid and can
             // be right-clicked to paste a copied slide at the end.
-            className={cn(viewMode === "text" ? "flex flex-col" : "grid", "min-h-[45vh]")}
+            className={cn("relative", viewMode === "text" ? "flex flex-col" : "grid", "min-h-[45vh]")}
             style={viewMode === "text"
               ? { gap: 4 }
               // alignContent:start packs rows at the top so a wrapped row (e.g.
@@ -215,8 +216,9 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                 : { gap: 6, alignContent: "start", gridTemplateColumns: `repeat(auto-fill, minmax(${slideSize}px, 1fr))` }
             }
           >
+            <DotGridBackground />
             {slides.length === 0 && (
-              <div className="col-span-full flex flex-col items-center justify-center gap-3 py-20 text-center">
+              <div className="col-span-full relative flex flex-col items-center justify-center gap-3 py-20 text-center">
                 <div className="w-12 h-12 rounded-xl grid place-items-center surface-elev">
                   <LayoutGrid className="w-5 h-5 text-[var(--color-muted-foreground)]" />
                 </div>
