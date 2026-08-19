@@ -193,14 +193,15 @@ function IconTrigger({
           aria-label={label}
           title={label}
           className={cn(
-            "relative flex-1 h-full flex items-center justify-center transition-colors",
+            "group relative flex-1 h-full flex items-center justify-center transition-colors",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)] focus-visible:ring-inset",
             active
               ? "text-[var(--color-brand)] border-b-2 border-[var(--color-brand)]"
               : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/5",
           )}
         >
-          <Icon className="w-4 h-4" />
+          {/* dock-style magnify bounce on hover */}
+          <Icon className="w-4 h-4 transition-transform duration-150 ease-out group-hover:scale-[1.35] group-hover:-translate-y-0.5 group-active:scale-110" />
           {typeof badge === "number" && badge > 0 && (
             <span
               aria-label={`${badge} new`}

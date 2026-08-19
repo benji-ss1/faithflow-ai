@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.261",
+    date: "2026-08-19",
+    headline: "Dock-style icons + integrations cards",
+    highlights: [
+      "The right-panel icons (Bible, Songs, Cross-refs, Settings) now gently magnify as you hover, like a dock.",
+      "New \"Works with your tools\" integration cards on the Pro page — Drive, ProPresenter, PowerPoint, OBS and more.",
+    ],
+  },
+  {
     version: "0.1.260",
     date: "2026-08-19",
     headline: "Dot-grid on the songs list & themes, new feature cards",

@@ -1,7 +1,9 @@
 import { Check, Music4, Sparkles, Radio, MonitorPlay, Palette } from "lucide-react";
+import { Cloud, MonitorPlay as MonitorPlayIcon, Radio as RadioIcon, FileInput, Presentation, CalendarClock } from "lucide-react";
 import { Reveal } from "../Reveal";
 import { UpgradeCta } from "../UpgradeCta";
 import { FeatureCards } from "@/components/operator/pro/FeatureCards";
+import { IntegrationsCard } from "@/components/operator/pro/IntegrationsCard";
 
 export const metadata = {
   title: "PresentFlow Pro — Everything you need, every Sunday",
@@ -149,6 +151,21 @@ export default function ProUpgradePage() {
             { icon: Sparkles, title: "AI that follows", desc: "Speak a verse or start a song and it appears on the projector — no clicking, no lag." },
             { icon: Palette, title: "Your look, everywhere", desc: "Design a theme once; songs, scripture and the stage display all match it automatically." },
             { icon: Radio, title: "One click to live", desc: "Projector, stage screen and livestream stay in sync the moment you go live." },
+          ]}
+        />
+      </Reveal>
+
+      {/* Integrations */}
+      <Reveal delay={200} className="mx-auto mt-20 max-w-5xl px-4 sm:px-6">
+        <IntegrationsCard
+          title="Works with your tools"
+          items={[
+            { id: "drive", name: "Google Drive", entities: "Songs · Media", description: "Import your song library and background media straight from Drive.", tags: ["Import", "Media"], available: true, icon: <Cloud className="h-5 w-5 text-[var(--color-brand)]" /> },
+            { id: "propresenter", name: "ProPresenter", entities: "Playlists · Slides", description: "Bring your existing ProPresenter library across without retyping a thing.", tags: ["Import"], available: true, icon: <MonitorPlayIcon className="h-5 w-5 text-[var(--color-brand)]" /> },
+            { id: "pptx", name: "PowerPoint / Keynote", entities: "Decks · Slides", description: "Drop in a .pptx and each slide becomes an editable PresentFlow slide.", tags: ["Import"], available: true, icon: <Presentation className="h-5 w-5 text-[var(--color-brand)]" /> },
+            { id: "obs", name: "OBS / Livestream", entities: "Projector · Stage · Stream", description: "Send lyrics and scripture to your livestream, perfectly in sync with the room.", tags: ["Output", "Livestream"], available: true, icon: <RadioIcon className="h-5 w-5 text-[var(--color-brand)]" /> },
+            { id: "pptx-export", name: "Slide export", entities: "Slides · Images", description: "Export a service as slides or images to share or archive.", tags: ["Export"], available: false, icon: <FileInput className="h-5 w-5 text-[var(--color-brand)]" /> },
+            { id: "pco", name: "Planning Center", entities: "Services · Songs", description: "Pull your service plan and song order in automatically.", tags: ["Sync"], available: false, icon: <CalendarClock className="h-5 w-5 text-[var(--color-brand)]" /> },
           ]}
         />
       </Reveal>
