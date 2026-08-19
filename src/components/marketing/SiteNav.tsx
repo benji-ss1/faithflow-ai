@@ -58,14 +58,13 @@ const CSS = `
   box-shadow:0 10px 40px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.06)}
 /* Crisp vector-style lockup: the mark PNG (downscaled, never upscaled) + real
    text wordmark. Replaces the old 370px raster that softened on retina. */
-.pfnav-logo{display:flex;align-items:center;gap:11px;text-decoration:none}
-.pfnav-mark{height:44px;width:auto;display:block;transition:height .4s ease}
-.pfnav-wrap.scrolled .pfnav-mark{height:32px}
-.pfnav-word{font-family:var(--pf-sans),system-ui,sans-serif;font-weight:800;font-size:24px;
+/* Serif editorial wordmark (matches the footer lockup) — Present bold, Flow light. */
+.pfnav-logo{display:flex;align-items:center;text-decoration:none}
+.pfnav-word{font-family:var(--pf-serif),"Iowan Old Style",Georgia,serif;font-size:29px;
   letter-spacing:-.02em;color:#f5f0e5;line-height:1;transition:font-size .4s ease;white-space:nowrap}
-.pfnav-wrap.scrolled .pfnav-word{font-size:19px}
-.pfnav-flow{background:linear-gradient(100deg,#ff7a2c,#ffb861);
-  -webkit-background-clip:text;background-clip:text;color:transparent}
+.pfnav-wrap.scrolled .pfnav-word{font-size:23px}
+.pfnav-pre{font-weight:600}
+.pfnav-flow{font-weight:300}
 .pfnav-right{display:flex;align-items:center;gap:12px}
 .pfnav-apply{font-weight:700;font-size:14px;padding:10px 18px;border-radius:10px;
   background:linear-gradient(100deg,#ff7a2c,#ffb861);color:#1A1005;transition:filter .2s}
@@ -118,8 +117,7 @@ const CSS = `
   .pfnav-scroll{padding:64px 24px 60px;width:94vw}
   .pfnav-list .lb{font-size:30px}
   .pfnav-corner{transform:scale(.55)!important;opacity:.5}
-  .pfnav-mark{height:34px}
-  .pfnav-word{font-size:20px}
+  .pfnav-word{font-size:25px}
   .pfnav-apply{display:none}
 }
 @media (prefers-reduced-motion:reduce){
@@ -156,9 +154,7 @@ export default function SiteNav() {
       <div className={`pfnav-wrap ${scrolled ? "scrolled" : ""}`}>
         <div className="pfnav-bar">
           <Link href="/" aria-label="PresentFlow home" className="pfnav-logo">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img className="pfnav-mark" src="/brand/pf-logo-mark.png" alt="" />
-            <span className="pfnav-word">Present<span className="pfnav-flow">Flow</span></span>
+            <span className="pfnav-word"><span className="pfnav-pre">Present</span><span className="pfnav-flow">Flow</span></span>
           </Link>
           <div className="pfnav-right">
             <Link href="/apply" className="pfnav-apply">Apply for the beta</Link>

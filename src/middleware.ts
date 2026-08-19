@@ -15,6 +15,10 @@ const PUBLIC_PATHS = [
   // the routes under src/app/(marketing)/.
   "/apply", "/how-it-works", "/what-it-can-do", "/our-story", "/why-were-building",
   "/privacy", "/terms", "/refund", "/dpa", "/msa",
+  // Generated link-preview images — must be reachable by scrapers (iMessage,
+  // WhatsApp, Slack, X). Without this the middleware 307'd them to /login and
+  // the preview fell back to a random on-page screenshot.
+  "/opengraph-image", "/twitter-image", "/icon", "/apple-icon",
   "/login", "/signup", "/verify-email", "/forgot-password", "/reset-password", "/accept-invite",
   "/api/auth", "/api/health", "/api/stripe",
   // Vercel Cron invocations pass through this middleware; without an allowlist
