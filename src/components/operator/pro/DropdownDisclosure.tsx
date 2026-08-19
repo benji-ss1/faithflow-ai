@@ -45,7 +45,7 @@ export function DropdownDisclosure({
           )}
         >
           {selected?.icon && <span className="shrink-0 grid place-items-center text-[var(--color-muted-foreground)]">{selected.icon}</span>}
-          <span className="truncate max-w-[140px]">{selected?.name ?? "Select"}</span>
+          <span className="truncate max-w-[200px]">{selected?.name ?? "Select"}</span>
           <ChevronDown className="w-3.5 h-3.5 shrink-0 text-[var(--color-muted-foreground)]" />
         </button>
       </Popover.Trigger>

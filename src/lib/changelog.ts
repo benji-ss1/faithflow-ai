@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.258",
+    date: "2026-08-19",
+    headline: "Polished dropdowns in the panels",
+    highlights: [
+      "The Screens (Role, Preset), Video Input (camera, Overlay, Fit) and Themes (Font) pickers are now the same clean dropdowns as the Bible version picker — with a tick on your current choice — instead of plain browser menus.",
+      "Those panels also pick up the new deeper black and richer orange automatically.",
+    ],
+  },
+  {
     version: "0.1.257",
     date: "2026-08-19",
     headline: "Slides pop in smoothly",

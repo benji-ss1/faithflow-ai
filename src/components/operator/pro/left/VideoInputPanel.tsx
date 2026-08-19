@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Video, RefreshCw, Play, Square, FlipHorizontal2 } from "lucide-react";
 import type { VideoInputState } from "@/lib/broadcast";
+import { DropdownDisclosure } from "../DropdownDisclosure";
 import { shellSupportsCamera } from "@/lib/electron-version";
 
 const LS_KEY = "presentflow.videoInput.v1";
@@ -178,15 +179,13 @@ export function VideoInputPanel() {
       {devices.length === 0 ? (
         <div className="text-[11px] text-[var(--color-muted-foreground)] italic py-2">No video devices detected. Connect a camera or capture card, then Refresh.</div>
       ) : (
-        <select
-          value={selectedId}
-          onChange={(e) => setSelectedId(e.target.value)}
-          className="w-full h-8 rounded-md border border-[var(--color-border)] bg-transparent px-2 text-[12px]"
-        >
-          {devices.map((d, i) => (
-            <option key={d.deviceId || i} value={d.deviceId}>{d.label || `Camera ${i + 1}`}</option>
-          ))}
-        </select>
+        <DropdownDisclosure
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+          triggerClassName="w-full justify-between"
+          panelWidth={280}
+          items={devices.map((d, i) => ({ id: d.deviceId, name: d.label || `Camera ${i + 1}` }))}
+        />
       )}
 
       {/* Preview */}
@@ -207,18 +206,27 @@ export function VideoInputPanel() {
       {/* Controls */}
       <div className="flex items-center gap-2 text-[11px]">
         <label className="text-[var(--color-muted-foreground)]">Overlay</label>
-        <select value={overlay} onChange={(e) => setOverlay(e.target.value as typeof overlay)} className="flex-1 h-7 rounded-md border border-[var(--color-border)] bg-transparent px-1.5">
-          <option value="lower-third">Lower third</option>
-          <option value="full">Full screen</option>
-        </select>
+        <div className="flex-1">
+          <DropdownDisclosure
+            selectedId={overlay}
+            onSelect={(v) => setOverlay(v as typeof overlay)}
+            triggerClassName="w-full justify-between"
+            panelWidth={200}
+            items={[{ id: "lower-third", name: "Lower third" }, { id: "full", name: "Full screen" }]}
+          />
+        </div>
       </div>
       <div className="flex items-center gap-2 text-[11px]">
         <label className="text-[var(--color-muted-foreground)]">Fit</label>
-        <select value={fit} onChange={(e) => setFit(e.target.value as typeof fit)} className="flex-1 h-7 rounded-md border border-[var(--color-border)] bg-transparent px-1.5">
-          <option value="cover">Fill frame (crop)</option>
-          <option value="contain">Fit (letterbox)</option>
-          <option value="fill">Stretch</option>
-        </select>
+        <div className="flex-1">
+          <DropdownDisclosure
+            selectedId={fit}
+            onSelect={(v) => setFit(v as typeof fit)}
+            triggerClassName="w-full justify-between"
+            panelWidth={210}
+            items={[{ id: "cover", name: "Fill frame (crop)" }, { id: "contain", name: "Fit (letterbox)" }, { id: "fill", name: "Stretch" }]}
+          />
+        </div>
         <button onClick={() => setMirror((m) => !m)} title="Mirror" className={`h-7 w-7 rounded-md border inline-flex items-center justify-center ${mirror ? "border-[var(--color-brand)] text-[var(--color-brand)]" : "border-[var(--color-border)] text-[var(--color-muted-foreground)]"}`}>
           <FlipHorizontal2 className="w-3.5 h-3.5" />
         </button>

@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Palette, X, Plus, Upload, ChevronDown, ChevronRight, Check } from "lucide-react";
+import { DropdownDisclosure } from "../../DropdownDisclosure";
 import { useTier } from "@/hooks/useTier";
 import { canAccess } from "@/lib/tier";
 import { useCustomThemes, useBlankSlides } from "@/hooks/useCustomThemes";
@@ -313,9 +314,13 @@ function CreateSwatchDialog({ onAdd, big = false }: { onAdd: (t: { name: string;
               </label>
             </div>
             <label className="text-[11px] flex flex-col gap-1">Font
-              <select value={fontFamilyId} onChange={(e) => setFontFamilyId(e.target.value)} className="h-8 px-2 rounded border border-[var(--color-border)] bg-[var(--color-elevated)]">
-                {FONT_FAMILIES.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-              </select>
+              <DropdownDisclosure
+                selectedId={fontFamilyId}
+                onSelect={setFontFamilyId}
+                triggerClassName="w-full justify-between"
+                panelWidth={220}
+                items={FONT_FAMILIES.map((f) => ({ id: f.id, name: f.name }))}
+              />
             </label>
             <div className="flex justify-end gap-2 mt-auto">
               <Dialog.Close asChild><button className="h-8 px-3 rounded border border-[var(--color-border)] text-[11px]">Cancel</button></Dialog.Close>

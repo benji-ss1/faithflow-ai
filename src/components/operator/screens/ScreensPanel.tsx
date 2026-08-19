@@ -12,6 +12,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import type { DisplayInfo } from "@/types/electron";
+import { DropdownDisclosure } from "../pro/DropdownDisclosure";
 
 type Role = "None" | "Projector" | "Stage" | "Livestream";
 type Preset = "720p" | "1080p30" | "1080p60" | "4K";
@@ -227,29 +228,21 @@ export function ScreensPanel() {
               <div className="flex items-end gap-4 px-3 py-3 flex-wrap">
                 <div>
                   <div className="text-[10px] text-zinc-500 mb-1 uppercase tracking-wider">Role</div>
-                  <select
-                    value={a.role}
-                    onChange={(e) => updateAssignment(d.id, { role: e.target.value as Role })}
-                    className={selectCls}
-                  >
-                    <option>None</option>
-                    <option>Projector</option>
-                    <option>Stage</option>
-                    <option>Livestream</option>
-                  </select>
+                  <DropdownDisclosure
+                    selectedId={a.role}
+                    onSelect={(v) => updateAssignment(d.id, { role: v as Role })}
+                    panelWidth={180}
+                    items={[{ id: "None", name: "None" }, { id: "Projector", name: "Projector" }, { id: "Stage", name: "Stage" }, { id: "Livestream", name: "Livestream" }]}
+                  />
                 </div>
                 <div>
                   <div className="text-[10px] text-zinc-500 mb-1 uppercase tracking-wider">Preset</div>
-                  <select
-                    value={a.preset}
-                    onChange={(e) => updateAssignment(d.id, { preset: e.target.value as Preset })}
-                    className={selectCls}
-                  >
-                    <option value="720p">720p</option>
-                    <option value="1080p30">1080p30</option>
-                    <option value="1080p60">1080p60</option>
-                    <option value="4K">4K</option>
-                  </select>
+                  <DropdownDisclosure
+                    selectedId={a.preset}
+                    onSelect={(v) => updateAssignment(d.id, { preset: v as Preset })}
+                    panelWidth={160}
+                    items={[{ id: "720p", name: "720p" }, { id: "1080p30", name: "1080p30" }, { id: "1080p60", name: "1080p60" }, { id: "4K", name: "4K" }]}
+                  />
                 </div>
                 {a.role === "Livestream" && (
                   <div>
