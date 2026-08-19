@@ -8,7 +8,7 @@ import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload } from "@/lib/broadcast";
 import { useSlideClipboard, setSlideClipboard, getSlideClipboard } from "@/lib/slide-clipboard";
 import { updateSongSlides } from "@/lib/actions";
-import { X, Pencil } from "lucide-react";
+import { X, Pencil, LayoutGrid } from "lucide-react";
 
 type ViewMode = "grid" | "list" | "text";
 const VIEW_MODE_KEY = "presentflow.operator.slideViewMode";
@@ -214,10 +214,13 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
             }
           >
             {slides.length === 0 && (
-              <div className="col-span-full text-[12px] text-[var(--color-muted-foreground)] py-12 text-center space-y-1">
-                <div>No slides yet</div>
-                <div className="text-[11px] opacity-70">
-                  Tip: click any slide to send it live. Enable Safe Mode in Settings to require double-click.
+              <div className="col-span-full flex flex-col items-center justify-center gap-3 py-20 text-center">
+                <div className="w-12 h-12 rounded-xl grid place-items-center surface-elev">
+                  <LayoutGrid className="w-5 h-5 text-[var(--color-muted-foreground)]" />
+                </div>
+                <div className="text-[13px] font-semibold text-[var(--color-foreground)]">No slides yet</div>
+                <div className="text-[11px] text-[var(--color-muted-foreground)] max-w-[280px] leading-relaxed">
+                  Use <span className="text-[var(--color-foreground)]">Add slide</span> above to create one — or click any slide to send it live. Enable Safe Mode in Settings to require a double-click.
                 </div>
               </div>
             )}
@@ -522,7 +525,7 @@ function SlideCard({
             "relative w-full min-w-0 aspect-video rounded-[6px] overflow-hidden transition-all text-left",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
             selected
-              ? "border-2 border-[var(--color-brand)] shadow-[0_2px_8px_rgba(0,0,0,0.25)]"
+              ? "border border-[var(--color-brand)] pf-selected-glow"
               : "border border-[var(--color-border)] hover:border-[var(--color-muted-foreground)]",
           )}
         >
@@ -535,8 +538,10 @@ function SlideCard({
               Live projector rendering unaffected (uses the 24px default). */}
           <SlideRenderer slide={slide} textMinPx={14} />
           <div
-            className="absolute top-1 left-1 w-[18px] h-[18px] flex items-center justify-center rounded-full text-[10px] font-semibold text-white"
-            style={{ background: "var(--color-brand)" }}
+            className="absolute top-1 left-1 w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-semibold transition-colors"
+            style={selected
+              ? { background: "var(--color-brand)", color: "#17130c" }
+              : { background: "var(--color-elevated)", color: "var(--color-muted-foreground)", border: "1px solid var(--color-border)" }}
             aria-hidden
           >
             {index}

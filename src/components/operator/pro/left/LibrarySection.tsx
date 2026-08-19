@@ -9,15 +9,16 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
   const [open, setOpen] = useState(true);
   return (
     <section className="border-b border-[var(--color-border)]">
-      <header className="flex items-center h-7 px-2 gap-1">
+      <header className="flex items-center h-7 px-2 gap-2">
         <button
           type="button"
-          className="flex items-center gap-1 flex-1 text-left"
+          className="flex items-center gap-1 shrink-0 text-left"
           onClick={() => setOpen((v) => !v)}
         >
           {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
           <span className="eyebrow">Library</span>
         </button>
+        <span className="h-px flex-1" style={{ background: "linear-gradient(90deg, var(--color-border), transparent)" }} aria-hidden />
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
             <button

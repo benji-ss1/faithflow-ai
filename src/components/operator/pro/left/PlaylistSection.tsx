@@ -552,13 +552,14 @@ export function PlaylistSection({
       <header className="flex items-center h-7 px-2 gap-1">
         <button
           type="button"
-          className="flex items-center gap-1 flex-1 text-left"
+          className="flex items-center gap-1 shrink-0 text-left"
           onClick={() => setOpen((v) => !v)}
         >
           {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
           <span className="eyebrow">Playlist</span>
           <span className="eyebrow ml-1 text-[9px]">· {items.length} items</span>
         </button>
+        <span className="h-px flex-1 mx-2" style={{ background: "linear-gradient(90deg, var(--color-border), transparent)" }} aria-hidden />
 
         {/* Add popover */}
         <Popover.Root>

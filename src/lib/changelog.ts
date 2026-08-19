@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.248",
+    date: "2026-08-19",
+    headline: "A fresher operator console",
+    highlights: [
+      "The console now has real depth — the sidebar, cards and hover states sit on clearly stepped surfaces instead of one flat black, so panels feel solid and distinct.",
+      "The selected slide now has a warm ember glow (instead of a hard border), and slide number badges clearly show which slide is selected.",
+      "Section headers (Library, Playlist…) get a subtle fading rule to mark their territory, and the empty slide area has a cleaner prompt.",
+    ],
+  },
+  {
     version: "0.1.247",
     date: "2026-08-19",
     headline: "Add slide without leaving the grid",

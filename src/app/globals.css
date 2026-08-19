@@ -13,11 +13,12 @@
  */
 
 @theme {
-  /* Structural layers — dark default */
+  /* Structural layers — dark default. Stepped so the console reads as distinct
+   * tiers: near-black canvas < panel/sidebar < raised card < elevated/hover. */
   --color-app-bg:        #000000;
-  --color-panel:         #0e0b12;
-  --color-raised-shell:  #171319;
-  --color-elevated:      #1c1820;
+  --color-panel:         #100d15;
+  --color-raised-shell:  #1a1621;
+  --color-elevated:      #23202a;
   --color-shell:         #050405;
   --color-shell-edge:    rgba(255,255,255,0.06);
   --color-overlay-soft:  rgba(255,255,255,0.03);
@@ -56,9 +57,9 @@
   --color-ring:    #ff7a2c;
 
   /* Sidebar-specific */
-  --color-sidebar-bg:         #0a0810;
-  --color-sidebar-item-hover: #171319;
-  --color-sidebar-item-active:#1c1820;
+  --color-sidebar-bg:         #0c0a11;
+  --color-sidebar-item-hover: #1a1621;
+  --color-sidebar-item-active:#23202a;
   --color-sidebar-fg:         #d5cdc1;
   --color-sidebar-fg-muted:   #968e82;
 
@@ -174,6 +175,19 @@ html.light {
   background: var(--color-elevated);
   border: 1px solid var(--color-border);
   box-shadow: 0 2px 8px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+/* Warm-ember selection glow — the "this is what I'm working with" cue for the
+ * selected slide card / active item. Ring + soft outer bloom, no hard border. */
+.pf-selected-glow {
+  box-shadow: 0 0 0 1.5px var(--color-brand), 0 0 14px 1px rgba(255,122,44,0.22);
+}
+/* Section header with a trailing hairline rule that fades out — marks a
+ * section's territory without a heavy divider. Put on a flex row. */
+.pf-section-rule { display: flex; align-items: center; gap: 8px; }
+.pf-section-rule::after {
+  content: ""; flex: 1 1 auto; height: 1px;
+  background: linear-gradient(90deg, var(--color-border), transparent);
 }
 .ff-card-premium {
   background:
