@@ -9,7 +9,7 @@ import type { SlidePayload } from "@/lib/broadcast";
 import { useSlideClipboard, setSlideClipboard, getSlideClipboard } from "@/lib/slide-clipboard";
 import { updateSongSlides, deleteSongSlide } from "@/lib/actions";
 import { useRouter } from "next/navigation";
-import { X, Pencil, LayoutGrid } from "lucide-react";
+import { X, Pencil, LayoutGrid, GripVertical } from "lucide-react";
 import { DotGridBackground } from "../DotGridBackground";
 
 type ViewMode = "grid" | "list" | "text";
@@ -478,7 +478,7 @@ function SortableSlideCard(props: {
     opacity: isDragging ? 0.5 : 1,
   };
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners} className="w-full min-w-0">
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners} className="relative w-full min-w-0 group/slide">
       <SlideCard
         slide={props.slide}
         index={props.index}
@@ -495,6 +495,28 @@ function SortableSlideCard(props: {
         onPasteSlide={props.onPasteSlide}
         onSendLive={props.onSendLive}
       />
+      {/* Native drag-to-playlist handle. Kept SEPARATE from the dnd-kit reorder
+          (whose pointer listeners live on this wrapper) by stopping propagation
+          on pointer/mouse down, so grabbing the handle starts an HTML5 drag —
+          drop it on a playlist song to append this slide to that song's end —
+          while the rest of the card still reorders within the grid. */}
+      <div
+        draggable
+        onPointerDown={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        onDragStart={(e) => {
+          e.stopPropagation();
+          try {
+            e.dataTransfer.setData("application/x-presentflow-slide", JSON.stringify(props.slide));
+            e.dataTransfer.effectAllowed = "copy";
+          } catch { /* noop */ }
+        }}
+        title="Drag onto a song in the playlist to add this slide to the end of that song"
+        className="absolute top-1 right-1 z-10 w-6 h-6 rounded-md flex items-center justify-center cursor-grab active:cursor-grabbing opacity-0 group-hover/slide:opacity-100 transition-opacity bg-[var(--color-elevated)]/90 border border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+      >
+        <GripVertical className="w-3.5 h-3.5" />
+      </div>
     </div>
   );
 }

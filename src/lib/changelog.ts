@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.268",
+    date: "2026-08-19",
+    headline: "Drag a slide into any song in the playlist",
+    highlights: [
+      "Hover a slide in the preview to reveal a drag handle — drag it onto a song in the playlist to add it to the end of that song.",
+      "Copy/paste slides still works within a song via right-click.",
+    ],
+  },
+  {
     version: "0.1.267",
     date: "2026-08-19",
     headline: "Songs load again + rename items anywhere",

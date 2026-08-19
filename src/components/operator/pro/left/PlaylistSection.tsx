@@ -60,6 +60,7 @@ function SortablePlaylistItem({
   canPasteSlide = false,
   onDeleteSong,
   onRename,
+  onDropSlide,
   themes = [],
   currentThemeId = null,
   onSetTheme,
@@ -78,6 +79,7 @@ function SortablePlaylistItem({
   canPasteSlide?: boolean;
   onDeleteSong?: () => void;
   onRename?: (newTitle: string) => void;
+  onDropSlide?: (json: string) => void;
   themes?: { id: string; name: string }[];
   currentThemeId?: string | null;
   onSetTheme?: (themeId: string | null) => void;
@@ -85,6 +87,8 @@ function SortablePlaylistItem({
   const id = item.id ?? `item-${idx}`;
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(item.title);
+  const [slideDragOver, setSlideDragOver] = useState(false);
+  const SLIDE_DND_TYPE = "application/x-presentflow-slide";
   const commitRename = () => {
     setRenaming(false);
     const next = draft.trim();
@@ -118,11 +122,26 @@ function SortablePlaylistItem({
       <ContextMenu.Root>
         <ContextMenu.Trigger asChild>
           <div
+            onDragOver={onDropSlide ? (e) => {
+              if (e.dataTransfer.types.includes(SLIDE_DND_TYPE)) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "copy";
+                if (!slideDragOver) setSlideDragOver(true);
+              }
+            } : undefined}
+            onDragLeave={onDropSlide ? () => setSlideDragOver(false) : undefined}
+            onDrop={onDropSlide ? (e) => {
+              const json = e.dataTransfer.getData(SLIDE_DND_TYPE);
+              setSlideDragOver(false);
+              if (json) { e.preventDefault(); onDropSlide(json); }
+            } : undefined}
             className={cn(
               "flex items-center gap-1 border-l-2 transition-colors",
-              isActive
-                ? "border-[var(--color-brand)] bg-[var(--color-elevated)]"
-                : "border-transparent hover:bg-white/5",
+              slideDragOver
+                ? "border-[var(--color-brand)] bg-[var(--color-brand)]/15 ring-1 ring-inset ring-[var(--color-brand)]"
+                : isActive
+                  ? "border-[var(--color-brand)] bg-[var(--color-elevated)]"
+                  : "border-transparent hover:bg-white/5",
             )}
           >
             {/* Drag handle — only this area initiates a drag */}
@@ -375,6 +394,24 @@ export function PlaylistSection({
     } else if (it.id) {
       handleResult(await renameServiceItem(it.id, newTitle), "Renamed");
     }
+  };
+
+  // Append a slide dragged from the center preview onto a playlist song. The
+  // dragged JSON is a SlidePayload; we append it to the END of the target
+  // song's slides via createSongSlide(songId, undefined, ...).
+  const appendDroppedSlide = async (it: OperatorShellCtx["plan"]["items"][number], json: string) => {
+    if (it.type !== "song" || !it.songId) return;
+    if (blockedIfOffline()) return;
+    let slide: { kind?: string; text?: string; objects?: unknown[] } | null = null;
+    try { slide = JSON.parse(json); } catch { slide = null; }
+    if (!slide) { toast.error("Couldn't read that slide"); return; }
+    const objects = Array.isArray(slide.objects) ? slide.objects : [];
+    const lyrics = slide.kind === "text" && typeof slide.text === "string" ? slide.text : "";
+    if (!lyrics && objects.length === 0) { toast.error("Only text slides can be added to a song"); return; }
+    const res = await createSongSlide(it.songId, undefined, { lyrics, objects } as Parameters<typeof createSongSlide>[2]);
+    if (!res.ok) { toast.error(res.error ?? "Couldn't add the slide"); return; }
+    router.refresh();
+    toast.success(`Slide added to "${it.title}"`);
   };
 
   // Top-bar title rename (TopBar dispatches this on double-click of the centred
@@ -645,6 +682,7 @@ export function PlaylistSection({
                   canPasteSlide={!!clipboardSlide && it.type === "song" && !!it.songId}
                   onDeleteSong={it.type === "song" && it.songId ? () => void deleteFromLibrary(it) : undefined}
                   onRename={(it.type === "song" && it.songId) || it.id ? (newTitle) => void renameItem(it, newTitle) : undefined}
+                  onDropSlide={it.type === "song" && it.songId ? (json) => void appendDroppedSlide(it, json) : undefined}
                   themes={themes}
                   currentThemeId={(it as { themeId?: string }).themeId ?? null}
                   onSetTheme={it.id ? (themeId) => void setTheme(it.id!, themeId) : undefined}
