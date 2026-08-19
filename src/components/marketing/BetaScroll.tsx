@@ -81,7 +81,25 @@ export default function BetaScroll() {
   const [vidPaused, setVidPaused] = useState(false);
 
   useEffect(() => {
-    videoRef.current?.play().catch(() => setVidPaused(true));
+    const v = videoRef.current;
+    if (!v) return;
+    // iOS only autoplays when the muted PROPERTY is set (React's `muted`
+    // attribute doesn't reliably set it) — set it explicitly, then try to play.
+    v.muted = true;
+    v.setAttribute("muted", "");
+    const tryPlay = () => {
+      v.play().then(() => setVidPaused(false)).catch(() => setVidPaused(true));
+    };
+    tryPlay();
+    v.addEventListener("canplay", tryPlay, { once: true });
+    v.addEventListener("loadeddata", tryPlay, { once: true });
+    // Some mobile browsers only start playback once the element is on-screen.
+    const io =
+      "IntersectionObserver" in window
+        ? new IntersectionObserver((es) => es.forEach((e) => e.isIntersecting && tryPlay()), { threshold: 0.2 })
+        : null;
+    io?.observe(v);
+    return () => io?.disconnect();
   }, []);
 
   const toggleVideo = () => {

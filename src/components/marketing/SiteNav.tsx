@@ -109,6 +109,12 @@ const CSS = `
 .pfnav-corner.bible{right:36px;top:88px;transform:rotate(6deg)}
 .pfnav-corner.quill{left:36px;top:88px;transform:rotate(-8deg)}
 @media (max-width:820px){
+  /* On mobile the nav is ALWAYS a clean floating pill (never the full-width
+     bar that hugs the top and looks clipped) — matches the desired look. */
+  .pfnav-wrap{padding-top:10px}
+  .pfnav-bar{width:min(680px,92%);padding:9px 12px 9px 18px;border-radius:999px;
+    background:rgba(20,18,16,.72);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+    box-shadow:0 10px 40px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.06)}
   .pfnav-scroll{padding:64px 24px 60px;width:94vw}
   .pfnav-list .lb{font-size:30px}
   .pfnav-corner{transform:scale(.55)!important;opacity:.5}

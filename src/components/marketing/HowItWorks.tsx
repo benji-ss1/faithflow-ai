@@ -48,7 +48,7 @@ const CSS = `
 .hiw *{box-sizing:border-box}
 .hiw .hiw-scrub{position:relative;height:300vh;background:var(--paper)}
 .hiw .hiw-sticky{position:sticky;top:0;height:100vh;overflow:hidden;background:var(--paper);
-  display:flex;flex-direction:column;padding:6vh 6vw 5vh}
+  display:flex;flex-direction:column;padding:9vh 6vw 5vh}
 
 .hiw .hiw-head{max-width:820px;flex:0 0 auto}
 .hiw .hiw-eyebrow{font-family:var(--pf-mono);font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--ember)}
@@ -84,7 +84,7 @@ const CSS = `
   top:calc(var(--p,0) * 100% - 6px);transition:top 140ms linear;box-shadow:0 0 0 4px rgba(201,85,43,.14)}
 
 @media (max-width:960px){
-  .hiw .hiw-sticky{padding:5vh 7vw 4vh}
+  .hiw .hiw-sticky{padding:11vh 7vw 4vh}
   .hiw .hiw-body{grid-template-columns:1fr;grid-template-rows:1fr auto;gap:14px;padding-top:2vh}
   .hiw .hiw-shot{max-height:52vh;max-width:96%}
   .hiw .hiw-shot.portrait{max-height:54vh}
