@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.265",
+    date: "2026-08-19",
+    headline: "Removed the floating Projection Zone button",
+    highlights: [
+      "The draggable circular Projection Zone button no longer floats over the operator screen.",
+      "Projection zones still apply to the projector output exactly as before.",
+    ],
+  },
+  {
     version: "0.1.264",
     date: "2026-08-19",
     headline: "In-app confirmations for templates & backgrounds",

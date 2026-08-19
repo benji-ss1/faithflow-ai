@@ -40,7 +40,6 @@ import type { OperatorShellCtx } from "./shell/types";
 import { useProjectionZoneStore } from "@/lib/projection-zone-store";
 import { normalizeZone, DEFAULT_ZONE, type ProjectionZone } from "@/lib/projection-zone";
 import { ZoneEditor } from "./zone/ZoneEditor";
-import { ZoneToolbarButton } from "./zone/ZoneToolbarButton";
 import { useShell } from "@/hooks/useShell";
 
 type Cursor = { itemIdx: number; slideIdx: number };
@@ -280,6 +279,13 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   const activeZone: ProjectionZone = zoneStore.activeProfile ? normalizeZone(zoneStore.activeProfile) : DEFAULT_ZONE;
   const effectiveFontScale = fontScale * activeZone.fontScale;
   const [zoneEditorOpen, setZoneEditorOpen] = useState(false);
+  // The floating Projection-Zone button was removed; keep the editor reachable
+  // via a custom event (fired from menus / hotkeys / future entry points).
+  useEffect(() => {
+    const open = () => setZoneEditorOpen(true);
+    window.addEventListener("presentflow:open-zone-editor", open);
+    return () => window.removeEventListener("presentflow:open-zone-editor", open);
+  }, []);
   useEffect(() => {
     setFontScale(readFontScale());
     const onChange = (e: Event) => {
@@ -1705,12 +1711,10 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
         onClose={() => setEditing(null)}
         onSaved={onSuggestionEdited}
       />
-      {/* Projection Zone Customizer — button lives on the operator screen only
-          (never the projector). The editor is a live sheet; changes flow to the
-          output through OutputState.zone. */}
-      {shell === "desktop" && (
-        <ZoneToolbarButton onOpen={() => setZoneEditorOpen(true)} hasCustomProfile={zoneStore.profiles.some((p) => p.name !== "Default")} />
-      )}
+      {/* Projection Zone Customizer — the floating operator-screen button was
+          removed per user request. The zone still drives projector output via
+          OutputState.zone; the editor is opened from the "presentflow:open-zone-editor"
+          event so the feature stays reachable without a floating control. */}
       <ZoneEditor open={zoneEditorOpen} onClose={() => setZoneEditorOpen(false)} />
     </>
   );
