@@ -12,7 +12,13 @@ import { SLIDE_CANVAS_W, SLIDE_CANVAS_H } from "@/lib/broadcast";
  * No drag handles, no interaction — this is output only. Objects render in
  * array order (first = back). Sits above the slide background, below the logo.
  */
-export function SlideObjectsLayer({ objects }: { objects: SlideObjectWire[] }) {
+export function SlideObjectsLayer({ objects, fontScale = 1 }: { objects: SlideObjectWire[]; fontScale?: number }) {
+  // Global font multiplier (operator A-/A+ × Projection-Zone Font). Previously
+  // this layer ignored it, so the Font slider / A-/A+ had NO effect on the
+  // projector for designed or song slides (only plain-lyric slides scaled).
+  // Now every text object scales by it — matching the plain-lyric path and the
+  // editor's live preview.
+  const fs = Number.isFinite(fontScale) && fontScale > 0 ? fontScale : 1;
   return (
     <div
       className="absolute inset-0 z-0"
@@ -55,7 +61,7 @@ export function SlideObjectsLayer({ objects }: { objects: SlideObjectWire[] }) {
                 className="w-full h-full flex whitespace-pre-wrap overflow-hidden"
                 style={{
                   fontFamily: obj.fontFamily || "Inter, system-ui, sans-serif",
-                  fontSize: `${((obj.fontSize ?? 96) / SLIDE_CANVAS_H) * 100}cqh`,
+                  fontSize: `${((obj.fontSize ?? 96) * fs / SLIDE_CANVAS_H) * 100}cqh`,
                   fontWeight: obj.fontWeight ?? 600,
                   color: obj.color ?? "#ffffff",
                   fontStyle: obj.italic ? "italic" : undefined,
@@ -68,7 +74,7 @@ export function SlideObjectsLayer({ objects }: { objects: SlideObjectWire[] }) {
                   lineHeight: obj.lineHeight ?? undefined,
                   // letterSpacing/stroke scale with the output surface (cqh/cqw)
                   // exactly like fontSize, so they hold at 720p/1080p/4K/preview.
-                  letterSpacing: obj.letterSpacing ? `${(obj.letterSpacing / SLIDE_CANVAS_H) * 100}cqh` : undefined,
+                  letterSpacing: obj.letterSpacing ? `${(obj.letterSpacing * fs / SLIDE_CANVAS_H) * 100}cqh` : undefined,
                   textTransform: obj.uppercase ? "uppercase" : undefined,
                   WebkitTextStroke: obj.strokeWidth ? `${(obj.strokeWidth / SLIDE_CANVAS_W) * 100}cqw ${obj.stroke ?? "#000000"}` : undefined,
                   textShadow: (obj.shadow ?? true) ? "0 2px 8px rgba(0,0,0,0.45)" : undefined,

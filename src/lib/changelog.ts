@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.271",
+    date: "2026-08-19",
+    headline: "Font slider now actually resizes song/designed slides",
+    highlights: [
+      "The Projection-Zone Font slider (and A-/A+) now scales text on song and designed slides too — previously it only affected plain scripture/lyric slides, so it looked like it did nothing.",
+      "The change shows live on the projector, the operator live-preview, and the editor.",
+    ],
+  },
+  {
     version: "0.1.270",
     date: "2026-08-19",
     headline: "Font-scale preview in the slide editor",

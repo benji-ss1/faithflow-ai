@@ -191,7 +191,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
       }
       return (
         <div className={`${base} relative ${className || ""}`} style={designBg}>
-          <SlideObjectsLayer objects={objects} />
+          <SlideObjectsLayer objects={objects} fontScale={fontScale} />
         </div>
       );
     }
