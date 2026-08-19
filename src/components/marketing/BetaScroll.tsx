@@ -131,6 +131,8 @@ const CSS = `
 .pfb .bs-card.out{opacity:0;transform:translateY(-24px) scale(.985)}
 .pfb .bs-art{position:relative;background:var(--panel-2);border:1px solid var(--line);border-radius:18px;overflow:hidden;min-height:0}
 .pfb .bs-art svg{width:100%;height:100%;display:block}
+.pfb .bs-art-video{background:#0b0b0b;padding:0}
+.pfb .bs-video{width:100%;height:100%;object-fit:cover;display:block}
 .pfb .bs-copy{display:flex;flex-direction:column;position:relative;padding:6px 4px 0;min-width:0}
 .pfb .bs-top{display:flex;flex-direction:column;gap:14px;flex:1}
 .pfb .bs-num{font-family:var(--pf-mono);font-size:11px;color:var(--muted);letter-spacing:.16em;text-transform:uppercase}
@@ -325,7 +327,19 @@ export default function BetaScroll() {
           <div className="bs-deck">
             {/* CARD 1 — MIGRATE */}
             <article className="bs-card on">
-              <div className="bs-art" dangerouslySetInnerHTML={{ __html: ART1 }} />
+              <div className="bs-art bs-art-video">
+                <video
+                  className="bs-video"
+                  src="/marketing/bring-library.mp4"
+                  poster="/marketing/bring-library-poster.jpg"
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  preload="auto"
+                  aria-hidden="true"
+                />
+              </div>
               <div className="bs-copy">
                 <div className="bs-top">
                   <div className="bs-num">01 · Migrate</div>
