@@ -312,12 +312,13 @@ export function TranscriptDisplay({ ctx }: Props) {
             className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 pf-ai-live-dot"
           />
         )}
+        <span className="h-px flex-1" style={{ background: "linear-gradient(90deg, var(--color-border), transparent)" }} aria-hidden />
         <button
           type="button"
           title="Clear visible transcript (does not stop AI listener)"
           aria-label="Clear transcript"
           onClick={() => setClearedAt(Date.now())}
-          className="ml-auto text-[9px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] px-1.5 py-0.5 rounded hover:bg-white/5"
+          className="text-[9px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] px-1.5 py-0.5 rounded hover:bg-white/5"
         >
           Clear
         </button>

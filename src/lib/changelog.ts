@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.250",
+    date: "2026-08-19",
+    headline: "Tabbed What's New + announcement bar",
+    highlights: [
+      "The \"What's new\" popup is now tabbed — pick any recent version on the left to see exactly what changed in it.",
+      "Added an announcement bar we can switch on across the top of the app for big updates and news.",
+      "The right-panel section headers (Live Transcript, Bible/Song Detections) now carry the same subtle fading rule as the sidebar, so the whole console matches.",
+      "The \"Slide deleted\" message is now a neutral note instead of green — green stays for things that saved or applied.",
+    ],
+  },
+  {
     version: "0.1.249",
     date: "2026-08-19",
     headline: "Delete works, edits stay centred, smarter toasts",

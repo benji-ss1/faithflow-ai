@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Sparkles, X } from "lucide-react";
+import { Sparkles, X, Tag } from "lucide-react";
 import { CHANGELOG, type ChangelogEntry, type Highlight } from "@/lib/changelog";
 
 const LAST_SEEN_KEY = "presentflow.whatsNew.lastSeenVersion";
@@ -33,6 +33,7 @@ function cmpVersion(a: string, b: string): number {
 export function WhatsNewModal() {
   const [newEntries, setNewEntries] = useState<ChangelogEntry[]>([]);
   const [open, setOpen] = useState(false);
+  const [activeVersion, setActiveVersion] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -63,6 +64,7 @@ export function WhatsNewModal() {
       // top version as seen, so it only shows again when a genuinely newer entry
       // ships — not on every reload of the same version.
       setNewEntries(newer);
+      setActiveVersion(newer[0]?.version ?? null);
       popTimer = setTimeout(() => { if (!cancelled) setOpen(true); }, 600);
     };
 
@@ -97,7 +99,7 @@ export function WhatsNewModal() {
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/60 z-50" />
         <Dialog.Content
-          className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[520px] max-w-[92vw] max-h-[85vh] overflow-hidden flex flex-col bg-[var(--color-panel)] border border-[var(--color-border)] rounded-xl shadow-2xl"
+          className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[680px] max-w-[94vw] max-h-[85vh] overflow-hidden flex flex-col bg-[var(--color-panel)] border border-[var(--color-border)] rounded-xl shadow-2xl"
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
           <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
@@ -113,42 +115,72 @@ export function WhatsNewModal() {
               <X className="w-4 h-4" />
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-            {newEntries.map((entry) => (
-              <div key={entry.version}>
-                <div className="flex items-baseline justify-between mb-1">
-                  <div className="text-sm font-semibold">v{entry.version} — {entry.headline}</div>
-                  <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)]">{entry.date}</div>
-                </div>
-                <ul className="text-[12px] leading-relaxed text-[var(--color-muted-foreground)] space-y-1 pl-4">
-                  {entry.highlights.map((h: Highlight, i) => {
-                    const text = typeof h === "string" ? h : h.text;
-                    const tryItHref = typeof h === "string" ? undefined : h.tryItHref;
-                    const tryItLabel = typeof h === "string" ? undefined : h.tryItLabel;
-                    const highlightParam = typeof h === "string" ? undefined : h.highlightParam;
-                    const href = tryItHref && highlightParam ? `${tryItHref}?highlight=${encodeURIComponent(highlightParam)}` : tryItHref;
-                    return (
-                      <li key={i} className="list-disc">
-                        {text}
-                        {href && (
-                          // next/link — a plain <a> here would force a full
-                          // page reload of the whole bundle just to jump to
-                          // another in-app route, a real cost in this
-                          // thin-client Electron shell (review finding).
-                          <Link
-                            href={href}
-                            onClick={dismiss}
-                            className="ml-2 inline-flex items-center text-[var(--color-brand)] hover:underline font-semibold not-italic"
-                          >
-                            {tryItLabel || "Try it"} →
-                          </Link>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            ))}
+          {/* Two-column: version tabs on the left, that release's highlights on
+              the right. Newest release selected by default. */}
+          <div className="flex-1 min-h-0 flex gap-3 sm:gap-4 px-4 py-4">
+            {/* Version tabs */}
+            <div className="shrink-0 w-[150px] flex flex-col gap-1 overflow-y-auto rounded-2xl p-1 surface-elev">
+              {newEntries.map((entry, i) => {
+                const isActive = (activeVersion ?? newEntries[0]?.version) === entry.version;
+                return (
+                  <button
+                    key={entry.version}
+                    type="button"
+                    onClick={() => setActiveVersion(entry.version)}
+                    className="flex items-center gap-2 rounded-xl px-2.5 py-1.5 text-left transition-colors"
+                    style={isActive
+                      ? { background: "var(--color-brand)", color: "#17130c" }
+                      : { color: "var(--color-muted-foreground)" }}
+                  >
+                    <Tag className="w-3.5 h-3.5 shrink-0" strokeWidth={2.5} />
+                    <span className="min-w-0">
+                      <span className="block text-[12px] font-semibold leading-tight truncate">v{entry.version}</span>
+                      <span className="block text-[9.5px] font-mono uppercase tracking-wide opacity-80 leading-tight">
+                        {i === 0 ? "Latest" : entry.date}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Selected release */}
+            <div className="flex-1 min-w-0 overflow-y-auto pr-1">
+              {(() => {
+                const entry = newEntries.find((e) => e.version === (activeVersion ?? newEntries[0]?.version)) ?? newEntries[0];
+                if (!entry) return null;
+                return (
+                  <div className="animate-in fade-in slide-in-from-bottom-1 duration-300">
+                    <div className="flex items-baseline justify-between gap-2 border-b border-[var(--color-border)] pb-2.5 mb-3">
+                      <h4 className="text-[17px] font-bold tracking-tight text-[var(--color-foreground)]">{entry.headline}</h4>
+                      <span className="shrink-0 text-[10px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)]">{entry.date}</span>
+                    </div>
+                    <ul className="space-y-3">
+                      {entry.highlights.map((h: Highlight, i) => {
+                        const text = typeof h === "string" ? h : h.text;
+                        const tryItHref = typeof h === "string" ? undefined : h.tryItHref;
+                        const tryItLabel = typeof h === "string" ? undefined : h.tryItLabel;
+                        const highlightParam = typeof h === "string" ? undefined : h.highlightParam;
+                        const href = tryItHref && highlightParam ? `${tryItHref}?highlight=${encodeURIComponent(highlightParam)}` : tryItHref;
+                        return (
+                          <li key={i} className="flex items-start gap-3">
+                            <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: "var(--color-brand)", boxShadow: "0 0 0 3px color-mix(in oklab, var(--color-brand) 22%, transparent)" }} />
+                            <span className="text-[12.5px] leading-relaxed text-[var(--color-muted-foreground)]">
+                              {text}
+                              {href && (
+                                <Link href={href} onClick={dismiss} className="ml-2 inline-flex items-center text-[var(--color-brand)] hover:underline font-semibold not-italic">
+                                  {tryItLabel || "Try it"} →
+                                </Link>
+                              )}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                );
+              })()}
+            </div>
           </div>
           <div className="px-5 py-3 border-t border-[var(--color-border)] flex justify-between items-center gap-2">
             <button

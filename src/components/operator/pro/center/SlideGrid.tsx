@@ -289,7 +289,9 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                     if (!slideId) { toast.error("Couldn't find that slide to delete"); return; }
                     const res = await deleteSongSlide(slideId);
                     if (!res.ok) { toast.error(res.error ?? "Delete failed"); return; }
-                    toast.success("Slide deleted");
+                    // Neutral (not green): a delete is an acknowledgment, not a
+                    // "saved" success; red is reserved for failures.
+                    toast("Slide deleted");
                     router.refresh();
                   })();
                 }}

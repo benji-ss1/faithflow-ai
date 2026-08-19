@@ -32,6 +32,7 @@ import { BibleMode } from "./center/BibleMode";
 import { SongsBrowser } from "./center/SongsBrowser";
 import { MediaBrowser } from "./center/MediaBrowser";
 import { LivePreviewPanel } from "./right/LivePreviewPanel";
+import { AnnouncementBar } from "../AnnouncementBar";
 import { VideoControlBar } from "../VideoControlBar";
 import { OutputRoutingRow } from "./right/OutputRoutingRow";
 // 2026-07-25 Phase 3: RightTabs + AIDetectionsPanel replaced by
@@ -3733,6 +3734,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-[var(--color-app-bg)] text-[var(--color-foreground)]">
+      <AnnouncementBar />
       <UpdateBanner liveSlide={ctx.liveSlide} listening={ctx.audio?.listening} />
       <AICaptionsBanner ctx={ctx} />
       <div data-tour="top" className="relative">

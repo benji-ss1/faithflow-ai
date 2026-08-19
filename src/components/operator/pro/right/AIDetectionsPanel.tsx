@@ -429,8 +429,9 @@ export function AIDetectionsPanel({ ctx, sections }: { ctx: OperatorShellCtx; se
           <span className="text-[9px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)]">
             Bible Detections
           </span>
+          <span className="h-px flex-1" style={{ background: "linear-gradient(90deg, var(--color-border), transparent)" }} aria-hidden />
           {bibleRows.length > 0 && (
-            <span className="ml-auto text-[9px] font-mono text-[var(--color-muted-foreground)]">
+            <span className="text-[9px] font-mono text-[var(--color-muted-foreground)]">
               {bibleRows.length}
             </span>
           )}
@@ -586,8 +587,9 @@ export function AIDetectionsPanel({ ctx, sections }: { ctx: OperatorShellCtx; se
           <span className="text-[9px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)]">
             Song Detections
           </span>
+          <span className="h-px flex-1" style={{ background: "linear-gradient(90deg, var(--color-border), transparent)" }} aria-hidden />
           {songRows.length > 0 && (
-            <span className="ml-auto text-[9px] font-mono text-[var(--color-muted-foreground)]">
+            <span className="text-[9px] font-mono text-[var(--color-muted-foreground)]">
               {songRows.length}
             </span>
           )}
