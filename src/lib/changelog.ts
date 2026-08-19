@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.254",
+    date: "2026-08-19",
+    headline: "Listening waveform + one-tap copy",
+    highlights: [
+      "The live transcript now shows an animated waveform while the AI is listening, so you can see at a glance it's hearing.",
+      "The live verse now has a copy button that flips to a tick when you've copied it.",
+    ],
+  },
+  {
     version: "0.1.253",
     date: "2026-08-19",
     headline: "Sliding switches + a What's-new bell",

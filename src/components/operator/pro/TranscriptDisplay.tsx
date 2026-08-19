@@ -39,6 +39,7 @@ import {
   writeTranscriptDisplayPrefs,
 } from "@/lib/transcriptDisplayPrefs";
 import type { OperatorShellCtx } from "../shell/types";
+import { VoiceNote } from "./VoiceNote";
 import { useDebouncedInterim } from "./useDebouncedInterim";
 
 type Props = {
@@ -348,7 +349,8 @@ export function TranscriptDisplay({ ctx }: Props) {
           style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
         >
           {!hasContent ? (
-            <div className="text-[11px] italic text-[var(--color-muted-foreground)] py-1">
+            <div className="flex items-center gap-2 text-[11px] italic text-[var(--color-muted-foreground)] py-1">
+              {audio.listening && <VoiceNote active className="not-italic" />}
               {audio.listening ? "Listening…" : "Say something with AI Live on…"}
             </div>
           ) : (

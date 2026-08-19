@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import type { OperatorShellCtx } from "../../shell/types";
+import { CopyConfirm } from "../CopyConfirm";
 
 // The live slide's text carries its reference/translation as a trailing
 // line after a blank line ("...verse body...\n\nBook Ch:Verse (KJV)") — see
@@ -90,8 +91,13 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
           pulled out of the slide text so it's never cramped inside the tiny
           preview box regardless of panel width. */}
       {reference && (
-        <div className="px-2 py-1.5 rounded bg-[var(--color-elevated)] border border-[var(--color-border)] text-[12px] font-semibold text-center truncate" title={reference}>
-          {reference}
+        <div className="flex items-center gap-1.5 px-2 py-1.5 rounded bg-[var(--color-elevated)] border border-[var(--color-border)]">
+          <span className="flex-1 min-w-0 text-[12px] font-semibold text-center truncate" title={reference}>{reference}</span>
+          <CopyConfirm
+            text={(ctx.liveSlide.kind === "text" ? ctx.liveSlide.text : "") || reference}
+            label={undefined}
+            className="shrink-0 p-0.5"
+          />
         </div>
       )}
       <div className="flex items-center justify-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)]">

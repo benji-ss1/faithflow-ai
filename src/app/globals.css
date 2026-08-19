@@ -245,6 +245,7 @@ html.light {
 @keyframes pfFloatMark { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
 @keyframes pfPulse { 0%,100% { transform: scale(1); opacity: 0.9; } 50% { transform: scale(1.06); opacity: 1; } }
 @keyframes pfSlideWord { from { transform: translateX(-10px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@keyframes pfListenWave { 0%,100% { transform: scaleY(0.35); } 50% { transform: scaleY(1); } }
 
 /*
  * Themes 3 — animated theme backgrounds for the projector (AnimatedThemeBg).
