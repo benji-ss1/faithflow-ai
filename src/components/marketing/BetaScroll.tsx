@@ -13,45 +13,6 @@
 import { useEffect, useRef } from "react";
 
 // ── raw SVG art (kept as HTML strings; the tick loop queries them by id) ──────
-const ART1 = `
-<svg viewBox="0 0 800 560" preserveAspectRatio="xMidYMid meet" id="art1">
-  <defs><style>
-    .ink{stroke:#F4EFE6;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
-    .brass{stroke:#C6912F;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
-    .orange{stroke:#ff7a2c;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
-    .label{font-family:'JetBrains Mono',monospace;font-size:13px;fill:#ffb861;letter-spacing:.06em}
-    .label-pf{font-family:'JetBrains Mono',monospace;font-size:14px;fill:#ff7a2c;font-weight:600;letter-spacing:.08em}
-    .floor{stroke:#3a2f24;stroke-width:1;fill:none}
-  </style></defs>
-  <line x1="40" y1="470" x2="760" y2="470" class="floor"/>
-  <g id="sources">
-    <g class="source-box" data-key="ProPresenter"><rect x="60" y="380" width="140" height="42" rx="6" class="brass"/><text x="130" y="406" text-anchor="middle" class="label">ProPresenter</text></g>
-    <g class="source-box" data-key="EasyWorship"><rect x="60" y="320" width="140" height="42" rx="6" class="brass"/><text x="130" y="346" text-anchor="middle" class="label">EasyWorship</text></g>
-    <g class="source-box" data-key="Proclaim"><rect x="60" y="260" width="140" height="42" rx="6" class="brass"/><text x="130" y="286" text-anchor="middle" class="label">Proclaim</text></g>
-    <g class="source-box" data-key="CCLI"><rect x="60" y="200" width="140" height="42" rx="6" class="brass"/><text x="130" y="226" text-anchor="middle" class="label">CCLI</text></g>
-  </g>
-  <g id="op1" transform="translate(240 0)">
-    <circle cx="80" cy="310" r="18" class="ink"/>
-    <circle cx="74" cy="308" r="1.6" fill="#F4EFE6"/>
-    <circle cx="86" cy="308" r="1.6" fill="#F4EFE6"/>
-    <line x1="80" y1="328" x2="80" y2="410" class="ink"/>
-    <line x1="80" y1="352" x2="120" y2="360" class="ink" id="op1-arm"/>
-    <line x1="80" y1="352" x2="52" y2="380" class="ink"/>
-    <line x1="80" y1="410" x2="60" y2="460" class="ink"/>
-    <line x1="80" y1="410" x2="100" y2="460" class="ink"/>
-    <g id="op1-box" transform="translate(120 340)">
-      <rect x="0" y="0" width="70" height="26" rx="5" class="orange"/>
-      <text x="35" y="17" text-anchor="middle" class="label" id="op1-boxlabel">ProPresenter</text>
-    </g>
-  </g>
-  <g id="pfbox" transform="translate(540 300)">
-    <rect x="0" y="0" width="170" height="120" rx="10" class="orange" id="pfrect"/>
-    <text x="85" y="52" text-anchor="middle" class="label-pf">PRESENT</text>
-    <text x="85" y="76" text-anchor="middle" class="label-pf">FLOW</text>
-    <g id="pf-innards"></g>
-  </g>
-</svg>`;
-
 const ART2 = `
 <svg viewBox="0 0 800 560" preserveAspectRatio="xMidYMid meet" id="art2">
   <line x1="40" y1="470" x2="760" y2="470" style="stroke:#3a2f24;stroke-width:1;fill:none"/>
@@ -126,7 +87,7 @@ const CSS = `
 .pfb .bs-marker{position:absolute;left:-5px;width:12px;height:12px;border-radius:2px;background:var(--ink);top:calc(var(--p,0) * 100% - 6px);transition:top 140ms linear}
 .pfb .bs-tick{position:absolute;left:2px;height:1px;background:var(--ink);width:20px;top:calc(var(--p,0) * 100%);transition:top 140ms linear}
 .pfb .bs-deck{position:relative;height:100%;overflow:hidden;border-radius:24px}
-.pfb .bs-card{position:absolute;inset:0;display:grid;grid-template-columns:1.15fr 1fr;gap:48px;padding:44px;background:var(--panel);border:1px solid var(--line);border-radius:24px;opacity:0;transform:translateY(28px) scale(.985);transition:opacity 650ms cubic-bezier(.2,0,.2,1),transform 650ms cubic-bezier(.2,0,.2,1),background 600ms,border-color 600ms;pointer-events:none;overflow:hidden}
+.pfb .bs-card{position:absolute;inset:0;display:grid;grid-template-columns:1.42fr 1fr;gap:44px;padding:44px;background:var(--panel);border:1px solid var(--line);border-radius:24px;opacity:0;transform:translateY(28px) scale(.985);transition:opacity 650ms cubic-bezier(.2,0,.2,1),transform 650ms cubic-bezier(.2,0,.2,1),background 600ms,border-color 600ms;pointer-events:none;overflow:hidden}
 .pfb .bs-card.on{opacity:1;transform:translateY(0) scale(1);pointer-events:auto}
 .pfb .bs-card.out{opacity:0;transform:translateY(-24px) scale(.985)}
 .pfb .bs-art{position:relative;background:var(--panel-2);border:1px solid var(--line);border-radius:18px;overflow:hidden;min-height:0}
