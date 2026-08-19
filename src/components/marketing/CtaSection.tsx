@@ -14,7 +14,8 @@ const CHURCH =
   "M60 8 L60 24 M20 52 L60 24 L100 52 M24 52 L24 86 M96 52 L96 86 M16 86 L104 86 M52 86 L52 64 L68 64 L68 86";
 
 const CSS = `
-.pfcta{--cream:#F5F1EA;--ink:#1a140d;--muted:#6a635a;--oxblood:#8F2C10;--line:#e3ddd2;
+/* Inverted to dark (paper -> ink). */
+.pfcta{--cream:#17130c;--ink:#F5F1EA;--muted:#b3aa9c;--oxblood:#d0653a;--line:#38301f;
   position:relative;background:var(--cream);color:var(--ink);overflow:hidden}
 .pfcta .in{max-width:1160px;margin:0 auto;padding:clamp(84px,13vw,168px) clamp(30px,6vw,96px);position:relative}
 .pfcta .rail{position:absolute;left:0;top:0;bottom:0;width:1px;background:var(--ink);opacity:.16}
@@ -27,12 +28,12 @@ const CSS = `
   font-size:clamp(42px,7.4vw,92px);line-height:1;letter-spacing:-.02em;margin:0;max-width:15ch}
 .pfcta h2 .run{font-style:italic;color:var(--oxblood)}
 .pfcta .cap{font-family:var(--pf-hand),"Segoe Script",cursive;font-size:clamp(21px,2.6vw,32px);
-  color:#4a4036;margin:26px 0 0;max-width:26ch;line-height:1.28}
+  color:#cabfae;margin:26px 0 0;max-width:26ch;line-height:1.28}
 .pfcta .cta{margin-top:clamp(34px,5vw,52px)}
 .pfcta .btn{display:inline-flex;align-items:center;gap:10px;font-weight:700;font-size:16px;
-  padding:17px 32px;border-radius:11px;background:#1a140d;color:#F5F1EA;
+  padding:17px 32px;border-radius:11px;background:#F5F1EA;color:#1a140d;
   transition:transform .25s ease,box-shadow .25s ease}
-.pfcta .btn:hover{transform:translateY(-2px);box-shadow:0 16px 44px rgba(26,20,13,.3)}
+.pfcta .btn:hover{transform:translateY(-2px);box-shadow:0 16px 44px rgba(0,0,0,.45)}
 .pfcta .reveal{opacity:0;transform:translateY(28px);transition:opacity .8s cubic-bezier(.22,1,.36,1),transform .8s cubic-bezier(.22,1,.36,1)}
 .pfcta.in .reveal{opacity:1;transform:none}
 .pfcta.in .reveal.d1{transition-delay:.1s}
