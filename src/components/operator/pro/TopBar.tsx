@@ -79,6 +79,19 @@ export function TopBar({
     : centerMode === "songs" ? "Songs Library"
     : centerMode === "media" ? "Media Library"
     : (ctx.plan.items[ctx.previewItemIdx]?.title ?? "");
+  // The centred title is the current preview ITEM's name only when we're in the
+  // slides view (Bible/Songs/Media modes show a fixed section label). Double-
+  // clicking it renames that item — handled by PlaylistSection via this event.
+  const titleIsItem = centerMode !== "bible" && centerMode !== "songs" && centerMode !== "media" && !!ctx.plan.items[ctx.previewItemIdx];
+  const [titleEditing, setTitleEditing] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const commitTitleRename = () => {
+    setTitleEditing(false);
+    const next = titleDraft.trim();
+    if (next && next !== currentTitle) {
+      window.dispatchEvent(new CustomEvent("presentflow:rename-preview-item", { detail: { title: next } }));
+    }
+  };
   // Binary AI state — revamped from the old 4-state
   // OFF/CONNECTING/READY/LIVE pill that flickered as the connection churned.
   // The pill now reflects only the operator's ON/OFF INTENT (`listening`),
@@ -263,7 +276,29 @@ export function TopBar({
       />
 
       <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--color-muted-foreground)] truncate px-4">
-        {currentTitle}
+        {titleEditing ? (
+          <input
+            autoFocus
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={commitTitleRename}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); commitTitleRename(); }
+              else if (e.key === "Escape") { e.preventDefault(); setTitleEditing(false); }
+            }}
+            maxLength={120}
+            className="max-w-[420px] w-full text-center text-[13px] rounded-md bg-[var(--color-panel)] border border-[var(--color-brand)] text-[var(--color-foreground)] px-2 py-0.5 outline-none"
+          />
+        ) : (
+          <button
+            type="button"
+            onDoubleClick={() => { if (titleIsItem) { setTitleDraft(currentTitle); setTitleEditing(true); } }}
+            title={titleIsItem ? "Double-click to rename" : undefined}
+            className={`truncate max-w-full ${titleIsItem ? "cursor-text hover:text-[var(--color-foreground)]" : "cursor-default"}`}
+          >
+            {currentTitle}
+          </button>
+        )}
       </div>
 
       <div className="flex items-center gap-0.5">

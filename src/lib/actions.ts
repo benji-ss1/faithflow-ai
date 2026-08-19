@@ -416,6 +416,30 @@ export async function renameSong(songId: string, newTitle: string): Promise<Resu
   return { ok: true };
 }
 
+/**
+ * Rename a single playlist/service item (its display title only — does NOT
+ * touch the underlying song). Works for every item type (blank, scripture,
+ * media, sermon, logo, and songs whose display label the operator wants to
+ * differ from the library title). Church-scoped via the two-hop join through
+ * service_plans.
+ */
+export async function renameServiceItem(itemId: string, newTitle: string): Promise<Result> {
+  const user = await requireCap("operate_services");
+  const trimmed = newTitle.trim().slice(0, 200);
+  if (!trimmed) return { ok: false, error: "Title required" };
+  const db = getDb();
+  const res = await db.execute(sql`
+    UPDATE service_items si
+    SET title = ${trimmed}
+    FROM service_plans sp
+    WHERE si.id = ${itemId}
+      AND si.service_plan_id = sp.id
+      AND sp.church_id = ${user.churchId}
+  `);
+  if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Item not found" };
+  return { ok: true };
+}
+
 export async function updateSongSlides(songId: string, slides: { lyrics: string }[]): Promise<Result> {
   const user = await requireCap("edit_library");
   const db = getDb();

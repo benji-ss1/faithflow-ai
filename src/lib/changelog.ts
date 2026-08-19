@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.267",
+    date: "2026-08-19",
+    headline: "Songs load again + rename items anywhere",
+    highlights: [
+      "Fixed songs loading as a single blank slide — stale song references now re-link by title so lyrics preview and project again.",
+      "Rename any playlist item (double-click or right-click → Rename), including blanks — not just songs.",
+      "Rename the current item straight from the top-bar title (double-click it).",
+    ],
+  },
+  {
     version: "0.1.266",
     date: "2026-08-19",
     headline: "Faster voice nav, redesigned transitions, and fixes",

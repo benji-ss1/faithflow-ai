@@ -33,7 +33,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
-import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong, createSongSlide, deleteSongSlide, setServiceItemTheme, renameSong } from "@/lib/actions";
+import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong, createSongSlide, deleteSongSlide, setServiceItemTheme, renameSong, renameServiceItem } from "@/lib/actions";
 import { useSlideClipboard, getSlideClipboard } from "@/lib/slide-clipboard";
 
 function itemIcon(type: string) {
@@ -367,10 +367,28 @@ export function PlaylistSection({
   };
 
   const renameItem = async (it: OperatorShellCtx["plan"]["items"][number], newTitle: string) => {
-    if (it.type !== "song" || !it.songId) return;
     if (blockedIfOffline()) return;
-    handleResult(await renameSong(it.songId, newTitle), "Renamed");
+    // Song items rename the underlying song (keeps library + every plan in
+    // sync); every other item type renames just this playlist item's label.
+    if (it.type === "song" && it.songId) {
+      handleResult(await renameSong(it.songId, newTitle), "Renamed");
+    } else if (it.id) {
+      handleResult(await renameServiceItem(it.id, newTitle), "Renamed");
+    }
   };
+
+  // Top-bar title rename (TopBar dispatches this on double-click of the centred
+  // item name) — renames whatever item is currently in preview.
+  useEffect(() => {
+    const onRenamePreview = (e: Event) => {
+      const title = (e as CustomEvent<{ title?: string }>).detail?.title;
+      const it = ctx.plan.items[ctx.previewItemIdx];
+      if (title && it) void renameItem(it, title);
+    };
+    window.addEventListener("presentflow:rename-preview-item", onRenamePreview);
+    return () => window.removeEventListener("presentflow:rename-preview-item", onRenamePreview);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx.plan.items, ctx.previewItemIdx]);
 
   const remove = async (it: OperatorShellCtx["plan"]["items"][number]) => {
     if (!it.id) return;
@@ -626,7 +644,7 @@ export function PlaylistSection({
                   onPasteSlide={it.type === "song" && it.songId ? () => void pasteSlideToItem(it) : undefined}
                   canPasteSlide={!!clipboardSlide && it.type === "song" && !!it.songId}
                   onDeleteSong={it.type === "song" && it.songId ? () => void deleteFromLibrary(it) : undefined}
-                  onRename={it.type === "song" && it.songId ? (newTitle) => void renameItem(it, newTitle) : undefined}
+                  onRename={(it.type === "song" && it.songId) || it.id ? (newTitle) => void renameItem(it, newTitle) : undefined}
                   themes={themes}
                   currentThemeId={(it as { themeId?: string }).themeId ?? null}
                   onSetTheme={it.id ? (themeId) => void setTheme(it.id!, themeId) : undefined}
