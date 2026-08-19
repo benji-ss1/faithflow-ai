@@ -5,7 +5,7 @@ import Link from "next/link";
 import ImageSlot from "./ImageSlot";
 import AuditoriumBg from "./AuditoriumBg";
 import BetaScroll from "./BetaScroll";
-import AuditoriumScroll from "./AuditoriumScroll";
+import HowItWorks from "./HowItWorks";
 import RailConnector from "./RailConnector";
 import CtaSection from "./CtaSection";
 
@@ -241,11 +241,11 @@ export default function Home() {
         <BetaScroll />
 
         {/* Rail connector — line + square travels from BetaScroll's left rail
-            across to the auditorium's right rail as you scroll the gap. */}
+            across to How-it-works' right rail, rolling dark → white. */}
         <RailConnector />
 
-        {/* HOW IT WORKS — pinned full-bleed 3D auditorium */}
-        <AuditoriumScroll />
+        {/* HOW IT WORKS — white, pinned scroll-scrub: Listen · Match · Show */}
+        <HowItWorks />
 
         {/* CLOSING CTA — light editorial panel + pencil-drawn church */}
         <CtaSection />

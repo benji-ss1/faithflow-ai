@@ -56,7 +56,9 @@ export default function RailConnector() {
       style={{
         position: "relative",
         height: "clamp(240px, 42vh, 440px)",
-        background: "var(--bg)",
+        /* Roll the dark BetaScroll above into the white "How it works" below —
+           the connector line + square carry the rail across the seam. */
+        background: "linear-gradient(180deg, var(--bg) 0%, var(--bg) 22%, #F6F3EC 100%)",
         overflow: "hidden",
       }}
     >
@@ -65,8 +67,8 @@ export default function RailConnector() {
         preserveAspectRatio="none"
         style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
       >
-        {/* faint full track */}
-        <path d={PATH} fill="none" stroke="var(--ink)" strokeOpacity="0.14" strokeWidth="0.35" />
+        {/* faint full track — a neutral that reads on both the dark top and light bottom */}
+        <path d={PATH} fill="none" stroke="#a8926a" strokeOpacity="0.4" strokeWidth="0.35" />
         {/* drawn-on-scroll leading line — ember so the connection reads */}
         <path ref={pathRef} d={PATH} fill="none" stroke="var(--ember)" strokeOpacity="0.9" strokeWidth="0.55" strokeLinecap="round" />
       </svg>
