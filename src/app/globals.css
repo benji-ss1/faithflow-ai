@@ -177,6 +177,31 @@ html.light {
   box-shadow: 0 2px 8px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.04);
 }
 
+/* Semantic toast colours (2026-08-19 user directive): success = green (saved /
+ * applied), info = blue (ambiguous / heads-up), error = maroon-red (failed
+ * saves / actions). Overrides the neutral card set inline via toastOptions for
+ * these three types only — plain/undo toasts stay the neutral premium card.
+ * !important is required to beat sonner's inline background. */
+[data-sonner-toast][data-type="success"] {
+  background: #2f9e52 !important;
+  border-color: rgba(47,158,82,0.55) !important;
+  color: #ffffff !important;
+}
+[data-sonner-toast][data-type="info"] {
+  background: #4f8ff0 !important;
+  border-color: rgba(79,143,240,0.55) !important;
+  color: #ffffff !important;
+}
+[data-sonner-toast][data-type="error"] {
+  background: #24110f !important;
+  border-color: rgba(255,109,109,0.30) !important;
+  color: #ff9a9a !important;
+}
+[data-sonner-toast][data-type="success"] [data-description],
+[data-sonner-toast][data-type="info"] [data-description] { color: rgba(255,255,255,0.88) !important; }
+[data-sonner-toast][data-type="error"] [data-title] { color: #ff8a8a !important; }
+[data-sonner-toast][data-type="error"] [data-description] { color: rgba(255,154,154,0.85) !important; }
+
 /* Warm-ember selection glow — the "this is what I'm working with" cue for the
  * selected slide card / active item. Ring + soft outer bloom, no hard border. */
 .pf-selected-glow {

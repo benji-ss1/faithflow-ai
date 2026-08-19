@@ -7,7 +7,8 @@ import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload } from "@/lib/broadcast";
 import { useSlideClipboard, setSlideClipboard, getSlideClipboard } from "@/lib/slide-clipboard";
-import { updateSongSlides } from "@/lib/actions";
+import { updateSongSlides, deleteSongSlide } from "@/lib/actions";
+import { useRouter } from "next/navigation";
 import { X, Pencil, LayoutGrid } from "lucide-react";
 
 type ViewMode = "grid" | "list" | "text";
@@ -60,6 +61,7 @@ function fireLive(key: string, fn: () => void) {
 }
 
 export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShellCtx; slideSize: number; onOpenEditor?: () => void }) {
+  const router = useRouter();
   const item = ctx.plan.items[ctx.previewItemIdx];
   const slides: SlidePayload[] = item?.slides ?? [];
   const lastDragEndRef = useRef(0);
@@ -269,7 +271,10 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                   if (safeMode()) fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => ctx.onSendSlideToLive(s));
                 }}
                 onDelete={() => {
-                  if (guardObjectSong()) return;
+                  // Delete THIS slide immediately by its DB id (works for designed
+                  // songs too — no guard redirect, no rewriting other slides), then
+                  // refresh so the grid updates. 2026-08-19: previously used a
+                  // rewrite-all update with no refresh, so the deletion never showed.
                   void (async () => {
                     const { toast } = await import("sonner");
                     if (item?.type !== "song" || !(item as { songId?: string }).songId) {
@@ -280,13 +285,12 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                       toast.error("A song needs at least one slide");
                       return;
                     }
-                    const songId = (item as { songId?: string }).songId!;
-                    const remaining = slides
-                      .filter((_, i) => i !== idx)
-                      .map((sl) => ({ lyrics: sl.kind === "text" ? ((sl as { text?: string }).text ?? "") : "" }));
-                    const res = await updateSongSlides(songId, remaining);
+                    const slideId = item.songSlideRows?.[idx]?.id;
+                    if (!slideId) { toast.error("Couldn't find that slide to delete"); return; }
+                    const res = await deleteSongSlide(slideId);
                     if (!res.ok) { toast.error(res.error ?? "Delete failed"); return; }
                     toast.success("Slide deleted");
+                    router.refresh();
                   })();
                 }}
                 onQuickEdit={() => {
@@ -311,6 +315,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                       } else {
                         const { toast } = await import("sonner");
                         toast.success("Slide duplicated");
+                        router.refresh();
                       }
                     }
                   })();

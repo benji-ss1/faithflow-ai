@@ -319,29 +319,48 @@ function ObjectView({
       textShadow: (obj.shadow ?? true) ? "0 2px 8px rgba(0,0,0,0.45)" : undefined,
       opacity: obj.opacity ?? 1,
     };
+    const justify = obj.align === "left" ? "flex-start" : obj.align === "right" ? "flex-end" : "center";
     inner = editing ? (
-      <textarea
-        autoFocus
-        value={obj.text}
-        onChange={(e) => onText(e.target.value)}
+      // contentEditable (not a <textarea>) so the text stays VERTICALLY CENTERED
+      // while editing — identical flex layout to the rendered view below, so
+      // double-clicking to edit no longer jumps the text to the top. Uncontrolled:
+      // the initial text is set once via the ref (dataset guard) and read back on
+      // input, so typing never resets the caret.
+      <div
+        ref={(el) => {
+          if (el && el.dataset.pfInit !== "1") {
+            el.dataset.pfInit = "1";
+            el.textContent = obj.text;
+            el.focus();
+            try {
+              const range = document.createRange();
+              range.selectNodeContents(el);
+              const sel = window.getSelection();
+              sel?.removeAllRanges();
+              sel?.addRange(range);
+            } catch { /* selection unavailable */ }
+          }
+        }}
+        contentEditable
+        suppressContentEditableWarning
+        onInput={(e) => onText(e.currentTarget.textContent ?? "")}
         onMouseDown={(e) => e.stopPropagation()}
         onDoubleClick={(e) => e.stopPropagation()}
         onBlur={onEndEdit}
-        onFocus={(e) => e.currentTarget.select()}
         onKeyDown={(e) => {
           e.stopPropagation();
           if (e.key === "Escape") { e.preventDefault(); onEndEdit(); }
           else if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onEndEdit(); }
         }}
-        className="w-full h-full resize-none border-0 bg-transparent outline-none overflow-hidden"
-        style={{ ...textStyle, display: "block", caretColor: obj.color ?? "#ffffff" }}
+        className="w-full h-full flex whitespace-pre-wrap overflow-hidden outline-none cursor-text"
+        style={{ ...textStyle, justifyContent: justify, alignItems: "center", caretColor: obj.color ?? "#ffffff" }}
       />
     ) : (
       <div
         className="w-full h-full flex whitespace-pre-wrap overflow-hidden"
         style={{
           ...textStyle,
-          justifyContent: obj.align === "left" ? "flex-start" : obj.align === "right" ? "flex-end" : "center",
+          justifyContent: justify,
           alignItems: "center",
         }}
       >

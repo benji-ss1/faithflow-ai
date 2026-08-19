@@ -268,7 +268,9 @@ function repairNumberHomophones(s: string): string {
   // ("Nehemiah 2 was 1", "Romans 8 has 8", "John 3 and 16", "Matthew 5 of 5"
   //  → "verse" every time). Same digits-both-sides guard so ordinary English
   // ("truth was told", "5 and counting") isn't touched.
-  s = s.replace(/\b(\d{1,3})\s+(?:is|was|has|and|at|of|are|were)\s+(\d{1,3})\b/g, "$1:$2");
+  // 2026-08-19: "or" added — "Matthew 5 verse 7" is frequently transcribed
+  // "Matthew 5 or 7" (verse → "or"). Same digits-both-sides guard as the others.
+  s = s.replace(/\b(\d{1,3})\s+(?:is|was|has|and|at|of|are|were|or)\s+(\d{1,3})\b/g, "$1:$2");
   return s;
 }
 

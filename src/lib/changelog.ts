@@ -15,6 +15,18 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.249",
+    date: "2026-08-19",
+    headline: "Delete works, edits stay centred, smarter toasts",
+    highlights: [
+      "\"Delete Slide\" now removes the slide immediately (and works on designed slides too).",
+      "Double-clicking a text box to edit no longer jumps the text to the top — it stays centred where it belongs.",
+      "Bible detection now understands \"Matthew 5 or 7\" as Matthew 5:7 (\"or\" was being misheard for \"verse\"), on top of the existing \"Machu\" → Matthew fix.",
+      "Notifications now use colour: green when something saves/applies, blue for heads-ups, red for failures — so you can tell at a glance.",
+      "Removed the extra \"Blank slide\" button from the top toolbar (Add slide and the editor's Blank slide still cover it).",
+    ],
+  },
+  {
     version: "0.1.248",
     date: "2026-08-19",
     headline: "A fresher operator console",

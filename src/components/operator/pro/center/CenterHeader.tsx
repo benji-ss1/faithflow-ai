@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { LayoutGrid, List, Eye, Play, Music, BookOpen, Image as ImageIcon, Type, Pencil, FilePlus, Plus } from "lucide-react";
+import { LayoutGrid, List, Eye, Play, Music, BookOpen, Image as ImageIcon, Type, Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { createSongSlide } from "@/lib/actions";
@@ -90,14 +90,6 @@ export function CenterHeader({
             className="shrink-0 h-7 px-2.5 rounded-md border border-[var(--color-border)] flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-foreground)] hover:bg-[var(--color-elevated)]"
           >
             <Plus className="w-3.5 h-3.5" /> Add slide
-          </button>
-          <button
-            onClick={() => window.dispatchEvent(new CustomEvent("presentflow:open-slide-editor", { detail: { blank: true } }))}
-            title="Add a blank slide and open it in the editor"
-            className="shrink-0 h-7 px-2.5 rounded-md border flex items-center gap-1.5 text-[11px] font-semibold hover:brightness-110"
-            style={{ borderColor: "#ff7a2c55", color: "#ff7a2c" }}
-          >
-            <FilePlus className="w-3.5 h-3.5" /> Blank slide
           </button>
         </>
       )}
