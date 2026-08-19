@@ -13,12 +13,13 @@
  */
 
 @theme {
-  /* Structural layers — dark default. Stepped so the console reads as distinct
-   * tiers: near-black canvas < panel/sidebar < raised card < elevated/hover. */
+  /* Structural layers — dark default. Deep, NEUTRAL near-blacks (no purple
+   * tint) so the background colour is unambiguous, still stepped into distinct
+   * tiers: black canvas < panel/sidebar < raised card < elevated/hover. */
   --color-app-bg:        #000000;
-  --color-panel:         #100d15;
-  --color-raised-shell:  #1a1621;
-  --color-elevated:      #23202a;
+  --color-panel:         #0b0b0d;
+  --color-raised-shell:  #151517;
+  --color-elevated:      #1f1f22;
   --color-shell:         #050405;
   --color-shell-edge:    rgba(255,255,255,0.06);
   --color-overlay-soft:  rgba(255,255,255,0.03);
@@ -26,9 +27,9 @@
 
   /* Backwards compat */
   --color-background:    #000000;
-  --color-card:          #171319;
-  --color-popover:       #171319;
-  --color-muted:         #0e0b12;
+  --color-card:          #151517;
+  --color-popover:       #151517;
+  --color-muted:         #0b0b0d;
 
   /* Text */
   --color-foreground:            #ece7e0;
@@ -37,7 +38,7 @@
   --color-muted-foreground:      #aca498;
   --color-primary:               #ff7a2c;
   --color-primary-foreground:    #17130c;
-  --color-secondary:             #1c1820;
+  --color-secondary:             #1f1f22;
   --color-secondary-foreground:  #ece7e0;
   --color-accent:                #ff9048;
   --color-accent-foreground:     #17130c;
@@ -57,9 +58,9 @@
   --color-ring:    #ff7a2c;
 
   /* Sidebar-specific */
-  --color-sidebar-bg:         #0c0a11;
-  --color-sidebar-item-hover: #1a1621;
-  --color-sidebar-item-active:#23202a;
+  --color-sidebar-bg:         #08080a;
+  --color-sidebar-item-hover: #151517;
+  --color-sidebar-item-active:#1f1f22;
   --color-sidebar-fg:         #d5cdc1;
   --color-sidebar-fg-muted:   #968e82;
 

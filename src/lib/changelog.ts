@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.251",
+    date: "2026-08-19",
+    headline: "Deeper, cleaner black",
+    highlights: [
+      "The operator's dark background is now a deeper, neutral black — the slight purple tint is gone, so panels read cleaner and the surface tiers are clearer.",
+    ],
+  },
+  {
     version: "0.1.250",
     date: "2026-08-19",
     headline: "Tabbed What's New + announcement bar",
