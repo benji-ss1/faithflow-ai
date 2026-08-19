@@ -14,6 +14,7 @@ import { Plus, Pencil, Upload, Loader2, Trash2, CheckSquare, Square, ListPlus } 
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
+import { DotGridBackground } from "../DotGridBackground";
 import type { SlidePayload } from "@/lib/broadcast";
 import { createSong, createSongSlide, importPro6Files, renameSong, updateSongSlides, deleteSong } from "@/lib/actions";
 import { isInternalEvent } from "@/lib/internal-events";
@@ -325,6 +326,7 @@ export function SongsBrowser({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
+      <DotGridBackground />
       {dragOver && (
         <div className="absolute inset-2 z-40 rounded-lg border-2 border-dashed border-[var(--color-brand)] bg-[var(--color-brand)]/10 flex items-center justify-center pointer-events-none">
           <div className="text-sm font-semibold text-[var(--color-brand)] bg-[var(--color-panel)]/90 px-4 py-2 rounded-md">
