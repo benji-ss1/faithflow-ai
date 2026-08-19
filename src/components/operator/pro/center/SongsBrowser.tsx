@@ -319,7 +319,7 @@ export function SongsBrowser({
 
   return (
     <div
-      className="relative p-4 grid gap-3 h-full"
+      className="relative isolate p-4 grid gap-3 h-full"
       style={{ gridTemplateColumns: "minmax(280px, 360px) 1fr" }}
       onDragEnter={onDragEnter}
       onDragOver={onDragOver}

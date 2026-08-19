@@ -205,7 +205,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
             aria-label="Slides"
             // min-h so the empty area below the cards is part of the grid and can
             // be right-clicked to paste a copied slide at the end.
-            className={cn("relative", viewMode === "text" ? "flex flex-col" : "grid", "min-h-[45vh]")}
+            className={cn("relative isolate", viewMode === "text" ? "flex flex-col" : "grid", "min-h-[45vh]")}
             style={viewMode === "text"
               ? { gap: 4 }
               // alignContent:start packs rows at the top so a wrapped row (e.g.

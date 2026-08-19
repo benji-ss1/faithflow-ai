@@ -116,7 +116,7 @@ export function ThemesTab({ layout = "panel" }: { layout?: "panel" | "modal" } =
           Use + Create Quick Swatch below
         </div>
       ) : (
-        <div className={cn("relative grid gap-2", modal ? "grid-cols-3 xl:grid-cols-4 gap-4" : "grid-cols-2")}>
+        <div className={cn("relative isolate grid gap-2", modal ? "grid-cols-3 xl:grid-cols-4 gap-4" : "grid-cols-2")}>
           <DotGridBackground />
           {dbThemes.map((t) => {
             const cfg = t.config;

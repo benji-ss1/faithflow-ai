@@ -88,7 +88,7 @@ export function MediaSection({
                 borderColor: "rgba(232,116,42,0.30)",
               }}
             >
-              <RibbonMarquee text="PRO PLAN" opacity={0.14} />
+              <RibbonMarquee text="PRO PLAN" opacity={0.4} />
               <div className="relative flex items-start gap-1.5">
                 <Lock className="w-3.5 h-3.5 shrink-0 mt-0.5 text-[#f97316]" />
                 <div className="flex-1 min-w-0">
