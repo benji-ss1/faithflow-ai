@@ -29,7 +29,7 @@ const CSS = `
 .pfb .bs-art-video{background:#0b0b0b;padding:0}
 .pfb .bs-video{width:100%;height:100%;object-fit:cover;display:block}
 .pfb .bs-play{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:64px;height:64px;
-  border-radius:50%;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  border-radius:50%;border:none;pointer-events:none;display:flex;align-items:center;justify-content:center;
   padding-left:4px;color:#1a1005;background:linear-gradient(100deg,#ff7a2c,#ffb861);
   box-shadow:0 8px 30px rgba(255,122,44,.5);z-index:2}
 .pfb .bs-shot{width:100%;height:100%;object-fit:contain;display:block;padding:14px}
@@ -84,22 +84,26 @@ export default function BetaScroll() {
     const v = videoRef.current;
     if (!v) return;
     // iOS only autoplays when the muted PROPERTY is set (React's `muted`
-    // attribute doesn't reliably set it) — set it explicitly, then try to play.
+    // attribute doesn't reliably set it). We DON'T flip vidPaused on a failed
+    // attempt here — the real play/pause events (below) drive the button, so a
+    // transient "not ready yet" rejection never shows a spurious play button.
     v.muted = true;
     v.setAttribute("muted", "");
-    const tryPlay = () => {
-      v.play().then(() => setVidPaused(false)).catch(() => setVidPaused(true));
-    };
+    const tryPlay = () => { v.play().catch(() => {}); };
     tryPlay();
-    v.addEventListener("canplay", tryPlay, { once: true });
-    v.addEventListener("loadeddata", tryPlay, { once: true });
-    // Some mobile browsers only start playback once the element is on-screen.
+    v.addEventListener("canplay", tryPlay);
+    v.addEventListener("loadeddata", tryPlay);
+    // Some browsers only start playback once the element is on-screen.
     const io =
       "IntersectionObserver" in window
-        ? new IntersectionObserver((es) => es.forEach((e) => e.isIntersecting && tryPlay()), { threshold: 0.2 })
+        ? new IntersectionObserver((es) => es.forEach((e) => e.isIntersecting && tryPlay()), { threshold: 0.15 })
         : null;
     io?.observe(v);
-    return () => io?.disconnect();
+    return () => {
+      io?.disconnect();
+      v.removeEventListener("canplay", tryPlay);
+      v.removeEventListener("loadeddata", tryPlay);
+    };
   }, []);
 
   const toggleVideo = () => {
@@ -276,11 +280,11 @@ export default function BetaScroll() {
                   onPause={() => setVidPaused(true)}
                 />
                 {vidPaused && (
-                  <button className="bs-play" onClick={toggleVideo} aria-label="Play the library video">
-                    <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <span className="bs-play" aria-hidden="true">
+                    <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor">
                       <path d="M8 5v14l11-7z" />
                     </svg>
-                  </button>
+                  </span>
                 )}
               </div>
               <div className="bs-copy">
