@@ -388,12 +388,23 @@ export function PlaylistSection({
       // tab handled that + toasted); nothing to restyle here, so stay silent.
       if (!it || it.type !== "song" || !it.songId) return;
       const songId = it.songId;
+      const itemId = it.id ?? null;
       void (async () => {
+        // (1) Restyle every slide's stored design (drives the slide-grid boxes).
         const res = await applyThemeToSong(themeId, songId);
         if (!res.ok) { toast.error(res.error ?? "Couldn't apply theme to the song"); return; }
+        // (2) Set the item's theme so the LIVE/projector output renders the theme
+        //     appearance (bg gradient + text colour) — this is the path the
+        //     projector actually paints from (effectiveAppearance), which the
+        //     objectsJson rewrite alone does NOT feed.
+        if (itemId) await setServiceItemTheme(ctx.planId, itemId, themeId);
         router.refresh();
         const n = res.data?.slidesUpdated ?? 0;
-        undoToast(`Theme applied to ${n} slide${n === 1 ? "" : "s"} of "${it.title}"`, () => revertSongTheme(songId));
+        undoToast(`Theme applied to ${n} slide${n === 1 ? "" : "s"} of "${it.title}"`, async () => {
+          const r = await revertSongTheme(songId);
+          if (itemId) await setServiceItemTheme(ctx.planId, itemId, null);
+          return r;
+        });
       })();
     };
     window.addEventListener("presentflow:apply-theme-to-song", onApplyThemeToSong);

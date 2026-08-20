@@ -1400,7 +1400,12 @@ export async function applyThemeToSong(themeId: string, songId: string): Promise
     // state is snapshotted above, so this stays reversible.
     const merged: Record<string, unknown> = {
       ...raw,
+      // Persist the FULL background — bgType + both gradient stops — so a
+      // red→yellow gradient theme actually shows a gradient (was collapsing to
+      // solid bgColor because bgType/bgColor2 were dropped).
+      bgType: cfg.bgType ?? raw.bgType,
       bgColor: cfg.bgColor ?? raw.bgColor,
+      bgColor2: cfg.bgColor2 ?? raw.bgColor2,
       bgImageUrl: cfg.bgImageUrl ?? raw.bgImageUrl,
       transition: cfg.transition ?? raw.transition,
       objects: objects.map((o) => {
