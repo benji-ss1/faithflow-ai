@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.290",
+    date: "2026-08-20",
+    headline: "Spoken \"next verse\" / \"go back\" respond faster",
+    highlights: [
+      "Voice verse-navigation now fires on the live in-progress transcript instead of waiting for the finalised phrase, so \"next verse\" and \"go back\" advance noticeably sooner — with a guard so the same command can't double-advance.",
+    ],
+  },
+  {
     version: "0.1.289",
     date: "2026-08-20",
     headline: "Theme colours now show in the slide grid and previews too",

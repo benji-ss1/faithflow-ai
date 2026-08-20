@@ -2974,6 +2974,64 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // so voice commands PROJECT IMMEDIATELY while the manual buttons stay
   // preview-only (2026-08-18 user directive). This restores the fast voice
   // auto-advance that the 2026-08-16 preview-only change had disabled.
+  // Shared echo-guard for voice nav so the SAME spoken command can't fire twice
+  // when it arrives first as a Deepgram interim (fast path, ~0.5s) and again as
+  // the finalized segment ~1s later. Keyed by DIRECTION (next/prev), not exact
+  // text, within a short window — long enough to absorb interim→final settle,
+  // short enough that a genuinely separate command a beat later still fires.
+  const voiceNavEchoRef = useRef<{ dir: string; ts: number } | null>(null);
+  const NAV_ECHO_MS = 1500;
+  const navDir = (verb: string) =>
+    verb === "next_verse" || verb === "continue" ? "next"
+    : verb === "prev_verse" || verb === "back" ? "prev"
+    : verb;
+  const isNavEcho = (verb: string) => {
+    const e = voiceNavEchoRef.current;
+    return !!e && e.dir === navDir(verb) && Date.now() - e.ts < NAV_ECHO_MS;
+  };
+  const recordNavFire = (verb: string) => {
+    voiceNavEchoRef.current = { dir: navDir(verb), ts: Date.now() };
+  };
+
+  // FAST PATH: early-fire relative verse-nav from the live Deepgram INTERIM
+  // (arrives ~200ms+ before the finalized segment). Only the terse, unambiguous
+  // relative commands ("next verse", "continue", "go back") early-fire here —
+  // repeat / absolute-jump wait for the stable final. Mirrors the final path's
+  // guards exactly (confidence floor, reading guard, standalone guard); the
+  // shared echo-guard collapses this interim fire and its eventual final into a
+  // single advance. If no interim is delivered, the final path fires normally.
+  useEffect(() => {
+    const interimText = (ctx.audio.interim ?? "").trim();
+    if (!interimText) return;
+    const cards = bibleSession.state.cards;
+    const idx = bibleSession.state.selectedIdx;
+    const hasVerseContext = cards.length > 0 && idx != null && !!cards[idx] && !cards[idx].placeholder;
+    if (!hasVerseContext) return;
+    const cmd = parseContextCommand(interimText, { hasVerseContext, hasSlideContext: false, hasSongContext: false });
+    if (!cmd) return;
+    if (cmd.confidence < 70) return;
+    const isRelNav =
+      cmd.verb === "next_verse" || cmd.verb === "continue" ||
+      cmd.verb === "prev_verse" || cmd.verb === "back";
+    if (!isRelNav) return;
+    const matched = (cmd.matchedText ?? "").toLowerCase().trim();
+    const liveText = (ctx.liveSlide?.kind === "text" ? ctx.liveSlide.text : "").toLowerCase();
+    if (matched && liveText.includes(matched)) return; // reading guard
+    if (interimText.split(/\s+/).filter(Boolean).length > 5) return; // standalone guard
+    if (isNavEcho(cmd.verb)) return; // already fired this command (prior interim tick or final)
+    if (navDir(cmd.verb) === "prev") {
+      dispatchInternal("presentflow:bible-prev", { live: true });
+      toast.info(`Voice: "${cmd.matchedText}" → previous verse`);
+    } else {
+      dispatchInternal("presentflow:bible-next", { live: true });
+      toast.info(`Voice: "${cmd.matchedText}" → next verse`);
+    }
+    recordNavFire(cmd.verb);
+    bibleLastAdvanceTsRef.current = Date.now();
+    bibleMatchStreakRef.current = 0;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx.audio.interim]);
+
   const processedVoiceSegmentsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const last = ctx.audio.transcript[ctx.audio.transcript.length - 1];
@@ -3021,13 +3079,21 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // SAME phrase rather than the full 1s BIBLE_SLIDE_FLOOR_MS min-gap.
     const VOICE_NAV_DEDUPE_MS = 300;
     if (Date.now() - bibleLastAdvanceTsRef.current < VOICE_NAV_DEDUPE_MS) return;
+    // Echo-guard: if the interim fast-path already fired this same command, the
+    // finalized segment for it must NOT advance again.
+    const isRelNav =
+      cmd.verb === "next_verse" || cmd.verb === "continue" ||
+      cmd.verb === "prev_verse" || cmd.verb === "back";
+    if (isRelNav && isNavEcho(cmd.verb)) return;
     if (cmd.verb === "next_verse" || cmd.verb === "continue") {
       dispatchInternal("presentflow:bible-next", { live: true });
+      recordNavFire(cmd.verb);
       bibleLastAdvanceTsRef.current = Date.now();
       bibleMatchStreakRef.current = 0;
       toast.info(`Voice: "${cmd.matchedText}" → next verse`);
     } else if (cmd.verb === "prev_verse" || cmd.verb === "back") {
       dispatchInternal("presentflow:bible-prev", { live: true });
+      recordNavFire(cmd.verb);
       bibleLastAdvanceTsRef.current = Date.now();
       bibleMatchStreakRef.current = 0;
       toast.info(`Voice: "${cmd.matchedText}" → previous verse`);
