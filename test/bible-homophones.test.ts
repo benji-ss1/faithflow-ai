@@ -38,6 +38,14 @@ test('"Psalm twenty tree" → Psalm 23 (TH path, whole chapter)', () => {
   assert.ok(r); assert.equal(r!.book, "Psalms"); assert.equal(r!.chapter, 23); assert.equal(r!.verseEnd, null);
 });
 
+console.log("\nEphesians ASR mishears (field 2026-08-21 — 'Efficeans 4 6'):");
+test('"Efficeans 4 6" → Ephesians 4:6', () => expectRef("Efficeans 4 6", "Ephesians", 4, 6));
+test('"efficeans 4:6" → Ephesians 4:6', () => expectRef("efficeans 4:6", "Ephesians", 4, 6));
+test('"efesians 2 8" → Ephesians 2:8', () => expectRef("efesians 2 8", "Ephesians", 2, 8));
+// The real-English guard: "efficient" must NEVER map to Ephesians.
+test('"efficient 4 6" → no reference (English word, not a mishear)', () => assert.equal(parseReference("efficient 4 6"), null));
+test('"be efficient in all things" → no reference', () => assert.equal(parseReference("be efficient in all things"), null));
+
 console.log("\nNo false positives — ordinary speech must be untouched:");
 // "for"/"to"/"floor"/"door" etc. in normal sentences must NOT become numbers.
 test('"open the door" → no reference', () => assert.equal(parseReference("open the door"), null));

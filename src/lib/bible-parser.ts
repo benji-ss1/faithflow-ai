@@ -591,6 +591,13 @@ const KNOWN_BOOK_MISHEARS: Record<string, string> = {
   "second salvo": "2 Samuel", "second sample": "2 Samuel",
   "have a cook": "Habakkuk",
   "fill a man": "Philemon", "feel a man": "Philemon",
+  // Ephesians — Deepgram badly mangles the "ph…s…ians" cluster (field 2026-08-21:
+  // "Efficeans 4 6" for Ephesians 4:6). Only clearly-gibberish spellings (NOT
+  // real English like "efficient") so a sermon word can't misfire; the strict
+  // two-number shape + low confidence + semantic fallback add further guards.
+  // fuzzyBookMatch can't reach these (5+ edits from "ephesians").
+  "efficeans": "Ephesians", "efficians": "Ephesians", "efesians": "Ephesians",
+  "a fusions": "Ephesians",
 };
 const KNOWN_MISHEAR_ALT = Object.keys(KNOWN_BOOK_MISHEARS)
   .sort((a, b) => b.length - a.length)
