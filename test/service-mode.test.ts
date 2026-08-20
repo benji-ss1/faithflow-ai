@@ -51,16 +51,19 @@ test("worship mode: scripture is held at chip-tier (<=74)", async () => {
   assert.ok(res.scripture[0].confidence <= 74, `worship must cap scripture <=74, got ${res.scripture[0].confidence}`);
 });
 
-test("worship mode: off-plan song is dropped, planned song survives", async () => {
+test("worship mode: off-plan song STILL SURFACES but is held at chip-tier (never auto)", async () => {
   reset();
-  // Sing lyrics that ONLY match the off-plan song. In worship mode the setlist
-  // narrowing must drop it entirely rather than surface a non-planned song.
+  // Sing lyrics that ONLY match the off-plan song (a spontaneous, unplanned
+  // song mid-worship — "sing real quick in the spirit"). Worship narrowing must
+  // NOT hide it: it must still surface so the operator can one-tap fire it, but
+  // it must be held below the 90 auto bar so only the setlist auto-projects.
   const res = await detectAll("amazing grace how sweet the sound that saved a wretch", { ...base, mode: "worship" });
-  const ids = [...res.song, ...res.lyric].map((s) => s.songId);
-  assert.ok(!ids.includes("offplan"), `off-plan song must be dropped in worship mode, got ${ids.join(",")}`);
+  const offplan = [...res.song, ...res.lyric].find((s) => s.songId === "offplan");
+  assert.ok(offplan, "off-plan song must STILL surface in worship mode (not dropped)");
+  assert.ok(offplan!.confidence <= 89, `off-plan song must be held below the auto bar, got ${offplan!.confidence}`);
 });
 
-test("auto mode: off-plan song CAN surface (contrast with worship)", async () => {
+test("auto mode: off-plan song can surface at full confidence (contrast with worship)", async () => {
   reset();
   const res = await detectAll("amazing grace how sweet the sound that saved a wretch", { ...base, mode: "auto" });
   const ids = [...res.song, ...res.lyric].map((s) => s.songId);

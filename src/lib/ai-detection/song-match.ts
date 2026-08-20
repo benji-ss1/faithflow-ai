@@ -34,11 +34,10 @@ export type MatchContext = {
   spokenCuePrefix?: boolean;        // true if we came from a song-cue detector
   library?: IndexedSong[];          // preloaded library (client cache)
   prebuiltIndex?: SongIndex;        // perf: prebuilt trigram index (avoids rebuild per detection)
-  // Worship mode: hard-restrict candidates to today's setlist (planSongIds).
-  // When the plan carries songs, non-plan songs are dropped BEFORE ranking so
-  // the match space is the ~5 planned songs, not the whole library — a faint
-  // sung line then reliably resolves to the right one. No-op if the plan has no
-  // songs (falls back to full-library matching so nothing is worse than today).
+  // Worship mode: bias auto-projection to today's setlist. Setlist songs stay
+  // fully eligible for zero-click auto-live; OFF-plan songs are held at chip-tier
+  // (never dropped) so a spontaneous unplanned song still surfaces for one-tap
+  // firing. No-op if the plan has no songs (full-library matching, as today).
   restrictToPlan?: boolean;
   // Worship mode: extra confidence for setlist songs so genuine worship crosses
   // the auto bar (the "picked up nothing during the choir" fix). The top-2
@@ -144,9 +143,6 @@ export async function matchSongCue(
   for (const m of merged.values()) {
     // SAFETY GATE: no lyrics means no candidate. Prevents empty-cards from
     // ever exposing a Send Live button.
-    // Worship mode: drop anything not in today's setlist BEFORE scoring, so the
-    // match space is just the planned songs.
-    if (restrictToPlan && !planIdSet.has(m.songId)) continue;
     const song = index.songs.get(m.songId)!;
     const hasLyrics = song.slides.some((s) => s.lyrics && s.lyrics.trim().length > 0);
     if (!hasLyrics) continue;
@@ -167,11 +163,19 @@ export async function matchSongCue(
     // (chip tier). A song that already clears the auto bar on its own merits
     // keeps auto-firing. (SONG_AUTOLIVE_CONFIDENCE=90 lives in operatorConstants;
     // hardcoded here like index.ts's caps and pinned by the drift-guard test.)
+    const SONG_AUTOLIVE = 90; // mirror operatorConstants; pinned by drift-guard test
     if (ctx.worshipBoost && planIdSet.has(m.songId)) {
-      const SONG_AUTOLIVE = 90;
       confidence = confidence >= SONG_AUTOLIVE
         ? confidence + 15
         : Math.min(confidence + 15, SONG_AUTOLIVE - 1);
+    }
+    // Worship mode holds OFF-plan songs at chip-tier rather than dropping them:
+    // a spontaneous, unplanned song ("sing real quick in the spirit") must still
+    // SURFACE so the operator can one-tap fire it — worship narrowing only means
+    // the SETLIST drives zero-click auto-projection, it never hides anything.
+    // (Only bites when the plan actually has songs, via restrictToPlan.)
+    if (restrictToPlan && !planIdSet.has(m.songId)) {
+      confidence = Math.min(confidence, SONG_AUTOLIVE - 1);
     }
     confidence = Math.max(0, Math.min(100, Math.round(confidence)));
 

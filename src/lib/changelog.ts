@@ -22,6 +22,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "A new Worship / Auto / Preacher switch sits next to the AI pill in the top bar. Flip it as the service moves from worship into the sermon.",
       "Worship mode focuses detection on TODAY'S worship set — it only listens for the songs in your plan, so the choir actually gets picked up (surfaced as a one-tap chip, and clear matches auto-project) instead of being missed, and it holds Bible verses back so a sung lyric can't flash a wrong verse. Tip: keep today's plan's songs complete for the best pick-up.",
       "Preacher mode prioritises scripture and holds songs back — so the sermon's speech can never auto-project a song by mistake.",
+      "Either way, nothing is ever locked out: both modes only change what AUTO-projects. A verse in Worship mode, or a song in Preacher mode (a spontaneous unplanned song, a preacher singing in the spirit, a worshipper who starts preaching), still shows as a one-tap chip — and you can always fire any verse or song manually from the library at any time.",
       "Auto (the default) is unchanged — songs and scripture both detect exactly as before.",
     ],
   },
