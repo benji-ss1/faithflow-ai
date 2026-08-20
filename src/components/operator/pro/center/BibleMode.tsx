@@ -5,6 +5,7 @@ import { SlideRenderer } from "@/components/live/SlideRenderer";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload } from "@/lib/broadcast";
 import { BibleOptionsPopover, BibleOptionsProvider, useBibleOptions } from "./BibleOptionsPopover";
+import { BibleTextSizeControl } from "./BibleTextSizeControl";
 import { BibleBookBrowser } from "./BibleBookBrowser";
 import type { BibleSessionApi, VerseCard } from "../hooks";
 import { cn } from "@/lib/utils";
@@ -12,7 +13,7 @@ import { cachedLookup } from "@/lib/bible-client-cache";
 import { bibleSearchCacheKey, getBibleSearchCached, setBibleSearchCached } from "@/lib/bible-search-cache";
 import { fetchChapterCached } from "@/lib/bible-chapter-cache";
 import { addServiceItem, addServiceItems } from "@/lib/actions";
-import { Plus, Check, BookOpen } from "lucide-react";
+import { Plus, Check, BookOpen, ChevronUp, ChevronDown } from "lucide-react";
 import { DropdownDisclosure } from "../DropdownDisclosure";
 import { useRouter } from "next/navigation";
 import { isInternalEvent } from "@/lib/internal-events";
@@ -528,6 +529,19 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
   // Sync ref for the bible-play-current handler above.
   useEffect(() => { cardToSlideRef.current = cardToSlide; }, [cardToSlide]);
 
+  // Reorder a verse card up/down in the loaded list (operator can arrange the
+  // order verses appear in). Swap in the cards array + keep the selection with
+  // its card. Session-only (doesn't touch the Bible text or the DB).
+  const moveCard = (idx: number, dir: -1 | 1) => {
+    const j = idx + dir;
+    if (j < 0 || j >= cards.length) return;
+    const next = [...cards];
+    [next[idx], next[j]] = [next[j]!, next[idx]!];
+    setCards(next);
+    if (selectedIdx === idx) setSelectedIdx(j);
+    else if (selectedIdx === j) setSelectedIdx(idx);
+  };
+
   return (
     <div className="p-4 flex flex-col gap-4">
       {/* 2026-08-16: STICKY search header — stays pinned at the top of the panel
@@ -714,8 +728,11 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
         >
           {loading ? "…" : "Lookup"}
         </button>
-        {/* Scripture is read-only — the edit-verse pencil was removed so
-            operators can't alter the biblical text. */}
+        {/* Scripture text is read-only (the biblical text is never editable),
+            but the operator CAN size it themselves here — verse text size (which
+            also scales the reference footer). Layout/reference options live in
+            the Options popover next to it. */}
+        <BibleTextSizeControl />
         <BibleOptionsPopover />
       </div>
       </div>{/* end sticky search header */}
@@ -994,13 +1011,40 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
               // hover regardless.
               title={c.verses.map((v) => `${v.verse} ${v.text}`).join("\n")}
               className={cn(
-                "relative aspect-video rounded-md overflow-hidden border-2 transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
+                "group/bcard relative aspect-video rounded-md overflow-hidden border-2 transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
                 selected ? "border-[var(--color-brand)]" : "border-[var(--color-border)] hover:border-[var(--color-muted-foreground)]",
               )}
             >
               <SlideRenderer slide={slide} textMinPx={14} appearance={ctx.appearance ?? undefined} />
               <div className="absolute top-1 left-1 text-[10px] font-mono text-white/70 bg-black/40 px-1 rounded">
                 {idx + 1}
+              </div>
+              {/* Reorder up/down — arrange the order verses appear in (doesn't
+                  change the verse text). stopPropagation so the card's
+                  click-to-live never fires. */}
+              <div className="absolute bottom-1 left-1 flex gap-0.5 opacity-0 group-hover/bcard:opacity-100 focus-within:opacity-100 transition-opacity">
+                <button
+                  type="button"
+                  aria-label="Move verse up"
+                  title="Move up"
+                  disabled={idx === 0}
+                  onClick={(e) => { e.stopPropagation(); moveCard(idx, -1); }}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  className="h-5 w-5 inline-flex items-center justify-center rounded bg-black/55 text-white/85 hover:bg-[var(--color-brand)] hover:text-black transition-colors disabled:opacity-30 disabled:pointer-events-none"
+                >
+                  <ChevronUp className="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Move verse down"
+                  title="Move down"
+                  disabled={idx >= cards.length - 1}
+                  onClick={(e) => { e.stopPropagation(); moveCard(idx, 1); }}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  className="h-5 w-5 inline-flex items-center justify-center rounded bg-black/55 text-white/85 hover:bg-[var(--color-brand)] hover:text-black transition-colors disabled:opacity-30 disabled:pointer-events-none"
+                >
+                  <ChevronDown className="h-3 w-3" />
+                </button>
               </div>
               <button
                 type="button"

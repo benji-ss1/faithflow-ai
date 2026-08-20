@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.298",
+    date: "2026-08-20",
+    headline: "Size and reorder Bible verses yourself",
+    highlights: [
+      "A verse text-size control now sits right in the Bible bar (−/AUTO/+) — size the projected verse without leaving the Bible view. The reference footer scales with it.",
+      "Reorder loaded verses: hover a verse card and use the up/down arrows to change the order they appear in (the Bible text itself is never altered).",
+    ],
+  },
+  {
     version: "0.1.297",
     date: "2026-08-20",
     headline: "Native Mic Board: trim the lead mic's gain",

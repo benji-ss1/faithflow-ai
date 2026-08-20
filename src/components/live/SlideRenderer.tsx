@@ -231,7 +231,12 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
             <span
               className="font-display font-semibold uppercase tracking-wide"
               style={{
-                fontSize: projectorFit ? "clamp(14px, 3.2vh, 42px)" : "clamp(11px, 4%, 20px)",
+                // Scales with the operator's text-size control (fontScale) so the
+                // reference grows/shrinks with the verse instead of being a fixed
+                // size the operator can't influence.
+                fontSize: projectorFit
+                  ? `calc(clamp(14px, 3.2vh, 42px) * ${fontScale ?? 1})`
+                  : `calc(clamp(11px, 4%, 20px) * ${fontScale ?? 1})`,
                 opacity: 0.82,
                 ...themeTextStyle(appearance),
               }}
