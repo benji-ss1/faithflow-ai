@@ -695,6 +695,12 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   // devices. null when no device-specific pref is active or when the
   // pipeline is idle.
   const currentDeviceIdRef = useRef<string | null>(null);
+  // Last-applied channel ROUTING signature (mode + selected channels) for the
+  // live capture. Used to ignore device-channel-pref changes that don't affect
+  // routing — e.g. the Mic Board writing per-channel labels / mute / duck /
+  // trim persists the whole pref (firing the change event) but must NOT rebuild
+  // or hot-swap the live AI feed, which only depends on mode + selectedChannels.
+  const liveRoutingSigRef = useRef<string>("");
   // Task 4: 5-second PCM ring buffer used while the WS is closed to backfill
   // on reconnect. 16kHz * 2 bytes/sample * 5s = 160,000 bytes cap.
   const RING_CAP_BYTES = 160_000;
@@ -2244,6 +2250,10 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
               : [devicePref.selectedChannels[0]!, devicePref.selectedChannels[1]!];
           const routedStream = capture.extractChannelStream(channels);
           multiChannelCaptureRef.current = capture;
+          // Seed the routing signature so a later Mic Board label/mute/gain edit
+          // (same routing) is skipped by onChannelPrefChanged instead of
+          // triggering a needless rebuild.
+          liveRoutingSigRef.current = `${devicePref.mode}|${devicePref.selectedChannels.join(",")}`;
           gainDbToApply = Number.isFinite(devicePref.gainDb) ? devicePref.gainDb : 0;
           stream = routedStream;
           routedViaMultiChannel = true;
@@ -2855,6 +2865,18 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       if (!detail || typeof detail.deviceId !== "string") return;
       const currentId = currentDeviceIdRef.current;
       if (!currentId || detail.deviceId !== currentId) return;
+      // ROUTING-UNCHANGED SKIP: the Mic Board persists per-channel labels / mute
+      // / duck / trim by writing the whole pref, which fires this event. Those
+      // don't change what the live feed routes (mode + selectedChannels), so
+      // rebuilding/hot-swapping on them would needlessly gap the AI feed (a
+      // gain-slider drag could do it per-pixel). Compute the routing signature
+      // and bail when it matches what's already live.
+      const changedPref = readDeviceChannelPref(detail.deviceId);
+      const routingSig = changedPref
+        ? `${changedPref.mode}|${(changedPref.selectedChannels ?? []).join(",")}`
+        : "none";
+      if (routingSig === liveRoutingSigRef.current) return;
+      liveRoutingSigRef.current = routingSig;
       // Hot-swap: if we have an active MultiChannelCapture, swap the channel
       // routing without restarting the entire pipeline (zero audio gap).
       const capture = multiChannelCaptureRef.current;

@@ -764,6 +764,12 @@ export function AudioTab() {
     const chs = next.selectedChannels ?? selectedChannels;
     const g = next.gainDb ?? gainDb;
     const storedMode: DeviceChannelMode = mode === "sum-all" ? "sum-all" : mode;
+    // PRESERVE Mic Board state. This grid picker only owns mode/channels/gain;
+    // it must NOT wipe the board's additive per-channel fields (labels, mute,
+    // duck, per-channel trim, lead) — read the existing pref and carry them
+    // through, or bumping the grid gain after configuring the board would blank
+    // every label + the lead (review 2026-08-20 🔴).
+    const existing = readDeviceChannelPref(selected.id);
     writeDeviceChannelPref({
       deviceId: selected.id,
       deviceLabel: selected.label,
@@ -772,6 +778,16 @@ export function AudioTab() {
       gainDb: g,
       autoDetected: next.autoDetected ?? false,
       updatedAt: Date.now(),
+      ...(existing?.channelLabels ? { channelLabels: existing.channelLabels } : {}),
+      ...(existing?.mutedChannels ? { mutedChannels: existing.mutedChannels } : {}),
+      ...(existing?.duckedChannels ? { duckedChannels: existing.duckedChannels } : {}),
+      ...(existing?.channelGainDb ? { channelGainDb: existing.channelGainDb } : {}),
+      ...(existing?.autoFollow ? { autoFollow: existing.autoFollow } : {}),
+      // Keep the lead in sync with what this picker routes: an explicit
+      // single-channel mono selection IS a lead; anything else clears it.
+      ...(storedMode === "mono" && chs.length === 1
+        ? { aiListenChannel: chs[0] }
+        : {}),
     });
   }
 
@@ -1223,9 +1239,12 @@ export function AudioTab() {
             <div className="flex items-center gap-1.5">
               <button
                 onClick={() => setMicBoardOpen(true)}
-                className="h-6 px-2 rounded text-[10px] font-semibold inline-flex items-center gap-1"
+                disabled={effectiveMode === "native"}
+                className="h-6 px-2 rounded text-[10px] font-semibold inline-flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{ background: "var(--color-brand)", color: "var(--color-primary-foreground)" }}
-                title="Open the full mic board — label every mic, set the lead, mute/duck background singers"
+                title={effectiveMode === "native"
+                  ? "Mic Board live view needs Browser capture mode — switch Capture Mode above (native metering coming next)"
+                  : "Open the full mic board — label every mic, set the lead, mute/duck background singers"}
               >
                 <Sliders className="w-3 h-3" /> Mic Board
               </button>

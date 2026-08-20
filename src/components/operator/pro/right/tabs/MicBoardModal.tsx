@@ -50,6 +50,7 @@ export function MicBoardModal({ open, onClose, deviceId, deviceLabel, channelCou
   const captureRef = useRef<MultiChannelCapture | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeSinceRef = useRef<number[]>([]);
+  const gainsRef = useRef<Record<number, number>>({}); // latest gains for commit-on-release
 
   const [chCount, setChCount] = useState(Math.max(1, channelCount));
   const [levels, setLevels] = useState<ChannelLevels[]>([]);
@@ -70,12 +71,17 @@ export function MicBoardModal({ open, onClose, deviceId, deviceLabel, channelCou
     setLabels(pref?.channelLabels ?? {});
     setMuted(new Set(pref?.mutedChannels ?? []));
     setDucked(new Set(pref?.duckedChannels ?? []));
-    setGains(pref?.channelGainDb ?? {});
+    const g0 = pref?.channelGainDb ?? {};
+    setGains(g0);
+    gainsRef.current = g0;
+    // Derive the displayed lead from what actually ROUTES to the AI: a mono
+    // single-channel selection IS the lead (useAudioStream routes off
+    // selectedChannels). Fall back to the stored aiListenChannel otherwise.
     setLead(
-      typeof pref?.aiListenChannel === "number"
-        ? pref.aiListenChannel
-        : pref?.selectedChannels?.length === 1
-          ? pref.selectedChannels[0]!
+      pref?.mode === "mono" && pref.selectedChannels?.length === 1
+        ? pref.selectedChannels[0]!
+        : typeof pref?.aiListenChannel === "number"
+          ? pref.aiListenChannel
           : null,
     );
   }, [open, deviceId]);
@@ -129,6 +135,10 @@ export function MicBoardModal({ open, onClose, deviceId, deviceLabel, channelCou
   // Persist the current board state to the shared pref. Choosing a lead also
   // routes that channel to the live AI feed via the existing selectedChannels
   // wiring (mode "mono", selectedChannels [lead]).
+  // Persist the changed field over the LAST-PERSISTED pref (source of truth),
+  // never over possibly-stale closure state — so two board edits before a React
+  // flush can't clobber each other's fields. Only the field present in `next` is
+  // overwritten; everything else is carried from `existing`.
   const persist = useCallback((next: {
     labels?: Record<number, string>;
     muted?: Set<number>;
@@ -137,11 +147,13 @@ export function MicBoardModal({ open, onClose, deviceId, deviceLabel, channelCou
     lead?: number | null;
   }) => {
     const existing = readDeviceChannelPref(deviceId);
-    const L = next.labels ?? labels;
-    const M = next.muted ?? muted;
-    const D = next.ducked ?? ducked;
-    const G = next.gains ?? gains;
-    const LEAD = next.lead !== undefined ? next.lead : lead;
+    const L = next.labels ?? existing?.channelLabels ?? {};
+    const M = next.muted ? Array.from(next.muted) : (existing?.mutedChannels ?? []);
+    const D = next.ducked ? Array.from(next.ducked) : (existing?.duckedChannels ?? []);
+    const G = next.gains ?? existing?.channelGainDb ?? {};
+    const LEAD = next.lead !== undefined
+      ? next.lead
+      : (typeof existing?.aiListenChannel === "number" ? existing.aiListenChannel : null);
     const pref: DeviceChannelPref = {
       deviceId,
       deviceLabel,
@@ -153,13 +165,13 @@ export function MicBoardModal({ open, onClose, deviceId, deviceLabel, channelCou
       autoDetected: existing?.autoDetected ?? false,
       updatedAt: Date.now(),
       channelLabels: L,
-      mutedChannels: Array.from(M),
-      duckedChannels: Array.from(D),
+      mutedChannels: M,
+      duckedChannels: D,
       channelGainDb: G,
       aiListenChannel: LEAD,
     };
     writeDeviceChannelPref(pref);
-  }, [deviceId, deviceLabel, labels, muted, ducked, gains, lead]);
+  }, [deviceId, deviceLabel]);
 
   const effectiveGain = (ch: number, g: Record<number, number>, d: Set<number>) =>
     (g[ch] ?? 0) + (d.has(ch) ? DUCK_DB : 0);
@@ -187,11 +199,18 @@ export function MicBoardModal({ open, onClose, deviceId, deviceLabel, channelCou
     persist({ ducked: next });
   };
 
-  const setGain = (ch: number, db: number) => {
-    const next = { ...gains, [ch]: db };
+  // Gain drag: apply to the PREVIEW capture live (cheap, local) on every change,
+  // but PERSIST only on release. Per-pixel persistence would storm localStorage
+  // (full parse+serialize each pixel) and fire the pref-changed event repeatedly
+  // — mirrors AudioTab's own commit-on-release gain slider.
+  const applyGain = (ch: number, db: number) => {
+    const next = { ...gainsRef.current, [ch]: db };
+    gainsRef.current = next;
     setGains(next);
     captureRef.current?.setChannelGain(ch, effectiveGain(ch, next, ducked));
-    persist({ gains: next });
+  };
+  const commitGain = () => {
+    persist({ gains: gainsRef.current });
   };
 
   const chooseLead = (ch: number) => {
@@ -230,7 +249,7 @@ export function MicBoardModal({ open, onClose, deviceId, deviceLabel, channelCou
           </div>
 
           {error && (
-            <div className="px-5 py-2 text-[11px] border-b" style={{ borderColor: "var(--color-border)", color: "var(--color-warning)", background: "rgba(240,179,90,0.08)" }}>
+            <div className="px-5 py-2 text-[11px] border-b" style={{ borderColor: "var(--color-border)", color: "var(--color-warning)", background: "color-mix(in oklab, var(--color-warning) 8%, transparent)" }}>
               {error}
             </div>
           )}
@@ -277,10 +296,10 @@ export function MicBoardModal({ open, onClose, deviceId, deviceLabel, channelCou
                       <div className="absolute inset-x-0 bottom-0" style={{
                         height: `${rmsPct}%`,
                         background: isMuted
-                          ? "rgba(172,164,152,0.35)"
+                          ? "color-mix(in oklab, var(--color-muted-foreground) 35%, transparent)"
                           : "linear-gradient(180deg, var(--color-success), color-mix(in oklab, var(--color-success) 55%, transparent))",
                       }} />
-                      <div className="absolute inset-x-0 bottom-0" style={{ height: `${vocalPct}%`, background: "rgba(240,179,90,0.25)" }} />
+                      <div className="absolute inset-x-0 bottom-0" style={{ height: `${vocalPct}%`, background: "color-mix(in oklab, var(--color-warning) 25%, transparent)" }} />
                       {isActive && !isMuted && (
                         <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full" style={{ background: "var(--color-success)" }} />
                       )}
@@ -293,7 +312,11 @@ export function MicBoardModal({ open, onClose, deviceId, deviceLabel, channelCou
                     <div className="px-2 flex items-center gap-1.5">
                       <input
                         type="range" min={-24} max={24} step={1} value={gainDb}
-                        onChange={(e) => setGain(ch, Number(e.target.value) || 0)}
+                        onChange={(e) => applyGain(ch, Number(e.target.value) || 0)}
+                        onMouseUp={commitGain}
+                        onTouchEnd={commitGain}
+                        onKeyUp={commitGain}
+                        onBlur={commitGain}
                         className="flex-1 accent-[var(--color-brand)]"
                         aria-label={`Channel ${ch + 1} gain`}
                       />
