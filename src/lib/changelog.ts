@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.306",
+    date: "2026-08-20",
+    headline: "Reference size now goes up to 400%",
+    highlights: [
+      "The scripture reference size control now goes all the way to 400% (was 250%) so you can make the reference at the bottom as large as you want.",
+    ],
+  },
+  {
     version: "0.1.305",
     date: "2026-08-20",
     headline: "Backgrounds are in the Themes editor now \u2014 with live previews + settings",

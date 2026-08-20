@@ -66,7 +66,7 @@ export function readFontScale(): number {
  *  the operator can size "the scripture at the bottom" on its own. */
 export const REFERENCE_SCALE_KEY = "presentflow.pro.referenceScale.v1";
 export const REFERENCE_SCALE_MIN = 0.5;
-export const REFERENCE_SCALE_MAX = 2.5;
+export const REFERENCE_SCALE_MAX = 4.0; // up to 400% — operators wanted it much bigger
 export const REFERENCE_SCALE_STEP = 0.1;
 export function readReferenceScale(): number {
   try {
