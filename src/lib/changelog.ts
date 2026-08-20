@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.311",
+    date: "2026-08-20",
+    headline: "New: Worship / Preacher mode — tell the AI what part of the service you're in",
+    highlights: [
+      "A new Worship / Auto / Preacher switch sits next to the AI pill in the top bar. Flip it as the service moves from worship into the sermon.",
+      "Worship mode focuses detection on TODAY'S worship set — it only listens for the songs in your plan, so the choir actually gets picked up (surfaced as a one-tap chip, and clear matches auto-project) instead of being missed, and it holds Bible verses back so a sung lyric can't flash a wrong verse. Tip: keep today's plan's songs complete for the best pick-up.",
+      "Preacher mode prioritises scripture and holds songs back — so the sermon's speech can never auto-project a song by mistake.",
+      "Auto (the default) is unchanged — songs and scripture both detect exactly as before.",
+    ],
+  },
+  {
     version: "0.1.310",
     date: "2026-08-20",
     headline: "Reload button now refreshes the projector too + steadier backgrounds",

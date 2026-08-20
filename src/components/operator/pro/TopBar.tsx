@@ -501,6 +501,68 @@ export function TopBar({
                 </Tooltip.Root>
               );
             })()}
+            {/* Service-mode segmented control (Auto / Worship / Preacher).
+                A detection BIAS only — it never touches capture or the mic
+                board. Worship narrows song-matching to today's setlist so the
+                choir actually gets picked up and holds scripture at chip-tier;
+                Preacher holds songs at chip-tier so speech never fires a song;
+                Auto is the balanced default. Sits by the AI pill so the
+                operator flips it as the service moves worship → sermon. */}
+            {(() => {
+              const mode = ctx.serviceMode ?? "auto";
+              const opts: { id: "auto" | "worship" | "preacher"; label: string; icon: string; tip: string }[] = [
+                { id: "worship", label: "Worship", icon: "🎶", tip: "Worship mode — detects today's worship set (songs auto-project more readily); scripture is held as a chip so a sung lyric can't flash a verse." },
+                { id: "auto", label: "Auto", icon: "🤖", tip: "Auto — balanced. Songs and scripture both detect and auto-project on their normal confidence bars." },
+                { id: "preacher", label: "Preacher", icon: "📖", tip: "Preacher mode — scripture prioritised; songs are held as chips so the sermon's speech never auto-fires a song." },
+              ];
+              return (
+                <Tooltip.Provider delayDuration={200}>
+                  <div
+                    role="radiogroup"
+                    aria-label="Service detection mode"
+                    className="flex items-center gap-0.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)] p-0.5"
+                  >
+                    {opts.map((o) => {
+                      const active = mode === o.id;
+                      return (
+                        <Tooltip.Root key={o.id}>
+                          <Tooltip.Trigger asChild>
+                            <button
+                              type="button"
+                              role="radio"
+                              aria-checked={active}
+                              aria-label={`${o.label} mode`}
+                              onClick={() => ctx.onServiceModeChange?.(o.id)}
+                              className={cn(
+                                "px-2 py-1 rounded-md text-[11px] font-semibold leading-none transition-colors flex items-center gap-1 outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
+                                active
+                                  ? o.id === "worship"
+                                    ? "bg-[#8b5cf6] text-white"
+                                    : o.id === "preacher"
+                                      ? "bg-[#f59e0b] text-black"
+                                      : "bg-[var(--color-elevated)] text-[var(--color-foreground)]"
+                                  : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",
+                              )}
+                            >
+                              <span aria-hidden>{o.icon}</span>
+                              <span className="hidden xl:inline">{o.label}</span>
+                            </button>
+                          </Tooltip.Trigger>
+                          <Tooltip.Portal>
+                            <Tooltip.Content
+                              sideOffset={6}
+                              className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] px-2 py-1 text-[11px] z-50 max-w-[260px]"
+                            >
+                              {o.tip}
+                            </Tooltip.Content>
+                          </Tooltip.Portal>
+                        </Tooltip.Root>
+                      );
+                    })}
+                  </div>
+                </Tooltip.Provider>
+              );
+            })()}
             {/* Roadmap #1 — audio-quality chip. Only renders when the rolling
                 confidence window has dropped below the "low" threshold in
                 useAudioStream, so it's invisible during normal use. When it

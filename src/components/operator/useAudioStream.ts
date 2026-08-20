@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { detectAll, SuggestionDedupe, type DetectAllResult } from "@/lib/ai-detection";
+import { detectAll, SuggestionDedupe, WORSHIP_SCRIPTURE_CAP, type DetectAllResult } from "@/lib/ai-detection";
 import { parseBareVerse, parseBookVerseOnly, isValidChapter } from "@/lib/bible-parser";
 import { buildIndex, type IndexedSong, type SongIndex } from "@/lib/ai-detection/lyric-fragment";
 import type { SongMatchResult } from "@/lib/ai-detection/song-match";
@@ -381,6 +381,12 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const runDetectAll = useCallback(async (segmentId: string, text: string, opts?: { dgConfidence?: number; fromInterim?: boolean }) => {
     const provider = getCtxRef.current;
     const base = provider ? provider() : { churchId: "", hasVerseContext: false, hasSlideContext: false, hasSongContext: false };
+    // Service mode (Worship / Preacher / Auto). "worship" holds DETECTED
+    // scripture at chip-tier below (nav commands exempt) so a sung lyric that
+    // parses as a verse can't auto-fire; song-side biasing happens inside
+    // detectAll. Read fresh from the detect context each detection.
+    const serviceMode: "auto" | "worship" | "preacher" =
+      (base as { mode?: "auto" | "worship" | "preacher" }).mode ?? "auto";
     // Cross-church leak defense: if the churchId has changed since the last
     // detection (SPA sign-out → sign-in as different church without a full
     // reload), the SuggestionDedupe map still holds keys from the previous
@@ -524,7 +530,23 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       // quote match must never seed "verse N" resolution or bypass the
       // auto-fire confidence floor (CLAUDE.md rule 7 — no auto-fire path).
       const isPhrase = !!r.isPhraseMatch;
-      const conf = isPhrase ? Math.min(blendScripture(r), 74) : blendScripture(r);
+      // Worship mode holds DETECTED scripture at chip-tier so a sung lyric that
+      // coincidentally parses as a verse (or an announced verse during worship)
+      // can't ZERO-CLICK a wrong verse onto the projector. This is the
+      // AUTHORITATIVE worship scripture cap — detectAll's parserConf is
+      // re-blended with the Deepgram confidence just below, which would lift a
+      // 74 back to ~84 and re-clear the 75 auto-fire bar, so the cap must be
+      // applied to the FINAL blended value here. Navigation commands ("next
+      // verse", bare "verse N") are EXEMPT — those are explicit operator/preacher
+      // intent that must still project immediately in worship mode (2026-08-18
+      // voice-nav invariant).
+      const worshipHoldsScripture = serviceMode === "worship" && !r.isNavigationCommand;
+      const blended = blendScripture(r);
+      const conf = isPhrase
+        ? Math.min(blended, 74)
+        : worshipHoldsScripture
+          ? Math.min(blended, WORSHIP_SCRIPTURE_CAP)
+          : blended;
       // Review found: the fuzzy/phonetic book-match pattern (confidence 55
       // raw, ~65 max after blending) can coincidentally hit a real book name
       // from ordinary speech ("room 1:2" -> Romans 1:2). That's an

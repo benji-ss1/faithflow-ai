@@ -72,6 +72,22 @@ export type AutoApproveConfig = {
  */
 export type AutopilotMode = "manual" | "suggestion" | "armed" | "active";
 
+// ── Service mode (Worship / Preacher / Auto) ──────────────────────────────
+// An operator-facing bias for the DETECTION engine — it does NOT touch capture,
+// the mic board, or the auto-fire gates. It only nudges the confidences those
+// gates already read (see src/lib/ai-detection/index.ts):
+//   "auto"     → today's behaviour, exactly. Pure no-op.
+//   "worship"  → narrow song-matching to TODAY'S setlist + boost those songs so
+//                real worship actually crosses the auto bar (the "picked up
+//                nothing during the choir" fix), and hold scripture at chip-tier
+//                so a sung lyric can't flash a wrong verse.
+//   "preacher" → hold songs at chip-tier (never zero-click a song off speech),
+//                scripture behaves normally.
+// Session-scoped (survives a reload, resets on app restart) so a service starts
+// from the operator's conscious choice, mirroring the autopilot re-arm policy.
+export type ServiceMode = "auto" | "worship" | "preacher";
+const SERVICE_MODE_KEY = "presentflow.pro.serviceMode.v1";
+
 const AUTOPILOT_MODE_KEY = "presentflow.autopilot.mode";
 
 export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCode: initialTranslationCode, confidenceThreshold, autoApprove: autoApproveProp, initialShell }: {
@@ -198,6 +214,33 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   // Derived AutoApproveConfig — only "active" enables the existing
   // auto-approve pipeline. Everything else is enabled=false so approvals
   // stay in operator hands.
+  // Service mode (Worship / Preacher / Auto) — detection bias only. Init "auto"
+  // deterministically for SSR; hydrate the operator's session choice post-mount.
+  const [serviceMode, setServiceModeInner] = useState<ServiceMode>("auto");
+  const serviceModeRef = useRef<ServiceMode>("auto");
+  serviceModeRef.current = serviceMode;
+  useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem(SERVICE_MODE_KEY);
+      if (raw === "worship" || raw === "preacher" || raw === "auto") setServiceModeInner(raw);
+    } catch { /* noop */ }
+  }, []);
+  const setServiceMode = useCallback((next: ServiceMode) => {
+    setServiceModeInner((prev) => {
+      if (prev === next) return prev;
+      try { window.sessionStorage.setItem(SERVICE_MODE_KEY, next); } catch { /* noop */ }
+      const label = next === "worship" ? "Worship mode" : next === "preacher" ? "Preacher mode" : "Auto mode";
+      const icon = next === "worship" ? "🎶" : next === "preacher" ? "📖" : "🤖";
+      const detail = next === "worship"
+        ? "Detecting today's worship set; scripture held for manual"
+        : next === "preacher"
+          ? "Scripture prioritised; songs held for manual"
+          : "Balanced — songs and scripture both auto";
+      toast(`${label}`, { description: detail, icon, duration: 2600 });
+      return next;
+    });
+  }, []);
+
   const autoApprove = useMemo<AutoApproveConfig>(() => ({
     enabled: autopilotMode === "active",
     confidenceFloor: autoApproveProp.confidenceFloor,
@@ -658,6 +701,10 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     planId: plan.id,
     planSongIds,
     recentSongIds: [] as string[],
+    // Service-mode bias (Worship / Preacher / Auto). Read from a ref so the
+    // latest operator choice is seen on every detection without re-creating the
+    // audio hook. "auto" (default) makes this a no-op in detectAll.
+    mode: serviceModeRef.current,
     hasVerseContext: false,
     hasSlideContext: true, // always assume some slide context in operator
     hasSongContext: false, // updated below via ref
@@ -1623,6 +1670,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     onFitChange: setFitMode,
     onSafeAreaToggle: () => setSafeArea((v) => !v),
     autopilotMode, onAutopilotModeChange: setAutopilotMode,
+    serviceMode, onServiceModeChange: setServiceMode,
     autoApproveOn: autoApprove.enabled,
     autoSendToLive: autoApprove.autoSendToLive,
     audio,

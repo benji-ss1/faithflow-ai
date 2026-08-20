@@ -24,6 +24,29 @@ import { topPhraseForSpeech } from "@/services/bible/phraseSearch";
 // shell's auto-fire selector explicitly filters `!s.isPhraseMatch`.
 export type PhraseMatchParsedReference = ParsedReference & { isPhraseMatch?: boolean };
 
+// Service mode — an operator-facing detection bias. Does NOT touch capture or
+// the auto-fire gates; it only adjusts the confidences those gates already read.
+//   "auto" (default) → no-op, today's behaviour exactly.
+//   "worship"        → narrow song-matching to the setlist + boost it, and hold
+//                      scripture at chip-tier (a sung lyric can't flash a verse).
+//   "preacher"       → hold songs at chip-tier (no zero-click song off speech).
+export type ServiceMode = "auto" | "worship" | "preacher";
+
+// Detection-bias caps. Kept in lock-step with the gate thresholds (hardcoded
+// here, like the SUGGEST_CAP=84 below, so this lib doesn't import operator-dir
+// constants — the drift-guard test in test/service-mode.test.ts asserts these
+// stay exactly one below the live bars):
+//   BIBLE_AUTOFIRE_CONFIDENCE = 75  → worship caps scripture at 74 (chip, not auto)
+//   SONG_AUTOLIVE_CONFIDENCE  = 90  → preacher caps songs at 89 (chip, not auto)
+// NOTE (2026-08-20): the WORSHIP scripture cap set here on detectAll's output is
+// belt-and-braces only — the AUTHORITATIVE worship scripture cap lives in
+// useAudioStream.runDetectAll where the final confidence is minted (detectAll's
+// parserConf is re-blended with the Deepgram confidence there, which would
+// otherwise lift a 74 back to ~84 and re-clear the 75 bar). Both sites exempt
+// navigation commands so voice "next verse" still projects in worship mode.
+export const WORSHIP_SCRIPTURE_CAP = 74;
+export const PREACHER_SONG_CAP = 89;
+
 export type DetectAllContext = {
   churchId: string;
   planId?: string;
@@ -31,6 +54,7 @@ export type DetectAllContext = {
   recentSongIds?: string[];
   library?: IndexedSong[];
   prebuiltIndex?: SongIndex;
+  mode?: ServiceMode;
   hasVerseContext: boolean;
   hasSlideContext: boolean;
   hasSongContext: boolean;
@@ -73,6 +97,7 @@ function lastWords(text: string, n: number): string {
 }
 
 export async function detectAll(chunk: string, ctx: DetectAllContext): Promise<DetectAllResult> {
+  const mode: ServiceMode = ctx.mode ?? "auto";
   const scripture: PhraseMatchParsedReference[] = parseReferences(chunk);
 
   // Phrase-match fallback (CLAUDE.md #9-tier signal): if the direct-reference
@@ -127,6 +152,9 @@ export async function detectAll(chunk: string, ctx: DetectAllContext): Promise<D
     library: ctx.library,
     prebuiltIndex: ctx.prebuiltIndex,
     spokenCuePrefix: cue.length > 0,
+    // Worship mode narrows song-matching to today's setlist and boosts it.
+    restrictToPlan: mode === "worship",
+    worshipBoost: mode === "worship",
   };
 
   // Resolve songs — prefer cue candidate titles when we have them, else
@@ -240,10 +268,35 @@ export async function detectAll(chunk: string, ctx: DetectAllContext): Promise<D
   // ones. A song sung right as a verse is quoted still survives if it's clearly
   // sung; if it's borderline it resurfaces on the next chunk once the reference
   // scrolls out of the window. Scripture itself is always preserved.
+  // ── Service-mode biasing (Worship / Preacher) ─────────────────────────────
+  // Applied as confidence caps on the OUTPUT of the engine so the fragile
+  // ProOperatorShell auto-fire gates stay untouched — a capped detection simply
+  // lands in the manual-chip tier the gates already understand.
+  //   worship  → scripture below the Bible auto bar (chip, never zero-click).
+  //   preacher → songs below the song auto bar (chip, never zero-click).
+  const scriptureOut: PhraseMatchParsedReference[] = mode === "worship"
+    ? scripture.map((r) =>
+        // Never cap a navigation command ("next verse", bare "verse N") — those
+        // are explicit operator/preacher intent and must still project in
+        // worship mode (2026-08-18 voice-nav invariant). Phrase matches are
+        // already ≤74. This detectAll-level cap is defensive; the authoritative
+        // one is in useAudioStream (see the note by the constant above).
+        r.isPhraseMatch || r.isNavigationCommand || r.confidence <= WORSHIP_SCRIPTURE_CAP
+          ? r
+          : { ...r, confidence: WORSHIP_SCRIPTURE_CAP })
+    : scripture;
+  const capSongs = (arr: SongMatchResult[]): SongMatchResult[] =>
+    mode === "preacher"
+      ? arr.map((m) => (m.confidence > PREACHER_SONG_CAP ? { ...m, confidence: PREACHER_SONG_CAP } : m))
+      : arr;
+
   const hasExplicitVerse = scripture.some(
     (r) => !r.isPhraseMatch && r.needsSemanticFallback === false && r.confidence >= 85,
   );
-  if (hasExplicitVerse) {
+  // In Worship mode songs are the point — don't let a co-occurring spoken verse
+  // cap them (and scripture is already held at chip-tier above), so skip the
+  // verse-vs-song arbitration entirely.
+  if (hasExplicitVerse && mode !== "worship") {
     // SAFE arbitration — never HIDE a song (missing real spontaneous worship is
     // the worst outcome), and don't rely on match confidence to tell "real
     // singing" from "coincidental overlap" (a full sung hymn line can score
@@ -270,9 +323,9 @@ export async function detectAll(chunk: string, ctx: DetectAllContext): Promise<D
       );
     }
     return {
-      scripture,
-      song: cappedSong,
-      lyric: cappedLyric,
+      scripture: scriptureOut,
+      song: capSongs(cappedSong),
+      lyric: capSongs(cappedLyric),
       command: cmd ? [cmd] : [],
       cue,
       section,
@@ -280,9 +333,9 @@ export async function detectAll(chunk: string, ctx: DetectAllContext): Promise<D
   }
 
   return {
-    scripture,
-    song: finalSong,
-    lyric: finalLyric,
+    scripture: scriptureOut,
+    song: capSongs(finalSong),
+    lyric: capSongs(finalLyric),
     command: cmd ? [cmd] : [],
     cue,
     section,

@@ -10,7 +10,7 @@ import type { AudioStreamState, Detection, SongSuggestion, CommandSuggestion, Un
 import type { MultiChannelCapture } from "@/lib/audio/multiChannelCapture";
 import type { BankedVerse } from "../useVerseBank";
 import type { InternetMetadataCard } from "../AIAssistantPanel";
-import type { AutopilotMode } from "../OperatorConsole";
+import type { AutopilotMode, ServiceMode } from "../OperatorConsole";
 
 export type OperatorShellCtx = {
   plan: ExpandedPlan;
@@ -47,6 +47,9 @@ export type OperatorShellCtx = {
 
   autopilotMode: AutopilotMode;
   onAutopilotModeChange: (m: AutopilotMode) => void;
+  // Service mode (Worship / Preacher / Auto) — detection bias, not capture.
+  serviceMode: ServiceMode;
+  onServiceModeChange: (m: ServiceMode) => void;
   autoApproveOn: boolean;
   autoSendToLive: boolean;
 
