@@ -112,15 +112,16 @@ export function NativeMicBoardModal({ open, onClose, deviceIndex, deviceName, ch
     };
   }, [open, deviceIndex, chCount]);
 
-  // Base pref carrying identity + labels, so writes preserve the other fields.
+  // Base pref = the FULL existing pref for this device (preserving
+  // followSystemDefault / gainDb / autoPickedAt / lastWorkingAt / channelLabels)
+  // with identity refreshed. Spreading the whole pref matters: a Lead pick that
+  // rebuilt only {index,name} would silently drop "Follow Mac system input" and
+  // any stored gain (review 2026-08-20 🟡). Falls back to bare identity when the
+  // stored pref is for a different device.
   const basePref = useCallback((): NativeDevicePref => {
     const existing = readNativeDevicePref();
     const forThis = existing && existing.index === deviceIndex ? existing : null;
-    return {
-      index: deviceIndex,
-      name: deviceName,
-      ...(forThis?.channelLabels ? { channelLabels: forThis.channelLabels } : {}),
-    };
+    return { ...(forThis ?? {}), index: deviceIndex, name: deviceName };
   }, [deviceIndex, deviceName]);
 
   const setLabel = (ch: number, value: string) => {
@@ -128,9 +129,7 @@ export function NativeMicBoardModal({ open, onClose, deviceIndex, deviceName, ch
     if (value.trim()) next[ch] = value.slice(0, 40); else delete next[ch];
     setLabels(next);
     // Labels are display-only — write SILENTLY so we never restart the live feed.
-    const pref = readNativeDevicePref();
-    const forThis = pref && pref.index === deviceIndex ? pref : basePref();
-    writeNativeDevicePrefSilent({ ...forThis, index: deviceIndex, name: deviceName, channelLabels: next });
+    writeNativeDevicePrefSilent({ ...basePref(), channelLabels: next });
   };
 
   const chooseLead = (ch: number) => {
