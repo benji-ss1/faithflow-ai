@@ -54,7 +54,7 @@ export function BackgroundSelector() {
         })}
       </div>
       <div className="text-[10px] leading-snug text-[var(--color-muted-foreground)]">
-        Applies live to the projector behind the text. Animated (WebGL) versions and image/video uploads are coming next — these show their colour now.
+        Applies live to the projector behind the text — the animated ones now move on the projector output. Per-template settings and your own image/video uploads are coming next.
       </div>
     </div>
   );

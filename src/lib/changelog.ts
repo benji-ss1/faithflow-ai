@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.302",
+    date: "2026-08-20",
+    headline: "Background templates now animate live on the projector",
+    highlights: [
+      "The 5 background templates (Gentle Waves, Holy Fire, Stained Light, Deep Breath, Clean Slate) now render as live GPU animations behind your text on the projector \u2014 not just a flat colour.",
+      "Falls back to a static gradient if a machine can't run WebGL, and freezes for reduced-motion. Your own image/video uploads + per-template settings are next.",
+    ],
+  },
+  {
     version: "0.1.301",
     date: "2026-08-20",
     headline: "Background templates \u2014 first look (behind the text)",

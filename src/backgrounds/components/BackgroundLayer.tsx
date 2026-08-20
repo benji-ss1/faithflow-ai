@@ -1,5 +1,6 @@
 "use client";
 import type { BackgroundSpec } from "@/lib/broadcast";
+import { ShaderBackground } from "./ShaderBackground";
 
 /**
  * BackgroundLayer — renders the active background on the projector, BETWEEN the
@@ -20,9 +21,18 @@ export function BackgroundLayer({ background }: { background: BackgroundSpec | n
   let content: React.ReactNode = null;
 
   if (background.type === "shader") {
-    const a = background.primaryColor || "#0A0A0E";
-    const b = background.secondaryColor || "#0F0F14";
-    content = <div style={{ ...fill, background: `linear-gradient(135deg, ${a}, ${b})` }} />;
+    // Live WebGL shader (Phase 4). Falls back to a CSS gradient inside
+    // ShaderBackground if WebGL is unavailable. Static presets (Clean Slate)
+    // render one frame; the rest animate.
+    content = (
+      <ShaderBackground
+        preset={background.shaderPreset || "cleanSlate"}
+        speed={background.speed ?? 1}
+        intensity={background.intensity ?? 1}
+        primaryColor={background.primaryColor || "#0A0A0E"}
+        secondaryColor={background.secondaryColor || "#0F0F14"}
+      />
+    );
   } else if (background.type === "image" && background.imageUrl) {
     const fit = background.imageFit === "stretch" ? "fill" : background.imageFit === "fit" ? "contain" : "cover";
     content = (

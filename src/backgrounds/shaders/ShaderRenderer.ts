@@ -1,0 +1,137 @@
+// Minimal WebGL fullscreen-quad shader renderer for animated backgrounds.
+// Cross-platform (Chromium/Electron on macOS + Windows), GPU-accelerated.
+// Returns null on any WebGL failure so the caller can fall back to a CSS
+// gradient (the Canvas-2D-equivalent fallback) — never crashes.
+import { VERTEX_SHADER, FRAGMENT_SHADERS, STATIC_PRESETS } from "./shaders";
+
+export interface ShaderRendererOptions {
+  canvas: HTMLCanvasElement;
+  preset: string;
+  speed: number;
+  intensity: number;
+  primaryColor: [number, number, number]; // 0..1
+  secondaryColor: [number, number, number];
+  /** When true, render a single frame and do not animate (reduced motion). */
+  frozen?: boolean;
+}
+
+function compile(gl: WebGLRenderingContext, type: number, src: string): WebGLShader | null {
+  const sh = gl.createShader(type);
+  if (!sh) return null;
+  gl.shaderSource(sh, src);
+  gl.compileShader(sh);
+  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+    console.warn("[bg-shader] compile failed:", gl.getShaderInfoLog(sh));
+    gl.deleteShader(sh);
+    return null;
+  }
+  return sh;
+}
+
+export interface ShaderHandle {
+  stop(): void;
+}
+
+export function createShaderRenderer(opts: ShaderRendererOptions): ShaderHandle | null {
+  const fragSrc = FRAGMENT_SHADERS[opts.preset];
+  if (!fragSrc) return null;
+
+  let gl: WebGLRenderingContext | null = null;
+  try {
+    gl = (opts.canvas.getContext("webgl", { antialias: false, alpha: false, powerPreference: "high-performance" })
+      || opts.canvas.getContext("experimental-webgl")) as WebGLRenderingContext | null;
+  } catch {
+    gl = null;
+  }
+  if (!gl) return null;
+
+  const vs = compile(gl, gl.VERTEX_SHADER, VERTEX_SHADER);
+  const fs = compile(gl, gl.FRAGMENT_SHADER, fragSrc);
+  if (!vs || !fs) return null;
+  const prog = gl.createProgram();
+  if (!prog) return null;
+  gl.attachShader(prog, vs);
+  gl.attachShader(prog, fs);
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+    console.warn("[bg-shader] link failed:", gl.getProgramInfoLog(prog));
+    return null;
+  }
+  gl.useProgram(prog);
+
+  // Fullscreen quad.
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW);
+  const aPos = gl.getAttribLocation(prog, "a_pos");
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+  const uRes = gl.getUniformLocation(prog, "u_resolution");
+  const uTime = gl.getUniformLocation(prog, "u_time");
+  const uSpeed = gl.getUniformLocation(prog, "u_speed");
+  const uIntensity = gl.getUniformLocation(prog, "u_intensity");
+  const uPrimary = gl.getUniformLocation(prog, "u_primaryColor");
+  const uSecondary = gl.getUniformLocation(prog, "u_secondaryColor");
+
+  gl.uniform1f(uSpeed, opts.speed);
+  gl.uniform1f(uIntensity, opts.intensity);
+  gl.uniform3fv(uPrimary, opts.primaryColor);
+  gl.uniform3fv(uSecondary, opts.secondaryColor);
+
+  let raf = 0;
+  let running = true;
+  // No Date.now()/performance.now() at module scope is fine here (runtime, not
+  // a workflow script). Use performance.now for smooth frame timing.
+  const start = performance.now();
+
+  const sizeCanvas = () => {
+    const cw = opts.canvas.clientWidth || 1920;
+    const ch = opts.canvas.clientHeight || 1080;
+    // Cap DPR to 1.5 — projector output doesn't need retina density and it keeps
+    // the fragment count down on weak GPUs.
+    const dpr = Math.min(1.5, typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1);
+    const w = Math.max(1, Math.round(cw * dpr));
+    const h = Math.max(1, Math.round(ch * dpr));
+    if (opts.canvas.width !== w || opts.canvas.height !== h) {
+      opts.canvas.width = w;
+      opts.canvas.height = h;
+    }
+    gl!.viewport(0, 0, opts.canvas.width, opts.canvas.height);
+    gl!.uniform2f(uRes, opts.canvas.width, opts.canvas.height);
+  };
+
+  const draw = (t: number) => {
+    if (!running || !gl) return;
+    gl.uniform1f(uTime, t);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  };
+
+  sizeCanvas();
+  const onResize = () => sizeCanvas();
+  window.addEventListener("resize", onResize);
+
+  if (opts.frozen || STATIC_PRESETS.has(opts.preset)) {
+    draw(0);
+  } else {
+    const loop = () => {
+      if (!running) return;
+      sizeCanvas();
+      draw((performance.now() - start) / 1000);
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+  }
+
+  return {
+    stop() {
+      running = false;
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener("resize", onResize);
+      try {
+        const lose = gl?.getExtension("WEBGL_lose_context");
+        lose?.loseContext();
+      } catch { /* noop */ }
+    },
+  };
+}
