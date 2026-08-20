@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.279",
+    date: "2026-08-20",
+    headline: "Fixed verses being detected but not projecting",
+    highlights: [
+      "During rapid verse changes, a verse the AI heard could fail to project because an earlier verse\u2019s slower lookup finished late and overwrote it. Now only the most-recent verse drives the projector.",
+    ],
+  },
+  {
     version: "0.1.278",
     date: "2026-08-20",
     headline: "\"Mark 4 by 7\" now detects as Mark 4:7",

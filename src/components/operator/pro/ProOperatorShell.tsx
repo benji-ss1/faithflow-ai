@@ -2304,8 +2304,9 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
               placeholder: true, // never auto-fires; already handled here
             }];
             // Replace the label-only slide we instant-fired with the notice, so
-            // the projector shows the message instead of a bare reference.
-            if (autoOn && isHighConf) {
+            // the projector shows the message instead of a bare reference. Recency-
+            // guarded: a superseded detection must not clobber the current verse.
+            if (autoOn && isHighConf && lastRoutedScriptureRef.current === scripture.id) {
               try {
                 sendLiveRef.current({ kind: "text", text: `${notice}\n\n${refLabel}` }, null, { instant: true });
               } catch { /* noop */ }
@@ -2327,7 +2328,13 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         }
         autoFireCardsRef.current = cards;
         // Update projector with full verse text if we already instant-fired the label.
-        if (autoOn && isHighConf) {
+        // RECENCY GUARD (2026-08-20): async lookups race — during rapid verse
+        // changes an OLDER detection's late-resolving lookup used to re-project a
+        // STALE verse over the newer one ("detected but didn't project"). Only
+        // the MOST RECENT routed detection may drive the projector; a superseded
+        // lookup no-ops here (lastRoutedScriptureRef is set to the newest id on
+        // every routing-effect run above).
+        if (autoOn && isHighConf && lastRoutedScriptureRef.current === scripture.id) {
           const first = cards[0];
           const body = first.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
           const fullSlide: import("@/lib/broadcast").SlidePayload = { kind: "text", text: `${body}\n\n${first.label}` };
