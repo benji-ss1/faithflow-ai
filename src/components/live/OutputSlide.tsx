@@ -26,12 +26,13 @@ export function hasVideoBackground(videoInput?: VideoInputState | null, appearan
  * normally. The video layer is a sibling of the overlay (not wrapped by any
  * slide-keyed element), so slide changes never restart the video.
  */
-export function OutputSlide({ slide, videoInput, appearance, fontScale, referenceScale, projectorFit = true, videoMuted = false, onVideoRef }: {
+export function OutputSlide({ slide, videoInput, appearance, fontScale, referenceScale, referenceColor, projectorFit = true, videoMuted = false, onVideoRef }: {
   slide: SlidePayload;
   videoInput?: VideoInputState | null;
   appearance?: ThemeAppearance | null;
   fontScale?: number;
   referenceScale?: number;
+  referenceColor?: string;
   projectorFit?: boolean;
   videoMuted?: boolean;
   onVideoRef?: (el: HTMLVideoElement | null) => void;
@@ -58,11 +59,11 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, referenc
         {slide.kind !== "empty" && (
           isOverlayKind ? (
             <div className={containerClass}>
-              <SlideRenderer slide={slide} overVideo projectorFit={projectorFit} fontScale={fontScale} referenceScale={referenceScale} appearance={appearance} />
+              <SlideRenderer slide={slide} overVideo projectorFit={projectorFit} fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} />
             </div>
           ) : (
             <div className="absolute inset-0">
-              <SlideRenderer slide={slide} projectorFit={projectorFit} fontScale={fontScale} referenceScale={referenceScale} appearance={appearance} />
+              <SlideRenderer slide={slide} projectorFit={projectorFit} fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} />
             </div>
           )
         )}
@@ -75,6 +76,7 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, referenc
       projectorFit={projectorFit}
       fontScale={fontScale}
       referenceScale={referenceScale}
+      referenceColor={referenceColor}
       appearance={appearance}
       videoMuted={videoMuted}
       onVideoRef={onVideoRef}

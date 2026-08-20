@@ -7,6 +7,7 @@ import type { SlidePayload } from "@/lib/broadcast";
 import { BibleOptionsPopover, BibleOptionsProvider, useBibleOptions } from "./BibleOptionsPopover";
 import { BibleTextSizeControl } from "./BibleTextSizeControl";
 import { BibleReferenceSizeControl } from "./BibleReferenceSizeControl";
+import { BibleReferenceColorControl } from "./BibleReferenceColorControl";
 import { BibleBookBrowser } from "./BibleBookBrowser";
 import type { BibleSessionApi, VerseCard } from "../hooks";
 import { cn } from "@/lib/utils";
@@ -767,6 +768,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
             the Options popover next to it. */}
         <BibleTextSizeControl />
         <BibleReferenceSizeControl />
+        <BibleReferenceColorControl />
         <BibleOptionsPopover />
       </div>
       </div>{/* end sticky search header */}

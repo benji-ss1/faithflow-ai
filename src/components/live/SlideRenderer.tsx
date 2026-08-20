@@ -79,7 +79,7 @@ function themeTextStyle(appearance: ThemeAppearance | null | undefined): React.C
   return Object.keys(s).length ? s : undefined;
 }
 
-export function SlideRenderer({ slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef, fontScale, referenceScale, appearance, overVideo }: {
+export function SlideRenderer({ slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef, fontScale, referenceScale, referenceColor, appearance, overVideo }: {
   slide: SlidePayload;
   className?: string;
   // Phase 2a: rendering as an overlay ON TOP of a live video layer. Makes
@@ -98,6 +98,8 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
   // the Bible "reference size" control; sizes the footer on its own, separate
   // from the verse-body fontScale.
   referenceScale?: number;
+  // Operator-chosen reference footer colour (overrides the theme text colour for the footer only).
+  referenceColor?: string;
   // 2026-07-25: pass-through to AutoFitText for text slides. Grid cards
   // use small values to fit whole verses at a glance; live projector uses
   // the sanctuary-readability default.
@@ -235,14 +237,18 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
             <span
               className="font-display font-semibold uppercase tracking-wide"
               style={{
-                // Scales with the operator's text-size control (fontScale) so the
-                // reference grows/shrinks with the verse instead of being a fixed
-                // size the operator can't influence.
+                // CANVAS-RELATIVE px (not vh): the footer lives inside the fixed
+                // 1920×1080 PresentationCanvas that's CSS-transform-scaled to the
+                // display, so a px value scales WITH the canvas — identical on the
+                // projector and the operator preview. `vh` was window-relative, so
+                // the operator's Ref-size change didn't track on the projector.
                 fontSize: projectorFit
-                  ? `calc(clamp(14px, 3.2vh, 42px) * ${referenceScale ?? 1})`
+                  ? `${(32 * (referenceScale ?? 1)).toFixed(1)}px`
                   : `calc(clamp(11px, 4%, 20px) * ${referenceScale ?? 1})`,
                 opacity: 0.82,
                 ...themeTextStyle(appearance),
+                // Operator-chosen reference colour wins over the theme text colour.
+                ...(referenceColor ? { color: referenceColor } : {}),
               }}
             >
               {refText}

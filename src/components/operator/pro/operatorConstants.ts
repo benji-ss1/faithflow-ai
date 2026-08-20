@@ -77,6 +77,15 @@ export function readReferenceScale(): number {
   } catch { return 1; }
 }
 
+/** Operator-chosen reference footer colour (hex). Empty/absent = use theme colour. */
+export const REFERENCE_COLOR_KEY = "presentflow.pro.referenceColor.v1";
+export function readReferenceColor(): string {
+  try {
+    const raw = localStorage.getItem(REFERENCE_COLOR_KEY) || "";
+    return /^#[0-9a-fA-F]{6}$/.test(raw) ? raw : "";
+  } catch { return ""; }
+}
+
 // ── Song detection policy (CLAUDE.md rule 7 — signed-off values) ──────────
 // DO NOT lower these without a fresh field-test + user sign-off.
 

@@ -75,7 +75,7 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
           </div>
         )}
         <PresentationCanvas zone={ctx.zone}>
-          <SlideRenderer slide={ctx.liveSlide} appearance={ctx.appearance ?? undefined} projectorFit fontScale={ctx.fontScale} referenceScale={ctx.referenceScale} onVideoRef={onVideoRef} />
+          <SlideRenderer slide={ctx.liveSlide} appearance={ctx.appearance ?? undefined} projectorFit fontScale={ctx.fontScale} referenceScale={ctx.referenceScale} referenceColor={ctx.referenceColor} onVideoRef={onVideoRef} />
         </PresentationCanvas>
         {ctx.liveSlide.kind !== "empty" && (
           <button

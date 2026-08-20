@@ -234,6 +234,8 @@ export type OutputState = {
   // Independent size multiplier for the scripture reference footer (1.0 =
   // default). Lets the operator size "the scripture at the bottom" on its own.
   referenceScale?: number;
+  // Operator-chosen reference footer colour.
+  referenceColor?: string;
   // Background Templates: the active projector background (undefined/none ⇒
   // existing theme background, unchanged).
   background?: BackgroundSpec | null;
@@ -739,6 +741,7 @@ export function isValidOutputState(s: unknown): s is OutputState {
     const r = st.referenceScale;
     if (typeof r !== "number" || !Number.isFinite(r) || r <= 0 || r > 4) return false;
   }
+  if (st.referenceColor !== undefined && st.referenceColor !== null && !isValidColor(st.referenceColor)) return false;
   if (st.background !== undefined && st.background !== null && !isValidBackgroundSpec(st.background)) return false;
   // Themes Phase 1 — validate the theme appearance if present (rejects a
   // malformed/hostile appearance on the cross-device path rather than letting

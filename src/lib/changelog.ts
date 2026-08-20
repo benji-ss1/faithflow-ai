@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.303",
+    date: "2026-08-20",
+    headline: "Reference size now applies on the projector + set its colour",
+    highlights: [
+      "Fixed the reference-footer size not tracking on the big screen: it was measured against the window, not the scaled 1080 canvas, so the projector ignored your Ref-size change. It now sizes identically on the projector and the preview.",
+      "New reference-colour control in the Bible bar \u2014 pick any colour for the scripture reference at the bottom (or clear it to use the theme colour).",
+    ],
+  },
+  {
     version: "0.1.302",
     date: "2026-08-20",
     headline: "Background templates now animate live on the projector",

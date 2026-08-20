@@ -74,6 +74,7 @@ export default function LivePage() {
   const [aspectRatio, setAspectRatio] = useState<"16:9" | "4:3" | "custom">("16:9");
   const [fontScale, setFontScale] = useState(1); // B3 operator manual text size
   const [referenceScale, setReferenceScale] = useState(1);
+  const [referenceColor, setReferenceColor] = useState<string | undefined>(undefined);
   const [background, setBackground] = useState<import("@/lib/broadcast").BackgroundSpec | null>(null);
   const [appearance, setAppearance] = useState<ThemeAppearance | null>(null); // Themes Phase 1
   const [videoInput, setVideoInput] = useState<VideoInputState | null>(null); // Phase 2a live video
@@ -165,6 +166,7 @@ export default function LivePage() {
           setAspectRatio(msg.state.aspectRatio);
           setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);
           setReferenceScale(typeof msg.state.referenceScale === "number" ? msg.state.referenceScale : 1);
+          setReferenceColor(typeof msg.state.referenceColor === "string" ? msg.state.referenceColor : undefined);
           setBackground(msg.state.background ?? null);
           setAppearance(msg.state.appearance ?? null);
           setVideoInput(msg.state.videoInput ?? null);
@@ -305,6 +307,7 @@ export default function LivePage() {
           setTransition(state.transition ?? null);
           setFontScale(typeof state.fontScale === "number" ? state.fontScale : 1);
           setReferenceScale(typeof state.referenceScale === "number" ? state.referenceScale : 1);
+          setReferenceColor(typeof state.referenceColor === "string" ? state.referenceColor : undefined);
           setBackground(state.background ?? null);
           setAppearance(state.appearance ?? null);
           setVideoInput(state.videoInput ?? null);
@@ -458,7 +461,7 @@ export default function LivePage() {
                 // Video behind the slide (camera or theme video bg): no slide-keyed
                 // transition wrapper, so the video stays playing across slide
                 // changes — only the overlay updates.
-                <OutputSlide slide={slide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} referenceScale={referenceScale} projectorFit />
+                <OutputSlide slide={slide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} projectorFit />
               ) : (
                 // 2026-08-16: TransitionWrapper RESTORED. It was removed 2026-08-15
                 // because its height:100% collapsed the measured box and under-sized
@@ -467,7 +470,7 @@ export default function LivePage() {
                 // wrapper can't affect text size anymore. This brings the projector's
                 // slide transitions (fade/cut/etc.) back, matching /stage.
                 <TransitionWrapper identityKey={slideOutputIdentity(slide)} transition={transition}>
-                  <SlideRenderer slide={slide} projectorFit fontScale={fontScale} referenceScale={referenceScale} appearance={appearance} overVideo={!!(background && background.type !== "none")} videoMuted={false} onVideoRef={handleVideoRef} />
+                  <SlideRenderer slide={slide} projectorFit fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} overVideo={!!(background && background.type !== "none")} videoMuted={false} onVideoRef={handleVideoRef} />
                 </TransitionWrapper>
               )}
               <ThemeLogoLayer appearance={appearance} />
