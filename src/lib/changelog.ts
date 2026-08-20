@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.292",
+    date: "2026-08-20",
+    headline: "New Mic Board — see every mic, pick the one the AI listens to",
+    highlights: [
+      "For multi-channel mixers (X32, XR18, Allen & Heath SQ, and more), open the Mic Board from Audio settings to see every mic as a live strip with its own level meter.",
+      "Label each mic (Lead / BG singer / Keys…), set the Lead so the AI listens to just the preacher's mic, and mute or duck background singers — with 🎤/🎶 hints showing which mics are speech vs singing.",
+    ],
+  },
+  {
     version: "0.1.291",
     date: "2026-08-20",
     headline: "Verse cards show their reference again, smarter voice nav",

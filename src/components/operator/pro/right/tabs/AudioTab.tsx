@@ -22,7 +22,7 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as Popover from "@radix-ui/react-popover";
-import { ChevronDown, ChevronRight, Plus, RefreshCcw, Stethoscope, Wand2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, RefreshCcw, Stethoscope, Wand2, Sliders } from "lucide-react";
 import { AudioDiagnosticsScan } from "@/components/operator/AudioDiagnosticsScan";
 import { VocalChannelAutoDetectModal } from "@/components/operator/VocalChannelAutoDetectModal";
 import {
@@ -47,6 +47,7 @@ import {
   type DeviceChannelMode,
 } from "@/lib/audio/deviceChannelPrefs";
 import { findGuideForDevice } from "@/lib/audio/mixerSetupGuides";
+import { MicBoardModal } from "./MicBoardModal";
 // Custom vocabulary quick-add (2026-07-27) — Deepgram keyterm boosting for
 // names/song titles the AI keeps mishearing. Full management in Settings.
 import { addVocabularyTerm, MAX_VOCABULARY_TERMS, readVocabulary, VOCABULARY_CHANGED_EVENT } from "@/lib/audio/customVocabulary";
@@ -183,6 +184,7 @@ export function AudioTab() {
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [guideOpen, setGuideOpen] = useState(false);
   const [autoDetectOpen, setAutoDetectOpen] = useState(false);
+  const [micBoardOpen, setMicBoardOpen] = useState(false);
 
   // Refs for the multi-channel capture & polling — refs (not state) so we
   // don't churn renders on capture handle changes.
@@ -325,7 +327,10 @@ export function AudioTab() {
     // for zero UI benefit.
     // Native-mode guard (stale-code audit) — never open a browser-side
     // Web Audio capture while ffmpeg may hold the device.
-    if (effectiveMode === "native" || !pickerOpen || !selected || !capsProbed || channelCount <= 1) {
+    // Also stand down while the Mic Board modal is open — it opens its OWN
+    // preview capture on the same device, and two Web Audio captures contending
+    // for one mixer is wasteful (and can fail on some drivers).
+    if (effectiveMode === "native" || !pickerOpen || !selected || !capsProbed || channelCount <= 1 || micBoardOpen) {
       teardown();
       return;
     }
@@ -362,7 +367,7 @@ export function AudioTab() {
     })();
 
     return () => { cancelled = true; teardown(); };
-  }, [pickerOpen, selected?.id, capsProbed, channelCount, effectiveMode]);
+  }, [pickerOpen, selected?.id, capsProbed, channelCount, effectiveMode, micBoardOpen]);
 
   // Tear down on component unmount as a safety net (in case popover closes
   // via unmount rather than the open flag).
@@ -1215,14 +1220,24 @@ export function AudioTab() {
         <div className="flex flex-col gap-2 border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
           <div className="flex items-center justify-between px-1">
             <div className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)]">Channels</div>
-            <button
-              onClick={() => setAutoDetectOpen(true)}
-              className="h-6 px-2 rounded text-[10px] font-semibold text-white inline-flex items-center gap-1"
-              style={{ background: "#f97316" }}
-              title="Listen for 5s and suggest the loudest vocal-band channel"
-            >
-              <Wand2 className="w-3 h-3" /> Auto-detect vocal
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setMicBoardOpen(true)}
+                className="h-6 px-2 rounded text-[10px] font-semibold inline-flex items-center gap-1"
+                style={{ background: "var(--color-brand)", color: "var(--color-primary-foreground)" }}
+                title="Open the full mic board — label every mic, set the lead, mute/duck background singers"
+              >
+                <Sliders className="w-3 h-3" /> Mic Board
+              </button>
+              <button
+                onClick={() => setAutoDetectOpen(true)}
+                className="h-6 px-2 rounded text-[10px] font-semibold inline-flex items-center gap-1"
+                style={{ background: "var(--color-elevated)", color: "var(--color-foreground)", border: "1px solid var(--color-border)" }}
+                title="Listen for 5s and suggest the loudest vocal-band channel"
+              >
+                <Wand2 className="w-3 h-3" /> Auto-detect
+              </button>
+            </div>
           </div>
 
           {captureError && (
@@ -1445,6 +1460,16 @@ export function AudioTab() {
             commitPref({ mode: mode as GridMode, selectedChannels: chs, autoDetected: true });
             setAutoDetectOpen(false);
           }}
+        />
+      )}
+
+      {selected && (
+        <MicBoardModal
+          open={micBoardOpen}
+          onClose={() => setMicBoardOpen(false)}
+          deviceId={selected.id}
+          deviceLabel={selected.label}
+          channelCount={channelCount}
         />
       )}
 
