@@ -20,9 +20,70 @@ export function readActiveBackgroundId(): string {
   }
 }
 
+// Per-template SETTINGS overrides (speed/intensity/colours/overlay), keyed by
+// background id. Kept separate from the preset defaults so the operator can
+// customise a built-in without editing code, and reset to default any time.
+const SETTINGS_KEY = "presentflow.backgrounds.settings.v1";
+export type BackgroundSettings = Partial<Pick<PFBackground,
+  "shaderSpeed" | "shaderIntensity" | "shaderPrimaryColor" | "shaderSecondaryColor" |
+  "overlayColor" | "overlayOpacity" | "imageBlur" | "imageFit" | "videoPlaybackSpeed">>;
+
+function readAllSettings(): Record<string, BackgroundSettings> {
+  if (!isBrowser()) return {};
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function readSettings(id: string): BackgroundSettings {
+  return readAllSettings()[id] ?? {};
+}
+
+export function writeSettings(id: string, patch: BackgroundSettings): void {
+  if (!isBrowser()) return;
+  try {
+    const all = readAllSettings();
+    all[id] = { ...(all[id] ?? {}), ...patch };
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(all));
+  } catch {
+    /* ignore */
+  }
+  try {
+    window.dispatchEvent(new CustomEvent(BACKGROUND_CHANGED_EVENT, { detail: { id } }));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function resetSettings(id: string): void {
+  if (!isBrowser()) return;
+  try {
+    const all = readAllSettings();
+    delete all[id];
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(all));
+  } catch {
+    /* ignore */
+  }
+  try {
+    window.dispatchEvent(new CustomEvent(BACKGROUND_CHANGED_EVENT, { detail: { id } }));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** A built-in merged with any operator settings override. */
+export function withSettings(bg: PFBackground): PFBackground {
+  const s = readSettings(bg.id);
+  return { ...bg, ...s };
+}
+
 export function readActiveBackground(): PFBackground {
   const id = readActiveBackgroundId();
-  return findBuiltIn(id) ?? NONE_BACKGROUND;
+  return withSettings(findBuiltIn(id) ?? NONE_BACKGROUND);
 }
 
 export function setActiveBackgroundId(id: string): void {

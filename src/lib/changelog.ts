@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.305",
+    date: "2026-08-20",
+    headline: "Backgrounds are in the Themes editor now \u2014 with live previews + settings",
+    highlights: [
+      "Open Themes (top bar) and the Backgrounds gallery is right at the top: pick a template from LIVE animated thumbnails.",
+      "Tune each template yourself \u2014 speed, intensity, primary/secondary colours, and a readability overlay dim \u2014 all applying live to the projector. Reset to default any time.",
+    ],
+  },
+  {
     version: "0.1.304",
     date: "2026-08-20",
     headline: "Removed the bottom media-library strip",

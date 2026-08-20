@@ -7,6 +7,7 @@ import { SortableContext, useSortable, arrayMove, rectSortingStrategy } from "@d
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
 import { createTheme, updateTheme, duplicateTheme, deleteTheme, setDefaultTheme, reorderThemes, extractLogoPalette, exportTheme, importTheme } from "@/lib/actions";
+import { BackgroundSelector } from "@/backgrounds/components/BackgroundSelector";
 import { buildColorwayFromPalette } from "@/lib/colorway";
 import { ThemeImportDialog } from "@/components/library/ThemeImportDialog";
 import { loadContentTypeStyles, saveContentTypeStyles, CONTENT_STYLE_TYPES, type ContentStyleType, type ContentTypeStyles } from "@/lib/content-type-styles";
@@ -238,6 +239,13 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
 
   return (
     <div className={operatorMode ? "space-y-4" : "space-y-6"}>
+      {/* Backgrounds — a NEW section that plugs into the Themes area (it does
+          NOT modify the theme system). Placed at the top so operators find it
+          the moment they open Themes. */}
+      <div className="rounded-lg border border-[var(--color-border)] p-3">
+        <BackgroundSelector />
+      </div>
+
       <div className="flex items-center justify-between gap-3">
         <div className="text-sm text-muted-foreground">
           {operatorMode
