@@ -2218,7 +2218,6 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     const liveTextForGuard = currentLiveSlideRef.current?.kind === "text" ? currentLiveSlideRef.current.text : null;
     const refAlreadyLive = !isDifferentRefLive(liveTextForGuard, scripture.ref);
     if (autoOn && isHighConf && !refAlreadyLive) {
-      const labelSlide: import("@/lib/broadcast").SlidePayload = { kind: "text", text: `\n\n${label}` };
       const fireKey = `ai-instant-${key}`;
       // Anti-replay check before instant-fire (same 3s cooldown as the full path).
       const nowInstant = Date.now();
@@ -2226,18 +2225,27 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       if (typeof lastFired !== "number" || nowInstant - lastFired >= BIBLE_MICRO_COOLDOWN_MS) {
         bibleFiredMapRef.current[fireKey] = nowInstant;
         lastHandledAutoFireSuggestionIdRef.current = scripture.id;
+        // NO REFERENCE-ONLY FLASH + FASTER (2026-08-20, user directive): never
+        // project a bare "Book C:V" placeholder before the verse. If the verse
+        // is ALREADY in the chapter cache, project the FULL verse INSTANTLY
+        // (hard cut) here — zero perceived latency, no ref-only flash. On a
+        // cache miss, leave the current slide up and let the async lookup below
+        // project the full verse the moment it resolves. Either way the audience
+        // only ever sees a complete verse.
         try {
-          // Label-only placeholder is a hard CUT (instant), not a fade: it's the
-          // latency feedback (rule 10) shown until the verse text arrives, and the
-          // fade belongs to the full verse below. Firing both with a fade would
-          // double-animate on the projector (two `set` messages → two fades) and
-          // ghost-flicker on cache hits. Instant here → exactly one fade per verse.
-          sendLiveRef.current(labelSlide, null, { instant: true });
-        } catch { /* safeSendLive wrapper handles errors in the full path */ }
+          const ck = chapterKey(bibleSession.state.translation, scripture.ref.book, scripture.ref.chapter);
+          const cached = getCachedChapter(ck);
+          const cv = cached?.verses.filter((v) => v.verse >= scripture.ref.verseStart && v.verse <= scripture.ref.verseEnd) ?? [];
+          if (cv.length > 0) {
+            const body = cv.map((v) => `${v.verse} ${v.text}`).join(" ");
+            const cachedLabel = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}${scripture.ref.verseStart !== scripture.ref.verseEnd ? `-${scripture.ref.verseEnd}` : ""} (${cached!.translation})`;
+            sendLiveRef.current({ kind: "text", text: `${body}\n\n${cachedLabel}` }, null, { instant: true });
+          }
+        } catch { /* async lookup below still projects the full verse */ }
         // Sync preview
         bibleSession.setRef(refText);
         lastLiveWasSongRef.current = false;
-        console.log(`[latency] instant-fire ref="${refText}" conf=${scripture.confidence} (label-only, lookup pending)`);
+        console.log(`[latency] instant-fire ref="${refText}" conf=${scripture.confidence} (full verse if cached, else lookup pending)`);
       }
     }
     // Step 2: Populate placeholder cards for auto-approve fallback.
@@ -2402,35 +2410,14 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // while a genuinely new reading of the same chapter minutes later still
   // fades. Manual sends and the operator's configured transition are untouched
   // (this guards only the two AI fire chokepoints below).
-  const AI_FADE_WINDOW_MS = 8_000;
-  // Map (not a single slot): with a single {fam, at} slot, two interleaved
-  // cascades (preacher moves to Gen 4 while John 3's Whisper correction is
-  // still in flight) thrash the slot and every fire fades again — the exact
-  // bug. Per-family timestamps survive the interleave. Pruned on each call;
-  // bounded by the handful of families active in any 8s window.
-  const aiFadeAtByFamRef = useRef<Map<string, number>>(new Map());
-  // Family = "book chapter" parsed from the slide's trailing reference label
-  // ("...\n\nJohn 3:16 (KJV)"). Unparseable text → the text itself (unique →
-  // always fades), so non-scripture content is never wrongly suppressed.
-  const aiShouldFade = useCallback((slideText: string): boolean => {
-    const lastLine = slideText.trim().split("\n").pop() ?? "";
-    const m = /^(.+?)\s+(\d+):\d+/.exec(lastLine);
-    const fam = m ? `${m[1].toLowerCase()} ${m[2]}` : slideText;
-    const now = Date.now();
-    const map = aiFadeAtByFamRef.current;
-    for (const [k, t] of map) if (now - t >= AI_FADE_WINDOW_MS) map.delete(k);
-    const fadedAt = map.get(fam);
-    if (typeof fadedAt === "number" && now - fadedAt < AI_FADE_WINDOW_MS) {
-      // Same family re-fired inside the window: suppress the fade. The window
-      // is deliberately measured from the FADE (not refreshed here) so the
-      // forward-continuation verse advance (v16 → v17, the 0.1.131 feature)
-      // regains its fade once 8s have passed — refreshing on every suppressed
-      // re-fire would chain-suppress fades for an entire fast reading.
-      return false;
-    }
-    map.set(fam, now);
-    return true;
-  }, []);
+  // AI-projection transition (2026-08-20, user directive): the operator asked
+  // for AI auto-fires to be an INSTANT HARD CUT — no fade flicker when a spoken
+  // verse lands on the projector. So this always returns false (never fade); the
+  // two AI fire chokepoints below then send with `{ instant: true }`. Manual
+  // sends and the operator's configured transition are unaffected. (The former
+  // per-reference-family "fade once, then hard-cut the cascade" logic is
+  // retired — always-cut supersedes it and removes the split-second dip.)
+  const aiShouldFade = useCallback((_slideText: string): boolean => false, []);
 
   // Part 2 (verse forward-continuation): word-timing tracking buffers, same
   // shape as the song version in SongAutopilotStaging but scoped to Bible

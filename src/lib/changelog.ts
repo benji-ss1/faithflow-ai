@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.276",
+    date: "2026-08-20",
+    headline: "Instant scripture projection + a real Transitions OFF switch",
+    highlights: [
+      "AI-projected verses now hard-cut instantly — no fade flicker when a spoken verse lands.",
+      "Removed the brief \"reference-only\" flash before the verse; the full verse appears directly (instant when the chapter's already loaded).",
+      "The transition picker has an OFF toggle that actually turns off all transitions (instant cut everywhere), and it's remembered.",
+    ],
+  },
+  {
     version: "0.1.275",
     date: "2026-08-20",
     headline: "No more verse re-flash + Load Chapter lands on your verse",

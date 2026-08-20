@@ -44,6 +44,9 @@ export function BottomBar({
 }) {
   const [transitionName, setTransitionName] = useState("Amoeba");
   const [transitionDuration, setTransitionDuration] = useState(0.6);
+  // Master OFF switch — when on, NO transition is ever published (hard cut on
+  // every send) regardless of the selected effect. Persisted with the rest.
+  const [transitionsOff, setTransitionsOff] = useState(false);
 
   useEffect(() => {
     try {
@@ -54,6 +57,7 @@ export function BottomBar({
         // Accept new durationMs or legacy duration (seconds)
         if (typeof p.durationMs === "number") setTransitionDuration(p.durationMs / 1000);
         else if (typeof p.duration === "number") setTransitionDuration(p.duration);
+        if (typeof p.off === "boolean") setTransitionsOff(p.off);
       }
     } catch { /* noop */ }
   }, []);
@@ -63,7 +67,7 @@ export function BottomBar({
   useEffect(() => {
     const durationMs = Math.max(0, Math.min(5000, Math.round(transitionDuration * 1000)));
     try {
-      window.localStorage.setItem(TRANSITION_KEY, JSON.stringify({ name: transitionName, durationMs }));
+      window.localStorage.setItem(TRANSITION_KEY, JSON.stringify({ name: transitionName, durationMs, off: transitionsOff }));
     } catch { /* noop */ }
     // Push into the live TransitionSpec so the OutputState effect picks it up.
     // ctxRef avoids re-running this on every OperatorConsole re-render (would cause infinite loop).
@@ -72,6 +76,8 @@ export function BottomBar({
     // "no animation" (Cut) — pass null so TransitionWrapper renders
     // children with no animation instead of a bogus effect.
     try {
+      // Master OFF → always publish null (no transition anywhere).
+      if (transitionsOff) { ctxRef.current.onSetTransitionSpec?.(null); return; }
       const effectId = TRANSITION_NAME_TO_EFFECT_ID[transitionName];
       if (effectId === null) {
         ctxRef.current.onSetTransitionSpec?.(null);
@@ -79,7 +85,7 @@ export function BottomBar({
         ctxRef.current.onSetTransitionSpec?.({ effectId, durationMs, easing: "ease-in-out", name: transitionName });
       }
     } catch { /* noop */ }
-  }, [transitionName, transitionDuration]);
+  }, [transitionName, transitionDuration, transitionsOff]);
 
   const item = ctx.plan.items[ctx.previewItemIdx];
   const hasPrev = ctx.previewSlideIdx > 0;
@@ -187,7 +193,9 @@ export function BottomBar({
         <TransitionChooser
           transitionName={transitionName}
           transitionDuration={transitionDuration}
-          onSelect={(name) => setTransitionName(name)}
+          transitionsOff={transitionsOff}
+          onToggleOff={setTransitionsOff}
+          onSelect={(name) => { setTransitionName(name); setTransitionsOff(false); }}
           onDurationChange={(d) => setTransitionDuration(d)}
         />
         <input

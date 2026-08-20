@@ -50,10 +50,12 @@ function useFavorites(): [Set<string>, (name: string) => void] {
 }
 
 export function TransitionChooser({
-  transitionName, transitionDuration, onSelect, onDurationChange,
+  transitionName, transitionDuration, transitionsOff = false, onToggleOff, onSelect, onDurationChange,
 }: {
   transitionName: string;
   transitionDuration: number;
+  transitionsOff?: boolean;
+  onToggleOff?: (off: boolean) => void;
   onSelect: (name: string) => void;
   onDurationChange: (d: number) => void;
 }) {
@@ -73,8 +75,8 @@ export function TransitionChooser({
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
-        <button className="font-mono hover:text-[var(--color-foreground)]" title={`Transition: ${transitionName}, ${transitionDuration.toFixed(1)}s`}>
-          {transitionName}
+        <button className="font-mono hover:text-[var(--color-foreground)]" title={transitionsOff ? "Transitions are OFF (instant cut)" : `Transition: ${transitionName}, ${transitionDuration.toFixed(1)}s`}>
+          {transitionsOff ? "Off" : transitionName}
         </button>
       </Popover.Trigger>
       <Popover.Portal>
@@ -102,20 +104,36 @@ export function TransitionChooser({
                 ))}
               </Tabs.List>
             </Tabs.Root>
-            <div className="relative flex-1 max-w-[190px]">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--color-muted-foreground)]" />
-              <input
-                type="text"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                placeholder="Search transitions"
-                className="w-full h-8 pl-8 pr-2 rounded-lg border border-white/[0.08] bg-black/30 text-[12px] outline-none focus:border-[var(--color-brand)]/60"
-              />
+            <div className="flex items-center gap-2">
+              {/* Master OFF toggle — disables ALL transitions (instant hard cut
+                  on every send) regardless of the selected effect. */}
+              <button
+                type="button"
+                onClick={() => onToggleOff?.(!transitionsOff)}
+                title={transitionsOff ? "Transitions are OFF — click to turn on" : "Turn transitions OFF (instant cut)"}
+                className={`h-8 px-3 rounded-full text-[11px] font-semibold uppercase tracking-wide border transition-colors ${
+                  transitionsOff
+                    ? "bg-[var(--color-brand)] text-black border-[var(--color-brand)]"
+                    : "border-white/[0.12] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:border-white/25"
+                }`}
+              >
+                {transitionsOff ? "Off ✓" : "Off"}
+              </button>
+              <div className="relative w-[150px]">
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--color-muted-foreground)]" />
+                <input
+                  type="text"
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  placeholder="Search"
+                  className="w-full h-8 pl-8 pr-2 rounded-lg border border-white/[0.08] bg-black/30 text-[12px] outline-none focus:border-[var(--color-brand)]/60"
+                />
+              </div>
             </div>
           </div>
 
-          {/* Grid */}
-          <div className="px-4 py-3">
+          {/* Grid (dimmed + non-interactive while transitions are OFF) */}
+          <div className={`px-4 py-3 transition-opacity ${transitionsOff ? "opacity-40 pointer-events-none" : ""}`}>
             {filtered.length === 0 ? (
               <div className="text-[var(--color-muted-foreground)] text-center py-8 text-[11px]">
                 {tab === "favs"
@@ -138,10 +156,10 @@ export function TransitionChooser({
             )}
           </div>
 
-          {/* Duration */}
-          <div className="px-4 pt-2.5 pb-4 border-t border-white/[0.06]">
+          {/* Duration (or OFF banner) */}
+          <div className={`px-4 pt-2.5 pb-4 border-t border-white/[0.06] ${transitionsOff ? "opacity-40 pointer-events-none" : ""}`}>
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--color-muted-foreground)]">Duration</span>
+              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--color-muted-foreground)]">{transitionsOff ? "Transitions off — instant cut" : "Duration"}</span>
               <span className="text-[12px] font-mono font-bold tabular-nums text-[var(--color-brand)]">{transitionDuration.toFixed(1)}s</span>
             </div>
             <input
