@@ -25,6 +25,8 @@ export interface PFBackground {
   type: BackgroundType;
   isBuiltIn: boolean;
   category: BackgroundCategory;
+  /** S3 key for a custom upload — used to re-mint a fresh URL when the presign expires. */
+  mediaKey?: string;
 
   // Shared overlay (readability tint on top of the background)
   overlayColor?: string;

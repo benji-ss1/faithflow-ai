@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.307",
+    date: "2026-08-20",
+    headline: "Upload your own image & video backgrounds",
+    highlights: [
+      "In Themes \u2192 Backgrounds you can now upload your own images and video loops as backgrounds \u2014 they project behind the text just like the built-in templates.",
+      "Tune each: image blur + fit, video playback speed, and a readability overlay. Uploaded backgrounds show as thumbnails you can delete, and stay valid across services.",
+    ],
+  },
+  {
     version: "0.1.306",
     date: "2026-08-20",
     headline: "Reference size now goes up to 400%",

@@ -83,7 +83,7 @@ export function withSettings(bg: PFBackground): PFBackground {
 
 export function readActiveBackground(): PFBackground {
   const id = readActiveBackgroundId();
-  return withSettings(findBuiltIn(id) ?? NONE_BACKGROUND);
+  return withSettings(findAny(id) ?? NONE_BACKGROUND);
 }
 
 export function setActiveBackgroundId(id: string): void {
@@ -101,7 +101,52 @@ export function setActiveBackgroundId(id: string): void {
   }
 }
 
+// ── Custom uploads (Phase 3/5) ───────────────────────────────────────────────
+// The operator's own image/video backgrounds. Stored as full PFBackground entries
+// (with an https imageUrl/videoUrl from the media upload flow) so the projector
+// window can load them.
+const CUSTOM_KEY = "presentflow.backgrounds.custom.v1";
+
+export function readCustomBackgrounds(): PFBackground[] {
+  if (!isBrowser()) return [];
+  try {
+    const raw = localStorage.getItem(CUSTOM_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? (parsed as PFBackground[]).filter((b) => b && typeof b.id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export function addCustomBackground(bg: PFBackground): void {
+  if (!isBrowser()) return;
+  try {
+    const all = readCustomBackgrounds().filter((b) => b.id !== bg.id);
+    all.unshift(bg);
+    localStorage.setItem(CUSTOM_KEY, JSON.stringify(all.slice(0, 60)));
+  } catch {
+    /* ignore */
+  }
+  try { window.dispatchEvent(new CustomEvent(BACKGROUND_CHANGED_EVENT, { detail: { id: bg.id } })); } catch { /* ignore */ }
+}
+
+export function removeCustomBackground(id: string): void {
+  if (!isBrowser()) return;
+  try {
+    const all = readCustomBackgrounds().filter((b) => b.id !== id);
+    localStorage.setItem(CUSTOM_KEY, JSON.stringify(all));
+    // If the deleted one was active, fall back to None.
+    if (readActiveBackgroundId() === id) setActiveBackgroundId("none");
+  } catch {
+    /* ignore */
+  }
+  try { window.dispatchEvent(new CustomEvent(BACKGROUND_CHANGED_EVENT, { detail: { id } })); } catch { /* ignore */ }
+}
+
+function findAny(id: string): PFBackground | undefined {
+  return findBuiltIn(id) ?? readCustomBackgrounds().find((b) => b.id === id);
+}
+
 export function listBackgrounds(): PFBackground[] {
-  // Built-ins for now; custom uploads (Phase 3/5) will be merged here.
-  return BUILT_IN_BACKGROUNDS;
+  return [...BUILT_IN_BACKGROUNDS, ...readCustomBackgrounds()];
 }
