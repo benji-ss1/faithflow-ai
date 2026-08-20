@@ -126,27 +126,27 @@ export async function sendBetaApplicationNotification(app: BetaApplication) {
     .map(({ question, answer }) => `${question}\n  ${answer}`)
     .join("\n\n")}\n`;
 
+  // Deliberately PLAIN, transactional HTML — a lightweight table, system font,
+  // no dark hero / monospace-uppercase / box-shadow "marketing" styling. Heavy
+  // promo-looking HTML from a no-reply address is a common spam-filter trigger
+  // for an INTERNAL notification (this one landed in Gmail Spam once). The
+  // applicant-facing confirmation keeps its branded look; this internal one
+  // optimises for the inbox, not the eye. Real deliverability still comes from
+  // DKIM/DMARC on presentflow.org — see the ops note in apply.ts.
   const rowsHtml = rows
     .map(
       ({ question, answer }) => `
-        <tr><td style="padding:16px 28px;border-bottom:1px solid #efe9df;">
-          <div style="font:600 11px/1.4 ui-monospace,Menlo,monospace;letter-spacing:.13em;text-transform:uppercase;color:#b0672a;">${escapeHtml(question)}</div>
-          <div style="margin-top:6px;font:400 15px/1.55 -apple-system,'Segoe UI',Roboto,sans-serif;color:#1a140f;">${escapeHtml(answer).replace(/\n/g, "<br>")}</div>
-        </td></tr>`,
+        <tr>
+          <td style="padding:6px 12px 6px 0;color:#555;font-size:13px;vertical-align:top;white-space:nowrap;">${escapeHtml(question)}</td>
+          <td style="padding:6px 0;color:#111;font-size:14px;">${escapeHtml(answer).replace(/\n/g, "<br>")}</td>
+        </tr>`,
     )
     .join("");
 
-  const html = `<!doctype html><html><body style="margin:0;background:#f2ede4;padding:26px 12px;font-family:-apple-system,'Segoe UI',Roboto,sans-serif;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
-      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 10px 44px rgba(26,10,20,.12);">
-        <tr><td style="background:#14090f;padding:26px 28px;">
-          <div style="font:700 21px/1 -apple-system,'Segoe UI',sans-serif;color:#f4efe6;letter-spacing:-.01em;">Present<span style="color:#ff7a2c;">Flow</span></div>
-          <div style="margin-top:9px;font:600 12px/1.4 ui-monospace,Menlo,monospace;letter-spacing:.16em;text-transform:uppercase;color:#c69a6a;">New beta application</div>
-        </td></tr>
-        ${rowsHtml}
-        <tr><td style="padding:18px 28px;background:#faf6ef;font:400 12px/1.5 ui-monospace,Menlo,monospace;color:#8a7f70;">Sent from presentflow.org — reply directly to the applicant to follow up.</td></tr>
-      </table>
-    </td></tr></table>
+  const html = `<!doctype html><html><body style="margin:0;padding:16px;font-family:Arial,Helvetica,sans-serif;color:#111;">
+    <p style="margin:0 0 4px;font-size:16px;font-weight:bold;">New PresentFlow beta application</p>
+    <p style="margin:0 0 14px;font-size:13px;color:#555;">Reply to this email to reach the applicant directly.</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">${rowsHtml}</table>
   </body></html>`;
 
   const church = (app.churchName || "").replace(/^church name:\s*/i, "").split("·")[0].trim();
