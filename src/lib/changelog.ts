@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.294",
+    date: "2026-08-20",
+    headline: "Mic Board now works for pro USB mixers (native capture)",
+    highlights: [
+      "The Mic Board is now available in native capture mode too — for the big USB mixers (X32, XR18, Allen & Heath SQ) that need the desktop app's direct capture.",
+      "See live levels for every channel, label each mic, and set the Lead the AI listens to. (Per-mic mute/gain for native mixers is coming in a follow-up.)",
+    ],
+  },
+  {
     version: "0.1.293",
     date: "2026-08-20",
     headline: "The scripture reference always shows on the projector again",

@@ -48,6 +48,7 @@ import {
 } from "@/lib/audio/deviceChannelPrefs";
 import { findGuideForDevice } from "@/lib/audio/mixerSetupGuides";
 import { MicBoardModal } from "./MicBoardModal";
+import { NativeMicBoardModal } from "./NativeMicBoardModal";
 // Custom vocabulary quick-add (2026-07-27) — Deepgram keyterm boosting for
 // names/song titles the AI keeps mishearing. Full management in Settings.
 import { addVocabularyTerm, MAX_VOCABULARY_TERMS, readVocabulary, VOCABULARY_CHANGED_EVENT } from "@/lib/audio/customVocabulary";
@@ -185,6 +186,7 @@ export function AudioTab() {
   const [guideOpen, setGuideOpen] = useState(false);
   const [autoDetectOpen, setAutoDetectOpen] = useState(false);
   const [micBoardOpen, setMicBoardOpen] = useState(false);
+  const [nativeMicBoardOpen, setNativeMicBoardOpen] = useState(false);
 
   // Refs for the multi-channel capture & polling — refs (not state) so we
   // don't churn renders on capture handle changes.
@@ -698,7 +700,10 @@ export function AudioTab() {
       : undefined);
     const nb = nativeApi?.audio?.native;
     const chCount = nativeSelected?.channelCount ?? 0;
-    const shouldProbe = effectiveMode === "native" && pickerOpen && !!nativeSelected && chCount > 1 && !!nb;
+    // Stand down while the native Mic Board is open — it runs its OWN probe on
+    // the same single-ffmpeg backend, and two startChannelProbe calls would
+    // fight over it.
+    const shouldProbe = effectiveMode === "native" && pickerOpen && !!nativeSelected && chCount > 1 && !!nb && !nativeMicBoardOpen;
     // AudioTab is mounted TWICE (left HardwarePanel + right popover). Only
     // the instance that actually STARTED the probe may stop it — otherwise
     // the idle instance's unconditional stopChannelProbe() kills the active
@@ -738,7 +743,7 @@ export function AudioTab() {
         try { void nb?.stopChannelProbe?.(); } catch {}
       }
     };
-  }, [effectiveMode, pickerOpen, nativeSelected?.index, nativeSelected?.channelCount]);
+  }, [effectiveMode, pickerOpen, nativeSelected?.index, nativeSelected?.channelCount, nativeMicBoardOpen]);
 
   function persistSelection(sel: AudioInputSel) {
     setSelected(sel);
@@ -1029,15 +1034,25 @@ export function AudioTab() {
                 <div className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)]">
                   Channels · {nativeSelected.channelCount}ch
                 </div>
-                <button
-                  onClick={() => void runNativeAutoDetect()}
-                  disabled={detectState === "running"}
-                  className="h-6 px-2 rounded text-[10px] font-semibold text-white inline-flex items-center gap-1 disabled:opacity-60"
-                  style={{ background: "#f97316" }}
-                  title="Listen for 10s and suggest the channel carrying the vocal"
-                >
-                  <Wand2 className="w-3 h-3" /> Auto-detect vocal channel
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setNativeMicBoardOpen(true)}
+                    className="h-6 px-2 rounded text-[10px] font-semibold inline-flex items-center gap-1"
+                    style={{ background: "var(--color-brand)", color: "var(--color-primary-foreground)" }}
+                    title="Open the mic board — label every mic, see live levels, set the lead"
+                  >
+                    <Sliders className="w-3 h-3" /> Mic Board
+                  </button>
+                  <button
+                    onClick={() => void runNativeAutoDetect()}
+                    disabled={detectState === "running"}
+                    className="h-6 px-2 rounded text-[10px] font-semibold inline-flex items-center gap-1 disabled:opacity-60"
+                    style={{ background: "var(--color-elevated)", color: "var(--color-foreground)", border: "1px solid var(--color-border)" }}
+                    title="Listen for 10s and suggest the channel carrying the vocal"
+                  >
+                    <Wand2 className="w-3 h-3" /> Auto-detect
+                  </button>
+                </div>
               </div>
               <div className="text-[10px] text-[var(--color-muted-foreground)] px-1">
                 {nativeGridMode === "mono" && nativeSelectedChannels.length === 1
@@ -1489,6 +1504,16 @@ export function AudioTab() {
           deviceId={selected.id}
           deviceLabel={selected.label}
           channelCount={channelCount}
+        />
+      )}
+
+      {nativeSelected && (
+        <NativeMicBoardModal
+          open={nativeMicBoardOpen}
+          onClose={() => setNativeMicBoardOpen(false)}
+          deviceIndex={nativeSelected.index}
+          deviceName={nativeSelected.name}
+          channelCount={nativeSelected.channelCount ?? 2}
         />
       )}
 

@@ -45,6 +45,9 @@ export type NativeDevicePref = {
    *  the cache with a direct localStorage write (no event, to avoid a
    *  restart loop). */
   followSystemDefault?: boolean;
+  /** Mic Board per-channel labels (e.g. {0:"Pastor",2:"Keys"}). Display-only —
+   *  never affects routing, so it's written SILENTLY (no restart event). */
+  channelLabels?: Record<number, string>;
 };
 
 function isBrowserEnv(): boolean {
@@ -81,6 +84,18 @@ export function writeNativeDevicePref(pref: NativeDevicePref): void {
   } catch { /* ignore */ }
   try {
     window.dispatchEvent(new CustomEvent(NATIVE_AUDIO_INPUT_CHANGED_EVENT, { detail: pref }));
+  } catch { /* ignore */ }
+}
+
+/**
+ * Persist a native pref WITHOUT firing the change event — used for display-only
+ * fields (e.g. Mic Board channel labels) that must not restart the live ffmpeg
+ * capture. Mirrors the "follow system default" cache-refresh pattern.
+ */
+export function writeNativeDevicePrefSilent(pref: NativeDevicePref): void {
+  if (!isBrowserEnv()) return;
+  try {
+    localStorage.setItem(NATIVE_AUDIO_INPUT_KEY, JSON.stringify(pref));
   } catch { /* ignore */ }
 }
 
