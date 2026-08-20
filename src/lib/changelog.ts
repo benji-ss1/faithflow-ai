@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.285",
+    date: "2026-08-20",
+    headline: "Context-aware voice nav + AI toggle confirmation",
+    highlights: [
+      "\"Next verse\" / \"go back\" / \"continue\" now only fire as real terse commands \u2014 not when the preacher says them in a sentence or reads them inside a verse.",
+      "The AI on/off toggle now shows a confirmation, and (with the earlier fix) reliably switches in every mode.",
+    ],
+  },
+  {
     version: "0.1.284",
     date: "2026-08-20",
     headline: "AI on/off toggle now works reliably in every mode",

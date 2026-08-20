@@ -1592,8 +1592,13 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     onListenToggle: () => {
       // Persist the operator's ON/OFF intent so the next app load resumes
       // listening automatically (2026-07-25 Bug-3 auto-start above).
-      try { window.localStorage.setItem(AI_LISTEN_INTENT_KEY, audio.listening ? "0" : "1"); } catch { /* noop */ }
-      if (audio.listening) stopAudio(); else startAudio();
+      const turningOn = !audio.listening;
+      try { window.localStorage.setItem(AI_LISTEN_INTENT_KEY, turningOn ? "1" : "0"); } catch { /* noop */ }
+      if (turningOn) startAudio(); else stopAudio();
+      // Confirmation so the operator knows the click registered (the pill also
+      // flips colour). No autopilot-mode gate can undo this now — the AI
+      // listener is purely intent-driven (stale manual-mode force-off removed).
+      toast(turningOn ? "AI listening ON" : "AI listening OFF", { duration: 1400, icon: turningOn ? "🎙️" : "🔇" });
     },
     onResumeAudio: resumeAudio,
     onRestartAudio: restartAudio,

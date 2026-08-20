@@ -2996,6 +2996,22 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // Enforce a floor here so a low-confidence pattern can't silently act
     // as if it were a confirmed command.
     if (cmd.confidence < 70) return;
+    // CONTEXT AWARENESS (2026-08-20 user directive): "go back" / "continue" /
+    // "next verse" also occur in ordinary preaching AND inside the verses being
+    // read aloud. Only act when it's a genuine, terse COMMAND — never on
+    // incidental speech or scripture. Two guards:
+    const utterance = last.text.trim();
+    const matched = (cmd.matchedText ?? "").toLowerCase().trim();
+    //  (1) READING guard — if the matched phrase is part of the verse currently
+    //      on the projector, the preacher is READING it, not commanding. Skip.
+    const liveText = (ctx.liveSlide?.kind === "text" ? ctx.liveSlide.text : "").toLowerCase();
+    if (matched && liveText.includes(matched)) return;
+    //  (2) STANDALONE guard — a real command is terse ("next verse", "go back",
+    //      "go to the next verse"), not buried in a sentence ("we're gonna see
+    //      this in the next verse", "go back to what I said earlier"). Require a
+    //      short utterance so a phrase embedded in narration never fires.
+    const wordCount = utterance.split(/\s+/).filter(Boolean).length;
+    if (wordCount > 5) return;
     // EXPLICIT spoken navigation ("next verse", "go back", "continue") is a
     // direct operator command — it must project immediately. Unlike the
     // AUTO word-match / silence paths, it deliberately BYPASSES the 4s manual
