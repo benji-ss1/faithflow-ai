@@ -1,6 +1,7 @@
 "use client";
 import { X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
+import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import type { OperatorShellCtx } from "../../shell/types";
 import { CopyConfirm } from "../CopyConfirm";

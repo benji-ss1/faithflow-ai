@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
+import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
 import { openLiveChannel, type LiveChannelLike, isValidLiveMessage, slideOutputIdentity, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance } from "@/lib/broadcast";
