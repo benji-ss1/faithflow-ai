@@ -126,6 +126,19 @@ const PATTERNS: { verb: ContextVerb; re: RegExp; confidence: number; capture?: (
     const n = spokenToNumber(m[1]);
     return n === null || n < 1 ? null : { verseNumber: n };
   } },
+  // "go to verse 17", "go back to verse seven", "go back to seven" — absolute
+  // jump to a verse NUMBER. Placed BEFORE the "go back" prev-verse pattern so a
+  // numbered "go back to N" jumps to N rather than stepping one verse back. The
+  // capture returns null for non-numeric tails ("go back to the Lord"), so the
+  // pattern harmlessly falls through to the plain "go back" step in that case.
+  { verb: "goto_bible_verse", re: /\bgo\s+(?:back\s+|forward\s+)?to\s+verse\s+([a-z0-9\-]+)\b/i, confidence: 86, capture: (m) => {
+    const n = spokenToNumber(m[1]);
+    return n === null || n < 1 ? null : { verseNumber: n };
+  } },
+  { verb: "goto_bible_verse", re: /\bgo\s+back\s+to\s+([a-z0-9\-]+)\b/i, confidence: 80, capture: (m) => {
+    const n = spokenToNumber(m[1]);
+    return n === null || n < 1 ? null : { verseNumber: n };
+  } },
 
   // "continue" — genuinely means "keep going forward through the passage,"
   // functionally identical to next_verse for this app's purposes (both

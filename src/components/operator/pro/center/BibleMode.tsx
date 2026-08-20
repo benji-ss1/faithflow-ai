@@ -1003,6 +1003,18 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
               <div className="absolute top-1 left-1 text-[10px] font-mono text-white/70 bg-black/40 px-1 rounded">
                 {idx + 1}
               </div>
+              {/* Always-visible reference chip. The reference is also inside the
+                  slide text (refFormat "each"), but on this small card AutoFitText
+                  paginates it off page 1 — so the operator lost sight of which
+                  verse a card is (field report 2026-08-20). This chip guarantees
+                  "John 3:24 (KJV)" is always readable regardless of pagination. */}
+              {c.label && !c.invalid && (
+                <div className="absolute bottom-1 inset-x-1 flex justify-center pointer-events-none">
+                  <span className="max-w-full truncate text-[10px] font-semibold text-white bg-black/60 px-1.5 py-0.5 rounded">
+                    {c.label}
+                  </span>
+                </div>
+              )}
               <button
                 type="button"
                 aria-label={`Add ${c.label} to playlist`}

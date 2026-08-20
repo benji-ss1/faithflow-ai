@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.291",
+    date: "2026-08-20",
+    headline: "Verse cards show their reference again, smarter voice nav",
+    highlights: [
+      "Every Bible card now shows its reference (e.g. \"John 3:24 (KJV)\") on a always-visible chip — it no longer gets hidden when a long verse wraps.",
+      "Voice: \"go to verse 17\" / \"go back to seven\" now jump straight to that verse number.",
+      "When a spoken command is plausible but not certain, you now get a one-tap \"Did they say…?\" confirmation instead of it firing or being ignored.",
+    ],
+  },
+  {
     version: "0.1.290",
     date: "2026-08-20",
     headline: "Spoken \"next verse\" / \"go back\" respond faster",

@@ -3051,9 +3051,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     if (!cmd) return;
     // parseContextCommand's own `confidence` field isn't gated anywhere
     // upstream — it returns the first pattern match regardless of score.
-    // Enforce a floor here so a low-confidence pattern can't silently act
-    // as if it were a confirmed command.
-    if (cmd.confidence < 70) return;
+    // Below CONFIRM_FLOOR we drop entirely; CONFIRM_FLOOR..70 offers a one-tap
+    // confirmation toast (handled after the guards); >=70 fires immediately.
+    const NAV_CONFIRM_FLOOR = 55;
+    if (cmd.confidence < NAV_CONFIRM_FLOOR) return;
     // CONTEXT AWARENESS (2026-08-20 user directive): "go back" / "continue" /
     // "next verse" also occur in ordinary preaching AND inside the verses being
     // read aloud. Only act when it's a genuine, terse COMMAND — never on
@@ -3070,6 +3071,34 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     //      short utterance so a phrase embedded in narration never fires.
     const wordCount = utterance.split(/\s+/).filter(Boolean).length;
     if (wordCount > 5) return;
+    // CONFIDENCE-GATED CONFIRMATION (2026-08-20 field directive): when the
+    // command is plausible but not certain (CONFIRM_FLOOR..69) — e.g. "go on",
+    // "moving on" — don't silently act OR silently drop. Surface a one-tap
+    // confirmation toast so the operator decides. processedVoiceSegmentsRef has
+    // already deduped this segment, so the toast shows at most once per phrase.
+    // High confidence (>=70) skips this and fires instantly below.
+    if (cmd.confidence < 70) {
+      const dir =
+        cmd.verb === "prev_verse" || cmd.verb === "back" ? "prev"
+        : cmd.verb === "next_verse" || cmd.verb === "continue" ? "next"
+        : null;
+      if (dir && !isNavEcho(dir === "next" ? "next_verse" : "prev_verse")) {
+        toast.info(`Did they say "${cmd.matchedText}"?`, {
+          description: `Tap to go ${dir === "next" ? "to the next verse" : "back a verse"}`,
+          action: {
+            label: dir === "next" ? "Next verse" : "Back",
+            onClick: () => {
+              dispatchInternal(dir === "next" ? "presentflow:bible-next" : "presentflow:bible-prev", { live: true });
+              recordNavFire(dir === "next" ? "next_verse" : "prev_verse");
+              bibleLastAdvanceTsRef.current = Date.now();
+              bibleMatchStreakRef.current = 0;
+            },
+          },
+          duration: 6000,
+        });
+      }
+      return;
+    }
     // EXPLICIT spoken navigation ("next verse", "go back", "continue") is a
     // direct operator command — it must project immediately. Unlike the
     // AUTO word-match / silence paths, it deliberately BYPASSES the 4s manual
