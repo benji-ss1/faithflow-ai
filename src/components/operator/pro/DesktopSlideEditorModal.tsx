@@ -14,6 +14,7 @@ import { MediaLibraryPicker } from "@/components/library/MediaLibraryPicker";
 import { SLIDE_TEMPLATES } from "@/lib/slide-templates";
 import { saveSlideObjects, createSongSlide, deleteSongSlide, reorderSongSlides } from "@/lib/actions";
 import type { SlideObject, TextObject, ShapeObject, ImageObject, VideoObject, ObjectAnim } from "@/lib/slide-objects";
+import { projectableTextSlide } from "@/lib/broadcast";
 import { CANVAS_W, CANVAS_H, newObjectId } from "@/lib/slide-objects";
 import { loadCustomTemplates, saveCustomTemplate, deleteCustomTemplate, type CustomTemplate } from "@/lib/custom-templates";
 import { cn } from "@/lib/utils";
@@ -117,15 +118,29 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
     }
   }, [editor, songId, item, targetSong, router]);
 
+  // "Show" projects the CURRENT in-editor slide to the live projector — the ONLY
+  // way edits reach the output (nothing auto-projects while editing). Fix
+  // (2026-08-20 field video): the old handler sent { kind:"text", text: lyrics },
+  // discarding the slide's objects + background, so a designed slide projected
+  // BLANK. It now builds the full projectable payload (text + bgColor +
+  // bgImageUrl + objects) via projectableTextSlide — the same converter the
+  // server plan-loader uses — so exactly what's on the edit canvas is what the
+  // projector shows. Works for both the song-library target and playlist items.
   const onShow = useCallback(() => {
-    if (targetSong) {
-      const cur = editor.slides[editor.currentIndex];
-      if (cur) ctx.onSendSlideToLive({ kind: "text", text: cur.lyrics ?? "" });
+    const cur = editor.slides[editor.currentIndex];
+    if (cur) {
+      const textFromObjects = cur.objects
+        .filter((o): o is TextObject => o.kind === "text")
+        .map((o) => o.text)
+        .filter(Boolean)
+        .join("\n");
+      const text = textFromObjects || cur.lyrics || "";
+      ctx.onSendSlideToLive(projectableTextSlide(text, cur.bgColor, cur.bgImageUrl, cur.objects));
       return;
     }
-    if (!item) return;
-    ctx.onJumpSlide(ctx.previewItemIdx, editor.currentIndex);
-  }, [editor, ctx, item, targetSong]);
+    // Fallback (no in-editor slide): jump the live output to the saved slide.
+    if (item) ctx.onJumpSlide(ctx.previewItemIdx, editor.currentIndex);
+  }, [editor, ctx, item]);
 
   // Open on the slide the operator double-clicked (playlist mode); target song
   // opens at the top.

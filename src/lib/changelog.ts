@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.277",
+    date: "2026-08-20",
+    headline: "The editor's Show button now actually projects your edits",
+    highlights: [
+      "In the slide editor, pressing Show now projects exactly what's on the canvas — text, background and design — to the projector.",
+      "Edits never go live on their own; they only appear on the projector when you press Show.",
+    ],
+  },
+  {
     version: "0.1.276",
     date: "2026-08-20",
     headline: "Instant scripture projection + a real Transitions OFF switch",
