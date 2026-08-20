@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.288",
+    date: "2026-08-20",
+    headline: "The AI listening switch now turns on and off reliably",
+    highlights: [
+      "Fixed the AI on/off toggle doing nothing when clicked — its click was being swallowed by the tooltip wrapper. It now flips every time, and the choice sticks across reloads.",
+    ],
+  },
+  {
     version: "0.1.287",
     date: "2026-08-20",
     headline: "Catches verses even with a stutter or hesitation",

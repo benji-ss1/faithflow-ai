@@ -24,17 +24,26 @@ export const SwitchMode = forwardRef<HTMLButtonElement, {
 } & React.ButtonHTMLAttributes<HTMLButtonElement>>(function SwitchMode({
   checked, onChange, onLabel, offLabel,
   onColor = "var(--color-brand)", offColor = "var(--color-muted-foreground)",
-  width = 90, title, ariaLabel, className, ...rest
+  width = 90, title, ariaLabel, className, onClick: injectedOnClick, ...rest
 }, ref) {
   const KNOB = 20;
   const PAD = 3;
+  // When used as a Radix `asChild` trigger (tooltip/popover), Radix injects its
+  // own onClick (e.g. tooltip-close) via props. Compose it with our onChange so
+  // BOTH run — never let the spread override the toggle. Pulling `onClick` out of
+  // `rest` above is what makes this safe: `{...rest}` below can no longer clobber
+  // the handler. (This was the AI-listening toggle's dead-click bug — the AUTO
+  // switch worked only because it wasn't tooltip-wrapped.)
+  const handleClick: React.MouseEventHandler<HTMLButtonElement> = (e) => {
+    injectedOnClick?.(e);
+    onChange();
+  };
   return (
     <button
       ref={ref}
       type="button"
       role="switch"
       aria-checked={checked}
-      onClick={onChange}
       title={title}
       aria-label={ariaLabel ?? (checked ? onLabel : offLabel)}
       className={cn(
@@ -49,6 +58,7 @@ export const SwitchMode = forwardRef<HTMLButtonElement, {
         borderColor: checked ? onColor : `color-mix(in oklab, ${offColor} 55%, transparent)`,
       }}
       {...rest}
+      onClick={handleClick}
     >
       {/* label — opposite the knob */}
       <span
