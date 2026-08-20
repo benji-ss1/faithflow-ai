@@ -57,11 +57,11 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, projecto
         {slide.kind !== "empty" && (
           isOverlayKind ? (
             <div className={containerClass}>
-              <SlideRenderer slide={slide} overVideo projectorFit={projectorFit} fontScale={fontScale} appearance={appearance} />
+              <SlideRenderer slide={slide} overVideo projectorFit={projectorFit} fontScale={fontScale} appearance={appearance} disablePagination />
             </div>
           ) : (
             <div className="absolute inset-0">
-              <SlideRenderer slide={slide} projectorFit={projectorFit} fontScale={fontScale} appearance={appearance} />
+              <SlideRenderer slide={slide} projectorFit={projectorFit} fontScale={fontScale} appearance={appearance} disablePagination />
             </div>
           )
         )}
@@ -76,6 +76,11 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, projecto
       appearance={appearance}
       videoMuted={videoMuted}
       onVideoRef={onVideoRef}
+      // The live projector window can't be paged (no operator focus/arrows), so
+      // a paginated long verse would strand its tail AND its reference on an
+      // unreachable page 2. Fit the whole verse + reference on one screen instead
+      // (field report 2026-08-20: "where is the Bible scripture reference gone").
+      disablePagination
     />
   );
 }

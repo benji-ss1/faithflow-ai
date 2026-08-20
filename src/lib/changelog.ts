@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.293",
+    date: "2026-08-20",
+    headline: "The scripture reference always shows on the projector again",
+    highlights: [
+      "Long verses were being split across pages on the projector — and since the projector can't be paged, the end of the verse and its reference (e.g. \"Genesis 4:22 (KJV)\") were stranded off-screen. Live outputs now fit the whole verse and reference on one screen.",
+    ],
+  },
+  {
     version: "0.1.292",
     date: "2026-08-20",
     headline: "New Mic Board — see every mic, pick the one the AI listens to",
