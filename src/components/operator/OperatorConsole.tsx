@@ -663,11 +663,15 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     hydratePublicDomainBibleInBackground(() => listeningRef.current);
   }, [audio.listening]);
 
-  // In "manual" mode we force the audio stream off — no suggestions at all.
-  useEffect(() => {
-    if (autopilotMode === "manual" && audio.listening) stopAudio();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autopilotMode, audio.listening]);
+  // (REMOVED 2026-08-20) A stale effect here used to force-stop the audio stream
+  // whenever autopilotMode === "manual". It contradicted the 2026-08-14
+  // decoupling (AI listening is INDEPENDENT of AUTO/MANUAL — manual only gates
+  // auto-PROJECTION, not the mic) and made the AI on/off toggle unusable in
+  // manual mode: clicking ON flipped `listening:true`, which re-ran this effect
+  // and immediately stopped it, so the pill blinked ON→OFF and the operator
+  // "couldn't turn AI on at will". Manual mode already gates auto-projection via
+  // `autoApprove.enabled = autopilotMode === "active"` below, so no stream
+  // teardown is needed. The AI toggle is now purely intent-driven.
 
   // 2026-07-25 Bug-3: resume listening on load if AI was ON when the operator
   // last used the console (intent persisted in onListenToggle below). The

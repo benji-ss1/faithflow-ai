@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.284",
+    date: "2026-08-20",
+    headline: "AI on/off toggle now works reliably in every mode",
+    highlights: [
+      "Fixed the AI toggle blinking on then straight back off in Manual mode \u2014 you can now switch AI on and off at will, in any autopilot mode.",
+    ],
+  },
+  {
     version: "0.1.283",
     date: "2026-08-20",
     headline: "The verse transition now plays exactly once \u2014 never repeats",
