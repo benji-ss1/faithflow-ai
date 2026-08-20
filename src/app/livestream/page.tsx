@@ -4,6 +4,7 @@ import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, type LiveChannelLike, isValidLiveMessage, slideOutputIdentity, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
 import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
+import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
 import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
@@ -34,6 +35,7 @@ if (typeof window !== "undefined" && !(window as unknown as { __ffLivestreamGuar
 export default function LivestreamPage() {
   const [slide, setSlide] = useState<SlidePayload>({ kind: "empty" });
   const [fontScale, setFontScale] = useState(1); // B3 operator manual text size
+  const [background, setBackground] = useState<import("@/lib/broadcast").BackgroundSpec | null>(null);
   const [appearance, setAppearance] = useState<ThemeAppearance | null>(null); // Themes Phase 1
   const [videoInput, setVideoInput] = useState<VideoInputState | null>(null); // Phase 2a live video
   const [lowerThird, setLowerThird] = useState<{ line1: string; line2: string } | null>(null);
@@ -104,6 +106,7 @@ export default function LivestreamPage() {
           applySlide(msg.state.live);
           setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);
           setAppearance(msg.state.appearance ?? null);
+          setBackground(msg.state.background ?? null);
           setVideoInput(msg.state.videoInput ?? null);
           setLowerThird(msg.state.lowerThird);
           setAnnouncement(msg.state.announcement ?? null);
@@ -190,6 +193,7 @@ export default function LivestreamPage() {
         realtime.subscribe((state) => {
           setFontScale(typeof state.fontScale === "number" ? state.fontScale : 1);
           setAppearance(state.appearance ?? null);
+          setBackground(state.background ?? null);
           setVideoInput(state.videoInput ?? null);
           lastMsgAt.current = Date.now();
           setConnected(true);
@@ -256,14 +260,17 @@ export default function LivestreamPage() {
     >
       {mode === "full" && (
         <>
-          {hasVideoBackground(videoInput, appearance) ? (
+          {/* Background Templates layer for the broadcast/NDI output. Never in
+              transparent (OBS-key) mode. When active the slide goes transparent. */}
+          {!transparent && background && background.type !== "none" && <BackgroundLayer background={background} />}
+          {hasVideoBackground(videoInput, appearance) && !(!transparent && background && background.type !== "none") ? (
             <OutputSlide slide={slide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} projectorFit />
           ) : transitionsEnabled ? (
             <TransitionWrapper identityKey={slideOutputIdentity(slide)} transition={transition}>
-              <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} videoMuted={false} onVideoRef={handleVideoRef} />
+              <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} overVideo={!!(!transparent && background && background.type !== "none")} videoMuted={false} onVideoRef={handleVideoRef} />
             </TransitionWrapper>
           ) : (
-            <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} videoMuted={false} onVideoRef={handleVideoRef} />
+            <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} overVideo={!!(!transparent && background && background.type !== "none")} videoMuted={false} onVideoRef={handleVideoRef} />
           )}
           <ThemeLogoLayer appearance={appearance} />
           <AnnouncementLayer ann={announcement} />

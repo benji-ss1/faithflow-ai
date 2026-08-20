@@ -23,6 +23,7 @@ export type OperatorShellCtx = {
   // pass it to SlideRenderer so the reference footer sizes like the projector.
   referenceScale?: number;
   referenceColor?: string;
+  background?: import("@/lib/broadcast").BackgroundSpec | null;
   // Projection Zone Customizer: the active zone geometry, same value on the wire
   // (OutputState.zone). Preview surfaces pass it to PresentationCanvas so the
   // operator preview matches the projector's zone WYSIWYG. Its fontScale is

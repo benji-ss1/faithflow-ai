@@ -75,7 +75,10 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
           </div>
         )}
         <PresentationCanvas zone={ctx.zone}>
-          <SlideRenderer slide={ctx.liveSlide} appearance={ctx.appearance ?? undefined} projectorFit fontScale={ctx.fontScale} referenceScale={ctx.referenceScale} referenceColor={ctx.referenceColor} onVideoRef={onVideoRef} />
+          {/* WYSIWYG: show the active background behind the slide, exactly like
+              the projector (slide goes transparent via overVideo). */}
+          {ctx.background && ctx.background.type !== "none" && <BackgroundLayer background={ctx.background} />}
+          <SlideRenderer slide={ctx.liveSlide} appearance={ctx.appearance ?? undefined} projectorFit fontScale={ctx.fontScale} referenceScale={ctx.referenceScale} referenceColor={ctx.referenceColor} overVideo={!!(ctx.background && ctx.background.type !== "none")} onVideoRef={onVideoRef} />
         </PresentationCanvas>
         {ctx.liveSlide.kind !== "empty" && (
           <button

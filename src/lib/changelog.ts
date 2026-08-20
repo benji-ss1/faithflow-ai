@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.309",
+    date: "2026-08-20",
+    headline: "Backgrounds: livelier animations + they show in the preview & all outputs",
+    highlights: [
+      "Reworked the animated backgrounds so they actually MOVE \u2014 Gentle Waves flows, Stained Light drifts, Deep Breath pulses + drifts, and Holy Fire is fuller. The projector now looks like the thumbnail.",
+      "The active background now shows in the operator preview (WYSIWYG) and on the stage + livestream/NDI outputs \u2014 so what you set is what every screen shows, and the speed/intensity/colour settings update live in the preview.",
+    ],
+  },
+  {
     version: "0.1.308",
     date: "2026-08-20",
     headline: "One-click \"clear cache & reload\" in the top bar",

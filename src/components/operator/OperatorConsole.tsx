@@ -1612,6 +1612,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     fontScale: effectiveFontScale,
       referenceScale,
       referenceColor: referenceColor || undefined,
+    background: backgroundSpec,
     appearance: effectiveAppearance,
     zone: activeZone,
     previewItemIdx: preview.itemIdx,
@@ -1801,6 +1802,9 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     setAnnouncement, setTransitionSpec, sendSlideToLive, stageSlide,
     bankAdd, sendBankedToLive, removeBanked, onDeleteSlide, onReorderSlidesInItem,
     startAudio, stopAudio, effectiveAppearance,
+    // Preview WYSIWYG — recompute the ctx when these output values change so the
+    // operator preview reflects size/colour/background even when AI is off.
+    effectiveFontScale, referenceScale, referenceColor, backgroundSpec,
     // Live undo/redo: liveHistoryVer forces the can-* flags to recompute.
     undoLive, redoLive, liveHistoryVer,
   ]);

@@ -39,6 +39,7 @@ export default function StagePage() {
   const [fontScale, setFontScale] = useState(1); // B3 operator manual text size
   const [referenceScale, setReferenceScale] = useState(1);
   const [referenceColor, setReferenceColor] = useState<string | undefined>(undefined);
+  const [background, setBackground] = useState<import("@/lib/broadcast").BackgroundSpec | null>(null);
   const [appearance, setAppearance] = useState<ThemeAppearance | null>(null); // Themes Phase 1
   const [zone, setZone] = useState<ProjectionZone | null>(null); // Projection Zone geometry
   const [nextItem, setNextItem] = useState<{ title: string; type: string } | null>(null);
@@ -102,6 +103,7 @@ export default function StagePage() {
           setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);
           setReferenceScale(typeof msg.state.referenceScale === "number" ? msg.state.referenceScale : 1);
           setReferenceColor(typeof msg.state.referenceColor === "string" ? msg.state.referenceColor : undefined);
+          setBackground(msg.state.background ?? null);
           setAppearance(msg.state.appearance ?? null);
           setZone(msg.state.zone ?? null);
           setNextItem(msg.state.nextItem ?? null);
@@ -280,8 +282,9 @@ export default function StagePage() {
           </div>
         )}
         <PresentationCanvas zone={zone}>
+          {background && background.type !== "none" && <BackgroundLayer background={background} />}
           <TransitionWrapper identityKey={slideOutputIdentity(current)} transition={transition}>
-            <SlideRenderer slide={current} projectorFit fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} />
+            <SlideRenderer slide={current} projectorFit fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} overVideo={!!(background && background.type !== "none")} />
           </TransitionWrapper>
           <ThemeLogoLayer appearance={appearance} />
         </PresentationCanvas>

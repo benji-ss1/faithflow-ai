@@ -19,44 +19,55 @@ uniform vec3 u_primaryColor;
 uniform vec3 u_secondaryColor;
 `;
 
-// Gentle Waves — slow undulating gradient, deep navy → teal.
+// Gentle Waves — visibly flowing undulating waves, navy → teal.
 const gentleWaves = HEADER + `
 void main() {
   vec2 uv = gl_FragCoord.xy / u_resolution;
   float t = u_time * u_speed;
-  float wave = sin(uv.x * 3.0 + t * 0.5) * 0.04 * u_intensity;
-  wave += sin(uv.y * 2.0 + t * 0.3) * 0.03 * u_intensity;
-  float blend = smoothstep(0.0, 1.0, uv.y + wave);
-  gl_FragColor = vec4(mix(u_primaryColor, u_secondaryColor, blend), 1.0);
+  // A clearly moving wave surface (two travelling sine components).
+  float wave = sin(uv.x * 6.2831 + t) * 0.12
+             + sin(uv.x * 12.0 - t * 1.3) * 0.06;
+  wave *= u_intensity;
+  float g = smoothstep(0.0, 1.0, uv.y + wave - 0.15 * sin(t * 0.5));
+  vec3 c = mix(u_secondaryColor, u_primaryColor, g);
+  // Bright shimmer band riding the crest so movement is obvious even from afar.
+  float crest = 0.5 + 0.22 * sin(t * 0.4);
+  float band = smoothstep(0.05, 0.0, abs(uv.y + wave - crest));
+  c += (u_primaryColor + u_secondaryColor) * 0.18 * band * u_intensity;
+  gl_FragColor = vec4(c, 1.0);
 }
 `;
 
-// Deep Breath — a single soft radial light that pulses like breathing.
+// Deep Breath — a soft radial light that pulses (breathes) and slowly drifts.
 const deepBreath = HEADER + `
 void main() {
   vec2 uv = gl_FragCoord.xy / u_resolution;
   vec2 c = uv - 0.5; c.x *= u_resolution.x / u_resolution.y;
+  // Slowly drifting centre so it's never perfectly static.
+  c -= vec2(0.07 * sin(u_time * u_speed * 0.3), 0.05 * cos(u_time * u_speed * 0.23));
   float d = length(c);
-  float breath = 0.5 + 0.5 * sin(u_time * u_speed * 0.9);
-  float glow = smoothstep(0.65, 0.0, d) * (0.05 + 0.07 * breath) * u_intensity;
+  float breath = 0.5 + 0.5 * sin(u_time * u_speed);
+  float glow = smoothstep(0.75, 0.0, d) * (0.08 + 0.14 * breath) * u_intensity;
   gl_FragColor = vec4(u_secondaryColor + u_primaryColor * glow, 1.0);
 }
 `;
 
-// Stained Light — very slow prismatic washes over a deep purple-black.
+// Stained Light — flowing overlapping prismatic washes (clearly moving).
 const stainedLight = HEADER + `
+float wave(vec2 p){ return sin(p.x) * sin(p.y); }
 void main() {
   vec2 uv = gl_FragCoord.xy / u_resolution;
-  float t = u_time * u_speed * 0.12;
-  float a = 0.16 * sin(uv.x * 2.0 + t) * sin(uv.y * 1.5 - t * 0.7);
-  float b = 0.13 * sin(uv.y * 2.5 - t * 0.8 + 1.0) * sin(uv.x * 1.2 + t * 0.5);
-  vec3 base = vec3(0.047, 0.031, 0.078);
-  vec3 color = base + u_primaryColor * max(0.0, a) * u_intensity + u_secondaryColor * max(0.0, b) * u_intensity;
+  float t = u_time * u_speed * 0.5;
+  float a = 0.5 + 0.5 * wave(vec2(uv.x * 3.0 + t, uv.y * 2.0 - t * 0.6));
+  float b = 0.5 + 0.5 * wave(vec2(uv.y * 3.6 - t * 0.8, uv.x * 2.3 + t * 0.5));
+  vec3 base = vec3(0.05, 0.035, 0.085);
+  vec3 color = base + u_primaryColor * a * 0.55 * u_intensity + u_secondaryColor * b * 0.55 * u_intensity;
   gl_FragColor = vec4(color, 1.0);
 }
 `;
 
-// Holy Fire — warm ember particles drifting up from the bottom.
+// Holy Fire — warm ember particles rising. More of them so it reads as full and
+// alive on a big projector (not just a dense-looking tiny thumbnail).
 const holyFire = HEADER + `
 float hash(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
 void main() {
@@ -64,18 +75,18 @@ void main() {
   float aspect = u_resolution.x / u_resolution.y;
   float t = u_time * u_speed;
   vec3 color = vec3(0.055, 0.031, 0.024);
-  for (int i = 0; i < 28; i++) {
+  for (int i = 0; i < 46; i++) {
     float fi = float(i);
     float x = hash(vec2(fi, 1.0));
-    float spd = 0.04 + 0.09 * hash(vec2(fi, 2.0));
+    float spd = 0.04 + 0.10 * hash(vec2(fi, 2.0));
     float y = fract(hash(vec2(fi, 3.0)) + t * spd);
-    float wob = 0.025 * sin(t * 1.4 + fi);
+    float wob = 0.03 * sin(t * 1.4 + fi);
     vec2 pp = vec2(x + wob, 1.0 - y);
-    float sz = 0.006 + 0.012 * hash(vec2(fi, 4.0));
+    float sz = 0.006 + 0.013 * hash(vec2(fi, 4.0));
     float dd = length((uv - pp) * vec2(aspect, 1.0));
     float glow = smoothstep(sz, 0.0, dd);
     float fade = smoothstep(0.0, 0.15, y) * smoothstep(1.0, 0.55, y);
-    color += mix(u_primaryColor, u_secondaryColor, hash(vec2(fi, 5.0))) * glow * fade * 0.55 * u_intensity;
+    color += mix(u_primaryColor, u_secondaryColor, hash(vec2(fi, 5.0))) * glow * fade * 0.6 * u_intensity;
   }
   gl_FragColor = vec4(color, 1.0);
 }
