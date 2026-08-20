@@ -10,6 +10,7 @@ import { TransitionWrapper } from "@/components/live/TransitionWrapper";
 import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
+import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
 
 // Module-scope, capture-phase suppressor. Runs before React/Next dev-overlay
 // listeners so a stray DOM Event rejection (autoplay block, fullscreen deny,
@@ -73,6 +74,7 @@ export default function LivePage() {
   const [aspectRatio, setAspectRatio] = useState<"16:9" | "4:3" | "custom">("16:9");
   const [fontScale, setFontScale] = useState(1); // B3 operator manual text size
   const [referenceScale, setReferenceScale] = useState(1);
+  const [background, setBackground] = useState<import("@/lib/broadcast").BackgroundSpec | null>(null);
   const [appearance, setAppearance] = useState<ThemeAppearance | null>(null); // Themes Phase 1
   const [videoInput, setVideoInput] = useState<VideoInputState | null>(null); // Phase 2a live video
   const [zone, setZone] = useState<ProjectionZone | null>(null); // Projection Zone geometry
@@ -163,6 +165,7 @@ export default function LivePage() {
           setAspectRatio(msg.state.aspectRatio);
           setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);
           setReferenceScale(typeof msg.state.referenceScale === "number" ? msg.state.referenceScale : 1);
+          setBackground(msg.state.background ?? null);
           setAppearance(msg.state.appearance ?? null);
           setVideoInput(msg.state.videoInput ?? null);
           setZone(msg.state.zone ?? null);
@@ -302,6 +305,7 @@ export default function LivePage() {
           setTransition(state.transition ?? null);
           setFontScale(typeof state.fontScale === "number" ? state.fontScale : 1);
           setReferenceScale(typeof state.referenceScale === "number" ? state.referenceScale : 1);
+          setBackground(state.background ?? null);
           setAppearance(state.appearance ?? null);
           setVideoInput(state.videoInput ?? null);
           setZone(state.zone ?? null);
@@ -445,7 +449,12 @@ export default function LivePage() {
                 preview (which wraps the same SlideRenderer in the same canvas),
                 so what the operator sees is exactly what the projector shows. */}
             <PresentationCanvas canvasW={aspectRatio === "4:3" ? 1440 : 1920} canvasH={1080} zone={zone}>
-              {hasVideoBackground(videoInput, appearance) ? (
+              {/* Background Templates Layer — BETWEEN the theme background and the
+                  text. Active (type != none) ⇒ render it and make the slide
+                  transparent (overVideo) so it shows through. type none ⇒ nothing
+                  renders here and the existing behaviour is byte-identical. */}
+              {background && background.type !== "none" && <BackgroundLayer background={background} />}
+              {hasVideoBackground(videoInput, appearance) && !(background && background.type !== "none") ? (
                 // Video behind the slide (camera or theme video bg): no slide-keyed
                 // transition wrapper, so the video stays playing across slide
                 // changes — only the overlay updates.
@@ -458,7 +467,7 @@ export default function LivePage() {
                 // wrapper can't affect text size anymore. This brings the projector's
                 // slide transitions (fade/cut/etc.) back, matching /stage.
                 <TransitionWrapper identityKey={slideOutputIdentity(slide)} transition={transition}>
-                  <SlideRenderer slide={slide} projectorFit fontScale={fontScale} referenceScale={referenceScale} appearance={appearance} videoMuted={false} onVideoRef={handleVideoRef} />
+                  <SlideRenderer slide={slide} projectorFit fontScale={fontScale} referenceScale={referenceScale} appearance={appearance} overVideo={!!(background && background.type !== "none")} videoMuted={false} onVideoRef={handleVideoRef} />
                 </TransitionWrapper>
               )}
               <ThemeLogoLayer appearance={appearance} />

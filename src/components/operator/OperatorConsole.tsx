@@ -7,6 +7,8 @@ import { ArrowLeft, ChevronLeft, ChevronRight, Monitor, Radio, Square, Sun, Pane
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, AI_AUTO_TRANSITION, slideOutputIdentity, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
 import { readFontScale, readReferenceScale } from "./pro/operatorConstants";
+import { useBackgroundState } from "@/backgrounds/hooks/useBackgroundState";
+import { toBackgroundSpec } from "@/backgrounds/models/BackgroundTypes";
 import { openOutputChannel } from "@/lib/realtime";
 import { SyncControl } from "./SyncControl";
 import type { ExpandedPlan, ExpandedItem } from "@/lib/server/services";
@@ -319,6 +321,11 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     return () => window.removeEventListener("presentflow:reference-scale-changed", onChange);
   }, []);
 
+  // Background Templates: active background → compact spec published on
+  // OutputState so the projector's BackgroundLayer renders it.
+  const { active: activeBackground } = useBackgroundState();
+  const backgroundSpec = useMemo(() => toBackgroundSpec(activeBackground), [activeBackground]);
+
   // Themes Phase 1 — active theme appearance emitted on OutputState so the
   // projector/stage/livestream reflect the church's applied theme. Resolved
   // from the default theme on mount; the Themes tab's Apply fires
@@ -512,6 +519,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       nextItem: nextItemForStage,
       fontScale: effectiveFontScale,
       referenceScale,
+      background: backgroundSpec,
       appearance: effectiveAppearance,
       videoInput,
       zone: activeZone,
@@ -538,7 +546,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // marker cleanup at the top of this effect clears it the moment `live`
     // changes to a different slide.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, activeZone]);
+  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, backgroundSpec, activeZone]);
   const chRef = useRef<LiveChannelLike | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;
@@ -1448,6 +1456,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       nextItem: nextItemForStage,
       fontScale: effectiveFontScale,
       referenceScale,
+      background: backgroundSpec,
       appearance: effectiveAppearance,
       videoInput,
       zone: activeZone,
@@ -1457,7 +1466,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     publishRealtime(state.videoInput ? { ...state, videoInput: null } : state); // local-only camera id
     lastOutputStateRef.current = state;
     toast.success(line1 || line2 ? "Lower third sent" : "Lower third cleared");
-  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, publishRealtime, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, activeZone]);
+  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, publishRealtime, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, backgroundSpec, activeZone]);
 
   /**
    * P2 message overlay — a transient lower-third bubble that displays on

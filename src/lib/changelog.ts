@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.301",
+    date: "2026-08-20",
+    headline: "Background templates \u2014 first look (behind the text)",
+    highlights: [
+      "New Backgrounds section in the Themes panel: pick a template and it projects behind your scripture/lyrics on the real screen. \"None\" keeps the plain background exactly as before.",
+      "This is the foundation \u2014 the 5 templates show their colour now; live animated (WebGL) versions and your own image/video uploads are coming next.",
+    ],
+  },
+  {
     version: "0.1.300",
     date: "2026-08-20",
     headline: "Size the scripture reference at the bottom, on its own",

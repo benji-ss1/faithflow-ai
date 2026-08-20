@@ -192,6 +192,26 @@ export type VideoInputState = {
   overlay?: "normal" | "lower-third" | "full"; // how slide content sits over video
 };
 
+// Background Templates (2026-08-20): a compact, wire-safe render spec for the
+// projector's Background Layer — sits BETWEEN the theme background and the text.
+// Separate from ThemeAppearance (the existing theme system is untouched). type
+// "none" ⇒ no layer (existing theme bg shows through, unchanged behaviour).
+export type BackgroundSpec = {
+  type: "none" | "image" | "shader" | "video";
+  shaderPreset?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
+  speed?: number;
+  intensity?: number;
+  imageUrl?: string;
+  imageFit?: "fill" | "fit" | "stretch" | "tile";
+  imageBlur?: number;
+  videoUrl?: string;
+  videoSpeed?: number;
+  overlayColor?: string;
+  overlayOpacity?: number;
+};
+
 export type OutputState = {
   live: SlidePayload;                // audience/projector output
   next: SlidePayload | null;         // for stage display "Next up"
@@ -214,6 +234,9 @@ export type OutputState = {
   // Independent size multiplier for the scripture reference footer (1.0 =
   // default). Lets the operator size "the scripture at the bottom" on its own.
   referenceScale?: number;
+  // Background Templates: the active projector background (undefined/none ⇒
+  // existing theme background, unchanged).
+  background?: BackgroundSpec | null;
   // Themes Phase 1: active theme's render appearance (background/text styling).
   // Undefined/null ⇒ built-in defaults. Applies to text/blank slides.
   appearance?: ThemeAppearance | null;
@@ -428,6 +451,25 @@ const LOGO_POSITIONS = new Set([
   "middle-left", "center", "middle-right",
   "bottom-left", "bottom-center", "bottom-right", "none",
 ]);
+
+export function isValidBackgroundSpec(b: unknown): b is BackgroundSpec {
+  if (!b || typeof b !== "object") return false;
+  const s = b as Record<string, unknown>;
+  if (!["none", "image", "shader", "video"].includes(s.type as string)) return false;
+  if (s.shaderPreset !== undefined && (typeof s.shaderPreset !== "string" || s.shaderPreset.length > 40)) return false;
+  if (s.imageFit !== undefined && !["fill", "fit", "stretch", "tile"].includes(s.imageFit as string)) return false;
+  for (const k of ["primaryColor", "secondaryColor", "overlayColor"] as const) {
+    if (s[k] !== undefined && !isValidColor(s[k])) return false;
+  }
+  for (const k of ["imageUrl", "videoUrl"] as const) {
+    if (s[k] !== undefined && !isValidRenderUrl(s[k])) return false;
+  }
+  for (const k of ["speed", "intensity", "imageBlur", "videoSpeed", "overlayOpacity"] as const) {
+    const v = s[k];
+    if (v !== undefined && (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 100)) return false;
+  }
+  return true;
+}
 
 export function isValidThemeAppearance(a: unknown): a is ThemeAppearance {
   if (a === null) return true;
@@ -697,6 +739,7 @@ export function isValidOutputState(s: unknown): s is OutputState {
     const r = st.referenceScale;
     if (typeof r !== "number" || !Number.isFinite(r) || r <= 0 || r > 4) return false;
   }
+  if (st.background !== undefined && st.background !== null && !isValidBackgroundSpec(st.background)) return false;
   // Themes Phase 1 — validate the theme appearance if present (rejects a
   // malformed/hostile appearance on the cross-device path rather than letting
   // it reach the renderer's style props).

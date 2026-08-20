@@ -9,6 +9,7 @@ import { canAccess } from "@/lib/tier";
 import { useCustomThemes, useBlankSlides } from "@/hooks/useCustomThemes";
 import { cn } from "@/lib/utils";
 import { ThemeImportDialog } from "@/components/library/ThemeImportDialog";
+import { BackgroundSelector } from "@/backgrounds/components/BackgroundSelector";
 import { toast } from "sonner";
 
 type DbTheme = {
@@ -84,6 +85,12 @@ export function ThemesTab({ layout = "panel" }: { layout?: "panel" | "modal" } =
   return (
     <div className={cn("flex flex-col", modal ? "gap-5" : "gap-3")}>
       <ThemeImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
+
+      {/* Backgrounds — a new section that plugs into the Themes area (does not
+          modify the theme system). Sets the projector background behind text. */}
+      <div className="pb-3 border-b" style={{ borderColor: "var(--color-border)" }}>
+        <BackgroundSelector />
+      </div>
 
       {/* Header */}
       <div className="flex items-center justify-between">
