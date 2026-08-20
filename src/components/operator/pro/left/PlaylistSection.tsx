@@ -33,7 +33,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
-import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong, createSongSlide, deleteSongSlide, setServiceItemTheme, renameSong, renameServiceItem } from "@/lib/actions";
+import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong, createSongSlide, deleteSongSlide, setServiceItemTheme, renameSong, renameServiceItem, applyThemeToSong, revertSongTheme } from "@/lib/actions";
 import { useSlideClipboard, getSlideClipboard } from "@/lib/slide-clipboard";
 
 function itemIcon(type: string) {
@@ -375,6 +375,31 @@ export function PlaylistSection({
       },
     });
   };
+
+  // Apply a theme to the WHOLE current song (every slide/preview), reversibly.
+  // The Themes tab fires this; we resolve the current song, restyle all its
+  // slides server-side, refresh so the previews update, and offer Undo.
+  useEffect(() => {
+    const onApplyThemeToSong = (e: Event) => {
+      const themeId = (e as CustomEvent<{ themeId?: string; themeName?: string }>).detail?.themeId;
+      if (!themeId) return;
+      const it = ctx.plan.items[ctx.previewItemIdx];
+      // No song selected → the theme still applied as the live default (Themes
+      // tab handled that + toasted); nothing to restyle here, so stay silent.
+      if (!it || it.type !== "song" || !it.songId) return;
+      const songId = it.songId;
+      void (async () => {
+        const res = await applyThemeToSong(themeId, songId);
+        if (!res.ok) { toast.error(res.error ?? "Couldn't apply theme to the song"); return; }
+        router.refresh();
+        const n = res.data?.slidesUpdated ?? 0;
+        undoToast(`Theme applied to ${n} slide${n === 1 ? "" : "s"} of "${it.title}"`, () => revertSongTheme(songId));
+      })();
+    };
+    window.addEventListener("presentflow:apply-theme-to-song", onApplyThemeToSong);
+    return () => window.removeEventListener("presentflow:apply-theme-to-song", onApplyThemeToSong);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx.plan.items, ctx.previewItemIdx]);
 
   // ── Actions ───────────────────────────────────────────────────────────────
   const addBlank = async () => {

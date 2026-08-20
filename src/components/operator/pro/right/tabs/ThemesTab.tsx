@@ -66,6 +66,12 @@ export function ThemesTab({ layout = "panel" }: { layout?: "panel" | "modal" } =
         window.dispatchEvent(new CustomEvent("presentflow:theme-changed", {
           detail: { appearance: themeConfigToAppearance(t.config) },
         }));
+        // ALSO restyle the whole current song — every slide/preview, not just the
+        // live screen (user directive). PlaylistSection (which knows the current
+        // song + can refresh + offer undo) handles this.
+        window.dispatchEvent(new CustomEvent("presentflow:apply-theme-to-song", {
+          detail: { themeId: t.id, themeName: t.name },
+        }));
         toast.success(`Theme "${t.name}" applied`);
       }
     } catch {

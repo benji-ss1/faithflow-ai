@@ -1387,37 +1387,75 @@ export async function applyThemeToSong(themeId: string, songId: string): Promise
   if (!song) return { ok: false, error: "Song not found" };
   const cfg = (theme.config as ThemeConfig) ?? {};
   const slides = await db.select().from(songSlides).where(eq(songSlides.songId, songId));
+  // Snapshot EVERY slide's prior objectsJson so revertSongTheme can restore the
+  // exact previous look (the theme apply is reversible per user directive).
+  const backup = slides.map((s) => ({ id: s.id, objectsJson: s.objectsJson ?? null }));
   let updated = 0;
   for (const s of slides) {
     const raw = (s.objectsJson as Record<string, unknown> | null) ?? {};
     const objects = Array.isArray(raw.objects) ? (raw.objects as Record<string, unknown>[]) : [];
-    // Merge theme into slide bg + text-object defaults (do not overwrite explicit values already set)
+    // Theme WINS (overwrite), so applying a theme visibly restyles EVERY slide —
+    // including ones that already had explicit colours. Only fall back to the
+    // slide's own value where the theme doesn't define that field. The prior
+    // state is snapshotted above, so this stays reversible.
     const merged: Record<string, unknown> = {
       ...raw,
-      bgColor: raw.bgColor ?? cfg.bgColor,
-      bgImageUrl: raw.bgImageUrl ?? cfg.bgImageUrl,
-      transition: raw.transition ?? cfg.transition,
+      bgColor: cfg.bgColor ?? raw.bgColor,
+      bgImageUrl: cfg.bgImageUrl ?? raw.bgImageUrl,
+      transition: cfg.transition ?? raw.transition,
       objects: objects.map((o) => {
         if (o?.kind !== "text") return o;
         return {
           ...o,
-          fontFamily: o.fontFamily ?? cfg.fontFamily,
-          fontSize: o.fontSize ?? cfg.fontSizePx,
-          fontWeight: o.fontWeight ?? cfg.fontWeight,
-          color: o.color ?? cfg.textColor,
-          align: o.align ?? cfg.align,
+          fontFamily: cfg.fontFamily ?? o.fontFamily,
+          fontSize: cfg.fontSizePx ?? o.fontSize,
+          fontWeight: cfg.fontWeight ?? o.fontWeight,
+          color: cfg.textColor ?? o.color,
+          align: cfg.align ?? o.align,
         };
       }),
     };
     await db.update(songSlides).set({ objectsJson: merged }).where(eq(songSlides.id, s.id));
     updated += 1;
   }
-  // Track applied theme id on the song
+  // Track applied theme id + the revert snapshot on the song.
   const prevSettings = (song.settings as Record<string, unknown>) ?? {};
   await db.update(songs).set({
-    settings: { ...prevSettings, appliedThemeId: themeId },
+    settings: { ...prevSettings, appliedThemeId: themeId, themeBackup: { slides: backup, themeId } },
   }).where(eq(songs.id, songId));
+  revalidatePath("/library/songs");
+  revalidatePath(`/library/songs/${songId}`);
   return { ok: true, data: { slidesUpdated: updated } };
+}
+
+/**
+ * Reverse the most recent applyThemeToSong — restore every slide's objectsJson
+ * from the snapshot saved in song.settings.themeBackup, and clear the applied-
+ * theme markers. No-op-safe: returns an error if there's nothing to revert.
+ */
+export async function revertSongTheme(songId: string): Promise<Result<{ slidesRestored: number }>> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const [song] = await db.select().from(songs)
+    .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId))).limit(1);
+  if (!song) return { ok: false, error: "Song not found" };
+  const settings = (song.settings as Record<string, unknown>) ?? {};
+  const backup = settings.themeBackup as { slides?: { id: string; objectsJson: unknown }[] } | undefined;
+  if (!backup?.slides?.length) return { ok: false, error: "Nothing to undo" };
+  let restored = 0;
+  for (const b of backup.slides) {
+    const res = await db.update(songSlides)
+      .set({ objectsJson: (b.objectsJson ?? null) as typeof songSlides.$inferInsert.objectsJson })
+      .where(and(eq(songSlides.id, b.id), eq(songSlides.songId, songId)));
+    if ((res as { rowCount?: number }).rowCount !== 0) restored += 1;
+  }
+  const nextSettings = { ...settings };
+  delete (nextSettings as Record<string, unknown>).themeBackup;
+  delete (nextSettings as Record<string, unknown>).appliedThemeId;
+  await db.update(songs).set({ settings: nextSettings }).where(eq(songs.id, songId));
+  revalidatePath("/library/songs");
+  revalidatePath(`/library/songs/${songId}`);
+  return { ok: true, data: { slidesRestored: restored } };
 }
 
 // Themes 4 — extract a dominant-colour palette from a theme's logo so the editor

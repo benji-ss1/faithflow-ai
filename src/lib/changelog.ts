@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.280",
+    date: "2026-08-20",
+    headline: "Applying a theme now restyles the whole song (and you can undo it)",
+    highlights: [
+      "Pressing a theme while a song is selected now restyles EVERY slide of that song \u2014 all the previews \u2014 not just the live screen.",
+      "It overwrites existing slide colours so the theme actually shows, and an Undo button reverts the whole song to exactly how it looked before.",
+    ],
+  },
+  {
     version: "0.1.279",
     date: "2026-08-20",
     headline: "Fixed verses being detected but not projecting",
