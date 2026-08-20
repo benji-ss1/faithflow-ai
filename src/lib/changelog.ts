@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.313",
+    date: "2026-08-21",
+    headline: "Projector now shows your background too (matches the preview)",
+    highlights: [
+      "Fixed: the animated / themed background looked perfect in the operator preview but the projector screen stayed black. When a projector (or stage / livestream) window opens or reconnects, it now instantly receives the full look — background, theme, zone and text size — so what you see in the preview is what the room sees.",
+    ],
+  },
+  {
     version: "0.1.312",
     date: "2026-08-20",
     headline: "Worship auto-projects your setlist + voice “next verse” now works anywhere",
