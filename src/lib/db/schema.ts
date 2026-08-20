@@ -571,6 +571,26 @@ export const churchLearnedKeyterms = pgTable("church_learned_keyterms", {
   uniqueIndex("idx_church_learned_keyterms_unique").on(t.churchId, t.normalizedTerm),
 ]);
 
+// Public beta-application capture. NOT church-scoped — this is a platform-level
+// lead table written by the unauthenticated marketing Apply flow. It exists so
+// that a church's application is durably stored the instant it's submitted,
+// BEFORE any email is attempted — email delivery can silently fail (spam,
+// quarantine, unmonitored inbox) and must never be the only record of a lead.
+export const betaApplications = pgTable("beta_applications", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchName: text("church_name"),
+  contactEmail: text("contact_email"),
+  answers: jsonb("answers").notNull(), // [{ question, answer }]
+  notified: boolean("notified").notNull().default(false), // team-notification email accepted by Resend
+  confirmed: boolean("confirmed").notNull().default(false), // applicant confirmation accepted
+  emailError: text("email_error"), // last email failure detail, if any
+  userAgent: text("user_agent"),
+  ip: text("ip"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index("idx_beta_applications_created").on(t.createdAt),
+]);
+
 export const servicePlanRelations = relations(servicePlans, ({ many }) => ({ items: many(serviceItems) }));
 export const serviceItemRelations = relations(serviceItems, ({ one }) => ({ plan: one(servicePlans, { fields: [serviceItems.servicePlanId], references: [servicePlans.id] }) }));
 export const songRelations = relations(songs, ({ many }) => ({ slides: many(songSlides) }));

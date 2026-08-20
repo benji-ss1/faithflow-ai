@@ -18,7 +18,13 @@ function resend(): Resend | null {
   return _resend;
 }
 
-async function deliver(to: string, subject: string, html: string, text: string) {
+async function deliver(
+  to: string,
+  subject: string,
+  html: string,
+  text: string,
+  opts?: { replyTo?: string },
+) {
   const r = resend();
   if (!r) {
     // Dev-mode fallback. Prints the message in a copy-pasteable block.
@@ -33,7 +39,14 @@ async function deliver(to: string, subject: string, html: string, text: string) 
     // The Resend SDK returns { data, error } and does NOT throw on API errors
     // (unverified sender domain, sandbox recipient restriction, bad key, …).
     // Must inspect `error` explicitly, or a rejected send looks like success.
-    const { data, error } = await r.emails.send({ from: FROM, to, subject, html, text });
+    const { data, error } = await r.emails.send({
+      from: FROM,
+      to,
+      subject,
+      html,
+      text,
+      ...(opts?.replyTo ? { replyTo: opts.replyTo } : {}),
+    });
     if (error) {
       const msg = (error as { message?: string }).message ?? String(error);
       console.error("[email] Resend rejected:", msg);
@@ -98,6 +111,7 @@ This link expires in 7 days.
 // arrives as a { question, answer } pair so this stays decoupled from the
 // exact question set (which the marketing team may reword freely).
 const APPLY_INBOX = process.env.APPLY_INBOX || "contact@presentflow.org";
+const EMAIL_RE_INBOX = /[^\s@]+@[^\s@]+\.[^\s@]+/;
 
 export type BetaApplication = {
   answers: { question: string; answer: string }[];
@@ -137,7 +151,12 @@ export async function sendBetaApplicationNotification(app: BetaApplication) {
 
   const church = (app.churchName || "").replace(/^church name:\s*/i, "").split("·")[0].trim();
   const who = [church, app.contact].filter(Boolean).join(" · ") || "new applicant";
-  return deliver(APPLY_INBOX, `New beta application — ${who}`, html, text);
+  // reply_to = the applicant, so a team member can reply to the notification and
+  // reach the church directly (the from-address is a no-reply). Also nudges
+  // deliverability, since the notification then aligns with a real reply target.
+  return deliver(APPLY_INBOX, `New beta application — ${who}`, html, text, {
+    replyTo: app.contact && EMAIL_RE_INBOX.test(app.contact) ? app.contact : undefined,
+  });
 }
 
 // Confirmation sent to the APPLICANT after they submit the beta application —

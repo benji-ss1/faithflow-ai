@@ -1,11 +1,14 @@
 "use server";
 
 import { headers } from "next/headers";
+import { eq } from "drizzle-orm";
 import {
   sendBetaApplicationNotification,
   sendBetaApplicantConfirmation,
 } from "@/lib/email";
 import { createLimiter } from "@/lib/rate-limit";
+import { getDb } from "@/lib/db/client";
+import { betaApplications } from "@/lib/db/schema";
 
 // 5 applications per 10 minutes per client IP — generous for a real applicant,
 // tight enough to blunt spam / abusive resubmits on this public endpoint.
@@ -69,12 +72,54 @@ export async function submitApplication(raw: unknown): Promise<ApplyResult> {
     answered.find((a) => /church name/i.test(a.question))?.answer ||
     answered.find((a) => /church/i.test(a.question))?.answer;
 
+  // Capture identity of this request for triage / anti-abuse review.
+  let ua = "";
+  let ip = "";
+  try {
+    const h = await headers();
+    ua = (h.get("user-agent") || "").slice(0, 500);
+    ip = ((h.get("x-forwarded-for") || "").split(",")[0].trim() || h.get("x-real-ip") || "").slice(0, 80);
+  } catch {
+    /* headers() unavailable — non-fatal */
+  }
+
+  // DURABLE STORE FIRST. Persist the application to the DB before any email is
+  // attempted, so a submission is never lost to email delivery problems (spam,
+  // quarantine, an unmonitored inbox). This is the record of record; the emails
+  // below are notification, not storage. A DB failure here is the only thing
+  // that can lose a lead, so it's the one failure we surface to the applicant.
+  let applicationId: string;
+  try {
+    const db = getDb();
+    const [row] = await db
+      .insert(betaApplications)
+      .values({
+        churchName: churchName ?? null,
+        contactEmail: contact ?? null,
+        answers: answered,
+        userAgent: ua || null,
+        ip: ip || null,
+      })
+      .returning({ id: betaApplications.id });
+    applicationId = row.id;
+  } catch (e) {
+    console.error("[apply] DB insert failed:", e instanceof Error ? e.message : e);
+    return { ok: false, error: "Something went wrong saving your application. Please try again." };
+  }
+
+  // Notify the team. The application is already saved, so an email failure no
+  // longer loses the lead — record the outcome on the row and keep going.
   const res = await sendBetaApplicationNotification({ answers: answered, churchName, contact });
-  if (!res.ok) return { ok: false, error: "Something went wrong sending your application. Please try again." };
+  if (res.ok) {
+    void markApplication(applicationId, { notified: true });
+  } else {
+    console.error("[apply] team notification failed:", res.error);
+    void markApplication(applicationId, { notified: false, emailError: res.error ?? "notify failed" });
+  }
 
   // Send the applicant a thank-you / confirmation. Best-effort: a failure here
-  // must not break the applicant's "You're on the list" success — the team
-  // notification above already captured the application.
+  // must not break the applicant's "You're on the list" success — the DB row
+  // above already captured the application.
   if (contact) {
     // Name and email are now separate questions. Pull the first name from the
     // "First name:" field (new form), falling back to older formats.
@@ -84,11 +129,25 @@ export async function submitApplication(raw: unknown): Promise<ApplyResult> {
       ""
     ).trim();
     try {
-      await sendBetaApplicantConfirmation(contact, name);
+      const c = await sendBetaApplicantConfirmation(contact, name);
+      if (c.ok) void markApplication(applicationId, { confirmed: true });
     } catch (e) {
       console.error("[apply] confirmation email failed:", e instanceof Error ? e.message : e);
     }
   }
 
   return { ok: true };
+}
+
+// Fire-and-forget status stamp on the stored application. Never throws into the
+// request path — the row already exists; this is just bookkeeping.
+async function markApplication(
+  id: string,
+  fields: { notified?: boolean; confirmed?: boolean; emailError?: string },
+): Promise<void> {
+  try {
+    await getDb().update(betaApplications).set(fields).where(eq(betaApplications.id, id));
+  } catch (e) {
+    console.error("[apply] status update failed:", e instanceof Error ? e.message : e);
+  }
 }
