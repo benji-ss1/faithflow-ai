@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.299",
+    date: "2026-08-20",
+    headline: "Translation switches the live verse instantly + update prompt",
+    highlights: [
+      "Changing translation (KJV → NKJV/NLT/NIV) now re-projects the verse that's ON THE SCREEN immediately, in the new translation — no more waiting for the next verse, and it matches the operator preview.",
+      "When a new version is deployed, you'll get a one-tap \"Reload now\" prompt so you always pick up the latest fixes (no more stale cached build).",
+    ],
+  },
+  {
     version: "0.1.298",
     date: "2026-08-20",
     headline: "Size and reorder Bible verses yourself",

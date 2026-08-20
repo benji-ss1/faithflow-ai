@@ -529,6 +529,35 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
   // Sync ref for the bible-play-current handler above.
   useEffect(() => { cardToSlideRef.current = cardToSlide; }, [cardToSlide]);
 
+  // Manual translation switch: if a scripture verse is CURRENTLY LIVE, re-fetch
+  // that same verse in the new translation and push it to the projector
+  // INSTANTLY — don't wait for the operator to send the next verse (field video
+  // 2026-08-20: NKJV/NLT changed in the centre preview but not on the big screen,
+  // and only on the next verse). The reference field carries "Book Ch:Verse
+  // (TRANS)"; parse it, refetch, re-project.
+  const reprojectLiveInTranslation = useCallback(async (newTranslation: string) => {
+    const live = ctx.liveSlide;
+    if (!live || live.kind !== "text" || !live.reference) return;
+    const m = /^(.+?)\s+(\d+):(\d+)/.exec(live.reference);
+    if (!m) return;
+    const book = m[1]!.trim();
+    const chapter = parseInt(m[2]!, 10);
+    const verse = parseInt(m[3]!, 10);
+    if (!Number.isFinite(chapter) || !Number.isFinite(verse)) return;
+    try {
+      const chapterRes = await fetchChapterCached(book, chapter, newTranslation);
+      const hit = chapterRes.verses.find((v) => v.verse === verse);
+      if (!hit) return;
+      const label = `${book} ${chapter}:${verse} (${chapterRes.translation})`;
+      const body = opts.showVerseNumbers ? `${hit.verse} ${hit.text}` : hit.text;
+      ctx.onSendSlideToLive(
+        { kind: "text", text: body, ...(opts.refFormat !== "none" ? { reference: label } : {}) },
+        undefined,
+        { instant: true },
+      );
+    } catch { /* ignore — keep the current live slide */ }
+  }, [ctx, opts.showVerseNumbers, opts.refFormat]);
+
   // Reorder a verse card up/down in the loaded list (operator can arrange the
   // order verses appear in). Swap in the cards array + keep the selection with
   // its card. Session-only (doesn't touch the Bible text or the DB).
@@ -701,6 +730,9 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
             if (cards.length > 0 || phraseHits.length > 0) {
               setTimeout(() => void lookup(), 0);
             }
+            // AND re-project the currently-live verse in the new translation now
+            // (not on the next verse) — the big screen changes instantly.
+            void reprojectLiveInTranslation(next);
           }}
           align="end"
           panelWidth={260}
