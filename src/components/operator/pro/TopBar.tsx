@@ -20,6 +20,7 @@ import { SearchPalette } from "./SearchPalette";
 import { FluidTabs } from "./FluidTabs";
 import { SwitchMode } from "./SwitchMode";
 import { FeaturesBell } from "./ActivitiesCard";
+import { DeepReloadButton } from "./DeepReloadButton";
 import { AIDiagnosticModal, type LiveAudioStats } from "../AIDiagnosticModal";
 import { readNativeDevicePref } from "@/lib/audio/nativeDeviceStore";
 import type { DisplayInfo } from "@/types/electron";
@@ -762,6 +763,8 @@ export function TopBar({
           <span className="hidden sm:inline">Stage</span>
           <ScreenShare className="w-3 h-3 sm:hidden" />
         </div>
+        {/* Deep reload — clear cache & pull the latest version */}
+        <DeepReloadButton />
         {/* Recent features / What's-new bell — revisit updates any time */}
         <FeaturesBell />
         {/* Task G — Present Flow logo */}

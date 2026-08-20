@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.308",
+    date: "2026-08-20",
+    headline: "One-click \"clear cache & reload\" in the top bar",
+    highlights: [
+      "A refresh button in the top nav clears the caches that pin a stale build (offline cache + service workers) and reloads fresh \u2014 so you always pull the latest version without hunting through menus. Confirms first so it can't be hit mid-service by accident.",
+    ],
+  },
+  {
     version: "0.1.307",
     date: "2026-08-20",
     headline: "Upload your own image & video backgrounds",
