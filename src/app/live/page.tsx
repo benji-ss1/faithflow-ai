@@ -455,7 +455,7 @@ export default function LivePage() {
                 // wrapper can't affect text size anymore. This brings the projector's
                 // slide transitions (fade/cut/etc.) back, matching /stage.
                 <TransitionWrapper identityKey={slideOutputIdentity(slide)} transition={transition}>
-                  <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} videoMuted={false} onVideoRef={handleVideoRef} disablePagination />
+                  <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} videoMuted={false} onVideoRef={handleVideoRef} />
                 </TransitionWrapper>
               )}
               <ThemeLogoLayer appearance={appearance} />
