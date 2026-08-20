@@ -514,17 +514,16 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
     const body = c.verses
       .map((v) => opts.showVerseNumbers ? `${v.verse} ${v.text}` : v.text)
       .join(separator);
-    let text = body;
-    const includeRef =
-      opts.refFormat === "each" ||
-      (opts.refFormat === "last" && idx === total - 1);
-    if (includeRef) {
-      const label = opts.displayTranslation
-        ? c.label
-        : c.label.replace(/\s*\([^)]+\)\s*$/, "");
-      text = `${body}\n\n${label}`;
-    }
-    return { kind: "text", text };
+    // The reference now rides in the dedicated `reference` field, rendered as a
+    // fixed always-visible footer (never paginated/shrunk off with a long verse).
+    // refFormat "none" hides it; "each"/"last" both show it per card (a footer per
+    // verse reads better than one at the end, and the operator asked for it to
+    // always be visible).
+    const includeRef = opts.refFormat !== "none";
+    const label = opts.displayTranslation
+      ? c.label
+      : c.label.replace(/\s*\([^)]+\)\s*$/, "");
+    return { kind: "text", text: body, ...(includeRef ? { reference: label } : {}) };
   }, [opts.showVerseNumbers, opts.refFormat, opts.breakOnNewVerse, opts.displayTranslation, editOverrides]);
   // Sync ref for the bible-play-current handler above.
   useEffect(() => { cardToSlideRef.current = cardToSlide; }, [cardToSlide]);
@@ -1003,18 +1002,6 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
               <div className="absolute top-1 left-1 text-[10px] font-mono text-white/70 bg-black/40 px-1 rounded">
                 {idx + 1}
               </div>
-              {/* Always-visible reference chip. The reference is also inside the
-                  slide text (refFormat "each"), but on this small card AutoFitText
-                  paginates it off page 1 — so the operator lost sight of which
-                  verse a card is (field report 2026-08-20). This chip guarantees
-                  "John 3:24 (KJV)" is always readable regardless of pagination. */}
-              {c.label && !c.invalid && (
-                <div className="absolute bottom-1 inset-x-1 flex justify-center pointer-events-none">
-                  <span className="max-w-full truncate text-[10px] font-semibold text-white bg-black/60 px-1.5 py-0.5 rounded">
-                    {c.label}
-                  </span>
-                </div>
-              )}
               <button
                 type="button"
                 aria-label={`Add ${c.label} to playlist`}

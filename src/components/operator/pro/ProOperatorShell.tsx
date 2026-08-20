@@ -2239,7 +2239,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           if (cv.length > 0) {
             const body = cv.map((v) => `${v.verse} ${v.text}`).join(" ");
             const cachedLabel = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}${scripture.ref.verseStart !== scripture.ref.verseEnd ? `-${scripture.ref.verseEnd}` : ""} (${cached!.translation})`;
-            sendLiveRef.current({ kind: "text", text: `${body}\n\n${cachedLabel}` }, null, { instant: true });
+            sendLiveRef.current({ kind: "text", text: body, reference: cachedLabel }, null, { instant: true });
           }
         } catch { /* async lookup below still projects the full verse */ }
         // Sync preview
@@ -2308,7 +2308,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
             // guarded: a superseded detection must not clobber the current verse.
             if (autoOn && isHighConf && lastRoutedScriptureRef.current === scripture.id) {
               try {
-                sendLiveRef.current({ kind: "text", text: `${notice}\n\n${refLabel}` }, null, { instant: true });
+                sendLiveRef.current({ kind: "text", text: notice, reference: refLabel }, null, { instant: true });
               } catch { /* noop */ }
               bibleSession.setCards(autoFireCardsRef.current);
               bibleSession.setSelectedIdx(0);
@@ -2337,7 +2337,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         if (autoOn && isHighConf && lastRoutedScriptureRef.current === scripture.id) {
           const first = cards[0];
           const body = first.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
-          const fullSlide: import("@/lib/broadcast").SlidePayload = { kind: "text", text: `${body}\n\n${first.label}` };
+          const fullSlide: import("@/lib/broadcast").SlidePayload = { kind: "text", text: body, reference: first.label };
           // Skip if this EXACT verse is already on the projector (re-detection of
           // a held verse) — re-sending identical text just replays the fade.
           const liveNowFull = currentLiveSlideRef.current;
@@ -2675,7 +2675,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         const lowFirst = lowCards[0];
         if (lowFirst && !lowFirst.placeholder && lowFirst.verses?.length) {
           const lowBody = lowFirst.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
-          const lowSlide: import("@/lib/broadcast").SlidePayload = { kind: "text", text: `${lowBody}\n\n${lowFirst.label}` };
+          const lowSlide: import("@/lib/broadcast").SlidePayload = { kind: "text", text: lowBody, reference: lowFirst.label };
           const lowRef = `${lowConf.ref.book} ${lowConf.ref.chapter}:${lowConf.ref.verseStart}${lowConf.ref.verseEnd !== lowConf.ref.verseStart ? `-${lowConf.ref.verseEnd}` : ""}`;
           toast(`We think we heard ${lowRef} (${lowConf.confidence}%) — put it live?`, {
             duration: 8000,
@@ -2783,7 +2783,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     bibleFiredMapRef.current[key] = nowTs;
 
     const body = first.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
-    const slide: import("@/lib/broadcast").SlidePayload = { kind: "text", text: `${body}\n\n${first.label}` };
+    const slide: import("@/lib/broadcast").SlidePayload = { kind: "text", text: body, reference: first.label };
     const ref = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}${scripture.ref.verseEnd !== scripture.ref.verseStart ? `-${scripture.ref.verseEnd}` : ""}`;
     // 2026-07-24 latency instrumentation: measure detection-received-at →
     // auto-fire-decided-at. Detection.ts is set upstream in useAudioStream.
@@ -2854,7 +2854,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     const currCovBible = scoreCoverage(bibleRecentWordsRef.current, currentBody);
     const bibleRequiredStreak = currCovBible >= 0.80 ? 1 : 2;
     if (bibleMatchStreakRef.current >= bibleRequiredStreak) {
-      safeSendLive({ kind: "text", text: `${nextBody}\n\n${nextCard.label}` });
+      safeSendLive({ kind: "text", text: nextBody, reference: nextCard.label });
       bibleSession.setSelectedIdx(nextIdx);
       bibleLastAdvanceTsRef.current = Date.now();
       bibleMatchStreakRef.current = 0;
@@ -2913,7 +2913,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       bibleInterimMatchStreakRef.current = 0;
     }
     if (bibleInterimMatchStreakRef.current >= 2) {
-      safeSendLive({ kind: "text", text: `${nextBody}\n\n${nextCard.label}` });
+      safeSendLive({ kind: "text", text: nextBody, reference: nextCard.label });
       bibleSession.setSelectedIdx(nextIdx);
       bibleLastAdvanceTsRef.current = Date.now();
       bibleMatchStreakRef.current = 0;
@@ -2949,7 +2949,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       if (cov < BIBLE_COVERAGE_THRESHOLD) return; // verse not sufficiently covered
       // Verse covered + silence = preacher finished reading → advance
       const nextBody = nextCard.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
-      safeSendLiveRef.current({ kind: "text", text: `${nextBody}\n\n${nextCard.label}` });
+      safeSendLiveRef.current({ kind: "text", text: nextBody, reference: nextCard.label });
       bibleSetSelectedIdxRef.current(nextIdx);
       bibleLastAdvanceTsRef.current = Date.now();
       bibleMatchStreakRef.current = 0;
@@ -3129,7 +3129,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     } else if (cmd.verb === "repeat_verse") {
       const c = cards[idx!];
       const body = c.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
-      ctx.onSendSlideToLive({ kind: "text", text: `${body}\n\n${c.label}` });
+      ctx.onSendSlideToLive({ kind: "text", text: body, reference: c.label });
       bibleLastAdvanceTsRef.current = Date.now();
       toast.info(`Voice: "${cmd.matchedText}" → repeated`);
     } else if (cmd.verb === "goto_bible_verse") {
@@ -3154,7 +3154,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
             const newIdx = dupIdx >= 0 ? dupIdx : existing.length;
             if (dupIdx < 0) bibleSession.setCards([...existing, card]);
             bibleSession.setSelectedIdx(newIdx);
-            ctx.onSendSlideToLive({ kind: "text", text: `${hit.text}\n\n${label}` });
+            ctx.onSendSlideToLive({ kind: "text", text: hit.text, reference: label });
             toast.info(`Voice: "${cmd.matchedText}" → verse ${verseNumber}`);
           } catch {
             toast.error("Verse lookup failed");
@@ -3198,7 +3198,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
               if (live) {
                 const card = loaded[idxInChapter];
                 const body = card.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
-                ctx.onSendSlideToLive({ kind: "text", text: `${body}\n\n${card.label}` }, undefined, { instant: true });
+                ctx.onSendSlideToLive({ kind: "text", text: body, reference: card.label }, undefined, { instant: true });
               }
               return;
             }
@@ -3224,7 +3224,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           if (live) {
             const first = cards[0];
             const body = first.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
-            ctx.onSendSlideToLive({ kind: "text", text: `${body}\n\n${first.label}` }, undefined, { instant: true });
+            ctx.onSendSlideToLive({ kind: "text", text: body, reference: first.label }, undefined, { instant: true });
           }
         } catch {
           toast.error("Verse lookup failed");
@@ -3332,7 +3332,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       // disabled by routing voice through the same preview-only event.
       if (live) {
         try {
-          sendLiveRef.current({ kind: "text", text: `${text}\n\n${label}` }, undefined, { instant: true });
+          sendLiveRef.current({ kind: "text", text, reference: label }, undefined, { instant: true });
         } catch (e) {
           console.error("[verse-nav] live send failed:", e);
         }
@@ -3718,7 +3718,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
                 durationMs: 200,
                 easing: "ease-in-out",
               };
-              sendLiveRef.current({ kind: "text", text: `${newText}\n\n${newLabel}` }, fadeSpec);
+              sendLiveRef.current({ kind: "text", text: newText, reference: newLabel }, fadeSpec);
               liveUpdated = true;
             }
           } catch (e) {

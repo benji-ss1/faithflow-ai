@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.295",
+    date: "2026-08-20",
+    headline: "Scripture reference is now pinned to the bottom of the screen",
+    highlights: [
+      "The reference (e.g. \"John 3:16 (KJV)\") now sits in its own fixed footer at the bottom of every scripture slide, so it's ALWAYS visible — it can never be shrunk away or pushed off-screen by a long verse. Works for AI-detected verses, voice-advanced verses, and manually loaded ones.",
+    ],
+  },
+  {
     version: "0.1.294",
     date: "2026-08-20",
     headline: "Mic Board now works for pro USB mixers (native capture)",

@@ -197,8 +197,14 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
     }
     const bg = overVideo ? { background: "transparent" } : slide.bgColor ? { background: slide.bgColor } : themeBackgroundStyle(appearance, "#0b0b0b");
     const animated = usesAnimatedBg(appearance, overVideo, slide.bgColor);
+    const refText = slide.reference?.trim();
     return (
-      <div className={`${base} ${animated ? "relative" : ""} ${className || ""}`} style={bg}>
+      <div
+        className={`${base} ${animated ? "relative" : ""} ${className || ""}`}
+        // Reserve bottom room for the fixed reference footer so a long verse body
+        // fits ABOVE it instead of overlapping.
+        style={refText ? { ...bg, paddingBottom: projectorFit ? "8%" : "12%" } : bg}
+      >
         {animated && <AnimatedThemeBg appearance={appearance} />}
         <AutoFitText
           text={slide.text}
@@ -214,6 +220,26 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
           className={`text-white font-display font-semibold${animated ? " relative z-[1]" : ""}`}
           textStyle={themeTextStyle(appearance)}
         />
+        {refText && (
+          // Fixed always-visible reference footer. Kept OUT of the AutoFitText box
+          // so it can never be shrunk to nothing or paginated off with a long
+          // verse — the reference must always read at the bottom of the screen.
+          <div
+            className={`absolute inset-x-0 bottom-0 flex justify-center pointer-events-none${animated ? " z-[1]" : ""}`}
+            style={{ paddingBottom: projectorFit ? "3.5%" : "2.5%" }}
+          >
+            <span
+              className="font-display font-semibold uppercase tracking-wide"
+              style={{
+                fontSize: projectorFit ? "clamp(14px, 3.2vh, 42px)" : "clamp(11px, 4%, 20px)",
+                opacity: 0.82,
+                ...themeTextStyle(appearance),
+              }}
+            >
+              {refText}
+            </span>
+          </div>
+        )}
       </div>
     );
   }

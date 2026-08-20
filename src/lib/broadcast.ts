@@ -32,7 +32,10 @@ export type SlidePayload =
   // `objects`, when present, drives a positioned multi-object render on every
   // output surface; `text` is kept as the flattened fallback (AI/lyric matching,
   // and renderers that don't do objects). `bgImageUrl` is the per-slide design bg.
-  | { kind: "text"; text: string; bgColor?: string; bgImageUrl?: string; objects?: SlideObjectWire[] }
+  // `reference`, when present, is rendered as a fixed always-visible footer
+  // (scripture reference like "John 3:16 (KJV)") that never gets shrunk or
+  // paginated off with the verse body — the body sizes independently above it.
+  | { kind: "text"; text: string; bgColor?: string; bgImageUrl?: string; objects?: SlideObjectWire[]; reference?: string }
   | { kind: "image"; url: string; fit?: "contain" | "cover" }
   | { kind: "video"; url: string; fit?: "contain" | "cover"; loop?: boolean; volume?: number }
   | { kind: "blank"; bgColor?: string }
@@ -577,7 +580,7 @@ export function slideDesignSig(s: Extract<SlidePayload, { kind: "text" }>): stri
  * identically in live/stage/livestream).
  */
 export function slideOutputIdentity(s: SlidePayload): string {
-  if (s.kind === "text") return `t:${s.text}|${slideDesignSig(s)}`;
+  if (s.kind === "text") return `t:${s.text}|${s.reference ?? ""}|${slideDesignSig(s)}`;
   if (s.kind === "image") return `i:${s.url}`;
   if (s.kind === "video") return `v:${s.url}`;
   if (s.kind === "blank") return `b:${s.bgColor ?? ""}`;
