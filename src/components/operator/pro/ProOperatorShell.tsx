@@ -935,6 +935,17 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     }
 
     const now = Date.now();
+    // Worship-mode setlist bypass (2026-08-20 field directive "why do I have to
+    // push it live?"): during live worship the room is full of instruments +
+    // singing, so `musicSuspected` is ~always true and the music gate below
+    // downgrades every song to a manual chip — which is exactly the "I had to do
+    // it all manually" pain. When the operator has declared Worship mode, a match
+    // to a song in TODAY'S plan is trusted enough to zero-click through the music
+    // gate (the disambiguation margin still applies, off-plan songs never bypass).
+    const worshipMode = ctx.serviceMode === "worship";
+    const planSongIdSet = new Set(
+      ctx.plan.items.map((it) => (it as unknown as { songId?: string }).songId).filter(Boolean) as string[],
+    );
     for (const c of candidates) {
       // 2026-07-26 stale-echo fix — reject old suggestions that are still
       // sitting in the array from an earlier detection. Without this, my
@@ -992,7 +1003,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       // with the G key. This only RAISES the bar during music (conservative —
       // CLAUDE.md rule 7); clean confident speech clears musicSuspected and
       // auto-live resumes normally.
-      const musicHold = !!ctx.audio.musicSuspected;
+      const musicHold = !!ctx.audio.musicSuspected && !(worshipMode && planSongIdSet.has(c.songId));
       // 2026-08-14 similar-song disambiguation (user directive): songs share
       // lyrics with each other, so a high raw confidence isn't enough to
       // ZERO-CLICK project — the top song must also clearly BEAT the next-best
@@ -3004,7 +3015,16 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     if (!interimText) return;
     const cards = bibleSession.state.cards;
     const idx = bibleSession.state.selectedIdx;
-    const hasVerseContext = cards.length > 0 && idx != null && !!cards[idx] && !cards[idx].placeholder;
+    // Verse context = a verse card is selected in the Bible panel OR a scripture
+    // verse is currently LIVE on the projector. The live-slide fallback (2026-08-20)
+    // covers the common service case: an auto-fired verse whose bibleSession card
+    // is still a "Loading…" placeholder, or running purely off AI chips without
+    // ever opening the Bible panel — previously both left hasVerseContext false so
+    // "next verse" never dispatched. advanceRef anchors on bibleSession.state.ref,
+    // which auto-fire keeps pointed at the live verse, so the advance still works.
+    const hasVerseContext =
+      (cards.length > 0 && idx != null && !!cards[idx] && !cards[idx].placeholder) ||
+      (ctx.liveSlide?.kind === "text" && !!ctx.liveSlide.reference);
     if (!hasVerseContext) return;
     const cmd = parseContextCommand(interimText, { hasVerseContext, hasSlideContext: false, hasSongContext: false });
     if (!cmd) return;
@@ -3044,7 +3064,16 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     }
     const cards = bibleSession.state.cards;
     const idx = bibleSession.state.selectedIdx;
-    const hasVerseContext = cards.length > 0 && idx != null && !!cards[idx] && !cards[idx].placeholder;
+    // Verse context = a verse card is selected in the Bible panel OR a scripture
+    // verse is currently LIVE on the projector. The live-slide fallback (2026-08-20)
+    // covers the common service case: an auto-fired verse whose bibleSession card
+    // is still a "Loading…" placeholder, or running purely off AI chips without
+    // ever opening the Bible panel — previously both left hasVerseContext false so
+    // "next verse" never dispatched. advanceRef anchors on bibleSession.state.ref,
+    // which auto-fire keeps pointed at the live verse, so the advance still works.
+    const hasVerseContext =
+      (cards.length > 0 && idx != null && !!cards[idx] && !cards[idx].placeholder) ||
+      (ctx.liveSlide?.kind === "text" && !!ctx.liveSlide.reference);
     if (!hasVerseContext) return;
     const cmd = parseContextCommand(last.text, { hasVerseContext, hasSlideContext: false, hasSongContext: false });
     if (!cmd) return;
@@ -3126,17 +3155,29 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       bibleMatchStreakRef.current = 0;
       toast.info(`Voice: "${cmd.matchedText}" → previous verse`);
     } else if (cmd.verb === "repeat_verse") {
-      const c = cards[idx!];
-      const body = c.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
-      ctx.onSendSlideToLive({ kind: "text", text: body, reference: c.label });
+      // idx can be null now that hasVerseContext also trips on a live scripture
+      // slide (running off AI chips, no selected card). Guard the card deref and
+      // fall back to re-sending whatever verse is currently on the projector.
+      const c = idx != null ? cards[idx] : undefined;
+      if (c) {
+        const body = c.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
+        ctx.onSendSlideToLive({ kind: "text", text: body, reference: c.label });
+      } else if (ctx.liveSlide?.kind === "text" && ctx.liveSlide.reference) {
+        ctx.onSendSlideToLive({ kind: "text", text: ctx.liveSlide.text, reference: ctx.liveSlide.reference });
+      } else {
+        return;
+      }
       bibleLastAdvanceTsRef.current = Date.now();
       toast.info(`Voice: "${cmd.matchedText}" → repeated`);
     } else if (cmd.verb === "goto_bible_verse") {
       // Absolute jump to a verse NUMBER within the current chapter — "from
       // verse 11", "from 13" — distinct from next/prev's relative +/-1 step.
+      // Anchor on the selected card's label, or (when running off chips with no
+      // card) the live scripture slide's reference — never deref cards[idx!].
       const verseNumber = (cmd.payload as { verseNumber?: number } | undefined)?.verseNumber;
-      const current = cards[idx!];
-      const m = /^(.+?)\s+(\d+):\d+/.exec(current.label);
+      const anchorLabel = (idx != null ? cards[idx]?.label : undefined)
+        ?? (ctx.liveSlide?.kind === "text" ? (ctx.liveSlide.reference ?? undefined) : undefined);
+      const m = anchorLabel ? /^(.+?)\s+(\d+):\d+/.exec(anchorLabel) : null;
       if (verseNumber && m) {
         const book = m[1];
         const chapter = parseInt(m[2], 10);
@@ -3286,7 +3327,16 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // edge (or only one card is loaded — the common case), advance the ref
   // itself and fetch: John 3:16 → John 3:17 → …
   useEffect(() => {
-    if (centerMode !== "bible") return;
+    // 2026-08-20 field-test fix: this listener used to be gated on
+    // `centerMode === "bible"`, so during a live service — when the centre panel
+    // is on slides / AI-chips (the default), NOT the Bible lookup panel — a
+    // VOICE "next verse" / "continue" / "go back" command dispatched
+    // presentflow:bible-next/prev into the void and nothing projected. ("go to
+    // verse 5" still worked because absolute jumps take a different,
+    // unconditional path.) The handler resolves the target verse from
+    // `bibleSession`, not from what panel is visible, so it is now mounted
+    // UNCONDITIONALLY. Detection-side gating (hasVerseContext, ≥70 floor) still
+    // decides whether an event is dispatched at all.
     // Applies a resolved next verse (book/chapter/verse/text) to session
     // state + live output. Shared by the cache-hit (sync) and cache-miss
     // (network) paths below so the append/dedupe/send-live behavior is
@@ -3496,7 +3546,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       window.removeEventListener("presentflow:bible-next", nx);
       window.removeEventListener("presentflow:bible-prev", pv);
     };
-  }, [centerMode, bibleSession]);
+  }, [bibleSession]);
 
   // Priority 4 — global operator hotkeys.
   useOperatorHotkeys({

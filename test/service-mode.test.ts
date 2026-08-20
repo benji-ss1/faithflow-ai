@@ -97,21 +97,26 @@ test("drift-guard: caps stay exactly one below the live auto bars", () => {
     `WORSHIP_SCRIPTURE_CAP (${WORSHIP_SCRIPTURE_CAP}) must be BIBLE_AUTOFIRE_CONFIDENCE-1 (${BIBLE_AUTOFIRE_CONFIDENCE - 1})`);
 });
 
-test("worship boost never ALONE pushes a song to zero-click auto (<=89 unless already auto)", async () => {
+test("worship mode: a strong setlist match CAN reach zero-click auto (>=90)", async () => {
   reset();
-  // A partial sung line matching only the planned song. Whatever it scores, the
-  // worship boost must not carry a below-auto match over the 90 bar — it lands
-  // at chip-tier (<=89) so an incomplete-setlist graze can't auto-fire a wrong
-  // song. (A song already >=90 on its own merits is allowed to exceed; this
-  // fragment is not a full exact-title/cue hit, so it stays capped.)
-  const res = await detectAll("miracle worker promise keeper", { ...base, mode: "worship" });
+  // A full, distinctive sung line from the planned song. In worship mode the
+  // setlist nudge should carry a genuine match over the 90 auto bar so the
+  // operator doesn't have to push it live ("why do I have to push it live?").
+  const res = await detectAll("way maker miracle worker promise keeper light in the darkness", { ...base, mode: "worship" });
+  const planned = [...res.song, ...res.lyric].find((s) => s.songId === "planned");
+  assert.ok(planned, "planned song should be detected");
+  assert.ok(planned!.confidence >= 90,
+    `strong setlist match should auto-fire in worship; expected >=90, got ${planned!.confidence}`);
+});
+
+test("worship mode: an ASR-noise graze of a setlist song is NOT boosted to auto", async () => {
+  reset();
+  // Only a couple of common words graze the planned song — rawScore below the
+  // worship-boost floor, so it must not be nudged toward auto-fire.
+  const res = await detectAll("the light was on in the room", { ...base, mode: "worship" });
   const planned = [...res.song, ...res.lyric].find((s) => s.songId === "planned");
   if (planned) {
-    assert.ok(planned.confidence <= 89 || planned.confidence >= 90,
-      `sanity: confidence is a number, got ${planned.confidence}`);
-    // The fragment is not an exact title / "let's sing" cue, so the boost path
-    // must hold it at chip-tier.
-    assert.ok(planned.confidence <= 89,
-      `worship boost must not alone auto-fire; expected <=89, got ${planned.confidence}`);
+    assert.ok(planned.confidence < 90,
+      `a noise graze must not auto-fire; expected <90, got ${planned.confidence}`);
   }
 });

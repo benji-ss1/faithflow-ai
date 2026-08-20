@@ -45,6 +45,12 @@ export type MatchContext = {
   worshipBoost?: boolean;
 };
 
+/** Minimum pre-boost lyric/title score for a setlist song to receive the
+ *  worship-mode auto-fire nudge. A rawScore below this is an ASR-noise graze,
+ *  not a real sung match, and must never be boosted toward zero-click auto.
+ *  35 = a genuine multi-word overlap; below it is coincidental. */
+const WORSHIP_BOOST_MIN_SCORE = 35;
+
 /** Rough title-similarity: token overlap with normalization. */
 function titleScore(spoken: string, title: string): number {
   const norm = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9\s']/g, " ").trim();
@@ -147,27 +153,26 @@ export async function matchSongCue(
     const hasLyrics = song.slides.some((s) => s.lyrics && s.lyrics.trim().length > 0);
     if (!hasLyrics) continue;
 
+    const rawScore = m.score; // pre-boost lyric/title similarity
     let confidence = m.score;
     if (planIdSet.has(m.songId)) confidence += 20;
     if (recentIdSet.has(m.songId)) confidence += 10;
     if (m.exactTitle) confidence += 30;
     if (ctx.spokenCuePrefix) confidence += 15;
-    // Worship-mode nudge for setlist songs: helps a genuine sung line reliably
-    // SURFACE as a one-tap chip during worship (the "picked up nothing during
-    // the choir" fix). Crucially it must NEVER be the SOLE reason a song
-    // ZERO-CLICK auto-projects: when the operator's setlist is incomplete, a
-    // lone plan song can graze a DIFFERENT (unlisted) song that's actually being
-    // sung, and with no runner-up the ProOperatorShell disambiguation margin
-    // never engages — so the boost alone could auto-fire the wrong song. We
-    // therefore hold a boosted-but-not-already-auto song ONE BELOW the auto bar
-    // (chip tier). A song that already clears the auto bar on its own merits
-    // keeps auto-firing. (SONG_AUTOLIVE_CONFIDENCE=90 lives in operatorConstants;
-    // hardcoded here like index.ts's caps and pinned by the drift-guard test.)
-    const SONG_AUTOLIVE = 90; // mirror operatorConstants; pinned by drift-guard test
-    if (ctx.worshipBoost && planIdSet.has(m.songId)) {
-      confidence = confidence >= SONG_AUTOLIVE
-        ? confidence + 15
-        : Math.min(confidence + 15, SONG_AUTOLIVE - 1);
+    // Worship-mode nudge for setlist songs. Field directive (2026-08-20): the
+    // operator asked "why do I have to push it live?" — in worship the setlist
+    // IS the expected repertoire, so a genuine sung match should ZERO-CLICK
+    // auto-project, not sit as a chip. So the boost is allowed to carry a real
+    // setlist match over the 90 auto bar. Two guards remain: (1) it only applies
+    // when the underlying lyric/title match is real (rawScore >=
+    // WORSHIP_BOOST_MIN_SCORE) so pure ASR noise can never be boosted into
+    // auto-fire; (2) the top-2 disambiguation margin in ProOperatorShell still
+    // downgrades to a manual chip when two setlist songs match near-equally.
+    // Off-plan songs are separately held at chip-tier below. (SONG_AUTOLIVE=90
+    // mirrors operatorConstants; pinned by the drift-guard test.)
+    const SONG_AUTOLIVE = 90;
+    if (ctx.worshipBoost && planIdSet.has(m.songId) && rawScore >= WORSHIP_BOOST_MIN_SCORE) {
+      confidence += 15;
     }
     // Worship mode holds OFF-plan songs at chip-tier rather than dropping them:
     // a spontaneous, unplanned song ("sing real quick in the spirit") must still

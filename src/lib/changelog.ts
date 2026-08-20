@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.312",
+    date: "2026-08-20",
+    headline: "Worship auto-projects your setlist + voice “next verse” now works anywhere",
+    highlights: [
+      "In Worship mode, a genuine match to a song in today's plan now goes live on its own — you don't have to push it — and this now works WHILE the band/choir is playing (the music no longer holds your setlist songs back). Songs not in the plan still surface as a one-tap chip so nothing spontaneous is ever locked out.",
+      "Pure mishears can't trigger it: a song only auto-projects on a real, distinctive lyric match, and if two of your setlist songs match the words almost equally it waits for you to choose.",
+      "Fixed: saying “next verse” / “continue” / “go back” now advances the verse on the projector even when you're not looking at the Bible panel (e.g. you're on the Songs or slides view). Before, it only worked while the Bible lookup was open, so during a sermon it often did nothing.",
+    ],
+  },
+  {
     version: "0.1.311",
     date: "2026-08-20",
     headline: "New: Worship / Preacher mode — tell the AI what part of the service you're in",
