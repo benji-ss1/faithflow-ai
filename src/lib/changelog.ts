@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.281",
+    date: "2026-08-20",
+    headline: "Projector Undo/Redo buttons + Show confirmation",
+    highlights: [
+      "New back/forward (undo/redo) buttons in the top bar step the projector through what you have shown \u2014 one click to recover from a wrong slide.",
+      "Pressing Show in the slide editor now gives you a confirmation so you know it reached the projector (the editor covers the live view).",
+    ],
+  },
+  {
     version: "0.1.280",
     date: "2026-08-20",
     headline: "Applying a theme now restyles the whole song (and you can undo it)",

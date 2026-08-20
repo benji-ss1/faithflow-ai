@@ -139,6 +139,11 @@ export type OperatorShellCtx = {
     transition?: import("@/lib/broadcast").TransitionSpec | null,
     options?: { preserveConfiguredTransition?: boolean; instant?: boolean },
   ) => void;
+  // Live projection undo/redo — step the projector back/forward through what was shown.
+  onUndoLive: () => void;
+  onRedoLive: () => void;
+  canUndoLive: boolean;
+  canRedoLive: boolean;
   onStageSlide: (slide: SlidePayload) => void;
   onBankAddReference: (ref: { book: string; chapter: number; verseStart: number; verseEnd: number }) => Promise<BankedVerse | null>;
   onSendBankedToLive: (idx: number) => void;

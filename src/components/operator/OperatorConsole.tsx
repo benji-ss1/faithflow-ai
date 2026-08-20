@@ -221,6 +221,15 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [live, setLive] = useState<SlidePayload>({ kind: "empty" });
+  // ── Live projection UNDO / REDO (Google-Docs-style back/forward for the
+  // output). History is recorded centrally by watching `live` (below), so it
+  // captures EVERY path that changes the projector — manual sends, editor Show,
+  // AI auto-fires, chip clicks — without threading through each call site.
+  const liveUndoStackRef = useRef<SlidePayload[]>([]);
+  const liveRedoStackRef = useRef<SlidePayload[]>([]);
+  const livePrevRef = useRef<SlidePayload>({ kind: "empty" });
+  const liveUndoRedoInFlightRef = useRef(false);
+  const [liveHistoryVer, setLiveHistoryVer] = useState(0);
   const [autoSend, setAutoSend] = useState(false);
   // AI staging state — a scripture slide from an approved detection lives
   // here. When non-null it OVERRIDES the preview cursor's slide, but never
@@ -826,6 +835,52 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     setLive({ kind: "empty" });
     chRef.current?.postMessage({ type: "clear" } as LiveMessage);
   }, []);
+
+  // Record projector history on every real change to `live` (skips the change
+  // that undo/redo itself caused). A new projection clears the redo branch.
+  useEffect(() => {
+    if (liveUndoRedoInFlightRef.current) {
+      liveUndoRedoInFlightRef.current = false;
+      livePrevRef.current = live;
+      return;
+    }
+    const prev = livePrevRef.current;
+    let changed = true;
+    try { changed = JSON.stringify(prev) !== JSON.stringify(live); } catch { /* keep true */ }
+    if (changed) {
+      liveUndoStackRef.current.push(prev);
+      if (liveUndoStackRef.current.length > 60) liveUndoStackRef.current.shift();
+      liveRedoStackRef.current = [];
+      setLiveHistoryVer((v) => v + 1);
+    }
+    livePrevRef.current = live;
+  }, [live]);
+
+  // Re-project a payload from history WITHOUT recording it as a new action
+  // (instant cut — undo/redo should be immediate, no transition).
+  const reprojectFromHistory = useCallback((slide: SlidePayload) => {
+    liveUndoRedoInFlightRef.current = true;
+    if (slide.kind === "empty") { setLive(slide); chRef.current?.postMessage({ type: "clear" } as LiveMessage); }
+    else sendSlideToLive(slide, null, { instant: true });
+  }, [sendSlideToLive]);
+
+  const undoLive = useCallback(() => {
+    const target = liveUndoStackRef.current.pop();
+    if (target === undefined) return;
+    liveRedoStackRef.current.push(livePrevRef.current);
+    reprojectFromHistory(target);
+    setLiveHistoryVer((v) => v + 1);
+    toast("↶ Reverted the projector", { duration: 1500 });
+  }, [reprojectFromHistory]);
+
+  const redoLive = useCallback(() => {
+    const target = liveRedoStackRef.current.pop();
+    if (target === undefined) return;
+    liveUndoStackRef.current.push(livePrevRef.current);
+    reprojectFromHistory(target);
+    setLiveHistoryVer((v) => v + 1);
+    toast("↷ Redid the projector", { duration: 1500 });
+  }, [reprojectFromHistory]);
 
   const goBlank = useCallback(() => send({ kind: "blank", bgColor: plan.blankBgColor }), [plan.blankBgColor, send]);
   const goLogo = useCallback(() => send({ kind: "logo", url: plan.logoUrl }), [plan.logoUrl, send]);
@@ -1556,6 +1611,11 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     churchId,
     // Bible-panel wiring
     onSendSlideToLive: sendSlideToLive,
+    // Live projection undo/redo (back/forward through what was shown).
+    onUndoLive: undoLive,
+    onRedoLive: redoLive,
+    canUndoLive: liveHistoryVer >= 0 && liveUndoStackRef.current.length > 0,
+    canRedoLive: liveHistoryVer >= 0 && liveRedoStackRef.current.length > 0,
     onStageSlide: stageSlide,
     onBankAddReference: bankAdd,
     onSendBankedToLive: sendBankedToLive,
@@ -1662,6 +1722,8 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     setAnnouncement, setTransitionSpec, sendSlideToLive, stageSlide,
     bankAdd, sendBankedToLive, removeBanked, onDeleteSlide, onReorderSlidesInItem,
     startAudio, stopAudio, effectiveAppearance,
+    // Live undo/redo: liveHistoryVer forces the can-* flags to recompute.
+    undoLive, redoLive, liveHistoryVer,
   ]);
 
   return (

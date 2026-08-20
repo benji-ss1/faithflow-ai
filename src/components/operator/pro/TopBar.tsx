@@ -10,7 +10,7 @@ import { MaxUpgradePrompt } from "@/components/tier/MaxUpgradePrompt";
 import {
   Search, Play, BookOpen,
   Sparkles, Image as ImageIcon, MonitorSpeaker, Circle, ScreenShare,
-  Music, ChevronDown, Palette,
+  Music, ChevronDown, Palette, Undo2, Redo2,
 } from "lucide-react";
 import Image from "next/image";
 import type { OperatorShellCtx } from "../shell/types";
@@ -237,6 +237,30 @@ export function TopBar({
           ⌘K
         </kbd>
       </button>
+      <div className="mx-1 h-5 w-px bg-[var(--color-border)]" aria-hidden />
+      {/* Projector back / forward (undo / redo what's shown), Google-Docs-style. */}
+      <div className="flex items-center" style={{ gap: 2 }}>
+        <button
+          type="button"
+          onClick={ctx.onUndoLive}
+          disabled={!ctx.canUndoLive}
+          title="Undo — go back to the previous slide on the projector"
+          aria-label="Undo projector"
+          className="grid h-7 w-7 place-items-center rounded-md text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/5 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+        >
+          <Undo2 className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
+          onClick={ctx.onRedoLive}
+          disabled={!ctx.canRedoLive}
+          title="Redo — go forward to the next slide on the projector"
+          aria-label="Redo projector"
+          className="grid h-7 w-7 place-items-center rounded-md text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/5 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+        >
+          <Redo2 className="w-4 h-4" />
+        </button>
+      </div>
       <div className="mx-1 h-5 w-px bg-[var(--color-border)]" aria-hidden />
       <div className="flex items-center" style={{ gap: 4 }}>
         {/* Content cluster */}

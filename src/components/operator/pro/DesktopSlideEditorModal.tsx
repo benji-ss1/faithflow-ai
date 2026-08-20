@@ -136,10 +136,13 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
         .join("\n");
       const text = textFromObjects || cur.lyrics || "";
       ctx.onSendSlideToLive(projectableTextSlide(text, cur.bgColor, cur.bgImageUrl, cur.objects));
+      // Confirmation (user directive): the editor is fullscreen, so the operator
+      // can't see the projector — tell them the slide went live.
+      toast.success(`Slide ${editor.currentIndex + 1} is now on the projector`, { icon: "📽️" });
       return;
     }
     // Fallback (no in-editor slide): jump the live output to the saved slide.
-    if (item) ctx.onJumpSlide(ctx.previewItemIdx, editor.currentIndex);
+    if (item) { ctx.onJumpSlide(ctx.previewItemIdx, editor.currentIndex); toast.success("Sent to the projector", { icon: "📽️" }); }
   }, [editor, ctx, item]);
 
   // Open on the slide the operator double-clicked (playlist mode); target song
