@@ -62,6 +62,21 @@ export function readFontScale(): number {
   } catch { return 1; }
 }
 
+/** Reference-footer size multiplier (1.0 = default). Independent of font-scale so
+ *  the operator can size "the scripture at the bottom" on its own. */
+export const REFERENCE_SCALE_KEY = "presentflow.pro.referenceScale.v1";
+export const REFERENCE_SCALE_MIN = 0.5;
+export const REFERENCE_SCALE_MAX = 2.5;
+export const REFERENCE_SCALE_STEP = 0.1;
+export function readReferenceScale(): number {
+  try {
+    const raw = localStorage.getItem(REFERENCE_SCALE_KEY);
+    const n = raw == null ? 1 : parseFloat(raw);
+    if (!Number.isFinite(n)) return 1;
+    return Math.max(REFERENCE_SCALE_MIN, Math.min(REFERENCE_SCALE_MAX, n));
+  } catch { return 1; }
+}
+
 // ── Song detection policy (CLAUDE.md rule 7 — signed-off values) ──────────
 // DO NOT lower these without a fresh field-test + user sign-off.
 

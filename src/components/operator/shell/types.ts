@@ -19,6 +19,9 @@ export type OperatorShellCtx = {
   // B3 operator manual text-size multiplier (A−/AUTO/A+). Threaded so the live-
   // mirror previews size text identically to the projector.
   fontScale: number;
+  // Independent reference-footer size multiplier (default 1). Preview surfaces
+  // pass it to SlideRenderer so the reference footer sizes like the projector.
+  referenceScale?: number;
   // Projection Zone Customizer: the active zone geometry, same value on the wire
   // (OutputState.zone). Preview surfaces pass it to PresentationCanvas so the
   // operator preview matches the projector's zone WYSIWYG. Its fontScale is

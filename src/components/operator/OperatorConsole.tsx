@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { ArrowLeft, ChevronLeft, ChevronRight, Monitor, Radio, Square, Sun, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, AI_AUTO_TRANSITION, slideOutputIdentity, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
-import { readFontScale } from "./pro/operatorConstants";
+import { readFontScale, readReferenceScale } from "./pro/operatorConstants";
 import { openOutputChannel } from "@/lib/realtime";
 import { SyncControl } from "./SyncControl";
 import type { ExpandedPlan, ExpandedItem } from "@/lib/server/services";
@@ -305,6 +305,19 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     window.addEventListener("presentflow:font-scale-changed", onChange);
     return () => window.removeEventListener("presentflow:font-scale-changed", onChange);
   }, []);
+  // Independent reference-footer size (mirrors font-scale). Published on
+  // OutputState so the projector footer sizes to the operator's preference.
+  const [referenceScale, setReferenceScale] = useState(1);
+  useEffect(() => {
+    setReferenceScale(readReferenceScale());
+    const onChange = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const v = typeof detail?.scale === "number" ? detail.scale : readReferenceScale();
+      setReferenceScale(v);
+    };
+    window.addEventListener("presentflow:reference-scale-changed", onChange);
+    return () => window.removeEventListener("presentflow:reference-scale-changed", onChange);
+  }, []);
 
   // Themes Phase 1 — active theme appearance emitted on OutputState so the
   // projector/stage/livestream reflect the church's applied theme. Resolved
@@ -498,6 +511,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       transition: useFastTransition ? fastMarker!.transition : transitionSpec,
       nextItem: nextItemForStage,
       fontScale: effectiveFontScale,
+      referenceScale,
       appearance: effectiveAppearance,
       videoInput,
       zone: activeZone,
@@ -524,7 +538,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // marker cleanup at the top of this effect clears it the moment `live`
     // changes to a different slide.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, effectiveAppearance, videoInput, effectiveFontScale, activeZone]);
+  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, activeZone]);
   const chRef = useRef<LiveChannelLike | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;
@@ -1433,6 +1447,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       transition: transitionSpec,
       nextItem: nextItemForStage,
       fontScale: effectiveFontScale,
+      referenceScale,
       appearance: effectiveAppearance,
       videoInput,
       zone: activeZone,
@@ -1442,7 +1457,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     publishRealtime(state.videoInput ? { ...state, videoInput: null } : state); // local-only camera id
     lastOutputStateRef.current = state;
     toast.success(line1 || line2 ? "Lower third sent" : "Lower third cleared");
-  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, publishRealtime, fontScale, effectiveAppearance, videoInput, effectiveFontScale, activeZone]);
+  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, publishRealtime, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, activeZone]);
 
   /**
    * P2 message overlay — a transient lower-third bubble that displays on
@@ -1574,6 +1589,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     liveSlide: live,
     // Effective (zone-folded) font scale so preview surfaces match the projector.
     fontScale: effectiveFontScale,
+      referenceScale,
     appearance: effectiveAppearance,
     zone: activeZone,
     previewItemIdx: preview.itemIdx,

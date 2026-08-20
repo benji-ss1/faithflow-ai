@@ -26,11 +26,12 @@ export function hasVideoBackground(videoInput?: VideoInputState | null, appearan
  * normally. The video layer is a sibling of the overlay (not wrapped by any
  * slide-keyed element), so slide changes never restart the video.
  */
-export function OutputSlide({ slide, videoInput, appearance, fontScale, projectorFit = true, videoMuted = false, onVideoRef }: {
+export function OutputSlide({ slide, videoInput, appearance, fontScale, referenceScale, projectorFit = true, videoMuted = false, onVideoRef }: {
   slide: SlidePayload;
   videoInput?: VideoInputState | null;
   appearance?: ThemeAppearance | null;
   fontScale?: number;
+  referenceScale?: number;
   projectorFit?: boolean;
   videoMuted?: boolean;
   onVideoRef?: (el: HTMLVideoElement | null) => void;
@@ -57,11 +58,11 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, projecto
         {slide.kind !== "empty" && (
           isOverlayKind ? (
             <div className={containerClass}>
-              <SlideRenderer slide={slide} overVideo projectorFit={projectorFit} fontScale={fontScale} appearance={appearance} />
+              <SlideRenderer slide={slide} overVideo projectorFit={projectorFit} fontScale={fontScale} referenceScale={referenceScale} appearance={appearance} />
             </div>
           ) : (
             <div className="absolute inset-0">
-              <SlideRenderer slide={slide} projectorFit={projectorFit} fontScale={fontScale} appearance={appearance} />
+              <SlideRenderer slide={slide} projectorFit={projectorFit} fontScale={fontScale} referenceScale={referenceScale} appearance={appearance} />
             </div>
           )
         )}
@@ -73,6 +74,7 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, projecto
       slide={slide}
       projectorFit={projectorFit}
       fontScale={fontScale}
+      referenceScale={referenceScale}
       appearance={appearance}
       videoMuted={videoMuted}
       onVideoRef={onVideoRef}

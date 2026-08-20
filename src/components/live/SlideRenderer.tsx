@@ -79,7 +79,7 @@ function themeTextStyle(appearance: ThemeAppearance | null | undefined): React.C
   return Object.keys(s).length ? s : undefined;
 }
 
-export function SlideRenderer({ slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef, fontScale, appearance, overVideo }: {
+export function SlideRenderer({ slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef, fontScale, referenceScale, appearance, overVideo }: {
   slide: SlidePayload;
   className?: string;
   // Phase 2a: rendering as an overlay ON TOP of a live video layer. Makes
@@ -94,6 +94,10 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
   // B3 (2026-08-11): operator manual text-size multiplier (AUTO = 1.0),
   // threaded to AutoFitText for text slides. Undefined ⇒ AUTO.
   fontScale?: number;
+  // Independent reference-footer size multiplier (default 1). Operator-set via
+  // the Bible "reference size" control; sizes the footer on its own, separate
+  // from the verse-body fontScale.
+  referenceScale?: number;
   // 2026-07-25: pass-through to AutoFitText for text slides. Grid cards
   // use small values to fit whole verses at a glance; live projector uses
   // the sanctuary-readability default.
@@ -235,8 +239,8 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
                 // reference grows/shrinks with the verse instead of being a fixed
                 // size the operator can't influence.
                 fontSize: projectorFit
-                  ? `calc(clamp(14px, 3.2vh, 42px) * ${fontScale ?? 1})`
-                  : `calc(clamp(11px, 4%, 20px) * ${fontScale ?? 1})`,
+                  ? `calc(clamp(14px, 3.2vh, 42px) * ${referenceScale ?? 1})`
+                  : `calc(clamp(11px, 4%, 20px) * ${referenceScale ?? 1})`,
                 opacity: 0.82,
                 ...themeTextStyle(appearance),
               }}

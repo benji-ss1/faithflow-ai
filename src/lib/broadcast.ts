@@ -211,6 +211,9 @@ export type OutputState = {
   // B3 (2026-08-11): operator manual text-size multiplier for projected slide
   // text (AUTO = 1.0 / undefined). Synced same-machine to all output surfaces.
   fontScale?: number;
+  // Independent size multiplier for the scripture reference footer (1.0 =
+  // default). Lets the operator size "the scripture at the bottom" on its own.
+  referenceScale?: number;
   // Themes Phase 1: active theme's render appearance (background/text styling).
   // Undefined/null ⇒ built-in defaults. Applies to text/blank slides.
   appearance?: ThemeAppearance | null;
@@ -689,6 +692,10 @@ export function isValidOutputState(s: unknown): s is OutputState {
   if (st.fontScale !== undefined) {
     const f = st.fontScale;
     if (typeof f !== "number" || !Number.isFinite(f) || f <= 0 || f > 4) return false;
+  }
+  if (st.referenceScale !== undefined) {
+    const r = st.referenceScale;
+    if (typeof r !== "number" || !Number.isFinite(r) || r <= 0 || r > 4) return false;
   }
   // Themes Phase 1 — validate the theme appearance if present (rejects a
   // malformed/hostile appearance on the cross-device path rather than letting

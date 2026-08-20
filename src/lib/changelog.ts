@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.300",
+    date: "2026-08-20",
+    headline: "Size the scripture reference at the bottom, on its own",
+    highlights: [
+      "A new \"Ref\" size control in the Bible bar sizes the reference footer (Book Chapter:Verse) independently of the verse text \u2014 make it as big or small as you like.",
+    ],
+  },
+  {
     version: "0.1.299",
     date: "2026-08-20",
     headline: "Translation switches the live verse instantly + update prompt",

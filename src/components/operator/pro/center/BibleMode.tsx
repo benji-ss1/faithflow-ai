@@ -6,6 +6,7 @@ import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload } from "@/lib/broadcast";
 import { BibleOptionsPopover, BibleOptionsProvider, useBibleOptions } from "./BibleOptionsPopover";
 import { BibleTextSizeControl } from "./BibleTextSizeControl";
+import { BibleReferenceSizeControl } from "./BibleReferenceSizeControl";
 import { BibleBookBrowser } from "./BibleBookBrowser";
 import type { BibleSessionApi, VerseCard } from "../hooks";
 import { cn } from "@/lib/utils";
@@ -765,6 +766,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
             also scales the reference footer). Layout/reference options live in
             the Options popover next to it. */}
         <BibleTextSizeControl />
+        <BibleReferenceSizeControl />
         <BibleOptionsPopover />
       </div>
       </div>{/* end sticky search header */}
