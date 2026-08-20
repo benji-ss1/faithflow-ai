@@ -33,9 +33,16 @@ import {
 // Ducking attenuates a channel without silencing it — enough to push background
 // singers under the lead while still hearing them in the monitor.
 const DUCK_DB = -14;
-// Speech-vs-singing badge thresholds (from the calibrated `speechiness` signal).
-const PREACHER_SPEECHY = 0.45;
-const SINGING_SPEECHY = 0.32;
+// Speech-vs-singing badge thresholds, re-calibrated 2026-08-20 against a real
+// 30-min CHOIR recording. Choir singing is BURSTIER than sustained solo worship
+// (per-frame speechiness mean 0.36 / median 0.30 / p90 0.63 vs a solo worship
+// clip's ~0.24), so at the old 0.45/0.32 thresholds ~22% of choir frames wrongly
+// read as PREACHER. Fix: SMOOTH the per-channel signal (SPEECH_EMA) so brief
+// syllable bursts don't flicker the badge, and lift the thresholds so smoothed
+// choir (~0.36) reads 🎶 while smoothed preaching (~0.54) reads 🎤.
+const PREACHER_SPEECHY = 0.50;
+const SINGING_SPEECHY = 0.40;
+const SPEECH_EMA = 0.12; // per-channel exponential smoothing on speechiness
 
 interface MicBoardModalProps {
   open: boolean;
@@ -50,6 +57,7 @@ export function MicBoardModal({ open, onClose, deviceId, deviceLabel, channelCou
   const captureRef = useRef<MultiChannelCapture | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeSinceRef = useRef<number[]>([]);
+  const speechEmaRef = useRef<number[]>([]); // per-channel smoothed speechiness
   const gainsRef = useRef<Record<number, number>>({}); // latest gains for commit-on-release
 
   const [chCount, setChCount] = useState(Math.max(1, channelCount));
@@ -114,14 +122,21 @@ export function MicBoardModal({ open, onClose, deviceId, deviceLabel, channelCou
           if (!c) return;
           try {
             const l = c.readLevels();
-            setLevels(l);
             const now = Date.now();
             const since = activeSinceRef.current;
+            const ema = speechEmaRef.current;
             const act: boolean[] = new Array(l.length);
             for (let i = 0; i < l.length; i += 1) {
               if (l[i]!.rms > 0.02) since[i] = now;
               act[i] = (since[i] ?? 0) > now - 250;
+              // Smooth speechiness per channel so a burst of choir syllables can't
+              // flicker the 🎤/🎶 badge (choir singing is bursty — calibration above).
+              const prev = ema[i];
+              const sm = prev === undefined ? l[i]!.speechiness : prev + SPEECH_EMA * (l[i]!.speechiness - prev);
+              ema[i] = sm;
+              l[i]!.speechiness = sm;
             }
+            setLevels(l);
             setActive(act);
           } catch { /* noop */ }
         }, 100);
