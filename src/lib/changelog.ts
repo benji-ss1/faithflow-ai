@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.287",
+    date: "2026-08-20",
+    headline: "Catches verses even with a stutter or hesitation",
+    highlights: [
+      "\"1 Corinthians, um, 2:4\" or \"sorry, I meant… first Corinthians two four\" now resolve correctly — hesitation fillers no longer break the reference.",
+    ],
+  },
+  {
     version: "0.1.286",
     date: "2026-08-20",
     headline: "Themes now actually colour the song \u2014 slides and projector",

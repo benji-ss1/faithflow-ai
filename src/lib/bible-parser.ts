@@ -244,6 +244,15 @@ function chunkToNum(raw: string): number {
 // by the patterns, never here. This pass repairs only the TH-fronted number
 // words, each with a guard against the obvious non-number meaning.
 function repairNumberHomophones(s: string): string {
+  // 2026-08-20 STUTTER/FILLER strip: preachers hesitate mid-reference
+  // ("1 Corinthians, um, 2:4") and the filler splits the book from the
+  // chapter:verse so nothing parses. Remove pure hesitation fillers (never real
+  // Bible words) so "1 Corinthians um 2 4" resolves to 1 Corinthians 2:4. Kept
+  // deliberately narrow (um/uh/er/erm/hmm and "sorry"/"i mean" self-corrections)
+  // so genuine words are untouched.
+  s = s.replace(/\b(?:u+m+|u+h+|e+r+m*|hm+|mhm|err+)\b/gi, " ");
+  s = s.replace(/\b(?:sorry|i mean|i meant|like i said)\b/gi, " ");
+  s = s.replace(/\s{2,}/g, " ");
   // 2026-08-16 field bug fix: Deepgram hears "three verse" (i.e. "3 verse N")
   // as the name "Trever"/"Trevor" in African-accented speech — "John Trever 17"
   // is meant to be "John 3 verse 17" → John 3:17. Expand it back to "3 verse"
