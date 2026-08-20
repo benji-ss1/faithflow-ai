@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.296",
+    date: "2026-08-20",
+    headline: "Cleaner Bible Options panel",
+    highlights: [
+      "Reskinned the Bible slide Options popover to match the app — brand-coloured toggles, clearer labels, full-row clickable rows.",
+      "Removed the leftover Theme box, the dead Import Library dropdown, and the redundant Bibles tab. The reference control now plainly says \"Show on every verse / last verse only / Hide\".",
+    ],
+  },
+  {
     version: "0.1.295",
     date: "2026-08-20",
     headline: "Scripture reference is now pinned to the bottom of the screen",
