@@ -20,7 +20,7 @@ import http from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import { getDb } from "../src/lib/db/client";
 import { transcriptSegments, detectedReferences, servicePlans, bibleTranslations, churchPreferences } from "../src/lib/db/schema";
-import { parseReferences, knownBook, parseBareVerse, isValidChapter, extractCorrections } from "../src/lib/bible-parser";
+import { parseReferences, knownBook, parseBareVerse, isValidChapter, extractCorrections, combineStutteredReference } from "../src/lib/bible-parser";
 
 // 2026-07-24 refactor B — semantic search moves off the Fly bridge to
 // a Vercel-side internal endpoint. Bridge no longer imports @xenova/
@@ -730,6 +730,16 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // overwrite it, matching how an operator would track "where we are" too.
   let lastActiveRef: { book: string; chapter: number } | null = null;
 
+  // Cross-segment stutter memory: the previous finalized segment's text + time,
+  // so a reference split by a mid-utterance pause ("First Corinthians" … [gap] …
+  // "two four") can be re-joined on the next segment. combineStutteredReference
+  // is heavily gated (prev must be a bare book, cur must lead with a number, and
+  // the join must parse to a VALID reference), so keeping the raw prior text is
+  // safe. Only bridged across a short window — a real stutter gap is brief.
+  let prevFinalText: string | null = null;
+  let prevFinalTs = 0;
+  const STUTTER_COMBINE_MS = 8_000;
+
   // Repeat tracking — a preacher restating the SAME reference (even minutes
   // apart, not just within the anti-spam window below) is itself a strong
   // "put this on screen" signal, explicitly requested to bypass the normal
@@ -939,6 +949,30 @@ wss.on("connection", async (ws: WebSocket, req) => {
     await db.insert(transcriptSegments).values({ id: segId, servicePlanId: planId, text });
 
     const refs = parseReferences(text);
+
+    // Cross-segment stutter: if THIS segment found nothing on its own, try
+    // joining it to the previous finalized segment — the classic "First
+    // Corinthians" [pause] "two four" split, where neither half parses alone.
+    // combineStutteredReference gates hard (bare book + leading number + valid
+    // join), so a false combine of unrelated adjacent speech is rejected there.
+    if (refs.length === 0 && prevFinalText && Date.now() - prevFinalTs < STUTTER_COMBINE_MS) {
+      const combined = combineStutteredReference(prevFinalText, text);
+      if (combined.length > 0) {
+        refs.push(...combined);
+        prevFinalText = null; // consumed — don't re-combine against the same book
+        console.log(`[audio] stutter-combine → ${combined[0].book} ${combined[0].chapter}:${combined[0].verseStart}`);
+      }
+    }
+    // Remember this segment for the next one's stutter check: only a segment
+    // that yielded NO reference of its own is a candidate "book half". Any
+    // segment that produced a reference (on its own or via the combine above)
+    // clears the memory so a stale book can't bridge across real speech.
+    if (refs.length === 0) {
+      prevFinalText = text;
+      prevFinalTs = Date.now();
+    } else {
+      prevFinalText = null;
+    }
 
     // Bare "verse 11" / "what does verse 7 say" — no book or chapter spoken
     // at all. Only meaningful once a passage is already active this

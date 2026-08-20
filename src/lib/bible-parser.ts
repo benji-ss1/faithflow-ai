@@ -1203,3 +1203,55 @@ export function parseBookVerseOnly(rawText: string): { book: string; verse: numb
   if (!book || !Number.isFinite(verse) || verse <= 0) return null;
   return { book, verse, matchedText: m[0] };
 }
+
+// ── Cross-segment stutter combine ────────────────────────────────────────────
+// A preacher who pauses between the book name and the numbers ("First
+// Corinthians …" [gap] "… two four") makes ASR emit TWO finalized segments, and
+// neither parses to a reference alone. Given the PREVIOUS segment (candidate
+// bare book) and the CURRENT one (candidate leading numbers), return the
+// combined reference(s) — but ONLY when it's genuinely a split reference, never
+// ordinary speech. Three gates keep it safe:
+//   (a) the previous segment is essentially JUST a known book name (short, and
+//       the whole remainder after stripping leading particles resolves to a
+//       book) — so "my brother John" or "the umbrella" don't qualify;
+//   (b) the current segment LEADS with a chapter/verse number — so "…he was 25
+//       years old" (starts with "he") doesn't combine;
+//   (c) the joined "Book numbers" text actually parses to a VALID reference —
+//       full parseReferences runs, so an invalid chapter (e.g. "Mark 25", Mark
+//       has 16) is rejected outright.
+// Pure + stateless so it's unit-testable; the audio bridge holds the one-segment
+// "pending book" memory and calls this on the next segment.
+const STUTTER_LEADING_NUM_RE =
+  /^(?:\d{1,3}\b|chapter\b|verse\b|(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred)\b)/i;
+
+function leadingBareBookName(text: string): string | null {
+  if (typeof text !== "string") return null;
+  // Repair ASR mishearings first (so "corintians"/"tree" etc. normalise), then
+  // reduce to letters/spaces and strip a small set of leading particles.
+  let s = repairNumberHomophones(text).toLowerCase().replace(/[^a-z\s]/g, " ");
+  s = s.replace(/\b(?:u+m+|u+h+|e+r+m*|hm+)\b/g, " ").replace(/\s+/g, " ").trim();
+  // Strip anchored leading particles ("in", "book of", "turn to", …) — repeated
+  // so "so now in romans" → "romans" — without touching internal words of a
+  // multi-word book like "song of solomon".
+  let prev: string;
+  do {
+    prev = s;
+    s = s.replace(/^(?:so|okay|ok|now|and|then|the|a|in|into|at|on|from|book of|the book of|reading|read|turn to|turning to|turn|go to|going to|lets go to|let us go to|please|to)\s+/i, "").trim();
+  } while (s !== prev && s);
+  if (!s) return null;
+  if (s.split(" ").length > 3) return null; // a bare book is short; longer = real speech
+  return knownBook(s) ?? null;
+}
+
+export function combineStutteredReference(prevText: string, curText: string): ParsedReference[] {
+  if (typeof prevText !== "string" || typeof curText !== "string") return [];
+  const cur = curText.trim();
+  if (!cur) return [];
+  const book = leadingBareBookName(prevText);
+  if (!book) return [];
+  // The current segment must LEAD with a number/chapter/verse cue.
+  const curNorm = repairNumberHomophones(cur).toLowerCase().replace(/^[^a-z0-9]+/, "");
+  if (!STUTTER_LEADING_NUM_RE.test(curNorm)) return [];
+  // Re-parse the join through the full pipeline (homophone repair + validity).
+  return parseReferences(`${book} ${cur}`);
+}
