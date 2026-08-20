@@ -32,6 +32,19 @@ export interface DeviceChannelPref {
   channelLabels?: Record<number, string>;
   /** When true, auto-follow the loudest vocal channel. */
   autoFollow?: boolean;
+
+  // ── Mic-board state (v0.1.29x). All optional + additive: absent = the
+  // pre-board behaviour (no per-channel mute/duck, uniform gain, AI listens to
+  // whatever `selectedChannels` routes). The board owns these; the capture
+  // engine reads them to build its per-channel gain graph.
+  /** Channel indices the operator has MUTED (fully silenced in the monitor mix). */
+  mutedChannels?: number[];
+  /** Channel indices the operator has DUCKED (attenuated, not silenced). */
+  duckedChannels?: number[];
+  /** Per-channel trim in dB, e.g. { 0: +3, 4: -6 }. Distinct from device `gainDb`. */
+  channelGainDb?: Record<number, number>;
+  /** The single channel the AI (Deepgram) listens to — the "lead mic". null = use selectedChannels. */
+  aiListenChannel?: number | null;
 }
 
 export const DEVICE_CHANNEL_PREFS_KEY =
@@ -88,6 +101,42 @@ function coerceChannelList(input: unknown): number[] {
   return out;
 }
 
+const MAX_CHANNEL_LABEL_LEN = 40;
+
+/** Coerce a { channelIndex: string } label map, dropping invalid keys/values. */
+function coerceChannelLabels(input: unknown): Record<number, string> | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  const out: Record<number, string> = {};
+  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+    const idx = Number(k);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= MAX_CHANNELS) continue;
+    if (typeof v !== "string") continue;
+    const label = v.trim().slice(0, MAX_CHANNEL_LABEL_LEN);
+    if (label) out[idx] = label;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+/** Coerce a { channelIndex: gainDb } map, clamping gains and dropping invalid keys. */
+function coerceChannelGains(input: unknown): Record<number, number> | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  const out: Record<number, number> = {};
+  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+    const idx = Number(k);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= MAX_CHANNELS) continue;
+    if (typeof v !== "number" || !Number.isFinite(v)) continue;
+    out[idx] = clampGainDb(v);
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+/** De-dupe + sort a channel-index list (for muted/ducked). */
+function coerceChannelSet(input: unknown): number[] | undefined {
+  const list = coerceChannelList(input);
+  if (!list.length) return undefined;
+  return Array.from(new Set(list)).sort((a, b) => a - b);
+}
+
 function sanitizePref(raw: unknown): DeviceChannelPref | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
@@ -106,6 +155,21 @@ function sanitizePref(raw: unknown): DeviceChannelPref | null {
     typeof r.updatedAt === "number" && Number.isFinite(r.updatedAt)
       ? r.updatedAt
       : Date.now();
+
+  // Mic-board fields — preserved through the round-trip (the previous sanitizer
+  // silently dropped channelLabels/autoFollow, which is why board state didn't
+  // persist). All optional; omitted entirely when empty so prefs stay compact.
+  const channelLabels = coerceChannelLabels(r.channelLabels);
+  const autoFollow = r.autoFollow === true ? true : undefined;
+  const mutedChannels = coerceChannelSet(r.mutedChannels);
+  const duckedChannels = coerceChannelSet(r.duckedChannels);
+  const channelGainDb = coerceChannelGains(r.channelGainDb);
+  const aiListenChannel =
+    typeof r.aiListenChannel === "number" && Number.isInteger(r.aiListenChannel)
+      && r.aiListenChannel >= 0 && r.aiListenChannel < MAX_CHANNELS
+      ? r.aiListenChannel
+      : undefined;
+
   return {
     deviceId,
     deviceLabel,
@@ -114,6 +178,12 @@ function sanitizePref(raw: unknown): DeviceChannelPref | null {
     gainDb,
     autoDetected,
     updatedAt,
+    ...(channelLabels ? { channelLabels } : {}),
+    ...(autoFollow ? { autoFollow } : {}),
+    ...(mutedChannels ? { mutedChannels } : {}),
+    ...(duckedChannels ? { duckedChannels } : {}),
+    ...(channelGainDb ? { channelGainDb } : {}),
+    ...(aiListenChannel !== undefined ? { aiListenChannel } : {}),
   };
 }
 
