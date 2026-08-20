@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ArrowLeft, ChevronLeft, ChevronRight, Monitor, Radio, Square, Sun, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, AI_AUTO_TRANSITION, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, AI_AUTO_TRANSITION, slideOutputIdentity, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
 import { readFontScale } from "./pro/operatorConstants";
 import { openOutputChannel } from "@/lib/realtime";
 import { SyncControl } from "./SyncControl";
@@ -515,7 +515,14 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // this prevents a paired frame from activating a default camera on a public
     // livestream (security).
     if (rtRef.current) { void rtRef.current.publish(state.videoInput ? { ...state, videoInput: null } : state); }
-    if (useFastTransition) fastTransitionSlideRef.current = null;
+    // CUT-THEN-FLOAT FIX (2026-08-20): do NOT clear the marker here. It used to
+    // be one-shot, so the NEXT OutputState re-post for the SAME instant slide
+    // (1 Hz heartbeat / any dep change) fell through to `transitionSpec` and
+    // leaked the operator's fade onto a verse that was already hard-cut — the
+    // "boom project, then float" glitch. The marker now stays STICKY while this
+    // exact slide is live (every re-post carries transition:null); the stale-
+    // marker cleanup at the top of this effect clears it the moment `live`
+    // changes to a different slide.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, effectiveAppearance, videoInput, effectiveFontScale, activeZone]);
   const chRef = useRef<LiveChannelLike | null>(null);
@@ -742,6 +749,15 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       console.warn("[live] sendSlideToLive got invalid slide payload — no-op", slide);
       return;
     }
+    // ALREADY-LIVE SKIP (2026-08-20): if this EXACT slide is already on the
+    // projector, sending it again is a no-op — do nothing. Re-clicking the live
+    // verse card, or the preacher repeating the verse that's on screen, used to
+    // re-fire the whole pipeline (revision bump + set/output re-post) and glitch/
+    // re-transition. The manual card-click instant path bypassed every AI guard
+    // and safeSendLive's identical-slide skip; this covers ALL callers centrally.
+    if (slideOutputIdentity(slide) === slideOutputIdentity(liveRef.current)) {
+      return;
+    }
     if (options?.instant) {
       // instant: true — bypass all transition animation for this slide.
       // Sends transition:null in the "set" message so the projector clears its
@@ -864,23 +880,39 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     else sendSlideToLive(slide, null, { instant: true });
   }, [sendSlideToLive]);
 
+  // Short human label for what a history slide is, for the undo/redo toast so the
+  // operator gets a clear confirmation of what's now on the projector.
+  const liveSnippet = useCallback((s: SlidePayload): string => {
+    if (s.kind === "empty") return "cleared screen";
+    if (s.kind === "blank") return "blank screen";
+    if (s.kind === "logo") return "logo";
+    if (s.kind === "image") return "an image";
+    if (s.kind === "video") return "a video";
+    const t = (s.text ?? "").trim();
+    if (!t) return "a slide";
+    const lastLine = t.split("\n").map((l) => l.trim()).filter(Boolean).pop() ?? "";
+    // Bible slides end with "Book C:V (CODE)" — show that; else the first words.
+    if (/\d+:\d+/.test(lastLine)) return lastLine;
+    return t.slice(0, 42) + (t.length > 42 ? "…" : "");
+  }, []);
+
   const undoLive = useCallback(() => {
     const target = liveUndoStackRef.current.pop();
-    if (target === undefined) return;
+    if (target === undefined) { toast("Nothing to undo on the projector"); return; }
     liveRedoStackRef.current.push(livePrevRef.current);
     reprojectFromHistory(target);
     setLiveHistoryVer((v) => v + 1);
-    toast("↶ Reverted the projector", { duration: 1500 });
-  }, [reprojectFromHistory]);
+    toast.success(`↶ Projector reverted to: ${liveSnippet(target)}`, { duration: 2200 });
+  }, [reprojectFromHistory, liveSnippet]);
 
   const redoLive = useCallback(() => {
     const target = liveRedoStackRef.current.pop();
-    if (target === undefined) return;
+    if (target === undefined) { toast("Nothing to redo on the projector"); return; }
     liveUndoStackRef.current.push(livePrevRef.current);
     reprojectFromHistory(target);
     setLiveHistoryVer((v) => v + 1);
-    toast("↷ Redid the projector", { duration: 1500 });
-  }, [reprojectFromHistory]);
+    toast.success(`↷ Projector moved forward to: ${liveSnippet(target)}`, { duration: 2200 });
+  }, [reprojectFromHistory, liveSnippet]);
 
   const goBlank = useCallback(() => send({ kind: "blank", bgColor: plan.blankBgColor }), [plan.blankBgColor, send]);
   const goLogo = useCallback(() => send({ kind: "logo", url: plan.logoUrl }), [plan.logoUrl, send]);

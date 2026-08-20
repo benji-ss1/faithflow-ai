@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.282",
+    date: "2026-08-20",
+    headline: "No more projector glitch on verse clicks or repeats",
+    highlights: [
+      "Clicking a verse now switches cleanly in one motion \u2014 the \"cut, then float a second later\" glitch is gone.",
+      "Saying or clicking a verse that\u2019s already on the screen no longer re-flashes it \u2014 it stays put.",
+      "Undo/Redo now confirm with a toast showing exactly what\u2019s on the projector.",
+    ],
+  },
+  {
     version: "0.1.281",
     date: "2026-08-20",
     headline: "Projector Undo/Redo buttons + Show confirmation",
