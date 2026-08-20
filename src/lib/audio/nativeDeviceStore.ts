@@ -109,34 +109,50 @@ export function clearNativeDevicePref(): void {
 
 /**
  * Compose an ffmpeg `-af` channel-filter string from a native pref's
- * mode + selectedChannels. Returns undefined for the "sum-all" case
- * (ffmpeg's `-ac 1` handles downmix natively).
+ * mode + selectedChannels + gainDb. Returns undefined for the "sum-all" case
+ * with no gain (ffmpeg's `-ac 1` handles downmix natively).
  *
  * ffmpeg channel indices are 0-based (c0, c1, c2, …) — the pref stores
- * them the same way.
+ * them the same way. `gainDb` (−24..+24) is applied as a linear multiplier on
+ * the pan coefficients, so the operator can boost a quiet preacher mic or trim
+ * a hot one on the AI's lead channel. gainDb was previously ignored.
  *
  * Examples:
- *   { mode: "mono",   selectedChannels: [6] }        → "pan=mono|c0=c6"
- *   { mode: "stereo", selectedChannels: [0, 1] }     → "pan=mono|c0=0.5*c0+0.5*c1"
- *   { mode: "sum-all" }                              → undefined
+ *   { mode: "mono",   selectedChannels: [6] }               → "pan=mono|c0=c6"
+ *   { mode: "mono",   selectedChannels: [6], gainDb: 6 }    → "pan=mono|c0=1.995*c6"
+ *   { mode: "stereo", selectedChannels: [0, 1] }            → "pan=mono|c0=0.5*c0+0.5*c1"
+ *   { mode: "sum-all" }                                     → undefined
  */
+const NATIVE_GAIN_MIN_DB = -24;
+const NATIVE_GAIN_MAX_DB = 24;
+
+function nativeGainLinear(gainDb: unknown): number {
+  const db = typeof gainDb === "number" && Number.isFinite(gainDb) ? gainDb : 0;
+  const clamped = Math.max(NATIVE_GAIN_MIN_DB, Math.min(NATIVE_GAIN_MAX_DB, db));
+  // Round to 3dp so the filter string stays compact + deterministic.
+  return Math.round(Math.pow(10, clamped / 20) * 1000) / 1000;
+}
+
 export function buildChannelFilter(pref: NativeDevicePref | null): string | undefined {
   if (!pref) return undefined;
   const mode = pref.mode ?? "sum-all";
-  if (mode === "sum-all") return undefined;
+  const g = nativeGainLinear(pref.gainDb);
+  const hasGain = g !== 1;
+  if (mode === "sum-all") return undefined; // gain on a raw sum-all isn't meaningful here
   const chs = pref.selectedChannels ?? [];
   if (!chs.length) return undefined;
   if (mode === "mono") {
     const c = chs[0];
     if (typeof c !== "number") return undefined;
-    return `pan=mono|c0=c${c}`;
+    return hasGain ? `pan=mono|c0=${g}*c${c}` : `pan=mono|c0=c${c}`;
   }
-  // stereo → downmix a chosen pair to mono for Deepgram
+  // stereo → downmix a chosen pair to mono for Deepgram (gain scales both legs)
   if (mode === "stereo") {
     if (chs.length < 2) return undefined;
     const [a, b] = chs;
     if (typeof a !== "number" || typeof b !== "number") return undefined;
-    return `pan=mono|c0=0.5*c${a}+0.5*c${b}`;
+    const half = Math.round((0.5 * g) * 1000) / 1000;
+    return `pan=mono|c0=${half}*c${a}+${half}*c${b}`;
   }
   return undefined;
 }

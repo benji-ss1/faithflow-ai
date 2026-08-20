@@ -56,6 +56,8 @@ export function NativeMicBoardModal({ open, onClose, deviceIndex, deviceName, ch
   const [active, setActive] = useState<boolean[]>([]);
   const [labels, setLabels] = useState<Record<number, string>>({});
   const [lead, setLead] = useState<number | null>(null);
+  const [leadGainDb, setLeadGainDb] = useState<number>(0);
+  const leadGainRef = useRef<number>(0);
 
   const chCount = Math.max(1, channelCount);
 
@@ -71,6 +73,9 @@ export function NativeMicBoardModal({ open, onClose, deviceIndex, deviceName, ch
         ? pref.selectedChannels[0]!
         : null,
     );
+    const g0 = forThisDevice && typeof pref.gainDb === "number" ? pref.gainDb : 0;
+    setLeadGainDb(g0);
+    leadGainRef.current = g0;
   }, [open, deviceIndex]);
 
   // Native probe lifecycle (mirrors AudioTab's native channel probe).
@@ -135,13 +140,29 @@ export function NativeMicBoardModal({ open, onClose, deviceIndex, deviceName, ch
   const chooseLead = (ch: number) => {
     const next = lead === ch ? null : ch;
     setLead(next);
+    // New lead starts at its stored gain (or 0); clearing resets the trim.
+    const g = next == null ? 0 : leadGainRef.current;
+    setLeadGainDb(g);
+    leadGainRef.current = g;
     // Routing change — fire the event so useAudioStream re-routes the live feed.
     const base = basePref();
     if (next == null) {
-      writeNativeDevicePref({ ...base, mode: "sum-all", selectedChannels: [] });
+      writeNativeDevicePref({ ...base, mode: "sum-all", selectedChannels: [], gainDb: 0 });
     } else {
-      writeNativeDevicePref({ ...base, mode: "mono", selectedChannels: [next] });
+      writeNativeDevicePref({ ...base, mode: "mono", selectedChannels: [next], gainDb: g });
     }
+  };
+
+  // Lead gain (boost a quiet preacher mic / trim a hot one). Native re-routes with
+  // a ~300ms ffmpeg restart, so we PERSIST only on release — dragging just moves
+  // the slider; letting go applies it. No-op unless a lead is set.
+  const applyLeadGain = (db: number) => {
+    leadGainRef.current = db;
+    setLeadGainDb(db);
+  };
+  const commitLeadGain = () => {
+    if (lead == null) return;
+    writeNativeDevicePref({ ...basePref(), mode: "mono", selectedChannels: [lead], gainDb: leadGainRef.current });
   };
 
   return (
@@ -168,7 +189,7 @@ export function NativeMicBoardModal({ open, onClose, deviceIndex, deviceName, ch
           </div>
 
           <div className="px-5 py-2 text-[11px] text-[var(--color-muted-foreground)] border-b" style={{ borderColor: "var(--color-border)" }}>
-            Label each mic and set the <span className="font-semibold" style={{ color: "var(--color-brand)" }}>Lead</span> — the one mic the AI listens to. Per-mic mute/gain for native mixers is coming in a desktop update.
+            Label each mic and set the <span className="font-semibold" style={{ color: "var(--color-brand)" }}>Lead</span> — the one mic the AI listens to. Trim its gain to boost a quiet preacher or cut a hot mic.
           </div>
 
           <div className="overflow-auto p-4">
@@ -207,6 +228,23 @@ export function NativeMicBoardModal({ open, onClose, deviceIndex, deviceName, ch
                         <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full" style={{ background: "var(--color-success)" }} />
                       )}
                     </div>
+
+                    {/* Lead-only AI gain trim (boost quiet preacher / cut hot mic). */}
+                    {isLead && (
+                      <div className="px-2 flex items-center gap-1.5">
+                        <input
+                          type="range" min={-24} max={24} step={1} value={leadGainDb}
+                          onChange={(e) => applyLeadGain(Number(e.target.value) || 0)}
+                          onMouseUp={commitLeadGain}
+                          onTouchEnd={commitLeadGain}
+                          onKeyUp={commitLeadGain}
+                          onBlur={commitLeadGain}
+                          className="flex-1 accent-[var(--color-brand)]"
+                          aria-label="AI lead gain"
+                        />
+                        <span className="w-9 text-right text-[10px] font-mono text-[var(--color-muted-foreground)]">{leadGainDb > 0 ? "+" : ""}{leadGainDb}</span>
+                      </div>
+                    )}
 
                     <div className="p-2 pt-1.5">
                       <button

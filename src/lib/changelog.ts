@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.297",
+    date: "2026-08-20",
+    headline: "Native Mic Board: trim the lead mic's gain",
+    highlights: [
+      "On the native (pro mixer) Mic Board, the Lead strip now has a gain slider — boost a quiet preacher mic or cut a hot one so the AI hears it cleanly. Applies when you let go of the slider.",
+    ],
+  },
+  {
     version: "0.1.296",
     date: "2026-08-20",
     headline: "Cleaner Bible Options panel",
