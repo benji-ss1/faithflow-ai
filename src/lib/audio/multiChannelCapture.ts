@@ -98,6 +98,21 @@ export interface MultiChannelCapture {
    * The AudioContext, splitter, and analysers stay connected — zero gap.
    */
   switchChannel(channels: number[]): MediaStream;
+  /**
+   * Mic-board per-channel trim. Sets channel `ch`'s gain in dB (clamped
+   * -60..+24). Applied via a persistent post-splitter gain node, so it affects
+   * every extracted stream that includes this channel WITHOUT touching the
+   * pre-gain analysers — meters keep showing the true input level. A muted
+   * channel ignores its gain until unmuted. No-op for out-of-range channels.
+   */
+  setChannelGain(ch: number, db: number): void;
+  /**
+   * Mic-board mute. Silences channel `ch` in the extracted/monitor mix (gain
+   * forced to 0) while preserving its stored trim for when it's unmuted. Meters
+   * still read the live signal (pre-gain), so the operator can see a muted mic
+   * is active. No-op for out-of-range channels.
+   */
+  setChannelMuted(ch: number, muted: boolean): void;
   /** Fully tear down: disconnect nodes, close context, stop tracks. */
   close(): void;
 }
@@ -184,6 +199,38 @@ export async function openMultiChannelCapture(
     prevFreqBuffers.push(new Uint8Array(analyser.frequencyBinCount));
     energyRings.push([]);
   }
+
+  // 3b. Persistent per-channel gain nodes (splitter[i] → channelGain[i]).
+  //     Mic-board mute/duck/trim live here. Default unity (1.0) is transparent —
+  //     with no board adjustments the extracted output is byte-identical to the
+  //     previous direct splitter→extraction routing. Analysers above tap the
+  //     splitter (PRE-gain) on purpose, so a muted channel still meters its true
+  //     signal (the operator can see the mic is live before un-muting).
+  const channelGains: GainNode[] = [];
+  const channelGainDb: number[] = new Array(actualChannelCount).fill(0);
+  const channelMutedFlags: boolean[] = new Array(actualChannelCount).fill(false);
+  for (let i = 0; i < actualChannelCount; i += 1) {
+    const g = audioContext.createGain();
+    g.gain.value = 1.0;
+    splitter.connect(g, i, 0);
+    channelGains.push(g);
+  }
+  const dbToLinear = (db: number): number => Math.pow(10, db / 20);
+  const applyChannelGain = (i: number): void => {
+    const g = channelGains[i];
+    if (!g) return;
+    g.gain.value = channelMutedFlags[i] ? 0 : dbToLinear(channelGainDb[i]!);
+  };
+  const setChannelGain = (ch: number, db: number): void => {
+    if (!Number.isInteger(ch) || ch < 0 || ch >= actualChannelCount) return;
+    channelGainDb[ch] = Math.max(-60, Math.min(24, Number.isFinite(db) ? db : 0));
+    applyChannelGain(ch);
+  };
+  const setChannelMuted = (ch: number, muted: boolean): void => {
+    if (!Number.isInteger(ch) || ch < 0 || ch >= actualChannelCount) return;
+    channelMutedFlags[ch] = !!muted;
+    applyChannelGain(ch);
+  };
 
   // 4. Pre-compute vocal-band bin range for the current sample rate.
   const sampleRate = audioContext.sampleRate;
@@ -290,6 +337,9 @@ export async function openMultiChannelCapture(
       }
     }
 
+    // All extraction sources from the per-channel gain nodes (post-splitter), so
+    // mic-board mute/trim on a channel flows through to whatever it feeds. Each
+    // channelGain has a single output (index 0).
     if (channels.length === 1) {
       const dest = audioContext.createMediaStreamDestination();
       // channelCount 1 = mono destination
@@ -298,7 +348,7 @@ export async function openMultiChannelCapture(
       dest.channelInterpretation = "discrete";
       const gain = audioContext.createGain();
       gain.gain.value = 1.0;
-      splitter.connect(gain, channels[0]!, 0);
+      channelGains[channels[0]!]!.connect(gain, 0, 0);
       gain.connect(dest);
       extractedNodes.push(gain);
       extractedDestinations.push(dest);
@@ -311,8 +361,8 @@ export async function openMultiChannelCapture(
       dest.channelCountMode = "explicit";
       dest.channelInterpretation = "discrete";
       const merger = audioContext.createChannelMerger(2);
-      splitter.connect(merger, channels[0]!, 0);
-      splitter.connect(merger, channels[1]!, 1);
+      channelGains[channels[0]!]!.connect(merger, 0, 0);
+      channelGains[channels[1]!]!.connect(merger, 0, 1);
       merger.connect(dest);
       extractedNodes.push(merger);
       extractedDestinations.push(dest);
@@ -328,7 +378,7 @@ export async function openMultiChannelCapture(
     const gain = audioContext.createGain();
     gain.gain.value = 1.0 / channels.length;
     for (const c of channels) {
-      splitter.connect(gain, c, 0);
+      channelGains[c]!.connect(gain, 0, 0);
     }
     gain.connect(dest);
     extractedNodes.push(gain);
@@ -337,7 +387,8 @@ export async function openMultiChannelCapture(
   };
 
   const switchChannel = (channels: number[]): MediaStream => {
-    // Tear down all previously extracted nodes (but NOT the splitter/analysers).
+    // Tear down all previously extracted nodes (but NOT the splitter/analysers/
+    // channelGains — those persist for the life of the capture).
     for (const node of extractedNodes) {
       try { node.disconnect(); } catch { /* noop */ }
     }
@@ -345,9 +396,15 @@ export async function openMultiChannelCapture(
       try { dest.disconnect(); } catch { /* noop */ }
       try { dest.stream.getTracks().forEach((t) => t.stop()); } catch { /* noop */ }
     }
+    // Sever the channelGains' outputs to the old extraction so those nodes don't
+    // orphan (channelGains only ever feed extraction — never the analysers — so
+    // clearing all their outputs here is safe; splitter→channelGain inputs stay).
+    for (const g of channelGains) {
+      try { g.disconnect(); } catch { /* noop */ }
+    }
     extractedNodes.length = 0;
     extractedDestinations.length = 0;
-    // Create new extraction for the requested channels.
+    // Create new extraction for the requested channels (reconnects channelGains).
     return extractChannelStream(channels);
   };
 
@@ -374,6 +431,13 @@ export async function openMultiChannelCapture(
     for (const analyser of analysers) {
       try {
         analyser.disconnect();
+      } catch {
+        /* noop */
+      }
+    }
+    for (const g of channelGains) {
+      try {
+        g.disconnect();
       } catch {
         /* noop */
       }
@@ -406,6 +470,8 @@ export async function openMultiChannelCapture(
     readLevels,
     extractChannelStream,
     switchChannel,
+    setChannelGain,
+    setChannelMuted,
     close,
   };
 }
