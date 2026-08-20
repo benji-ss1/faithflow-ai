@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.310",
+    date: "2026-08-20",
+    headline: "Reload button now refreshes the projector too + steadier backgrounds",
+    highlights: [
+      "The top-bar reload now also reloads the projector / stage / livestream windows \u2014 so they can\u0027t get stuck on an old version showing a plain gradient instead of the animated background.",
+      "Animated backgrounds now recover automatically if the projector\u0027s graphics context drops (which was causing the glitch and the static-gradient look).",
+    ],
+  },
+  {
     version: "0.1.309",
     date: "2026-08-20",
     headline: "Backgrounds: livelier animations + they show in the preview & all outputs",

@@ -45,6 +45,22 @@ export function createShaderRenderer(opts: ShaderRendererOptions): ShaderHandle 
   }
   if (!gl) return null;
 
+  // Context-loss resilience: on a lost context (GPU reset, too many contexts,
+  // the projector window losing focus), preventDefault so Chromium can RESTORE
+  // it, and reload the page fresh on restore so the shader rebuilds cleanly —
+  // instead of the projector silently falling back to a static gradient forever.
+  const onLost = (e: Event) => { e.preventDefault(); };
+  const onRestored = () => {
+    // Only the output windows (no unsaved state) reload to rebuild the shader —
+    // never the operator (that would reload the whole console from a thumbnail).
+    const p = window.location.pathname;
+    if (p.startsWith("/live") || p.startsWith("/stage") || p.startsWith("/livestream")) {
+      try { window.location.reload(); } catch { /* noop */ }
+    }
+  };
+  opts.canvas.addEventListener("webglcontextlost", onLost, false);
+  opts.canvas.addEventListener("webglcontextrestored", onRestored, false);
+
   const vs = compile(gl, gl.VERTEX_SHADER, VERTEX_SHADER);
   const fs = compile(gl, gl.FRAGMENT_SHADER, fragSrc);
   if (!vs || !fs) return null;
@@ -128,6 +144,8 @@ export function createShaderRenderer(opts: ShaderRendererOptions): ShaderHandle 
       running = false;
       if (raf) cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
+      try { opts.canvas.removeEventListener("webglcontextlost", onLost); } catch { /* noop */ }
+      try { opts.canvas.removeEventListener("webglcontextrestored", onRestored); } catch { /* noop */ }
       try {
         const lose = gl?.getExtension("WEBGL_lose_context");
         lose?.loseContext();

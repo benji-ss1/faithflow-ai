@@ -5,6 +5,7 @@ import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { ServiceWorkerRegister } from "@/components/system/ServiceWorkerRegister";
 import { UpdatePrompt } from "@/components/system/UpdatePrompt";
+import { OutputReloadListener } from "@/components/system/OutputReloadListener";
 import { PostHogProvider } from "@/components/system/PostHogProvider";
 import { OfflineIndicator } from "@/components/system/OfflineIndicator";
 import "./globals.css";
@@ -66,6 +67,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <PostHogProvider />
         <ServiceWorkerRegister />
         <UpdatePrompt />
+        <OutputReloadListener />
         <OfflineIndicator />
         {/* Notification style (2026-08-15): the clean, strong dark card — the
             "Added: … [Undo]" look the user asked to standardise on. richColors

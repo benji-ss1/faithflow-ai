@@ -15,9 +15,17 @@ export function DeepReloadButton() {
 
   const run = async () => {
     if (busy) return;
-    if (!window.confirm("Clear cache and reload?\n\nDo this between slides — it takes a couple of seconds and pulls the latest version.")) return;
+    if (!window.confirm("Clear cache and reload?\n\nThis also reloads the projector / stage / livestream windows. Do it between slides — takes a couple of seconds and pulls the latest version.")) return;
     setBusy(true);
-    toast.info("Clearing cache & reloading…");
+    toast.info("Clearing cache & reloading all windows…");
+    // Tell the separate output windows (projector /live, /stage, /livestream) to
+    // reload too — they're their own windows, so the operator reloading alone
+    // leaves them on a stale bundle. One-shot, user-triggered → no reload loop.
+    try {
+      const bc = new BroadcastChannel("presentflow-reload");
+      bc.postMessage({ type: "reload", at: Date.now() });
+      setTimeout(() => { try { bc.close(); } catch { /* noop */ } }, 500);
+    } catch { /* BroadcastChannel unavailable — operator still reloads below */ }
     try {
       // Renderer-clearable caches (the offline-cache that pins stale builds).
       if (typeof caches !== "undefined") {
