@@ -325,17 +325,29 @@ export async function openMultiChannelCapture(
     return out;
   };
 
-  const extractChannelStream = (channels: number[]): MediaStream => {
-    if (!channels || channels.length === 0) {
+  // Validate + de-dupe a requested channel list, throwing on empty / non-integer
+  // / out-of-range BEFORE any graph mutation. Pulled out so switchChannel can
+  // validate up front — otherwise a bad array would tear down the live extraction
+  // (stopping the Deepgram-facing tracks) and THEN throw, leaving AI-listen dead
+  // with no recovery. De-dupe guards the >2 sum path against a repeated index
+  // summing at 2x before the 1/N group attenuation.
+  const validateChannels = (rawChannels: number[]): number[] => {
+    if (!rawChannels || rawChannels.length === 0) {
       throw new Error("extractChannelStream: at least one channel index required");
     }
+    const channels = Array.from(new Set(rawChannels));
     for (const c of channels) {
-      if (c < 0 || c >= actualChannelCount) {
+      if (!Number.isInteger(c) || c < 0 || c >= actualChannelCount) {
         throw new Error(
           `extractChannelStream: channel ${c} out of range (device has ${actualChannelCount})`
         );
       }
     }
+    return channels;
+  };
+
+  const extractChannelStream = (rawChannels: number[]): MediaStream => {
+    const channels = validateChannels(rawChannels);
 
     // All extraction sources from the per-channel gain nodes (post-splitter), so
     // mic-board mute/trim on a channel flows through to whatever it feeds. Each
@@ -387,6 +399,11 @@ export async function openMultiChannelCapture(
   };
 
   const switchChannel = (channels: number[]): MediaStream => {
+    // VALIDATE BEFORE TEARDOWN. A bad array (empty / stale index after a device
+    // re-enumeration / UI race) must throw with the CURRENT extraction still
+    // live — never stop the tracks and then fail, which would silence AI-listen
+    // with no recovery short of close()/reopen.
+    const validated = validateChannels(channels);
     // Tear down all previously extracted nodes (but NOT the splitter/analysers/
     // channelGains — those persist for the life of the capture).
     for (const node of extractedNodes) {
@@ -405,7 +422,7 @@ export async function openMultiChannelCapture(
     extractedNodes.length = 0;
     extractedDestinations.length = 0;
     // Create new extraction for the requested channels (reconnects channelGains).
-    return extractChannelStream(channels);
+    return extractChannelStream(validated);
   };
 
   const close = (): void => {
