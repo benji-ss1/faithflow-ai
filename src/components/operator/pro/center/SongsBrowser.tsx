@@ -593,7 +593,7 @@ export function SongsBrowser({
                       className="absolute inset-0 w-full h-full"
                       title="Click to send lyric slide to live"
                     >
-                      <SlideRenderer slide={payload} />
+                      <SlideRenderer slide={payload} appearance={ctx.appearance ?? undefined} />
                       {!sl.lyrics.trim() && (
                         <div className="absolute inset-0 flex items-center justify-center text-[11px] text-[var(--color-muted-foreground)]">
                           Empty slide — click pencil to add lyrics

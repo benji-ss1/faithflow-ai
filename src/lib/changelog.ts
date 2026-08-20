@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.289",
+    date: "2026-08-20",
+    headline: "Theme colours now show in the slide grid and previews too",
+    highlights: [
+      "Apply a theme and every slide box, the Stage mirror, and the song/Bible previews now show the real theme background and text colours — matching the live projector instead of showing black/white.",
+    ],
+  },
+  {
     version: "0.1.288",
     date: "2026-08-20",
     headline: "The AI listening switch now turns on and off reliably",
