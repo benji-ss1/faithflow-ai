@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.278",
+    date: "2026-08-20",
+    headline: "\"Mark 4 by 7\" now detects as Mark 4:7",
+    highlights: [
+      "The AI now understands \"Micro 4 by 7\" as Mark 4:7 — a common mishearing of the book name and the verse separator.",
+    ],
+  },
+  {
     version: "0.1.277",
     date: "2026-08-20",
     headline: "The editor's Show button now actually projects your edits",

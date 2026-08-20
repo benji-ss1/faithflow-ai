@@ -87,7 +87,10 @@ const RAW_BOOKS: [string, string[]][] = [
   // "mac" / "mak" — Nigerian/African-English ASR renderings of "mark"
   // (the "rk" cluster softens to a hard "c"/"k"). fuzzyBookMatch won't
   // catch 3-char inputs (threshold < 4), so explicit variants are needed.
-  ["Mark", ["mark", "mk", "mr", "mac", "mak"]],
+  // "micro" — user report 2026-08-20: "Mark 4:7" is transcribed "Micro 4 by 7"
+  // (the "ar-k" becomes "i-cro"). Only ever resolves inside a reference shape
+  // ("micro 4:7"), so ordinary "microphone"/"microwave" speech never matches.
+  ["Mark", ["mark", "mk", "mr", "mac", "mak", "micro"]],
   ["Luke", ["luke", "lk", "lu"]],
   ["John", ["john", "jn", "jhn"]],
   ["Acts", ["acts", "act", "acts of the apostles", "acts of the apostle", "the acts of the apostles", "acts of apostle", "acts of apostles"]],
@@ -270,7 +273,11 @@ function repairNumberHomophones(s: string): string {
   // ("truth was told", "5 and counting") isn't touched.
   // 2026-08-19: "or" added — "Matthew 5 verse 7" is frequently transcribed
   // "Matthew 5 or 7" (verse → "or"). Same digits-both-sides guard as the others.
-  s = s.replace(/\b(\d{1,3})\s+(?:is|was|has|and|at|of|are|were|or)\s+(\d{1,3})\b/g, "$1:$2");
+  // 2026-08-20: "by" added — "Mark 4:7" is transcribed "Mark 4 by 7"
+  // (the ":" verse separator heard as "by"). Same digits-both-sides guard so
+  // ordinary English ("saved by grace", "10 by 10 grid" with no book) is only
+  // reshaped in a reference context downstream.
+  s = s.replace(/\b(\d{1,3})\s+(?:is|was|has|and|at|of|are|were|or|by)\s+(\d{1,3})\b/g, "$1:$2");
   return s;
 }
 
