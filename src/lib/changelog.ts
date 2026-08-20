@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.283",
+    date: "2026-08-20",
+    headline: "The verse transition now plays exactly once \u2014 never repeats",
+    highlights: [
+      "A verse\u2019s fade/transition now happens once and stays put, even under rapid verse calling and background changes \u2014 no more the transition replaying multiple times on the projector.",
+    ],
+  },
+  {
     version: "0.1.282",
     date: "2026-08-20",
     headline: "No more projector glitch on verse clicks or repeats",

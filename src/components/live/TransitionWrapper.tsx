@@ -5,29 +5,35 @@ import type { TransitionSpec } from "@/lib/broadcast";
 
 /**
  * Wraps a projector-side slide render and plays an "enter" animation exactly
- * ONCE per real content change.
+ * ONCE per real content change — even under stress (rapid verse calling, 1 Hz
+ * OutputState heartbeats, appearance/video churn).
  *
- * The frame is remounted (React `key={identityKey}` in the parent) only when the
- * slide CONTENT changes, so the enter animation plays once for each new slide.
+ * Layered guarantees:
+ *  1. The frame is remounted (React `key={identityKey}` on TransitionFrame) only
+ *     when the slide CONTENT changes, so a NEW verse mounts a fresh frame and
+ *     animates once.
+ *  2. FREEZE (2026-08-19): the animation string is captured ONCE at mount into a
+ *     ref, so a later change to the `transition` PROP on already-mounted content
+ *     cannot restart the CSS animation.
+ *  3. IDEMPOTENT-PER-CONTENT (2026-08-20): a module-level record of recently-
+ *     animated identityKeys. If the SAME content's frame remounts within a short
+ *     window — which happens when the `hasVideoBackground(videoInput, appearance)`
+ *     branch on the projector flips between the `set` message (stale
+ *     appearance/videoInput) and the follow-up `output` message (fresh), or on
+ *     any OutputState re-post that crosses that boundary — the enter animation is
+ *     SUPPRESSED. Net: the fade plays exactly once for a verse, never "again and
+ *     again". A genuinely fresh projection of the same reference more than
+ *     ANIM_SUPPRESS_MS later still animates.
  *
- * JITTER FIX (2026-08-12): the remount key is `identityKey` derived during
- * render — NOT bumped in a post-paint effect — so React remounts pre-paint and
- * the new verse's first painted frame is the animation's opacity-0 start (one
- * clean fade-in, no double-paint flash).
- *
- * FADE-PULSE FIX (2026-08-19): previously the `animation` inline style was
- * recomputed from the `transition` prop on EVERY render and applied to the div.
- * Changing that string on an element that is NOT remounting restarts the CSS
- * animation. While a verse was held on the projector and the AI kept
- * re-detecting it, the operator's published `transition` field alternated
- * (AI_AUTO_TRANSITION ↔ configured spec) with a byte-identical slide — so the
- * enter fade replayed on a loop and the audience saw the scripture pulse
- * (fade out/in) every few seconds. The animation is now FROZEN at mount inside
- * `TransitionFrame`, so a later transition-prop change on already-mounted
- * content can never restart it; only a genuine content change (new mount)
- * plays the transition captured at that moment. When `transition` is null the
- * child swaps instantly with no animation.
+ * When `transition` is null the child swaps instantly with no animation.
  */
+
+// identityKey -> last-animated epoch ms. Module-level so it survives frame
+// remounts (the whole point). Pruned on each read; bounded by the few keys
+// active in any window.
+const recentlyAnimated = new Map<string, number>();
+const ANIM_SUPPRESS_MS = 2500;
+
 export function TransitionWrapper({
   identityKey,
   transition,
@@ -39,29 +45,36 @@ export function TransitionWrapper({
 }) {
   useEffect(() => { ensureEffectKeyframes(); }, []);
   return (
-    <TransitionFrame key={identityKey} transition={transition}>
+    <TransitionFrame key={identityKey} identityKey={identityKey} transition={transition}>
       {children}
     </TransitionFrame>
   );
 }
 
 function TransitionFrame({
+  identityKey,
   transition,
   children,
 }: {
+  identityKey: string;
   transition?: TransitionSpec | null;
   children: React.ReactNode;
 }) {
-  // Freeze the enter animation at MOUNT. This frame only mounts for a NEW
-  // identityKey (see parent), so the animation reflects the transition in
-  // effect when THIS content became live and never restarts afterwards.
-  // Sentinel `null` = "not computed yet"; `""` = "computed, no animation".
+  // Compute the enter animation ONCE at mount. Sentinel `null` = "not computed
+  // yet"; `""` = "computed, no animation".
   const animationRef = useRef<string | null>(null);
   if (animationRef.current === null) {
-    const eff = transition ? getEffect(transition.effectId as EffectId) : null;
+    const now = Date.now();
+    for (const [k, t] of recentlyAnimated) if (now - t > ANIM_SUPPRESS_MS) recentlyAnimated.delete(k);
+    const suppressed = recentlyAnimated.has(identityKey);
+    const eff = !suppressed && transition ? getEffect(transition.effectId as EffectId) : null;
     animationRef.current = eff && transition
       ? eff.css(transition.durationMs, transition.easing).in
       : "";
+    // Record that THIS content has now animated (or was intentionally shown
+    // without animation), so an immediate remount of the same content won't
+    // replay it.
+    recentlyAnimated.set(identityKey, now);
   }
   return (
     <div style={{ width: "100%", height: "100%", animation: animationRef.current || undefined }}>
