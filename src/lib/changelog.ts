@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.304",
+    date: "2026-08-20",
+    headline: "Removed the bottom media-library strip",
+    highlights: [
+      "The \"Media Library / Recent\" strip at the very bottom of the operator screen is gone \u2014 the surface now ends cleanly at the play/pause transport bar.",
+    ],
+  },
+  {
     version: "0.1.303",
     date: "2026-08-20",
     headline: "Reference size now applies on the projector + set its colour",

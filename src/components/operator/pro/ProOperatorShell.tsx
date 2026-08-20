@@ -41,7 +41,6 @@ import { OutputRoutingRow } from "./right/OutputRoutingRow";
 import { RightIconBar } from "./right/RightIconBar";
 import { TranscriptDisplay } from "./TranscriptDisplay";
 import { BottomBar } from "./BottomBar";
-import { MediaStrip } from "./MediaStrip";
 import { useTimerSession, useMessagesSession, useBibleSession } from "./hooks";
 import { openLiveChannel, safePost, type LiveChannelLike } from "@/lib/broadcast";
 import { cachedLookup } from "@/lib/bible-client-cache";
@@ -4043,7 +4042,8 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         />
       </div>
 
-      {mediaStripOpen && <MediaStrip onCenterMode={setCenterMode} />}
+      {/* Bottom "Media Library / Recent" strip removed (user directive
+          2026-08-20) — the operator surface now ends at the transport bar. */}
 
       <ShortcutsHelpOverlay open={shortcutsHelpOpen} onOpenChange={setShortcutsHelpOpen} />
       <AudioDebugOverlay audio={ctx.audio} />
