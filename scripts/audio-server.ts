@@ -214,15 +214,6 @@ async function openDeepgram(churchId: string, sessionKeyterms: string[] = []): P
     language: "en",
     smart_format: "true",
     interim_results: "true",
-    // 2026-08-21 LATENCY (field "transcription is lagging"): smart_format +
-    // numerals make Deepgram WITHHOLD interim results to gather number-formatting
-    // context — and this app's speech is dense with numbers (verse refs), so
-    // words surfaced late in the transcript. `no_delay` tells Deepgram to emit
-    // interims immediately and apply formatting on the finalized result instead,
-    // so the live transcript tracks speech while finals stay formatted. Detection
-    // is unaffected — the parser normalizes spoken numbers itself
-    // (repairNumberHomophones / parseReferences).
-    no_delay: "true",
     punctuate: "true",
     numerals: "true",
     // Deepgram's supported live-stream speech-boundary signals. These do not
@@ -295,11 +286,6 @@ async function openDeepgram(churchId: string, sessionKeyterms: string[] = []): P
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      // 2026-08-21 LATENCY: disable Nagle on the bridge→Deepgram TCP socket so
-      // the small (320B-3KB) audio frames are sent immediately instead of being
-      // coalesced (~40-100ms + delayed-ACK interaction per hop). Node sockets
-      // default to Nagle ON.
-      try { (ws as unknown as { _socket?: { setNoDelay?: (b: boolean) => void } })._socket?.setNoDelay?.(true); } catch { /* best-effort */ }
       resolve(ws);
     });
     ws.once("error", (error) => {
@@ -510,9 +496,6 @@ const wss = new WebSocketServer({
 });
 
 wss.on("connection", async (ws: WebSocket, req) => {
-  // 2026-08-21 LATENCY: disable Nagle on the inbound client TCP socket so
-  // returning transcript frames aren't coalesced/delayed on the way back.
-  try { (ws as unknown as { _socket?: { setNoDelay?: (b: boolean) => void } })._socket?.setNoDelay?.(true); } catch { /* best-effort */ }
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
 
   // Y7: diagnostics-panel reachability probe. Short-circuit BEFORE any
@@ -1290,22 +1273,15 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
   dg.on("close", (code: number, reason: Buffer) => {
     console.log(`[audio] Deepgram closed code=${code} reason=${reason.toString() || "(none)"} after ${dgMessages} msgs`);
-    // 2026-08-21 fix ("AI silently dies mid-service"): reopen Deepgram on ANY
-    // close while the client is still connected. Previously only 1011/1006/idle
-    // flagged a reopen, so a normal 1000/1005 close mid-service (Deepgram's own
-    // server-side rotation/idle) left audio silently DROPPED — no transcripts,
-    // client still "on" — until the 30s stall watchdog forced a 1006. A live
-    // client means we still need Deepgram, so any close triggers the lazy reopen
-    // on the next chunk. (The reopen path is generation-guarded + throttled below
-    // so a Deepgram outage can't hot-loop.)
-    if (ws.readyState === WebSocket.OPEN) {
+    // R9: if the client is still connected AND we haven't sent much audio yet
+    // (warm-start idle case), flag DG for lazy reopen on next audio chunk.
+    if (ws.readyState === WebSocket.OPEN && (code === 1011 || code === 1006 || audioChunks === 0)) {
       dgNeedsReopen = true;
     }
   });
 
   let dgNeedsReopen = false;
   let lazyReopenGeneration = 0;
-  let lastDgReopenAt = 0; // throttle: at most one reopen attempt per ~1.5s
 
   const handleAudio = (buf: Buffer) => {
     // Y16: drop chunks > 64KB (audio should be tiny PCM frames).
@@ -1340,13 +1316,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
         if (shifted) canonicalRingBytes -= shifted.length;
       }
     }
-    // R9: lazy-reopen DG if it closed. Throttled so a Deepgram outage (DG
-    // accepting then immediately re-closing) can't hot-loop reopen attempts on
-    // every audio chunk — at most one attempt per 1.5s; audio between attempts
-    // is dropped (Deepgram tolerates gaps) rather than hammering the API.
-    if (dgNeedsReopen && dg.readyState !== WebSocket.OPEN && Date.now() - lastDgReopenAt >= 1500) {
+    // R9: lazy-reopen DG if it closed while we were idle.
+    if (dgNeedsReopen && dg.readyState !== WebSocket.OPEN) {
       dgNeedsReopen = false;
-      lastDgReopenAt = Date.now();
       const reopenGeneration = ++lazyReopenGeneration;
       openDeepgram(churchId, sessionKeyterms).then((newDg) => {
         if (reopenGeneration !== lazyReopenGeneration || ws.readyState !== WebSocket.OPEN) {
@@ -1358,10 +1330,9 @@ wss.on("connection", async (ws: WebSocket, req) => {
         // Rewire handlers on the new socket.
         dg.on("message", dgOnMessage);
         dg.on("error", (err: Error) => { console.error("[audio] Deepgram error:", err.message); send({ type: "error", message: "Deepgram error" }); });
-        try { (dg as unknown as { _socket?: { setNoDelay?: (b: boolean) => void } })._socket?.setNoDelay?.(true); } catch { /* best-effort */ }
         dg.on("close", (code: number, reason: Buffer) => {
           console.log(`[audio] Deepgram closed code=${code} reason=${reason.toString() || "(none)"}`);
-          if (ws.readyState === WebSocket.OPEN) dgNeedsReopen = true; // reopen on any close while client live
+          if (ws.readyState === WebSocket.OPEN && (code === 1011 || code === 1006)) dgNeedsReopen = true;
         });
         send({ type: "ready" });
         try { dg.send(buf); lastDgSendAt = Date.now(); } catch { /* ignore */ }
