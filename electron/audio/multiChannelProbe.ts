@@ -59,18 +59,10 @@ function buildArgs(opts: StartProbeOpts, deviceName: string): string[] {
     "pipe:1",
   ];
   if (process.platform === "darwin") {
-    // F4 (2026-08-21): ASK avfoundation for the real channel count on the INPUT
-    // side (before -i) so the VU grid reflects the device's ACTUAL channels
-    // rather than upmixing a 2-ch default stream into a fake N-channel grid that
-    // misleads the operator into crowning a silent/duplicated channel. Best-
-    // effort (avfoundation multichannel is limited); the native Swift probe is
-    // the true multi-channel path and shows real per-channel levels.
-    const inputChannelReq = opts.channelCount >= 2 ? ["-channels", String(opts.channelCount)] : [];
     return [
       "-hide_banner",
       "-nostdin",
       "-f", "avfoundation",
-      ...inputChannelReq,
       "-i", `:${opts.deviceIndex}`,
       ...common,
     ];

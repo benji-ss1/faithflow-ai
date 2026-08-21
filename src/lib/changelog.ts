@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.322",
+    date: "2026-08-21",
+    headline: "Stability fix: reverts the audio-engine change that broke connections",
+    highlights: [
+      "The previous desktop update (0.1.321) changed the native audio engine to try isolating a mixer channel, but on some setups it destabilised the AI connection (the WebSocket kept dropping). This update reverts that change so the AI connects and stays on reliably again. We'll re-approach mic isolation more carefully. If you ever hit this mid-service, opening faithflow-ai.vercel.app in Chrome is an instant fallback.",
+    ],
+  },
+  {
     version: "0.1.321",
     date: "2026-08-21",
     headline: "Desktop: unlocks true multi-channel mic isolation (X32 / XR18 / SQ)",

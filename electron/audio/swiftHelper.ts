@@ -12,7 +12,7 @@
 // audio:nativeChannelLevels — plus one additive channel,
 // audio:nativeDeviceChange, from CoreAudio hot-plug notifications.
 
-import { spawn, spawnSync, ChildProcessByStdio } from "node:child_process";
+import { spawn, ChildProcessByStdio } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -372,22 +372,6 @@ class SwiftHelperManager {
     if (extraIps) args.push("--ndi-extra-ips", extraIps);
     const groups = process.env.PRESENTFLOW_NDI_GROUPS?.trim();
     if (groups) args.push("--ndi-groups", groups);
-    // ── Gatekeeper unblock for UNSIGNED / ad-hoc builds (2026-08-21, no Apple
-    // Developer ID yet) ── A downloaded DMG is quarantined; when the app spawns
-    // this ad-hoc-signed HELPER child, Gatekeeper silently SIGKILLs it, so the
-    // capture tier falls back to ffmpeg and true 32-channel isolation never
-    // works (the "singing isn't picked up" root cause). Stripping
-    // com.apple.quarantine from our OWN bundled helper (+ its NDI dylib) before
-    // exec lets the ad-hoc binary run WITHOUT notarization. The parent app is
-    // already trusted (the user opened it) and this is scoped to our own bundled
-    // resources, so it's safe. Best-effort, synchronous (must finish before
-    // spawn), no-op in dev / when unquarantined.
-    if (process.platform === "darwin") {
-      for (const t of [bin, getBundledNdiRuntimePath()]) {
-        try { spawnSync("xattr", ["-d", "com.apple.quarantine", t], { timeout: 3000 }); } catch { /* best-effort */ }
-      }
-      try { fs.chmodSync(bin, 0o755); } catch { /* electron-builder can drop the exec bit */ }
-    }
     const proc = spawn(bin, args, { stdio: ["pipe", "pipe", "pipe"] });
     this.proc = proc;
     this.ready = false;
