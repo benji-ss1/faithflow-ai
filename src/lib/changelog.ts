@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.319",
+    date: "2026-08-21",
+    headline: "Worship singing no longer clutters the Bible detections with false psalms",
+    highlights: [
+      "During worship, generic sung phrases (“…at the right hand”, “holy you are holy”) were popping up as false Psalms suggestions. They're now filtered out — a phrase only surfaces as a scripture suggestion when it carries a distinctive, quotable word — while genuine spoken quotes (“the Lord is my shepherd…”) still detect normally.",
+    ],
+  },
+  {
     version: "0.1.318",
     date: "2026-08-21",
     headline: "Fixed: the book of Mark now projects (was being heard as “Micah”)",

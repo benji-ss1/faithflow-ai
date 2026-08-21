@@ -33,6 +33,23 @@ const MIN_INCLUDE_SCORE = 20;
 const MAX_RESULTS = 15;
 const FUZZY_TRIGGER_MAX = 30;
 
+// Generic worship / high-frequency devotional vocabulary. These words recur in
+// sung worship AND across dozens of verse entries, so a phrase match built ONLY
+// on them (no distinctive content word, no contiguous substring hit) is worship
+// vocabulary coinciding with a verse — not a real spoken quote. This was the
+// source of the false "Psalms" chips during singing (field 2026-08-21: "who is
+// seated at the right hand" → Psalms 109:1/91:2). A match must carry at least
+// one DISTINCTIVE (non-stopword) keyword, or a phrase/alt/fullText substring, to
+// earn the popularity boost and clear the include floor.
+const WORSHIP_STOPWORDS = new Set([
+  "lord", "god", "jesus", "christ", "father", "spirit", "holy", "holiness", "praise",
+  "worship", "glory", "glorious", "name", "soul", "bless", "blessed", "blessing",
+  "king", "kingdom", "love", "loved", "heart", "mighty", "great", "greatly", "worthy",
+  "hand", "right", "seated", "throne", "grace", "mercy", "merciful", "high", "highest",
+  "come", "sing", "song", "hallelujah", "amen", "hosanna", "exalt", "exalted", "above",
+  "power", "glorify", "majesty", "almighty", "reign", "forever", "everlasting", "alive",
+]);
+
 // Precomputed lowercase snapshots. Populated lazily on first call so importing
 // this module is free (no cost during module init at app boot).
 type Indexed = {
@@ -175,9 +192,29 @@ export function phraseSearch(rawQuery: string): PhraseSearchResult[] {
       }
     }
 
-    // 7. Popularity boost
-    if (score > 0 && typeof entry.popularity === "number") {
+    // Distinctiveness: how many matched query words are NOT generic worship
+    // vocabulary. A contiguous substring hit (phrase/alt/fullText) is itself a
+    // strong, distinctive signal regardless of individual words.
+    let distinctiveKeywordHits = 0;
+    for (const w of queryWords) {
+      if (ix.keywordSet.has(w) && !WORSHIP_STOPWORDS.has(w)) distinctiveKeywordHits++;
+    }
+    const hasSubstringHit = primary === "phrase" || primary === "alt" || primary === "fullText";
+
+    // 7. Popularity boost — ONLY when the match has a real signal (a substring
+    //    hit or a distinctive keyword), so a popular psalm can't float up on
+    //    generic worship-word overlap + popularity alone.
+    if (score > 0 && typeof entry.popularity === "number" && (hasSubstringHit || distinctiveKeywordHits >= 1)) {
       score += entry.popularity * 2;
+    }
+
+    // Generic-worship guard: a keyword/theme/fuzzy-only match with NO distinctive
+    // word and NO substring hit is sung worship coinciding with a verse's
+    // keywords, not a real quote — hold it below the include floor so it never
+    // surfaces as a chip during singing. Real spoken quotes carry a distinctive
+    // word (shepherd, wretch, world…) or a contiguous substring, so are unaffected.
+    if (!hasSubstringHit && distinctiveKeywordHits === 0) {
+      score = Math.min(score, MIN_INCLUDE_SCORE - 1);
     }
 
     if (score >= MIN_INCLUDE_SCORE) {

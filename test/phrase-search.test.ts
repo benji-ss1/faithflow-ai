@@ -63,6 +63,25 @@ async function main() {
     assert.strictEqual(weak, null);
   });
 
+  // Worship-vocabulary suppression (field 2026-08-21): sung worship phrases made
+  // of generic devotional words must NOT surface as false scripture chips.
+  await check("engine: generic worship phrases produce NO phrase match", () => {
+    for (const q of [
+      "who is seated at the right hand",
+      "at the right hand of the",
+      "holy you are holy",
+      "praise the lord o my soul lord",
+    ]) {
+      assert.strictEqual(topPhraseForSpeech(q), null, `worship phrase leaked a chip: "${q}"`);
+    }
+  });
+  await check("engine: genuine spoken quotes still match despite worship stopwords", () => {
+    // These carry a DISTINCTIVE word (shepherd / world / strengtheneth), so the
+    // distinctiveness gate leaves them untouched.
+    assert.ok(topPhraseForSpeech("the lord is my shepherd i shall not want"), "Psalm 23 lost");
+    assert.ok(topPhraseForSpeech("for god so loved the world that he gave his only begotten son"), "John 3:16 lost");
+  });
+
   // ---------- detectAll cap ----------
   await check("detectAll: phrase match confidence never exceeds 74 + isPhraseMatch set", async () => {
     _resetPhraseCooldown();
