@@ -2163,6 +2163,36 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // re-utterances) of the SAME reference don't each spawn a fresh box.
   const lastRoutedRefKeyRef = useRef<string | null>(null);
   const lastRoutedRefTsRef = useRef<number>(0);
+  // ── LATENCY: pre-warm today's plan's scripture CHAPTERS at session start ──
+  // (2026-08-21, field "there's a heavy delay"). So the FIRST time the preacher
+  // reads a PLANNED verse, the instant hard-cut already has the whole chapter
+  // cached and projects with zero network. Runs once per plan, deferred ~1.5s so
+  // it never competes with first paint; best-effort, deduped per book:chapter.
+  useEffect(() => {
+    let cancelled = false;
+    const t = setTimeout(() => {
+      void (async () => {
+        try {
+          const { parseReference } = await import("@/lib/bible-parser");
+          const translation = bibleSession.state.translation;
+          const seen = new Set<string>();
+          for (const it of ctx.plan.items) {
+            if (cancelled) return;
+            if (it.type !== "scripture") continue;
+            const ref = parseReference(it.title);
+            if (!ref) continue;
+            const k = `${ref.book}:${ref.chapter}`;
+            if (seen.has(k)) continue;
+            seen.add(k);
+            prefetchChapter(ref.book, ref.chapter, translation);
+          }
+        } catch { /* best-effort — a cold verse just re-fetches on demand */ }
+      })();
+    }, 1500);
+    return () => { cancelled = true; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx.plan.id]);
+
   useEffect(() => {
     const suggestions = ctx.audio.suggestions;
     if (!suggestions || suggestions.length === 0) return;
@@ -2171,6 +2201,21 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // scripture suggestion.
     const scripture = suggestions.find((s) => s.type === "scripture" && s.confidence >= threshold);
     if (!scripture || scripture.type !== "scripture") return;
+    // ── LATENCY: warm the WHOLE chapter the INSTANT a reference is detected ──
+    // (2026-08-21, field video "there's a heavy delay"). The "instant hard-cut"
+    // path below only projects with zero network when `getCachedChapter` hits;
+    // that cache was almost never warm for a freshly-preached verse (the session
+    // pre-warm fills a DIFFERENT per-verse cache), so most verses fell to a
+    // blocking /api/bible/lookup round-trip (120-500ms+) — the visible delay.
+    // Firing prefetchChapter here, on the FIRST (even interim, even sub-auto)
+    // sight of the reference, warms getCachedChapter for THIS verse and every
+    // following verse in the chapter (a preacher reading a passage), so the
+    // hard-cut lands instantly. Fire-and-forget + deduped by fetchChapterCached's
+    // in-flight/cache map, so re-detections cost nothing. Skip phrase matches so
+    // a coincidental worship-phrase psalm doesn't warm a wrong chapter.
+    if (!scripture.isPhraseMatch) {
+      prefetchChapter(scripture.ref.book, scripture.ref.chapter, bibleSession.state.translation);
+    }
     // Dedup key can keep the "-verseEnd" suffix unconditionally — it's never
     // shown to the operator. The visible reference-box text must NOT: it was
     // reusing this same string via setRef(key), which put a bogus "-1" on

@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.316",
+    date: "2026-08-21",
+    headline: "Verses project faster — much less delay after they're spoken",
+    highlights: [
+      "Big latency fix: the app now loads the whole chapter the instant it hears a reference, so the verse hard-cuts onto the screen with no network wait — and every following verse in that chapter is instant too. Before, most verses had to fetch over the network first, which was the delay you were seeing.",
+      "It also pre-loads the scripture chapters in today's plan when the service opens, so your planned verses are ready to project the moment they're read.",
+    ],
+  },
+  {
     version: "0.1.315",
     date: "2026-08-21",
     headline: "Switching Bible translation now updates the projector instantly",
