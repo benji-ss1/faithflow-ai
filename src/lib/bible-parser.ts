@@ -90,7 +90,13 @@ const RAW_BOOKS: [string, string[]][] = [
   // "micro" — user report 2026-08-20: "Mark 4:7" is transcribed "Micro 4 by 7"
   // (the "ar-k" becomes "i-cro"). Only ever resolves inside a reference shape
   // ("micro 4:7"), so ordinary "microphone"/"microwave" speech never matches.
-  ["Mark", ["mark", "mk", "mr", "mac", "mak", "micro"]],
+  // "mica"/"mika" — user report 2026-08-21: accented "Mark" is misheard as
+  // "Mica"/"Micah", and fuzzyBookMatch maps "mica"→Micah (edit-distance 1),
+  // stealing every Mark reference. Mark is FAR more commonly preached than the
+  // minor prophet Micah, so the missing-h phonetic spellings resolve to Mark
+  // here (exact aliases beat fuzzy). Correctly-spelled "micah" still → Micah;
+  // the chapter-validity repair below additionally rescues "micah N" when N > 7.
+  ["Mark", ["mark", "mk", "mr", "mac", "mak", "micro", "mica", "mika"]],
   ["Luke", ["luke", "lk", "lu"]],
   ["John", ["john", "jn", "jhn"]],
   ["Acts", ["acts", "act", "acts of the apostles", "acts of the apostle", "the acts of the apostles", "acts of apostle", "acts of apostles"]],
@@ -464,6 +470,16 @@ function normalize(text: string): string {
   // \s+ between the word and the number, so a fused form silently failed to
   // match at all. Split it back apart before anything else runs.
   s = s.replace(/\b(verses?|chapters?)(\d+)\b/g, "$1 $2");
+
+  // Mark vs Micah (field 2026-08-21): accented "Mark" is routinely misheard by
+  // Deepgram as the correctly-spelled "Micah". When the chapter number is > 7 it
+  // CANNOT be Micah (only 7 chapters) — so it's Mark (16 chapters), and rejecting
+  // it as an invalid Micah chapter is why "Mark 8-16" wasn't projecting. Rewrite
+  // micah→mark for that case ONLY, so real Micah 1-7 is never touched. (The
+  // missing-h "mica"/"mika" spellings are aliased to Mark above for the
+  // ambiguous 1-7 range too.)
+  s = s.replace(/\bmicah\b(\s+(?:chapter\s+)?)(\d+)/g, (m, mid, num) =>
+    parseInt(num, 10) > 7 ? `mark${mid}${num}` : m);
 
   // Fuse compound word numerals with an underscore so "twenty-eight" stays
   // atomic during pattern matching (won't be split by range separators or

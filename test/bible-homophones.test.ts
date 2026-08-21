@@ -46,6 +46,16 @@ test('"efesians 2 8" → Ephesians 2:8', () => expectRef("efesians 2 8", "Ephesi
 test('"efficient 4 6" → no reference (English word, not a mishear)', () => assert.equal(parseReference("efficient 4 6"), null));
 test('"be efficient in all things" → no reference', () => assert.equal(parseReference("be efficient in all things"), null));
 
+console.log("\nMark vs Micah ASR mishear (field 2026-08-21 — accented 'Mark' → 'Micah'):");
+test('"Mica 4:1" → Mark 4:1 (missing-h phonetic → Mark)', () => expectRef("Mica 4:1", "Mark", 4, 1));
+test('"Mika 4:1" → Mark 4:1', () => expectRef("Mika 4:1", "Mark", 4, 1));
+test('"Mica 16:15" → Mark 16:15', () => expectRef("Mica 16:15", "Mark", 16, 15));
+test('"Micah 11:4" → Mark 11:4 (Micah has 7 chapters — must be Mark)', () => expectRef("Micah 11:4", "Mark", 11, 4));
+test('"Micah chapter 16 verse 15" → Mark 16:15', () => expectRef("Micah chapter 16 verse 15", "Mark", 16, 15));
+// Real Micah (valid chapters 1-7, correctly spelled) must be preserved.
+test('"Micah 4:1" → Micah 4:1 (real Micah untouched)', () => expectRef("Micah 4:1", "Micah", 4, 1));
+test('"Micah 7:7" → Micah 7:7 (real Micah untouched)', () => expectRef("Micah 7:7", "Micah", 7, 7));
+
 console.log("\nNo false positives — ordinary speech must be untouched:");
 // "for"/"to"/"floor"/"door" etc. in normal sentences must NOT become numbers.
 test('"open the door" → no reference', () => assert.equal(parseReference("open the door"), null));

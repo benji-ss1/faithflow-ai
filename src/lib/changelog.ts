@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.318",
+    date: "2026-08-21",
+    headline: "Fixed: the book of Mark now projects (was being heard as “Micah”)",
+    highlights: [
+      "The AI was mishearing accented “Mark” as “Micah”, so Mark references either showed the wrong book or (for Mark 8–16) didn't project at all. Mark now resolves correctly, and real Micah references (chapters 1–7) still work.",
+    ],
+  },
+  {
     version: "0.1.317",
     date: "2026-08-21",
     headline: "Smoother projector output + steadier voice verse-nav",
