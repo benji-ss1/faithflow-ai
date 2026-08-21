@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.314",
+    date: "2026-08-21",
+    headline: "Cleaner top bar — less clutter around the AI controls",
+    highlights: [
+      "Removed the redundant bits from the top bar: the “Show current” play button, the “Screen” picker, the A−/AUTO/A+ text-size control, and the Live/Audience/Stage status chips — so the AI controls (AI On, Worship/Auto/Preacher, Auto-approve, mic level) sit together without noise around them.",
+      "Nothing was lost: screen/display assignment still lives in the Screens panel (bottom-left), the Play button on each panel still projects what you're viewing, and Bible text/reference sizing is still on the Bible toolbar.",
+    ],
+  },
+  {
     version: "0.1.313",
     date: "2026-08-21",
     headline: "Projector now shows your background too (matches the preview)",

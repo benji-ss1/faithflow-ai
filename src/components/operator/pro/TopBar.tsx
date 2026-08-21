@@ -8,9 +8,9 @@ import { useTier } from "@/hooks/useTier";
 import { canAccess } from "@/lib/tier";
 import { MaxUpgradePrompt } from "@/components/tier/MaxUpgradePrompt";
 import {
-  Search, Play, BookOpen,
-  Sparkles, Image as ImageIcon, MonitorSpeaker, Circle, ScreenShare,
-  Music, ChevronDown, Palette, Undo2, Redo2,
+  Search, BookOpen,
+  Sparkles, Image as ImageIcon,
+  Music, Palette, Undo2, Redo2,
 } from "lucide-react";
 import Image from "next/image";
 import type { OperatorShellCtx } from "../shell/types";
@@ -24,7 +24,6 @@ import { DeepReloadButton } from "./DeepReloadButton";
 import { AIDiagnosticModal, type LiveAudioStats } from "../AIDiagnosticModal";
 import { readNativeDevicePref } from "@/lib/audio/nativeDeviceStore";
 import type { DisplayInfo } from "@/types/electron";
-import { dispatchInternal } from "@/lib/internal-events";
 import { FONT_SCALE_KEY, readFontScale, FONT_SCALE_MIN, FONT_SCALE_MAX, FONT_SCALE_STEP } from "./operatorConstants";
 
 function IconBtn({
@@ -263,30 +262,9 @@ export function TopBar({
         </button>
       </div>
       <div className="mx-1 h-5 w-px bg-[var(--color-border)]" aria-hidden />
-      <div className="flex items-center" style={{ gap: 4 }}>
-        {/* Content cluster */}
-        {/* 2026-07-25 field bug fix — was `ctx.onSendToLive` unconditionally
-            which sends the PLAYLIST preview slide; in Bible/Songs modes
-            that either fires the wrong slide or silently no-ops. Now
-            routes to the same context-aware handlers as the CenterHeader
-            Play button so both act on what the operator is looking at. */}
-        <IconBtn
-          icon={Play}
-          label="Show current"
-          onClick={() => {
-            try { console.log("[topbar-play] clicked", { centerMode }); } catch { /* ignore */ }
-            if (centerMode === "bible") {
-              dispatchInternal("presentflow:bible-play-current");
-              return;
-            }
-            if (centerMode === "songs") {
-              dispatchInternal("presentflow:songs-play-current");
-              return;
-            }
-            ctx.onSendToLive();
-          }}
-        />
-      </div>
+      {/* "Show current" top-bar Play button removed 2026-08-21 (top-bar declutter,
+          user directive) — the CenterHeader already has a context-aware Play for
+          the panel the operator is looking at, so this was a duplicate. */}
 
       <div className="mx-2 h-6 w-px bg-[var(--color-border)]" />
       <FluidTabs
@@ -351,45 +329,11 @@ export function TopBar({
             </Popover.Portal>
           </Popover.Root>
         )}
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger asChild>
-            <button
-              type="button"
-              title="Preview output display"
-              className="px-2 h-8 flex items-center gap-1 text-[11px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)] rounded-md border border-[var(--color-border)] hover:bg-white/5"
-            >
-              {displayLabel} <ChevronDown className="w-3 h-3" />
-            </button>
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content
-              align="end"
-              sideOffset={4}
-              className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[160px]"
-            >
-              {displays.length === 0 && (
-                <div className="px-3 py-1.5 text-[var(--color-muted-foreground)]">No displays detected</div>
-              )}
-              {displays.map((d) => (
-                <DropdownMenu.Item
-                  key={d.id}
-                  onSelect={() => {
-                    setPreviewDisplay(d.id);
-                    try { window.localStorage.setItem(PREVIEW_DISPLAY_KEY, String(d.id)); } catch { /* noop */ }
-                  }}
-                  className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between"
-                >
-                  <span>Screen {d.id}</span>
-                  <span className="text-[10px] opacity-60 font-mono">{d.bounds?.width}×{d.bounds?.height}</span>
-                </DropdownMenu.Item>
-              ))}
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
+        {/* "SCREEN n" preview-display dropdown removed 2026-08-21 (top-bar
+            declutter, user directive) — display assignment lives in the Screens
+            panel (bottom-left sidebar), so this top-bar picker was redundant. */}
         {/* Big-bright AI Live pill — prominent OFF/CONNECTING/LIVE/OFFLINE indicator.
-            Sits BEFORE the Live/Audience/Stage pills so operators can spot AI
-            state at a glance. When errored, the pill splits into a status
-            chip + inline Retry button. */}
+            When errored, the pill splits into a status chip + inline Retry button. */}
         <Tooltip.Provider delayDuration={200}>
           <div className="flex items-center gap-1">
             <Tooltip.Root>
@@ -714,42 +658,10 @@ export function TopBar({
               width={96}
               title={autoApproveOn ? "Auto-approve is ON — high-confidence detections auto-send to LIVE" : "Auto-approve is OFF — click chips to send"}
             />
-            {/* B3 — projector text-size control. AUTO = auto-fit; A−/A+ bias the
-                fitted size (clamped so text never runs off-screen). */}
-            <div
-              className="flex items-center gap-0.5 h-[28px] rounded-full border border-[var(--color-border)] bg-[var(--color-panel)] px-1"
-              title="Projector text size — AUTO fits automatically; A− / A+ make it smaller / larger"
-            >
-              <button
-                type="button"
-                onClick={() => changeFontScale(fontScale - FONT_SCALE_STEP)}
-                disabled={fontScale <= FONT_SCALE_MIN + 1e-6}
-                aria-label="Smaller projected text"
-                className="w-6 h-6 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-brand)] disabled:opacity-40 text-[13px] font-bold leading-none"
-              >
-                A−
-              </button>
-              <button
-                type="button"
-                onClick={() => changeFontScale(1)}
-                title="Reset to AUTO (auto-fit)"
-                className={cn(
-                  "h-6 min-w-[42px] px-1 rounded text-[9px] font-bold uppercase tracking-wider leading-none",
-                  fontIsAuto ? "text-[var(--color-brand)]" : "text-[var(--color-muted-foreground)] hover:bg-white/5",
-                )}
-              >
-                {fontIsAuto ? "AUTO" : `${Math.round(fontScale * 100)}%`}
-              </button>
-              <button
-                type="button"
-                onClick={() => changeFontScale(fontScale + FONT_SCALE_STEP)}
-                disabled={fontScale >= FONT_SCALE_MAX - 1e-6}
-                aria-label="Larger projected text"
-                className="w-6 h-6 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-brand)] disabled:opacity-40 text-[13px] font-bold leading-none"
-              >
-                A+
-              </button>
-            </div>
+            {/* Projector text-size A−/AUTO/A+ control removed from the top bar
+                2026-08-21 (declutter, user directive). The per-content size
+                controls remain (Bible "T" size + reference size); global
+                projector text-size can return in a settings popover if needed. */}
             {aiHardFailed && (
               <>
                 <button
@@ -781,50 +693,11 @@ export function TopBar({
                 the top bar. */}
           </div>
         </Tooltip.Provider>
-        {/* Task F — PP-parity output pills */}
-        <button
-          type="button"
-          title={isLive ? "LIVE — click to scroll preview" : "Live output cleared"}
-          onClick={() => {
-            const el = document.querySelector('[data-tour="right"]');
-            if (el && "scrollIntoView" in el) (el as HTMLElement).scrollIntoView({ behavior: "smooth", block: "nearest" });
-          }}
-          className={cn(
-            "flex items-center gap-1 h-[22px] px-1.5 rounded-md text-[10px] font-medium border transition-colors",
-            isLive
-              ? "border-[var(--color-destructive)] bg-[color-mix(in_srgb,var(--color-destructive)_15%,transparent)] text-[var(--color-destructive)]"
-              : "border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:bg-white/5",
-          )}
-        >
-          <Circle className={cn("w-2 h-2", isLive ? "fill-[var(--color-destructive)] text-[var(--color-destructive)]" : "fill-[var(--color-muted-foreground)] text-[var(--color-muted-foreground)]")} />
-          <span>Live</span>
-        </button>
-        <div
-          className={cn(
-            "flex items-center gap-1 h-[22px] px-1.5 rounded-md text-[10px] font-medium border",
-            displays.length > 1
-              ? "border-[var(--color-success)] text-[var(--color-success)] bg-[color-mix(in_srgb,var(--color-success)_10%,transparent)]"
-              : "border-[var(--color-border)] text-[var(--color-muted-foreground)]",
-          )}
-          title={`Audience output — ${displays.length > 1 ? "available" : "single display"}`}
-        >
-          <Circle className={cn("w-2 h-2", displays.length > 1 ? "fill-[var(--color-success)] text-[var(--color-success)]" : "fill-[var(--color-muted-foreground)] text-[var(--color-muted-foreground)]")} />
-          <span className="hidden sm:inline">Audience</span>
-          <MonitorSpeaker className="w-3 h-3 sm:hidden" />
-        </div>
-        <div
-          className={cn(
-            "flex items-center gap-1 h-[22px] px-1.5 rounded-md text-[10px] font-medium border",
-            displays.length > 2
-              ? "border-[var(--color-success)] text-[var(--color-success)] bg-[color-mix(in_srgb,var(--color-success)_10%,transparent)]"
-              : "border-[var(--color-border)] text-[var(--color-muted-foreground)]",
-          )}
-          title={`Stage output — ${displays.length > 2 ? "available" : "not assigned"}`}
-        >
-          <Circle className={cn("w-2 h-2", displays.length > 2 ? "fill-[var(--color-success)] text-[var(--color-success)]" : "fill-[var(--color-muted-foreground)] text-[var(--color-muted-foreground)]")} />
-          <span className="hidden sm:inline">Stage</span>
-          <ScreenShare className="w-3 h-3 sm:hidden" />
-        </div>
+        {/* Live / Audience / Stage status pills removed from the top bar
+            2026-08-21 (declutter, user directive). They were status-only (Live
+            just scrolled the preview; Audience/Stage were non-interactive
+            display-availability chips) — output windows are opened/assigned from
+            the Screens panel (bottom-left sidebar), which is unchanged. */}
         {/* Deep reload — clear cache & pull the latest version */}
         <DeepReloadButton />
         {/* Recent features / What's-new bell — revisit updates any time */}
