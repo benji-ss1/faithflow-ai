@@ -2,7 +2,6 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Popover from "@radix-ui/react-popover";
 import { useTier } from "@/hooks/useTier";
 import { canAccess } from "@/lib/tier";
@@ -23,8 +22,6 @@ import { FeaturesBell } from "./ActivitiesCard";
 import { DeepReloadButton } from "./DeepReloadButton";
 import { AIDiagnosticModal, type LiveAudioStats } from "../AIDiagnosticModal";
 import { readNativeDevicePref } from "@/lib/audio/nativeDeviceStore";
-import type { DisplayInfo } from "@/types/electron";
-import { FONT_SCALE_KEY, readFontScale, FONT_SCALE_MIN, FONT_SCALE_MAX, FONT_SCALE_STEP } from "./operatorConstants";
 
 function IconBtn({
   icon: Icon, label, active, onClick,
@@ -62,8 +59,6 @@ function IconBtn({
   );
 }
 
-const PREVIEW_DISPLAY_KEY = "presentflow.pro.previewDisplay";
-
 export function TopBar({
   centerMode, onCenterMode, onToggleMediaStrip, mediaStripOpen, ctx,
 }: {
@@ -73,7 +68,6 @@ export function TopBar({
   mediaStripOpen: boolean;
   ctx: OperatorShellCtx;
 }) {
-  const isLive = ctx.liveSlide.kind !== "empty";
   const currentTitle =
     centerMode === "bible" ? "Bible"
     : centerMode === "songs" ? "Songs Library"
@@ -127,8 +121,6 @@ export function TopBar({
   }, [listening]);
   const { tier } = useTier();
   const canProContent = tier !== null && canAccess(tier, "pro-content");
-  const [displays, setDisplays] = useState<DisplayInfo[]>([]);
-  const [previewDisplay, setPreviewDisplay] = useState<number | null>(null);
 
   // #4 — Big Auto-approve toggle. Simplifies the 4-mode autopilot to on/off:
   //   OFF => "suggestion" (chips shown, operator must click)
@@ -144,18 +136,9 @@ export function TopBar({
   // cold. This localStorage key restores the last explicit toggle on launch.
   const AUTO_APPROVE_PERSIST_KEY = "presentflow.pro.autoApprove.persist.v1";
 
-  // B3 — manual projector text-size. Persisted to localStorage; the change
-  // event is picked up by OperatorConsole, which syncs it to all output
-  // surfaces via OutputState.
-  const [fontScale, setFontScaleState] = useState(1);
-  useEffect(() => { setFontScaleState(readFontScale()); }, []);
-  const changeFontScale = (next: number) => {
-    const clamped = Math.max(FONT_SCALE_MIN, Math.min(FONT_SCALE_MAX, Math.round(next * 100) / 100));
-    setFontScaleState(clamped);
-    try { localStorage.setItem(FONT_SCALE_KEY, String(clamped)); } catch { /* noop */ }
-    try { window.dispatchEvent(new CustomEvent("presentflow:font-scale-changed", { detail: { scale: clamped } })); } catch { /* noop */ }
-  };
-  const fontIsAuto = Math.abs(fontScale - 1) < 1e-6;
+  // (Projector text-size state + the display/screen picker state that used to
+  // live here were removed 2026-08-21 with the top-bar declutter — the controls
+  // moved to the Bible toolbar / Screens panel. See git history if reviving.)
   // CRITICAL (2026-08-16 correctness-review 🔴): SKIP the very first (hydration)
   // run of this effect. `autoApproveOn` derives from `ctx.autopilotMode`, which
   // OperatorConsole ALWAYS initialises to "suggestion"/"armed" (never "active")
@@ -192,17 +175,6 @@ export function TopBar({
     }
   };
 
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.electronAPI) return;
-    void window.electronAPI.screens.list().then((list) => {
-      setDisplays(list || []);
-      try {
-        const raw = window.localStorage.getItem(PREVIEW_DISPLAY_KEY);
-        if (raw) setPreviewDisplay(parseInt(raw, 10));
-      } catch { /* noop */ }
-    });
-  }, []);
-
   // Cmd/Ctrl+K is centralized in useOperatorHotkeys (Priority 4). The shell
   // fires a `presentflow:open-search` custom event which we listen for here
   // — that keeps a single source of truth for the keybind AND lets other
@@ -215,9 +187,6 @@ export function TopBar({
 
   const toggleMode = (m: CenterMode) => () =>
     onCenterMode(centerMode === m ? "slides" : m);
-
-  const currentDisplay = displays.find((d) => d.id === previewDisplay) ?? displays[0];
-  const displayLabel = currentDisplay ? `Screen ${currentDisplay.id}` : "No screen";
 
   return (
     <div className="h-11 shrink-0 border-b border-[var(--color-border)] bg-[var(--color-panel)] flex items-center px-2 gap-1">
