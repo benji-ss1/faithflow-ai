@@ -539,8 +539,16 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
   // (TRANS)"; parse it, refetch, re-project.
   const reprojectLiveInTranslation = useCallback(async (newTranslation: string) => {
     const live = ctx.liveSlide;
-    if (!live || live.kind !== "text" || !live.reference) return;
-    const m = /^(.+?)\s+(\d+):(\d+)/.exec(live.reference);
+    if (!live || live.kind !== "text") return;
+    // The live scripture reference lives under TWO conventions in this console:
+    // a dedicated `.reference` field (cardToSlide / auto-fire / voice paths) OR
+    // embedded as the last "\n\n"-separated line of `.text` ("body\n\nBook C:V
+    // (TRANS)", from BiblePanel). Reading only `.reference` (the bug, field
+    // 2026-08-21: NKJV changed the preview but not the projector) aborts for
+    // verses projected the embedded way. Accept either.
+    const refLabel = (live.reference ?? live.text.split("\n\n").pop() ?? "").trim();
+    if (!refLabel) return;
+    const m = /^(.+?)\s+(\d+):(\d+)/.exec(refLabel);
     if (!m) return;
     const book = m[1]!.trim();
     const chapter = parseInt(m[2]!, 10);

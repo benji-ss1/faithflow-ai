@@ -3714,8 +3714,13 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     let liveUpdated = false;
     const live = ctx.liveSlide;
     if (live?.kind === "text" && typeof live.text === "string") {
-      const parts = live.text.split("\n\n");
-      const label = parts[parts.length - 1]?.trim() ?? "";
+      // Reference lives under TWO conventions in this console: a dedicated
+      // `.reference` field (cardToSlide / auto-fire / voice paths) OR embedded as
+      // the last "\n\n"-separated line of `.text`. Reading only the embedded form
+      // (the old bug's mirror) silently no-ops for verses projected via the
+      // dedicated-field paths, so a voice translation-switch wouldn't re-render
+      // the live verse. Accept either.
+      const label = (live.reference ?? live.text.split("\n\n").pop() ?? "").trim();
       const m = /^(.+?)\s+(\d+):(\d+)(?:-(\d+))?\s+\(([A-Za-z0-9]+)\)$/.exec(label);
       if (m) {
         const [, book, chapterStr, startStr, endStr, liveCode] = m;
