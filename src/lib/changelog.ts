@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.317",
+    date: "2026-08-21",
+    headline: "Smoother projector output + steadier voice verse-nav",
+    highlights: [
+      "The projector now only re-syncs its full look when it actually (re)connects, instead of every few seconds — less background work on the projector machine for smoother playback.",
+      "Voice “next verse” / “go back” now always advances from the verse that's actually on the screen, even when you're not on the Bible panel.",
+    ],
+  },
+  {
     version: "0.1.316",
     date: "2026-08-21",
     headline: "Verses project faster — much less delay after they're spoken",

@@ -239,7 +239,7 @@ export default function LivePage() {
       channel.onmessageerror = () => console.warn("[live] messageerror — malformed message received, ignoring");
     };
     attachHandlers(ch);
-    safePost(ch, { type: "ping" });
+    safePost(ch, { type: "ping", join: true }); // genuine mount → request a full snapshot
 
     const timer = setInterval(() => {
       const stale = Date.now() - lastMsgAt.current;
@@ -275,7 +275,7 @@ export default function LivePage() {
         if (ch) {
           reopenCount += 1;
           attachHandlers(ch);
-          safePost(ch, { type: "ping" });
+          safePost(ch, { type: "ping", join: true }); // reconnect → request a full snapshot
           lastMsgAt.current = Date.now(); // avoid immediate re-trigger
         }
       }

@@ -922,18 +922,25 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     ch.onmessage = (e) => {
       const msg = e.data as LiveMessage;
       if (msg.type === "ping") {
-        // Keep the slide-only pong (existing connection-alive behaviour).
+        // Keep the slide-only pong (existing connection-alive + slide self-heal).
         ch.postMessage({ type: "pong", slide: liveRef.current } as LiveMessage);
-        // Snapshot-on-join (2026-08-21 fix): a freshly opened / reconnected
-        // projector otherwise renders the slide on a BLACK background, because
-        // the BACKGROUND (and appearance/zone/fontScale) only ride the "output"
+        // Snapshot-on-join (2026-08-21): a freshly opened / reconnected projector
+        // otherwise renders the slide on a BLACK background, because the
+        // BACKGROUND (and appearance/zone/fontScale) only ride the "output"
         // message — every live-FIRE uses the lighter "set" message, and the
         // "output" post is deduped so it may never re-fire for an already-live
-        // slide. Result: preview (reads the background locally) shows it,
-        // projector doesn't. Replaying the last full OutputState here makes the
-        // projector match the preview the instant it (re)connects.
-        const snap = lastOutputStateRef.current;
-        if (snap) ch.postMessage({ type: "output", state: snap } as LiveMessage);
+        // slide. Replaying the last full OutputState makes the projector match
+        // the preview the instant it (re)connects.
+        // GATED to GENUINE (re)joins (join:true — mount / reopen), NOT the ~3s
+        // heartbeat ping: replying with a full OutputState on every heartbeat
+        // re-rendered the whole projector tree ~1×/sec all service (regression
+        // fix 2026-08-21). The heartbeat's job is only to self-heal the SLIDE,
+        // which the pong above already covers; background rarely changes and
+        // re-emits its own "output" when it does.
+        if ((msg as { join?: boolean }).join === true) {
+          const snap = lastOutputStateRef.current;
+          if (snap) ch.postMessage({ type: "output", state: snap } as LiveMessage);
+        }
       }
     };
     return () => { ch.close(); chRef.current = null; };

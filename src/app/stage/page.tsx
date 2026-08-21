@@ -143,7 +143,7 @@ export default function StagePage() {
       c.onmessageerror = () => console.warn("[stage] messageerror");
     };
     attach(ch);
-    ch.postMessage({ type: "ping" } as LiveMessage);
+    ch.postMessage({ type: "ping", join: true } as LiveMessage);
     const timer = setInterval(() => {
       const stale = Date.now() - lastMsgAt.current;
       if (stale > 3000) setConnected(false);
@@ -166,7 +166,7 @@ export default function StagePage() {
         if (ch) {
           reopenCount += 1;
           attach(ch);
-          try { ch.postMessage({ type: "ping" } as LiveMessage); } catch { /* ignore */ }
+          try { ch.postMessage({ type: "ping", join: true } as LiveMessage); } catch { /* ignore */ }
           lastMsgAt.current = Date.now();
         }
       }

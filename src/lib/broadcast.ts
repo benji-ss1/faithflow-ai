@@ -284,7 +284,7 @@ export type TimerOverlay =
 export type LiveMessage =
   | { type: "set"; slide: SlidePayload; transition?: TransitionSpec | null } // legacy + optional one-shot override
   | { type: "clear" }
-  | { type: "ping" }
+  | { type: "ping"; join?: boolean } // join:true = genuine (re)connect; wants a full OutputState snapshot back, not just a pong
   | { type: "pong"; slide: SlidePayload }
   | { type: "output"; state: OutputState }             // new: full multi-surface state
   | { type: "message"; overlay: MessageOverlay }       // P2: transient message overlay

@@ -3479,12 +3479,19 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       const parser = await import("@/lib/bible-parser");
       // Base the advance on the CURRENTLY SELECTED card's label so pressing
       // Verse > walks: John 3:16 → 3:17 → 3:18 (not stuck on the input ref).
-      // Fall back to the ref field if no cards are loaded yet.
+      // With no selected card, anchor on the verse ACTUALLY on the projector
+      // (2026-08-21 parity fix — matches repeat_verse/goto_bible_verse) rather
+      // than bibleSession.state.ref, which can be stale from an earlier lookup;
+      // ref lives as a dedicated field OR the last "\n\n" line of text.
       const cards = bibleSession.state.cards;
       const curIdx = bibleSession.state.selectedIdx ?? (cards.length - 1);
+      const liveRefRaw = ctx.liveSlide?.kind === "text"
+        ? (ctx.liveSlide.reference ?? ctx.liveSlide.text.split("\n\n").pop() ?? "")
+        : "";
+      const liveAnchor = liveRefRaw.trim().replace(/\s*\([^)]+\)\s*$/, ""); // strip "(KJV)"
       const anchorRef = cards[curIdx]?.label
         ? cards[curIdx].label.replace(/\s*\([^)]+\)\s*$/, "") // strip "(KJV)"
-        : bibleSession.state.ref;
+        : (liveAnchor || bibleSession.state.ref);
       try { console.log("[verse-nav] advanceRef", { dir, anchorRef, cardCount: cards.length, curIdx }); } catch { /* ignore */ }
       const parsed = parser.parseReference(anchorRef);
       if (!parsed) {
