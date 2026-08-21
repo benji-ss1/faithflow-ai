@@ -869,8 +869,17 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   // (a livestream upload eating the pipe for the whole service) keeps climbing
   // past 3s and trips the valve. The 1.5s hysteresis band keeps shed cycles
   // long enough to avoid frame-by-frame flapping.
-  const WS_BACKPRESSURE_HIGH_WATER = 96_000; // ≈3s of audio buffered ⇒ start shedding
-  const WS_BACKPRESSURE_LOW_WATER = 48_000;  // ≈1.5s ⇒ backlog drained, resume sending
+  // 2026-08-21 LATENCY (field "transcription is still lagging / jamming"): the
+  // old 96KB/48KB marks let up to ~3s of audio stand in the WS buffer before
+  // shedding, and only drained back to ~1.5s — so on a marginal (not saturated)
+  // church uplink the transcript ran a persistent 1.5-3s behind live speech.
+  // Halved to ~1.5s ceiling / ~0.4s floor: sheds sooner and drains to near
+  // real-time, so the transcript tracks speech closely. The post-reconnect
+  // RING_FLUSH_SETTLE_MS window below still absorbs the reconnect backfill so we
+  // don't shed the first live chunks after a reconnect. TUNABLE — if genuinely
+  // jittery wifi starts dropping words (missed detections), raise these.
+  const WS_BACKPRESSURE_HIGH_WATER = 48_000; // ≈1.5s of audio buffered ⇒ start shedding
+  const WS_BACKPRESSURE_LOW_WATER = 12_000;  // ≈0.4s ⇒ backlog drained, resume sending
   const wsSheddingRef = useRef<boolean>(false);
   const uplinkCongestedRef = useRef<boolean>(false);
   const shedBytesRef = useRef<number>(0);
@@ -1298,11 +1307,22 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   }, [teardown, isDevOrTraceOn]);
 
   const start = useCallback(async (opts?: { warm?: boolean }) => {
-    // R6: reentry guard — if we're mid-init, don't spawn a duplicate pipeline.
-    // Check the LATEST committed state via a ref check on wsRef, which is set
-    // synchronously below.
-    // (Fine-grained state check happens against pipelineGenerationRef.)
     intentionalStopRef.current = false;
+    // ── REENTRY GUARD (2026-08-21, "AI keeps switching off") ── If a socket
+    // already exists for this hook (a warm socket, or a race between the
+    // auto-start effect and a manual toggle), CLOSE it before opening a new one
+    // — otherwise two concurrent WebSockets for the same plan reach the server,
+    // which evicts one with 1013 and the reconnect churn begins. Null wsRef
+    // FIRST so the old socket's onclose hits the superseded-socket guard and
+    // does nothing (no reconnect, no state change). The comment here used to
+    // claim this guard existed; it didn't.
+    {
+      const existingWs = wsRef.current;
+      if (existingWs && (existingWs.readyState === WebSocket.OPEN || existingWs.readyState === WebSocket.CONNECTING)) {
+        wsRef.current = null;
+        try { existingWs.close(1000, "superseded-by-local-start"); } catch { /* noop */ }
+      }
+    }
     // Deterministic mic-mute state per invocation. Prior bug: warmStart set
     // micMutedRef=true then never got cleared on subsequent operator clicks,
     // so the WS opened but PCM chunks were suppressed at line ~1030 — Fly
@@ -1794,17 +1814,27 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       };
       ws.onclose = (e) => {
         log("WS close", { code: e.code, reason: e.reason });
-        // Null wsRef if this is still the current ws — prior code only reset
-        // wsRef in stop()/teardown(), so a warmStart() after an abnormal
-        // close could see wsRef.current pointing at a CLOSED socket and
-        // early-return `if (wsRef.current)`, wedging the pipeline until app
-        // restart. Guarded so we don't clobber a newer ws already assigned.
-        if (wsRef.current === ws) wsRef.current = null;
+        // ── SUPERSEDED-SOCKET GUARD (2026-08-21, CRITICAL — "AI keeps switching
+        // off") ── If this socket is no longer the current one, a NEWER socket
+        // already replaced it (e.g. warmStart→resume opened a second, or the
+        // server evicted our older duplicate with 1013). This orphan must do
+        // NOTHING: scheduling a reconnect from here would tear down the HEALTHY
+        // current pipeline and spawn yet another socket, which the server evicts
+        // again → infinite reconnect churn (Deepgram resets → dead transcript).
+        // Let the orphan die quietly; the current socket is unaffected.
+        if (wsRef.current !== ws) return;
+        // This IS the current socket — null the ref (prior code only reset it in
+        // stop()/teardown(), so a warmStart() after an abnormal close could see
+        // a CLOSED socket and early-return, wedging the pipeline).
+        wsRef.current = null;
         const abnormal = e.code !== 1000 && e.code !== 1005;
         // Server sends 1008 for auth / ticket problems and 1011 for missing
-        // config (e.g. DEEPGRAM_API_KEY). Both are non-recoverable by
-        // reconnecting — surface the reason directly and stop the loop.
-        const fatal = e.code === 1008 || e.code === 1011;
+        // config (e.g. DEEPGRAM_API_KEY). 1013 = the server superseded THIS
+        // session with a newer one (another device/tab, or a duplicate) — since
+        // wsRef still points here, no newer LOCAL socket exists, so reconnecting
+        // would just evict the other live session and start a two-way ping-pong.
+        // All three are non-recoverable by reconnecting — surface + stop the loop.
+        const fatal = e.code === 1008 || e.code === 1011 || e.code === 1013;
         if (fatal) {
           if (readyDowngradeTimerRef.current) { clearTimeout(readyDowngradeTimerRef.current); readyDowngradeTimerRef.current = null; }
           setState((s) => ({ ...s, ready: false, error: e.reason ? `Audio bridge: ${e.reason}` : s.error }));
@@ -2956,13 +2986,24 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const resume = useCallback(() => {
     lastTranscriptAtRef.current = Date.now();
     intentionalStopRef.current = false;
-    micMutedRef.current = false;
     // Defensive: unlike restart()/stop(), this wasn't zeroing
     // reconnectAttemptsRef. Currently unreachable in practice (nothing calls
     // resume() while a reconnect backoff is pending), but if that changes,
     // a stale ref > 0 would make start() wrongly treat this fresh call as a
     // reconnect and skip resetting dgMessagesReceived/stageHistory.
     reconnectAttemptsRef.current = 0;
+    // ── CRITICAL (2026-08-21, "AI keeps switching off") ── If a WARM socket is
+    // already OPEN (warmStart opened it muted, with capture running), just
+    // UNMUTE it — do NOT call start(), which opens a SECOND WebSocket for the
+    // same plan. The server evicts one duplicate with 1013 and the reconnect
+    // churn begins. Only fall back to start() when there is no live socket.
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      micMutedRef.current = false;
+      setState((s) => ({ ...s, warmStarted: false, listening: true }));
+      return;
+    }
+    micMutedRef.current = false;
     setState((s) => ({ ...s, warmStarted: false }));
     startRef.current().catch(() => { /* ignore */ });
   }, []);

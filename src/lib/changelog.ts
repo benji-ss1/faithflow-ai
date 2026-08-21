@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.320",
+    date: "2026-08-21",
+    headline: "Major fix: AI stays on, and the transcript keeps up with the room",
+    highlights: [
+      "Fixed the AI “switching off” mid-service: the app was opening duplicate listening connections that fought each other and kept resetting. It now keeps one clean, stable connection, so the AI stays on.",
+      "Fixed the transcription lag: the live transcript now tracks speech much more closely (faster audio delivery + words no longer held back to format numbers). If the AI briefly drops, it reconnects to transcription on its own instead of going silent.",
+      "Reload the app once to pick this up — you should notice the AI staying on and the transcript keeping pace.",
+    ],
+  },
+  {
     version: "0.1.319",
     date: "2026-08-21",
     headline: "Worship singing no longer clutters the Bible detections with false psalms",
