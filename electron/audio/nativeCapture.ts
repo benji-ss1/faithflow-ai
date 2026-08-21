@@ -91,7 +91,30 @@ function classifyStderr(line: string): { message: string; suggestion?: string } 
       suggestion: "Reinstall PresentFlow.",
     };
   }
+  // F3 (2026-08-21): a pan filter referencing a channel the input doesn't have
+  // ("Channel with index N ... does not exist" / "Invalid channel"). On the
+  // ffmpeg fallback engine avfoundation only exposes the device's DEFAULT (~2)
+  // channels, so a higher channel of a 32-ch mixer is unreachable and the pan
+  // resolves to SILENCE — previously a silent failure the operator couldn't see.
+  // Surface it plainly instead.
+  if ((lower.includes("does not exist") || lower.includes("invalid channel")) && lower.includes("channel")) {
+    return {
+      message: "That mixer channel can't be reached by the current audio engine. The app is on its ffmpeg fallback, which only sees this device's default 2 channels — it cannot isolate a higher channel from a multi-channel mixer.",
+      suggestion: "Restart the desktop app to enable the native multi-channel engine. If it still can't reach the channel, check that the mixer's USB output sends raw channel direct-outs (not the main L/R mix).",
+    };
+  }
   return null;
+}
+
+/** Highest `cN` referenced by a pan channel filter, or -1. "pan=mono|c0=c8" → 8. */
+function maxChannelInFilter(filter?: string): number {
+  if (!filter) return -1;
+  let max = -1;
+  for (const m of filter.matchAll(/c(\d+)/g)) {
+    const n = parseInt(m[1]!, 10);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return max;
 }
 
 function buildFfmpegArgs(opts: StartCaptureOpts, deviceName: string): string[] {
@@ -113,11 +136,20 @@ function buildFfmpegArgs(opts: StartCaptureOpts, deviceName: string): string[] {
     "pipe:1",
   ];
   if (process.platform === "darwin") {
+    // F2 (2026-08-21, best-effort): if the pan filter wants a channel ≥ 2, ask
+    // avfoundation to open the device with enough INPUT channels to reach it
+    // (must precede -i). avfoundation's multichannel support is limited, so this
+    // may not expose all 32 on every device — the native Swift engine is the
+    // real path for that — but on devices that DO honour it, this makes a
+    // higher mixer channel reachable instead of silently missing.
+    const maxCh = maxChannelInFilter(opts.channelFilter);
+    const inputChannelReq = maxCh >= 2 ? ["-channels", String(maxCh + 1)] : [];
     return [
       "-hide_banner",
       "-nostdin",
       ...lowLatencyInput,
       "-f", "avfoundation",
+      ...inputChannelReq,
       "-i", `:${opts.deviceIndex}`,
       ...common,
     ];

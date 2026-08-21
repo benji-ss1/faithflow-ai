@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.321",
+    date: "2026-08-21",
+    headline: "Desktop: unlocks true multi-channel mic isolation (X32 / XR18 / SQ)",
+    highlights: [
+      "The native audio engine that can isolate ONE channel of a multi-channel mixer (so the AI hears only the lead vocal, not the whole band) was being blocked on the church's Mac by macOS security and silently falling back to a 2-channel engine — which is why singing wasn't being picked up. The app now unblocks its own audio helper on launch, so isolation works.",
+      "When a mixer channel can't be reached, the app now tells you clearly instead of going silent, and the mic-board meters reflect the device's real channels.",
+      "Requires the new desktop version (DMG) to take effect.",
+    ],
+  },
+  {
     version: "0.1.320",
     date: "2026-08-21",
     headline: "Major fix: AI stays on, and the transcript keeps up with the room",
