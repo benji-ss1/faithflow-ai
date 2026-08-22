@@ -121,11 +121,18 @@ export default function LoginScene() {
       alive = false;
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
-      renderer.dispose();
+      // Dispose geometries + materials, then RELEASE the WebGL context. Safari
+      // caps live contexts (~16); without forceContextLoss, navigating to/from
+      // /login a few times exhausts them and the tab reloads/crashes.
       scene.traverse((o) => {
         const m = o as THREE.Mesh;
         if (m.geometry) m.geometry.dispose();
+        const mat = m.material;
+        if (Array.isArray(mat)) mat.forEach((x) => x?.dispose());
+        else if (mat) mat.dispose();
       });
+      renderer.dispose();
+      renderer.forceContextLoss();
       renderer.domElement.parentNode?.removeChild(renderer.domElement);
     };
   }, []);
