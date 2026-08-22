@@ -18,6 +18,15 @@ if (dsn) {
       /Hydration failed/i,
       /There was an error while hydrating/i,
       /Text content did not match/i,
+      // Browser-extension noise (not our code) — Safari/Grammarly/translation
+      // inject these into the page and they surface via window.onerror.
+      /EmptyRanges/i,
+      /Can't find variable: EmptyRanges/i,
+      /webkit-masked-url/i,
+      /ResizeObserver loop/i,
+      /Non-Error promise rejection captured/i,
     ],
+    // Drop anything whose stack is a browser extension, not our bundle.
+    denyUrls: [/^safari-(web-)?extension:\/\//i, /^chrome-extension:\/\//i, /^moz-extension:\/\//i, /webkit-masked-url/i],
   });
 }
