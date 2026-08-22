@@ -61,7 +61,13 @@ export function TeamManager({ currentUserId, members, pendingInvites }: {
     startTransition(async () => {
       const res = await inviteTeammate({ email, role });
       if (!res.ok) { toast.error(res.error); return; }
-      toast.success(`Invite sent to ${email}`);
+      if (res.data) {
+        // Invite row saved, but email delivery failed — warn instead of a
+        // false "sent" so the admin knows to fix the sender domain.
+        toast.warning(res.data, { duration: 12000 });
+      } else {
+        toast.success(`Invite sent to ${email}`);
+      }
       setEmail("");
     });
   }

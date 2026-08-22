@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.323",
+    date: "2026-08-22",
+    headline: "Cleaner dashboard, real AI health check, and your full sermon transcripts",
+    highlights: [
+      "The admin dashboard's four separate readiness cards are now one calm panel that cycles through what's left to set up. Anything we can detect ticks itself off; anything set up on the desktop (audio, projector) you can tick yourself — and each item disappears once it's done, so a ready church sees a simple “you're all set”.",
+      "AI Health now runs a REAL check when you open the dashboard (Groq, database, media storage) instead of just linking away — green when healthy, and it comes back if something breaks.",
+      { text: "Sermon Archive now shows the FULL transcript of each service, not just the summary — open any past service and expand “Full transcript” (with one-click copy). If a service has no transcript, it now tells you why.", tryItHref: "/archive", tryItLabel: "Open archive" },
+      "Team invites: if an invite email can't be delivered, you're now warned right away (instead of a false “sent”) so a real invitation never goes quietly missing.",
+    ],
+  },
+  {
     version: "0.1.322",
     date: "2026-08-21",
     headline: "Stability fix: reverts the audio-engine change that broke connections",

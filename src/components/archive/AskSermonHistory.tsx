@@ -54,7 +54,9 @@ export function AskSermonHistory() {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Search failed"); return; }
-      setAnswer(data.answer);
+      // Always surface *something* — a blank answer used to make the box look
+      // dead. Fall back to an explicit message when the server returns no text.
+      setAnswer((data.answer && String(data.answer).trim()) || "No answer was returned for that question.");
       setSources(data.sources || []);
     } catch {
       setError("Search failed — check your connection");

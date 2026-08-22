@@ -1,14 +1,18 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/session";
-import { getSermonSummary } from "@/lib/server/sermon-summary";
+import { getSermonSummary, getServiceTranscript } from "@/lib/server/sermon-summary";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { TranscriptSection } from "@/components/archive/TranscriptSection";
 
 export default async function SermonPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
   const { id } = await params;
   const row = await getSermonSummary(user.churchId, id);
   if (!row) notFound();
+
+  const transcript = await getServiceTranscript(user.churchId, row.planId);
+  const transcriptText = transcript.map((s) => s.text).join(" ").trim();
 
   const kp = (row as Record<string, unknown>).key_points as string[] || [];
   const nq = (row as Record<string, unknown>).notable_quotes as string[] || [];
@@ -60,6 +64,8 @@ export default async function SermonPage({ params }: { params: Promise<{ id: str
             <ul className="list-disc pl-5 text-sm space-y-1">{ap.map((p, i) => <li key={i}>{p}</li>)}</ul>
           </Section>
         )}
+
+        <TranscriptSection text={transcriptText} />
 
         <p className="text-[10px] text-muted-foreground pt-4">
           Model: {String((row as Record<string, unknown>).model || "unknown")} · Word count: {String((row as Record<string, unknown>).word_count || 0)} · Generated {new Date(String((row as Record<string, unknown>).generated_at || Date.now())).toLocaleString()}

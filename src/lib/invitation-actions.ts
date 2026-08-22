@@ -13,7 +13,7 @@ type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
 const VALID_ROLES = ["admin", "operator", "volunteer", "pastor", "viewer"] as const;
 type ValidRole = typeof VALID_ROLES[number];
 
-export async function inviteTeammate(input: { email: string; role: ValidRole }): Promise<Result> {
+export async function inviteTeammate(input: { email: string; role: ValidRole }): Promise<Result<string>> {
   const admin = await requireRole("admin");
   const email = input.email.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, error: "Invalid email" };
@@ -42,8 +42,20 @@ export async function inviteTeammate(input: { email: string; role: ValidRole }):
   });
 
   const [church] = await db.select().from(churches).where(eq(churches.id, admin.churchId)).limit(1);
-  await sendInvitationEmail(email, admin.name, church?.name || "your church", plaintext);
+  // The invitation row is already saved, so the invite shows as pending and is
+  // recoverable even if email delivery fails. But sendInvitationEmail → deliver
+  // returns { ok:false } (it does NOT throw) when Resend rejects the send
+  // (unverified sender domain, sandbox recipient restriction, bad key). If we
+  // ignore that, the admin sees "Invite sent" while the recipient gets nothing.
+  // Surface it as a non-fatal warning so they know to fix email delivery.
+  const emailResult = await sendInvitationEmail(email, admin.name, church?.name || "your church", plaintext);
   revalidatePath("/settings/team");
+  if (!emailResult.ok) {
+    return {
+      ok: true,
+      data: `The invite for ${email} was saved (it shows as pending), but the email could not be delivered: ${emailResult.error || "unknown error"}. Check the PresentFlow sender domain in Resend, then revoke and re-send.`,
+    };
+  }
   return { ok: true };
 }
 

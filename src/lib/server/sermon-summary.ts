@@ -174,6 +174,24 @@ export async function listSermonSummaries(churchId: string, opts: { keyword?: st
   `)).rows;
 }
 
+// Full raw transcript for a service, church-scoped via a join to service_plans
+// (defense-in-depth even though the caller already resolved the plan through a
+// church-scoped summary lookup). Ordered chronologically. The archive detail
+// page renders this — previously the transcript was captured live but never
+// shown anywhere, only the LLM summary was.
+export async function getServiceTranscript(churchId: string, planId: string) {
+  const db = getDb();
+  const rows = (await db.execute(sql`
+    SELECT ts.text AS text, ts.ts AS ts
+    FROM transcript_segments ts
+    JOIN service_plans sp ON sp.id = ts.service_plan_id
+    WHERE ts.service_plan_id = ${planId} AND sp.church_id = ${churchId}
+    ORDER BY ts.ts ASC
+    LIMIT 20000
+  `)).rows as { text: string; ts: Date }[];
+  return rows;
+}
+
 export async function getSermonSummary(churchId: string, id: string) {
   const db = getDb();
   const [row] = (await db.execute(sql`
