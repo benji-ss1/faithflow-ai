@@ -20,6 +20,7 @@ export default function SignUpPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const router = useRouter();
@@ -27,7 +28,7 @@ export default function SignUpPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    const res = await signUp({ email, password, name });
+    const res = await signUp({ email, password, name, code });
     if (!res.ok) {
       toast.error(res.error);
       setLoading(false);
@@ -42,9 +43,9 @@ export default function SignUpPage() {
   return (
     <AuthShell>
       <AuthHeader
-        eyebrow="Let's get started"
+        eyebrow="Wave I · invite only"
         heading="Create your account"
-        sub="Set up your workspace in under a minute."
+        sub="You'll need the beta code from your invitation to set up your workspace."
       />
 
       {sent ? (
@@ -68,6 +69,21 @@ export default function SignUpPage() {
         </div>
       ) : (
         <form onSubmit={submit}>
+          <div className="mb-4">
+            <label className={authLabelCls} style={authLabelStyle}>
+              Beta code
+            </label>
+            <input
+              required
+              autoComplete="off"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="From your invitation"
+              className={authInputCls}
+              style={authInputStyle}
+            />
+          </div>
+
           <div className="mb-4">
             <label className={authLabelCls} style={authLabelStyle}>
               Your name

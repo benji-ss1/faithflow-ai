@@ -14,6 +14,7 @@ type LinkDef = { label: string; href: string; apply?: boolean };
 const LINKS: LinkDef[] = [
   { label: "Home", href: "/" },
   { label: "Our Story", href: "/our-story" },
+  { label: "Log in", href: "/login" },
   { label: "Apply for the beta", href: "/apply", apply: true },
 ];
 

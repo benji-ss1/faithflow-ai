@@ -42,7 +42,21 @@ async function checkPasswordResetRateLimit(email: string): Promise<boolean> {
   return ipOk && emailOk;
 }
 
-export async function signUp(input: { email: string; password: string; name: string }): Promise<Result> {
+export async function signUp(input: {
+  email: string;
+  password: string;
+  name: string;
+  code?: string;
+}): Promise<Result> {
+  // CLOSED BETA GATE. Self-serve sign-up is disabled by default. It only works
+  // when BETA_SIGNUP_CODE is set on the server AND the applicant supplies the
+  // matching code. With no env set, no one can create an account here — beta
+  // accounts are provisioned by the team / invitations. Checked before the rate
+  // limiter so a missing env can't be brute-forced open.
+  const betaCode = (process.env.BETA_SIGNUP_CODE || "").trim();
+  if (!betaCode || (input.code || "").trim() !== betaCode) {
+    return { ok: false, error: "Sign-ups are invite-only during the Wave I beta." };
+  }
   if (!(await checkSignUpRateLimit())) {
     return { ok: false, error: "Too many sign-up attempts from this network. Please wait an hour and try again." };
   }

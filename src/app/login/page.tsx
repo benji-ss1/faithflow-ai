@@ -33,10 +33,15 @@ function LoginForm() {
       return;
     }
     // Prefer explicit next=… (guards against open-redirect: must be a
-    // same-origin path). Otherwise route through the root so middleware +
-    // page.tsx pick the right shell.
-    const dest = nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "/";
-    window.location.href = dest;
+    // same-origin path, and never an auth page). Otherwise land on the
+    // dashboard (requireUser redirects to /onboarding if the church isn't set).
+    const safeNext =
+      nextParam &&
+      nextParam.startsWith("/") &&
+      !nextParam.startsWith("//") &&
+      !nextParam.startsWith("/login") &&
+      !nextParam.startsWith("/signup");
+    window.location.href = safeNext ? nextParam! : "/dashboard";
   }
 
   return (
@@ -110,15 +115,8 @@ function LoginForm() {
           {loading ? "Signing in…" : "Sign in"}
         </button>
 
-        <div className="text-center mt-6 text-sm" style={{ color: "#9c958b" }}>
-          New to PresentFlow?{" "}
-          <Link href="/signup" className="font-semibold" style={{ color: "#ff9048" }}>
-            Create an account
-          </Link>
-        </div>
-
-        <div className="text-center mt-6 text-xs" style={{ color: "#6f685e" }}>
-          Demo login: demo@jpd.presentflow.app / JpdDemo2026$ecure
+        <div className="text-center mt-6 text-[12.5px]" style={{ color: "#6f685e" }}>
+          Wave I is invite-only. Your login was sent to you — no account yet? Ask your team lead.
         </div>
       </form>
     </>
