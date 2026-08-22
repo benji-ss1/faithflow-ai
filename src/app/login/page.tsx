@@ -35,12 +35,20 @@ function LoginForm() {
     // Prefer explicit next=… (guards against open-redirect: must be a
     // same-origin path, and never an auth page). Otherwise land on the
     // dashboard (requireUser redirects to /onboarding if the church isn't set).
-    const safeNext =
-      nextParam &&
-      nextParam.startsWith("/") &&
-      !nextParam.startsWith("//") &&
-      !nextParam.startsWith("/login") &&
-      !nextParam.startsWith("/signup");
+    let safeNext = false;
+    if (nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//") && !nextParam.includes("\\")) {
+      // Resolve against our own origin and confirm it stays same-origin — blocks
+      // /\evil.com and other backslash/normalisation open-redirect tricks.
+      try {
+        const u = new URL(nextParam, window.location.origin);
+        safeNext =
+          u.origin === window.location.origin &&
+          !u.pathname.startsWith("/login") &&
+          !u.pathname.startsWith("/signup");
+      } catch {
+        safeNext = false;
+      }
+    }
     window.location.href = safeNext ? nextParam! : "/dashboard";
   }
 

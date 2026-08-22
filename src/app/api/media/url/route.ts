@@ -11,12 +11,9 @@ import { presignGet } from "@/lib/s3";
  * a persistent URL to store in the theme config. Blob URLs (URL.createObjectURL)
  * die on page reload — this endpoint returns a URL that survives the session.
  *
- * Security: verifies the caller is authenticated. The key is NOT verified to
- * belong to the caller's church — but keys are UUIDs scoped under
- * `{churchId}/media/{uuid}.ext` by the presign route, so a caller would need
- * to know another church's UUID to request their key. The PUT presign endpoint
- * already enforces church-scoped key prefixes, so any key returned by that
- * endpoint is implicitly church-scoped.
+ * Security: authenticated AND church-scoped — the key's first path segment must
+ * equal the caller's churchId, so a user can never presign another church's
+ * media even if they learn its key. Keys are `{churchId}/{purpose}/{uuid}.{ext}`.
  */
 export async function POST(req: Request) {
   const user = await apiUser();
@@ -32,6 +29,10 @@ export async function POST(req: Request) {
   const parts = key.split("/");
   if (parts.length < 3 || parts.some((p) => p === ".." || p === "." || p === "")) {
     return NextResponse.json({ error: "Invalid key" }, { status: 400 });
+  }
+  // Church scoping: the key MUST belong to the caller's church (IDOR guard).
+  if (parts[0] !== user.churchId) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   try {

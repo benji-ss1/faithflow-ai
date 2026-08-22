@@ -1,6 +1,7 @@
 "use server";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
+import { timingSafeEqual } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { getDb } from "./db/client";
 import { users } from "./db/schema";
@@ -20,6 +21,8 @@ const signUpLimiter = createLimiter("signup", 5, 60 * 60 * 1000);
 // the email exists or whether we were rate-limited.
 const resetIpLimiter = createLimiter("password-reset-ip", 3, 60 * 60 * 1000);
 const resetEmailLimiter = createLimiter("password-reset-email", 3, 60 * 60 * 1000);
+const resendIpLimiter = createLimiter("resend-verify-ip", 3, 60 * 60 * 1000);
+const resendEmailLimiter = createLimiter("resend-verify-email", 3, 60 * 60 * 1000);
 
 async function readIp(): Promise<string> {
   try {
@@ -48,17 +51,23 @@ export async function signUp(input: {
   name: string;
   code?: string;
 }): Promise<Result> {
-  // CLOSED BETA GATE. Self-serve sign-up is disabled by default. It only works
-  // when BETA_SIGNUP_CODE is set on the server AND the applicant supplies the
-  // matching code. With no env set, no one can create an account here — beta
-  // accounts are provisioned by the team / invitations. Checked before the rate
-  // limiter so a missing env can't be brute-forced open.
-  const betaCode = (process.env.BETA_SIGNUP_CODE || "").trim();
-  if (!betaCode || (input.code || "").trim() !== betaCode) {
-    return { ok: false, error: "Sign-ups are invite-only during the Wave I beta." };
-  }
+  // Rate-limit FIRST (per IP) so beta-code guesses are throttled — an attacker
+  // can't grind the code with unlimited attempts.
   if (!(await checkSignUpRateLimit())) {
     return { ok: false, error: "Too many sign-up attempts from this network. Please wait an hour and try again." };
+  }
+  // CLOSED BETA GATE. Self-serve sign-up is disabled by default. It only works
+  // when BETA_SIGNUP_CODE is set on the server AND the applicant supplies the
+  // matching code (constant-time compare). No env set → no one can create an
+  // account here; beta accounts are provisioned by the team / invitations.
+  const betaCode = (process.env.BETA_SIGNUP_CODE || "").trim();
+  const provided = (input.code || "").trim();
+  const codeOk =
+    betaCode.length > 0 &&
+    provided.length === betaCode.length &&
+    timingSafeEqual(Buffer.from(provided), Buffer.from(betaCode));
+  if (!codeOk) {
+    return { ok: false, error: "Sign-ups are invite-only during the Wave I beta." };
   }
   const email = input.email.trim().toLowerCase();
   const name = input.name.trim();
@@ -132,6 +141,12 @@ export async function resetPassword(token: string, newPassword: string): Promise
 
 export async function resendVerificationEmail(email: string): Promise<Result> {
   const normalized = email.trim().toLowerCase();
+  // Rate-limit (IP + email) so this can't be used to inbox-bomb a victim or burn
+  // Resend quota — same dual-axis budget as password reset. Silent on lockout.
+  const ip = await readIp();
+  const ipOk = await resendIpLimiter(ip);
+  const emailOk = await resendEmailLimiter(normalized);
+  if (!ipOk || !emailOk) return { ok: true };
   const db = getDb();
   const [row] = await db.select().from(users).where(eq(users.email, normalized)).limit(1);
   if (!row || row.emailVerifiedAt) return { ok: true }; // silent

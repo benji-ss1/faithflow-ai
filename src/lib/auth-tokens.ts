@@ -28,13 +28,19 @@ export async function issueAuthToken(userId: string, kind: "verify_email" | "pas
 export async function consumeAuthToken(plaintext: string, kind: "verify_email" | "password_reset" | "device_link"): Promise<string | null> {
   const db = getDb();
   const hash = hashToken(plaintext);
-  const [row] = await db.select().from(authTokens).where(and(
-    eq(authTokens.tokenHash, hash),
-    eq(authTokens.kind, kind),
-    isNull(authTokens.usedAt),
-    gte(authTokens.expiresAt, new Date()),
-  )).limit(1);
-  if (!row) return null;
-  await db.update(authTokens).set({ usedAt: new Date() }).where(eq(authTokens.id, row.id));
-  return row.userId;
+  // Atomic single-use claim: mark usedAt only if it's still unused, in one
+  // statement, and take the userId from the RETURNING row. Two concurrent
+  // requests with the same token can't both win — the second UPDATE matches 0
+  // rows. (The previous select-then-update had a double-consume race.)
+  const claimed = await db
+    .update(authTokens)
+    .set({ usedAt: new Date() })
+    .where(and(
+      eq(authTokens.tokenHash, hash),
+      eq(authTokens.kind, kind),
+      isNull(authTokens.usedAt),
+      gte(authTokens.expiresAt, new Date()),
+    ))
+    .returning({ userId: authTokens.userId });
+  return claimed[0]?.userId ?? null;
 }
