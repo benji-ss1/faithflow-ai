@@ -33,7 +33,7 @@ import { track, identifyLead } from "@/components/system/PostHogProvider";
 
 const EMAIL_RE = /[^\s@]+@[^\s@]+\.[^\s@]+/;
 const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
-const STORE_KEY = "pf.beta.v2";
+const STORE_KEY = "pf.beta.v3";
 
 type Field = { key: string; label: string; placeholder: string };
 type Question = {
@@ -47,6 +47,7 @@ type Question = {
   placeholder?: string;
   otherWhen?: string[];
   otherPlaceholder?: string;
+  multi?: boolean; // options question where several answers can be picked
 };
 
 // Ordered for completion: easy one-click questions first (momentum), the
@@ -112,20 +113,20 @@ const QUESTIONS: Question[] = [
   },
   {
     kicker: "The dream",
-    label: "If we could transform one part of your Sunday, what would you choose?",
-    sub: "Pick the one that would matter most.",
+    label: "Which parts of your Sunday would you most want us to transform?",
+    sub: "Pick as many as you like.",
     why: "So Wave I is shaped by what actually moves the needle in your room.",
     type: "options",
+    multi: true,
     options: [
       "Create presentations much faster",
       "AI-generated sermon slides",
       "Instant song & Bible verse formatting",
-      "Easier last-minute changes",
       "Real-time team collaboration",
-      "Beautiful slides automatically",
-      "Easier volunteer training",
-      "More reliable live presenting",
+      "Other",
     ],
+    otherWhen: ["Other"],
+    otherPlaceholder: "Tell us what you'd change",
   },
   {
     kicker: "The basics",
@@ -158,12 +159,21 @@ const QUESTIONS: Question[] = [
     type: "fields",
     fields: [{ key: "email", label: "Email", placeholder: "e.g. sam@yourchurch.org" }],
   },
+  {
+    kicker: "Your number",
+    label: "What's the best number to reach you?",
+    sub: "So we can call or text about your Wave I slot.",
+    why: "A quick call sorts onboarding faster than email tag — we won't spam you.",
+    type: "fields",
+    fields: [{ key: "phone", label: "Phone", placeholder: "e.g. +44 7700 900000" }],
+  },
 ];
 
 // Contact question indices (for lead capture).
 const CHURCH_QI = 8;
 const NAME_QI = 9;
 const EMAIL_QI = 10;
+const PHONE_QI = 11;
 
 type Chapter = { roman: string; name: string; verse: string; ref: string; qs: number[] };
 
@@ -187,7 +197,7 @@ const CHAPTERS: Chapter[] = [
     name: "The Covenant",
     verse: "Let us hold unswervingly to the hope we profess, for he who promised is faithful.",
     ref: "Hebrews 10:23 · NIV",
-    qs: [7, 9, 10], // the dream · name · email
+    qs: [7, 9, 11, 10], // the dream · name · phone · email
   },
 ];
 
@@ -222,7 +232,7 @@ const STOPS = [
 ];
 
 type FieldsValue = Record<string, string>;
-type AnswerMap = Record<number, string | FieldsValue>;
+type AnswerMap = Record<number, string | FieldsValue | string[]>;
 
 const KIND_LABEL = (q: Question): string => {
   if (q.type === "fields") {
@@ -230,7 +240,7 @@ const KIND_LABEL = (q: Question): string => {
     if (q.fields?.some((f) => f.key === "firstName")) return "Your name · required";
     return "The basics · required";
   }
-  if (q.type === "options") return q.otherWhen ? "Pick one" : "Pick one · optional";
+  if (q.type === "options") return q.multi ? "Pick any" : q.otherWhen ? "Pick one" : "Pick one · optional";
   if (q.type === "textarea") return "Long answer · optional";
   return "Short answer · optional";
 };
@@ -317,7 +327,14 @@ const CSS = `
   color:var(--scorch);cursor:pointer;font-weight:500;transition:transform 120ms ease, background 120ms ease}
 .pfbeta .opts li:hover{transform:translateY(-1px);background:rgba(22,19,16,.05)}
 .pfbeta .opts li.acc{background:var(--scorch);color:var(--ivory-hi);border-color:var(--scorch)}
-.pfbeta .other{margin-top:12px}
+.pfbeta .opts li.multi{display:inline-flex;align-items:center}
+.pfbeta .opts li .tick{width:13px;height:13px;border:1.5px solid currentColor;border-radius:3px;margin-right:9px;flex:none;transition:background .15s ease}
+.pfbeta .opts li.acc .tick{background:currentColor}
+/* animated "Other" write-in — slides + fades open when Other is picked */
+.pfbeta .other-wrap{max-height:0;opacity:0;overflow:hidden;margin-top:0;
+  transition:max-height .45s cubic-bezier(.22,1,.36,1),opacity .35s ease,margin-top .4s ease}
+.pfbeta .other-wrap.open{max-height:120px;opacity:1;margin-top:14px}
+.pfbeta .other{margin-top:0}
 
 .pfbeta .why{font-weight:400;font-size:15px;color:var(--ash);border-top:1px solid rgba(22,19,16,.16);
   padding-top:11px;margin:18px 0 0;max-width:640px;line-height:1.5}
@@ -431,8 +448,10 @@ export default function ApplyFlow() {
     if (!EMAIL_RE.test(email)) return;
     const nameV = (answers[NAME_QI] as FieldsValue) || {};
     const churchV = (answers[CHURCH_QI] as FieldsValue) || {};
+    const phoneV = (answers[PHONE_QI] as FieldsValue) || {};
     identifyLead(email, {
       email,
+      phone: (phoneV.phone || "").trim() || undefined,
       name: `${nameV.firstName || ""} ${nameV.lastName || ""}`.trim() || undefined,
       church: churchV.churchName || undefined,
       city: churchV.city || undefined,
@@ -476,8 +495,10 @@ export default function ApplyFlow() {
     }
     if (q.type === "options" && q.otherWhen) {
       const val = answers[p.qi];
-      if (typeof val === "string" && q.otherWhen.includes(val) && !(otherText[p.qi] || "").trim())
-        return false;
+      const otherPicked = q.multi
+        ? Array.isArray(val) && val.some((v) => q.otherWhen!.includes(v))
+        : typeof val === "string" && q.otherWhen.includes(val);
+      if (otherPicked && !(otherText[p.qi] || "").trim()) return false;
     }
     return true;
   };
@@ -491,7 +512,10 @@ export default function ApplyFlow() {
       if (cur.kind === "question") {
         const q = QUESTIONS[cur.qi];
         const a = answers[cur.qi];
-        const answered = q.type === "fields" ? !!a : typeof a === "string" && a.trim().length > 0;
+        const answered =
+          q.type === "fields" ? !!a
+          : q.multi ? Array.isArray(a) && a.length > 0
+          : typeof a === "string" && a.trim().length > 0;
         if (answered) track("beta_question_answered", { question: q.label, page: idx + 1 });
       }
     }
@@ -508,6 +532,15 @@ export default function ApplyFlow() {
           .map((f) => `${f.label}: ${(obj[f.key] || "").trim()}`)
           .filter((s) => !s.endsWith(": "))
           .join(" · ");
+      } else if (question.type === "options" && question.multi) {
+        const arr = Array.isArray(a) ? a : [];
+        const others = question.otherWhen || [];
+        const picks = arr.filter((x) => !others.includes(x));
+        if (arr.some((x) => others.includes(x))) {
+          const ot = (otherText[i] || "").trim();
+          picks.push(ot ? `Other — ${ot}` : "Other");
+        }
+        answer = picks.join(", ");
       } else {
         answer = typeof a === "string" ? a.trim() : "";
         if (question.otherWhen && question.otherWhen.includes(answer)) {
@@ -576,6 +609,18 @@ export default function ApplyFlow() {
     const from = idx;
     track("beta_question_answered", { question: QUESTIONS[qi].label, page: from + 1, answer: op });
     setTimeout(() => setIdx((cur) => (cur === from ? Math.min(TOTAL - 1, cur + 1) : cur)), 340);
+  };
+
+  // Multi-select: toggle an option in/out. No auto-advance — the operator picks
+  // several, then hits Continue.
+  const toggleMulti = (qi: number, op: string) => {
+    setAnswers((p) => {
+      const arr = Array.isArray(p[qi]) ? [...(p[qi] as string[])] : [];
+      const at = arr.indexOf(op);
+      if (at >= 0) arr.splice(at, 1);
+      else arr.push(op);
+      return { ...p, [qi]: arr };
+    });
   };
 
   return (
@@ -677,10 +722,12 @@ export default function ApplyFlow() {
 
               {p.kind === "question" && (() => {
                 const q = QUESTIONS[p.qi];
-                const val = answers[p.qi] ?? (q.type === "fields" ? {} : "");
+                const val = answers[p.qi] ?? (q.type === "fields" ? {} : q.multi ? [] : "");
                 const isActive = i === idx;
                 const needsOther =
-                  q.type === "options" && !!q.otherWhen && typeof val === "string" && q.otherWhen.includes(val);
+                  q.type === "options" && !!q.otherWhen && (q.multi
+                    ? Array.isArray(val) && val.some((v) => q.otherWhen!.includes(v))
+                    : typeof val === "string" && q.otherWhen.includes(val));
                 const isLastQuestion = idx === TOTAL - 2;
                 return (
                   <>
@@ -702,7 +749,8 @@ export default function ApplyFlow() {
                             <input
                               ref={isActive && fi === 0 ? (firstInputRef as React.Ref<HTMLInputElement>) : undefined}
                               className="ink-input"
-                              type={f.key === "email" ? "email" : "text"}
+                              type={f.key === "email" ? "email" : f.key === "phone" ? "tel" : "text"}
+                              inputMode={f.key === "phone" ? "tel" : undefined}
                               value={((val as FieldsValue) || {})[f.key] || ""}
                               onChange={(e) =>
                                 setFieldVal(p.qi, {
@@ -743,26 +791,38 @@ export default function ApplyFlow() {
                     {q.type === "options" && (
                       <>
                         <ul className="opts">
-                          {(q.options || []).map((op) => (
-                            <li
-                              key={op}
-                              className={val === op ? "acc" : ""}
-                              onClick={() => chooseOption(p.qi, op, !!q.otherWhen?.includes(op))}
-                            >
-                              {op}
-                            </li>
-                          ))}
+                          {(q.options || []).map((op) => {
+                            const selected = q.multi
+                              ? Array.isArray(val) && (val as string[]).includes(op)
+                              : val === op;
+                            return (
+                              <li
+                                key={op}
+                                className={`${selected ? "acc" : ""}${q.multi ? " multi" : ""}`}
+                                onClick={() =>
+                                  q.multi
+                                    ? toggleMulti(p.qi, op)
+                                    : chooseOption(p.qi, op, !!q.otherWhen?.includes(op))
+                                }
+                              >
+                                {q.multi && <span className="tick" aria-hidden="true" />}
+                                {op}
+                              </li>
+                            );
+                          })}
                         </ul>
-                        {needsOther && (
+                        {/* Animated "Other" write-in — slides/pops open when the
+                            Other option is chosen. */}
+                        <div className={`other-wrap${needsOther ? " open" : ""}`}>
                           <input
                             className="ink-input other"
                             value={otherText[p.qi] || ""}
                             onChange={(e) => setOtherText((pv) => ({ ...pv, [p.qi]: e.target.value }))}
                             onKeyDown={(e) => enterAdvance(e, true)}
                             placeholder={q.otherPlaceholder || "Tell us more"}
-                            autoFocus
+                            tabIndex={needsOther ? 0 : -1}
                           />
-                        )}
+                        </div>
                       </>
                     )}
 
