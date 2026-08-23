@@ -260,28 +260,25 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
   }
 
   if (slide.kind === "image") {
-    // Two fit modes:
-    //   contain (PPTX slides, most media): letterbox — flex-centered <img>
-    //     capped by max-width/max-height + object-contain. Preserves aspect,
-    //     never overflows the pane.
-    //   cover (opt-in per media asset): fills the pane, cropping as needed.
-    const isCover = slide.fit === "cover";
+    // Three fit modes (operator-selectable per image via the Media panel):
+    //   contain (default — PPTX slides, most media): letterbox, whole image
+    //     shown, never cropped or distorted.
+    //   cover ("Fill"): fills the pane edge-to-edge, cropping overflow.
+    //   fill  ("Stretch"): fills the pane exactly, distorting aspect if needed.
+    const fitMode = slide.fit ?? "contain";
+    const imgStyle: React.CSSProperties =
+      fitMode === "cover"
+        ? { width: "100%", height: "100%", objectFit: "cover", objectPosition: "center", display: "block" }
+        : fitMode === "fill"
+          ? { width: "100%", height: "100%", objectFit: "fill", objectPosition: "center", display: "block" }
+          : { maxWidth: "100%", maxHeight: "100%", width: "auto", height: "auto", objectFit: "contain", objectPosition: "center", display: "block", margin: "auto" };
     return (
       <div className={`${base} bg-black ${className || ""}`}>
         {slide.url ? (
           <img
             src={slide.url}
             alt=""
-            style={isCover ? {
-              width: "100%", height: "100%",
-              objectFit: "cover", objectPosition: "center",
-              display: "block",
-            } : {
-              maxWidth: "100%", maxHeight: "100%",
-              width: "auto", height: "auto",
-              objectFit: "contain", objectPosition: "center",
-              display: "block", margin: "auto",
-            }}
+            style={imgStyle}
             onError={(e) => {
               console.error("[slide] image failed to load:", (e.currentTarget as HTMLImageElement).src);
             }}

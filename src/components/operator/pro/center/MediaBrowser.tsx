@@ -36,6 +36,14 @@ type Asset = {
 };
 
 type Filter = "all" | "image" | "video";
+type Fit = "contain" | "cover" | "fill";
+
+const FIT_KEY = "pf.media.fit.v1";
+const FIT_OPTIONS: { value: Fit; label: string; hint: string }[] = [
+  { value: "contain", label: "Fit", hint: "Whole image, letterboxed (never cropped)" },
+  { value: "cover", label: "Fill", hint: "Fills the screen, crops the overflow" },
+  { value: "fill", label: "Stretch", hint: "Fills the screen exactly (may distort)" },
+];
 
 export function MediaBrowser({
   ctx,
@@ -52,6 +60,15 @@ export function MediaBrowser({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [wizardOpen, setWizardOpen] = useState(false);
+  // How images/videos are sized on the projector. Persisted so the operator's
+  // choice sticks across sessions.
+  const [fit, setFit] = useState<Fit>("contain");
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(FIT_KEY) as Fit | null;
+      if (saved === "contain" || saved === "cover" || saved === "fill") setFit(saved);
+    } catch { /* ignore */ }
+  }, []);
   // Multi-select for bulk delete.
   const [bulkIds, setBulkIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -90,8 +107,22 @@ export function MediaBrowser({
 
   // ── Slide shape ───────────────────────────────────────────────────────────
   const toSlide = (a: Asset): SlidePayload => {
-    if (a.kind.startsWith("video")) return { kind: "video", url: a.url, fit: "contain" };
-    return { kind: "image", url: a.url, fit: "contain" };
+    if (a.kind.startsWith("video")) return { kind: "video", url: a.url, fit };
+    return { kind: "image", url: a.url, fit };
+  };
+
+  // Change the projected size. Persists the choice, and if an image/video is
+  // ALREADY live, re-projects it at the new size immediately (fit is part of
+  // the slide identity, so this is a real re-fire, not a no-op skip).
+  const changeFit = (next: Fit) => {
+    setFit(next);
+    try { window.localStorage.setItem(FIT_KEY, next); } catch { /* ignore */ }
+    const live = ctx.liveSlide;
+    if (live && (live.kind === "image" || live.kind === "video")) {
+      // instant:true → clean hard re-cut at the new size, no transition fade
+      // (the operator is resizing what's already on screen, not changing content).
+      ctx.onSendSlideToLive({ ...live, fit: next } as SlidePayload, null, { instant: true });
+    }
   };
 
   // ── Actions ───────────────────────────────────────────────────────────────
@@ -204,6 +235,34 @@ export function MediaBrowser({
             <Upload className="w-3.5 h-3.5" />
             Import
           </button>
+        </div>
+
+        {/* Projected size — how images/videos fill the screen. Applies to the
+            next item you project AND to whatever is already live (instant). */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[11px] font-medium text-[var(--color-muted-foreground)]">Projected size</span>
+          <div className="inline-flex rounded-md border border-[var(--color-border)] overflow-hidden">
+            {FIT_OPTIONS.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                onClick={() => changeFit(o.value)}
+                title={o.hint}
+                aria-pressed={fit === o.value}
+                className={cn(
+                  "h-7 px-3 text-[12px] font-medium transition-colors border-r border-[var(--color-border)] last:border-r-0",
+                  fit === o.value
+                    ? "bg-[var(--color-brand)] text-black"
+                    : "bg-[var(--color-elevated)] text-[var(--color-foreground)] hover:bg-[var(--color-panel)]",
+                )}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+          <span className="text-[10px] text-[var(--color-muted-foreground)]">
+            {FIT_OPTIONS.find((o) => o.value === fit)?.hint}
+          </span>
         </div>
 
         {/* Bulk-select bar: pick many items to delete at once */}

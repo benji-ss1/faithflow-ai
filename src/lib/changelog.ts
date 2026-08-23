@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.324",
+    date: "2026-08-23",
+    headline: "Resize projected images — Fit, Fill, or Stretch",
+    highlights: [
+      "Images and videos from Media used to always letterbox (black bars) on the projector with no way to change it. In the Media panel there's now a “Projected size” control: Fit (whole image, letterboxed), Fill (fills the screen, crops the overflow), or Stretch (fills exactly). Your choice is remembered.",
+      "Changing the size also updates whatever is ALREADY on the projector instantly — a clean hard cut, no flicker or fade — so you can adjust live.",
+    ],
+  },
+  {
     version: "0.1.323",
     date: "2026-08-22",
     headline: "Cleaner dashboard, real AI health check, and your full sermon transcripts",

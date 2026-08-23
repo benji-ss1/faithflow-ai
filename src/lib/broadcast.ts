@@ -21,8 +21,8 @@ export type SlideObjectWire =
       lineHeight?: number; letterSpacing?: number; uppercase?: boolean; shadow?: boolean; stroke?: string; strokeWidth?: number }
   | { kind: "shape"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; locked?: boolean; hidden?: boolean; shape: "rect" | "ellipse";
       fill?: string; fill2?: string; fillAngle?: number; stroke?: string; strokeWidth?: number; radius?: number; opacity?: number }
-  | { kind: "image"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; locked?: boolean; hidden?: boolean; url: string; fit?: "contain" | "cover"; opacity?: number }
-  | { kind: "video"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; locked?: boolean; hidden?: boolean; url: string; fit?: "contain" | "cover"; loop?: boolean; muted?: boolean; opacity?: number };
+  | { kind: "image"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; locked?: boolean; hidden?: boolean; url: string; fit?: "contain" | "cover" | "fill"; opacity?: number }
+  | { kind: "video"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; locked?: boolean; hidden?: boolean; url: string; fit?: "contain" | "cover" | "fill"; loop?: boolean; muted?: boolean; opacity?: number };
 
 export const SLIDE_CANVAS_W = 1920;
 export const SLIDE_CANVAS_H = 1080;
@@ -36,8 +36,8 @@ export type SlidePayload =
   // (scripture reference like "John 3:16 (KJV)") that never gets shrunk or
   // paginated off with the verse body — the body sizes independently above it.
   | { kind: "text"; text: string; bgColor?: string; bgImageUrl?: string; objects?: SlideObjectWire[]; reference?: string }
-  | { kind: "image"; url: string; fit?: "contain" | "cover" }
-  | { kind: "video"; url: string; fit?: "contain" | "cover"; loop?: boolean; volume?: number }
+  | { kind: "image"; url: string; fit?: "contain" | "cover" | "fill" }
+  | { kind: "video"; url: string; fit?: "contain" | "cover" | "fill"; loop?: boolean; volume?: number }
   | { kind: "blank"; bgColor?: string }
   | { kind: "logo"; url?: string }
   | { kind: "empty" };
@@ -187,7 +187,7 @@ export type ThemeAppearance = {
 export type VideoInputState = {
   deviceId: string;                          // MediaDeviceInfo.deviceId
   label?: string;                            // display name (for reconnect UX)
-  fit?: "contain" | "cover" | "fill";        // how the video fills the frame (default cover)
+  fit?: "contain" | "cover" | "fill" | "fill";        // how the video fills the frame (default cover)
   mirror?: boolean;                          // flip horizontally (front cameras)
   overlay?: "normal" | "lower-third" | "full"; // how slide content sits over video
 };
@@ -560,11 +560,11 @@ export function isValidSlideObject(o: unknown): o is SlideObjectWire {
       return true;
     case "image":
       if (!isValidRenderUrl(p.url)) return false;
-      if (p.fit !== undefined && p.fit !== "contain" && p.fit !== "cover") return false;
+      if (p.fit !== undefined && p.fit !== "contain" && p.fit !== "cover" && p.fit !== "fill") return false;
       return true;
     case "video":
       if (!isValidRenderUrl(p.url)) return false;
-      if (p.fit !== undefined && p.fit !== "contain" && p.fit !== "cover") return false;
+      if (p.fit !== undefined && p.fit !== "contain" && p.fit !== "cover" && p.fit !== "fill") return false;
       if (p.loop !== undefined && typeof p.loop !== "boolean") return false;
       if (p.muted !== undefined && typeof p.muted !== "boolean") return false;
       return true;
@@ -628,8 +628,13 @@ export function slideDesignSig(s: Extract<SlidePayload, { kind: "text" }>): stri
  */
 export function slideOutputIdentity(s: SlidePayload): string {
   if (s.kind === "text") return `t:${s.text}|${s.reference ?? ""}|${slideDesignSig(s)}`;
-  if (s.kind === "image") return `i:${s.url}`;
-  if (s.kind === "video") return `v:${s.url}`;
+  // fit is part of the identity so an operator changing the size of the
+  // already-live image/video actually re-projects (the already-live SKIP in
+  // sendSlideToLive compares this string). fit only changes on a deliberate
+  // operator action, so it can't cause the identity-flap "pulse" that
+  // appearance/transition fields would.
+  if (s.kind === "image") return `i:${s.url}|${s.fit ?? ""}`;
+  if (s.kind === "video") return `v:${s.url}|${s.fit ?? ""}`;
   if (s.kind === "blank") return `b:${s.bgColor ?? ""}`;
   if (s.kind === "logo") return `l:${s.url ?? ""}`;
   return "e";
