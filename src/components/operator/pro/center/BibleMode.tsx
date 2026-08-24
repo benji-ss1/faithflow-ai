@@ -15,7 +15,8 @@ import { cachedLookup } from "@/lib/bible-client-cache";
 import { bibleSearchCacheKey, getBibleSearchCached, setBibleSearchCached } from "@/lib/bible-search-cache";
 import { fetchChapterCached } from "@/lib/bible-chapter-cache";
 import { addServiceItem, addServiceItems } from "@/lib/actions";
-import { Plus, Check, BookOpen, ChevronUp, ChevronDown } from "lucide-react";
+import { Plus, Check, BookOpen, ChevronUp, ChevronDown, Palette } from "lucide-react";
+import { ScriptureSlideEditor } from "@/components/operator/scripture/ScriptureSlideEditor";
 import { DropdownDisclosure } from "../DropdownDisclosure";
 import { useRouter } from "next/navigation";
 import { isInternalEvent } from "@/lib/internal-events";
@@ -151,6 +152,8 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
   // per-card ids currently in-flight, plus a single flag for the batch add.
   const [pendingVerseIds, setPendingVerseIds] = useState<Set<string>>(new Set());
   const [addAllPending, setAddAllPending] = useState(false);
+  // Scripture "edit slide" — the card currently open in the style editor.
+  const [editCard, setEditCard] = useState<VerseCard | null>(null);
 
   // Build a scripture add payload for a single verse card and dispatch the
   // existing addServiceItem server action. Reused by the per-card `+` button
@@ -1090,20 +1093,32 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
                   <ChevronDown className="h-3 w-3" />
                 </button>
               </div>
-              <button
-                type="button"
-                aria-label={`Add ${c.label} to playlist`}
-                title="Add to playlist"
-                disabled={pendingVerseIds.has(c.id)}
-                onClick={(e) => { e.stopPropagation(); void addVerseToPlaylist(c); }}
-                onDoubleClick={(e) => e.stopPropagation()}
-                className={cn(
-                  "absolute top-1 right-1 h-5 w-5 inline-flex items-center justify-center rounded bg-black/50 text-white/80 hover:bg-[var(--color-brand)] hover:text-black transition-colors",
-                  pendingVerseIds.has(c.id) && "opacity-50 cursor-not-allowed pointer-events-none",
-                )}
-              >
-                <Plus className="h-3 w-3" />
-              </button>
+              <div className="absolute top-1 right-1 flex gap-0.5">
+                <button
+                  type="button"
+                  aria-label={`Edit slide for ${c.label}`}
+                  title="Edit slide — style font, colours & background (text stays locked)"
+                  onClick={(e) => { e.stopPropagation(); setEditCard(c); }}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  className="h-5 w-5 inline-flex items-center justify-center rounded bg-black/50 text-white/80 hover:bg-[var(--color-brand)] hover:text-black transition-colors opacity-0 group-hover/bcard:opacity-100 focus-within:opacity-100"
+                >
+                  <Palette className="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Add ${c.label} to playlist`}
+                  title="Add to playlist"
+                  disabled={pendingVerseIds.has(c.id)}
+                  onClick={(e) => { e.stopPropagation(); void addVerseToPlaylist(c); }}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  className={cn(
+                    "h-5 w-5 inline-flex items-center justify-center rounded bg-black/50 text-white/80 hover:bg-[var(--color-brand)] hover:text-black transition-colors",
+                    pendingVerseIds.has(c.id) && "opacity-50 cursor-not-allowed pointer-events-none",
+                  )}
+                >
+                  <Plus className="h-3 w-3" />
+                </button>
+              </div>
             </div>
           );
         })}
@@ -1176,6 +1191,17 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
           </div>
         );
       })()}
+
+      {editCard && (
+        <ScriptureSlideEditor
+          verse={{
+            text: editCard.verses.map((v) => v.text).join(" "),
+            reference: editCard.label.replace(/\s*\([^)]+\)\s*$/, "").trim(),
+          }}
+          onShow={(slide, spec) => { ctx.onSendSlideToLive(slide, spec ?? undefined, { instant: true }); }}
+          onClose={() => setEditCard(null)}
+        />
+      )}
     </div>
   );
 }

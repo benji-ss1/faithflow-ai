@@ -21,6 +21,9 @@ const PUBLIC_PATHS = [
   "/opengraph-image", "/twitter-image", "/icon", "/apple-icon",
   "/login", "/signup", "/verify-email", "/forgot-password", "/reset-password", "/accept-invite",
   "/api/auth", "/api/health", "/api/stripe",
+  // DEV-ONLY auto-login (sandbox). Route is hard-guarded to
+  // NODE_ENV=development + DEV_AUTOLOGIN=1 (404 otherwise) — inert in prod.
+  "/api/dev-login",
   // Vercel Cron invocations pass through this middleware; without an allowlist
   // entry they were being redirected to /login (307) before the route handler
   // ran — silently breaking BOTH cron jobs (warm-embeddings never warmed,
@@ -104,6 +107,7 @@ const DESKTOP_ALLOWED_API_EXACT = new Set<string>([
   "/api/songs/library",          // OperatorConsole, InternetSongDetectionPanel
   "/api/media/list",             // media panel in operator
   "/api/media/presign",          // uploads from within operator surfaces
+  "/api/media/url",              // presigned GET url after upload (scripture/theme bg)
   "/api/imports/list",           // pptx imports list in operator
   "/api/audio/session-metrics",  // audio diagnostics tab
   "/api/bible/translations/status",
@@ -275,6 +279,20 @@ export async function middleware(req: NextRequest) {
   const desktop = isDesktopShell(req) || setShellCookie;
 
   if (!token) {
+    // DEV-ONLY auto-login (sandbox): bounce unauthenticated page navigations
+    // through the demo sign-in. Guarded to development + DEV_AUTOLOGIN=1.
+    if (
+      process.env.NODE_ENV === "development" &&
+      process.env.DEV_AUTOLOGIN === "1" &&
+      !pathname.startsWith("/api/") &&
+      req.headers.get("sec-fetch-dest") === "document"
+    ) {
+      const url = req.nextUrl.clone();
+      url.pathname = "/api/dev-login";
+      url.search = `?next=${encodeURIComponent(pathname)}`;
+      return NextResponse.redirect(url);
+    }
+
     // Desktop-shell session expiry mid-service: preserve the operator route
     // so re-auth lands them back on the same live plan.
     if (desktop && OPERATOR_ROUTE_MATCH.test(pathname)) {

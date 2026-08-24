@@ -18,13 +18,14 @@
  * calls the injected handlers so the OperatorConsole stays the source of truth.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, ChevronLeft, ChevronRight, Search, Sparkles, Save, Loader2, X, Grid3x3, List } from "lucide-react";
+import { BookOpen, ChevronLeft, ChevronRight, Search, Sparkles, Save, Loader2, X, Grid3x3, List, Type } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { EFFECTS } from "@/lib/effects";
 import type { SlidePayload, TransitionSpec } from "@/lib/broadcast";
 import { openLiveChannel, safePost } from "@/lib/broadcast";
 import type { Detection } from "@/components/operator/useAudioStream";
+import { ScriptureSlideEditor } from "@/components/operator/scripture/ScriptureSlideEditor";
 
 type Translation = { id: string; code: string; name: string };
 type Verse = { book: string; chapter: number; verse: number; text: string };
@@ -134,6 +135,7 @@ export function BiblePanel({
   const [cardSize, setCardSize] = useState<number>(Number(readLS(LS_CARD_SIZE, "260")) || 260);
   const [safeMode, setSafeMode] = useState<boolean>(readLS(LS_SAFE_MODE, "false") === "true");
   const [stagedCardIdx, setStagedCardIdx] = useState<number | null>(null);
+  const [scriptureEditorOpen, setScriptureEditorOpen] = useState(false);
   const [durationMs, setDurationMs] = useState<number>(transitionSpec?.durationMs ?? 400);
   const [effectId, setEffectId] = useState<string>(transitionSpec?.effectId ?? "fade_in");
 
@@ -513,6 +515,15 @@ export function BiblePanel({
         >
           <Save className="w-3 h-3" /> Save As...
         </button>
+        <button
+          onClick={() => setScriptureEditorOpen(true)}
+          disabled={verses.length === 0}
+          className="h-8 px-2 rounded-md text-xs font-semibold border inline-flex items-center gap-1 disabled:opacity-40"
+          style={{ borderColor: "#2a3232", background: "#1a2020" }}
+          title="Edit this scripture slide — style the font, colours and background (text stays locked)"
+        >
+          <Type className="w-3 h-3" /> Edit slide
+        </button>
         {safeMode && (
           <button
             onClick={() => {
@@ -548,6 +559,18 @@ export function BiblePanel({
           </select>
         </div>
       </div>
+
+      {scriptureEditorOpen && verses.length > 0 && (
+        <ScriptureSlideEditor
+          verse={{
+            text: verses.map((v) => v.text).join(" "),
+            reference: refLabel(verses[0], verses[verses.length - 1], translationCode),
+          }}
+          transition={{ effectId, durationMs, easing: "ease-in-out" }}
+          onShow={(slide, spec) => { onSendSlideToLive(slide, spec); }}
+          onClose={() => setScriptureEditorOpen(false)}
+        />
+      )}
     </div>
   );
 }
