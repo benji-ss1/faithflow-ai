@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { X, Lock, Image as ImageIcon, Upload, Loader2, Play, Save, Type, AlignLeft, AlignCenter, AlignRight, BookOpen } from "lucide-react";
+import { X, Lock, Image as ImageIcon, Play, Save, Type, AlignLeft, AlignCenter, AlignRight, BookOpen } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { SlidePayload, TransitionSpec, ThemeAppearance } from "@/lib/broadcast";
@@ -50,15 +50,11 @@ export function ScriptureSlideEditor({
     return v ? [v.id] : [];
   });
   const [showTranslation, setShowTranslation] = useState(baseDesign.reference.showTranslation);
-  const [bgFit, setBgFit] = useState(baseDesign.bgFit);
-  const [uploading, setUploading] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   // Identify verse (first text) + reference (second text) objects.
   const texts = slide.objects.filter((o): o is TextObject => o.kind === "text");
   const verseObj = texts[0] ?? null;
   const refObj = texts[1] ?? null;
-  const bgObj = slide.objects.find((o) => o.kind === "image" || o.kind === "shape") ?? null;
   const selected = slide.objects.find((o) => o.id === selectedIds[0]) ?? null;
   const selText = selected && selected.kind === "text" ? selected : null;
   const isVerseSelected = !!selText && !!verseObj && selText.id === verseObj.id;
@@ -77,33 +73,6 @@ export function ScriptureSlideEditor({
 
   const patchSelected = (patch: Partial<TextObject>) => { if (selText) updateObject(selText.id, patch); };
 
-  // Background helpers (mutate the bg object in place).
-  function setBgColor(color: string) {
-    if (!bgObj) return;
-    if (bgObj.kind === "shape") updateObject(bgObj.id, { fill: color });
-    else setSlide((s) => ({ ...s, bgColor: color, objects: s.objects.map((o) => o.id === bgObj.id ? { id: o.id, kind: "shape", x: 0, y: 0, w: o.w, h: o.h, shape: "rect", fill: color, strokeWidth: 0, radius: 0, locked: true } : o) }));
-    setSlide((s) => ({ ...s, bgColor: color }));
-  }
-
-  async function uploadImage(file: File) {
-    setUploading(true);
-    try {
-      const presign = await fetch("/api/media/presign", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileName: file.name, contentType: file.type, size: file.size, purpose: "media" }) }).then((r) => r.json()) as { url?: string; key?: string; error?: string };
-      if (presign.error || !presign.url || !presign.key) throw new Error(presign.error || "Presign failed");
-      const put = await fetch(presign.url, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
-      if (!put.ok) throw new Error("Upload failed");
-      const got = await fetch("/api/media/url", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: presign.key }) }).then((r) => r.json()) as { url?: string; error?: string };
-      if (got.error || !got.url) throw new Error(got.error || "Could not get URL");
-      const url = got.url;
-      setSlide((s) => ({ ...s, bgImageUrl: url, objects: s.objects.map((o) => (o.id === bgObj?.id ? { id: o.id, kind: "image", x: 0, y: 0, w: 1920, h: 1080, url, fit: bgFit, locked: true } : o)) }));
-      toast.success("Image added");
-    } catch (e) { toast.error(e instanceof Error ? e.message : "Upload failed"); }
-    finally { setUploading(false); }
-  }
-  function removeBgImage() {
-    setSlide((s) => ({ ...s, bgImageUrl: undefined, objects: s.objects.map((o) => (o.id === bgObj?.id ? { id: o.id, kind: "shape", x: 0, y: 0, w: 1920, h: 1080, shape: "rect", fill: s.bgColor || "#0a0a0a", strokeWidth: 0, radius: 0, locked: true } : o)) }));
-  }
-
   function toggleReference() {
     if (!refObj) return;
     updateObject(refObj.id, { hidden: !refObj.hidden });
@@ -118,10 +87,10 @@ export function ScriptureSlideEditor({
     const d = designFromSlide(slide, baseDesign);
     d.reference.showTranslation = showTranslation;
     d.reference.show = refObj ? !refObj.hidden : false;
-    d.bgFit = bgFit;
     return d;
   }
-  function show() { onShow(projectableTextSlide(verse.text, slide.bgColor, slide.bgImageUrl, slide.objects), transition); }
+  // No per-slide background — theme background is authoritative on the projector.
+  function show() { onShow(projectableTextSlide(verse.text, undefined, undefined, slide.objects), transition); }
   function saveAll() { saveScriptureStyle(churchId, currentDesign()); onSaved?.(); toast.success("Style saved — applied to all scripture slides"); }
 
   const btn = "h-8 px-2 rounded-md text-xs border inline-flex items-center justify-center gap-1";
@@ -194,16 +163,10 @@ export function ScriptureSlideEditor({
             </Section>
 
             <Section label="Background">
-              <Row label="Colour"><input type="color" value={slide.bgColor ?? "#0a0a0a"} onChange={(e) => setBgColor(e.target.value)} className="h-8 w-full rounded-md border bg-transparent" style={{ borderColor: "#2a3232" }} /></Row>
-              <button onClick={() => fileRef.current?.click()} disabled={uploading} className={cn(btn, "w-full mt-1")} style={bstyle}>{uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}{uploading ? "Uploading…" : "Add image from computer"}</button>
-              <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadImage(f); e.target.value = ""; }} />
-              <div className="mt-1.5 flex items-center gap-1 text-[10px] text-zinc-500"><ImageIcon className="w-3 h-3" /> PNG, JPG, WEBP, GIF, AVIF</div>
-              {slide.bgImageUrl ? (
-                <div className="mt-2">
-                  <Row label="Fit"><div className="flex gap-1">{(["cover", "contain"] as const).map((f) => (<button key={f} onClick={() => { setBgFit(f); if (bgObj?.kind === "image") updateObject(bgObj.id, { fit: f }); }} className={cn(btn, "flex-1 capitalize")} style={toggle(bgFit === f)}>{f}</button>))}</div></Row>
-                  <button onClick={removeBgImage} className="mt-1 text-[11px] text-red-300 hover:opacity-80">Remove image</button>
-                </div>
-              ) : null}
+              <div className="flex items-start gap-1.5 text-[11px] text-zinc-400">
+                <ImageIcon className="w-3.5 h-3.5 mt-0.5 shrink-0 text-zinc-500" />
+                <span>The background always follows the <span className="text-zinc-200">active theme</span>. Change it in Themes — it applies to every slide, scripture included.</span>
+              </div>
             </Section>
           </div>
         </div>
