@@ -62,6 +62,10 @@ export function MediaBrowser({
   const [renameValue, setRenameValue] = useState("");
   const [wizardOpen, setWizardOpen] = useState(false);
   const [editingImage, setEditingImage] = useState<Asset | null>(null);
+  // Pending single-click → project timer, so a double-click (to open the framing
+  // editor) cancels it instead of first flashing the raw image onto the projector.
+  const clickTimerRef = useRef<number | null>(null);
+  useEffect(() => () => { if (clickTimerRef.current) window.clearTimeout(clickTimerRef.current); }, []);
   // How images/videos are sized on the projector. Persisted so the operator's
   // choice sticks across sessions.
   const [fit, setFit] = useState<Fit>("contain");
@@ -323,9 +327,22 @@ export function MediaBrowser({
                         JSON.stringify({ pfType: "media", id: a.id, title: a.fileName, url: a.url, kind: a.kind }),
                       );
                     }}
-                    onClick={() => sendLive(a)}
-                    onDoubleClick={(e) => { if (!a.kind.startsWith("video")) { e.stopPropagation(); setEditingImage(a); } }}
-                    title="Click to project · drag to playlist · right-click for options"
+                    onClick={() => {
+                      // A native double-click fires click,click,dblclick — so a raw
+                      // single-click would project the UN-framed image live BEFORE the
+                      // editor opens (flashing it on the congregation screen mid-service).
+                      // Defer the project by one dblclick window; dblclick cancels it.
+                      if (a.kind.startsWith("video")) { sendLive(a); return; }
+                      if (clickTimerRef.current) window.clearTimeout(clickTimerRef.current);
+                      clickTimerRef.current = window.setTimeout(() => { clickTimerRef.current = null; sendLive(a); }, 240);
+                    }}
+                    onDoubleClick={(e) => {
+                      if (a.kind.startsWith("video")) return;
+                      e.stopPropagation();
+                      if (clickTimerRef.current) { window.clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
+                      setEditingImage(a);
+                    }}
+                    title="Click to project · double-click to crop/frame · drag to playlist · right-click for options"
                     className={cn(
                       "relative aspect-video rounded-md overflow-hidden border-2 transition-all bg-black text-left group",
                       bulkIds.has(a.id)

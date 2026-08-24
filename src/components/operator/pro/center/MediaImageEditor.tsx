@@ -66,7 +66,15 @@ export function MediaImageEditor({
   function resetAll() { applyFit("cover"); }
 
   const payload = useMemo(() => projectableTextSlide("", matte, undefined, slide.objects), [slide.objects, matte]);
-  function show() { ctx.onSendSlideToLive(payload, undefined, { instant: true, force: true }); toast.success("Image on the projector", { icon: "🖼️" }); }
+  function show() {
+    // If the presigned URL ever fails wire-validation the image object is dropped
+    // and the projector would show a black matte — never toast success in that case
+    // (the editor still shows the image, so a silent black screen would be a lie).
+    const hasImage = payload.kind === "text" && Array.isArray(payload.objects) && payload.objects.some((o) => o.kind === "image");
+    if (!hasImage) { toast.error("Couldn't project this image — try re-uploading it."); return; }
+    ctx.onSendSlideToLive(payload, undefined, { instant: true, force: true });
+    toast.success("Image on the projector", { icon: "🖼️" });
+  }
 
   const btn = "h-8 px-2 rounded-md text-xs border inline-flex items-center justify-center gap-1";
   const bstyle = { borderColor: "#2a3232", background: "#1a2020", color: "#e4e4e7" } as React.CSSProperties;
