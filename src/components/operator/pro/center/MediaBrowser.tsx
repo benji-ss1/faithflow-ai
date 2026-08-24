@@ -27,7 +27,7 @@ import { registerMediaAsset, renameMediaAsset, deleteMediaAsset } from "@/lib/ac
 import { setMediaOnActiveTheme } from "@/lib/theme-quick-apply";
 import { MediaImportWizard } from "./MediaImportWizard";
 import { MediaImageEditor } from "./MediaImageEditor";
-import { loadMediaFrame } from "./mediaFrame";
+import { loadMediaFrame, clearMediaFrame } from "./mediaFrame";
 
 type Asset = {
   id: string;
@@ -169,6 +169,7 @@ export function MediaBrowser({
       toast.error((result as { error?: string } | undefined)?.error ?? "Delete failed");
     } else {
       toast.success(`"${a.fileName}" deleted`);
+      clearMediaFrame(ctx.churchId, a.id); // don't orphan the saved framing
       setAssets((prev) => prev.filter((x) => x.id !== a.id));
       if (selectedId === a.id) setSelectedId(null);
     }
@@ -189,7 +190,7 @@ export function MediaBrowser({
     setBulkBusy(true);
     const failed = new Set<string>();
     let deleted = 0;
-    for (const a of rows) { const res = await deleteMediaAsset(a.id); if (res?.ok) deleted++; else failed.add(a.id); }
+    for (const a of rows) { const res = await deleteMediaAsset(a.id); if (res?.ok) { deleted++; clearMediaFrame(ctx.churchId, a.id); } else failed.add(a.id); }
     setBulkBusy(false);
     setAssets((prev) => prev.filter((a) => !bulkIds.has(a.id) || failed.has(a.id)));
     if (selectedId && bulkIds.has(selectedId) && !failed.has(selectedId)) setSelectedId(null);
@@ -350,7 +351,11 @@ export function MediaBrowser({
                       // Defer the project by one dblclick window; dblclick cancels it.
                       if (a.kind.startsWith("video")) { sendLive(a); return; }
                       if (clickTimerRef.current) window.clearTimeout(clickTimerRef.current);
-                      clickTimerRef.current = window.setTimeout(() => { clickTimerRef.current = null; sendLive(a); }, 240);
+                      // 350ms ≈ the low end of the OS double-click window, so a
+                      // deliberate double-click to open the editor cancels this
+                      // before it can flash the raw image live. Single-click
+                      // projection is deferred by this much (imperceptible).
+                      clickTimerRef.current = window.setTimeout(() => { clickTimerRef.current = null; sendLive(a); }, 350);
                     }}
                     onDoubleClick={(e) => {
                       if (a.kind.startsWith("video")) return;

@@ -19,15 +19,17 @@ const isColor = (v: unknown): v is string =>
 // whole OutputState would be rejected). Uses new URL() parsing (not a prefix
 // regex) to match the validator exactly, restricted to https + no CSS-url()
 // breakout chars.
+// Dev-only http-loopback allowance (mirrors ALLOW_HTTP_LOOPBACK in broadcast.ts —
+// keep in sync). Statically false in production builds → dead-code-eliminated.
+const ALLOW_HTTP_LOOPBACK = process.env.NODE_ENV !== "production";
 const isHttpsUrl = (v: unknown): v is string => {
   if (typeof v !== "string" || v.length === 0 || v.length > 2048) return false;
   if (/["'\s<>\\]/.test(v)) return false;
   try {
     const p = new URL(v);
     if (p.protocol === "https:") return true;
-    // Local dev only: MinIO media over http://localhost:9000 (mirrors
-    // isValidRenderUrl in broadcast.ts — keep these two in sync).
-    if (p.protocol === "http:" && (p.hostname === "localhost" || p.hostname === "127.0.0.1" || p.hostname === "[::1]")) return true;
+    // Local dev only: MinIO media over http://localhost:9000.
+    if (ALLOW_HTTP_LOOPBACK && p.protocol === "http:" && (p.hostname === "localhost" || p.hostname === "127.0.0.1" || p.hostname === "[::1]")) return true;
     return false;
   } catch { return false; }
 };

@@ -16,6 +16,9 @@ const cases: [string, boolean][] = [
   ["http://[::1]:9000/x.png", true],
   ["http://evil.com/logo.png", false],            // arbitrary http still rejected
   ["http://localhost.evil.com/logo.png", false],  // suffix trick rejected
+  ["http://127.1/x.png", true],                   // WHATWG normalizes shorthand → 127.0.0.1
+  ["http://evil.com@localhost/x.png", true],       // userinfo is inert; host IS localhost
+  ["http://localhost@evil.com/x.png", false],      // host is evil.com; userinfo=localhost ignored
   ["javascript:alert(1)", false],
   ["data:image/png;base64,AAAA", false],
   ["file:///etc/passwd", false],

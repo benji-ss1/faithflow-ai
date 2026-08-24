@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X, Play, Image as ImageIcon, Move, Maximize2, RotateCcw, Save, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -82,12 +82,24 @@ export function MediaImageEditor({
   // Reads pixels via a canvas, which requires CORS; on any failure (tainted
   // canvas / load error) we fall back gracefully and tell the operator to zoom.
   const [autofitting, setAutofitting] = useState(false);
+  // Guard against setState / toast after the editor is closed mid-measure, and
+  // against a hung image load leaving the button stuck on "Measuring…".
+  const mounted = useRef(true);
+  useEffect(() => () => { mounted.current = false; }, []);
   function autoFill() {
-    if (!img) return;
+    if (!img || autofitting) return;
     setAutofitting(true);
     const im = new Image();
     im.crossOrigin = "anonymous";
+    // Watchdog: if the load neither resolves nor errors (flaky wifi), release
+    // the button after 8s so the operator isn't stuck.
+    const watchdog = window.setTimeout(() => {
+      im.onload = null; im.onerror = null;
+      if (mounted.current) { toast("Auto-fill timed out — use the Zoom slider.", { icon: "🔍" }); setAutofitting(false); }
+    }, 8000);
     im.onload = () => {
+      window.clearTimeout(watchdog);
+      if (!mounted.current) return; // editor closed before load resolved
       try {
         const nW = im.naturalWidth, nH = im.naturalHeight;
         if (!nW || !nH) throw new Error("no dims");
@@ -146,7 +158,7 @@ export function MediaImageEditor({
         setAutofitting(false);
       }
     };
-    im.onerror = () => { toast.error("Couldn't load this image to measure it."); setAutofitting(false); };
+    im.onerror = () => { window.clearTimeout(watchdog); if (mounted.current) { toast.error("Couldn't load this image to measure it."); setAutofitting(false); } };
     im.src = asset.url;
   }
 
@@ -162,15 +174,10 @@ export function MediaImageEditor({
     persist();
     toast.success("Framing saved — this image will project framed", { icon: "💾" });
   }
-  function show() {
+  function saveAndShow() {
     // If the URL ever fails wire-validation the image object is dropped and the
     // projector would show a black matte — never toast success in that case (the
     // editor still shows the image, so a silent black screen would be a lie).
-    if (!hasImagePayload()) { toast.error("Couldn't project this image — try re-uploading it."); return; }
-    ctx.onSendSlideToLive(payload, undefined, { instant: true, force: true });
-    toast.success("Image on the projector", { icon: "🖼️" });
-  }
-  function saveAndShow() {
     if (!hasImagePayload()) { toast.error("Couldn't project this image — try re-uploading it."); return; }
     persist();
     ctx.onSendSlideToLive(payload, undefined, { instant: true, force: true });
@@ -191,8 +198,8 @@ export function MediaImageEditor({
             <div className="text-[13px] font-semibold text-zinc-100 leading-none truncate">Edit image</div>
             <div className="text-[10px] text-zinc-500 leading-none mt-1 truncate">{asset.fileName} — drag to move, handles to crop, pan/zoom on the right</div>
           </div>
-          <button onClick={save} title="Save this framing for the image" className="h-8 px-3 rounded-md text-xs font-semibold inline-flex items-center gap-1.5 border border-[#2a3232] bg-[#1a2020] text-zinc-200 hover:border-teal-500/60"><Save className="w-3.5 h-3.5" /> Save</button>
-          <button onClick={saveAndShow} className="h-8 px-3 rounded-md text-xs font-bold inline-flex items-center gap-1.5 bg-teal-500 text-[#08110f] hover:bg-teal-400"><Play className="w-3.5 h-3.5" /> Save & Show</button>
+          <button onClick={save} disabled={autofitting} title="Save this framing for the image" className="h-8 px-3 rounded-md text-xs font-semibold inline-flex items-center gap-1.5 border border-[#2a3232] bg-[#1a2020] text-zinc-200 hover:border-teal-500/60 disabled:opacity-50"><Save className="w-3.5 h-3.5" /> Save</button>
+          <button onClick={saveAndShow} disabled={autofitting} className="h-8 px-3 rounded-md text-xs font-bold inline-flex items-center gap-1.5 bg-teal-500 text-[#08110f] hover:bg-teal-400 disabled:opacity-50"><Play className="w-3.5 h-3.5" /> Save & Show</button>
           <button onClick={onClose} title="Close" className="h-8 w-8 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-white/5"><X className="w-4 h-4" /></button>
         </div>
 

@@ -443,6 +443,11 @@ const FONT_FAMILY_RE = /^[a-zA-Z0-9 ,._'"-]{1,120}$/;
 // matches the mapper, so a mapped appearance always passes) AND rejects the raw
 // quote/whitespace chars that could break out of url("...") (legit https/S3
 // URLs percent-encode those).
+// Dev-only http-loopback allowance. In production this is `false` (statically
+// inlined + dead-code-eliminated by the Next/webpack build), so the loopback
+// branch never ships to prod validators — closing the cross-device
+// localhost-probe vector. Production media is S3/presigned-https regardless.
+const ALLOW_HTTP_LOOPBACK = process.env.NODE_ENV !== "production";
 function isValidRenderUrl(u: unknown): boolean {
   if (typeof u !== "string" || u.length === 0 || u.length > 2048) return false;
   if (/["'\s<>\\]/.test(u)) return false;
@@ -450,10 +455,10 @@ function isValidRenderUrl(u: unknown): boolean {
     const p = new URL(u);
     if (p.protocol === "https:") return true;
     // Local dev only: the dummy app serves media from MinIO over
-    // http://localhost:9000. Allow http ONLY for loopback hosts; every other
-    // host stays https-only, so production (S3/presigned https) is unchanged and
-    // a cross-device payload still can't point at an arbitrary http:// host.
-    if (p.protocol === "http:" && (p.hostname === "localhost" || p.hostname === "127.0.0.1" || p.hostname === "[::1]")) return true;
+    // http://localhost:9000. Allow http ONLY for loopback hosts, and ONLY in
+    // dev; every other host stays https-only, so a cross-device payload can
+    // never point at an arbitrary http:// host.
+    if (ALLOW_HTTP_LOOPBACK && p.protocol === "http:" && (p.hostname === "localhost" || p.hostname === "127.0.0.1" || p.hostname === "[::1]")) return true;
     return false;
   } catch { return false; }
 }
