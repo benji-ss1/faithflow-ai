@@ -59,6 +59,8 @@ import { WhatsNewModal } from "../WhatsNewModal";
 import { dispatchInternal, isInternalEvent, internalPayload } from "@/lib/internal-events";
 import { matchNextSlide, isLikelyEndOfSong, scoreCoverage, slideWords } from "@/lib/ai-detection/lyric-position";
 import { parseContextCommand } from "@/lib/context-parser";
+import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
+import { themeBackgroundStyle } from "@/components/live/SlideRenderer";
 // Audio Guardian (2026-07-27) — native-capture self-healing watchdog.
 // The shell only CONSUMES its state events (toasts + red chip); the state
 // machine itself lives in src/lib/audio/audioGuardian.ts, fed by
@@ -4069,7 +4071,16 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         </aside>
 
         {/* CENTER */}
-        <main data-tour="center" className="flex-1 min-w-0 flex flex-col bg-[var(--color-app-bg)]">
+        <main data-tour="center" className="relative flex-1 min-w-0 flex flex-col bg-[var(--color-app-bg)]">
+          {/* Team/theme canvas behind the whole workspace — mirrors the live
+              composite (/live + LivePreviewPanel) so the main section shows the
+              SAME background the congregation sees: theme appearance (System A)
+              + the active Background Template (System B). Cards render over it. */}
+          <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden>
+            <div className="absolute inset-0" style={themeBackgroundStyle(ctx.appearance, "var(--color-app-bg)")} />
+            {ctx.background && ctx.background.type !== "none" && <BackgroundLayer background={ctx.background} />}
+          </div>
+          <div className="relative z-[1] flex flex-col min-h-0 flex-1">
           <CenterHeader ctx={ctx} centerMode={centerMode} slideSize={slideSize} onSlideSize={setSlideSize} />
           <div className="flex-1 min-h-0 overflow-y-auto">
             {/* Error boundary per center-mode panel so a Bible/Songs/Media
@@ -4086,6 +4097,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
                 <SlideGrid ctx={ctx} slideSize={slideSize} onOpenEditor={() => setSlideEditorOpen(true)} />
               )}
             </OperatorErrorBoundary>
+          </div>
           </div>
         </main>
 

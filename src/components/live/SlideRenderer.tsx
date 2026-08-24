@@ -27,7 +27,7 @@ function usesAnimatedBg(appearance: ThemeAppearance | null | undefined, overVide
 // active. The values are validated on the wire (isValidThemeAppearance), and a
 // hostile string can't break out of the single `background`/`color` CSS property
 // (CSSOM parses each property in isolation).
-function themeBackgroundStyle(appearance: ThemeAppearance | null | undefined, fallback: string): React.CSSProperties {
+export function themeBackgroundStyle(appearance: ThemeAppearance | null | undefined, fallback: string): React.CSSProperties {
   if (!appearance) return { background: fallback };
   const dim = typeof appearance.dim === "number" && appearance.dim > 0 ? Math.min(1, appearance.dim) : 0;
   const dimLayer = dim > 0 ? `linear-gradient(rgba(0,0,0,${dim}),rgba(0,0,0,${dim}))` : null;
@@ -151,12 +151,22 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
     // positioned layout, render it verbatim instead of the auto-fit text block.
     // The per-slide design background (bgColor / bgImageUrl) wins over the theme.
     const objects = slide.objects;
-    if (objects && objects.length > 0 && !overVideo) {
-      const designBg: React.CSSProperties = slide.bgImageUrl
-        ? { background: `#000 url("${slide.bgImageUrl}") center/cover no-repeat` }
-        : slide.bgColor
-          ? { background: slide.bgColor }
-          : themeBackgroundStyle(appearance, "#0b0b0b");
+    if (objects && objects.length > 0) {
+      // When a background layer (Background Template / video / theme video) is
+      // active behind the slide, the design surface must be TRANSPARENT so the
+      // background shows through beneath the positioned objects — and we must
+      // NOT flatten to the theme plain-text path (which drops every per-object
+      // style and force-uppercases). Previously `!overVideo` skipped this whole
+      // block, so designed slides (songs + scripture) lost their styling on any
+      // church that had a background active. Rendering the objects over a
+      // transparent surface keeps the live output pixel-identical to the editor.
+      const designBg: React.CSSProperties = overVideo
+        ? { background: "transparent" }
+        : slide.bgImageUrl
+          ? { background: `#000 url("${slide.bgImageUrl}") center/cover no-repeat` }
+          : slide.bgColor
+            ? { background: slide.bgColor }
+            : themeBackgroundStyle(appearance, "#0b0b0b");
       // Lyric/verse slides are stored as a SINGLE centered text object (from
       // import or the slide editor). Rendering that at its stored ~96px font
       // makes it tiny on a sanctuary screen — the "songs project small" bug.
@@ -168,7 +178,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
       const visible = objects.filter((o) => !o.hidden);
       const soleText = visible.length === 1 && visible[0].kind === "text" ? visible[0] : null;
       if (soleText && soleText.text.trim()) {
-        const animated = usesAnimatedBg(appearance, false, slide.bgColor || slide.bgImageUrl);
+        const animated = usesAnimatedBg(appearance, overVideo, slide.bgColor || slide.bgImageUrl);
         // Respect the operator's colour/font/weight/alignment; AutoFitText owns
         // the SIZE (fill-to-fit) + the always-on uppercase crowd-readability.
         const objStyle: React.CSSProperties = {

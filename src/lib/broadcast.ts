@@ -610,7 +610,10 @@ export function slideDesignSig(s: Extract<SlidePayload, { kind: "text" }>): stri
   if (s.objects?.length) {
     sig += "|o" + s.objects.length + ":" + s.objects.map((o) => {
       const base = `${o.kind[0]}${Math.round(o.x)},${Math.round(o.y)},${Math.round(o.w)},${Math.round(o.h)}${o.rotation ? "@" + Math.round(o.rotation) : ""}`;
-      if (o.kind === "text") return base + (o.color ?? "");
+      // Include the visual text style so a style-only edit (font/size/weight/
+      // align/uppercase) changes the identity — otherwise the already-live skip
+      // in sendSlideToLive silently swallows it for callers that don't force.
+      if (o.kind === "text") return base + [o.color, o.fontFamily, o.fontSize, o.fontWeight, o.align, o.italic ? "i" : "", o.uppercase ? "u" : ""].join(",");
       if (o.kind === "shape") return base + (o.fill ?? "") + (o.fill2 ?? "");
       return base + o.url; // image | video
     }).join(";");

@@ -579,13 +579,16 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
       if (!hit) return;
       const label = `${book} ${chapter}:${verse} (${chapterRes.translation})`;
       const body = opts.showVerseNumbers ? `${hit.verse} ${hit.text}` : hit.text;
-      ctx.onSendSlideToLive(
-        { kind: "text", text: body, ...(opts.refFormat !== "none" ? { reference: label } : {}) },
-        undefined,
-        { instant: true },
-      );
+      const includeRef = opts.refFormat !== "none";
+      // Preserve the saved scripture style when re-projecting in the new
+      // translation — mirror cardToSlide's styled branch. Without this the
+      // live verse dropped back to unstyled default text on a version switch.
+      const slide = scriptureStyle
+        ? scriptureSlidePayload(body, includeRef ? label : "", chapterRes.translation, scriptureStyle)
+        : { kind: "text" as const, text: body, ...(includeRef ? { reference: label } : {}) };
+      ctx.onSendSlideToLive(slide, undefined, { instant: true, force: true });
     } catch { /* ignore — keep the current live slide */ }
-  }, [ctx, opts.showVerseNumbers, opts.refFormat]);
+  }, [ctx, opts.showVerseNumbers, opts.refFormat, scriptureStyle]);
 
   // Reorder a verse card up/down in the loaded list (operator can arrange the
   // order verses appear in). Swap in the cards array + keep the selection with
@@ -1007,7 +1010,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
             >
               {selectedIdx != null && cards[selectedIdx] ? (
                 <div className="aspect-video rounded overflow-hidden border border-[var(--color-border)]">
-                  <SlideRenderer slide={cardToSlide(cards[selectedIdx], selectedIdx, cards.length)} appearance={ctx.appearance ?? undefined} />
+                  <SlideRenderer slide={cardToSlide(cards[selectedIdx], selectedIdx, cards.length)} appearance={ctx.appearance ?? undefined} overVideo={!!(ctx.background && ctx.background.type !== "none")} />
                 </div>
               ) : (
                 <div className="text-[11px] text-[var(--color-muted-foreground)] text-center py-8">Click a verse in the list.</div>
@@ -1086,7 +1089,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
                 selected ? "border-[var(--color-brand)]" : "border-[var(--color-border)] hover:border-[var(--color-muted-foreground)]",
               )}
             >
-              <SlideRenderer slide={slide} textMinPx={14} appearance={ctx.appearance ?? undefined} />
+              <SlideRenderer slide={slide} textMinPx={14} appearance={ctx.appearance ?? undefined} overVideo={!!(ctx.background && ctx.background.type !== "none")} />
               <div className="absolute top-1 left-1 text-[10px] font-mono text-white/70 bg-black/40 px-1 rounded">
                 {idx + 1}
               </div>
