@@ -1226,7 +1226,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
           appearance={ctx.appearance ?? undefined}
           churchId={ctx.churchId}
           initial={scriptureStyle ?? undefined}
-          onShow={(slide, spec) => { ctx.onSendSlideToLive(slide, spec ?? undefined, { instant: true }); }}
+          onShow={(slide, spec) => { ctx.onSendSlideToLive(slide, spec ?? undefined, { instant: true, force: true }); }}
           onSaved={() => setScriptureStyle(loadScriptureStyle(ctx.churchId))}
           onClose={() => setEditCard(null)}
         />

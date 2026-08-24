@@ -821,7 +821,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   const sendSlideToLive = useCallback((
     slide: SlidePayload,
     spec?: import("@/lib/broadcast").TransitionSpec | null,
-    options?: { preserveConfiguredTransition?: boolean; instant?: boolean },
+    options?: { preserveConfiguredTransition?: boolean; instant?: boolean; force?: boolean },
   ) => {
     // 2026-07-25 — added tracing + defensive guards after a field report
     // that "clicking a song slide does nothing" (v0.1.42 hunt). The pipeline
@@ -839,7 +839,11 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // re-fire the whole pipeline (revision bump + set/output re-post) and glitch/
     // re-transition. The manual card-click instant path bypassed every AI guard
     // and safeSendLive's identical-slide skip; this covers ALL callers centrally.
-    if (slideOutputIdentity(slide) === slideOutputIdentity(liveRef.current)) {
+    // `force` bypasses the already-live skip: the scripture/slide editor's
+    // explicit "Show" must re-project even when only style fields (align, size,
+    // weight, uppercase…) changed — those aren't part of slideOutputIdentity, so
+    // without this a re-show of the "same" verse is silently a no-op.
+    if (!options?.force && slideOutputIdentity(slide) === slideOutputIdentity(liveRef.current)) {
       return;
     }
     if (options?.instant) {

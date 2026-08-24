@@ -145,7 +145,7 @@ export type OperatorShellCtx = {
   onSendSlideToLive: (
     slide: SlidePayload,
     transition?: import("@/lib/broadcast").TransitionSpec | null,
-    options?: { preserveConfiguredTransition?: boolean; instant?: boolean },
+    options?: { preserveConfiguredTransition?: boolean; instant?: boolean; force?: boolean },
   ) => void;
   // Live projection undo/redo — step the projector back/forward through what was shown.
   onUndoLive: () => void;
