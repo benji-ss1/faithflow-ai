@@ -90,7 +90,13 @@ export function ScriptureSlideEditor({
     return d;
   }
   // No per-slide background — theme background is authoritative on the projector.
-  function show() { onShow(projectableTextSlide(verse.text, undefined, undefined, slide.objects), transition); }
+  function show() {
+    const p = projectableTextSlide(verse.text, undefined, undefined, slide.objects);
+    // Carry the reference in the dedicated field too (footer guarantee; deduped
+    // against the reference object so it never shows twice).
+    if (p.kind === "text" && refObj && !refObj.hidden && refObj.text) p.reference = refObj.text;
+    onShow(p, transition);
+  }
   function saveAll() { saveScriptureStyle(churchId, currentDesign()); onSaved?.(); toast.success("Style saved — applied to all scripture slides"); }
 
   const btn = "h-8 px-2 rounded-md text-xs border inline-flex items-center justify-center gap-1";

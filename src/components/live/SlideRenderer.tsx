@@ -195,9 +195,24 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
           </div>
         );
       }
+      // Reference footer guarantee: scripture designed slides also carry a
+      // `reference` field. Render the always-visible footer here too (as in the
+      // plain-text path) UNLESS a visible object already shows that exact text
+      // (dedupe — the operator may have a movable reference object instead).
+      const dRefText = slide.reference?.trim();
+      const dRefDupe = !!dRefText && objects.some((o) => o.kind === "text" && !o.hidden && (o as { text?: string }).text?.trim() === dRefText);
+      const showDesignedFooter = !!dRefText && !dRefDupe;
       return (
-        <div className={`${base} relative ${className || ""}`} style={designBg}>
+        <div className={`${base} relative ${className || ""}`} style={showDesignedFooter ? { ...designBg, paddingBottom: projectorFit ? "8%" : "12%" } : designBg}>
           <SlideObjectsLayer objects={objects} fontScale={fontScale} />
+          {showDesignedFooter && (
+            <div className="absolute inset-x-0 bottom-0 flex justify-center pointer-events-none" style={{ paddingBottom: projectorFit ? "3.5%" : "2.5%" }}>
+              <span className="font-display font-semibold uppercase tracking-wide" style={{
+                fontSize: projectorFit ? `${(32 * (referenceScale ?? 1)).toFixed(1)}px` : `calc(clamp(11px, 4%, 20px) * ${referenceScale ?? 1})`,
+                opacity: 0.82, ...themeTextStyle(appearance), ...(referenceColor ? { color: referenceColor } : {}),
+              }}>{dRefText}</span>
+            </div>
+          )}
         </div>
       );
     }

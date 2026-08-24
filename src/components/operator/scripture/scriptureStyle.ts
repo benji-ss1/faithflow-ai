@@ -83,7 +83,13 @@ export function scriptureEditableSlide(verseText: string, reference: string, tra
 // The projectable payload — routed through projectableTextSlide (the exact
 // converter the song editor uses). No bg passed → theme background is used.
 export function scriptureSlidePayload(verseText: string, reference: string, translation: string | undefined, d: ScriptureDesign): SlidePayload {
-  return projectableTextSlide(verseText, undefined, undefined, scriptureObjects(verseText, reference, translation, d));
+  const p = projectableTextSlide(verseText, undefined, undefined, scriptureObjects(verseText, reference, translation, d));
+  // Also carry the reference in the dedicated field so the always-visible footer
+  // guarantees it shows even if the reference object is ever dropped.
+  if (p.kind === "text" && d.reference.show && reference) {
+    p.reference = referenceLabel(reference, translation, d.reference.showTranslation);
+  }
+  return p;
 }
 
 // Extract a reusable design template from an edited slide's objects (positions,
