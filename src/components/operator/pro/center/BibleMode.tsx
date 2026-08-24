@@ -17,6 +17,7 @@ import { fetchChapterCached } from "@/lib/bible-chapter-cache";
 import { addServiceItem, addServiceItems } from "@/lib/actions";
 import { Plus, Check, BookOpen, ChevronUp, ChevronDown, Palette } from "lucide-react";
 import { ScriptureSlideEditor } from "@/components/operator/scripture/ScriptureSlideEditor";
+import { loadScriptureStyle, scriptureSlidePayload, hasSavedScriptureStyle, type ScriptureDesign } from "@/components/operator/scripture/scriptureStyle";
 import { DropdownDisclosure } from "../DropdownDisclosure";
 import { useRouter } from "next/navigation";
 import { isInternalEvent } from "@/lib/internal-events";
@@ -154,6 +155,16 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
   const [addAllPending, setAddAllPending] = useState(false);
   // Scripture "edit slide" — the card currently open in the style editor.
   const [editCard, setEditCard] = useState<VerseCard | null>(null);
+  // Active saved scripture style (null = none saved yet → default theme styling).
+  // When set, EVERY scripture slide projects with it (grid previews + live).
+  const [scriptureStyle, setScriptureStyle] = useState<ScriptureDesign | null>(
+    typeof window !== "undefined" && hasSavedScriptureStyle(ctx.churchId) ? loadScriptureStyle(ctx.churchId) : null,
+  );
+  useEffect(() => {
+    const reload = () => setScriptureStyle(hasSavedScriptureStyle(ctx.churchId) ? loadScriptureStyle(ctx.churchId) : null);
+    window.addEventListener("pf-scripture-style-changed", reload);
+    return () => window.removeEventListener("pf-scripture-style-changed", reload);
+  }, [ctx.churchId]);
 
   // Build a scripture add payload for a single verse card and dispatch the
   // existing addServiceItem server action. Reused by the per-card `+` button
@@ -529,8 +540,13 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
     const label = opts.displayTranslation
       ? c.label
       : c.label.replace(/\s*\([^)]+\)\s*$/, "");
+    // A saved scripture style applies to EVERY verse (grid preview + live) —
+    // this is what makes "Save (all slides)" affect all scripture, not one.
+    if (scriptureStyle) {
+      return scriptureSlidePayload(body, includeRef ? label : "", scriptureStyle);
+    }
     return { kind: "text", text: body, ...(includeRef ? { reference: label } : {}) };
-  }, [opts.showVerseNumbers, opts.refFormat, opts.breakOnNewVerse, opts.displayTranslation, editOverrides]);
+  }, [opts.showVerseNumbers, opts.refFormat, opts.breakOnNewVerse, opts.displayTranslation, editOverrides, scriptureStyle]);
   // Sync ref for the bible-play-current handler above.
   useEffect(() => { cardToSlideRef.current = cardToSlide; }, [cardToSlide]);
 
@@ -1039,6 +1055,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
               role="button"
               tabIndex={0}
               onClick={() => { setSelectedIdx(idx); ctx.onSendSlideToLive(slide, undefined, { instant: true }); }}
+              onDoubleClick={(e) => { e.stopPropagation(); setEditCard(c); }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   // stopPropagation prevents useOperatorHotkeys from ALSO
@@ -1199,7 +1216,10 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
             reference: editCard.label.replace(/\s*\([^)]+\)\s*$/, "").trim(),
           }}
           appearance={ctx.appearance ?? undefined}
+          churchId={ctx.churchId}
+          initial={scriptureStyle ?? undefined}
           onShow={(slide, spec) => { ctx.onSendSlideToLive(slide, spec ?? undefined, { instant: true }); }}
+          onSaved={() => setScriptureStyle(loadScriptureStyle(ctx.churchId))}
           onClose={() => setEditCard(null)}
         />
       )}

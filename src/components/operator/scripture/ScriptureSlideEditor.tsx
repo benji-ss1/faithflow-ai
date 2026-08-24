@@ -1,11 +1,11 @@
 "use client";
 import { useRef, useState } from "react";
-import { X, Lock, Image as ImageIcon, Upload, Loader2, Play, Type, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
+import { X, Lock, Image as ImageIcon, Upload, Loader2, Play, Save, Type, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { SlidePayload, TransitionSpec, ThemeAppearance } from "@/lib/broadcast";
-import { newObjectId, CANVAS_W, CANVAS_H, type TextObject, type ImageObject, type ShapeObject } from "@/lib/slide-objects";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
+import { type ScriptureDesign, DEFAULT_SCRIPTURE_DESIGN, scriptureSlidePayload, saveScriptureStyle } from "./scriptureStyle";
 
 /**
  * ScriptureSlideEditor — "edit slide" for scripture (Bible / memory verses).
@@ -23,45 +23,25 @@ import { SlideRenderer } from "@/components/live/SlideRenderer";
  * preview (theme + all styling exactly as it will project).
  */
 
-const FONTS = ["Inter", "Sora", "Plus Jakarta Sans", "Georgia", "Helvetica", "Arial", "Times New Roman"];
+// Curated fonts — all guaranteed to render on every output surface (see
+// scripture-fonts.css, loaded in globals): the two brand web fonts + robust
+// cross-platform system families. Every one projects correctly.
+const FONTS = ["Sora", "Plus Jakarta Sans", "Inter", "Georgia", "Times New Roman", "Helvetica", "Arial", "Courier New"];
 const WEIGHTS = [400, 500, 600, 700, 800];
 
-export type ScriptureDesign = {
-  fontFamily: string;
-  fontSize: number;
-  fontWeight: number;
-  color: string;
-  align: "left" | "center" | "right";
-  italic: boolean;
-  uppercase: boolean;
-  shadow: boolean;
-  stroke: string;
-  strokeWidth: number;
-  lineHeight: number;
-  letterSpacing: number;
-  bgColor: string;
-  bgImageUrl: string;
-  bgFit: "cover" | "contain";
-};
-
-const DEFAULT_DESIGN: ScriptureDesign = {
-  fontFamily: "Sora", fontSize: 96, fontWeight: 700, color: "#ffffff", align: "center",
-  italic: false, uppercase: false, shadow: true, stroke: "#000000", strokeWidth: 0,
-  lineHeight: 1.15, letterSpacing: 0,
-  bgColor: "#0a0a0a", bgImageUrl: "", bgFit: "cover",
-};
-
 export function ScriptureSlideEditor({
-  verse, initial, appearance, onClose, onShow, transition,
+  verse, initial, appearance, churchId, onClose, onShow, onSaved, transition,
 }: {
   verse: { text: string; reference: string };
   initial?: Partial<ScriptureDesign>;
   appearance?: ThemeAppearance | null;
+  churchId?: string;
   onClose: () => void;
   onShow: (slide: SlidePayload, transition?: TransitionSpec | null) => void;
+  onSaved?: () => void;
   transition?: TransitionSpec | null;
 }) {
-  const [d, setD] = useState<ScriptureDesign>({ ...DEFAULT_DESIGN, ...initial });
+  const [d, setD] = useState<ScriptureDesign>({ ...DEFAULT_SCRIPTURE_DESIGN, ...initial });
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const set = (patch: Partial<ScriptureDesign>) => setD((prev) => ({ ...prev, ...patch }));
@@ -91,37 +71,17 @@ export function ScriptureSlideEditor({
     }
   }
 
-  // Build the slide as a DESIGNED slide: a full-canvas background object +
-  // the locked verse text object. This forces the renderer's object path so
-  // every style control (size/uppercase/shadow/outline/spacing) actually
-  // applies, and the preview matches the projector exactly.
-  function buildPayload(): SlidePayload {
-    const bgObject: ImageObject | ShapeObject = d.bgImageUrl
-      ? { id: newObjectId(), kind: "image", x: 0, y: 0, w: CANVAS_W, h: CANVAS_H, url: d.bgImageUrl, fit: d.bgFit, locked: true }
-      : { id: newObjectId(), kind: "shape", x: 0, y: 0, w: CANVAS_W, h: CANVAS_H, shape: "rect", fill: d.bgColor, strokeWidth: 0, radius: 0, locked: true };
-    const textObject: TextObject = {
-      id: newObjectId(), kind: "text",
-      x: 80, y: 0, w: CANVAS_W - 160, h: CANVAS_H,
-      text: verse.text,
-      fontFamily: d.fontFamily, fontSize: d.fontSize, fontWeight: d.fontWeight,
-      color: d.color, align: d.align, italic: d.italic, uppercase: d.uppercase,
-      shadow: d.shadow, stroke: d.stroke, strokeWidth: d.strokeWidth,
-      lineHeight: d.lineHeight, letterSpacing: d.letterSpacing,
-      locked: true,
-    };
-    return {
-      kind: "text",
-      text: verse.text,
-      reference: verse.reference,
-      bgColor: d.bgColor,
-      ...(d.bgImageUrl ? { bgImageUrl: d.bgImageUrl } : {}),
-      objects: [bgObject, textObject],
-    };
-  }
+  const buildPayload = (): SlidePayload => scriptureSlidePayload(verse.text, verse.reference, d);
 
   function show() {
     onShow(buildPayload(), transition);
-    toast.success("Sent to projector");
+  }
+
+  // Save the style — applies to ALL scripture slides (persisted per church).
+  function saveAll() {
+    saveScriptureStyle(churchId, d);
+    onSaved?.();
+    toast.success("Style saved — applied to all scripture slides");
   }
 
   const btn = "h-8 px-2 rounded-md text-xs border inline-flex items-center justify-center gap-1";
@@ -142,6 +102,9 @@ export function ScriptureSlideEditor({
             <div className="text-[13px] font-semibold text-zinc-100 leading-none">Edit scripture slide</div>
             <div className="text-[10px] text-zinc-500 leading-none mt-1">{verse.reference}</div>
           </div>
+          <button onClick={saveAll} title="Save this style — applies to ALL scripture slides" className="h-8 px-3 rounded-md text-xs font-semibold inline-flex items-center gap-1.5 border" style={{ borderColor: "#2a3232", background: "#1a2020", color: "#e4e4e7" }}>
+            <Save className="w-3.5 h-3.5" /> Save (all slides)
+          </button>
           <button onClick={show} className="h-8 px-3 rounded-md text-xs font-bold inline-flex items-center gap-1.5 bg-teal-500 text-[#08110f] hover:bg-teal-400">
             <Play className="w-3.5 h-3.5" /> Show to projector
           </button>
@@ -214,6 +177,11 @@ export function ScriptureSlideEditor({
                   <input type="range" min={-5} max={30} step={1} value={d.letterSpacing} onChange={(e) => set({ letterSpacing: Number(e.target.value) })} className="flex-1" />
                   <span className="text-[10px] font-mono text-zinc-400 w-8 text-right">{d.letterSpacing}</span>
                 </div>
+              </Row>
+              <Row label="Reference">
+                <button onClick={() => set({ showReference: !d.showReference })} className={cn(btn, "w-full")} style={toggle(d.showReference)}>
+                  {d.showReference ? "Shown" : "Hidden"}
+                </button>
               </Row>
             </Section>
 
