@@ -543,10 +543,10 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
     // A saved scripture style applies to EVERY verse (grid preview + live) —
     // this is what makes "Save (all slides)" affect all scripture, not one.
     if (scriptureStyle) {
-      return scriptureSlidePayload(body, includeRef ? label : "", scriptureStyle);
+      return scriptureSlidePayload(body, includeRef ? label : "", translation, scriptureStyle);
     }
     return { kind: "text", text: body, ...(includeRef ? { reference: label } : {}) };
-  }, [opts.showVerseNumbers, opts.refFormat, opts.breakOnNewVerse, opts.displayTranslation, editOverrides, scriptureStyle]);
+  }, [opts.showVerseNumbers, opts.refFormat, opts.breakOnNewVerse, opts.displayTranslation, editOverrides, scriptureStyle, translation]);
   // Sync ref for the bible-play-current handler above.
   useEffect(() => { cardToSlideRef.current = cardToSlide; }, [cardToSlide]);
 
@@ -618,6 +618,13 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
             )}
           >{t}</button>
         ))}
+        <button
+          onClick={() => { const c = cards[selectedIdx ?? 0]; if (!c) { toast.info("Look up a verse first"); return; } setEditCard(c); }}
+          className="px-3 h-full border-l border-[var(--color-border)] inline-flex items-center gap-1.5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+          title="Edit slide — move, resize & style the verse and reference (text stays locked)"
+        >
+          <Palette className="w-3.5 h-3.5" /> Edit slide
+        </button>
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
@@ -1214,6 +1221,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
           verse={{
             text: editCard.verses.map((v) => v.text).join(" "),
             reference: editCard.label.replace(/\s*\([^)]+\)\s*$/, "").trim(),
+            translation,
           }}
           appearance={ctx.appearance ?? undefined}
           churchId={ctx.churchId}
