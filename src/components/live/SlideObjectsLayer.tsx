@@ -121,14 +121,20 @@ export function SlideObjectsLayer({ objects, fontScale = 1 }: { objects: SlideOb
             </div>
           );
         }
-        // image
+        // image — object-position (pan) + transform scale (zoom) enable
+        // non-destructive crop/reframe; overflow:hidden clips the zoom.
         return (
-          <div key={key} className={animCls} style={boxStyle}>
+          <div key={key} className={animCls} style={{ ...boxStyle, overflow: "hidden" }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={obj.url}
               alt=""
-              style={{ width: "100%", height: "100%", objectFit: obj.fit ?? "contain", display: "block", opacity: obj.opacity ?? 1 }}
+              style={{
+                width: "100%", height: "100%", objectFit: obj.fit ?? "contain", display: "block", opacity: obj.opacity ?? 1,
+                objectPosition: `${obj.posX ?? 50}% ${obj.posY ?? 50}%`,
+                transform: obj.zoom && obj.zoom !== 1 ? `scale(${obj.zoom})` : undefined,
+                transformOrigin: `${obj.posX ?? 50}% ${obj.posY ?? 50}%`,
+              }}
               draggable={false}
               // A 404 / expired-presign object image must never show the browser's
               // broken-image glyph on the congregation's screen — hide it instead.

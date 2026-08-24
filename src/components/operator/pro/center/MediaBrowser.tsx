@@ -25,6 +25,7 @@ import type { SlidePayload } from "@/lib/broadcast";
 import { registerMediaAsset, renameMediaAsset, deleteMediaAsset } from "@/lib/actions";
 import { setMediaOnActiveTheme } from "@/lib/theme-quick-apply";
 import { MediaImportWizard } from "./MediaImportWizard";
+import { MediaImageEditor } from "./MediaImageEditor";
 
 type Asset = {
   id: string;
@@ -60,6 +61,7 @@ export function MediaBrowser({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [editingImage, setEditingImage] = useState<Asset | null>(null);
   // How images/videos are sized on the projector. Persisted so the operator's
   // choice sticks across sessions.
   const [fit, setFit] = useState<Fit>("contain");
@@ -208,6 +210,14 @@ export function MediaBrowser({
         onImported={() => loadAssets(true)}
       />
 
+      {editingImage && (
+        <MediaImageEditor
+          asset={{ url: editingImage.url, fileName: editingImage.fileName }}
+          ctx={ctx}
+          onClose={() => setEditingImage(null)}
+        />
+      )}
+
       <div className="p-4 flex flex-col gap-3 h-full">
         {/* Toolbar: filter input + type dropdown + import button */}
         <div className="flex items-center gap-2">
@@ -314,6 +324,7 @@ export function MediaBrowser({
                       );
                     }}
                     onClick={() => sendLive(a)}
+                    onDoubleClick={(e) => { if (!a.kind.startsWith("video")) { e.stopPropagation(); setEditingImage(a); } }}
                     title="Click to project · drag to playlist · right-click for options"
                     className={cn(
                       "relative aspect-video rounded-md overflow-hidden border-2 transition-all bg-black text-left group",

@@ -21,7 +21,7 @@ export type SlideObjectWire =
       lineHeight?: number; letterSpacing?: number; uppercase?: boolean; shadow?: boolean; stroke?: string; strokeWidth?: number }
   | { kind: "shape"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; locked?: boolean; hidden?: boolean; shape: "rect" | "ellipse";
       fill?: string; fill2?: string; fillAngle?: number; stroke?: string; strokeWidth?: number; radius?: number; opacity?: number }
-  | { kind: "image"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; locked?: boolean; hidden?: boolean; url: string; fit?: "contain" | "cover" | "fill"; opacity?: number }
+  | { kind: "image"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; locked?: boolean; hidden?: boolean; url: string; fit?: "contain" | "cover" | "fill"; posX?: number; posY?: number; zoom?: number; opacity?: number }
   | { kind: "video"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; locked?: boolean; hidden?: boolean; url: string; fit?: "contain" | "cover" | "fill"; loop?: boolean; muted?: boolean; opacity?: number };
 
 export const SLIDE_CANVAS_W = 1920;
@@ -561,6 +561,9 @@ export function isValidSlideObject(o: unknown): o is SlideObjectWire {
     case "image":
       if (!isValidRenderUrl(p.url)) return false;
       if (p.fit !== undefined && p.fit !== "contain" && p.fit !== "cover" && p.fit !== "fill") return false;
+      if (p.posX !== undefined && (typeof p.posX !== "number" || !Number.isFinite(p.posX) || p.posX < 0 || p.posX > 100)) return false;
+      if (p.posY !== undefined && (typeof p.posY !== "number" || !Number.isFinite(p.posY) || p.posY < 0 || p.posY > 100)) return false;
+      if (p.zoom !== undefined && (typeof p.zoom !== "number" || !Number.isFinite(p.zoom) || p.zoom < 1 || p.zoom > 8)) return false;
       return true;
     case "video":
       if (!isValidRenderUrl(p.url)) return false;
@@ -615,7 +618,10 @@ export function slideDesignSig(s: Extract<SlidePayload, { kind: "text" }>): stri
       // in sendSlideToLive silently swallows it for callers that don't force.
       if (o.kind === "text") return base + [o.color, o.fontFamily, o.fontSize, o.fontWeight, o.align, o.italic ? "i" : "", o.uppercase ? "u" : ""].join(",");
       if (o.kind === "shape") return base + (o.fill ?? "") + (o.fill2 ?? "");
-      return base + o.url; // image | video
+      // image | video — fold fit + crop/pan/zoom so a reframe of an already-live
+      // image changes the output identity (otherwise the already-live skip
+      // swallows it and the projector never updates).
+      return base + o.url + (o.kind === "image" ? `|${o.fit ?? ""}|${o.posX ?? 50},${o.posY ?? 50},${o.zoom ?? 1}` : "");
     }).join(";");
   }
   return sig;

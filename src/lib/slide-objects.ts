@@ -63,7 +63,12 @@ export type ImageObject = {
   locked?: boolean;   // editor: can't be dragged/resized/marquee-selected on canvas
   hidden?: boolean;   // hidden from the projector; shown dimmed in the editor
   url: string;
-  fit?: "contain" | "cover";
+  fit?: "contain" | "cover" | "fill";
+  // Non-destructive crop/pan/zoom (media image editor). posX/posY = object-position
+  // in % (0-100, default 50/50); zoom = scale past the cover baseline (1-8).
+  posX?: number;
+  posY?: number;
+  zoom?: number;
   opacity?: number;
 };
 

@@ -134,7 +134,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
 
   if (slide.kind === "logo") {
     return (
-      <div className={`${base} bg-black ${className || ""}`}>
+      <div className={`${base} bg-black relative ${className || ""}`}>
         {slide.url ? (
           <img src={slide.url} alt="Logo" className="max-w-[60%] max-h-[60%] object-contain" />
         ) : (
@@ -160,12 +160,17 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
       // block, so designed slides (songs + scripture) lost their styling on any
       // church that had a background active. Rendering the objects over a
       // transparent surface keeps the live output pixel-identical to the editor.
-      const designBg: React.CSSProperties = overVideo
-        ? { background: "transparent" }
-        : slide.bgImageUrl
-          ? { background: `#000 url("${slide.bgImageUrl}") center/cover no-repeat` }
-          : slide.bgColor
-            ? { background: slide.bgColor }
+      // Precedence: an explicit per-slide background (image/colour) is OPAQUE and
+      // wins even over a background layer — this is how an edited MEDIA image
+      // (bgColor "#000000") covers the theme. A slide with NO per-slide bg goes
+      // transparent over the background layer so the theme shows through beneath
+      // the objects (scripture/lyrics over the theme). Else the theme fill.
+      const designBg: React.CSSProperties = slide.bgImageUrl
+        ? { background: `#000 url("${slide.bgImageUrl}") center/cover no-repeat` }
+        : slide.bgColor
+          ? { background: slide.bgColor }
+          : overVideo
+            ? { background: "transparent" }
             : themeBackgroundStyle(appearance, "#0b0b0b");
       // Lyric/verse slides are stored as a SINGLE centered text object (from
       // import or the slide editor). Rendering that at its stored ~96px font
@@ -302,7 +307,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
           ? { width: "100%", height: "100%", objectFit: "fill", objectPosition: "center", display: "block" }
           : { maxWidth: "100%", maxHeight: "100%", width: "auto", height: "auto", objectFit: "contain", objectPosition: "center", display: "block", margin: "auto" };
     return (
-      <div className={`${base} bg-black ${className || ""}`}>
+      <div className={`${base} bg-black relative ${className || ""}`}>
         {slide.url ? (
           <img
             src={slide.url}
@@ -354,7 +359,7 @@ function VideoSlide({ slide, base, className, videoMuted, onVideoRef }: {
   }, [onVideoRef]);
 
   return (
-    <div className={`${base} bg-black ${className || ""}`}>
+    <div className={`${base} bg-black relative ${className || ""}`}>
       <video
         src={slide.url}
         loop={slide.loop !== false}

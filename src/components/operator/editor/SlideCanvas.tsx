@@ -427,13 +427,23 @@ function ObjectView({
     );
   } else if (obj.kind === "image") {
     inner = (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={obj.url}
-        alt=""
-        style={{ width: "100%", height: "100%", objectFit: obj.fit ?? "contain", display: "block", opacity: obj.opacity ?? 1 }}
-        draggable={false}
-      />
+      // Must mirror SlideObjectsLayer's image render EXACTLY (object-position pan +
+      // transform zoom, clipped by overflow:hidden) so the editor canvas is 1:1
+      // with the projector.
+      <div style={{ width: "100%", height: "100%", overflow: "hidden" }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={obj.url}
+          alt=""
+          style={{
+            width: "100%", height: "100%", objectFit: obj.fit ?? "contain", display: "block", opacity: obj.opacity ?? 1,
+            objectPosition: `${obj.posX ?? 50}% ${obj.posY ?? 50}%`,
+            transform: obj.zoom && obj.zoom !== 1 ? `scale(${obj.zoom})` : undefined,
+            transformOrigin: `${obj.posX ?? 50}% ${obj.posY ?? 50}%`,
+          }}
+          draggable={false}
+        />
+      </div>
     );
   } else if (obj.kind === "video") {
     inner = (
