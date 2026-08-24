@@ -187,6 +187,10 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
           ...(soleText.fontWeight ? { fontWeight: soleText.fontWeight } : {}),
           ...(soleText.align ? { textAlign: soleText.align } : {}),
           ...(soleText.italic ? { fontStyle: "italic" } : {}),
+          // Honour an explicit uppercase toggle so a single styled text object
+          // (e.g. a reference-hidden scripture verse) stays one-to-one with the
+          // editor. Undefined = leave AutoFitText's always-on lyric uppercase.
+          ...(soleText.uppercase === false ? { textTransform: "none" } : soleText.uppercase === true ? { textTransform: "uppercase" } : {}),
         };
         return (
           <div className={`${base} ${animated ? "relative" : ""} ${className || ""}`} style={designBg}>

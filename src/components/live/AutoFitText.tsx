@@ -445,7 +445,12 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
           // collapsed box can't re-clamp it back down to one tiny line.
           maxWidth: projectorFit ? undefined : "100%",
           maxHeight: "100%",
-          textTransform: "uppercase", // ProPresenter-style crowd readability (2026-08-11, user: always-on). The fit measures the transformed (wider) glyphs, so sizing stays correct.
+          // ProPresenter-style crowd readability (2026-08-11, user: always-on for
+          // lyrics). The fit measures the transformed (wider) glyphs, so sizing
+          // stays correct. A caller MAY override via textStyle.textTransform — the
+          // scripture editor passes "none" when the operator turns uppercase OFF,
+          // so a reference-hidden verse stays one-to-one with the editor.
+          textTransform: (textStyle?.textTransform ?? "uppercase") as React.CSSProperties["textTransform"],
         }}
       >
         {refSplit.body}
