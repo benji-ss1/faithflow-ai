@@ -22,7 +22,14 @@ const isColor = (v: unknown): v is string =>
 const isHttpsUrl = (v: unknown): v is string => {
   if (typeof v !== "string" || v.length === 0 || v.length > 2048) return false;
   if (/["'\s<>\\]/.test(v)) return false;
-  try { return new URL(v).protocol === "https:"; } catch { return false; }
+  try {
+    const p = new URL(v);
+    if (p.protocol === "https:") return true;
+    // Local dev only: MinIO media over http://localhost:9000 (mirrors
+    // isValidRenderUrl in broadcast.ts — keep these two in sync).
+    if (p.protocol === "http:" && (p.hostname === "localhost" || p.hostname === "127.0.0.1" || p.hostname === "[::1]")) return true;
+    return false;
+  } catch { return false; }
 };
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));

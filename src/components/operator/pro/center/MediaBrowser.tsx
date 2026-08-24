@@ -21,11 +21,13 @@ import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Upload, Pencil, Trash2, CheckSquare, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
-import type { SlidePayload } from "@/lib/broadcast";
+import { projectableTextSlide, type SlidePayload } from "@/lib/broadcast";
+import { CANVAS_W, CANVAS_H, newObjectId, type ImageObject } from "@/lib/slide-objects";
 import { registerMediaAsset, renameMediaAsset, deleteMediaAsset } from "@/lib/actions";
 import { setMediaOnActiveTheme } from "@/lib/theme-quick-apply";
 import { MediaImportWizard } from "./MediaImportWizard";
 import { MediaImageEditor } from "./MediaImageEditor";
+import { loadMediaFrame } from "./mediaFrame";
 
 type Asset = {
   id: string;
@@ -114,6 +116,20 @@ export function MediaBrowser({
   // ── Slide shape ───────────────────────────────────────────────────────────
   const toSlide = (a: Asset): SlidePayload => {
     if (a.kind.startsWith("video")) return { kind: "video", url: a.url, fit };
+    // If the operator saved a crop/pan/zoom for this image, project it framed
+    // (rich object payload with a black matte) exactly as the editor does — a
+    // saved image goes live correctly with a single click, no editor needed.
+    // The plain {kind:"image"} path (global fit only) stays the default for
+    // un-framed images, which is cheaper and keeps the theme behind letterboxing.
+    const frame = loadMediaFrame(ctx.churchId, a.id);
+    if (frame) {
+      const obj: ImageObject = {
+        id: newObjectId(), kind: "image",
+        x: 0, y: 0, w: CANVAS_W, h: CANVAS_H,
+        url: a.url, fit: frame.fit, posX: frame.posX, posY: frame.posY, zoom: frame.zoom,
+      };
+      return projectableTextSlide("", "#000000", undefined, [obj]);
+    }
     return { kind: "image", url: a.url, fit };
   };
 
@@ -216,7 +232,7 @@ export function MediaBrowser({
 
       {editingImage && (
         <MediaImageEditor
-          asset={{ url: editingImage.url, fileName: editingImage.fileName }}
+          asset={{ id: editingImage.id, url: editingImage.url, fileName: editingImage.fileName }}
           ctx={ctx}
           onClose={() => setEditingImage(null)}
         />
