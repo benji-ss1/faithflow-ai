@@ -1198,6 +1198,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
             text: editCard.verses.map((v) => v.text).join(" "),
             reference: editCard.label.replace(/\s*\([^)]+\)\s*$/, "").trim(),
           }}
+          appearance={ctx.appearance ?? undefined}
           onShow={(slide, spec) => { ctx.onSendSlideToLive(slide, spec ?? undefined, { instant: true }); }}
           onClose={() => setEditCard(null)}
         />
