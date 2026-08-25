@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import { Upload, Pencil, Trash2, CheckSquare, Square, ListPlus, ArrowUpDown, GripVertical, Check } from "lucide-react";
+import { Upload, Pencil, Trash2, CheckSquare, Square, ListPlus, ArrowUpDown, GripVertical, Check, Crop } from "lucide-react";
 import { DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCenter, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, useSortable, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -480,6 +480,24 @@ export function MediaBrowser({
                     >
                       {bulkIds.has(a.id) ? <CheckSquare className="w-3.5 h-3.5 text-[var(--color-brand)]" /> : <Square className="w-3.5 h-3.5 text-white/80" />}
                     </span>
+                    {/* Edit-slide button (top-right; images only) — an explicit
+                        alternative to double-click. Stops the click from projecting. */}
+                    {!a.kind.startsWith("video") && (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        aria-label="Edit slide"
+                        title="Edit slide (crop / background)"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (clickTimerRef.current) { window.clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
+                          setEditingImage(a);
+                        }}
+                        className="absolute right-1 top-1 z-10 inline-flex h-6 px-1.5 items-center gap-1 rounded bg-black/60 text-white/85 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80 hover:text-white text-[10px] font-semibold"
+                      >
+                        <Crop className="w-3 h-3" /> Edit
+                      </span>
+                    )}
                     {a.kind.startsWith("video") ? (
                       // eslint-disable-next-line jsx-a11y/media-has-caption
                       <video

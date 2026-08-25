@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Plus, Pencil, Upload, Loader2, Trash2, CheckSquare, Square, ListPlus } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
+import { ThemedSlideCard } from "./ThemedSlideCard";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import { DotGridBackground } from "../DotGridBackground";
@@ -593,7 +594,7 @@ export function SongsBrowser({
                       className="absolute inset-0 w-full h-full"
                       title="Click to send lyric slide to live"
                     >
-                      <SlideRenderer slide={payload} appearance={ctx.appearance ?? undefined} overVideo={!!(ctx.background && ctx.background.type !== "none")} />
+                      <ThemedSlideCard slide={payload} appearance={ctx.appearance ?? undefined} background={ctx.background} />
                       {!sl.lyrics.trim() && (
                         <div className="absolute inset-0 flex items-center justify-center text-[11px] text-[var(--color-muted-foreground)]">
                           Empty slide — click pencil to add lyrics

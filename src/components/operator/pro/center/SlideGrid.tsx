@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import * as Dialog from "@radix-ui/react-dialog";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
+import { ThemedSlideCard } from "./ThemedSlideCard";
+import type { BackgroundSpec } from "@/lib/broadcast";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload, ThemeAppearance } from "@/lib/broadcast";
@@ -235,6 +237,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                 slide={s}
                 index={idx + 1}
                 appearance={ctx.appearance ?? undefined}
+                background={ctx.background}
                 selected={idx === ctx.previewSlideIdx}
                 canQuickEdit={item?.type === "song" && !!(item as { songId?: string }).songId}
                 onSendLive={() => {
@@ -375,7 +378,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
               >
                 {/* Fit text down to a small floor so the half-size stage mirror
                     doesn't clip long lyrics (matches the main grid's textMinPx). */}
-                <SlideRenderer slide={s} textMinPx={8} appearance={ctx.appearance ?? undefined} />
+                <ThemedSlideCard slide={s} textMinPx={8} appearance={ctx.appearance ?? undefined} background={ctx.background} />
                 <div className="absolute bottom-1 right-1 text-[8px] font-mono uppercase tracking-wider text-white/55 bg-black/60 px-1 py-px rounded-sm pointer-events-none">
                   Stage
                 </div>
@@ -459,6 +462,7 @@ function SortableSlideCard(props: {
   slide: SlidePayload;
   index: number;
   appearance?: ThemeAppearance;
+  background?: BackgroundSpec | null;
   selected: boolean;
   canQuickEdit: boolean;
   canPaste: boolean;
@@ -485,6 +489,7 @@ function SortableSlideCard(props: {
         slide={props.slide}
         index={props.index}
         appearance={props.appearance}
+        background={props.background}
         selected={props.selected}
         canQuickEdit={props.canQuickEdit}
         canPaste={props.canPaste}
@@ -525,11 +530,12 @@ function SortableSlideCard(props: {
 }
 
 function SlideCard({
-  slide, index, appearance, selected, canQuickEdit, canPaste, onSelect, onDouble, onDelete, onQuickEdit, onDuplicate, onCopyText, onCopySlide, onPasteSlide, onSendLive,
+  slide, index, appearance, background, selected, canQuickEdit, canPaste, onSelect, onDouble, onDelete, onQuickEdit, onDuplicate, onCopyText, onCopySlide, onPasteSlide, onSendLive,
 }: {
   slide: SlidePayload;
   index: number;
   appearance?: ThemeAppearance;
+  background?: BackgroundSpec | null;
   selected: boolean;
   canQuickEdit: boolean;
   canPaste: boolean;
@@ -575,7 +581,7 @@ function SlideCard({
               Text still fits WHOLE short verses without truncating, and
               long ones page (visible page indicator inside the card).
               Live projector rendering unaffected (uses the 24px default). */}
-          <SlideRenderer slide={slide} textMinPx={14} appearance={appearance} />
+          <ThemedSlideCard slide={slide} textMinPx={14} appearance={appearance} background={background} liveBg={selected} />
           <div
             className="absolute top-1 left-1 w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-semibold transition-colors"
             style={selected

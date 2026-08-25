@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
+import { ThemedSlideCard } from "./ThemedSlideCard";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload } from "@/lib/broadcast";
 import { BibleOptionsPopover, BibleOptionsProvider, useBibleOptions } from "./BibleOptionsPopover";
@@ -1010,7 +1011,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
             >
               {selectedIdx != null && cards[selectedIdx] ? (
                 <div className="aspect-video rounded overflow-hidden border border-[var(--color-border)]">
-                  <SlideRenderer slide={cardToSlide(cards[selectedIdx], selectedIdx, cards.length)} appearance={ctx.appearance ?? undefined} overVideo={!!(ctx.background && ctx.background.type !== "none")} />
+                  <ThemedSlideCard slide={cardToSlide(cards[selectedIdx], selectedIdx, cards.length)} appearance={ctx.appearance ?? undefined} background={ctx.background} liveBg />
                 </div>
               ) : (
                 <div className="text-[11px] text-[var(--color-muted-foreground)] text-center py-8">Click a verse in the list.</div>
@@ -1089,7 +1090,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
                 selected ? "border-[var(--color-brand)]" : "border-[var(--color-border)] hover:border-[var(--color-muted-foreground)]",
               )}
             >
-              <SlideRenderer slide={slide} textMinPx={14} appearance={ctx.appearance ?? undefined} overVideo={!!(ctx.background && ctx.background.type !== "none")} />
+              <ThemedSlideCard slide={slide} textMinPx={14} appearance={ctx.appearance ?? undefined} background={ctx.background} />
               <div className="absolute top-1 left-1 text-[10px] font-mono text-white/70 bg-black/40 px-1 rounded">
                 {idx + 1}
               </div>
