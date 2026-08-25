@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiUser } from "@/lib/session";
 import { createLimiter } from "@/lib/rate-limit";
-import { semanticSearch, listTranslations } from "@/lib/server/bible";
+import { hybridSearch, listTranslations } from "@/lib/server/bible";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -56,7 +56,11 @@ export async function POST(req: Request) {
     // the operator can raise it when they want more context. Above 100 the
     // pgvector query cost climbs sharply for diminishing UX value.
     const requested = typeof limit === "number" && limit > 0 ? limit : 20;
-    const hits = await semanticSearch(translationId, finalQuery, Math.min(requested, 100));
+    // Hybrid: exact-quote (FTS) ⊕ paraphrase (vector), RRF-fused, so a verbatim
+    // quotation ("the Lord is my shepherd") ranks its verse first while a loose
+    // paraphrase still resolves semantically. Licensed translations resolve
+    // against the public-domain fallback inside hybridSearch.
+    const hits = await hybridSearch(translationId, finalQuery, Math.min(requested, 100));
     // Backwards-compat: expose both `hits` and `results` so older callers
     // that read `res.results` keep working.
     return NextResponse.json({ hits, results: hits, translation: translationCode });

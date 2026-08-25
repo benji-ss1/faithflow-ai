@@ -347,6 +347,88 @@ export async function semanticSearch(translationId: string, query: string, limit
   return rows;
 }
 
+// ── Lexical (full-text) search ───────────────────────────────────────────────
+// Postgres FTS over the verse text, backed by the GIN index
+// idx_bible_verses_fts (to_tsvector('english', text)). This is the EXACT-quote
+// arm of hybrid search: a verbatim or near-verbatim quotation ("the Lord is my
+// shepherd, I shall not want") ranks its verse first, where a purely semantic
+// vector search can be out-ranked by a topically-similar-but-wrong verse.
+// websearch_to_tsquery tolerates ordinary phrasing (no special syntax needed).
+export type LexicalHit = Verse & { rank: number };
+export async function lexicalSearch(translationId: string, query: string, limit = 20): Promise<LexicalHit[]> {
+  if (await isLicensedTranslation(translationId)) return []; // no local text to index
+  const db = getDb();
+  const rows = (await db.execute(sql`
+    SELECT id, book, book_order AS "bookOrder", chapter, verse, text,
+           ts_rank(to_tsvector('english', text), websearch_to_tsquery('english', ${query})) AS rank
+    FROM bible_verses
+    WHERE translation_id = ${translationId}
+      AND to_tsvector('english', text) @@ websearch_to_tsquery('english', ${query})
+    ORDER BY rank DESC
+    LIMIT ${limit}
+  `)).rows as LexicalHit[];
+  return rows;
+}
+
+// The public-domain translation used to RESOLVE references when the requested
+// translation is licensed (NIV/NKJV/NLT store no local text/embeddings, so they
+// can't be searched directly). We search a fully-stored public-domain
+// translation to find WHICH verses match, then the caller renders those
+// references in the church's licensed translation via lookupReference/API.Bible
+// — the "search ranks, DB renders canonical text" invariant. Prefers KJV
+// (always present + fully embedded); falls back to any public-domain translation.
+let _pdFallbackId: { at: number; id: string | null } | null = null;
+export async function publicDomainFallbackTranslationId(): Promise<string | null> {
+  if (_pdFallbackId && Date.now() - _pdFallbackId.at < CACHE_TTL_MS) return _pdFallbackId.id;
+  const db = getDb();
+  const rows = await db.select({ id: bibleTranslations.id, code: bibleTranslations.code })
+    .from(bibleTranslations)
+    .where(and(eq(bibleTranslations.isPublicDomain, true), eq(bibleTranslations.licenseRequired, false)));
+  const kjv = rows.find((r) => r.code === "KJV");
+  const id = kjv?.id ?? rows[0]?.id ?? null;
+  _pdFallbackId = { at: Date.now(), id };
+  return id;
+}
+
+// ── Hybrid search (lexical BM25-style FTS ⊕ semantic vector), RRF-fused ───────
+// Reciprocal Rank Fusion: each engine contributes 1/(K + rank) per verse; the
+// summed score ranks the merged set. K=60 is the canonical RRF constant. This
+// gives exact quotations (lexical) and paraphrases/allusions (semantic) a fair
+// combined ranking without hand-tuned weights. For a LICENSED translation we
+// resolve references against the public-domain fallback (see above) so the
+// church still gets quote→verse search even though we can't store their text.
+export type HybridHit = Verse & { score: number; lexical: boolean; semantic: boolean };
+export async function hybridSearch(translationId: string, query: string, limit = 20): Promise<HybridHit[]> {
+  let searchId = translationId;
+  if (await isLicensedTranslation(translationId)) {
+    const pd = await publicDomainFallbackTranslationId();
+    if (!pd) return []; // no public-domain translation to resolve against
+    searchId = pd;
+  }
+  // Over-fetch each arm so the fusion has depth to reorder from.
+  const pool = Math.min(Math.max(limit * 3, 30), 100);
+  const [lex, sem] = await Promise.all([
+    lexicalSearch(searchId, query, pool),
+    semanticSearch(searchId, query, pool),
+  ]);
+  const K = 60;
+  const byKey = new Map<string, HybridHit>();
+  const bump = (v: Verse, rank: number, which: "lexical" | "semantic") => {
+    const key = `${v.book}|${v.chapter}|${v.verse}`;
+    const existing = byKey.get(key);
+    const contribution = 1 / (K + rank);
+    if (existing) {
+      existing.score += contribution;
+      existing[which] = true;
+    } else {
+      byKey.set(key, { ...v, score: contribution, lexical: which === "lexical", semantic: which === "semantic" });
+    }
+  };
+  lex.forEach((v, i) => bump(v, i + 1, "lexical"));
+  sem.forEach((v, i) => bump(v, i + 1, "semantic"));
+  return [...byKey.values()].sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
 export async function embeddedVerseCount(translationId: string): Promise<{ done: number; total: number }> {
   const db = getDb();
   const [row] = (await db.execute(sql`
