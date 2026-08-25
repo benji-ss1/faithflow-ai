@@ -25,12 +25,11 @@ import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import { projectableTextSlide, type SlidePayload } from "@/lib/broadcast";
-import { CANVAS_W, CANVAS_H, newObjectId, type ImageObject } from "@/lib/slide-objects";
 import { registerMediaAsset, renameMediaAsset, deleteMediaAsset } from "@/lib/actions";
 import { setMediaOnActiveTheme } from "@/lib/theme-quick-apply";
 import { MediaImportWizard } from "./MediaImportWizard";
 import { MediaImageEditor } from "./MediaImageEditor";
-import { loadMediaFrame, clearMediaFrame } from "./mediaFrame";
+import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide } from "./mediaFrame";
 import { loadMediaOrder, saveMediaOrder, applyMediaOrder } from "./mediaOrder";
 
 type Asset = {
@@ -84,6 +83,7 @@ export function MediaBrowser({
   // Multi-select for bulk delete.
   const [bulkIds, setBulkIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [addingGroup, setAddingGroup] = useState(false);
   // Operator's custom media ordering (localStorage, church-scoped) + a Reorder
   // mode. In reorder mode, cards are drag-sortable and projection/edit is off.
   const [order, setOrder] = useState<string[]>([]);
@@ -153,12 +153,11 @@ export function MediaBrowser({
     // un-framed images, which is cheaper and keeps the theme behind letterboxing.
     const frame = loadMediaFrame(ctx.churchId, a.id);
     if (frame) {
-      const obj: ImageObject = {
-        id: newObjectId(), kind: "image",
-        x: 0, y: 0, w: CANVAS_W, h: CANVAS_H,
-        url: a.url, fit: frame.fit, posX: frame.posX, posY: frame.posY, zoom: frame.zoom,
-      };
-      return projectableTextSlide("", "#000000", undefined, [obj]);
+      // Reconstruct EXACTLY what the editor's "Save & Show" projects — matte or
+      // logo-on-background (solid/theme/gradient) — so a saved frame is faithful
+      // on a single click, not silently downgraded to a black matte.
+      const { bgColor, objects } = buildMediaFrameSlide(frame, a.url);
+      return projectableTextSlide("", bgColor, undefined, objects);
     }
     return { kind: "image", url: a.url, fit };
   };
@@ -194,18 +193,24 @@ export function MediaBrowser({
   // Add all selected media as ONE collapsible playlist group (in the operator's
   // current display order). Preserves the on-screen order of the selection.
   const bulkAddGroup = async () => {
+    if (addingGroup) return; // in-flight guard: no duplicate group on a double-click
     if (!ctx.onAddMediaGroup) { toast.info("Playlist add not available"); return; }
     const ids = filtered.filter((a) => bulkIds.has(a.id)).map((a) => a.id);
-    if (ids.length === 0) return;
+    if (ids.length === 0) { toast.info("Nothing selected is visible under the current filter."); return; }
     // Default the group name (window.prompt is unreliable in the Electron shell);
     // the operator can double-click the playlist row to rename it.
     const title = ids.length === 1
       ? (filtered.find((a) => a.id === ids[0])?.fileName ?? "Images")
       : `Images (${ids.length})`;
-    await ctx.onAddMediaGroup(title, ids);
-    setBulkIds(new Set());
-    toast.success(`Added "${title}" to the playlist — double-click to rename`, { icon: "🗂️" });
-    onExitToSlides();
+    setAddingGroup(true);
+    try {
+      await ctx.onAddMediaGroup(title, ids);
+      setBulkIds(new Set());
+      toast.success(`Added "${title}" to the playlist — double-click to rename`, { icon: "🗂️" });
+      onExitToSlides();
+    } finally {
+      setAddingGroup(false);
+    }
   };
 
   // ── Delete ────────────────────────────────────────────────────────────────
@@ -357,8 +362,8 @@ export function MediaBrowser({
             </button>
             {bulkIds.size > 0 && (
               <div className="flex items-center gap-1">
-                <button type="button" onClick={() => void bulkAddGroup()}
-                  className="h-6 px-2 rounded border border-teal-500/40 flex items-center gap-1 text-[10px] font-semibold text-teal-300 hover:bg-teal-500/10">
+                <button type="button" onClick={() => void bulkAddGroup()} disabled={addingGroup}
+                  className="h-6 px-2 rounded border border-teal-500/40 flex items-center gap-1 text-[10px] font-semibold text-teal-300 hover:bg-teal-500/10 disabled:opacity-50">
                   <ListPlus className="w-3 h-3" /> Add group to playlist
                 </button>
                 <button type="button" onClick={() => void bulkDelete()} disabled={bulkBusy}

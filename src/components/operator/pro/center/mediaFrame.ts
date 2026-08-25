@@ -1,3 +1,5 @@
+import { CANVAS_W, CANVAS_H, newObjectId, type SlideObject, type ImageObject, type ShapeObject } from "@/lib/slide-objects";
+
 // Per-asset media framing persistence (crop / pan / zoom / fit).
 //
 // The media image editor lets the operator frame an image (Fit/Fill/Stretch +
@@ -85,4 +87,33 @@ export function clearMediaFrame(churchId: string | undefined, assetId: string): 
   } catch {
     /* non-fatal */
   }
+}
+
+/**
+ * Build the projectable slide ({ bgColor, objects }) for an image asset given a
+ * saved frame. This is the SINGLE source of truth for what a saved frame
+ * projects to, shared by click-to-project (MediaBrowser.toSlide) so it matches
+ * exactly what the editor's "Save & Show" produces — matte OR logo-on-background
+ * (solid / theme / gradient). Without this, a saved background-mode frame would
+ * silently project as a black-matte full-screen image.
+ */
+export function buildMediaFrameSlide(frame: MediaFrame, url: string): { bgColor?: string; objects: SlideObject[] } {
+  if (frame.bgMode === "background") {
+    const size = frame.logoSizePct ?? 60;
+    const cx = frame.logoPosX ?? 50, cy = frame.logoPosY ?? 50;
+    const w = Math.round(CANVAS_W * size / 100), h = Math.round(CANVAS_H * size / 100);
+    const x = Math.round(CANVAS_W * cx / 100 - w / 2), y = Math.round(CANVAS_H * cy / 100 - h / 2);
+    const logo: ImageObject = { id: newObjectId(), kind: "image", x, y, w, h, url, fit: "contain", posX: 50, posY: 50, zoom: 1 };
+    const kind = frame.bgKind ?? "solid";
+    if (kind === "gradient") {
+      const from = frame.gradFrom ?? "#1e293b";
+      const shape: ShapeObject = { id: newObjectId(), kind: "shape", x: 0, y: 0, w: CANVAS_W, h: CANVAS_H, shape: "rect", fill: from, fill2: frame.gradTo ?? "#0b1220", fillAngle: frame.gradAngle ?? 135 };
+      return { bgColor: from, objects: [shape, logo] }; // gradFrom as opaque backstop under the shape
+    }
+    if (kind === "theme") return { bgColor: undefined, objects: [logo] }; // theme shows through
+    return { bgColor: frame.bgSolid ?? "#0b1220", objects: [logo] };
+  }
+  // Matte (default): full-canvas image on black, framed by fit/pan/zoom.
+  const logo: ImageObject = { id: newObjectId(), kind: "image", x: 0, y: 0, w: CANVAS_W, h: CANVAS_H, url, fit: frame.fit, posX: frame.posX, posY: frame.posY, zoom: frame.zoom };
+  return { bgColor: "#000000", objects: [logo] };
 }

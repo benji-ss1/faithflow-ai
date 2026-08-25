@@ -1858,12 +1858,13 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     onAddMediaGroup: async (title, assetIds) => {
       const ids = assetIds.filter((x) => typeof x === "string" && x.length > 0);
       if (ids.length === 0) return;
+      const safeTitle = (title || "Images").trim().slice(0, 120) || "Images";
       const { addServiceItem } = await import("@/lib/actions");
-      const res = await addServiceItem(plan.id, "media", title, { mediaAssetIds: ids });
+      const res = await addServiceItem(plan.id, "media", safeTitle, { mediaAssetIds: ids });
       if (!res.ok) { toast.error(res.error || "Add failed"); return; }
       if (res.data) {
         const newItemId = res.data.id;
-        toast(`Added group: ${title}`, {
+        toast(`Added group: ${safeTitle}`, {
           action: {
             label: "Undo",
             onClick: () => { void (async () => {
@@ -1881,7 +1882,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       setPlan((prev) => {
         const newItem = {
           id: optimisticId,
-          title,
+          title: safeTitle,
           type: "media",
           mediaAssetIds: ids,
           slides: ids.map(() => ({ kind: "image" as const, url: "" })),

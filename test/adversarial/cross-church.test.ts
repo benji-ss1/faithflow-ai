@@ -353,6 +353,34 @@ async function main() {
         `leaked=${leaked} poisonSong=${poisonSong?.slides[0]?.kind} poisonMedia=${poisonMedia?.slides[0]?.kind} poisonSermon=${poisonSermon?.slides[0]?.kind}`,
       );
     }
+
+    // Attempt 13 — media GROUP cross-church guard (mediaAssetIds[] path, added
+    // for the multi-select "group into playlist" feature). Poison Church A's
+    // plan with a group whose mediaAssetIds mix A's OWN asset with Church B's.
+    // The expander must include ONLY A's asset (churchId-scoped inArray),
+    // silently skip B's, presign nothing of B's, and leak no MARKER_B.
+    {
+      const db = getDb();
+      const [aMedia] = await db.select({ id: mediaAssets.id }).from(mediaAssets).where(eq(mediaAssets.churchId, A!.church.id)).limit(1);
+      const [bMedia] = await db.select({ id: mediaAssets.id }).from(mediaAssets).where(eq(mediaAssets.churchId, B!.church.id)).limit(1);
+      await db.insert(serviceItems).values([
+        { servicePlanId: A!.plan.id, order: 20, type: "media", title: "poison group", payload: { mediaAssetIds: [aMedia?.id, bMedia?.id] } },
+        { servicePlanId: A!.plan.id, order: 21, type: "media", title: "all-foreign group", payload: { mediaAssetIds: [bMedia?.id] } },
+      ]);
+      const expanded = await getExpandedServicePlan(A!.plan.id, A!.church.id);
+      const leaked = containsMarkerB(expanded);
+      const mixedGroup = expanded?.items.find((i) => i.title === "poison group");
+      const foreignGroup = expanded?.items.find((i) => i.title === "all-foreign group");
+      // Mixed group → exactly ONE real image slide (A's); all-foreign → no real
+      // slide, degrades to a single blank (never a presigned B url).
+      const mixedOk = mixedGroup?.slides.filter((s) => s.kind === "image").length === 1;
+      const foreignOk = !!foreignGroup && foreignGroup.slides.every((s) => s.kind === "blank");
+      record(
+        "getExpandedServicePlan scopes media GROUP (mediaAssetIds) by church",
+        !leaked && mixedOk && foreignOk,
+        `leaked=${leaked} mixedImageSlides=${mixedGroup?.slides.filter((s) => s.kind === "image").length} foreignKinds=${foreignGroup?.slides.map((s) => s.kind).join(",")}`,
+      );
+    }
   } finally {
     console.log("--- Cleanup ---");
     if (A) await cleanupChurch(A.church.id).catch((e) => console.error("cleanup A failed:", e));

@@ -322,22 +322,26 @@ function SortablePlaylistItem({
         <ul className="pl-8 pr-2 pb-1 flex flex-col gap-0.5">
           {item.slides.map((s, sIdx) => {
             const url = (s as { url?: string }).url;
+            const isVideo = (s as { kind?: string }).kind === "video";
+            const label = isVideo ? "Video" : "Image";
             return (
               <li key={sIdx}>
                 <button
                   type="button"
                   onClick={() => onProjectSlide?.(sIdx)}
-                  title={`Send image ${sIdx + 1} to live`}
+                  title={`Send ${label.toLowerCase()} ${sIdx + 1} to live`}
                   className="w-full flex items-center gap-2 py-0.5 pr-1 rounded text-left text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/5"
                 >
                   <span className="w-4 text-right opacity-50 shrink-0">{sIdx + 1}</span>
-                  {url ? (
+                  {url && isVideo ? (
+                    <video src={url} muted className="w-10 h-6 object-cover rounded border border-[var(--color-border)] shrink-0" />
+                  ) : url ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={url} alt="" className="w-10 h-6 object-cover rounded border border-[var(--color-border)] shrink-0" />
                   ) : (
                     <span className="w-10 h-6 rounded border border-[var(--color-border)] bg-black/40 shrink-0" />
                   )}
-                  <span className="truncate">Image {sIdx + 1}</span>
+                  <span className="truncate">{label} {sIdx + 1}</span>
                 </button>
               </li>
             );

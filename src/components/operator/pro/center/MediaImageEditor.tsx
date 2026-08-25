@@ -252,10 +252,13 @@ export function MediaImageEditor({
       frame.gradFrom = gradFrom;
       frame.gradTo = gradTo;
       frame.gradAngle = gradAngle;
-      // Persist the logo box as size% + centre% so it restores independent of canvas px.
-      frame.logoSizePct = Math.round((img.w / CANVAS_W) * 100);
-      frame.logoPosX = Math.round(((img.x + img.w / 2) / CANVAS_W) * 100);
-      frame.logoPosY = Math.round(((img.y + img.h / 2) / CANVAS_H) * 100);
+      // Persist the logo box as size% + centre% so it restores independent of
+      // canvas px. Clamp to the same ranges loadMediaFrame enforces so a
+      // handle-drag past the canvas edge round-trips consistently.
+      const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
+      frame.logoSizePct = clamp(Math.round((img.w / CANVAS_W) * 100), 10, 100);
+      frame.logoPosX = clamp(Math.round(((img.x + img.w / 2) / CANVAS_W) * 100), 0, 100);
+      frame.logoPosY = clamp(Math.round(((img.y + img.h / 2) / CANVAS_H) * 100), 0, 100);
     } else {
       frame.bgMode = "matte";
     }
