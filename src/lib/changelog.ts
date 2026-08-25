@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.333",
+    date: "2026-08-25",
+    headline: "Smarter scripture detection — catches quoted phrases, not just references",
+    highlights: [
+      { text: "The AI now spots scripture even when the preacher doesn't say the reference — quote a famous line like “the author and finisher of our faith” or “I am that I am” and it suggests the verse as a chip.", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "Works in everyday language too — “in the Bible it says iron sharpens iron” is recognised just like the older “sharpeneth” wording. Suggestions only (it never auto-projects a guessed verse), and it won't fire on ordinary worship words.",
+    ],
+  },
+  {
     version: "0.1.332",
     date: "2026-08-25",
     headline: "3-digit chapters spoken digit-by-digit now detect correctly",

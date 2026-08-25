@@ -3,14 +3,14 @@
  * input, the ⌘K global palette, AI spoken-phrase detection fallback, and the
  * "RELATED VERSES" cross-reference chips.
  *
- * 500 curated KJV entries. Sections:
- *   A: Top 100 most-quoted verses (popularity 8-10)                — phrase_001..100
- *   B: African/RCCG/Pentecostal staples (150)                       — phrase_101..250
- *   C: Thematic groups — funeral/wedding/christmas etc. (100)       — phrase_251..350
- *   D: Proverbs deep cut (70)                                       — phrase_351..420
- *   E: Psalms deep cut incl. full Ps 23 + Ps 91 (80)                — phrase_421..500
- *
- * fullText is KJV verbatim (public domain).
+ * Curated KJV entries (fullText is KJV verbatim, public domain). Sections:
+ *   A–E: 234 verses (top-quoted, RCCG/Pentecostal staples, thematic, Proverbs,
+ *        Psalms) — ids phrase_001..233.
+ *   F:   24 ALLUSIONS — famous phrases/titles/idioms preachers quote WITHOUT a
+ *        reference (Heb 12:2 "author and finisher", Ex 3:14 "I am that I am",
+ *        etc.) — ids phrase_a01.. ; carry distinctiveTokens + noSignalSafe.
+ *   (Increment 1 of the allusion-detection plan — corpus grows further with an
+ *    AI-drafted + human-reviewed batch; see docs/BIBLE_ALLUSION_DETECTION_PLAN.md)
  */
 
 export type BiblePhrase = {
@@ -31,6 +31,17 @@ export type BiblePhrase = {
   crossRefs?: string[];
   themes?: string[];
   contexts?: string[];
+  // --- Allusion-detection fields (Increment 1, chip-only live detection) ---
+  /** The memorable clause(s) as a preacher actually SPEAKS them (incl. modern
+   *  paraphrase), distinct from altPhrases (search synonyms). Matched verbatim. */
+  allusionForms?: string[];
+  /** Rare content words that make this phrase unmistakable ("finisher",
+   *  "sticketh"). A match must hit one of these (or a contiguous substring) to
+   *  score — extends the worship-stopword distinctiveness guard. */
+  distinctiveTokens?: string[];
+  /** True only for phrases distinctive enough to surface with NO quoting cue
+   *  (e.g. "the author and finisher of our faith"). Generic phrases need a cue. */
+  noSignalSafe?: boolean;
 };
 
 export const BIBLE_PHRASES: BiblePhrase[] = [
@@ -4463,5 +4474,208 @@ export const BIBLE_PHRASES: BiblePhrase[] = [
     crossRefs: ["1 Corinthians 14:1", "Ephesians 4:11", "1 Peter 1:11"],
     themes: ["testimony", "prophecy", "worship", "jesus"],
     contexts: ["prophetic", "testimony", "sermon", "worship"],
+  },
+
+  // ============================================================
+  // SECTION F — ALLUSIONS: famous phrases/titles/idioms preachers quote
+  // WITHOUT a reference (Increment 1). fullText is KJV (public domain).
+  // altPhrases include modern paraphrases so the substring matcher catches
+  // them; distinctiveTokens ANCHOR the reverse/normalized match (a rare content
+  // word must be present, so generic clauses don't false-fire). noSignalSafe is
+  // reserved for a later increment (cue-gating). Chip-only.
+  // ============================================================
+  {
+    id: "phrase_a01", phrase: "the author and finisher of our faith",
+    altPhrases: ["author and finisher of our faith", "author and perfecter of our faith", "author and finisher of your faith", "looking unto Jesus the author and finisher of our faith"],
+    keywords: ["author", "finisher", "faith", "jesus", "looking"], reference: "Hebrews 12:2", book: "Hebrews", chapter: 12, verse: 2, verseEnd: null,
+    fullText: "Looking unto Jesus the author and finisher of our faith; who for the joy that was set before him endured the cross, despising the shame, and is set down at the right hand of the throne of God.",
+    translation: "KJV", category: "allusion", subcategory: "title-of-christ", popularity: 9,
+    themes: ["faith", "jesus", "endurance"], contexts: ["sermon", "faith"],
+    distinctiveTokens: ["finisher", "author", "perfecter"], noSignalSafe: true,
+  },
+  {
+    id: "phrase_a02", phrase: "I am that I am",
+    altPhrases: ["I am that I am", "I AM THAT I AM", "I am who I am", "tell them I AM hath sent me", "I am hath sent me"],
+    keywords: ["i", "am", "moses", "sent"], reference: "Exodus 3:14", book: "Exodus", chapter: 3, verse: 14, verseEnd: null,
+    fullText: "And God said unto Moses, I AM THAT I AM: and he said, Thus shalt thou say unto the children of Israel, I AM hath sent me unto you.",
+    translation: "KJV", category: "allusion", subcategory: "name-of-god", popularity: 9,
+    themes: ["name of god", "moses"], contexts: ["sermon"],
+    distinctiveTokens: ["i am that i am"], noSignalSafe: true,
+  },
+  {
+    id: "phrase_a03", phrase: "a friend that sticketh closer than a brother",
+    altPhrases: ["a friend that sticketh closer than a brother", "a friend who sticks closer than a brother", "there is a friend that sticketh closer than a brother"],
+    keywords: ["friend", "sticketh", "closer", "brother"], reference: "Proverbs 18:24", book: "Proverbs", chapter: 18, verse: 24, verseEnd: null,
+    fullText: "A man that hath friends must shew himself friendly: and there is a friend that sticketh closer than a brother.",
+    translation: "KJV", category: "allusion", subcategory: "proverb", popularity: 8,
+    themes: ["friendship"], contexts: ["sermon"], distinctiveTokens: ["sticketh"], noSignalSafe: true,
+  },
+  {
+    id: "phrase_a04", phrase: "iron sharpeneth iron",
+    altPhrases: ["iron sharpeneth iron", "as iron sharpeneth iron", "iron sharpens iron", "so a man sharpeneth the countenance of his friend"],
+    keywords: ["iron", "sharpeneth", "countenance", "friend"], reference: "Proverbs 27:17", book: "Proverbs", chapter: 27, verse: 17, verseEnd: null,
+    fullText: "Iron sharpeneth iron; so a man sharpeneth the countenance of his friend.",
+    translation: "KJV", category: "allusion", subcategory: "proverb", popularity: 8,
+    themes: ["friendship", "growth"], contexts: ["sermon"], distinctiveTokens: ["sharpeneth"], noSignalSafe: true,
+  },
+  {
+    id: "phrase_a05", phrase: "a thorn in the flesh",
+    altPhrases: ["a thorn in the flesh", "there was given to me a thorn in the flesh", "thorn in my flesh", "the messenger of Satan to buffet me"],
+    keywords: ["thorn", "flesh", "messenger", "satan", "buffet"], reference: "2 Corinthians 12:7", book: "2 Corinthians", chapter: 12, verse: 7, verseEnd: null,
+    fullText: "And lest I should be exalted above measure through the abundance of the revelations, there was given to me a thorn in the flesh, the messenger of Satan to buffet me, lest I should be exalted above measure.",
+    translation: "KJV", category: "allusion", subcategory: "idiom", popularity: 8,
+    themes: ["suffering", "grace"], contexts: ["sermon"], distinctiveTokens: ["thorn", "buffet"], noSignalSafe: true,
+  },
+  {
+    id: "phrase_a06", phrase: "my grace is sufficient for thee",
+    altPhrases: ["my grace is sufficient for thee", "my grace is sufficient for you", "my strength is made perfect in weakness", "my grace is enough for you"],
+    keywords: ["grace", "sufficient", "strength", "perfect", "weakness"], reference: "2 Corinthians 12:9", book: "2 Corinthians", chapter: 12, verse: 9, verseEnd: null,
+    fullText: "And he said unto me, My grace is sufficient for thee: for my strength is made perfect in weakness. Most gladly therefore will I rather glory in my infirmities, that the power of Christ may rest upon me.",
+    translation: "KJV", category: "allusion", subcategory: "promise", popularity: 9,
+    themes: ["grace", "weakness"], contexts: ["sermon"], distinctiveTokens: ["sufficient"], noSignalSafe: true,
+  },
+  {
+    id: "phrase_a07", phrase: "faith cometh by hearing",
+    altPhrases: ["faith cometh by hearing", "faith comes by hearing", "so then faith cometh by hearing and hearing by the word of God", "hearing by the word of God"],
+    keywords: ["faith", "cometh", "hearing", "word", "god"], reference: "Romans 10:17", book: "Romans", chapter: 10, verse: 17, verseEnd: null,
+    fullText: "So then faith cometh by hearing, and hearing by the word of God.",
+    translation: "KJV", category: "allusion", subcategory: "faith", popularity: 9,
+    themes: ["faith", "word"], contexts: ["sermon"], distinctiveTokens: ["cometh", "hearing"], noSignalSafe: true,
+  },
+  {
+    id: "phrase_a08", phrase: "the just shall live by faith",
+    altPhrases: ["the just shall live by faith", "the righteous shall live by faith", "the just shall live by his faith"],
+    keywords: ["just", "righteous", "live", "faith"], reference: "Romans 1:17", book: "Romans", chapter: 1, verse: 17, verseEnd: null,
+    fullText: "For therein is the righteousness of God revealed from faith to faith: as it is written, The just shall live by faith.",
+    translation: "KJV", category: "allusion", subcategory: "faith", popularity: 8,
+    themes: ["faith", "righteousness"], contexts: ["sermon"], distinctiveTokens: ["just", "faith"], noSignalSafe: false,
+  },
+  {
+    id: "phrase_a09", phrase: "his mercies are new every morning",
+    altPhrases: ["his mercies are new every morning", "his compassions fail not they are new every morning", "great is thy faithfulness", "new every morning"],
+    keywords: ["mercies", "new", "morning", "compassions", "faithfulness"], reference: "Lamentations 3:22", book: "Lamentations", chapter: 3, verse: 22, verseEnd: 23,
+    fullText: "It is of the LORD'S mercies that we are not consumed, because his compassions fail not. They are new every morning: great is thy faithfulness.",
+    translation: "KJV", category: "allusion", subcategory: "mercy", popularity: 8,
+    themes: ["mercy", "faithfulness"], contexts: ["sermon", "worship"], distinctiveTokens: ["mercies", "compassions"], noSignalSafe: true,
+  },
+  {
+    id: "phrase_a10", phrase: "by his stripes we are healed",
+    altPhrases: ["by his stripes we are healed", "with his stripes we are healed", "and with his stripes we are healed"],
+    keywords: ["stripes", "healed", "wounded", "transgressions"], reference: "Isaiah 53:5", book: "Isaiah", chapter: 53, verse: 5, verseEnd: null,
+    fullText: "But he was wounded for our transgressions, he was bruised for our iniquities: the chastisement of our peace was upon him; and with his stripes we are healed.",
+    translation: "KJV", category: "allusion", subcategory: "healing", popularity: 9,
+    themes: ["healing", "atonement"], contexts: ["sermon"], distinctiveTokens: ["stripes", "bruised"], noSignalSafe: true,
+  },
+  {
+    id: "phrase_a11", phrase: "eye hath not seen nor ear heard",
+    altPhrases: ["eye hath not seen nor ear heard", "eye has not seen nor ear heard", "the things which God hath prepared for them that love him"],
+    keywords: ["eye", "seen", "ear", "heard", "prepared", "love"], reference: "1 Corinthians 2:9", book: "1 Corinthians", chapter: 2, verse: 9, verseEnd: null,
+    fullText: "But as it is written, Eye hath not seen, nor ear heard, neither have entered into the heart of man, the things which God hath prepared for them that love him.",
+    translation: "KJV", category: "allusion", subcategory: "promise", popularity: 8,
+    themes: ["glory", "promise"], contexts: ["sermon"], distinctiveTokens: ["eye", "ear"], noSignalSafe: false,
+  },
+  {
+    id: "phrase_a12", phrase: "a very present help in trouble",
+    altPhrases: ["a very present help in trouble", "God is our refuge and strength a very present help in trouble", "an ever present help in trouble"],
+    keywords: ["present", "help", "trouble", "refuge", "strength"], reference: "Psalms 46:1", book: "Psalms", chapter: 46, verse: 1, verseEnd: null,
+    fullText: "God is our refuge and strength, a very present help in trouble.",
+    translation: "KJV", category: "allusion", subcategory: "comfort", popularity: 8,
+    themes: ["refuge", "help"], contexts: ["sermon", "worship"], distinctiveTokens: ["refuge", "present help"], noSignalSafe: true,
+  },
+  {
+    id: "phrase_a13", phrase: "no weapon formed against thee shall prosper",
+    altPhrases: ["no weapon formed against thee shall prosper", "no weapon formed against you shall prosper", "no weapon that is formed against thee shall prosper"],
+    keywords: ["weapon", "formed", "prosper", "tongue", "condemn"], reference: "Isaiah 54:17", book: "Isaiah", chapter: 54, verse: 17, verseEnd: null,
+    fullText: "No weapon that is formed against thee shall prosper; and every tongue that shall rise against thee in judgment thou shalt condemn. This is the heritage of the servants of the LORD, and their righteousness is of me, saith the LORD.",
+    translation: "KJV", category: "allusion", subcategory: "protection", popularity: 9,
+    themes: ["protection", "victory"], contexts: ["sermon"], distinctiveTokens: ["weapon", "formed", "prosper"], noSignalSafe: true,
+  },
+  {
+    id: "phrase_a14", phrase: "weeping may endure for a night but joy cometh in the morning",
+    altPhrases: ["weeping may endure for a night but joy cometh in the morning", "joy cometh in the morning", "joy comes in the morning", "weeping may last for a night"],
+    keywords: ["weeping", "endure", "night", "joy", "cometh", "morning"], reference: "Psalms 30:5", book: "Psalms", chapter: 30, verse: 5, verseEnd: null,
+    fullText: "For his anger endureth but a moment; in his favour is life: weeping may endure for a night, but joy cometh in the morning.",
+    translation: "KJV", category: "allusion", subcategory: "comfort", popularity: 9,
+    themes: ["comfort", "joy"], contexts: ["sermon", "worship"], distinctiveTokens: ["weeping", "cometh"], noSignalSafe: true,
+  },
+  {
+    id: "phrase_a15", phrase: "the love of money is the root of all evil",
+    altPhrases: ["the love of money is the root of all evil", "for the love of money is the root of all evil", "money is the root of all evil"],
+    keywords: ["love", "money", "root", "evil", "coveted"], reference: "1 Timothy 6:10", book: "1 Timothy", chapter: 6, verse: 10, verseEnd: null,
+    fullText: "For the love of money is the root of all evil: which while some coveted after, they have erred from the faith, and pierced themselves through with many sorrows.",
+    translation: "KJV", category: "allusion", subcategory: "proverb", popularity: 8,
+    themes: ["money", "warning"], contexts: ["sermon"], distinctiveTokens: ["money", "root"], noSignalSafe: true,
+  },
+  {
+    id: "phrase_a16", phrase: "train up a child in the way he should go",
+    altPhrases: ["train up a child in the way he should go", "train up a child in the way that he should go", "when he is old he will not depart from it"],
+    keywords: ["train", "child", "way", "old", "depart"], reference: "Proverbs 22:6", book: "Proverbs", chapter: 22, verse: 6, verseEnd: null,
+    fullText: "Train up a child in the way he should go: and when he is old, he will not depart from it.",
+    translation: "KJV", category: "allusion", subcategory: "proverb", popularity: 8,
+    themes: ["parenting", "training"], contexts: ["sermon"], distinctiveTokens: ["train", "depart"], noSignalSafe: true,
+  },
+  {
+    id: "phrase_a17", phrase: "a soft answer turneth away wrath",
+    altPhrases: ["a soft answer turneth away wrath", "a soft answer turns away wrath", "grievous words stir up anger"],
+    keywords: ["soft", "answer", "turneth", "wrath", "grievous", "anger"], reference: "Proverbs 15:1", book: "Proverbs", chapter: 15, verse: 1, verseEnd: null,
+    fullText: "A soft answer turneth away wrath: but grievous words stir up anger.",
+    translation: "KJV", category: "allusion", subcategory: "proverb", popularity: 8,
+    themes: ["speech", "peace"], contexts: ["sermon"], distinctiveTokens: ["turneth", "wrath"], noSignalSafe: true,
+  },
+  {
+    id: "phrase_a18", phrase: "pride goeth before destruction",
+    altPhrases: ["pride goeth before destruction", "pride goes before a fall", "pride goeth before destruction and an haughty spirit before a fall", "a haughty spirit before a fall"],
+    keywords: ["pride", "goeth", "destruction", "haughty", "spirit", "fall"], reference: "Proverbs 16:18", book: "Proverbs", chapter: 16, verse: 18, verseEnd: null,
+    fullText: "Pride goeth before destruction, and an haughty spirit before a fall.",
+    translation: "KJV", category: "allusion", subcategory: "proverb", popularity: 8,
+    themes: ["pride", "warning"], contexts: ["sermon"], distinctiveTokens: ["goeth", "haughty"], noSignalSafe: true,
+  },
+  {
+    id: "phrase_a19", phrase: "where there is no vision the people perish",
+    altPhrases: ["where there is no vision the people perish", "without a vision the people perish", "where there is no vision, the people perish"],
+    keywords: ["vision", "people", "perish", "law", "happy"], reference: "Proverbs 29:18", book: "Proverbs", chapter: 29, verse: 18, verseEnd: null,
+    fullText: "Where there is no vision, the people perish: but he that keepeth the law, happy is he.",
+    translation: "KJV", category: "allusion", subcategory: "proverb", popularity: 8,
+    themes: ["vision", "purpose"], contexts: ["sermon"], distinctiveTokens: ["vision", "perish"], noSignalSafe: true,
+  },
+  {
+    id: "phrase_a20", phrase: "the effectual fervent prayer of a righteous man availeth much",
+    altPhrases: ["the effectual fervent prayer of a righteous man availeth much", "the prayer of a righteous man availeth much", "the earnest prayer of a righteous person"],
+    keywords: ["effectual", "fervent", "prayer", "righteous", "availeth"], reference: "James 5:16", book: "James", chapter: 5, verse: 16, verseEnd: null,
+    fullText: "Confess your faults one to another, and pray one for another, that ye may be healed. The effectual fervent prayer of a righteous man availeth much.",
+    translation: "KJV", category: "allusion", subcategory: "prayer", popularity: 8,
+    themes: ["prayer", "righteousness"], contexts: ["sermon"], distinctiveTokens: ["effectual", "fervent", "availeth"], noSignalSafe: true,
+  },
+  {
+    id: "phrase_a21", phrase: "greater is he that is in you",
+    altPhrases: ["greater is he that is in you", "greater is he that is in you than he that is in the world", "the one in you is greater than the one in the world"],
+    keywords: ["greater", "you", "world", "overcome"], reference: "1 John 4:4", book: "1 John", chapter: 4, verse: 4, verseEnd: null,
+    fullText: "Ye are of God, little children, and have overcome them: because greater is he that is in you, than he that is in the world.",
+    translation: "KJV", category: "allusion", subcategory: "victory", popularity: 9,
+    themes: ["victory", "holy spirit"], contexts: ["sermon"], distinctiveTokens: ["greater"], noSignalSafe: false,
+  },
+  {
+    id: "phrase_a22", phrase: "can two walk together except they be agreed",
+    altPhrases: ["can two walk together except they be agreed", "can two walk together unless they agree", "how can two walk together unless they agree"],
+    keywords: ["two", "walk", "together", "agreed"], reference: "Amos 3:3", book: "Amos", chapter: 3, verse: 3, verseEnd: null,
+    fullText: "Can two walk together, except they be agreed?",
+    translation: "KJV", category: "allusion", subcategory: "proverb", popularity: 8,
+    themes: ["agreement", "relationship"], contexts: ["sermon"], distinctiveTokens: ["agreed"], noSignalSafe: true,
+  },
+  {
+    id: "phrase_a23", phrase: "the Lion of the tribe of Judah",
+    altPhrases: ["the Lion of the tribe of Judah", "lion of the tribe of Judah", "the Lion of Judah hath prevailed"],
+    keywords: ["lion", "tribe", "judah", "root", "david", "prevailed"], reference: "Revelation 5:5", book: "Revelation", chapter: 5, verse: 5, verseEnd: null,
+    fullText: "And one of the elders saith unto me, Weep not: behold, the Lion of the tribe of Juda, the Root of David, hath prevailed to open the book, and to loose the seven seals thereof.",
+    translation: "KJV", category: "allusion", subcategory: "title-of-christ", popularity: 8,
+    themes: ["jesus", "victory"], contexts: ["sermon", "worship"], distinctiveTokens: ["lion", "judah", "prevailed"], noSignalSafe: true,
+  },
+  {
+    id: "phrase_a24", phrase: "Wonderful Counsellor the mighty God",
+    altPhrases: ["Wonderful Counsellor the mighty God", "his name shall be called Wonderful Counsellor", "The mighty God, The everlasting Father, The Prince of Peace", "Prince of Peace"],
+    keywords: ["wonderful", "counsellor", "mighty", "god", "everlasting", "father", "prince", "peace"], reference: "Isaiah 9:6", book: "Isaiah", chapter: 9, verse: 6, verseEnd: null,
+    fullText: "For unto us a child is born, unto us a son is given: and the government shall be upon his shoulder: and his name shall be called Wonderful, Counsellor, The mighty God, The everlasting Father, The Prince of Peace.",
+    translation: "KJV", category: "allusion", subcategory: "title-of-christ", popularity: 9,
+    themes: ["jesus", "christmas"], contexts: ["sermon", "christmas", "worship"], distinctiveTokens: ["counsellor", "everlasting"], noSignalSafe: true,
   },
 ];

@@ -56,17 +56,55 @@ type Indexed = {
   phraseLc: string;
   altLc: string[];
   fullTextLc: string;
+  phraseNorm: string;
+  altNorm: string[];
+  distinctiveNorm: string[];
   keywordSet: Set<string>;
   themeSet: Set<string>;
   contextSet: Set<string>;
 };
 let INDEX: Indexed[] | null = null;
 
+// KJV → modern-English word map. Preachers quote in modern words ("in the bible
+// it says iron SHARPENS iron", not "sharpeneth"). Normalizing BOTH the stored
+// phrase and the live query through this map converges archaic and modern on the
+// same form, so a modern paraphrase matches a KJV phrase without hand-listing
+// every variant. Curated closed set (predictable — no crude stemming that would
+// false-merge unrelated words).
+const KJV_MODERN_MAP: Record<string, string> = {
+  thee: "you", thou: "you", thy: "your", thine: "your", ye: "you", thyself: "yourself",
+  hast: "have", hath: "has", doth: "does", dost: "do", art: "are", wast: "were",
+  shalt: "shall", wilt: "will", canst: "can", unto: "to", upon: "on", verily: "truly",
+  whosoever: "whoever", whatsoever: "whatever", brethren: "brothers", saith: "says",
+  cometh: "comes", goeth: "goes", doeth: "does", sitteth: "sits", standeth: "stands",
+  walketh: "walks", giveth: "gives", keepeth: "keeps", maketh: "makes", loveth: "loves",
+  believeth: "believes", worketh: "works", dwelleth: "dwells", prospereth: "prospers",
+  sheweth: "shows", knoweth: "knows", seeketh: "seeks", followeth: "follows",
+  leadeth: "leads", runneth: "runs", calleth: "calls", turneth: "turns",
+  endureth: "endures", availeth: "avails", sharpeneth: "sharpens", sticketh: "sticks",
+};
+
+/** Fold archaic ↔ modern wording to a common space for allusion matching.
+ *  Applied to both the query and the stored phrase forms. Pure/deterministic. */
+export function normalizeForAllusion(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .map((w) => KJV_MODERN_MAP[w] ?? w)
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+}
+
 function buildIndex() {
   INDEX = BIBLE_PHRASES.map((e) => ({
     phraseLc: e.phrase.toLowerCase(),
     altLc: (e.altPhrases || []).map((a) => a.toLowerCase()),
     fullTextLc: e.fullText.toLowerCase(),
+    phraseNorm: normalizeForAllusion(e.phrase),
+    altNorm: (e.altPhrases || []).map((a) => normalizeForAllusion(a)),
+    distinctiveNorm: (e.distinctiveTokens || []).map((t) => normalizeForAllusion(t)).filter(Boolean),
     keywordSet: new Set((e.keywords || []).map((k) => k.toLowerCase())),
     themeSet: new Set((e.themes || []).map((t) => t.toLowerCase())),
     contextSet: new Set((e.contexts || []).map((c) => c.toLowerCase())),
@@ -118,6 +156,7 @@ export function phraseSearch(rawQuery: string): PhraseSearchResult[] {
   const idx = INDEX!;
   const queryWords = tokenize(query);
   if (queryWords.length === 0) return [];
+  const queryNorm = normalizeForAllusion(query); // KJV↔modern-folded query
 
   const hits: PhraseSearchResult[] = [];
 
@@ -127,18 +166,51 @@ export function phraseSearch(rawQuery: string): PhraseSearchResult[] {
     let score = 0;
     let primary: PhraseSearchResult["primary"] = "keywords";
 
-    // 1. Exact phrase substring — strongest signal
-    if (ix.phraseLc.includes(query)) {
+    const DISTINCTIVE_LEN = 12;
+    // ANCHOR for the phrase⊆query (reverse) + normalized directions: the query
+    // must contain one of this entry's DISTINCTIVE tokens (a rare content word
+    // like "finisher"/"sharpeneth", as a whole word). Without this, a generic
+    // clause that happens to be a verse's alt-phrase ("for ever and ever", "you
+    // and your children", "you shall live") would fire a wrong chip on ordinary
+    // speech — the false-positives the stress pass found. Entries with no
+    // distinctiveTokens (the generic existing verses) simply never reverse-match,
+    // which is exactly what we want. Forward (query⊆phrase, typed box) is
+    // unaffected — it needs no anchor because the query IS the phrase.
+    const hasAnchor = ix.distinctiveNorm.length > 0
+      && ix.distinctiveNorm.some((t) => (` ${queryNorm} `).includes(` ${t} `) || (` ${query} `).includes(` ${t} `));
+
+    // 1. Exact phrase substring — strongest signal. Forward (query⊆phrase) OR
+    //    anchored reverse (phrase⊆query, for the live transcript window).
+    if (ix.phraseLc.includes(query) || (ix.phraseLc.length >= DISTINCTIVE_LEN && hasAnchor && query.includes(ix.phraseLc))) {
       score += 100;
       primary = "phrase";
     }
 
-    // 2. altPhrase substring
+    // 2. altPhrase substring (forward, or anchored reverse)
     for (const a of ix.altLc) {
-      if (a.includes(query)) {
+      if (a.includes(query) || (a.length >= DISTINCTIVE_LEN && hasAnchor && query.includes(a))) {
         score += 90;
         if (primary === "keywords") primary = "alt";
         break;
+      }
+    }
+
+    // 2b. Normalized (KJV↔modern) match — a preacher speaks it in MODERN words
+    //     ("iron sharpens iron" vs KJV "iron sharpeneth iron"). Anchored the same
+    //     way, and only when no raw hit already scored (no double-count).
+    if (primary === "keywords" && hasAnchor) {
+      const pn = ix.phraseNorm;
+      if (pn.length >= DISTINCTIVE_LEN && (pn.includes(queryNorm) || queryNorm.includes(pn))) {
+        score += 95;
+        primary = "phrase";
+      } else {
+        for (const an of ix.altNorm) {
+          if (an.length >= DISTINCTIVE_LEN && (an.includes(queryNorm) || queryNorm.includes(an))) {
+            score += 88;
+            primary = "alt";
+            break;
+          }
+        }
       }
     }
 
