@@ -292,6 +292,15 @@ function repairNumberHomophones(s: string): string {
   // (the ":" verse separator heard as "by"). Same digits-both-sides guard so
   // ordinary English ("saved by grace", "10 by 10 grid" with no book) is only
   // reshaped in a reference context downstream.
+  // 2026-08-25 field bug fix (F3): "verse(s) N and M" is a verse ENUMERATION
+  // ("verses 1 and 2" = verses 1 through 2), NOT a chapter:verse separator — but
+  // the generic "N and M → N:M" collapse just below would eat the second number
+  // ("Psalm 23 verses 1 and 2" → "…verses 1:2" → only verse 1 survives). Rewrite
+  // the connector to the canonical range word "to" FIRST, so the collapse can't
+  // fire and book_ch_v_to_v resolves the pair as a real verse range. Covers the
+  // repeated-word form too ("verse 1 and verse 2"). Digit form only here; the
+  // spoken number-word form is handled in normalize() after word canonicalisation.
+  s = s.replace(/\b(verses?\s+\d{1,3})\s+and\s+(?:verses?\s+)?(\d{1,3})\b/gi, "$1 to $2");
   s = s.replace(/\b(\d{1,3})\s+(?:is|was|has|and|at|of|are|were|or|by)\s+(\d{1,3})\b/g, "$1:$2");
   return s;
 }
@@ -498,6 +507,18 @@ function normalize(text: string): string {
   s = s.replace(
     /\b(zero|oh|one|two|three|four|five|six|seven|eight|nine)\s+(zero|oh|one|two|three|four|five|six|seven|eight|nine)\s+(zero|oh|one|two|three|four|five|six|seven|eight|nine)\b/g,
     "$1_$2_$3",
+  );
+
+  // F3 (spoken-word form): "verse(s) <num> and [verse(s)] <num>" is a verse
+  // enumeration → canonical range "to", so a spoken "Psalm 23 verses one and
+  // two" resolves as verses 1-2 instead of dropping the second. Runs after the
+  // compound-number fusion above so "twenty three" is already one atom. Digit
+  // form is handled earlier in repairNumberHomophones(); this catches the word
+  // form the digit rule can't see. Gated to a "verse(s)" prefix so an ordinary
+  // "chapter three and four" (a genuine chapter pairing) is never touched.
+  s = s.replace(
+    new RegExp(`\\b(verses?\\s+${NUM_TOKEN_PATTERN})\\s+and\\s+(?:verses?\\s+)?(${NUM_TOKEN_PATTERN})\\b`, "gi"),
+    "$1 to $2",
   );
 
   // Explicitize digit ranges so "3:16-17" doesn't fight NUM_CHUNK's greedy hyphen.
@@ -1042,7 +1063,55 @@ const FUZZY_BOOK_STOPWORDS = new Set([
   // hard stopword; plus common connectors that sit near book variants.
   "from", "form", "true", "free", "them", "then", "than", "that", "this", "with",
   "have", "hath", "unto", "into", "upon", "such", "much", "very", "even", "also",
+  // 2026-08-25: kinship word that collides ONLY via the new phonetic fallback
+  // ("sister" → key "str" → Esther). Common in church speech ("brother and
+  // sister"), so hard-block it from the fuzzy/phonetic path.
+  "sister", "sisters",
 ]);
+
+// 2026-08-25: phonetic (accent-tuned Metaphone-lite) key for book names — a
+// SECOND-STAGE fallback used ONLY when plain edit-distance finds nothing. Real
+// African-preacher transcripts mishear book names badly enough that they're 3+
+// edits from the correct spelling ("sekaraya" for Zechariah, "sakaria" for
+// Zechariah) yet phonetically identical. The key models the dominant accent
+// substitutions: TH-fronting (th→t), ph→f, soft/hard c, z↔s, digraph
+// collapse, dropped h/w/y, dropped interior vowels. Because it only runs when
+// edit-distance already returned nothing, it can never CHANGE an existing
+// resolution — it only ADDS matches that were previously misses.
+function phoneticKey(w: string): string {
+  let s = w.toLowerCase().replace(/[^a-z]/g, "");
+  if (!s) return "";
+  s = s
+    .replace(/ph/g, "f").replace(/th/g, "t").replace(/sch/g, "sk")
+    .replace(/ch/g, "k").replace(/ck/g, "k").replace(/sh/g, "s")
+    .replace(/gh/g, "").replace(/qu/g, "kw").replace(/wh/g, "w");
+  s = s.replace(/x/g, "ks").replace(/q/g, "k").replace(/z/g, "s");
+  s = s.replace(/c([eiy])/g, "s$1").replace(/c/g, "k"); // soft c → s, hard c → k
+  s = s.replace(/[hwy]/g, "");                          // silent/glide letters
+  // Drop all vowels (both book variant and candidate go through the same fn, so
+  // the scheme just has to be internally consistent), then collapse runs.
+  s = s.replace(/[aeiou]/g, "").replace(/(.)\1+/g, "$1");
+  return s;
+}
+
+// Lazily-built map from phonetic key → the set of canonical books whose
+// variants produce that key. Only keys that resolve to EXACTLY ONE canonical
+// book are usable (ambiguity → no match → safe failure, never a wrong pick).
+let _phoneticIndex: Map<string, Set<string>> | null = null;
+function phoneticIndex(): Map<string, Set<string>> {
+  if (_phoneticIndex) return _phoneticIndex;
+  const idx = new Map<string, Set<string>>();
+  for (const [variant, canonical] of VARIANT_TO_BOOK) {
+    // Skip very short aliases ("gen", "ex") — their keys are 1-2 chars and
+    // collide with ordinary words; the fallback requires a ≥3-char key anyway.
+    if (variant.replace(/[^a-z]/gi, "").length < 5) continue;
+    const key = phoneticKey(variant);
+    if (key.length < 3) continue;
+    (idx.get(key) ?? idx.set(key, new Set()).get(key)!).add(canonical);
+  }
+  _phoneticIndex = idx;
+  return idx;
+}
 
 function fuzzyBookMatch(normalized: string): string | undefined {
   if (normalized.length < 4) return undefined; // too short to fuzz safely
@@ -1054,7 +1123,18 @@ function fuzzyBookMatch(normalized: string): string | undefined {
     const dist = levenshtein(normalized, variant);
     if (dist <= maxDist && (!best || dist < best.dist)) best = { canonical, dist };
   }
-  return best?.canonical;
+  if (best) return best.canonical;
+  // Last resort: phonetic key. Only for longer candidates (≥5 letters) whose
+  // key unambiguously maps to a single book — keeps a short mishearing from
+  // grabbing a book it merely rhymes with.
+  if (normalized.length >= 5) {
+    const key = phoneticKey(normalized);
+    if (key.length >= 3) {
+      const set = phoneticIndex().get(key);
+      if (set && set.size === 1) return [...set][0];
+    }
+  }
+  return undefined;
 }
 
 /** Exported for tests / semantic fallback callers. */
