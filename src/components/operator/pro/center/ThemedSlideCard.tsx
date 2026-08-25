@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import type { BackgroundSpec } from "@/lib/broadcast";
 import { SharedBackgroundRenderer, type SharedShaderSpec } from "@/backgrounds/shared/SharedBackgroundRenderer";
+import { FLOOR_GRADIENT, FLOOR_TINT_OPACITY, tintGradient } from "@/backgrounds/shared/shaderUtils";
 
 /**
  * A center-panel slide card that renders the SAME theme composite the projector
@@ -25,9 +26,8 @@ export function ThemedSlideCard({
   slide,
   appearance,
   background,
-  liveBg: _liveBg, // deprecated no-op: all cards use the shared shader now
   ...rest
-}: React.ComponentProps<typeof SlideRenderer> & { background?: BackgroundSpec | null; liveBg?: boolean }) {
+}: React.ComponentProps<typeof SlideRenderer> & { background?: BackgroundSpec | null }) {
   const hasBg = !!(background && background.type !== "none");
   const kind = slide.kind;
   const themeable = kind === "text" || kind === "blank";
@@ -92,14 +92,24 @@ function SharedShaderCard({ background }: { background: BackgroundSpec }) {
     const dpr = Math.min(1.5, typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1);
     canvas.width = Math.max(1, Math.min(OFF_W, Math.round((r.width || 160) * dpr)));
     canvas.height = Math.max(1, Math.min(OFF_H, Math.round((r.height || 90) * dpr)));
-    return SharedBackgroundRenderer.register(canvas, spec);
+    const handle = SharedBackgroundRenderer.register(canvas, spec);
+    // Cull blits for cards scrolled out of view — a chapter can have 150+ cards,
+    // and blitting all of them every frame is needless GPU work on church laptops.
+    let obs: IntersectionObserver | null = null;
+    try {
+      obs = new IntersectionObserver((entries) => {
+        for (const e of entries) handle.setVisible(e.isIntersecting);
+      }, { rootMargin: "100px" });
+      obs.observe(canvas);
+    } catch { /* no IO support → all cards stay visible (fine) */ }
+    return () => { obs?.disconnect(); handle.dispose(); };
     // Re-register when the active theme changes (one context rebuild, deduped).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spec.preset, spec.primary, spec.secondary, spec.speed, spec.intensity]);
   return (
     <>
-      <div style={{ ...FILL, background: "linear-gradient(160deg, #0A0A0E, #0F0F14)" }} />
-      <div style={{ ...FILL, background: `linear-gradient(135deg, ${spec.primary}, ${spec.secondary})`, opacity: 0.35 }} />
+      <div style={{ ...FILL, background: FLOOR_GRADIENT }} />
+      <div style={{ ...FILL, background: tintGradient(spec.primary, spec.secondary), opacity: FLOOR_TINT_OPACITY }} />
       <canvas ref={ref} style={{ ...FILL, display: "block" }} />
     </>
   );

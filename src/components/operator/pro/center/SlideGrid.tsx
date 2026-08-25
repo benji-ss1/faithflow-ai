@@ -581,7 +581,7 @@ function SlideCard({
               Text still fits WHOLE short verses without truncating, and
               long ones page (visible page indicator inside the card).
               Live projector rendering unaffected (uses the 24px default). */}
-          <ThemedSlideCard slide={slide} textMinPx={14} appearance={appearance} background={background} liveBg={selected} />
+          <ThemedSlideCard slide={slide} textMinPx={14} appearance={appearance} background={background} />
           <div
             className="absolute top-1 left-1 w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-semibold transition-colors"
             style={selected

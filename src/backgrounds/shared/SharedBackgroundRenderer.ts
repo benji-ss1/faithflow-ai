@@ -8,9 +8,12 @@
 // browser's ~16-context cap). Every card shows the same background because a
 // service has ONE active theme, so a single render is a perfect source.
 //
-// Falls back to null (cards render their CSS gradient) if WebGL is unavailable,
-// and rebuilds in place on context loss/restore without reloading the console.
+// Robustness: builds on a FRESH offscreen canvas for every spec change (reusing
+// a loseContext()'d canvas makes the next compile fail), guards against a
+// superseded canvas's late context-loss event, and skips blits for cards that
+// are scrolled out of view (a large chapter can have 150+ cards).
 import { createShaderRenderer, type ShaderHandle } from "../shaders/ShaderRenderer";
+import { hexToRgb, prefersReducedMotion, PRIMARY_RGB_FALLBACK, SECONDARY_RGB_FALLBACK } from "./shaderUtils";
 
 export type SharedShaderSpec = {
   preset: string;
@@ -20,23 +23,17 @@ export type SharedShaderSpec = {
   secondary: string; // hex
 };
 
+/** A card registered with the shared renderer. */
+export type SharedCardHandle = {
+  dispose(): void;
+  setVisible(visible: boolean): void;
+};
+
 const OFF_W = 480, OFF_H = 270; // 16:9; downscaled into ≤~320px cards = crisp
 
 function keyOf(s: SharedShaderSpec) { return `${s.preset}|${s.speed}|${s.intensity}|${s.primary}|${s.secondary}`; }
 
-function hexToRgb(hex: string, fallback: [number, number, number]): [number, number, number] {
-  let h = hex.replace("#", "").trim();
-  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
-  if (h.length !== 6) return fallback;
-  const n = parseInt(h, 16);
-  if (!Number.isFinite(n)) return fallback;
-  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
-}
-function prefersReducedMotion(): boolean {
-  try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; }
-}
-
-type Card = { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D | null };
+type Card = { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D | null; visible: boolean };
 
 class SharedRendererImpl {
   private off: HTMLCanvasElement | null = null;
@@ -44,30 +41,27 @@ class SharedRendererImpl {
   private key: string | null = null;
   private spec: SharedShaderSpec | null = null;
   private cards = new Set<Card>();
-  private ok = true;
 
-  webglOk() { return this.ok; }
-
-  /** A card registers its 2D canvas + the active spec; returns an unregister fn. */
-  register(canvas: HTMLCanvasElement, spec: SharedShaderSpec): () => void {
-    const entry: Card = { canvas, ctx: canvas.getContext("2d") };
+  /** A card registers its 2D canvas + the active spec. */
+  register(canvas: HTMLCanvasElement, spec: SharedShaderSpec): SharedCardHandle {
+    const entry: Card = { canvas, ctx: canvas.getContext("2d"), visible: true };
     this.cards.add(entry);
     this.ensure(spec);
-    if (this.ok && this.off) this.blitOne(entry); // paint immediately (buffer is preserved)
-    return () => {
-      this.cards.delete(entry);
-      if (this.cards.size === 0) this.teardown();
+    this.blitOne(entry); // paint immediately (buffer is preserved) — covers static presets
+    return {
+      dispose: () => {
+        this.cards.delete(entry);
+        if (this.cards.size === 0) this.teardown();
+      },
+      setVisible: (v: boolean) => { entry.visible = v; if (v) this.blitOne(entry); },
     };
   }
-
-  /** Re-point at a new theme spec (call when ctx.background changes). */
-  setSpec(spec: SharedShaderSpec) { this.ensure(spec); }
 
   private ensure(spec: SharedShaderSpec) {
     this.spec = spec;
     const k = keyOf(spec);
     if (k === this.key && this.handle) return; // same theme → nothing to rebuild
-    if (typeof document === "undefined") { this.ok = false; return; }
+    if (typeof document === "undefined") return;
     // handle.stop() loseContext()s the offscreen canvas, so ALWAYS build on a
     // FRESH canvas — reusing a lost canvas makes every subsequent shader compile
     // fail (the 148 "compile failed" bug). The old canvas + context is GC'd.
@@ -79,28 +73,29 @@ class SharedRendererImpl {
       preset: spec.preset,
       speed: Math.max(0.05, spec.speed),
       intensity: Math.max(0.1, spec.intensity),
-      primaryColor: hexToRgb(spec.primary, [0.04, 0.04, 0.05]),
-      secondaryColor: hexToRgb(spec.secondary, [0.06, 0.06, 0.08]),
+      primaryColor: hexToRgb(spec.primary, PRIMARY_RGB_FALLBACK),
+      secondaryColor: hexToRgb(spec.secondary, SECONDARY_RGB_FALLBACK),
       frozen: prefersReducedMotion(),
       offscreenSize: { width: OFF_W, height: OFF_H },
       preserveDrawingBuffer: true,
       onDraw: () => this.blitAll(),
     });
-    this.ok = !!this.handle;
-    this.key = this.handle ? k : null; // WebGL failed → cards fall back to CSS gradient
+    this.key = this.handle ? k : null; // WebGL failed → cards fall back to CSS floor
   }
 
   private makeOffscreen(): HTMLCanvasElement {
     const c = document.createElement("canvas");
     c.width = OFF_W; c.height = OFF_H;
-    c.addEventListener("webglcontextlost", (e) => { e.preventDefault(); this.ok = false; }, false);
-    c.addEventListener("webglcontextrestored", () => { this.key = null; if (this.spec) this.ensure(this.spec); }, false);
+    // Guard: a superseded canvas's queued lost-event must NOT null out our state
+    // for the NEW canvas — only react to the CURRENT offscreen (fixes the ok-latch).
+    c.addEventListener("webglcontextlost", (e) => { if (this.off === c) { e.preventDefault(); this.key = null; } }, false);
+    c.addEventListener("webglcontextrestored", () => { if (this.off === c && this.spec) { this.key = null; this.ensure(this.spec); } }, false);
     return c;
   }
 
   private blitAll() { for (const e of this.cards) this.blitOne(e); }
   private blitOne(e: Card) {
-    if (!this.off || !e.ctx) return;
+    if (!this.off || !e.ctx || !e.visible) return; // skip offscreen-culled cards
     try { e.ctx.drawImage(this.off, 0, 0, e.canvas.width, e.canvas.height); } catch { /* card detached mid-frame */ }
   }
 

@@ -70,17 +70,26 @@ export function createShaderRenderer(opts: ShaderRendererOptions): ShaderHandle 
   opts.canvas.addEventListener("webglcontextlost", onLost, false);
   opts.canvas.addEventListener("webglcontextrestored", onRestored, false);
 
+  // Release the GL context (and its listeners) on any setup failure so a failed
+  // build doesn't orphan a context against the browser's ~16-context cap.
+  const bail = (): null => {
+    try { opts.canvas.removeEventListener("webglcontextlost", onLost); } catch { /* noop */ }
+    try { opts.canvas.removeEventListener("webglcontextrestored", onRestored); } catch { /* noop */ }
+    try { gl?.getExtension("WEBGL_lose_context")?.loseContext(); } catch { /* noop */ }
+    return null;
+  };
+
   const vs = compile(gl, gl.VERTEX_SHADER, VERTEX_SHADER);
   const fs = compile(gl, gl.FRAGMENT_SHADER, fragSrc);
-  if (!vs || !fs) return null;
+  if (!vs || !fs) return bail();
   const prog = gl.createProgram();
-  if (!prog) return null;
+  if (!prog) return bail();
   gl.attachShader(prog, vs);
   gl.attachShader(prog, fs);
   gl.linkProgram(prog);
   if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
     console.warn("[bg-shader] link failed:", gl.getProgramInfoLog(prog));
-    return null;
+    return bail();
   }
   gl.useProgram(prog);
 

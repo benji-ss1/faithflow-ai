@@ -1011,7 +1011,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
             >
               {selectedIdx != null && cards[selectedIdx] ? (
                 <div className="relative aspect-video rounded overflow-hidden border border-[var(--color-border)]">
-                  <ThemedSlideCard slide={cardToSlide(cards[selectedIdx], selectedIdx, cards.length)} appearance={ctx.appearance ?? undefined} background={ctx.background} liveBg />
+                  <ThemedSlideCard slide={cardToSlide(cards[selectedIdx], selectedIdx, cards.length)} appearance={ctx.appearance ?? undefined} background={ctx.background} />
                 </div>
               ) : (
                 <div className="text-[11px] text-[var(--color-muted-foreground)] text-center py-8">Click a verse in the list.</div>

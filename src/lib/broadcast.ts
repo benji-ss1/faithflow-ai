@@ -631,7 +631,7 @@ export function slideDesignSig(s: Extract<SlidePayload, { kind: "text" }>): stri
       // align/uppercase) changes the identity — otherwise the already-live skip
       // in sendSlideToLive silently swallows it for callers that don't force.
       if (o.kind === "text") return base + [o.color, o.fontFamily, o.fontSize, o.fontWeight, o.align, o.italic ? "i" : "", o.uppercase ? "u" : ""].join(",");
-      if (o.kind === "shape") return base + (o.fill ?? "") + (o.fill2 ?? "");
+      if (o.kind === "shape") return base + (o.fill ?? "") + (o.fill2 ?? "") + `|${o.fillAngle ?? ""}`;
       // image | video — fold fit + crop/pan/zoom so a reframe of an already-live
       // image changes the output identity (otherwise the already-live skip
       // swallows it and the projector never updates).
