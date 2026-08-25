@@ -390,13 +390,49 @@ export async function publicDomainFallbackTranslationId(): Promise<string | null
   return id;
 }
 
+// Is the FTS GIN index present AND valid? Cached. Used to fail-soft: if the
+// migration (docs/migrations/2026-08-25-add-bible-verses-fts.sql) hasn't been
+// applied yet, an FTS query still returns correct rows but via a ~3s sequential
+// scan (no error to catch — just slow). So hybridSearch SKIPS the lexical arm
+// until the index exists, degrading to semantic-only instead of stalling. This
+// makes a code-before-migration deploy harmless and removes the ordering
+// footgun. `indisvalid` guards the CONCURRENTLY-interrupted "invalid index"
+// case (the name exists but the planner can't use it).
+let _ftsReady: { at: number; ok: boolean } | null = null;
+export async function ftsIndexReady(): Promise<boolean> {
+  if (_ftsReady && Date.now() - _ftsReady.at < CACHE_TTL_MS) return _ftsReady.ok;
+  const db = getDb();
+  const rows = (await db.execute(sql`
+    SELECT 1 FROM pg_class c
+    JOIN pg_index i ON i.indexrelid = c.oid
+    WHERE c.relname = 'idx_bible_verses_fts' AND i.indisvalid
+    LIMIT 1
+  `)).rows;
+  const ok = rows.length > 0;
+  _ftsReady = { at: Date.now(), ok };
+  return ok;
+}
+
 // ── Hybrid search (lexical BM25-style FTS ⊕ semantic vector), RRF-fused ───────
 // Reciprocal Rank Fusion: each engine contributes 1/(K + rank) per verse; the
 // summed score ranks the merged set. K=60 is the canonical RRF constant. This
 // gives exact quotations (lexical) and paraphrases/allusions (semantic) a fair
-// combined ranking without hand-tuned weights. For a LICENSED translation we
-// resolve references against the public-domain fallback (see above) so the
-// church still gets quote→verse search even though we can't store their text.
+// combined ranking without hand-tuned weights.
+//
+// LICENSED translations (NIV/NKJV/NLT store no local text) are resolved against
+// the public-domain fallback: the RETURNED hits therefore carry the fallback's
+// text (e.g. KJV wording) — they are a "find the reference" aid, not the final
+// render. The caller projects the church's canonical translation by re-fetching
+// the chosen reference via lookupReference/API.Bible (BibleMode does this on
+// click). So search RANKS references; projection RENDERS canonical text.
+//
+// KNOWN LIMITATION (tracked, 2026-08-25 stress agent): the lexical arm searches
+// only the public-domain text, so a verse quoted in MODERN wording that diverges
+// from it ("love is patient" vs KJV "charity suffereth long", NIV "plans" vs KJV
+// "thoughts") won't match lexically and falls back to semantic-only, which can
+// surface a topically-adjacent WRONG verse. Not a regression (the prior route
+// was semantic-only). Future fix: index a modern public-domain translation (WEB)
+// for the lexical arm and/or add a relevance floor before any auto-fire use.
 export type HybridHit = Verse & { score: number; lexical: boolean; semantic: boolean };
 export async function hybridSearch(translationId: string, query: string, limit = 20): Promise<HybridHit[]> {
   let searchId = translationId;
@@ -407,8 +443,9 @@ export async function hybridSearch(translationId: string, query: string, limit =
   }
   // Over-fetch each arm so the fusion has depth to reorder from.
   const pool = Math.min(Math.max(limit * 3, 30), 100);
+  const useLexical = await ftsIndexReady();
   const [lex, sem] = await Promise.all([
-    lexicalSearch(searchId, query, pool),
+    useLexical ? lexicalSearch(searchId, query, pool) : Promise.resolve([] as LexicalHit[]),
     semanticSearch(searchId, query, pool),
   ]);
   const K = 60;
@@ -421,7 +458,10 @@ export async function hybridSearch(translationId: string, query: string, limit =
       existing.score += contribution;
       existing[which] = true;
     } else {
-      byKey.set(key, { ...v, score: contribution, lexical: which === "lexical", semantic: which === "semantic" });
+      // Take ONLY the declared Verse fields — the source rows also carry `rank`
+      // (lexical) or `distance` (semantic), which aren't part of HybridHit.
+      const { id, book, bookOrder, chapter, verse, text } = v;
+      byKey.set(key, { id, book, bookOrder, chapter, verse, text, score: contribution, lexical: which === "lexical", semantic: which === "semantic" });
     }
   };
   lex.forEach((v, i) => bump(v, i + 1, "lexical"));

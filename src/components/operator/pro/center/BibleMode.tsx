@@ -472,6 +472,24 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
     });
   }, [runLookup, setRef, setPhraseHits]);
 
+  // Project a phrase-search hit. The hit's text is the SEARCH translation's
+  // wording (for a licensed church, the public-domain fallback e.g. KJV). Before
+  // sending to live, re-fetch the verse in the church's ACTIVE translation so
+  // the projector shows the correct text (NIV/NKJV/NLT via API.Bible), not the
+  // fallback — the "search ranks, DB renders canonical" invariant. Falls back to
+  // the hit's own text if the re-fetch fails. For a public-domain church this is
+  // a cheap cached round-trip that returns the same text.
+  const sendPhraseHitToLive = useCallback(async (h: { book: string; chapter: number; verse: number; text: string }) => {
+    const label = `${h.book} ${h.chapter}:${h.verse}`;
+    let text = h.text;
+    try {
+      const ch = await fetchChapterCached(h.book, h.chapter, translation);
+      const v = ch.verses.find((x) => x.verse === h.verse);
+      if (v?.text) text = v.text;
+    } catch { /* keep the search-result text */ }
+    ctx.onSendSlideToLive({ kind: "text", text: `${text}\n\n${label} (${translation})` }, undefined, { instant: true });
+  }, [translation, ctx]);
+
   const loadReferenceString = useCallback(async (referenceStr: string) => {
     const parser = await import("@/lib/bible-parser");
     const parsed = parser.parseTypedReference(referenceStr);
@@ -904,11 +922,10 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
           </div>
           {phraseHits.map((h, i) => {
             const label = `${h.book} ${h.chapter}:${h.verse}`;
-            const slide: SlidePayload = { kind: "text", text: `${h.text}\n\n${label}` };
             const parts = h.matched ? h.text.split(new RegExp(`(${h.matched.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "i")) : [h.text];
             return (
               <div key={`${label}-${i}`} className="p-3 rounded border border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col gap-1 cursor-pointer"
-                onClick={() => ctx.onSendSlideToLive(slide, undefined, { instant: true })}
+                onClick={() => void sendPhraseHitToLive(h)}
                 title="Click to send verse to live"
               >
                 <div className="text-[10px] font-mono text-[var(--color-muted-foreground)]">{label}</div>

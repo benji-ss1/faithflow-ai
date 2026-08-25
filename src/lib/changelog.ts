@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.327",
+    date: "2026-08-25",
+    headline: "Phrase search now nails exact quotations",
+    highlights: [
+      { text: "Type or paste a quote — “the Lord is my shepherd, I shall not want” — and the exact verse ranks first, not a vaguely-similar one. A loose paraphrase still resolves too.", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "Churches on a licensed translation (NIV/NKJV/NLT) now get phrase search at all — results project in your own translation when you tap them.",
+    ],
+  },
+  {
     version: "0.1.326",
     date: "2026-08-25",
     headline: "Bible references are easier to type and understand",

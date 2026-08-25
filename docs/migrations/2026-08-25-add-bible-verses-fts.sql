@@ -18,6 +18,16 @@
 -- Apply to production (Supabase project mdjdemrtykflfucggbqt, eu-west-1) with
 -- the user's explicit OK — via the Supabase MCP or psql. Recorded here for
 -- reproducibility.
+--
+-- INTERRUPTED-BUILD GOTCHA: if a CONCURRENTLY build fails/is cancelled, Postgres
+-- leaves an INVALID index of the same name behind; a re-run with IF NOT EXISTS
+-- then SKIPS it, silently leaving searches on the seq-scan path. If the EXPLAIN
+-- below shows a Seq Scan after applying, drop and rebuild:
+--   DROP INDEX IF EXISTS idx_bible_verses_fts;  -- then re-run the CREATE below
+-- (The app also fail-softs: src/lib/server/bible.ts → ftsIndexReady() checks
+--  pg_index.indisvalid and skips the lexical arm until a VALID index exists, so
+--  an invalid/missing index degrades hybrid search to semantic-only, never a
+--  3s stall — but you still want the index valid for exact-quote ranking.)
 
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_bible_verses_fts
   ON bible_verses

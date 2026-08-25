@@ -38,6 +38,11 @@ export async function POST(req: Request) {
   if (!finalQuery || finalQuery.length < 3) {
     return NextResponse.json({ error: "query (min 3 chars) required" }, { status: 400 });
   }
+  // Upper bound: a Bible phrase/quote is never this long — cap it so a giant
+  // paste can't amplify the embed() + tsquery cost per request.
+  if (finalQuery.length > 200) {
+    return NextResponse.json({ error: "query too long (max 200 chars)" }, { status: 400 });
+  }
 
   let translationId = bodyTranslationId;
   let translationCode = "";

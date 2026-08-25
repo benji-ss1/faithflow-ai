@@ -8,7 +8,9 @@ import { cn } from "@/lib/utils";
 type Translation = { id: string; code: string; name: string };
 type BookRow = { book: string; bookOrder: number; chapters: number };
 type Verse = { id: string; book: string; bookOrder: number; chapter: number; verse: number; text: string };
-type SearchHit = Verse & { distance: number };
+// /api/bible/search now returns hybrid hits (RRF score + which arms matched).
+// `distance` is kept optional for backward-compat with any cached older shape.
+type SearchHit = Verse & { score?: number; lexical?: boolean; semantic?: boolean; distance?: number };
 type Plan = { id: string; title: string };
 
 type StagedVerse = Verse & { translationCode: string };
@@ -212,7 +214,7 @@ export function BibleBrowser({
                 <div className="space-y-2">
                   {hits.map((h) => (
                     <VerseRow key={h.id} verse={h} onStage={stage}
-                      badge={<span className="text-[10px] text-muted-foreground font-mono">sim {(1 - h.distance).toFixed(3)}</span>} />
+                      badge={<span className="text-[10px] text-muted-foreground font-mono">{h.lexical ? "exact" : h.semantic ? "close" : typeof h.distance === "number" ? `sim ${(1 - h.distance).toFixed(3)}` : ""}</span>} />
                   ))}
                 </div>
               )}
