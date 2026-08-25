@@ -43,7 +43,9 @@ function refFrom(p: { book: string; chapter: number; verseStart: number; verseEn
  * book-less input ("verse 16") can be anchored to what the operator is viewing.
  */
 export function resolveManualReference(rawInput: string, context: ManualContext = null): ManualResolveResult {
-  const input = (rawInput ?? "").trim();
+  // Cap input like every other parser entrypoint (MAX_PARSE_INPUT_BYTES) so a
+  // huge paste can't turn into a long synchronous regex scan on the UI thread.
+  const input = (rawInput ?? "").slice(0, 4096).trim();
   if (!input) return { kind: "phrase" };
 
   // (F2) Chapter range with no colon: "Book C to C". Detected BEFORE the typed
@@ -112,7 +114,10 @@ export function resolveManualReference(rawInput: string, context: ManualContext 
   if (shaped) {
     const head = shaped[1].trim();
     const rest = shaped[2].trim();
-    const corrected = knownBook(head);
+    // Opt into the phonetic fallback HERE only — this is the deliberate typed
+    // path (operator typed a book + number), the one place loose phonetic
+    // matching is wanted. Every live/ASR caller of knownBook keeps it off.
+    const corrected = knownBook(head, { allowPhonetic: true });
     if (corrected && corrected.toLowerCase() !== head.toLowerCase()) {
       const reparsed = parseTypedReference(`${corrected} ${rest}`);
       if (reparsed.length > 0) {

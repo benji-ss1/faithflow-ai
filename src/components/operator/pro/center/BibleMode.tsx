@@ -359,9 +359,8 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
       return;
     }
     if (resolved.kind === "suggest") {
-      const label = `${resolved.ref.book} ${resolved.ref.chapter}:${resolved.ref.verseStart}${resolved.ref.verseEnd !== resolved.ref.verseStart ? `-${resolved.ref.verseEnd}` : ""}`;
       toast(resolved.message, {
-        action: { label: "Show it", onClick: () => { setPhraseHits([]); setRef(label); void runLookup(resolved.ref); } },
+        action: { label: "Show it", onClick: () => { setPhraseHits([]); setRef(resolved.label); void runLookup(resolved.ref); } },
       });
       return;
     }
@@ -647,6 +646,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
         <div className="flex-1 min-w-[200px] relative">
           <input
             value={ref}
+            maxLength={256}
             onChange={(e) => setRef(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "ArrowDown" && dropdownOpen && dropdownHits.length > 0) {

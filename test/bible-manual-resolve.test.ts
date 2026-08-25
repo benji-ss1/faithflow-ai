@@ -39,6 +39,7 @@ test('":16" @ John 3 → John 3:16', () => expectRef(":16", JOHN3, "John", 3, 16
 test('"verses 16 to 18" @ John 3 → John 3:16-18', () => expectRef("verses 16 to 18", JOHN3, "John", 3, 16, 18));
 test('"3:16" (no book) @ John 3 → John 3:16', () => expectRef("3:16", JOHN3, "John", 3, 16, 16));
 test('"5:5-7" (no book) @ John 3 → John 5:5-7', () => expectRef("5:5-7", JOHN3, "John", 5, 5, 7));
+test('":1-3" (leading-colon range) @ John 3 → John 3:1-3', () => expectRef(":1-3", JOHN3, "John", 3, 1, 3));
 test('"verse 16" with NO context → phrase (cannot anchor)', () => {
   assert.equal(resolveManualReference("verse 16", null).kind, "phrase");
 });

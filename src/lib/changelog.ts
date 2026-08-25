@@ -15,6 +15,18 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.326",
+    date: "2026-08-25",
+    headline: "Bible references are easier to type and understand",
+    highlights: [
+      { text: "Type a reference more freely — once a chapter is on screen you can just type “verse 16”, “:16”, or “3:16” to jump to it, without retyping the book. Verse ranges like “5:5-7” work too.", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "No more dead ends — a mistyped or partial reference now offers a “Did you mean…?” or falls back to a phrase search instead of just saying “Couldn’t parse reference”.",
+      "“Matthew 5 to 7” and other chapter ranges now load the chapter instead of silently jumping to verse 1.",
+      "Multi-verse call-outs read correctly — “verses 1 and 2” now shows both verses (even said out of order), not just the first.",
+      "Better with accents — heavily-accented or misspelled book names (e.g. an accented “Zechariah”) are recognised on the typed reference bar.",
+    ],
+  },
+  {
     version: "0.1.325",
     date: "2026-08-25",
     headline: "Media editor, playlist groups, and the theme now shows inside every slide box",

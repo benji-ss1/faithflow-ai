@@ -300,7 +300,14 @@ function repairNumberHomophones(s: string): string {
   // fire and book_ch_v_to_v resolves the pair as a real verse range. Covers the
   // repeated-word form too ("verse 1 and verse 2"). Digit form only here; the
   // spoken number-word form is handled in normalize() after word canonicalisation.
-  s = s.replace(/\b(verses?\s+\d{1,3})\s+and\s+(?:verses?\s+)?(\d{1,3})\b/gi, "$1 to $2");
+  // Sorted ascending so an out-of-order "verses 2 and 1" yields "1 to 2" (valid
+  // range) instead of an inverted 2→1. NOTE: only the FIRST pair is captured —
+  // "verses 1 and 2 and 3" resolves 1-2 and drops the tail (a documented
+  // pairs-only limit; the common two-verse case is what matters).
+  s = s.replace(/\b(verses?\s+)(\d{1,3})\s+and\s+(?:verses?\s+)?(\d{1,3})\b/gi, (_m, pre: string, a: string, b: string) => {
+    const na = parseInt(a, 10), nb = parseInt(b, 10);
+    return nb >= na ? `${pre}${a} to ${b}` : `${pre}${b} to ${a}`;
+  });
   s = s.replace(/\b(\d{1,3})\s+(?:is|was|has|and|at|of|are|were|or|by)\s+(\d{1,3})\b/g, "$1:$2");
   return s;
 }
@@ -516,9 +523,14 @@ function normalize(text: string): string {
   // form is handled earlier in repairNumberHomophones(); this catches the word
   // form the digit rule can't see. Gated to a "verse(s)" prefix so an ordinary
   // "chapter three and four" (a genuine chapter pairing) is never touched.
+  // Sorted ascending (same as the digit form) so "verses two and one" → "one to
+  // two", never an inverted range.
   s = s.replace(
-    new RegExp(`\\b(verses?\\s+${NUM_TOKEN_PATTERN})\\s+and\\s+(?:verses?\\s+)?(${NUM_TOKEN_PATTERN})\\b`, "gi"),
-    "$1 to $2",
+    new RegExp(`\\b(verses?\\s+)(${NUM_TOKEN_PATTERN})\\s+and\\s+(?:verses?\\s+)?(${NUM_TOKEN_PATTERN})\\b`, "gi"),
+    (_m, pre: string, a: string, b: string) => {
+      const na = chunkToNum(a), nb = chunkToNum(b);
+      return (Number.isFinite(na) && Number.isFinite(nb) && nb < na) ? `${pre}${b} to ${a}` : `${pre}${a} to ${b}`;
+    },
   );
 
   // Explicitize digit ranges so "3:16-17" doesn't fight NUM_CHUNK's greedy hyphen.
@@ -1063,10 +1075,12 @@ const FUZZY_BOOK_STOPWORDS = new Set([
   // hard stopword; plus common connectors that sit near book variants.
   "from", "form", "true", "free", "them", "then", "than", "that", "this", "with",
   "have", "hath", "unto", "into", "upon", "such", "much", "very", "even", "also",
-  // 2026-08-25: kinship word that collides ONLY via the new phonetic fallback
-  // ("sister" → key "str" → Esther). Common in church speech ("brother and
-  // sister"), so hard-block it from the fuzzy/phonetic path.
-  "sister", "sisters",
+  // 2026-08-25: words that collide ONLY via the phonetic fallback and recur in
+  // ordinary preaching — hard-block them from the fuzzy/phonetic path so they
+  // can never surface a book. "sister"→Esther, "matter"/"matters"→Matthew ("no
+  // matter", "a matter of"), "issachar"→Zechariah. The real book spellings
+  // (matthew/matt/mt/esther/zechariah) are exact variants, unaffected by this.
+  "sister", "sisters", "matter", "matters", "issachar",
 ]);
 
 // 2026-08-25: phonetic (accent-tuned Metaphone-lite) key for book names — a
@@ -1113,7 +1127,15 @@ function phoneticIndex(): Map<string, Set<string>> {
   return idx;
 }
 
-function fuzzyBookMatch(normalized: string): string | undefined {
+// `allowPhonetic` gates the phonetic last-resort. It defaults to FALSE so every
+// existing caller — the live fuzzy patterns, extractCorrections' unguarded
+// word-scan, the audio-server whisper guard, stutter-combine — keeps its
+// pre-2026-08-25 edit-distance-only behaviour. Phonetic matching is LOOSE (it
+// deliberately maps "sekaraya"→Zechariah) and, on an ungated word-scan, would
+// misfire on ordinary speech ("history"→Esther, "auditorium"→Deuteronomy). It
+// is therefore opt-in and used ONLY on the typed manual path (the DYM branch of
+// bible-manual-resolve), where the operator has deliberately typed a book+number.
+function fuzzyBookMatch(normalized: string, opts: { allowPhonetic?: boolean } = {}): string | undefined {
   if (normalized.length < 4) return undefined; // too short to fuzz safely
   if (FUZZY_BOOK_STOPWORDS.has(normalized)) return undefined; // common word — never fuzz
   const maxDist = normalized.length <= 6 ? 1 : 2;
@@ -1124,10 +1146,10 @@ function fuzzyBookMatch(normalized: string): string | undefined {
     if (dist <= maxDist && (!best || dist < best.dist)) best = { canonical, dist };
   }
   if (best) return best.canonical;
-  // Last resort: phonetic key. Only for longer candidates (≥5 letters) whose
-  // key unambiguously maps to a single book — keeps a short mishearing from
-  // grabbing a book it merely rhymes with.
-  if (normalized.length >= 5) {
+  // Last resort: phonetic key. Opt-in only. Only for longer candidates (≥5
+  // letters) whose key unambiguously maps to a single book — keeps a short
+  // mishearing from grabbing a book it merely rhymes with.
+  if (opts.allowPhonetic && normalized.length >= 5) {
     const key = phoneticKey(normalized);
     if (key.length >= 3) {
       const set = phoneticIndex().get(key);
@@ -1138,9 +1160,9 @@ function fuzzyBookMatch(normalized: string): string | undefined {
 }
 
 /** Exported for tests / semantic fallback callers. */
-export function knownBook(name: string): string | undefined {
+export function knownBook(name: string, opts: { allowPhonetic?: boolean } = {}): string | undefined {
   const normalized = normalize(name);
-  return VARIANT_TO_BOOK.get(normalized) ?? fuzzyBookMatch(normalized);
+  return VARIANT_TO_BOOK.get(normalized) ?? fuzzyBookMatch(normalized, opts);
 }
 
 /**
