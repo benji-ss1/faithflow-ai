@@ -1,13 +1,14 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { X, Play, Image as ImageIcon, Move, Maximize2, RotateCcw, Save, Wand2 } from "lucide-react";
+import { X, Play, Image as ImageIcon, Move, Maximize2, RotateCcw, Save, Wand2, Square, Palette } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import { projectableTextSlide } from "@/lib/broadcast";
-import { CANVAS_W, CANVAS_H, newObjectId, type EditableSlide, type SlideObject, type ImageObject } from "@/lib/slide-objects";
+import { CANVAS_W, CANVAS_H, newObjectId, type EditableSlide, type SlideObject, type ImageObject, type ShapeObject } from "@/lib/slide-objects";
 import { SlideCanvas } from "@/components/operator/editor/SlideCanvas";
-import { loadMediaFrame, saveMediaFrame } from "./mediaFrame";
+import { themeBackgroundStyle } from "@/components/live/SlideRenderer";
+import { loadMediaFrame, saveMediaFrame, type MediaFrame } from "./mediaFrame";
 
 /**
  * MediaImageEditor — double-click a Media Library image to crop / pan / zoom /
@@ -36,29 +37,57 @@ export function MediaImageEditor({
   ctx: OperatorShellCtx;
   onClose: () => void;
 }) {
-  const [matte] = useState("#000000");
   const [imgId] = useState(() => newObjectId());
-  // Seed from a previously-saved framing for this asset, if any, so re-opening
-  // the editor shows the operator's last crop instead of resetting to full.
+  const [shapeId] = useState(() => newObjectId());
+  const saved0 = useMemo(() => loadMediaFrame(ctx.churchId, asset.id), [ctx.churchId, asset.id]);
+
+  // Background mode + source. "matte" = full-screen image on black (the default,
+  // byte-identical to before). "background" = a smaller logo centred over a
+  // solid colour / the live theme / a gradient.
+  const [bgMode, setBgMode] = useState<"matte" | "background">(saved0?.bgMode ?? "matte");
+  const [bgKind, setBgKind] = useState<"solid" | "theme" | "gradient">(saved0?.bgKind ?? "solid");
+  const [bgSolid, setBgSolid] = useState(saved0?.bgSolid ?? "#0b1220");
+  const [gradFrom, setGradFrom] = useState(saved0?.gradFrom ?? "#1e293b");
+  const [gradTo, setGradTo] = useState(saved0?.gradTo ?? "#0b1220");
+  const [gradAngle, setGradAngle] = useState(saved0?.gradAngle ?? 135);
+  const [logoSizePct, setLogoSizePct] = useState(saved0?.logoSizePct ?? 60);
+
+  // Seed the slide from a saved frame. In background mode the logo is a centred
+  // box sized by logoSizePct; in matte mode it fills the canvas.
   const [slide, setSlide] = useState<EditableSlide>(() => {
-    const saved = loadMediaFrame(ctx.churchId, asset.id);
+    const inBg = saved0?.bgMode === "background";
+    const s = saved0?.logoSizePct ?? 60;
+    const cx = saved0?.logoPosX ?? 50, cy = saved0?.logoPosY ?? 50;
+    const w = inBg ? Math.round(CANVAS_W * s / 100) : CANVAS_W;
+    const h = inBg ? Math.round(CANVAS_H * s / 100) : CANVAS_H;
+    const x = inBg ? Math.round(CANVAS_W * cx / 100 - w / 2) : 0;
+    const y = inBg ? Math.round(CANVAS_H * cy / 100 - h / 2) : 0;
+    const logo: ImageObject = {
+      id: imgId, kind: "image", x, y, w, h,
+      url: asset.url,
+      fit: inBg ? "contain" : (saved0?.fit ?? "cover"),
+      posX: inBg ? 50 : (saved0?.posX ?? 50),
+      posY: inBg ? 50 : (saved0?.posY ?? 50),
+      zoom: inBg ? 1 : (saved0?.zoom ?? 1),
+    };
+    const objects: SlideObject[] = inBg && saved0?.bgKind === "gradient"
+      ? [{ id: shapeId, kind: "shape", x: 0, y: 0, w: CANVAS_W, h: CANVAS_H, shape: "rect", fill: saved0.gradFrom ?? "#1e293b", fill2: saved0.gradTo ?? "#0b1220", fillAngle: saved0.gradAngle ?? 135 } as ShapeObject, logo]
+      : [logo];
     return {
       id: "media-edit",
-      bgColor: matte,
-      objects: [{
-        id: imgId, kind: "image",
-        x: 0, y: 0, w: CANVAS_W, h: CANVAS_H,
-        url: asset.url,
-        fit: saved?.fit ?? "cover",
-        posX: saved?.posX ?? 50,
-        posY: saved?.posY ?? 50,
-        zoom: saved?.zoom ?? 1,
-      } as ImageObject],
+      bgColor: inBg ? (saved0?.bgKind === "theme" ? undefined : (saved0?.bgKind === "gradient" ? (saved0?.gradFrom ?? "#1e293b") : (saved0?.bgSolid ?? "#0b1220"))) : "#000000",
+      objects,
     };
   });
   const [selectedIds, setSelectedIds] = useState<string[]>([imgId]);
 
   const img = slide.objects.find((o): o is ImageObject => o.kind === "image") ?? null;
+
+  // Theme background CSS for the editor canvas (WYSIWYG for the "theme" source).
+  const themeBgStyle = useMemo(
+    () => (bgMode === "background" && bgKind === "theme" ? themeBackgroundStyle(ctx.appearance, "#0b0b0b") : undefined),
+    [bgMode, bgKind, ctx.appearance],
+  );
 
   const updateObject = useCallback((id: string, patch: Partial<SlideObject>) => {
     setSlide((s) => ({ ...s, objects: s.objects.map((o) => (o.id === id ? ({ ...o, ...patch } as SlideObject) : o)) }));
@@ -68,6 +97,53 @@ export function MediaImageEditor({
   }, []);
   const onSelectObject = useCallback((id: string | null) => setSelectedIds(id ? [id] : []), []);
   const patchImg = (patch: Partial<ImageObject>) => { if (img) updateObject(img.id, patch); };
+
+  // The slide bg colour for the CURRENT background settings (matte → black;
+  // theme → undefined so the live theme shows through; gradient → gradFrom as an
+  // opaque backstop under the shape; solid → the chosen colour).
+  const bgColorFor = useCallback((): string | undefined => {
+    if (bgMode === "matte") return "#000000";
+    if (bgKind === "theme") return undefined;
+    if (bgKind === "gradient") return gradFrom;
+    return bgSolid;
+  }, [bgMode, bgKind, bgSolid, gradFrom]);
+
+  // Reconcile the slide's background (bgColor + optional gradient shape at
+  // objects[0]) with the current bg controls, PRESERVING the logo object's
+  // geometry (the user may have dragged/sized it). Runs whenever bg state
+  // changes. In matte mode there is never a shape.
+  useEffect(() => {
+    setSlide((s) => {
+      const logo = s.objects.find((o) => o.kind === "image");
+      if (!logo) return s;
+      const wantShape = bgMode === "background" && bgKind === "gradient";
+      const shape: ShapeObject | null = wantShape
+        ? { id: shapeId, kind: "shape", x: 0, y: 0, w: CANVAS_W, h: CANVAS_H, shape: "rect", fill: gradFrom, fill2: gradTo, fillAngle: gradAngle }
+        : null;
+      return { ...s, bgColor: bgColorFor(), objects: shape ? [shape, logo] : [logo] };
+    });
+  }, [bgMode, bgKind, bgSolid, gradFrom, gradTo, gradAngle, shapeId, bgColorFor]);
+
+  // Switch mode: matte → full-canvas image; background → centred logo box sized
+  // by logoSizePct. Preserve nothing fancy — a clean, predictable reset per mode.
+  function switchMode(mode: "matte" | "background") {
+    setBgMode(mode);
+    if (mode === "matte") {
+      patchImg({ fit: "cover", x: 0, y: 0, w: CANVAS_W, h: CANVAS_H, posX: 50, posY: 50, zoom: 1 });
+    } else {
+      const w = Math.round(CANVAS_W * logoSizePct / 100), h = Math.round(CANVAS_H * logoSizePct / 100);
+      patchImg({ fit: "contain", x: Math.round((CANVAS_W - w) / 2), y: Math.round((CANVAS_H - h) / 2), w, h, posX: 50, posY: 50, zoom: 1 });
+    }
+  }
+
+  // Resize the logo box around its current centre (so sizing doesn't yank it).
+  function setLogoSize(pct: number) {
+    setLogoSizePct(pct);
+    if (!img) return;
+    const cx = img.x + img.w / 2, cy = img.y + img.h / 2;
+    const w = Math.round(CANVAS_W * pct / 100), h = Math.round(CANVAS_H * pct / 100);
+    patchImg({ w, h, x: Math.round(cx - w / 2), y: Math.round(cy - h / 2), fit: "contain" });
+  }
 
   // Fit presets reset the box to the full canvas + centre + reset zoom, then set fit.
   function applyFit(fit: Fit) {
@@ -162,13 +238,28 @@ export function MediaImageEditor({
     im.src = asset.url;
   }
 
-  const payload = useMemo(() => projectableTextSlide("", matte, undefined, slide.objects), [slide.objects, matte]);
+  const payload = useMemo(() => projectableTextSlide("", slide.bgColor, undefined, slide.objects), [slide.objects, slide.bgColor]);
   function hasImagePayload() {
     return payload.kind === "text" && Array.isArray(payload.objects) && payload.objects.some((o) => o.kind === "image");
   }
   function persist() {
     if (!img) return;
-    saveMediaFrame(ctx.churchId, asset.id, { fit: img.fit ?? "cover", posX: img.posX ?? 50, posY: img.posY ?? 50, zoom: img.zoom ?? 1 });
+    const frame: MediaFrame = { fit: img.fit ?? "cover", posX: img.posX ?? 50, posY: img.posY ?? 50, zoom: img.zoom ?? 1 };
+    if (bgMode === "background") {
+      frame.bgMode = "background";
+      frame.bgKind = bgKind;
+      frame.bgSolid = bgSolid;
+      frame.gradFrom = gradFrom;
+      frame.gradTo = gradTo;
+      frame.gradAngle = gradAngle;
+      // Persist the logo box as size% + centre% so it restores independent of canvas px.
+      frame.logoSizePct = Math.round((img.w / CANVAS_W) * 100);
+      frame.logoPosX = Math.round(((img.x + img.w / 2) / CANVAS_W) * 100);
+      frame.logoPosY = Math.round(((img.y + img.h / 2) / CANVAS_H) * 100);
+    } else {
+      frame.bgMode = "matte";
+    }
+    saveMediaFrame(ctx.churchId, asset.id, frame);
   }
   function save() {
     persist();
@@ -204,9 +295,10 @@ export function MediaImageEditor({
         </div>
 
         <div className="flex-1 min-h-0 flex">
-          {/* WYSIWYG canvas — black matte so it matches the projector exactly */}
+          {/* WYSIWYG canvas — SlideCanvas paints the real background (matte black,
+              solid, gradient, or the live theme) so it matches the projector. */}
           <div className="flex-1 min-w-0 min-h-0 relative flex items-center justify-center p-6" style={{ background: "#0d0d10" }}>
-            <div className="w-full relative" style={{ aspectRatio: "16 / 9", background: matte, boxShadow: "0 0 0 1px #2a3232" }}>
+            <div className="w-full relative" style={{ aspectRatio: "16 / 9", boxShadow: "0 0 0 1px #2a3232" }}>
               <SlideCanvas
                 slide={slide}
                 selectedIds={selectedIds}
@@ -216,45 +308,94 @@ export function MediaImageEditor({
                 onUpdateObjects={updateObjects}
                 onRemoveObjects={() => { /* single fixed image */ }}
                 readOnly={false}
+                themeBgStyle={themeBgStyle}
               />
             </div>
           </div>
 
           {/* Controls */}
           <div className="w-[300px] shrink-0 border-l overflow-y-auto" style={{ borderColor: "#2a3232", background: "#1e2525" }}>
-            <Section label="Projected size">
+            <Section label="Mode">
               <div className="flex gap-1">
-                {FITS.map((f) => (
-                  <button key={f.value} onClick={() => applyFit(f.value)} title={f.hint} className={cn(btn, "flex-1")} style={on(img?.fit === f.value)}>{f.label}</button>
-                ))}
+                <button onClick={() => switchMode("matte")} className={cn(btn, "flex-1")} style={on(bgMode === "matte")}><Maximize2 className="w-3.5 h-3.5" /> Full screen</button>
+                <button onClick={() => switchMode("background")} className={cn(btn, "flex-1")} style={on(bgMode === "background")}><Square className="w-3.5 h-3.5" /> Logo on background</button>
               </div>
-              <div className="mt-1.5 text-[10px] text-zinc-500">{FITS.find((f) => f.value === img?.fit)?.hint}</div>
-              <button onClick={autoFill} disabled={autofitting} className={cn(btn, "w-full mt-2")} style={on(false)}>
-                <Wand2 className="w-3.5 h-3.5" /> {autofitting ? "Measuring…" : "Auto-fill screen with logo"}
-              </button>
-              <div className="mt-1 text-[10px] text-zinc-500">Blows a padded logo up to fill the screen automatically. For photos, use Fill + Zoom.</div>
+              <div className="mt-1.5 text-[10px] text-zinc-500">{bgMode === "matte" ? "Image fills the screen (black letterbox), replacing the theme." : "Place the logo centred over a background — good for wide/odd-shaped logos."}</div>
             </Section>
 
-            <Section label="Position (pan)">
-              <Row label="Left ↔"><div className="flex items-center gap-2"><input type="range" min={0} max={100} step={1} value={img?.posX ?? 50} onChange={(e) => patchImg({ posX: Number(e.target.value) })} className="flex-1" /><span className="text-[10px] font-mono text-zinc-400 w-7 text-right">{img?.posX ?? 50}</span></div></Row>
-              <Row label="Up ↕"><div className="flex items-center gap-2"><input type="range" min={0} max={100} step={1} value={img?.posY ?? 50} onChange={(e) => patchImg({ posY: Number(e.target.value) })} className="flex-1" /><span className="text-[10px] font-mono text-zinc-400 w-7 text-right">{img?.posY ?? 50}</span></div></Row>
-              <div className="mt-1 flex items-center gap-1.5 text-[10px] text-zinc-500"><Move className="w-3 h-3" /> Or drag the image on the canvas.</div>
-            </Section>
+            {bgMode === "matte" ? (
+              <>
+                <Section label="Projected size">
+                  <div className="flex gap-1">
+                    {FITS.map((f) => (
+                      <button key={f.value} onClick={() => applyFit(f.value)} title={f.hint} className={cn(btn, "flex-1")} style={on(img?.fit === f.value)}>{f.label}</button>
+                    ))}
+                  </div>
+                  <div className="mt-1.5 text-[10px] text-zinc-500">{FITS.find((f) => f.value === img?.fit)?.hint}</div>
+                  <button onClick={autoFill} disabled={autofitting} className={cn(btn, "w-full mt-2")} style={on(false)}>
+                    <Wand2 className="w-3.5 h-3.5" /> {autofitting ? "Measuring…" : "Auto-fill screen with logo"}
+                  </button>
+                  <div className="mt-1 text-[10px] text-zinc-500">Blows a padded logo up to fill the screen automatically. For photos, use Fill + Zoom.</div>
+                </Section>
 
-            <Section label="Zoom / crop">
-              <Row label="Zoom"><div className="flex items-center gap-2"><input type="range" min={1} max={8} step={0.05} value={img?.zoom ?? 1} onChange={(e) => patchImg({ zoom: Number(e.target.value) })} className="flex-1" /><span className="text-[10px] font-mono text-zinc-400 w-8 text-right">{(img?.zoom ?? 1).toFixed(2)}×</span></div></Row>
-              <div className="mt-1 flex items-center gap-1.5 text-[10px] text-zinc-500"><Maximize2 className="w-3 h-3" /> Zoom in then pan to crop out parts of the image.</div>
-            </Section>
+                <Section label="Position (pan)">
+                  <Row label="Left ↔"><div className="flex items-center gap-2"><input type="range" min={0} max={100} step={1} value={img?.posX ?? 50} onChange={(e) => patchImg({ posX: Number(e.target.value) })} className="flex-1" /><span className="text-[10px] font-mono text-zinc-400 w-7 text-right">{img?.posX ?? 50}</span></div></Row>
+                  <Row label="Up ↕"><div className="flex items-center gap-2"><input type="range" min={0} max={100} step={1} value={img?.posY ?? 50} onChange={(e) => patchImg({ posY: Number(e.target.value) })} className="flex-1" /><span className="text-[10px] font-mono text-zinc-400 w-7 text-right">{img?.posY ?? 50}</span></div></Row>
+                  <div className="mt-1 flex items-center gap-1.5 text-[10px] text-zinc-500"><Move className="w-3 h-3" /> Or drag the image on the canvas.</div>
+                </Section>
 
-            <Section label="Reset">
-              <button onClick={resetAll} className={cn(btn, "w-full")} style={bstyle}><RotateCcw className="w-3.5 h-3.5" /> Reset to full screen</button>
-              <div className="mt-1.5 text-[10px] text-zinc-500">The image replaces the theme on the live screen (letterbox is black). The theme still shows in the media library.</div>
-            </Section>
+                <Section label="Zoom / crop">
+                  <Row label="Zoom"><div className="flex items-center gap-2"><input type="range" min={1} max={8} step={0.05} value={img?.zoom ?? 1} onChange={(e) => patchImg({ zoom: Number(e.target.value) })} className="flex-1" /><span className="text-[10px] font-mono text-zinc-400 w-8 text-right">{(img?.zoom ?? 1).toFixed(2)}×</span></div></Row>
+                  <div className="mt-1 flex items-center gap-1.5 text-[10px] text-zinc-500"><Maximize2 className="w-3 h-3" /> Zoom in then pan to crop out parts of the image.</div>
+                </Section>
+
+                <Section label="Reset">
+                  <button onClick={resetAll} className={cn(btn, "w-full")} style={bstyle}><RotateCcw className="w-3.5 h-3.5" /> Reset to full screen</button>
+                  <div className="mt-1.5 text-[10px] text-zinc-500">The image replaces the theme on the live screen (letterbox is black). The theme still shows in the media library.</div>
+                </Section>
+              </>
+            ) : (
+              <>
+                <Section label="Background">
+                  <div className="flex gap-1">
+                    <button onClick={() => setBgKind("solid")} className={cn(btn, "flex-1")} style={on(bgKind === "solid")}>Solid</button>
+                    <button onClick={() => setBgKind("theme")} className={cn(btn, "flex-1")} style={on(bgKind === "theme")}>Theme</button>
+                    <button onClick={() => setBgKind("gradient")} className={cn(btn, "flex-1")} style={on(bgKind === "gradient")}>Gradient</button>
+                  </div>
+                  {bgKind === "solid" && (
+                    <Row label="Colour"><input type="color" value={hexOnly(bgSolid)} onChange={(e) => setBgSolid(e.target.value)} className="h-7 w-full rounded bg-transparent cursor-pointer" /></Row>
+                  )}
+                  {bgKind === "theme" && (
+                    <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-zinc-500"><Palette className="w-3 h-3" /> Uses the church's active theme background (shown live and in this preview).</div>
+                  )}
+                  {bgKind === "gradient" && (
+                    <>
+                      <Row label="From"><input type="color" value={hexOnly(gradFrom)} onChange={(e) => setGradFrom(e.target.value)} className="h-7 w-full rounded bg-transparent cursor-pointer" /></Row>
+                      <Row label="To"><input type="color" value={hexOnly(gradTo)} onChange={(e) => setGradTo(e.target.value)} className="h-7 w-full rounded bg-transparent cursor-pointer" /></Row>
+                      <Row label="Angle"><div className="flex items-center gap-2"><input type="range" min={0} max={360} step={5} value={gradAngle} onChange={(e) => setGradAngle(Number(e.target.value))} className="flex-1" /><span className="text-[10px] font-mono text-zinc-400 w-8 text-right">{gradAngle}°</span></div></Row>
+                    </>
+                  )}
+                </Section>
+
+                <Section label="Logo size">
+                  <Row label="Size"><div className="flex items-center gap-2"><input type="range" min={10} max={100} step={1} value={logoSizePct} onChange={(e) => setLogoSize(Number(e.target.value))} className="flex-1" /><span className="text-[10px] font-mono text-zinc-400 w-8 text-right">{logoSizePct}%</span></div></Row>
+                  <div className="mt-1 flex items-center gap-1.5 text-[10px] text-zinc-500"><Move className="w-3 h-3" /> Drag the logo on the canvas to position it; handles resize it.</div>
+                </Section>
+              </>
+            )}
           </div>
         </div>
       </div>
     </div>
   );
+}
+
+// <input type="color"> only accepts #rrggbb. Coerce a stored value (short hex /
+// rgb()) to a safe 7-char hex so the picker shows something sensible.
+function hexOnly(c: string): string {
+  if (/^#[0-9a-fA-F]{6}$/.test(c)) return c;
+  if (/^#[0-9a-fA-F]{3}$/.test(c)) return "#" + c.slice(1).split("").map((h) => h + h).join("");
+  return "#000000";
 }
 
 function Section({ label, children }: { label: string; children: React.ReactNode }) {

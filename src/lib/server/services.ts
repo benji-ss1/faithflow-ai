@@ -1,5 +1,5 @@
 // Server-only. Do not import from client components.
-import { eq, asc, and, sql } from "drizzle-orm";
+import { eq, asc, and, sql, inArray } from "drizzle-orm";
 import { getDb } from "../db/client";
 import { sanitizeLyrics } from "../pro6-parser";
 import { desc } from "drizzle-orm";
@@ -144,6 +144,26 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
         const scriptureSlides = Array.isArray(payload.slides) ? (payload.slides as { text: string }[]) : [];
         slides = scriptureSlides.map((s) => ({ kind: "text" as const, text: s.text }));
         if (slides.length === 0 && typeof payload.text === "string") slides = [{ kind: "text", text: payload.text as string }];
+      }
+    } else if (it.type === "media" && Array.isArray(payload.mediaAssetIds)) {
+      // Grouped media: one collapsible playlist item expands to N image/video
+      // slides. C1 defense-in-depth: scope by churchId; preserve the stored id
+      // order; silently skip any id that isn't this church's (never leaks, never
+      // throws on a stale id).
+      const ids = (payload.mediaAssetIds as unknown[]).filter((x): x is string => typeof x === "string");
+      const fit = (payload.fitMode === "cover" ? "cover" : "contain") as "cover" | "contain";
+      if (ids.length > 0) {
+        const rows = await db.select().from(mediaAssets)
+          .where(and(inArray(mediaAssets.id, ids), eq(mediaAssets.churchId, churchId)));
+        const byId = new Map(rows.map((r) => [r.id, r]));
+        const out: SlidePayload[] = [];
+        for (const id of ids) {
+          const asset = byId.get(id);
+          if (!asset) continue;
+          const url = await presignGet(asset.s3Key);
+          out.push(asset.kind === "video" ? { kind: "video", url, fit } : { kind: "image", url, fit });
+        }
+        slides = out;
       }
     } else if (it.type === "media" && payload.mediaAssetId) {
       // C1 defense-in-depth: scope mediaAssets lookup by churchId.

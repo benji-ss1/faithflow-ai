@@ -1855,6 +1855,42 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
         toast.error(res.error || "Add failed");
       }
     },
+    onAddMediaGroup: async (title, assetIds) => {
+      const ids = assetIds.filter((x) => typeof x === "string" && x.length > 0);
+      if (ids.length === 0) return;
+      const { addServiceItem } = await import("@/lib/actions");
+      const res = await addServiceItem(plan.id, "media", title, { mediaAssetIds: ids });
+      if (!res.ok) { toast.error(res.error || "Add failed"); return; }
+      if (res.data) {
+        const newItemId = res.data.id;
+        toast(`Added group: ${title}`, {
+          action: {
+            label: "Undo",
+            onClick: () => { void (async () => {
+              const { removeServiceItem } = await import("@/lib/actions");
+              const r = await removeServiceItem(newItemId);
+              if (!r.ok) { toast.error(r.error ?? "Undo failed"); return; }
+              router.refresh();
+            })(); },
+          },
+        });
+      }
+      // Optimistic append: one item whose slide count = the group size, so the
+      // playlist row shows the right badge before the server round-trip lands.
+      const optimisticId = `optimistic-${Date.now()}`;
+      setPlan((prev) => {
+        const newItem = {
+          id: optimisticId,
+          title,
+          type: "media",
+          mediaAssetIds: ids,
+          slides: ids.map(() => ({ kind: "image" as const, url: "" })),
+        } as unknown as ExpandedItem;
+        return { ...prev, items: [...prev.items, newItem] };
+      });
+      setPreview({ itemIdx: plan.items.length, slideIdx: 0 });
+      router.refresh();
+    },
   }), [
     // Y6: only re-pack when the values consumers actually read change.
     plan, previewSlide, live, preview.itemIdx, preview.slideIdx, liveItemIdx,

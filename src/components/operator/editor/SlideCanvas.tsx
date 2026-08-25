@@ -16,6 +16,7 @@ export function SlideCanvas({
   onUpdateObjects,
   onRemoveObjects,
   readOnly,
+  themeBgStyle,
 }: {
   slide: EditableSlide | null;
   // Full selection set. Length 1 = classic single-select (with resize handles);
@@ -29,6 +30,10 @@ export function SlideCanvas({
   onUpdateObjects: (patches: { id: string; patch: Partial<SlideObject> }[]) => void;
   onRemoveObjects: (ids: string[]) => void;
   readOnly?: boolean;
+  // Optional theme-background CSS applied ONLY when the slide has no explicit
+  // bgColor/bgImageUrl — lets the media "logo over theme" mode preview the live
+  // theme in the editor (WYSIWYG). Callers that don't pass it are unaffected.
+  themeBgStyle?: React.CSSProperties;
 }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   // Snap guides — teal alignment lines (in canvas units) shown while a moving
@@ -228,11 +233,19 @@ export function SlideCanvas({
           data-canvas-inner
           className="absolute inset-0 overflow-hidden rounded-md border select-none"
           style={{
-            background: slide.bgColor || "#0b0b0b",
+            // Precedence mirrors the projector (SlideRenderer designBg): explicit
+            // per-slide bgColor wins; else a per-slide image; else a caller-supplied
+            // theme bg; else the neutral editor backdrop. Each branch is internally
+            // consistent (never mixes the `background` shorthand with `background*`
+            // longhands — that combination warns + can bug out on rerender).
+            ...(slide.bgColor
+              ? { background: slide.bgColor }
+              : slide.bgImageUrl
+                ? { backgroundImage: `url("${slide.bgImageUrl}")`, backgroundSize: "cover", backgroundPosition: "center" }
+                : themeBgStyle
+                  ? themeBgStyle
+                  : { background: "#0b0b0b" }),
             borderColor: "#2a3232",
-            backgroundImage: slide.bgImageUrl ? `url("${slide.bgImageUrl}")` : undefined,
-            backgroundSize: "cover",
-            backgroundPosition: "center",
             // Establish a query container so text objects' `cqh` font sizing
             // resolves against the CANVAS (not the viewport) — matching the
             // projector's SlideObjectsLayer exactly, so the editor is true WYSIWYG.

@@ -52,6 +52,7 @@ function SortablePlaylistItem({
   isActive,
   onItemClick,
   onSendLive,
+  onProjectSlide,
   onRemove,
   onMove,
   onDuplicate,
@@ -71,6 +72,7 @@ function SortablePlaylistItem({
   isActive: boolean;
   onItemClick: () => void;
   onSendLive: () => void;
+  onProjectSlide?: (slideIdx: number) => void;
   onRemove: () => void;
   onMove: (dir: -1 | 1) => void;
   onDuplicate: () => void;
@@ -88,6 +90,10 @@ function SortablePlaylistItem({
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(item.title);
   const [slideDragOver, setSlideDragOver] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  // A grouped media item (multi-select "group") = a media item with >1 slide.
+  // It renders as a collapsible row: click the chevron to reveal its images.
+  const isGroup = (item.type === "media") && item.slides.length > 1;
   const SLIDE_DND_TYPE = "application/x-presentflow-slide";
   const commitRename = () => {
     setRenaming(false);
@@ -156,6 +162,18 @@ function SortablePlaylistItem({
             >
               <GripVertical className="w-3 h-3" />
             </button>
+
+            {/* Group expand/collapse chevron (media groups only) */}
+            {isGroup && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}
+                aria-label={expanded ? "Collapse group" : "Expand group"}
+                className="flex items-center justify-center w-4 h-full py-1 shrink-0 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+              >
+                {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+              </button>
+            )}
 
             {/* Item button (double-click the title to rename song items) */}
             {renaming ? (
@@ -298,6 +316,34 @@ function SortablePlaylistItem({
           </ContextMenu.Content>
         </ContextMenu.Portal>
       </ContextMenu.Root>
+
+      {/* Expanded media group — thumbnails of each image; click to project it. */}
+      {isGroup && expanded && (
+        <ul className="pl-8 pr-2 pb-1 flex flex-col gap-0.5">
+          {item.slides.map((s, sIdx) => {
+            const url = (s as { url?: string }).url;
+            return (
+              <li key={sIdx}>
+                <button
+                  type="button"
+                  onClick={() => onProjectSlide?.(sIdx)}
+                  title={`Send image ${sIdx + 1} to live`}
+                  className="w-full flex items-center gap-2 py-0.5 pr-1 rounded text-left text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/5"
+                >
+                  <span className="w-4 text-right opacity-50 shrink-0">{sIdx + 1}</span>
+                  {url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={url} alt="" className="w-10 h-6 object-cover rounded border border-[var(--color-border)] shrink-0" />
+                  ) : (
+                    <span className="w-10 h-6 rounded border border-[var(--color-border)] bg-black/40 shrink-0" />
+                  )}
+                  <span className="truncate">Image {sIdx + 1}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </li>
   );
 }
@@ -611,12 +657,41 @@ export function PlaylistSection({
     }
   };
 
+  // Project a SPECIFIC slide within an item (used by an expanded media group —
+  // click a thumbnail to send that exact image live).
+  const handleProjectSlideAt = (it: OperatorShellCtx["plan"]["items"][number], idx: number, sIdx: number) => {
+    onCenterMode?.("slides");
+    ctx.onSetPreviewItem(idx);
+    const s = it.slides?.[sIdx];
+    if (!s) return;
+    try {
+      ctx.onSendSlideToLive(s);
+      toast.success(`"${it.title}" — slide ${sIdx + 1} → LIVE`);
+    } catch (e) {
+      console.warn("[playlist] send-slide failed", e);
+      toast.error("Couldn't send slide live — check DevTools console.");
+    }
+  };
+
   // ── Cross-panel drop (native HTML5 drag from SongsBrowser / MediaBrowser) ──
   // dnd-kit handles internal sort reorder via its own events; these native
   // handlers handle drops originating from outside the playlist panel.
   const handleExternalDrop = async (e: React.DragEvent<HTMLElement>) => {
     e.preventDefault();
     setDropOver(false);
+    // Multi-select media group takes precedence: dropping a selection of images
+    // creates ONE collapsible playlist group.
+    const rawGroup = e.dataTransfer.getData("application/x-pf-library-items");
+    if (rawGroup) {
+      let g: { pfType?: string; items?: { id?: string; title?: string }[] };
+      try { g = JSON.parse(rawGroup); } catch { g = {}; }
+      const ids = Array.isArray(g.items) ? g.items.map((x) => x.id).filter((x): x is string => typeof x === "string") : [];
+      if (g.pfType === "media-group" && ids.length > 0) {
+        if (!ctx.onAddMediaGroup) { toast.info("Open a service plan first to add items"); return; }
+        await ctx.onAddMediaGroup(`Images (${ids.length})`, ids);
+        return;
+      }
+    }
     const raw = e.dataTransfer.getData("application/x-pf-library-item");
     if (!raw) return;
     let data: { pfType?: string; id?: string; title?: string };
@@ -710,6 +785,7 @@ export function PlaylistSection({
                   isActive={idx === ctx.previewItemIdx}
                   onItemClick={() => handleItemClick(it, idx)}
                   onSendLive={() => handleSendItemLive(it, idx)}
+                  onProjectSlide={(sIdx) => handleProjectSlideAt(it, idx, sIdx)}
                   onRemove={() => void remove(it)}
                   onMove={(dir) => void move(idx, dir)}
                   onDuplicate={() => void duplicate(idx)}

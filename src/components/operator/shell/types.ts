@@ -132,6 +132,16 @@ export type OperatorShellCtx = {
     insertAtIndex?: number
   ) => Promise<void> | void;
 
+  // Add multiple media assets as ONE collapsible playlist group (a single
+  // service item that expands to N image/video slides). Used by the Media
+  // Library multi-select "Group into playlist" + multi-drag. No-op when the
+  // plan is ephemeral.
+  onAddMediaGroup?: (
+    title: string,
+    assetIds: string[],
+    insertAtIndex?: number
+  ) => Promise<void> | void;
+
   // Bible-panel wiring (Bible redesign)
   // R2: right-click delete passes explicit indices to avoid the "delete
   // uses current preview cursor" bug. Optional so legacy shells stay valid.

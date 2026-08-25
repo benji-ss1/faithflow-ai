@@ -18,7 +18,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import { Upload, Pencil, Trash2, CheckSquare, Square } from "lucide-react";
+import { Upload, Pencil, Trash2, CheckSquare, Square, ListPlus, ArrowUpDown, GripVertical, Check } from "lucide-react";
+import { DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCenter, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, useSortable, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import { projectableTextSlide, type SlidePayload } from "@/lib/broadcast";
@@ -28,6 +31,7 @@ import { setMediaOnActiveTheme } from "@/lib/theme-quick-apply";
 import { MediaImportWizard } from "./MediaImportWizard";
 import { MediaImageEditor } from "./MediaImageEditor";
 import { loadMediaFrame, clearMediaFrame } from "./mediaFrame";
+import { loadMediaOrder, saveMediaOrder, applyMediaOrder } from "./mediaOrder";
 
 type Asset = {
   id: string;
@@ -80,6 +84,11 @@ export function MediaBrowser({
   // Multi-select for bulk delete.
   const [bulkIds, setBulkIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  // Operator's custom media ordering (localStorage, church-scoped) + a Reorder
+  // mode. In reorder mode, cards are drag-sortable and projection/edit is off.
+  const [order, setOrder] = useState<string[]>([]);
+  const [reorderMode, setReorderMode] = useState(false);
+  useEffect(() => { setOrder(loadMediaOrder(ctx.churchId)); }, [ctx.churchId]);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
   // ── Data loading ─────────────────────────────────────────────────────────
@@ -104,14 +113,35 @@ export function MediaBrowser({
   }, []);
 
   // ── Filtering ─────────────────────────────────────────────────────────────
+  // Apply the operator's saved order first (self-healing: new uploads go to the
+  // end, deleted ids are ignored), THEN filter — so custom order is preserved.
+  const ordered = useMemo(() => applyMediaOrder(assets, order), [assets, order]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return assets.filter((a) => {
+    return ordered.filter((a) => {
       if (filter !== "all" && !a.kind.startsWith(filter)) return false;
       if (q && !a.fileName.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [assets, query, filter]);
+  }, [ordered, query, filter]);
+
+  // Reorder-mode dnd (whole library, ignores filter so a partial view can't
+  // scramble the full order). Mirrors the SlideGrid sortable pattern.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  const onReorderEnd = (e: DragEndEvent) => {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const ids = ordered.map((a) => a.id);
+    const oldIdx = ids.indexOf(String(active.id));
+    const newIdx = ids.indexOf(String(over.id));
+    if (oldIdx < 0 || newIdx < 0) return;
+    const next = arrayMove(ids, oldIdx, newIdx);
+    setOrder(next);
+    saveMediaOrder(ctx.churchId, next);
+  };
 
   // ── Slide shape ───────────────────────────────────────────────────────────
   const toSlide = (a: Asset): SlidePayload => {
@@ -158,6 +188,23 @@ export function MediaBrowser({
     // Store mediaId in payload so renameMediaAsset can propagate title changes
     // to any service item that references this asset.
     await ctx.onAddLibraryItem("media", { id: a.id, title: a.fileName });
+    onExitToSlides();
+  };
+
+  // Add all selected media as ONE collapsible playlist group (in the operator's
+  // current display order). Preserves the on-screen order of the selection.
+  const bulkAddGroup = async () => {
+    if (!ctx.onAddMediaGroup) { toast.info("Playlist add not available"); return; }
+    const ids = filtered.filter((a) => bulkIds.has(a.id)).map((a) => a.id);
+    if (ids.length === 0) return;
+    // Default the group name (window.prompt is unreliable in the Electron shell);
+    // the operator can double-click the playlist row to rename it.
+    const title = ids.length === 1
+      ? (filtered.find((a) => a.id === ids[0])?.fileName ?? "Images")
+      : `Images (${ids.length})`;
+    await ctx.onAddMediaGroup(title, ids);
+    setBulkIds(new Set());
+    toast.success(`Added "${title}" to the playlist — double-click to rename`, { icon: "🗂️" });
     onExitToSlides();
   };
 
@@ -296,16 +343,24 @@ export function MediaBrowser({
           </span>
         </div>
 
-        {/* Bulk-select bar: pick many items to delete at once */}
-        {filtered.length > 0 && (
+        {/* Bulk-select bar: pick many items to group/add/delete; or Reorder mode */}
+        {filtered.length > 0 && !reorderMode && (
           <div className="px-1 pb-1 flex items-center gap-1.5">
             <button type="button" onClick={toggleSelectAll} title={allSelected ? "Deselect all" : "Select all"}
               className="flex items-center gap-1.5 text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
               {allSelected ? <CheckSquare className="w-3.5 h-3.5 text-[var(--color-brand)]" /> : <Square className="w-3.5 h-3.5" />}
               {bulkIds.size > 0 ? `${bulkIds.size} selected` : "Select"}
             </button>
+            <button type="button" onClick={() => { setReorderMode(true); setBulkIds(new Set()); }} title="Drag to reorder the library"
+              className="ml-auto flex items-center gap-1 text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
+              <ArrowUpDown className="w-3.5 h-3.5" /> Reorder
+            </button>
             {bulkIds.size > 0 && (
-              <div className="ml-auto flex items-center gap-1">
+              <div className="flex items-center gap-1">
+                <button type="button" onClick={() => void bulkAddGroup()}
+                  className="h-6 px-2 rounded border border-teal-500/40 flex items-center gap-1 text-[10px] font-semibold text-teal-300 hover:bg-teal-500/10">
+                  <ListPlus className="w-3 h-3" /> Add group to playlist
+                </button>
                 <button type="button" onClick={() => void bulkDelete()} disabled={bulkBusy}
                   className="h-6 px-2 rounded border border-red-500/40 flex items-center gap-1 text-[10px] font-semibold text-red-300 hover:bg-red-500/10 disabled:opacity-50">
                   <Trash2 className="w-3 h-3" /> Delete
@@ -316,16 +371,38 @@ export function MediaBrowser({
             )}
           </div>
         )}
+        {reorderMode && (
+          <div className="px-1 pb-1 flex items-center gap-1.5">
+            <span className="flex items-center gap-1.5 text-[11px] text-teal-300"><GripVertical className="w-3.5 h-3.5" /> Reorder mode — drag cards to arrange the library</span>
+            <button type="button" onClick={() => setReorderMode(false)}
+              className="ml-auto h-6 px-2 rounded border border-teal-500/40 flex items-center gap-1 text-[10px] font-semibold text-teal-300 hover:bg-teal-500/10">
+              <Check className="w-3 h-3" /> Done
+            </button>
+          </div>
+        )}
 
         {/* Grid */}
         <div className="flex-1 overflow-y-auto">
-          {filtered.length === 0 && !loading && (
+          {filtered.length === 0 && !loading && !reorderMode && (
             <div className="text-[12px] text-[var(--color-muted-foreground)] py-10 text-center">
               {assets.length === 0
                 ? 'No media yet — click "Import" to add your first file.'
                 : "No media matches your filter."}
             </div>
           )}
+
+          {reorderMode ? (
+            /* Reorder mode: whole library, drag-sortable, no projection/edit. */
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onReorderEnd}>
+              <SortableContext items={ordered.map((a) => a.id)} strategy={rectSortingStrategy}>
+                <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))" }}>
+                  {ordered.map((a) => (
+                    <SortableMediaCard key={a.id} asset={a} />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
+          ) : (
           <div
             className="grid gap-3"
             style={{ gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))" }}
@@ -343,6 +420,18 @@ export function MediaBrowser({
                         "application/x-pf-library-item",
                         JSON.stringify({ pfType: "media", id: a.id, title: a.fileName, url: a.url, kind: a.kind }),
                       );
+                      // If this card is part of a multi-selection, also carry the
+                      // WHOLE selection (in display order) so dropping it on the
+                      // playlist creates one group. Single-item payload above is
+                      // kept so the existing drop handler still works if the group
+                      // MIME is ignored.
+                      if (bulkIds.has(a.id) && bulkIds.size > 1) {
+                        const group = filtered.filter((x) => bulkIds.has(x.id));
+                        e.dataTransfer.setData(
+                          "application/x-pf-library-items",
+                          JSON.stringify({ pfType: "media-group", items: group.map((x) => ({ id: x.id, title: x.fileName })) }),
+                        );
+                      }
                     }}
                     onClick={() => {
                       // A native double-click fires click,click,dblclick — so a raw
@@ -496,8 +585,48 @@ export function MediaBrowser({
               </ContextMenu.Root>
             ))}
           </div>
+          )}
         </div>
       </div>
     </>
+  );
+}
+
+/**
+ * A drag-sortable media card for Reorder mode. View + drag only — no projection,
+ * no edit, no bulk checkbox (those live on the normal grid). The whole card is
+ * the drag handle so it's easy to grab on a touch/trackpad at a live service.
+ */
+function SortableMediaCard({ asset }: { asset: Asset }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: asset.id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 10 : undefined,
+  };
+  const isVideo = asset.kind.startsWith("video");
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      title={`${asset.fileName} — drag to reorder`}
+      className="relative aspect-video rounded-md overflow-hidden border-2 border-[var(--color-border)] bg-black text-left cursor-grab active:cursor-grabbing touch-none select-none"
+    >
+      {isVideo ? (
+        <video src={asset.url} muted className="w-full h-full object-cover pointer-events-none" />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={asset.url} alt={asset.fileName} draggable={false} className="w-full h-full object-cover pointer-events-none" />
+      )}
+      <span className="absolute left-1 top-1 grid h-5 w-5 place-items-center rounded bg-black/60 text-white/80">
+        <GripVertical className="w-3.5 h-3.5" />
+      </span>
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-1.5 py-1">
+        <span className="block text-[10px] text-white/90 truncate">{asset.fileName}</span>
+      </div>
+    </div>
   );
 }

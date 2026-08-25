@@ -1,6 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { eq, and, asc, sql } from "drizzle-orm";
+import { eq, and, asc, sql, inArray } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { servicePlans, serviceItems, songs, songSlides, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes } from "./db/schema";
 import { requireUser, requireRole, requireCap } from "./session";
@@ -101,6 +101,20 @@ async function validateAddServiceItemPayload(
       return { ok: true };
     }
     case "media": {
+      // A media item is EITHER a single asset (mediaAssetId) OR a group of
+      // assets (mediaAssetIds[] — the collapsible playlist group). Validate that
+      // every referenced asset belongs to this church (defense-in-depth; the
+      // expander re-scopes by churchId too).
+      const groupIdsRaw = (payload as any).mediaAssetIds;
+      if (Array.isArray(groupIdsRaw)) {
+        const ids = groupIdsRaw.filter((x: unknown): x is string => typeof x === "string" && x.length > 0);
+        if (ids.length === 0) return { ok: false, error: "media group requires at least one asset" };
+        if (ids.length > 200) return { ok: false, error: "media group too large (max 200)" };
+        const rows = await db.select({ id: mediaAssets.id }).from(mediaAssets)
+          .where(and(inArray(mediaAssets.id, ids), eq(mediaAssets.churchId, churchId)));
+        if (rows.length !== new Set(ids).size) return { ok: false, error: "one or more media assets not found in your church" };
+        return { ok: true };
+      }
       const mediaAssetId = (payload as any).mediaAssetId;
       if (typeof mediaAssetId !== "string" || !mediaAssetId) return { ok: false, error: "media payload requires mediaAssetId" };
       const [row] = await db.select({ id: mediaAssets.id }).from(mediaAssets)
