@@ -190,6 +190,22 @@ export function wordsToNumber(phrase: string): number {
     }
   }
 
+  // Colloquial 3-digit reading WITHOUT "hundred": "one forty three" = 1|43 = 143,
+  // "one nineteen" = 1|19 = 119 — a leading single digit spoken, then the last
+  // two digits as a compound. The summing path below would give 1+43 = 44 (wrong).
+  // Only fires with NO "hundred"/"thousand" (those sum correctly) and a tail that
+  // forms a 2-digit number (10-99), so ordinary "twenty three" (leading not 1-9)
+  // and "one hundred forty three" are untouched.
+  if (words.length >= 2 && !words.some((w) => NUMBER_WORDS[w] === 100 || w === "thousand")) {
+    const lead = NUMBER_WORDS[words[0]] ?? Number(words[0]);
+    if (Number.isInteger(lead) && lead >= 1 && lead <= 9) {
+      const tail = wordsToNumber(words.slice(1).join(" "));
+      if (Number.isInteger(tail) && tail >= 10 && tail <= 99) {
+        return lead * 100 + tail;
+      }
+    }
+  }
+
   let total = 0;
   let current = 0;
   for (const w of words) {
@@ -515,6 +531,20 @@ function normalize(text: string): string {
     /\b(zero|oh|one|two|three|four|five|six|seven|eight|nine)\s+(zero|oh|one|two|three|four|five|six|seven|eight|nine)\s+(zero|oh|one|two|three|four|five|six|seven|eight|nine)\b/g,
     "$1_$2_$3",
   );
+  // 2026-08-25 field bug (3-digit chapter glitch): a 3-digit chapter (Psalms go
+  // to 150) is very often TRANSCRIBED digit-by-digit with gaps — "Psalm 1 4 3",
+  // "Psalm 1 5 0" — because the speaker spells it out ("one… four… three"). The
+  // word-form is fused above and handled by wordsToNumber's digit-by-digit path,
+  // but the LITERAL-digit form ("1 4 3") is not: book_ch_space_verse then grabs
+  // the first two ("1 5" → chapter 1 verse 5) and strands the third digit. Merge
+  // the FIRST 3 single digits of a run into one number so the chapter combines:
+  // "1 4 3" → "143", "1 5 0" → "150". This can't fuse a genuine chapter:verse: a
+  // real "chapter N verse M" is at most 2 single-digit tokens (a 2-digit verse
+  // like "16" is ONE token), so "John 3 16"/"Isaiah 5 3" never match. Trade-off:
+  // a fully digit-spelled "1 2 3" (rare, meant as 12:3) defaults to chapter 123 —
+  // correct for the Psalms domain this targets. A 4th digit is left as the verse
+  // ("1 5 0 3" → "150 3" → 150:3).
+  s = s.replace(/\b(\d)\s+(\d)\s+(\d)\b/g, "$1$2$3");
 
   // F3 (spoken-word form): "verse(s) <num> and [verse(s)] <num>" is a verse
   // enumeration → canonical range "to", so a spoken "Psalm 23 verses one and

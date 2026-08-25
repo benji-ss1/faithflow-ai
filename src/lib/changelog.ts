@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.332",
+    date: "2026-08-25",
+    headline: "3-digit chapters spoken digit-by-digit now detect correctly",
+    highlights: [
+      "When a speaker spells out a longer chapter — “Psalm 1… 4… 3, verse 9” — the AI now understands that’s Psalm 143:9, instead of getting confused by the gaps and landing on the wrong verse. Same for Psalm 150, 119, 107, and the rest of the 100s.",
+    ],
+  },
+  {
     version: "0.1.331",
     date: "2026-08-25",
     headline: "Cleaner song slides — fewer words per slide, easier to sing",
