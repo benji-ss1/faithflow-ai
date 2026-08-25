@@ -19,3 +19,4 @@ dist-electron/
 release/
 .claude/worktrees/
 native/macos/.build/
+/public/pdf.worker.min.js

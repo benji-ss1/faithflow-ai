@@ -10,11 +10,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
-  CheckCircle2, Upload, X, FileImage, FileVideo, AlertCircle, Presentation,
+  CheckCircle2, Upload, X, FileImage, FileVideo, AlertCircle, Presentation, FolderOpen,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { registerMediaAsset } from "@/lib/actions";
+import { isPdfFile, renderPdfToImages } from "@/lib/pdf-to-images";
 import { finalizeImport } from "@/lib/import-actions";
 
 // Re-export Pencil for MediaBrowser without a separate import
@@ -32,6 +33,29 @@ function isProFile(file: File): boolean {
   return PRO_EXTENSIONS.some((ext) => n.endsWith(ext));
 }
 
+/**
+ * Upload ONE media file: presign → S3 PUT → registerMediaAsset. Shared by the
+ * normal media path and each rendered deck page (B2), so there is one upload
+ * path, not two divergent copies. Throws on any failure.
+ */
+async function uploadMediaFile(file: File): Promise<void> {
+  const presignRes = await fetch("/api/media/presign", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fileName: file.name, contentType: file.type, size: file.size, purpose: "media" }),
+  });
+  if (!presignRes.ok) {
+    const err = (await presignRes.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error ?? `Presign failed (${presignRes.status})`);
+  }
+  const { url: uploadUrl, key } = (await presignRes.json()) as { url: string; key: string };
+  const uploadRes = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
+  if (!uploadRes.ok) throw new Error("Storage upload failed");
+  const kind = file.type.startsWith("video") ? ("video" as const) : ("image" as const);
+  const result = await registerMediaAsset({ kind, fileName: file.name, s3Key: key, mimeType: file.type, sizeBytes: file.size });
+  if (!result?.ok) throw new Error((result as { error?: string } | undefined)?.error ?? "Registration failed");
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type UploadStatus = "pending" | "uploading" | "done" | "error";
@@ -43,6 +67,8 @@ interface QueuedMedia {
   previewUrl: string | null; // object URL for images
   status: UploadStatus;
   error?: string;
+  deck?: boolean;        // PDF deck → expand to page images on upload (B2)
+  progress?: string;     // e.g. "3/12" while rendering deck pages
 }
 
 interface QueuedPro {
@@ -110,11 +136,12 @@ export function MediaImportWizard({ open, onClose, onImported }: Props) {
   const [doneMedia, setDoneMedia] = useState(0);
   const [doneSongs, setDoneSongs] = useState(0);
   const [errorCount, setErrorCount] = useState(0);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const deckAbortRef = useRef<AbortController | null>(null); // cancels an in-flight deck render on close
 
   // Reset on close
   useEffect(() => {
     if (!open) {
+      deckAbortRef.current?.abort(); // stop any in-flight deck render/upload
       setTimeout(() => {
         setStep(1);
         setQueue((prev) => {
@@ -150,12 +177,15 @@ export function MediaImportWizard({ open, onClose, onImported }: Props) {
       const key = `${file.name}:${file.size}`;
       if (isProFile(file)) {
         valid.push({ tag: "pro", key, file, status: "pending" });
+      } else if (isPdfFile(file)) {
+        // PDF deck → each page becomes a slide image on upload (B2).
+        valid.push({ tag: "media", key, file, previewUrl: null, status: "pending", deck: true });
       } else if (ALLOWED_IMAGE_TYPES.includes(file.type)) {
         valid.push({ tag: "media", key, file, previewUrl: URL.createObjectURL(file), status: "pending" });
       } else if (ALLOWED_VIDEO_TYPES.includes(file.type)) {
         valid.push({ tag: "media", key, file, previewUrl: null, status: "pending" });
       } else {
-        toast.error(`"${file.name}" is not supported — skipped.`);
+        toast.error(`"${file.name}" is not supported — export slide decks as PDF, then drop them here.`);
         continue;
       }
     }
@@ -186,24 +216,58 @@ export function MediaImportWizard({ open, onClose, onImported }: Props) {
     for (const item of queue) {
       setQueue((prev) => prev.map((q) => q.key === item.key ? { ...q, status: "uploading" } : q));
 
-      if (item.tag === "media") {
+      if (item.tag === "media" && item.deck) {
+        // ── PDF deck path: render each page → image (in-browser) → upload ────
+        // Streaming: renderPdfToImages hands us one page at a time; we upload
+        // and drop it before the next renders (keeps ≤1 blob resident). A page
+        // upload failure is non-fatal — skip and continue so one bad page (or a
+        // presign rate-limit on a big deck) doesn't lose the whole import.
+        const ac = new AbortController();
+        deckAbortRef.current = ac;
+        let ok = 0;
+        let failedPages = 0;
+        try {
+          const result = await renderPdfToImages(
+            item.file,
+            async (pageFile, index, total) => {
+              setQueue((prev) => prev.map((q) => q.key === item.key ? { ...q, status: "uploading", progress: `slide ${index}/${total}` } : q));
+              try { await uploadMediaFile(pageFile); ok++; }
+              catch { failedPages++; }
+            },
+            { signal: ac.signal },
+          );
+          media += ok;
+          if (ok === 0) {
+            const why = result.renderedPages === 0 ? "No pages found in PDF" : "Every slide failed to upload";
+            toast.error(`"${item.file.name}": ${why}`);
+            setQueue((prev) => prev.map((q) => q.key === item.key ? { ...q, status: "error", error: why, progress: undefined } : q));
+            errors++;
+          } else {
+            const notes: string[] = [];
+            if (failedPages > 0) {
+              notes.push(`${ok}/${result.renderedPages} slides imported`);
+              // Surface partial loss prominently — not just in the row note.
+              toast.error(`"${item.file.name}": ${failedPages} of ${result.renderedPages} slides failed to upload (imported ${ok}).`);
+            }
+            if (result.truncated) {
+              notes.push(`first ${result.renderedPages} of ${result.totalPages} pages`);
+              toast.error(`"${item.file.name}" has ${result.totalPages} pages — imported the first ${result.renderedPages}.`);
+            }
+            setQueue((prev) => prev.map((q) => q.key === item.key ? { ...q, status: "done", progress: notes.join(" · ") || undefined } : q));
+          }
+        } catch (err) {
+          const aborted = err instanceof DOMException && err.name === "AbortError";
+          const msg = aborted ? "Cancelled" : err instanceof Error ? err.message : "Deck import failed";
+          media += ok; // whatever uploaded before the failure is real
+          setQueue((prev) => prev.map((q) => q.key === item.key ? { ...q, status: "error", error: msg, progress: undefined } : q));
+          if (!aborted) { toast.error(`"${item.file.name}": ${msg}`); errors++; }
+        } finally {
+          if (deckAbortRef.current === ac) deckAbortRef.current = null;
+        }
+      } else if (item.tag === "media") {
         // ── Media path: presign → S3 PUT → registerMediaAsset ──────────────
         try {
-          const presignRes = await fetch("/api/media/presign", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ fileName: item.file.name, contentType: item.file.type, size: item.file.size, purpose: "media" }),
-          });
-          if (!presignRes.ok) {
-            const err = await presignRes.json().catch(() => ({})) as { error?: string };
-            throw new Error(err.error ?? `Presign failed (${presignRes.status})`);
-          }
-          const { url: uploadUrl, key } = await presignRes.json() as { url: string; key: string };
-          const uploadRes = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": item.file.type }, body: item.file });
-          if (!uploadRes.ok) throw new Error("Storage upload failed");
-          const kind = item.file.type.startsWith("video") ? "video" as const : "image" as const;
-          const result = await registerMediaAsset({ kind, fileName: item.file.name, s3Key: key, mimeType: item.file.type, sizeBytes: item.file.size });
-          if (!result?.ok) throw new Error((result as { error?: string } | undefined)?.error ?? "Registration failed");
+          await uploadMediaFile(item.file);
           setQueue((prev) => prev.map((q) => q.key === item.key ? { ...q, status: "done" } : q));
           media++;
         } catch (err) {
@@ -306,20 +370,28 @@ export function MediaImportWizard({ open, onClose, onImported }: Props) {
             {/* ── Step 1: SELECT ─────────────────────────────────────────────── */}
             {step === 1 && (
               <div className="space-y-4">
+                {/* sr-only, NOT `hidden`/display:none — a display:none file input
+                    frequently refuses to open the OS picker (via label OR .click());
+                    sr-only keeps it interactive while visually hidden. */}
                 <input
-                  ref={fileInputRef}
+                  id="media-import-input"
                   type="file"
                   multiple
-                  accept=".jpg,.jpeg,.png,.webp,.gif,.avif,.mp4,.webm,.mov,.pro6,.pro7,.pro7x,.pro5,.pro"
-                  className="hidden"
+                  accept=".jpg,.jpeg,.png,.webp,.gif,.avif,.mp4,.webm,.mov,.pdf,.pro6,.pro7,.pro7x,.pro5,.pro"
+                  className="sr-only"
                   onChange={(e) => { enqueueFiles(Array.from(e.target.files ?? [])); e.target.value = ""; }}
                 />
 
-                <div
+                {/* The WHOLE drop zone is a native <label> tied to the hidden file
+                    input — clicking anywhere (incl. the Browse button) opens Finder
+                    via the browser's native gesture. No programmatic .click(): a
+                    label + a parent onClick both firing made Chrome cancel the file
+                    dialog as an untrusted double-gesture, which is why Browse failed. */}
+                <label
+                  htmlFor="media-import-input"
                   onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                   onDragLeave={() => setDragOver(false)}
                   onDrop={(e) => { e.preventDefault(); setDragOver(false); enqueueFiles(Array.from(e.dataTransfer.files)); }}
-                  onClick={() => fileInputRef.current?.click()}
                   className={cn(
                     "flex flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed px-6 py-14 text-center cursor-pointer transition-colors",
                     dragOver
@@ -338,11 +410,19 @@ export function MediaImportWizard({ open, onClose, onImported }: Props) {
                       JPG, PNG, WebP, GIF, AVIF, MP4, WebM, MOV
                     </p>
                     <p className="mt-0.5 text-sm text-[var(--color-muted-foreground)]">
-                      ProPresenter: .pro6 / .pro7 / .pro7x / .pro5
+                      ProPresenter: .pro6 / .pro7 / .pro7x / .pro5 · Slide decks: PDF
+                    </p>
+                    <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
+                      PowerPoint, Google Slides or Gemini? Export as PDF and drop it here — each slide becomes a picture.
                     </p>
                   </div>
-                  <p className="text-xs text-[var(--color-muted-foreground)]">Up to {MAX_FILE_SIZE_MB} MB per file</p>
-                </div>
+                  {/* Visual button only — the parent <label> handles the click. */}
+                  <span className="inline-flex items-center gap-2 rounded-lg bg-[var(--color-brand)] px-4 py-2 text-sm font-semibold text-black hover:opacity-90 transition-opacity">
+                    <FolderOpen className="h-4 w-4" />
+                    Browse files
+                  </span>
+                  <p className="text-xs text-[var(--color-muted-foreground)]">or drag &amp; drop · up to {MAX_FILE_SIZE_MB} MB per file</p>
+                </label>
 
                 {queue.length > 0 && (
                   <p className="text-sm text-[var(--color-muted-foreground)]">
@@ -468,6 +548,12 @@ export function MediaImportWizard({ open, onClose, onImported }: Props) {
                       <div className="flex-1 min-w-0">
                         <span className="text-xs text-[var(--color-foreground)] truncate block">{q.file.name}</span>
                         {q.status === "error" && q.error && <span className="text-[10px] text-red-400">{q.error}</span>}
+                        {q.tag === "media" && q.deck && q.status === "uploading" && q.progress && (
+                          <span className="text-[10px] text-[var(--color-muted-foreground)]">Rendering deck — {q.progress}</span>
+                        )}
+                        {q.tag === "media" && q.deck && q.status === "done" && q.progress && (
+                          <span className="text-[10px] text-green-400">{q.progress}</span>
+                        )}
                         {q.tag === "pro" && q.status === "done" && (
                           <span className="text-[10px] text-green-400">{q.songsImported ?? 0} songs imported</span>
                         )}

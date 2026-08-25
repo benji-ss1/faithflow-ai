@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.329",
+    date: "2026-08-25",
+    headline: "Import slide decks (PowerPoint, Google Slides, PDF) into Media as pictures",
+    highlights: [
+      { text: "Import slide decks as media — drop a PDF into Media and every page becomes a slide image you can project, looking exactly like the original. Making a deck in PowerPoint, Google Slides, or Gemini? Export it as a PDF (one click) and drop it in.", tryItHref: "/operator", tryItLabel: "Open Media" },
+      "Big decks are handled gracefully — slides render and upload one at a time with live progress, and if a deck is very long you're told exactly how many pages came in.",
+    ],
+  },
+  {
     version: "0.1.328",
     date: "2026-08-25",
     headline: "Auto-detected verses now project in your saved style",

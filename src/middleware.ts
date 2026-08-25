@@ -354,4 +354,14 @@ export async function middleware(req: NextRequest) {
 // sw.js excluded: the service-worker kill-switch (2026-08-11) must be fetchable
 // even without a session cookie — an auth 307 here would leave a stale SW
 // permanently un-updatable on a logged-out client.
-export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico|sw\\.js$|.*\\.(?:png|jpg|jpeg|svg|webp|gif|mp4)$).*)"] };
+// The negative lookahead skips the auth/CSRF middleware for static public
+// assets. `js|mjs|css|woff2?|ttf|otf|ico` were added alongside the image/video
+// types so files served from public/ (e.g. /pdf.worker.min.js — the pdf.js
+// worker used by the PDF-deck import) are fetchable without being redirected to
+// /login. No protected route ends in these extensions (API routes are
+// extensionless; app JS lives under _next/static, already excluded), so this
+// widens only genuinely-public static delivery. `sw.js` stays explicit above.
+// ⚠️ INVARIANT: never add a route/handler whose terminal path segment ends in
+// one of these extensions — it would silently skip auth + CSRF here and rely
+// only on the handler's own guards.
+export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico|sw\\.js$|.*\\.(?:png|jpg|jpeg|svg|webp|gif|mp4|js|mjs|css|woff|woff2|ttf|otf|ico)$).*)"] };

@@ -6,7 +6,9 @@
   "author": "PresentFlow",
   "main": "dist-electron/main.js",
   "scripts": {
+    "predev": "node scripts/copy-pdf-worker.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/copy-pdf-worker.mjs",
     "electron:dev": "concurrently -k \"next dev\" \"wait-on http://localhost:3000 && npm run electron:build:tsc && cross-env NODE_ENV=development electron .\"",
     "electron:build:tsc": "tsc -p electron/tsconfig.json",
     "electron:build": "next build && npm run electron:build:tsc && electron-builder --mac --x64 --arm64",
