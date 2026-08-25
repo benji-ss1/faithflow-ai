@@ -105,7 +105,7 @@ async function validateAddServiceItemPayload(
       // assets (mediaAssetIds[] — the collapsible playlist group). Validate that
       // every referenced asset belongs to this church (defense-in-depth; the
       // expander re-scopes by churchId too).
-      const groupIdsRaw = (payload as any).mediaAssetIds;
+      const groupIdsRaw = payload.mediaAssetIds; // Record<string, unknown> → unknown, narrowed below
       if (Array.isArray(groupIdsRaw)) {
         const ids = groupIdsRaw.filter((x: unknown): x is string => typeof x === "string" && x.length > 0);
         if (ids.length === 0) return { ok: false, error: "media group requires at least one asset" };

@@ -66,7 +66,7 @@ function textObjectFrom(s: TextStyle, text: string): TextObject {
 // Objects for a scripture slide: verse + (optional) reference. NO background
 // object — the theme's background shows through (SlideRenderer's designBg falls
 // back to the theme when the slide has no bgColor/bgImageUrl).
-export function scriptureObjects(verseText: string, reference: string, translation: string | undefined, d: ScriptureDesign): SlideObject[] {
+function scriptureObjects(verseText: string, reference: string, translation: string | undefined, d: ScriptureDesign): SlideObject[] {
   const objects: SlideObject[] = [textObjectFrom(d.verse, verseText)];
   if (d.reference.show && reference) {
     objects.push(textObjectFrom(d.reference, referenceLabel(reference, translation, d.reference.showTranslation)));

@@ -8,7 +8,9 @@ import { signIn, signOut } from "@/lib/auth";
  * HARD-GUARDED: returns 404 unless NODE_ENV === "development" AND
  * DEV_AUTOLOGIN === "1". Credentials come from DEV_LOGIN_EMAIL /
  * DEV_LOGIN_PASSWORD in .env.local (gitignored) — never hardcoded, never
- * shipped. Sandbox branch only. Do NOT merge to main.
+ * shipped. On Vercel NODE_ENV === "production", so the gate short-circuits and
+ * every request 404s: this route is INERT in production and dead by design.
+ * Reviewed + intentionally kept on main as a local-dev convenience (2026-08-25).
  */
 function devEnabled() {
   return process.env.NODE_ENV === "development" && process.env.DEV_AUTOLOGIN === "1";
