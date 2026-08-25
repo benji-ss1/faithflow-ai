@@ -94,6 +94,41 @@ export function scriptureSlidePayload(verseText: string, reference: string, tran
   return p;
 }
 
+// PREVIEW≠LIVE parity fix (2026-08-25, field report). The AI auto-fire and
+// verse-nav paths build a PLAIN scripture slide — `{ text, reference }` with NO
+// style objects. The live SlideRenderer then applies AutoFitText's default
+// "always-on UPPERCASE, bold" crowd-readability style instead of the church's
+// saved scripture design, so the projector did NOT match the styled operator
+// preview (which builds the slide via scriptureSlidePayload → styled objects).
+// The operator had to manually re-click the verse to get the correct styling.
+//
+// styleScriptureSlide applies the saved design to any plain scripture slide so
+// EVERY send path (AI auto-fire, verse-nav, manual) projects the church's
+// styling — called once centrally in OperatorConsole.sendSlideToLive. Gated to
+// scripture (has a `reference`) with no objects yet, so song lyrics (`{ text }`,
+// no reference) and already-styled sends (scriptureSlidePayload carries objects)
+// pass through UNTOUCHED. Deterministic: a given (verse, reference, design)
+// always yields the same objects geometry/style, and object IDs are NOT part of
+// slideDesignSig, so the content-identity guarding the already-live skip +
+// fade-pulse behaviour in sendSlideToLive is unchanged. Never throws — a styling
+// failure falls back to the plain slide so a live send is never broken.
+export function styleScriptureSlide(slide: SlidePayload, churchId: string): SlidePayload {
+  if (slide.kind !== "text" || !slide.reference) return slide;
+  if (slide.objects && slide.objects.length > 0) return slide; // already styled
+  try {
+    // Cap before the regex: `reference` is not length-validated on the wire, and
+    // the match `^(.*?)\s*\(…\)$` is O(n²) on a pathological all-"(" string. A
+    // real bible reference is short; a 200-char cap closes the latent ReDoS
+    // cheaply (defence-in-depth — references are internally generated today).
+    const m = slide.reference.slice(0, 200).match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+    const refText = m ? m[1].trim() : slide.reference;
+    const translation = m ? m[2].trim() : undefined;
+    return scriptureSlidePayload(slide.text, refText, translation, loadScriptureStyle(churchId));
+  } catch {
+    return slide;
+  }
+}
+
 // Extract a reusable design template from an edited slide's objects (positions,
 // sizes, styles) so "Save (all slides)" reproduces the layout for every verse.
 export function designFromSlide(slide: EditableSlide, prev: ScriptureDesign): ScriptureDesign {

@@ -7,6 +7,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, Monitor, Radio, Square, Sun, Pane
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, AI_AUTO_TRANSITION, slideOutputIdentity, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
 import { readFontScale, readReferenceScale, readReferenceColor } from "./pro/operatorConstants";
+import { styleScriptureSlide } from "./scripture/scriptureStyle";
 import { useBackgroundState } from "@/backgrounds/hooks/useBackgroundState";
 import { toBackgroundSpec } from "@/backgrounds/models/BackgroundTypes";
 import { openOutputChannel } from "@/lib/realtime";
@@ -833,6 +834,12 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       console.warn("[live] sendSlideToLive got invalid slide payload — no-op", slide);
       return;
     }
+    // PREVIEW≠LIVE FIX (2026-08-25): apply the church's saved scripture design to
+    // a plain auto-fired/verse-nav scripture slide so the projector matches the
+    // styled operator preview. No-op for songs (no reference) + already-styled
+    // sends (have objects). See styleScriptureSlide. Runs BEFORE the identity
+    // checks so all downstream guards operate on the final styled slide.
+    slide = styleScriptureSlide(slide, churchId);
     // ALREADY-LIVE SKIP (2026-08-20): if this EXACT slide is already on the
     // projector, sending it again is a no-op — do nothing. Re-clicking the live
     // verse card, or the preacher repeating the verse that's on screen, used to
@@ -882,7 +889,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       ...(setTransition !== undefined ? { transition: setTransition } : {}),
     } as LiveMessage);
     try { console.log("[live] setLive committed + broadcast posted", { posted: posted !== undefined ? "ok" : "no-channel" }); } catch { /* ignore */ }
-  }, []);
+  }, [churchId]);
   const stageSlide = useCallback((slide: SlidePayload) => setStagedAISlide(slide), []);
   const sendBankedToLive = useCallback((idx: number) => {
     const v = effectiveBank[idx];

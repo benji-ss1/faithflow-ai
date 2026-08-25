@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.328",
+    date: "2026-08-25",
+    headline: "Auto-detected verses now project in your saved style",
+    highlights: [
+      "Fixed: when the AI detected a verse (or you advanced by voice), the projector showed it in a plain default style — not the font, size and casing you set up — so you had to click it again to fix it. Now every auto-detected verse projects exactly like your styled preview, no click needed.",
+    ],
+  },
+  {
     version: "0.1.327",
     date: "2026-08-25",
     headline: "Phrase search now nails exact quotations",
