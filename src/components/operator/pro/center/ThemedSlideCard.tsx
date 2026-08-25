@@ -34,7 +34,15 @@ export function ThemedSlideCard({
   const showBg = hasBg && themeable;
   return (
     <>
-      {showBg && (liveBg ? <BackgroundLayer background={background} /> : <StaticCardBackground background={background!} />)}
+      {/* Static dark+tint floor is ALWAYS painted under a themeable slide — it's
+          the readable representation for grid cards AND a graceful backstop for
+          the live card while its shader initialises (prevents a black flash) or
+          if WebGL is unavailable. */}
+      {showBg && <StaticCardBackground background={background!} />}
+      {/* The focused card also paints the real animated shader on top. `key` on
+          the preset forces a FRESH canvas when the theme is switched — reusing
+          the canvas permanently loses its WebGL context (freezes the shader). */}
+      {showBg && liveBg && <BackgroundLayer key={background!.shaderPreset ?? background!.type} background={background} />}
       <SlideRenderer slide={slide} appearance={appearance} overVideo={showBg} {...rest} />
     </>
   );
@@ -58,9 +66,17 @@ function StaticCardBackground({ background }: { background: BackgroundSpec }) {
           onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
         />
       ) : (
-        // shader / gradient / video → static primary→secondary gradient
-        // (ShaderBackground's own no-WebGL fallback), no context cost.
-        <div style={{ ...FILL, background: `linear-gradient(135deg, ${primary}, ${secondary})` }} />
+        // shader / gradient / video: the real shaders paint a NEAR-BLACK base and
+        // use primary/secondary only as sparse ember/wash TINTS — they are NOT
+        // fill colors. Filling a card with them made warm themes (Holy Fire
+        // #E8501A) a solid bright card that killed white-text contrast. So we
+        // mirror the shaders: a dark base + the primary→secondary tint at low
+        // opacity. Keeps white text ≥4.5:1 (AA) on every preset incl. Holy Fire /
+        // Deep Breath, while the card still reads as the right warm/cool tint.
+        <>
+          <div style={{ ...FILL, background: "linear-gradient(160deg, #0A0A0E, #0F0F14)" }} />
+          <div style={{ ...FILL, background: `linear-gradient(135deg, ${primary}, ${secondary})`, opacity: 0.35 }} />
+        </>
       )}
       {overlayOpacity > 0 && background.overlayColor && (
         <div style={{ ...FILL, background: background.overlayColor, opacity: overlayOpacity }} />

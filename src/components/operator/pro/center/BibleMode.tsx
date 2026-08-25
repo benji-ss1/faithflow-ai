@@ -1010,7 +1010,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
               }}
             >
               {selectedIdx != null && cards[selectedIdx] ? (
-                <div className="aspect-video rounded overflow-hidden border border-[var(--color-border)]">
+                <div className="relative aspect-video rounded overflow-hidden border border-[var(--color-border)]">
                   <ThemedSlideCard slide={cardToSlide(cards[selectedIdx], selectedIdx, cards.length)} appearance={ctx.appearance ?? undefined} background={ctx.background} liveBg />
                 </div>
               ) : (

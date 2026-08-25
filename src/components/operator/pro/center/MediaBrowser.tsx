@@ -493,6 +493,13 @@ export function MediaBrowser({
                           if (clickTimerRef.current) { window.clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
                           setEditingImage(a);
                         }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault(); e.stopPropagation();
+                            if (clickTimerRef.current) { window.clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
+                            setEditingImage(a);
+                          }
+                        }}
                         className="absolute right-1 top-1 z-10 inline-flex h-6 px-1.5 items-center gap-1 rounded bg-black/60 text-white/85 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80 hover:text-white text-[10px] font-semibold"
                       >
                         <Crop className="w-3 h-3" /> Edit
