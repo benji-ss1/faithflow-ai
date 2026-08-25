@@ -456,7 +456,11 @@ export default function LivePage() {
                   text. Active (type != none) ⇒ render it and make the slide
                   transparent (overVideo) so it shows through. type none ⇒ nothing
                   renders here and the existing behaviour is byte-identical. */}
-              {background && background.type !== "none" && <BackgroundLayer background={background} />}
+              {/* key on the preset forces a fresh WebGL canvas on a mid-service
+                  theme switch — reusing the canvas loses its context and freezes
+                  the shader. The init gap is white-safe: ShaderBackground always
+                  paints a dark floor. */}
+              {background && background.type !== "none" && <BackgroundLayer key={background.shaderPreset ?? background.type} background={background} />}
               {hasVideoBackground(videoInput, appearance) && !(background && background.type !== "none") ? (
                 // Video behind the slide (camera or theme video bg): no slide-keyed
                 // transition wrapper, so the video stays playing across slide

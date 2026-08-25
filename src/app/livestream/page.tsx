@@ -262,7 +262,7 @@ export default function LivestreamPage() {
         <>
           {/* Background Templates layer for the broadcast/NDI output. Never in
               transparent (OBS-key) mode. When active the slide goes transparent. */}
-          {!transparent && background && background.type !== "none" && <BackgroundLayer background={background} />}
+          {!transparent && background && background.type !== "none" && <BackgroundLayer key={background.shaderPreset ?? background.type} background={background} />}
           {hasVideoBackground(videoInput, appearance) && !(!transparent && background && background.type !== "none") ? (
             <OutputSlide slide={slide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} projectorFit />
           ) : transitionsEnabled ? (

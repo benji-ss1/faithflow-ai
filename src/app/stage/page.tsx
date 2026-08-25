@@ -283,7 +283,7 @@ export default function StagePage() {
           </div>
         )}
         <PresentationCanvas zone={zone}>
-          {background && background.type !== "none" && <BackgroundLayer background={background} />}
+          {background && background.type !== "none" && <BackgroundLayer key={background.shaderPreset ?? background.type} background={background} />}
           <TransitionWrapper identityKey={slideOutputIdentity(current)} transition={transition}>
             <SlideRenderer slide={current} projectorFit fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} overVideo={!!(background && background.type !== "none")} />
           </TransitionWrapper>

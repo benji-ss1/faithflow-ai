@@ -33,6 +33,15 @@ export function ShaderBackground({
     const canvas = canvasRef.current;
     if (!canvas) return;
     let handle: ShaderHandle | null = null;
+    // Fix B (defense-in-depth): if the GPU drops the context WHILE running
+    // (GPU reset, projector window backgrounded, context eviction), flip to the
+    // CSS fallback so the surface degrades to a dark gradient instead of a blank
+    // canvas, and recovers on restore. Without this, an involuntarily-lost
+    // context leaves the canvas blank forever on the operator preview.
+    const onLost = () => setWebglOk(false);
+    const onRestored = () => setWebglOk(true);
+    canvas.addEventListener("webglcontextlost", onLost, false);
+    canvas.addEventListener("webglcontextrestored", onRestored, false);
     // Defer one frame so the canvas has its layout size before we size the GL viewport.
     const raf = requestAnimationFrame(() => {
       handle = createShaderRenderer({
@@ -46,17 +55,31 @@ export function ShaderBackground({
       });
       setWebglOk(!!handle);
     });
-    return () => { cancelAnimationFrame(raf); handle?.stop(); };
+    return () => {
+      cancelAnimationFrame(raf);
+      canvas.removeEventListener("webglcontextlost", onLost, false);
+      canvas.removeEventListener("webglcontextrestored", onRestored, false);
+      handle?.stop();
+    };
   }, [preset, speed, intensity, primaryColor, secondaryColor]);
 
   return (
     <div
+      // Fix A (the white-projector fix): ALWAYS paint an opaque dark floor behind
+      // the canvas. An un-initialised or context-lost `alpha:false` WebGL canvas
+      // is transparent (and composites to WHITE on many real GPUs), and the slide
+      // over it is transparent (overVideo) — so without a floor the LIVE OUTPUT
+      // could flash white during the shader's init frame or on context loss. The
+      // opaque shader covers this floor the instant it draws its first frame, so
+      // this is invisible in the normal case and only shows exactly when needed.
       style={{
         position: "absolute", inset: 0, width: "100%", height: "100%", overflow: "hidden",
-        // Fallback gradient shows through if WebGL failed (canvas empty).
-        background: webglOk ? undefined : `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})`,
+        background: "linear-gradient(160deg, #0A0A0E, #0F0F14)",
       }}
     >
+      {/* primary→secondary tint under the canvas, so a blank/initialising canvas
+          reads as the theme colour (never white) — hidden once the shader draws. */}
+      <div style={{ position: "absolute", inset: 0, background: `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})`, opacity: 0.35 }} aria-hidden />
       <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", display: "block" }} />
     </div>
   );

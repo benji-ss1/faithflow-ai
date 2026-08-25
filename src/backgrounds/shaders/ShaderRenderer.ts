@@ -13,6 +13,15 @@ export interface ShaderRendererOptions {
   secondaryColor: [number, number, number];
   /** When true, render a single frame and do not animate (reduced motion). */
   frozen?: boolean;
+  /** Fixed backing size for OFFSCREEN rendering (a detached canvas reports
+   *  clientWidth/Height 0). Used by the shared-shader card renderer. */
+  offscreenSize?: { width: number; height: number };
+  /** Keep the drawing buffer readable after a frame (so late 2D blits / static
+   *  presets can drawImage the offscreen canvas). */
+  preserveDrawingBuffer?: boolean;
+  /** Called each frame immediately AFTER drawArrays (buffer valid this tick) —
+   *  the shared renderer uses it to blit into all registered card canvases. */
+  onDraw?: () => void;
 }
 
 function compile(gl: WebGLRenderingContext, type: number, src: string): WebGLShader | null {
@@ -38,7 +47,7 @@ export function createShaderRenderer(opts: ShaderRendererOptions): ShaderHandle 
 
   let gl: WebGLRenderingContext | null = null;
   try {
-    gl = (opts.canvas.getContext("webgl", { antialias: false, alpha: false, powerPreference: "high-performance" })
+    gl = (opts.canvas.getContext("webgl", { antialias: false, alpha: false, powerPreference: "high-performance", preserveDrawingBuffer: !!opts.preserveDrawingBuffer })
       || opts.canvas.getContext("experimental-webgl")) as WebGLRenderingContext | null;
   } catch {
     gl = null;
@@ -102,6 +111,17 @@ export function createShaderRenderer(opts: ShaderRendererOptions): ShaderHandle 
   const start = performance.now();
 
   const sizeCanvas = () => {
+    // Offscreen (detached) canvas has no layout size — use the fixed size.
+    if (opts.offscreenSize) {
+      const { width, height } = opts.offscreenSize;
+      if (opts.canvas.width !== width || opts.canvas.height !== height) {
+        opts.canvas.width = width;
+        opts.canvas.height = height;
+      }
+      gl!.viewport(0, 0, width, height);
+      gl!.uniform2f(uRes, width, height);
+      return;
+    }
     const cw = opts.canvas.clientWidth || 1920;
     const ch = opts.canvas.clientHeight || 1080;
     // Cap DPR to 1.5 — projector output doesn't need retina density and it keeps
@@ -121,6 +141,7 @@ export function createShaderRenderer(opts: ShaderRendererOptions): ShaderHandle 
     if (!running || !gl) return;
     gl.uniform1f(uTime, t);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
+    opts.onDraw?.(); // shared renderer blits into card canvases on the same tick
   };
 
   sizeCanvas();

@@ -1,22 +1,22 @@
 "use client";
+import { useEffect, useRef } from "react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
 import type { BackgroundSpec } from "@/lib/broadcast";
+import { SharedBackgroundRenderer, type SharedShaderSpec } from "@/backgrounds/shared/SharedBackgroundRenderer";
 
 /**
  * A center-panel slide card that renders the SAME theme composite the projector
  * shows — the active Background Template (System B) behind the SlideRenderer
- * (which paints the theme appearance, System A) — so each card box is WYSIWYG.
- * Mirrors LivePreviewPanel's stacking. SlideRenderer / slideOutputIdentity /
- * projector output stay byte-identical (preview-only; never enters OutputState).
+ * (which paints the theme appearance, System A) — so each card box is a TRUE
+ * 1:1 replica of the live output. SlideRenderer / slideOutputIdentity / projector
+ * output stay byte-identical (preview-only; never enters OutputState).
  *
- * WebGL budget: a live shader Background Template is a WebGL context, and
- * browsers cap those at ~16. A chapter/song grid can show 30+ cards, so we
- * render the LIVE animated shader ONLY in the focused card (`liveBg`) and a
- * cheap STATIC gradient (the shader's own no-WebGL fallback: primary→secondary)
- * in every other card — unlimited, no context exhaustion. Image templates render
- * their <img> (cheap, cache-shared); video/shader use the static gradient in
- * grid cards. The real animation still lives in LivePreviewPanel + the projector.
+ * WebGL budget: a live shader is a WebGL context (browser cap ~16), so we can't
+ * give every card its own. Instead a single shared offscreen shader renders once
+ * (SharedBackgroundRenderer) and each card cheaply blits it into a 2D canvas —
+ * so 40 cards show the exact same animated shader as live at the cost of ONE GL
+ * context total. (Previously grid cards showed a STATIC gradient that mismatched
+ * the live shader — e.g. Holy Fire looked flat-orange instead of dark-with-embers.)
  *
  * Only text/blank slides get a background (image/video/logo slides are opaque
  * full-bleed and would hide it).
@@ -25,7 +25,7 @@ export function ThemedSlideCard({
   slide,
   appearance,
   background,
-  liveBg,
+  liveBg: _liveBg, // deprecated no-op: all cards use the shared shader now
   ...rest
 }: React.ComponentProps<typeof SlideRenderer> & { background?: BackgroundSpec | null; liveBg?: boolean }) {
   const hasBg = !!(background && background.type !== "none");
@@ -34,30 +34,22 @@ export function ThemedSlideCard({
   const showBg = hasBg && themeable;
   return (
     <>
-      {/* Static dark+tint floor is ALWAYS painted under a themeable slide — it's
-          the readable representation for grid cards AND a graceful backstop for
-          the live card while its shader initialises (prevents a black flash) or
-          if WebGL is unavailable. */}
-      {showBg && <StaticCardBackground background={background!} />}
-      {/* The focused card also paints the real animated shader on top. `key` on
-          the preset forces a FRESH canvas when the theme is switched — reusing
-          the canvas permanently loses its WebGL context (freezes the shader). */}
-      {showBg && liveBg && <BackgroundLayer key={background!.shaderPreset ?? background!.type} background={background} />}
+      {showBg && <CardBackground background={background!} />}
       <SlideRenderer slide={slide} appearance={appearance} overVideo={showBg} {...rest} />
     </>
   );
 }
 
 const FILL: React.CSSProperties = { position: "absolute", inset: 0, width: "100%", height: "100%", overflow: "hidden" };
+// Matches SharedBackgroundRenderer's offscreen size — the per-card cap.
+const OFF_W = 480, OFF_H = 270;
 
-/** Cheap, WebGL-free representation of a Background Template for grid cards. */
-function StaticCardBackground({ background }: { background: BackgroundSpec }) {
-  const primary = background.primaryColor || "#0A0A0E";
-  const secondary = background.secondaryColor || "#0F0F14";
+function CardBackground({ background }: { background: BackgroundSpec }) {
   const overlayOpacity = typeof background.overlayOpacity === "number" ? Math.min(0.8, Math.max(0, background.overlayOpacity)) : 0;
   return (
     <div style={FILL} aria-hidden>
       {background.type === "image" && background.imageUrl ? (
+        // Image templates: a shared-cache <img> is cheap AND already 1:1 with live.
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={background.imageUrl}
@@ -66,21 +58,49 @@ function StaticCardBackground({ background }: { background: BackgroundSpec }) {
           onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
         />
       ) : (
-        // shader / gradient / video: the real shaders paint a NEAR-BLACK base and
-        // use primary/secondary only as sparse ember/wash TINTS — they are NOT
-        // fill colors. Filling a card with them made warm themes (Holy Fire
-        // #E8501A) a solid bright card that killed white-text contrast. So we
-        // mirror the shaders: a dark base + the primary→secondary tint at low
-        // opacity. Keeps white text ≥4.5:1 (AA) on every preset incl. Holy Fire /
-        // Deep Breath, while the card still reads as the right warm/cool tint.
-        <>
-          <div style={{ ...FILL, background: "linear-gradient(160deg, #0A0A0E, #0F0F14)" }} />
-          <div style={{ ...FILL, background: `linear-gradient(135deg, ${primary}, ${secondary})`, opacity: 0.35 }} />
-        </>
+        // shader / gradient / video → the REAL shader via the shared renderer.
+        <SharedShaderCard background={background} />
       )}
       {overlayOpacity > 0 && background.overlayColor && (
         <div style={{ ...FILL, background: background.overlayColor, opacity: overlayOpacity }} />
       )}
     </div>
+  );
+}
+
+/**
+ * One card's 2D canvas registered with the shared shader renderer. Layers:
+ *   1. opaque dark base + primary→secondary tint (readable floor — shows before
+ *      the first blit and if WebGL is unavailable; never white, always legible);
+ *   2. the 2D canvas the shared renderer blits the real shader into each frame.
+ * The opaque shader blit covers the floor once it draws — so the card shows the
+ * exact live shader, and falls back to the dark tint gracefully.
+ */
+function SharedShaderCard({ background }: { background: BackgroundSpec }) {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  const spec: SharedShaderSpec = {
+    preset: background.shaderPreset || "cleanSlate",
+    speed: background.speed ?? 1,
+    intensity: background.intensity ?? 1,
+    primary: background.primaryColor || "#0A0A0E",
+    secondary: background.secondaryColor || "#0F0F14",
+  };
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const r = canvas.getBoundingClientRect();
+    const dpr = Math.min(1.5, typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1);
+    canvas.width = Math.max(1, Math.min(OFF_W, Math.round((r.width || 160) * dpr)));
+    canvas.height = Math.max(1, Math.min(OFF_H, Math.round((r.height || 90) * dpr)));
+    return SharedBackgroundRenderer.register(canvas, spec);
+    // Re-register when the active theme changes (one context rebuild, deduped).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spec.preset, spec.primary, spec.secondary, spec.speed, spec.intensity]);
+  return (
+    <>
+      <div style={{ ...FILL, background: "linear-gradient(160deg, #0A0A0E, #0F0F14)" }} />
+      <div style={{ ...FILL, background: `linear-gradient(135deg, ${spec.primary}, ${spec.secondary})`, opacity: 0.35 }} />
+      <canvas ref={ref} style={{ ...FILL, display: "block" }} />
+    </>
   );
 }
