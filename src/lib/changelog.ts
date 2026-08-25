@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.331",
+    date: "2026-08-25",
+    headline: "Cleaner song slides — fewer words per slide, easier to sing",
+    highlights: [
+      { text: "New songs you import now break into clean, easy-to-read slides (about two lines each) instead of one crammed block — so the congregation can actually follow along.", tryItHref: "/library/songs", tryItLabel: "Open Songs" },
+      "Already have clunky songs? Open a song and hit “Tidy slides”, or use “Tidy all songs” on the library to fix your whole library at once. Custom-styled songs are left untouched.",
+    ],
+  },
+  {
     version: "0.1.330",
     date: "2026-08-25",
     headline: "Quick Edit is back — and saving sends it live in your style",

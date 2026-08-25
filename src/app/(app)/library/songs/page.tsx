@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { SongImporter } from "@/components/library/SongImporter";
 import { InternetSongDetectionPanel } from "@/components/library/InternetSongDetectionPanel";
 import { SongsTable } from "@/components/library/SongsTable";
+import { TidyAllSongsButton } from "@/components/library/TidyAllSongsButton";
 import { getSongUsage } from "@/lib/song-limits";
 import { getEffectiveSongLimit } from "@/lib/server/song-limits-server";
 import { createSong } from "@/lib/actions";
@@ -35,8 +36,11 @@ export default async function SongsPage() {
         action={<SongImporter />}
       />
 
-      <div className="text-sm text-muted-foreground">
-        {songs.length} song{songs.length === 1 ? "" : "s"} in library
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-sm text-muted-foreground">
+          {songs.length} song{songs.length === 1 ? "" : "s"} in library
+        </div>
+        <TidyAllSongsButton count={songs.length} />
       </div>
 
       <form action={create} className="flex flex-wrap gap-2 rounded-2xl border border-border bg-card/80 p-4">

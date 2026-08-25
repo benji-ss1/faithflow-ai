@@ -180,7 +180,12 @@ export const songSlides = pgTable("song_slides", {
   // the legacy `lyrics` string renders as a single full-canvas text object.
   objectsJson: jsonb("objects_json"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (t) => [
+  // The FK to songs does NOT auto-index song_id in Postgres, yet every slide
+  // read + the re-chunk delete filters on it. Invisible at demo scale, a
+  // table-scan storm when re-chunking across a library (A2, Speed fold §3a-5).
+  index("idx_song_slides_song").on(t.songId),
+]);
 
 export const mediaAssets = pgTable("media_assets", {
   id: uuid("id").primaryKey().defaultRandom(),

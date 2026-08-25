@@ -10,10 +10,16 @@ import { createLimiter } from "./rate-limit";
 import { getSongUsage } from "./song-limits";
 import { getEffectiveSongLimit } from "./server/song-limits-server";
 import { bulkInsertSongs } from "./song-bulk-insert";
+import { reChunkSongCore, type ReChunkOutcome } from "./server/song-rechunk";
 
 type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
 
 const addServiceItemsLimiter = createLimiter("add-service-items", 30, 60 * 1000);
+// "Tidy all songs" is an expensive whole-library sweep — cap it hard.
+const reChunkAllLimiter = createLimiter("rechunk-all", 3, 60 * 60 * 1000);
+// Bound a single tidy-all sweep so a very large library can't blow the function
+// timeout in one synchronous request; a bigger library tidies over a few runs.
+const RECHUNK_ALL_MAX_PER_RUN = 300;
 
 // Service plans ---------------------------------------------------------------
 export async function createServicePlan(formData: FormData): Promise<Result<{ id: string }>> {
@@ -486,6 +492,66 @@ export async function updateSongSlides(songId: string, slides: { lyrics: string 
   }
   revalidatePath(`/library/songs/${songId}`);
   return { ok: true };
+}
+
+/**
+ * Re-chunk ONE song's slides into cleaner, phrase-broken slides (A2 — "tidy
+ * slides"). Rejoins the song's existing slide texts into a body and re-runs the
+ * shared `chunkLyrics` engine, so an already-imported clunky song gets the same
+ * tidy chunking new imports get. Spec: docs/SONG_SLIDE_CHUNKING_SPEC.md §3a.
+ *
+ * Three guards (design-review folds):
+ *  - Rule 2: SKIP songs with any rich `objects_json` slide (or per-slide media)
+ *    — re-chunking would orphan that per-slide styling. Reported, not silent.
+ *  - Rule 4: in the SAME transaction, clear any `serviceItems.payload.slideOrder`
+ *    override that referenced this song's (now-deleted) slide UUIDs, so service
+ *    plans fall back to the new full slide list instead of pointing at dangling
+ *    IDs (blank slides — the `project_faithflow_song_refs` incident).
+ *  - Church-scoped + `edit_library` cap (mirrors updateSongSlides).
+ */
+export async function reChunkSong(songId: string): Promise<Result<ReChunkOutcome>> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  try {
+    const res = await reChunkSongCore(db, user.churchId, songId);
+    if (res === null) return { ok: false, error: "Song not found" };
+    if (!res.skipped) revalidatePath(`/library/songs/${songId}`);
+    return { ok: true, data: res };
+  } catch (err) {
+    console.error("[reChunkSong]", err instanceof Error ? err.message : String(err));
+    return { ok: false, error: "Tidy failed — please try again" };
+  }
+}
+
+/**
+ * Bulk "tidy" every song in the caller's library (A2). Per-song + on-demand
+ * (Speed fold: no giant single transaction) — each song re-chunks in its own
+ * transaction via reChunkSong, so one failure never rolls back the rest.
+ * Returns a summary. Bounded by the church's own library size.
+ */
+export async function reChunkAllSongs(): Promise<Result<{ tidied: number; skipped: number; failed: number; remaining: number; totalSlidesBefore: number; totalSlidesAfter: number }>> {
+  const user = await requireCap("edit_library"); // authenticate ONCE for the whole sweep
+  if (!(await reChunkAllLimiter(user.id))) return { ok: false, error: "Please wait a moment before tidying the whole library again." };
+  const db = getDb();
+  const all = await db.select({ id: songs.id }).from(songs).where(eq(songs.churchId, user.churchId)).orderBy(asc(songs.title));
+  // Bound one run so a huge library can't blow the function timeout; the caller
+  // sees `remaining` and can run again to finish the rest.
+  const batch = all.slice(0, RECHUNK_ALL_MAX_PER_RUN);
+  const remaining = all.length - batch.length;
+  let tidied = 0, skipped = 0, failed = 0, before = 0, after = 0;
+  for (const { id } of batch) {
+    try {
+      const res = await reChunkSongCore(db, user.churchId, id); // no per-song re-auth
+      if (res === null) { failed++; continue; }
+      before += res.before; after += res.after;
+      if (res.skipped) skipped++; else tidied++;
+    } catch (err) {
+      console.error("[reChunkAllSongs]", err instanceof Error ? err.message : String(err));
+      failed++;
+    }
+  }
+  if (tidied > 0) revalidatePath("/library/songs"); // once for the whole sweep
+  return { ok: true, data: { tidied, skipped, failed, remaining, totalSlidesBefore: before, totalSlidesAfter: after } };
 }
 
 // --- Phase 5D: rich slide editing ------------------------------------------

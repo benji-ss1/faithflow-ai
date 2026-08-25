@@ -27,8 +27,12 @@
 
 import type { Parser, ParseResult, ParsedSong } from "./index";
 import { decodeUtf8Strict } from "./safety";
+import { chunkLyrics } from "../song-chunk";
+import { isSongChunkEnabled } from "../song-chunk-constants";
 
-function parseOne(text: string, sourceFile: string): ParsedSong[] {
+// Exported for unit testing the A1 flag-gated chunking wiring (see
+// test/song-chunk-import.test.ts). Internal to the csv/plain-text parser.
+export function parseOne(text: string, sourceFile: string): ParsedSong[] {
   const src = text.replace(/\r/g, "").trim();
   if (!src) return [];
   const out: ParsedSong[] = [];
@@ -61,7 +65,15 @@ function parseOne(text: string, sourceFile: string): ParsedSong[] {
         rest.push(raw);
       }
       if (!title) continue;
-      const slides = rest.join("\n").split(/\n\s*\n+/).map((s) => s.trim()).filter(Boolean);
+      // Plain-text blocks are UNSTRUCTURED (the author gave no per-slide breaks),
+      // so this is the A1 chunking call site: when enabled, chunkLyrics produces
+      // clean ≤2-line slides instead of one clunky slide per blank-line stanza.
+      // Flag OFF → byte-identical legacy blank-line split. (The CSV-cell shape
+      // above is left untouched — its cells ARE the author's intended slides.)
+      const body = rest.join("\n");
+      const slides = isSongChunkEnabled()
+        ? chunkLyrics(body)
+        : body.split(/\n\s*\n+/).map((s) => s.trim()).filter(Boolean);
       out.push({ title, artist, slides, warnings: [], sourceFile });
     }
   }

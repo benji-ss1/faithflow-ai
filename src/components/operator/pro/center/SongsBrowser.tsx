@@ -10,14 +10,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Plus, Pencil, Upload, Loader2, Trash2, CheckSquare, Square, ListPlus } from "lucide-react";
+import { Plus, Pencil, Upload, Loader2, Trash2, CheckSquare, Square, ListPlus, Sparkles } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { ThemedSlideCard } from "./ThemedSlideCard";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import { DotGridBackground } from "../DotGridBackground";
 import type { SlidePayload } from "@/lib/broadcast";
-import { createSong, createSongSlide, importPro6Files, renameSong, updateSongSlides, deleteSong } from "@/lib/actions";
+import { createSong, createSongSlide, importPro6Files, renameSong, updateSongSlides, deleteSong, reChunkSong } from "@/lib/actions";
 import { isInternalEvent } from "@/lib/internal-events";
 import { ProPresenterImportDialog } from "@/components/library/ProPresenterImportDialog";
 
@@ -492,6 +492,25 @@ export function SongsBrowser({
                 title="Add a new blank lyric slide to this song"
               >
                 + Add slide
+              </button>
+              {/* Tidy — re-break this song into cleaner, fewer-words-per-slide
+                  slides (A2). Skips custom-styled songs, never orphans a plan. */}
+              <button
+                onClick={() => {
+                  void reChunkSong(selected.id).then((res) => {
+                    if (!res.ok) { toast.error(res.error || "Tidy failed"); return; }
+                    const d = res.data;
+                    if (!d || d.skipped === "noop") { toast.success("Slides are already tidy."); return; }
+                    if (d.skipped === "rich") { toast.error("Custom-styled slides — tidy skipped to keep your styling."); return; }
+                    if (d.skipped === "empty") { toast.error("No lyrics to tidy."); return; }
+                    toast.success(`Tidied — ${d.before} → ${d.after} cleaner slides.`);
+                    refreshSlides(selected.id);
+                  });
+                }}
+                className="h-8 px-3 rounded-md border border-[var(--color-border)] text-[12px] font-semibold hover:bg-[var(--color-elevated)] inline-flex items-center gap-1.5"
+                title="Tidy slides — re-break into cleaner, easier-to-read slides"
+              >
+                <Sparkles className="w-3.5 h-3.5" /> Tidy
               </button>
               <button
                 onClick={() => void addToPlaylist(selected)}
