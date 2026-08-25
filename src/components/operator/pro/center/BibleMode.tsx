@@ -337,24 +337,36 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
   const { setPhraseHits, setPhraseQuery, setResultsLimit } = session;
 
   const lookup = useCallback(async () => {
-    const parser = await import("@/lib/bible-parser");
-    // Try the typed-input parser FIRST — it expands short abbreviations
-    // (`ex 2 1`, `am 1`) that isProbablyReference doesn't recognize via
-    // its parser-backed confirm path. Fall back to the shape heuristic
-    // for anything else that "looks like" a reference.
-    const typedFirst = parser.parseTypedReference(ref);
-    const treatAsRef = typedFirst.length > 0 || parser.isProbablyReference(ref);
-    if (treatAsRef) {
-      // parseTypedReference is a strict superset of parseReferences that
-      // also expands typed-only book abbreviations (`ex`, `ru`, `is`, `am`,
-      // `ac`, `re`, `ph`, `jd`) that are deliberately excluded from live
-      // ASR parsing to avoid collisions with ordinary English.
-      const parsed = parser.parseTypedReference(ref);
-      if (parsed.length === 0) { toast.info("Couldn't parse reference"); return; }
-      const p = parsed[0];
+    // Manual resolution ladder (pure + unit-tested in bible-manual-resolve):
+    // full reference → book-less-against-the-open-chapter (F1) → chapter range
+    // (F2) → "did you mean" for a mistyped book, and ONLY then phrase search.
+    // A typed reference therefore never dead-ends on "Couldn't parse reference".
+    const { resolveManualReference } = await import("@/lib/bible-manual-resolve");
+    // The currently-displayed reference is the anchor for book-less input:
+    // "verse 16" / ":16" / "3:16" resolve against whatever chapter is on screen.
+    let context: { book: string; chapter: number } | null = null;
+    const anchorLabel = cards[selectedIdx ?? 0]?.label ?? cards[0]?.label;
+    if (anchorLabel) {
+      const parser = await import("@/lib/bible-parser");
+      const cur = parser.parseReference(anchorLabel.replace(/\s*\([^)]*\)\s*$/, "").trim());
+      if (cur) context = { book: cur.book, chapter: cur.chapter };
+    }
+    const resolved = resolveManualReference(ref, context);
+    if (resolved.kind === "ref") {
       setPhraseHits([]);
-      await runLookup({ book: p.book, chapter: p.chapter, verseStart: p.verseStart, verseEnd: p.verseEnd, chapterEnd: p.chapterEnd });
-    } else {
+      if (resolved.note) toast.info(resolved.note);
+      await runLookup(resolved.ref);
+      return;
+    }
+    if (resolved.kind === "suggest") {
+      const label = `${resolved.ref.book} ${resolved.ref.chapter}:${resolved.ref.verseStart}${resolved.ref.verseEnd !== resolved.ref.verseStart ? `-${resolved.ref.verseEnd}` : ""}`;
+      toast(resolved.message, {
+        action: { label: "Show it", onClick: () => { setPhraseHits([]); setRef(label); void runLookup(resolved.ref); } },
+      });
+      return;
+    }
+    // resolved.kind === "phrase" → phrase / semantic search.
+    {
       // Phrase search — server requires min 3 chars (pgvector embedding cost).
       // Enforce client-side too so we don't fire a doomed request.
       const trimmed = ref.trim();
@@ -403,7 +415,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
         setLoading(false);
       }
     }
-  }, [ref, runLookup, translation, setCards, setLoading, resultsLimit, setPhraseHits, setPhraseQuery]);
+  }, [ref, runLookup, translation, setCards, setLoading, resultsLimit, setPhraseHits, setPhraseQuery, cards, selectedIdx, setRef]);
 
   const isRef = (() => {
     try {
