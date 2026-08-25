@@ -56,9 +56,13 @@ async function main() {
   const cases: Array<{ label: string; query: string; book: string; chapter: number; verse: number }> = [
     { label: "exact: shepherd", query: "the lord is my shepherd i shall not want", book: "Psalms", chapter: 23, verse: 1 },
     { label: "paraphrase: john 3:16", query: "god loved the world so much he sent his only son", book: "John", chapter: 3, verse: 16 },
-    { label: "partial: courage", query: "be strong and of a good courage", book: "Deuteronomy", chapter: 31, verse: 6 },
+    { label: "partial: courage (KJV-primary no-regression)", query: "be strong and of a good courage", book: "Deuteronomy", chapter: 31, verse: 6 },
     { label: "allusion: faith", query: "faith is being sure of what we hope for", book: "Hebrews", chapter: 11, verse: 1 },
     { label: "exact: genesis 1:1", query: "in the beginning god created the heaven and the earth", book: "Genesis", chapter: 1, verse: 1 },
+    // ③b: MODERN wording (matches via the WEB corpus, NOT KJV "charity suffereth
+    // long"). This is the NIV/NKJV/NLT-church win — the reference resolves and is
+    // projected in the church's own translation.
+    { label: "modern: love is patient (WEB corpus)", query: "love is patient love is kind it does not envy", book: "1 Corinthians", chapter: 13, verse: 4 },
   ];
 
   for (const c of cases) {

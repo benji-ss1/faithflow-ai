@@ -20,6 +20,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     headline: "Phrase search now nails exact quotations",
     highlights: [
       { text: "Type or paste a quote — “the Lord is my shepherd, I shall not want” — and the exact verse ranks first, not a vaguely-similar one. A loose paraphrase still resolves too.", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "Works with modern wording too — a quote like “love is patient, love is kind” now finds 1 Corinthians 13 (not just the older “charity” phrasing).",
       "Churches on a licensed translation (NIV/NKJV/NLT) now get phrase search at all — results project in your own translation when you tap them.",
     ],
   },

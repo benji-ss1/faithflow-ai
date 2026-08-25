@@ -390,6 +390,33 @@ export async function publicDomainFallbackTranslationId(): Promise<string | null
   return id;
 }
 
+// The public-domain translations the LEXICAL arm searches: KJV (classic wording)
+// + WEB / World English Bible (modern wording). A quotation therefore matches
+// whether it's phrased in classic English ("the Lord is my shepherd", KJV) OR
+// modern English ("Love is patient", WEB 1 Cor 13:4 — where KJV reads "Charity
+// suffereth long"). This is how NIV/NKJV/NLT churches get accurate quote→verse
+// search WITHOUT us storing licensed text: references are translation-agnostic,
+// so a modern quote resolves to the right reference via WEB, and the church's
+// own translation is rendered at projection time. We CANNOT legally bulk-store
+// licensed translations to index them, so only public-domain corpora go here.
+// Ordered classic-first; de-duplicated; whichever are present are used.
+const LEXICAL_CORPUS_CODES = ["KJV", "WEB"];
+let _lexCorpus: { at: number; ids: string[] } | null = null;
+async function lexicalCorpusTranslationIds(): Promise<string[]> {
+  if (_lexCorpus && Date.now() - _lexCorpus.at < CACHE_TTL_MS) return _lexCorpus.ids;
+  const db = getDb();
+  const rows = await db.select({ id: bibleTranslations.id, code: bibleTranslations.code })
+    .from(bibleTranslations)
+    .where(and(eq(bibleTranslations.isPublicDomain, true), eq(bibleTranslations.licenseRequired, false)));
+  const ids = LEXICAL_CORPUS_CODES
+    .map((code) => rows.find((r) => r.code === code)?.id)
+    .filter((x): x is string => !!x);
+  // Fallback: if neither KJV nor WEB is present, use any one public-domain id.
+  const finalIds = ids.length ? ids : (rows[0]?.id ? [rows[0].id] : []);
+  _lexCorpus = { at: Date.now(), ids: finalIds };
+  return finalIds;
+}
+
 // Is the FTS GIN index present AND valid? Cached. Used to fail-soft: if the
 // migration (docs/migrations/2026-08-25-add-bible-verses-fts.sql) hasn't been
 // applied yet, an FTS query still returns correct rows but via a ~3s sequential
@@ -426,13 +453,15 @@ export async function ftsIndexReady(): Promise<boolean> {
 // the chosen reference via lookupReference/API.Bible (BibleMode does this on
 // click). So search RANKS references; projection RENDERS canonical text.
 //
-// KNOWN LIMITATION (tracked, 2026-08-25 stress agent): the lexical arm searches
-// only the public-domain text, so a verse quoted in MODERN wording that diverges
-// from it ("love is patient" vs KJV "charity suffereth long", NIV "plans" vs KJV
-// "thoughts") won't match lexically and falls back to semantic-only, which can
-// surface a topically-adjacent WRONG verse. Not a regression (the prior route
-// was semantic-only). Future fix: index a modern public-domain translation (WEB)
-// for the lexical arm and/or add a relevance floor before any auto-fire use.
+// MODERN-WORDING COVERAGE (2026-08-25 ③b): the lexical arm searches a corpus of
+// public-domain translations spanning classic AND modern English (KJV + WEB — see
+// lexicalCorpusTranslationIds), so a verse quoted in modern wording ("love is
+// patient", WEB) matches lexically just as a classic quote ("charity suffereth
+// long", KJV) does. Remaining gap: wordings UNIQUE to a licensed translation and
+// absent from every public-domain one (e.g. NIV's "I know the plans I have for
+// you" — even WEB reads "thoughts") still can't be lexically matched (we can't
+// legally store licensed text) and rely on the semantic arm. A relevance floor
+// before any auto-fire use is still advisable (semantic can return a near miss).
 export type HybridHit = Verse & { score: number; lexical: boolean; semantic: boolean };
 export async function hybridSearch(translationId: string, query: string, limit = 20): Promise<HybridHit[]> {
   let searchId = translationId;
@@ -443,10 +472,14 @@ export async function hybridSearch(translationId: string, query: string, limit =
   }
   // Over-fetch each arm so the fusion has depth to reorder from.
   const pool = Math.min(Math.max(limit * 3, 30), 100);
-  const useLexical = await ftsIndexReady();
-  const [lex, sem] = await Promise.all([
-    useLexical ? lexicalSearch(searchId, query, pool) : Promise.resolve([] as LexicalHit[]),
+  // Lexical corpus = classic + modern public-domain translations (KJV, WEB), so
+  // exact quotes match in either register. Semantic arm runs on the primary
+  // translation (paraphrase/allusion recall). All arms are RRF-fused by verse
+  // reference. Skipped entirely if the FTS index isn't live (fail-soft).
+  const lexIds = (await ftsIndexReady()) ? await lexicalCorpusTranslationIds() : [];
+  const [sem, ...lexArms] = await Promise.all([
     semanticSearch(searchId, query, pool),
+    ...lexIds.map((id) => lexicalSearch(id, query, pool)),
   ]);
   const K = 60;
   const byKey = new Map<string, HybridHit>();
@@ -464,7 +497,21 @@ export async function hybridSearch(translationId: string, query: string, limit =
       byKey.set(key, { id, book, bookOrder, chapter, verse, text, score: contribution, lexical: which === "lexical", semantic: which === "semantic" });
     }
   };
-  lex.forEach((v, i) => bump(v, i + 1, "lexical"));
+  // Fold the lexical corpora into ONE ranked list, KJV-PRIMARY / WEB-ADDITIVE:
+  // iterate the corpora in order (classic KJV first, then modern WEB) and append
+  // each reference only the FIRST time it's seen. So KJV keeps its exact ordering
+  // for classic quotes it already resolves, and WEB contributes only references
+  // KJV's lexical arm MISSED — i.e. it fills modern-wording gaps ("love is
+  // patient") without re-ranking or over-weighting phrases KJV already matched
+  // (which was pulling a wrong verse above the right one for ambiguous phrases
+  // like "be strong and of a good courage"). Lexical contributes ONCE per ref.
+  const lexMerged: Verse[] = [];
+  const seenLex = new Set<string>();
+  lexArms.forEach((arm) => arm.forEach((v) => {
+    const key = `${v.book}|${v.chapter}|${v.verse}`;
+    if (!seenLex.has(key)) { seenLex.add(key); lexMerged.push(v); }
+  }));
+  lexMerged.forEach((v, i) => bump(v, i + 1, "lexical"));
   sem.forEach((v, i) => bump(v, i + 1, "semantic"));
   return [...byKey.values()].sort((a, b) => b.score - a.score).slice(0, limit);
 }
