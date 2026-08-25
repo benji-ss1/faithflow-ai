@@ -43,6 +43,28 @@ export type SlidePayload =
   | { kind: "empty" };
 
 /**
+ * Return a copy of a text slide with `newText` applied to BOTH the flattened
+ * `text` fallback AND the FIRST text object (so a DESIGNED slide keeps its
+ * layout/style — geometry, font, colour, all other objects — and only the words
+ * change). Used by Quick Edit's save-and-push so the LIVE projection matches the
+ * edited slide "no matter the design of the song or slide". No-op for non-text
+ * slides. Pure/deterministic.
+ */
+export function applyTextToSlide(slide: SlidePayload, newText: string): SlidePayload {
+  if (slide.kind !== "text") return slide;
+  const objects = slide.objects;
+  if (Array.isArray(objects) && objects.some((o) => o.kind === "text")) {
+    let replaced = false;
+    const next = objects.map((o) => {
+      if (!replaced && o.kind === "text") { replaced = true; return { ...o, text: newText }; }
+      return o;
+    });
+    return { ...slide, text: newText, objects: next };
+  }
+  return { ...slide, text: newText };
+}
+
+/**
  * Extended output state — one message shape drives every output surface
  * (audience/live projector, stage display, livestream). Each surface
  * consumes only the fields it needs.

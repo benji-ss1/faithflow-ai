@@ -9,7 +9,8 @@ import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload, ThemeAppearance } from "@/lib/broadcast";
 import { useSlideClipboard, setSlideClipboard, getSlideClipboard } from "@/lib/slide-clipboard";
-import { updateSongSlides, deleteSongSlide } from "@/lib/actions";
+import { updateSongSlides, deleteSongSlide, updateSongSlideText } from "@/lib/actions";
+import { applyTextToSlide } from "@/lib/broadcast";
 import { useRouter } from "next/navigation";
 import { X, Pencil, LayoutGrid, GripVertical } from "lucide-react";
 import { DotGridBackground } from "../DotGridBackground";
@@ -136,26 +137,32 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
     if (!quickEdit) return;
     const trimmed = newText.trim();
     if (!trimmed) return;
+    if (item?.type !== "song" || !(item as { songId?: string }).songId) return;
+    // Per-slide id (aligned with `slides` by index, same as onDelete).
+    const slideId = item.songSlideRows?.[quickEdit.slideIdx]?.id;
+    if (!slideId) {
+      const { toast } = await import("sonner");
+      toast.error("Couldn't find that slide to save");
+      return;
+    }
     setQeSaving(true);
     try {
-      if (item?.type === "song" && (item as { songId?: string }).songId) {
-        const songId = (item as { songId?: string }).songId!;
-        // Build the updated slides array: replace the text at quickEdit.slideIdx
-        const updatedSlides = slides.map((s, i) => ({
-          lyrics: i === quickEdit.slideIdx
-            ? trimmed
-            : (s.kind === "text" ? (s as { text?: string }).text ?? "" : ""),
-        }));
-        const res = await updateSongSlides(songId, updatedSlides);
-        if (!res.ok) {
-          const { toast } = await import("sonner");
-          toast.error(res.error ?? "Save failed");
-          return;
-        }
-        const { toast } = await import("sonner");
-        toast.success("Slide updated");
-      }
+      // Persist ONLY this slide's text, PRESERVING its designed layout
+      // (updateSongSlideText loads objectsJson and swaps the first text object) —
+      // no more flatten-to-plain. Works for plain AND designed songs.
+      const res = await updateSongSlideText(slideId, trimmed);
+      const { toast } = await import("sonner");
+      if (!res.ok) { toast.error(res.error ?? "Save failed"); return; }
+      // Auto-push the edited slide LIVE in ITS OWN styling — apply the new text to
+      // the styled slide payload so the projector renders the church's fonts /
+      // weight / size (not the plain-text UPPERCASE default). applyTextToSlide is
+      // a no-op-on-objects for plain songs (they legitimately render as plain
+      // text), and swaps the text object in-place for designed songs.
+      const current = slides[quickEdit.slideIdx];
+      if (current) ctx.onSendSlideToLive(applyTextToSlide(current, trimmed));
+      toast.success("Slide updated & sent live");
       setQuickEdit(null);
+      router.refresh(); // grid reflects the saved text
     } finally {
       setQeSaving(false);
     }
@@ -302,8 +309,19 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                   })();
                 }}
                 onQuickEdit={() => {
-                  if (guardObjectSong()) return;
-                  const text = s.kind === "text" ? ((s as { text?: string }).text ?? "") : "";
+                  // Quick Edit now works "no matter the design" — the save path
+                  // (updateSongSlideText) preserves the slide's objectsJson layout
+                  // and only swaps the FIRST text object, so designed songs no
+                  // longer redirect to the full editor. Seed the box from that SAME
+                  // first text object (not the flattened lyrics) so a multi-text
+                  // slide's other objects can't be duplicated into the first on save.
+                  // Falls back to the flat text for plain-lyric slides.
+                  let text = s.kind === "text" ? ((s as { text?: string }).text ?? "") : "";
+                  const objs = s.kind === "text" ? (s as { objects?: Array<{ kind?: string; text?: string }> }).objects : undefined;
+                  if (Array.isArray(objs)) {
+                    const firstText = objs.find((o) => o?.kind === "text");
+                    if (firstText && typeof firstText.text === "string") text = firstText.text;
+                  }
                   setQuickEdit({ slideIdx: idx, text });
                 }}
                 onDuplicate={() => {
@@ -410,6 +428,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                 value={quickEdit?.text ?? ""}
                 onChange={(e) => setQuickEdit((prev) => prev ? { ...prev, text: e.target.value } : null)}
                 rows={6}
+                maxLength={5000}
                 className="w-full resize-y bg-[var(--color-elevated)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-[13px] leading-relaxed outline-none focus:border-[var(--color-brand)] text-[var(--color-foreground)] placeholder-[var(--color-muted-foreground)]"
                 placeholder="Slide text…"
                 onKeyDown={(e) => {
@@ -425,7 +444,13 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
               <button
                 type="button"
                 onClick={() => {
-                  if (quickEdit?.text.trim()) ctx.onSendSlideToLive({ kind: "text", text: quickEdit.text });
+                  const t = quickEdit?.text.trim();
+                  if (!t || !quickEdit) return;
+                  // Push the edited text in the slide's OWN styling (designed
+                  // objects preserved) — not a plain-text default. Does not persist
+                  // (that's Save); this is a quick preview-to-screen.
+                  const current = slides[quickEdit.slideIdx];
+                  ctx.onSendSlideToLive(current ? applyTextToSlide(current, t) : { kind: "text", text: t });
                 }}
                 disabled={!quickEdit?.text.trim()}
                 className="h-8 px-3 rounded-md text-[12px] font-medium bg-[var(--color-elevated)] border border-[var(--color-border)] hover:bg-white/10 text-[var(--color-foreground)] disabled:opacity-40"
@@ -558,6 +583,14 @@ function SlideCard({
           tabIndex={0}
           onClick={onSelect}
           onDoubleClick={onDouble}
+          // 2026-08-25 fix: stop the right-click from ALSO reaching the grid-level
+          // "Paste slide" context menu that wraps the whole grid (commit 0e2fead).
+          // Radix ContextMenu.Trigger doesn't stopPropagation, so without this a
+          // right-click on a card opened the outer paste-only menu ON TOP of the
+          // per-slide menu, hiding Quick Edit ("Quick Edit basically nonexistent").
+          // The inner (this card's) menu still opens — stopPropagation only blocks
+          // the ANCESTOR grid trigger, not this element's own Radix handler.
+          onContextMenu={(e) => e.stopPropagation()}
           // Staggered pop-in when a song's slides first mount (keyed by slide id,
           // so it fires on song switch, not on every re-render).
           style={{ animationDelay: `${Math.min(Math.max(index - 1, 0), 14) * 22}ms` }}

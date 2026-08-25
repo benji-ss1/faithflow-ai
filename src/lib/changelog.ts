@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.330",
+    date: "2026-08-25",
+    headline: "Quick Edit is back — and saving sends it live in your style",
+    highlights: [
+      { text: "Right-click any song slide → Quick Edit to make a fast text change. (The little box had gone missing behind the paste menu — fixed.)", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "Saving a Quick Edit now updates the slide AND sends it straight to the projector — in the slide's own fonts, size and styling, not a plain default. Works whether the song is plain lyrics or fully designed, and your layout is kept.",
+    ],
+  },
+  {
     version: "0.1.329",
     date: "2026-08-25",
     headline: "Import slide decks (PowerPoint, Google Slides, PDF) into Media as pictures",

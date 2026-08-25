@@ -539,6 +539,38 @@ export async function saveSlideObjects(slideId: string, editable: EditableSlideI
   return { ok: true };
 }
 
+// Quick Edit save (2026-08-25): update ONE slide's text, preserving its designed
+// layout. Unlike updateSongSlides (rewrite-all, lyrics-only → DROPS objectsJson),
+// this loads the slide's current objectsJson and replaces only the FIRST text
+// object's text — keeping every object's geometry/style/background — so a quick
+// text tweak works "no matter the design of the song or slide". Plain-lyric slides
+// (no objectsJson) just update `lyrics`. Single slide, church-scoped, bounded.
+export async function updateSongSlideText(slideId: string, newText: string): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const owned = await assertSlideOwned(db, slideId, user.churchId);
+  if (!owned) return { ok: false, error: "Slide not found" };
+  const text = typeof newText === "string" ? newText : "";
+  if (text.length > 5000) return { ok: false, error: "Slide text too long (max 5000)" };
+  const [row] = await db.select({ objectsJson: songSlides.objectsJson }).from(songSlides).where(eq(songSlides.id, slideId)).limit(1);
+  const oj = (row?.objectsJson ?? null) as { bgColor?: string; bgImageUrl?: string; objects?: Array<Record<string, unknown>> } | null;
+  const objects = Array.isArray(oj?.objects) ? oj!.objects : null;
+  if (objects && objects.some((o) => o && o.kind === "text")) {
+    // Designed slide: replace the first text object's text; keep everything else.
+    let replaced = false;
+    const nextObjects = objects.map((o) => {
+      if (!replaced && o && o.kind === "text") { replaced = true; return { ...o, text }; }
+      return o;
+    });
+    await db.update(songSlides).set({ objectsJson: { ...oj, objects: nextObjects }, lyrics: text }).where(eq(songSlides.id, slideId));
+  } else {
+    // Plain-lyric slide: no designed objects to preserve.
+    await db.update(songSlides).set({ lyrics: text }).where(eq(songSlides.id, slideId));
+  }
+  revalidatePath(`/library/songs/${owned.songId}`);
+  return { ok: true };
+}
+
 export async function createSongSlide(songId: string, atIndex?: number, initial?: EditableSlideInput): Promise<Result<{ id: string }>> {
   const user = await requireCap("edit_library");
   const db = getDb();
