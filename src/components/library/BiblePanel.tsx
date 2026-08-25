@@ -26,12 +26,16 @@ import type { SlidePayload, TransitionSpec } from "@/lib/broadcast";
 import { openLiveChannel, safePost } from "@/lib/broadcast";
 import type { Detection } from "@/components/operator/useAudioStream";
 import { ScriptureSlideEditor } from "@/components/operator/scripture/ScriptureSlideEditor";
+import { loadScriptureStyle, hasSavedScriptureStyle } from "@/components/operator/scripture/scriptureStyle";
 
 type Translation = { id: string; code: string; name: string };
 type Verse = { book: string; chapter: number; verse: number; text: string };
 
 export type BiblePanelProps = {
   defaultTranslationCode: string;
+  // Church id — scopes the scripture-style editor's saved style so it round-trips
+  // (undefined falls back to the shared "default" bucket, as before).
+  churchId?: string;
   // Live wiring — provided by OperatorConsole
   onSendSlideToLive: (slide: SlidePayload, transition?: TransitionSpec | null) => void;
   onStageSlide: (slide: SlidePayload) => void;
@@ -110,6 +114,7 @@ function extractTranslationHint(text: string, availableCodes: string[]): string 
 
 export function BiblePanel({
   defaultTranslationCode,
+  churchId,
   onSendSlideToLive,
   onStageSlide,
   onBankAdd,
@@ -566,6 +571,8 @@ export function BiblePanel({
             text: verses.map((v) => v.text).join(" "),
             reference: refLabel(verses[0], verses[verses.length - 1], translationCode),
           }}
+          churchId={churchId}
+          initial={hasSavedScriptureStyle(churchId) ? loadScriptureStyle(churchId) : undefined}
           transition={{ effectId, durationMs, easing: "ease-in-out" }}
           onShow={(slide, spec) => { onSendSlideToLive(slide, spec); }}
           onClose={() => setScriptureEditorOpen(false)}

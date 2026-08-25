@@ -84,9 +84,11 @@ export function scriptureEditableSlide(verseText: string, reference: string, tra
 // converter the song editor uses). No bg passed → theme background is used.
 export function scriptureSlidePayload(verseText: string, reference: string, translation: string | undefined, d: ScriptureDesign): SlidePayload {
   const p = projectableTextSlide(verseText, undefined, undefined, scriptureObjects(verseText, reference, translation, d));
-  // Also carry the reference in the dedicated field so the always-visible footer
-  // guarantees it shows even if the reference object is ever dropped.
-  if (p.kind === "text" && d.reference.show && reference) {
+  // ALWAYS carry the reference in the dedicated field — even when the operator
+  // hid the movable reference OBJECT — so it is never stripped from the payload
+  // and the footer path can still surface it (the "reference must always appear"
+  // invariant). Not gated on d.reference.show.
+  if (p.kind === "text" && reference) {
     p.reference = referenceLabel(reference, translation, d.reference.showTranslation);
   }
   return p;

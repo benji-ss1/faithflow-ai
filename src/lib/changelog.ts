@@ -15,6 +15,20 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.325",
+    date: "2026-08-25",
+    headline: "Media editor, playlist groups, and the theme now shows inside every slide box",
+    highlights: [
+      "New image editor — double-click any image in Media (or use the new “Edit” button) to crop, pan, zoom, and reframe it so it fills the screen properly, even portrait/phone photos. Your framing is saved and reused every time you project it.",
+      "“Logo on background” mode — put a logo centred over a solid colour, the live theme, or a gradient, instead of black bars, so wide logos look intentional.",
+      { text: "Group images into the playlist — select several images (e.g. a set of slides) and add them as ONE collapsible playlist entry instead of a long list of separate rows. Expand it to jump to any image.", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "Reorder your Media library — drag images into the order you want; it sticks.",
+      "The team/theme now shows inside each slide box in the main section — every preview card is a true 1:1 match of what the projector shows, while the panel stays clean and black.",
+      "Live-output reliability: the projector can no longer flash a white/blank background while a theme loads or when you change theme mid-service — it always shows your theme.",
+      "Scripture slides keep their reference (e.g. “John 3:16 KJV”) on screen, and the verse-styling editor is now scoped to your church.",
+    ],
+  },
+  {
     version: "0.1.324",
     date: "2026-08-23",
     headline: "Resize projected images — Fit, Fill, or Stretch",

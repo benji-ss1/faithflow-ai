@@ -331,6 +331,7 @@ export function LeftColumn({ ctx }: { ctx: OperatorShellCtx }) {
         <div className="ml-auto w-full max-w-[1100px] h-full flex" onClick={(e) => e.stopPropagation()}>
           <BiblePanel
             defaultTranslationCode={ctx.defaultTranslationCode}
+            churchId={ctx.churchId}
             onSendSlideToLive={ctx.onSendSlideToLive}
             onStageSlide={ctx.onStageSlide}
             onBankAdd={ctx.onBankAddReference}
