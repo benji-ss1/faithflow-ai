@@ -66,16 +66,13 @@ export function OpenFlowWelcome({
         />
 
         {showFirstRun && configured ? (
-          <>
-            <div className="of-pills">
-              {PILLS.map((p) => (
-                <button key={p.text} type="button" className="of-pill" onClick={() => onPill(p.text)} disabled={disabled}>
-                  {p.icon}{p.text}
-                </button>
-              ))}
-            </div>
-            <p className="of-firstrun">First run only — these fade once you have used OpenFlow</p>
-          </>
+          <div className="of-pills">
+            {PILLS.map((p) => (
+              <button key={p.text} type="button" className="of-pill" onClick={() => onPill(p.text)} disabled={disabled}>
+                {p.icon}{p.text}
+              </button>
+            ))}
+          </div>
         ) : null}
       </div>
     </div>

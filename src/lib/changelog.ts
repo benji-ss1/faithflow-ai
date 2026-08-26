@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.336",
+    date: "2026-08-27",
+    headline: "Reorder any slides, PowerPoint imports, and a movable Quick Edit",
+    highlights: [
+      { text: "You can now drag to reorder the slides inside a grouped item — images, an imported PowerPoint, any media group — and the new order shows in both the grid and the playlist. No more “item has no reorderable slides”.", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "PowerPoint (.pptx) imports into Media now work on the desktop app — the conversion request was being blocked before.",
+      "Quick Edit can be moved: grab the “Drag to move” bar to slide it aside so it never blocks the slides behind it, and it's a bit smaller now.",
+      { text: "Add your church logo to a theme right from the Background section — it shows on every slide with that theme (fine-tune its spot under Layout).", tryItHref: "/library/themes", tryItLabel: "Open Themes" },
+    ],
+  },
+  {
     version: "0.1.335",
     date: "2026-08-26",
     headline: "Drop PowerPoints straight into Media — and a much faster media grid",

@@ -1665,6 +1665,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
           router.refresh();
           return;
         }
+        toast.success("Slide order updated");
         router.refresh();
       } catch (err) {
         toast.error("Reorder failed");

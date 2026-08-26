@@ -11,7 +11,7 @@ import { useSlideClipboard, setSlideClipboard, getSlideClipboard } from "@/lib/s
 import { updateSongSlides, deleteSongSlide, updateSongSlideText } from "@/lib/actions";
 import { applyTextToSlide } from "@/lib/broadcast";
 import { useRouter } from "next/navigation";
-import { X, Pencil, LayoutGrid, GripVertical } from "lucide-react";
+import { X, Pencil, LayoutGrid, GripVertical, GripHorizontal } from "lucide-react";
 import { DotGridBackground } from "../DotGridBackground";
 
 type ViewMode = "grid" | "list" | "text";
@@ -99,6 +99,40 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   const [quickEdit, setQuickEdit] = useState<{ slideIdx: number; slideId?: string; text: string } | null>(null);
   const [qeSaving, setQeSaving] = useState(false);
   const editedTextRef = useRef("");
+  // Quick Edit is DRAGGABLE so it never blocks the slides behind it. Offset is
+  // held in a ref and applied directly to the panel's transform, so dragging
+  // never re-renders (and can't disturb the in-place caret).
+  const qePanelRef = useRef<HTMLDivElement | null>(null);
+  const qeOffset = useRef({ x: 0, y: 0 });
+  const qeDrag = useRef<{ sx: number; sy: number; bx: number; by: number } | null>(null);
+  const applyQeTransform = () => {
+    const el = qePanelRef.current;
+    if (el) el.style.transform = `translate(calc(-50% + ${qeOffset.current.x}px), ${qeOffset.current.y}px)`;
+  };
+  const onQeDragStart = (e: React.PointerEvent) => {
+    qeDrag.current = { sx: e.clientX, sy: e.clientY, bx: qeOffset.current.x, by: qeOffset.current.y };
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  };
+  const onQeDragMove = (e: React.PointerEvent) => {
+    const d = qeDrag.current;
+    if (!d) return;
+    // Clamp so the drag handle can NEVER leave the viewport — otherwise a
+    // non-modal box dragged off-screen would be unrecoverable (✕ + keys gone).
+    const maxX = Math.max(40, window.innerWidth / 2 - 60);
+    const minY = -Math.round(window.innerHeight * 0.14) + 8; // don't rise above the top
+    const maxY = Math.max(0, window.innerHeight - 160);
+    const rawX = d.bx + (e.clientX - d.sx);
+    const rawY = d.by + (e.clientY - d.sy);
+    qeOffset.current = {
+      x: Math.min(maxX, Math.max(-maxX, rawX)),
+      y: Math.min(maxY, Math.max(minY, rawY)),
+    };
+    applyQeTransform();
+  };
+  const onQeDragEnd = (e: React.PointerEvent) => {
+    qeDrag.current = null;
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+  };
   // App-level clipboard for cut/copy/paste within the grid
   const clipboardSlide = useSlideClipboard();
 
@@ -334,6 +368,8 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                   // Capture the STABLE slide id now so Save can't be misdirected
                   // by a later reorder/delete while the editor stays open.
                   const slideId = item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined;
+                  qeOffset.current = { x: 0, y: 0 }; // open centred each time
+                  applyQeTransform(); // recenter even if the panel is already mounted (target switch)
                   setQuickEdit({ slideIdx: idx, slideId, text });
                 }}
                 onDuplicate={() => {
@@ -430,7 +466,9 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
           : ({ kind: "text", text: quickEdit.text || " " } as SlidePayload);
         return (
           <div
-            className="fixed z-50 top-[14%] left-1/2 -translate-x-1/2 flex flex-col items-center"
+            ref={qePanelRef}
+            className="fixed z-50 top-[14%] left-1/2 flex flex-col items-center"
+            style={{ transform: "translate(-50%, 0)" }}
             role="dialog"
             aria-label={`Quick Edit — Slide ${quickEdit.slideIdx + 1}`}
             onKeyDown={(e) => {
@@ -438,13 +476,26 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
               if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { void handleQuickEditSave(editedTextRef.current); }
             }}
           >
+            {/* Drag handle — grab this bar to move the box so it never blocks the
+                slides behind it. Pointer-capture drag; updates the panel transform
+                directly (no re-render, so the caret is untouched). */}
+            <div
+              onPointerDown={onQeDragStart}
+              onPointerMove={onQeDragMove}
+              onPointerUp={onQeDragEnd}
+              className="mb-1.5 flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/70 ring-1 ring-white/20 text-white/70 text-[11px] cursor-move select-none touch-none hover:bg-black/85"
+              title="Drag to move"
+            >
+              <GripHorizontal className="w-3.5 h-3.5" /> Drag to move
+            </div>
             {/* The popped slide — the REAL render, edited IN PLACE. The themed text
                 node itself is contentEditable (via AutoFitText.editable), so the
                 caret sits on the real letters and the styling/wrapping is inherently
                 correct across ANY theme/background/logo. `preview` is derived from
                 the FROZEN quickEdit.text (not the live-typed value) so the caret +
-                auto-fit stay put; the live text lives in editedTextRef. */}
-            <div className="relative w-[min(56vw,520px)] aspect-video rounded-lg overflow-hidden shadow-[0_16px_56px_rgba(0,0,0,0.7)] ring-2 ring-white/30">
+                auto-fit stay put; the live text lives in editedTextRef. Smaller
+                (42vw/380px) so more of the grid stays visible behind it. */}
+            <div className="relative w-[min(42vw,380px)] aspect-video rounded-lg overflow-hidden shadow-[0_16px_56px_rgba(0,0,0,0.7)] ring-2 ring-white/30">
               <ThemedSlideCard
                 // Re-key per edited slide so switching the target while the
                 // (non-modal) editor stays open remounts the editable node and

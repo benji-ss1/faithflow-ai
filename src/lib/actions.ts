@@ -336,6 +336,61 @@ export async function reorderItemSlides(
     await db.update(serviceItems)
       .set({ payload: nextPayload })
       .where(eq(serviceItems.id, itemId));
+  } else if (item.type === "media" && Array.isArray(payload.mediaAssetIds)) {
+    // Grouped media (e.g. "Images (4)", or a PowerPoint imported as images):
+    // the slides ARE the mediaAssetIds in order. The client sends synthetic
+    // "slide-<i>" ids (SlideGrid), so reorder the id array and persist it —
+    // getExpandedServicePlan renders media in mediaAssetIds order, so both the
+    // grid and the left playlist reflect the new order after refresh.
+    const ids = (payload.mediaAssetIds as unknown[]).filter((x): x is string => typeof x === "string");
+    if (ids.length === 0) return { ok: false, error: "Item has no reorderable slides" };
+    // Align to the DISPLAYABLE subset in stored order: getExpandedServicePlan
+    // renders only ids that still resolve to THIS church (skips deleted/foreign
+    // ones), so the client's newOrder covers just those. Reordering that same
+    // subset also self-heals — a stale/deleted id is pruned instead of
+    // permanently blocking reorder with a length mismatch.
+    const owned = ids.length
+      ? await db.select({ id: mediaAssets.id }).from(mediaAssets)
+          .where(and(inArray(mediaAssets.id, ids), eq(mediaAssets.churchId, user.churchId)))
+      : [];
+    const ownedSet = new Set(owned.map((r) => r.id));
+    const displayable = ids.filter((id) => ownedSet.has(id));
+    if (displayable.length === 0) return { ok: false, error: "Item has no reorderable slides" };
+    const existingIds = displayable.map((_, i) => `slide-${i}`);
+    const guard = validateReorderItemSlides(newOrder, existingIds);
+    if (!guard.ok) return guard;
+    const reordered = newOrder
+      .map((sid) => displayable[existingIds.indexOf(sid)])
+      .filter((x): x is string => typeof x === "string");
+    await db.update(serviceItems)
+      .set({ payload: { ...payload, mediaAssetIds: reordered } })
+      .where(eq(serviceItems.id, itemId));
+  } else if (item.type === "sermon" && typeof payload.pptxImportId === "string") {
+    // Grouped PowerPoint slides come from pptxSlides (shared, church-global).
+    // Reorder PER-PLAN via a payload.pptxSlideOrder override (mirrors song's
+    // slideOrder) so we never mutate the shared pptxSlides.order.
+    const [owned] = await db.select({ id: pptxImports.id }).from(pptxImports)
+      .where(and(eq(pptxImports.id, payload.pptxImportId), eq(pptxImports.churchId, user.churchId)))
+      .limit(1);
+    if (!owned) return { ok: false, error: "Presentation not found" };
+    const rows = await db.select({ id: pptxSlides.id }).from(pptxSlides)
+      .where(eq(pptxSlides.pptxImportId, owned.id)).orderBy(asc(pptxSlides.order));
+    const baseIds = rows.map((r) => r.id);
+    if (baseIds.length === 0) return { ok: false, error: "Item has no reorderable slides" };
+    const prev = Array.isArray(payload.pptxSlideOrder)
+      ? (payload.pptxSlideOrder as unknown[]).filter((x): x is string => typeof x === "string")
+      : [];
+    // Current display order = a valid existing override, else pptxSlides.order.
+    const curOrder = prev.length === baseIds.length && prev.every((id) => baseIds.includes(id)) ? prev : baseIds;
+    const existingIds = curOrder.map((_, i) => `slide-${i}`);
+    const guard = validateReorderItemSlides(newOrder, existingIds);
+    if (!guard.ok) return guard;
+    const reordered = newOrder
+      .map((sid) => curOrder[existingIds.indexOf(sid)])
+      .filter((x): x is string => typeof x === "string");
+    await db.update(serviceItems)
+      .set({ payload: { ...payload, pptxSlideOrder: reordered } })
+      .where(eq(serviceItems.id, itemId));
   } else if (item.type === "scripture" || item.type === "sermon" || item.type === "media") {
     // For payload.slides — treat newOrder as slide IDs when present,
     // otherwise as stringified indices ("0", "1", …).

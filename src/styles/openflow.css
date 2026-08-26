@@ -109,10 +109,10 @@
 .of-brag { font-size: clamp(16px, 2.2vw, 19px); font-weight: 500; letter-spacing: -0.005em; color: var(--of-text-2); margin: 14px 0 30px; }
 .of-brag .hot { background: var(--of-grad); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; animation: of-hueflow 8s var(--of-ease) infinite alternate; }
 
-/* --- composer (flowing gradient border) --- */
-.of-composer-wrap { border-radius: calc(var(--of-r-md) + 1px); padding: 1.4px; background: var(--of-grad); background-size: 320% 100%; animation: of-flowborder 9s linear infinite; box-shadow: 0 22px 50px -26px rgba(0,0,0,0.9); text-align: left; }
-@keyframes of-flowborder { to { background-position: 320% 0; } }
-.of-composer { background: var(--of-surface); border-radius: var(--of-r-md); padding: 14px 14px 10px; }
+/* --- composer (calm neutral border; no flowing accent) --- */
+.of-composer-wrap { border-radius: var(--of-r-md); box-shadow: 0 22px 50px -26px rgba(0,0,0,0.9); text-align: left; }
+.of-composer { background: var(--of-surface); border: 1px solid var(--of-border-2); border-radius: var(--of-r-md); padding: 14px 14px 10px; transition: border-color .18s var(--of-ease); }
+.of-composer:focus-within { border-color: #4a3d2b; }
 .of-textarea { width: 100%; border: none; outline: none; resize: none; background: transparent; color: var(--of-text); font-family: var(--of-sans); font-size: 15.5px; line-height: 1.5; padding: 2px 2px 12px; min-height: 26px; max-height: 200px; }
 .of-textarea::placeholder { color: var(--of-faint); }
 .of-composer-row { display: flex; align-items: center; gap: 8px; }

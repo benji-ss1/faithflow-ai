@@ -185,7 +185,16 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
         .limit(1);
       if (ownedImport) {
         const rows = await db.select().from(pptxSlides).where(eq(pptxSlides.pptxImportId, ownedImport.id)).orderBy(asc(pptxSlides.order));
-        slides = await Promise.all(rows.map(async (r) => ({ kind: "image" as const, url: await presignGet(r.imageS3Key), fit: "contain" as const })));
+        // Apply a per-plan reorder override (payload.pptxSlideOrder) if the
+        // operator reordered these slides — pptxSlides.order is church-global, so
+        // the order lives on the plan item, not the shared slides.
+        const override = Array.isArray(payload.pptxSlideOrder)
+          ? (payload.pptxSlideOrder as unknown[]).filter((x): x is string => typeof x === "string")
+          : [];
+        const ordered = override.length === rows.length && override.every((id) => rows.some((r) => r.id === id))
+          ? override.map((id) => rows.find((r) => r.id === id)!)
+          : rows;
+        slides = await Promise.all(ordered.map(async (r) => ({ kind: "image" as const, url: await presignGet(r.imageS3Key), fit: "contain" as const })));
       }
     } else if (it.type === "blank") {
       slides = [{ kind: "blank", bgColor: blankBgColor }];

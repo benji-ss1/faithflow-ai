@@ -127,6 +127,8 @@ const DESKTOP_ALLOWED_API_EXACT = new Set<string>([
 const DESKTOP_ALLOWED_API_PREFIXES: string[] = [
   "/api/auth/",              // NextAuth dynamic handler (public regardless)
   "/api/ai/helpers/",        // /api/ai/helpers/[action]/route.ts
+  "/api/pptx/",              // pptx convert + to-pdf (Media import) — desktop needs both
+  "/api/openflow/",          // OpenFlow chat + context (desktop assistant)
   // Note: /api/songs/ removed — was too broad. /api/songs/[id]/slides is
   // covered by DESKTOP_ALLOWED_API_REGEX below; a future admin route under
   // /api/songs/* now needs an explicit entry rather than leaking by default.

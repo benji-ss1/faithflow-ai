@@ -761,6 +761,18 @@ function ThemeEditor({
                 </div>
               </Row>
             )}
+            {/* Church logo — surfaced HERE (as well as under Layout) because most
+                operators look for it in Background. Adding one auto-places it
+                bottom-right so it appears on every slide immediately; position &
+                size can be fine-tuned under Layout. */}
+            <BgAssetPicker
+              kind="image"
+              url={get(cfg, "logoUrl", "") as string}
+              onUrl={(url) => set({ logoUrl: url, ...(get(cfg, "logoPosition", "none") === "none" ? { logoPosition: "bottom-right" } : {}) })}
+              label="Church logo (shown on every slide)"
+              hint="Add your church logo (a transparent PNG works best). It appears on every slide with this theme — fine-tune its position and size under Layout."
+              maxMBOverride={5}
+            />
           </Section>
 
           <Section title="Layout">
