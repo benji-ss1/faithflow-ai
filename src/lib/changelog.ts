@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.335",
+    date: "2026-08-26",
+    headline: "Drop PowerPoints straight into Media — and a much faster media grid",
+    highlights: [
+      { text: "You can now import PowerPoint (.pptx / .ppt) right into Media — no need to export to PDF first. Each slide becomes a projectable picture, just like a PDF deck.", tryItHref: "/operator", tryItLabel: "Open Media" },
+      "The media grid loads much faster: it now shows small thumbnails instead of downloading every full-size image, and imported decks render and upload their pages in parallel. Projection still uses the full-resolution original.",
+    ],
+  },
+  {
     version: "0.1.334",
     date: "2026-08-26",
     headline: "Quick Edit: type right on the slide — in its real fonts, over any design",

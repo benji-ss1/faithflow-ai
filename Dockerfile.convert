@@ -1,0 +1,37 @@
+# Dockerfile for the PresentFlow document converter deployed to Fly.io.
+# Runs only scripts/convert-server.ts — headless LibreOffice turns PPTX/PPT
+# into PDF. TLS is terminated by Fly's edge on 443; this container listens on
+# 3002 internally. No Next.js, no database, no S3 creds — it only converts.
+
+FROM node:20-slim
+
+# LibreOffice (headless) + a core font set so slide text renders with sane
+# fallbacks. --no-install-recommends keeps the image lean; libreoffice-impress
+# is the component that opens .pptx/.ppt. fonts-liberation covers Arial/Times
+# metric-compatible fallbacks common in church decks.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+     libreoffice-impress \
+     libreoffice-core \
+     fonts-liberation \
+     fonts-dejavu \
+     ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Only the converter's runtime deps are needed. Copy manifests first for cache
+# efficiency; --ignore-scripts skips Electron/sharp postinstall we don't use.
+COPY package.json package-lock.json* ./
+RUN npm ci --omit=dev --ignore-scripts && npm i tsx
+
+# The converter script + tsconfig (tsx transpiles TS on the fly).
+COPY scripts/convert-server.ts ./scripts/convert-server.ts
+COPY tsconfig.json ./
+
+ENV NODE_ENV=production
+# Give LibreOffice a writable, isolated profile dir per container.
+ENV HOME=/tmp
+EXPOSE 3002
+
+CMD ["npx", "tsx", "scripts/convert-server.ts"]

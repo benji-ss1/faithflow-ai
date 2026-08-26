@@ -4,7 +4,9 @@ import { eq, and, asc, sql, inArray } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { servicePlans, serviceItems, songs, songSlides, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes } from "./db/schema";
 import { requireUser, requireRole, requireCap } from "./session";
-import { deleteObject } from "./s3";
+import { deleteObject, getBuffer, putBuffer } from "./s3";
+import { after } from "next/server";
+import { generateImageThumbnail } from "./media-thumbnail";
 import { validateReorderItemSlides } from "./reorder-validator";
 import { createLimiter } from "./rate-limit";
 import { getSongUsage } from "./song-limits";
@@ -867,6 +869,34 @@ export async function registerMediaAsset(data: { kind: "image" | "video"; fileNa
   const db = getDb();
   const [row] = await db.insert(mediaAssets).values({ ...data, churchId: user.churchId }).returning();
   revalidatePath("/library/media");
+
+  // Generate a 320x180 grid thumbnail AFTER responding (non-blocking) so the
+  // browse grid loads a ~15KB preview instead of the full-res original (often
+  // MBs) into a tiny cell — the dominant media-grid slowness. The full-res
+  // s3Key is untouched and still used for actual projection. Fail-soft: if the
+  // thumb can't be made, the row keeps thumbS3Key=null and the read path falls
+  // back to the original. Videos are skipped (generateImageThumbnail returns
+  // null for non-raster types).
+  if (data.kind === "image") {
+    const churchId = user.churchId;
+    after(async () => {
+      try {
+        const original = await getBuffer(data.s3Key);
+        if (!original) return; // transient (e.g. just-written) — backfill retries later
+        const thumb = await generateImageThumbnail(original, data.mimeType);
+        // If the image can't be decoded (e.g. SVG), stamp a SENTINEL
+        // (thumbS3Key = s3Key) so the read path serves the original AND the
+        // backfill loop doesn't keep re-selecting this row forever.
+        const thumbKey = thumb ? `${data.s3Key}.thumb.jpg` : data.s3Key;
+        if (thumb) await putBuffer(thumbKey, thumb.buffer, thumb.mimeType);
+        // Church-scoped update — the insert above is this church's row.
+        await getDb().update(mediaAssets)
+          .set({ thumbS3Key: thumbKey })
+          .where(and(eq(mediaAssets.id, row.id), eq(mediaAssets.churchId, churchId)));
+      } catch { /* thumb is best-effort; original still serves */ }
+    });
+  }
+
   return { ok: true, data: { id: row.id } };
 }
 

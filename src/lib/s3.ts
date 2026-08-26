@@ -87,3 +87,17 @@ export async function deleteObject(key: string) {
 export async function putBuffer(key: string, body: Buffer, contentType: string) {
   await s3().send(new PutObjectCommand({ Bucket: BUCKET(), Key: key, Body: body, ContentType: contentType }));
 }
+
+/** Fetch an object's bytes as a Buffer. Used server-side to generate a
+ *  thumbnail from an already-uploaded original. Returns null on any failure
+ *  (missing object, transport error) so callers can degrade gracefully. */
+export async function getBuffer(key: string): Promise<Buffer | null> {
+  if (!key || !isS3Configured()) return null;
+  try {
+    const res = await s3().send(new GetObjectCommand({ Bucket: BUCKET(), Key: key }));
+    const bytes = await res.Body?.transformToByteArray();
+    return bytes ? Buffer.from(bytes) : null;
+  } catch {
+    return null;
+  }
+}

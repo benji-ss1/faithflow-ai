@@ -8,7 +8,12 @@ import { MediaCard } from "@/components/library/MediaCard";
 export default async function MediaPage() {
   const user = await requireUser();
   const media = await listMedia(user.churchId);
-  const withUrls = await Promise.all(media.map(async (m) => ({ ...m, url: await presignGet(m.s3Key) })));
+  // Full-res `url` for the lightbox/projection; small `thumbUrl` for the grid
+  // tile (falls back to the original when no thumbnail exists yet).
+  const withUrls = await Promise.all(media.map(async (m) => {
+    const [url, thumbUrl] = await Promise.all([presignGet(m.s3Key), presignGet(m.thumbS3Key ?? m.s3Key)]);
+    return { ...m, url, thumbUrl };
+  }));
   return (
     <div>
       <PageHeader eyebrow="Library" title="Media" action={<MediaUploader purpose="media" />} />
@@ -19,7 +24,7 @@ export default async function MediaPage() {
       ) : (
         <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {withUrls.map((m) => (
-            <MediaCard key={m.id} item={{ id: m.id, kind: m.kind, fileName: m.fileName, url: m.url }} />
+            <MediaCard key={m.id} item={{ id: m.id, kind: m.kind, fileName: m.fileName, url: m.url, thumbUrl: m.thumbUrl }} />
           ))}
         </ul>
       )}

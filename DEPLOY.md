@@ -62,6 +62,10 @@ Set every one of these in Vercel Dashboard → Project → Settings → Environm
 | `RESEND_API_KEY` | Email verification | `re_...` |
 | `EMAIL_FROM` | Verified sender | `noreply@yourdomain.com` |
 | `NEXT_PUBLIC_AUDIO_WS_URL` | wss URL of the audio bridge | `wss://audio.presentflow.ai:3001` |
+| `CONVERT_SERVICE_URL` | PowerPoint→PDF converter (Fly) — for PPTX import in Media | `https://faithflow-convert.fly.dev` |
+| `CONVERT_SHARED_SECRET` | Shared secret auth for the converter (same value set on the Fly app) | `<64-hex>` |
+
+> **PowerPoint import** (drop a `.pptx`/`.ppt` into Media) needs the converter deployed **and** `CONVERT_SERVICE_URL` + `CONVERT_SHARED_SECRET` set here. Until both are set the feature degrades gracefully (a 503 telling the operator to export a PDF instead). Deploy the converter with `./scripts/deploy.sh convert` — it prints the exact values to paste here.
 
 **Do NOT set the audio bridge on Vercel — it won't work.** Set the URL to whatever host you use in step 4.
 
@@ -185,7 +189,7 @@ If you complete step 4 (audio bridge on Fly/Railway), everything works end-to-en
 
 - `next.config.ts` marks native/heavy Node packages (`@napi-rs/canvas`, `libreoffice-convert`, `pdfjs-dist`, `@xenova/transformers`, `@deepgram/sdk`, `sharp`, `ws`, `adm-zip`) as `serverExternalPackages` so they don't blow the client bundle or crash the Function build.
 - Server actions have `bodySizeLimit: 50mb` for PPTX uploads. PPTX/media large uploads use S3 pre-signed PUT — never routed through Vercel.
-- **PPTX conversion** requires `soffice` (LibreOffice) which is NOT available on Vercel Functions. Either: (a) accept that PPTX imports won't convert on Vercel (upload works, conversion fails gracefully with `errorMessage: "LibreOffice not installed"`), or (b) move `POST /api/pptx/convert` to the same Fly/Railway host as the audio bridge and proxy the S3 key. Currently the pptx pipeline runs where the API route runs.
+- **PowerPoint import (Media)** requires `soffice` (LibreOffice), which is NOT available on Vercel Functions. This is now handled by a dedicated **Fly converter app** (`faithflow-convert`, from `Dockerfile.convert` + `fly.convert.toml`, running `scripts/convert-server.ts`): the browser uploads the `.pptx` to S3, `POST /api/pptx/to-pdf` hands the converter a short-lived presigned URL, LibreOffice returns a PDF, and the existing client PDF→images path turns each page into a projectable media slide. Deploy it with `./scripts/deploy.sh convert`, then set `CONVERT_SERVICE_URL` + `CONVERT_SHARED_SECRET` on Vercel (see §2a). Optionally set `CONVERT_ALLOWED_HOSTS` (your S3/Supabase host) on the Fly app for SSRF defense-in-depth. Until wired, PPTX import degrades gracefully (503 → "export as PDF instead"). The older sermon-import `POST /api/pptx/convert` (Library → Imports, LibreOffice-on-the-API-host) is a separate, legacy path.
 
 ---
 

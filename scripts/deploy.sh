@@ -94,6 +94,43 @@ case "${1:-help}" in
     ok "Vercel deploy complete"
     ;;
 
+  convert)
+    step "1/4 — Fly.io login (opens browser)"
+    if ! flyctl auth whoami >/dev/null 2>&1; then
+      flyctl auth login
+    else
+      ok "already logged in as $(flyctl auth whoami)"
+    fi
+
+    step "2/4 — Ensure app exists"
+    if ! flyctl apps list 2>/dev/null | grep -q faithflow-convert; then
+      flyctl apps create faithflow-convert --org personal
+    else
+      ok "app faithflow-convert exists"
+    fi
+
+    step "3/4 — Set shared secret (auth between Vercel and the converter)"
+    # Reuse CONVERT_SHARED_SECRET from the environment if provided, else mint
+    # one. Whatever value ends up here MUST also be set on Vercel (along with
+    # CONVERT_SERVICE_URL) or the app can't call the converter.
+    SECRET="${CONVERT_SHARED_SECRET:-}"
+    if [ -z "$SECRET" ]; then
+      SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+      warn "Generated a new CONVERT_SHARED_SECRET. Set the SAME value on Vercel:"
+      echo "   CONVERT_SHARED_SECRET=$SECRET"
+      echo "   CONVERT_SERVICE_URL=https://faithflow-convert.fly.dev"
+    fi
+    flyctl secrets set CONVERT_SHARED_SECRET="$SECRET" --stage --app faithflow-convert
+
+    step "4/4 — Deploy"
+    flyctl deploy --config fly.convert.toml --app faithflow-convert --now
+
+    echo
+    ok "Converter deployed"
+    echo "   Set on Vercel:  CONVERT_SERVICE_URL=https://faithflow-convert.fly.dev"
+    echo "                   CONVERT_SHARED_SECRET=<the value above>"
+    ;;
+
   full)
     "$0" audio
     "$0" app
@@ -104,6 +141,7 @@ case "${1:-help}" in
 Usage: ./scripts/deploy.sh <command>
 
   audio    Deploy audio WebSocket bridge to Fly.io (needs flyctl login)
+  convert  Deploy PPTX→PDF converter to Fly.io (needs flyctl login)
   app      Deploy Next.js app to Vercel (needs vercel login + env vars set)
   full     Deploy audio first, then app
 

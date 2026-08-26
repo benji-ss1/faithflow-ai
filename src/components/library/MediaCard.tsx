@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { MoreVertical, Download, Pencil, Trash2 } from "lucide-react";
 import { deleteMediaAsset, renameMediaAsset } from "@/lib/actions";
 
-type Item = { id: string; kind: string; fileName: string; url: string };
+type Item = { id: string; kind: string; fileName: string; url: string; thumbUrl?: string };
 
 export function MediaCard({ item }: { item: Item }) {
   const router = useRouter();
@@ -41,7 +41,8 @@ export function MediaCard({ item }: { item: Item }) {
       <div className="aspect-video bg-black flex items-center justify-center">
         {item.kind === "image"
           // eslint-disable-next-line @next/next/no-img-element
-          ? <img src={item.url} alt="" className="w-full h-full object-contain" />
+          // Grid tile → thumbnail (falls back to url); download link keeps url.
+          ? <img src={item.thumbUrl ?? item.url} alt="" loading="lazy" decoding="async" className="w-full h-full object-contain" />
           : <video src={item.url} className="w-full h-full object-contain" muted />}
       </div>
       <div className="p-3 flex items-start gap-2">

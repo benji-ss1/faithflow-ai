@@ -18,13 +18,25 @@ export async function GET() {
     return NextResponse.json({ error: "Too many media list requests — slow down" }, { status: 429 });
   }
   const media = await listMedia(user.churchId);
-  const withUrls = await Promise.all(media.map(async (m) => ({
-    id: m.id,
-    fileName: m.fileName,
-    kind: m.kind,
-    sizeBytes: m.sizeBytes,
-    createdAt: m.createdAt.toISOString(),
-    url: await presignGet(m.s3Key),
-  })));
+  const withUrls = await Promise.all(media.map(async (m) => {
+    // `url` is the full-res original — used for PROJECTION (must stay high-res).
+    // `thumbUrl` is the small grid preview (falls back to the original when no
+    // thumbnail has been generated yet, e.g. pre-backfill or a video). The grid
+    // renders thumbUrl; projection uses url. presignGet is a local HMAC (cheap),
+    // so signing both per asset is negligible.
+    const [url, thumbUrl] = await Promise.all([
+      presignGet(m.s3Key),
+      presignGet(m.thumbS3Key ?? m.s3Key),
+    ]);
+    return {
+      id: m.id,
+      fileName: m.fileName,
+      kind: m.kind,
+      sizeBytes: m.sizeBytes,
+      createdAt: m.createdAt.toISOString(),
+      url,
+      thumbUrl,
+    };
+  }));
   return NextResponse.json({ assets: withUrls });
 }

@@ -18,7 +18,10 @@ const ALLOWED_IMAGE = [
   "image/avif",
 ];
 const ALLOWED_VIDEO = ["video/mp4", "video/webm", "video/quicktime"];
-const ALLOWED_PPTX = ["application/vnd.openxmlformats-officedocument.presentationml.presentation"];
+const ALLOWED_PPTX = [
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation", // .pptx
+  "application/vnd.ms-powerpoint",                                             // legacy .ppt
+];
 
 // Purpose-aware size caps so a caller can't shove a 500MB "logo" through the
 // same endpoint that legitimately serves 500MB service-media video uploads.
@@ -27,7 +30,10 @@ const ALLOWED_PPTX = ["application/vnd.openxmlformats-officedocument.presentatio
 const MAX_BYTES: Record<string, number> = {
   logo: 2 * 1024 * 1024,          //  2MB — favicon-shaped brand mark
   media: 500 * 1024 * 1024,       // 500MB — service backgrounds, videos, stills
-  pptx: 500 * 1024 * 1024,        // 500MB — sermon presentation import
+  // 150MB — matches the Fly converter's MAX_SOURCE_BYTES so an oversized deck
+  // is rejected UP FRONT (fast, clear) instead of after a slow upload + a
+  // converter 502. Keep these two numbers in lockstep.
+  pptx: 150 * 1024 * 1024,
 };
 
 // Canonical extension per contentType so a caller can't slip `?evil=/../x`
@@ -43,9 +49,16 @@ const EXT_BY_TYPE: Record<string, string> = {
   "video/webm": "webm",
   "video/quicktime": "mov",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+  "application/vnd.ms-powerpoint": "ppt",
 };
 
-const presignLimiter = createLimiter("media-presign", 60, 60_000);
+// 300/min per user: a deck import fires one presign per rendered page (capped
+// at MAX_DECK_PAGES=200, pdf-to-images.ts) PLUS one for the .pptx source upload
+// on the PowerPoint path — so the worst case is 201, and 300 leaves headroom
+// for that plus a little concurrent activity without dropping a page to a 429.
+// This is a PUT presign for the user's OWN uploads, bounded by the per-object
+// size caps below — not a data-exfil vector like the list/GET presign limiter.
+const presignLimiter = createLimiter("media-presign", 300, 60_000);
 
 export async function POST(req: Request) {
   const user = await apiUser();

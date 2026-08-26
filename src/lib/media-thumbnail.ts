@@ -39,9 +39,11 @@ export async function generateImageThumbnail(
   source: Buffer,
   mimeType: string,
 ): Promise<ThumbnailResult | null> {
-  // Only handle raster image types napi-rs/canvas can decode natively.
-  // SVGs render fine in the browser without a thumbnail — skip them.
-  if (!/^image\/(png|jpeg|jpg|gif|webp)$/i.test(mimeType)) return null;
+  // Only handle raster image types napi-rs/canvas can decode natively (incl.
+  // AVIF — which is on the upload allowlist, so it must be thumbnailable or its
+  // rows would never leave the backfill queue). SVGs render fine in the browser
+  // without a thumbnail — skip them (a bad decode still fails soft below).
+  if (!/^image\/(png|jpeg|jpg|gif|webp|avif)$/i.test(mimeType)) return null;
 
   try {
     const { createCanvas, loadImage } = await import("@napi-rs/canvas");

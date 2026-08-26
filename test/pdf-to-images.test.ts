@@ -16,10 +16,10 @@ import {
 } from "../src/lib/pdf-to-images";
 
 test("deckPageName: zero-pads to page count width, min 2, strips extension", () => {
-  assert.equal(deckPageName("sermon.pdf", 3, 12), "sermon — p03.png");
-  assert.equal(deckPageName("Deck.PDF", 3, 120), "Deck — p003.png");
-  assert.equal(deckPageName("a.pdf", 1, 5), "a — p01.png");
-  assert.equal(deckPageName("", 1, 1), "deck — p01.png"); // fallback stem
+  assert.equal(deckPageName("sermon.pdf", 3, 12), "sermon — p03.jpg");
+  assert.equal(deckPageName("Deck.PDF", 3, 120), "Deck — p003.jpg");
+  assert.equal(deckPageName("a.pdf", 1, 5), "a — p01.jpg");
+  assert.equal(deckPageName("", 1, 1), "deck — p01.jpg"); // fallback stem
 });
 
 test("renderScale: scales to target width, never upscales past max, safe on 0", () => {

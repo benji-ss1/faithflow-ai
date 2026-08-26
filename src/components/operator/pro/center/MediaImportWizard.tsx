@@ -38,22 +38,75 @@ function isProFile(file: File): boolean {
  * normal media path and each rendered deck page (B2), so there is one upload
  * path, not two divergent copies. Throws on any failure.
  */
-async function uploadMediaFile(file: File): Promise<void> {
+async function uploadMediaFile(file: File, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
   const presignRes = await fetch("/api/media/presign", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ fileName: file.name, contentType: file.type, size: file.size, purpose: "media" }),
+    signal,
   });
   if (!presignRes.ok) {
     const err = (await presignRes.json().catch(() => ({}))) as { error?: string };
     throw new Error(err.error ?? `Presign failed (${presignRes.status})`);
   }
   const { url: uploadUrl, key } = (await presignRes.json()) as { url: string; key: string };
-  const uploadRes = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
+  const uploadRes = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file, signal });
   if (!uploadRes.ok) throw new Error("Storage upload failed");
   const kind = file.type.startsWith("video") ? ("video" as const) : ("image" as const);
   const result = await registerMediaAsset({ kind, fileName: file.name, s3Key: key, mimeType: file.type, sizeBytes: file.size });
   if (!result?.ok) throw new Error((result as { error?: string } | undefined)?.error ?? "Registration failed");
+}
+
+/** True if the file is a PowerPoint we convert (server-side) to a PDF, then
+ *  reuse the PDF→images deck path. Extension-based: browsers report office
+ *  MIME types inconsistently (often "" for .pptx). */
+function isPptxFile(file: { name: string }): boolean {
+  return /\.pptx?$/i.test(file.name);
+}
+
+/**
+ * Convert a PowerPoint to a PDF via the server (LibreOffice on Fly): upload the
+ * PPTX to S3, ask /api/pptx/to-pdf to convert it, and return the PDF as a File.
+ * The caller then feeds that File into the SAME renderPdfToImages deck path —
+ * so PPTX and PDF share one render+upload pipeline. Throws with a clear message
+ * (e.g. the 503 when the converter isn't configured) so the caller can surface
+ * it and the operator can fall back to exporting a PDF.
+ */
+async function convertPptxToPdf(file: File): Promise<File> {
+  const isLegacy = /\.ppt$/i.test(file.name);
+  const ext = isLegacy ? ".ppt" : ".pptx";
+  // Send a CANONICAL office contentType by extension — file.type is unreliable
+  // for office docs and the presign allowlist checks the MIME.
+  const contentType = isLegacy
+    ? "application/vnd.ms-powerpoint"
+    : "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+
+  const presignRes = await fetch("/api/media/presign", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fileName: file.name, contentType, size: file.size, purpose: "pptx" }),
+  });
+  if (!presignRes.ok) {
+    const err = (await presignRes.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error ?? `Presign failed (${presignRes.status})`);
+  }
+  const { url: uploadUrl, key } = (await presignRes.json()) as { url: string; key: string };
+  const putRes = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": contentType }, body: file });
+  if (!putRes.ok) throw new Error("Storage upload failed");
+
+  const convRes = await fetch("/api/pptx/to-pdf", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key, ext }),
+  });
+  if (!convRes.ok) {
+    const err = (await convRes.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error ?? `Conversion failed (${convRes.status})`);
+  }
+  const pdfBlob = await convRes.blob();
+  const pdfName = file.name.replace(/\.pptx?$/i, ".pdf");
+  return new File([pdfBlob], pdfName, { type: "application/pdf" });
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -67,7 +120,8 @@ interface QueuedMedia {
   previewUrl: string | null; // object URL for images
   status: UploadStatus;
   error?: string;
-  deck?: boolean;        // PDF deck → expand to page images on upload (B2)
+  deck?: boolean;        // PDF/PPTX deck → expand to page images on upload (B2)
+  pptx?: boolean;        // PowerPoint → convert to PDF (server) FIRST, then deck
   progress?: string;     // e.g. "3/12" while rendering deck pages
 }
 
@@ -180,12 +234,15 @@ export function MediaImportWizard({ open, onClose, onImported }: Props) {
       } else if (isPdfFile(file)) {
         // PDF deck → each page becomes a slide image on upload (B2).
         valid.push({ tag: "media", key, file, previewUrl: null, status: "pending", deck: true });
+      } else if (isPptxFile(file)) {
+        // PowerPoint → convert to PDF server-side, then reuse the deck path.
+        valid.push({ tag: "media", key, file, previewUrl: null, status: "pending", deck: true, pptx: true });
       } else if (ALLOWED_IMAGE_TYPES.includes(file.type)) {
         valid.push({ tag: "media", key, file, previewUrl: URL.createObjectURL(file), status: "pending" });
       } else if (ALLOWED_VIDEO_TYPES.includes(file.type)) {
         valid.push({ tag: "media", key, file, previewUrl: null, status: "pending" });
       } else {
-        toast.error(`"${file.name}" is not supported — export slide decks as PDF, then drop them here.`);
+        toast.error(`"${file.name}" is not supported — drop images, videos, a PowerPoint (.pptx/.ppt) or a PDF.`);
         continue;
       }
     }
@@ -226,16 +283,48 @@ export function MediaImportWizard({ open, onClose, onImported }: Props) {
         deckAbortRef.current = ac;
         let ok = 0;
         let failedPages = 0;
+        // Hoisted so the catch (abort path) can also await in-flight uploads —
+        // otherwise a cancel would leave already-dispatched page uploads running
+        // and leaking media rows the operator thought they cancelled.
+        const pending: Array<Promise<void>> = [];
         try {
+          // PowerPoint decks convert to PDF server-side FIRST (LibreOffice on
+          // Fly), then flow through the identical PDF→images path below.
+          let deckFile = item.file;
+          if (item.pptx) {
+            setQueue((prev) => prev.map((q) => q.key === item.key ? { ...q, status: "uploading", progress: "converting PowerPoint…" } : q));
+            deckFile = await convertPptxToPdf(item.file);
+          }
+          // Bounded-concurrency uploader: onPage acquires a slot (awaiting when
+          // the pool is full — that await is the backpressure that keeps only a
+          // few page blobs resident), then fires the upload WITHOUT blocking the
+          // next page's render. Overlapping the (slow, network-bound) uploads is
+          // what removes the old one-page-at-a-time serialization. We await every
+          // in-flight upload after the render loop before tallying results.
+          const DECK_UPLOAD_CONCURRENCY = 4;
+          let inFlight = 0;
+          const waiters: Array<() => void> = [];
+          const acquire = (): Promise<void> => inFlight < DECK_UPLOAD_CONCURRENCY
+            ? (inFlight++, Promise.resolve())
+            : new Promise<void>((r) => waiters.push(() => { inFlight++; r(); }));
+          const release = () => { inFlight--; const w = waiters.shift(); if (w) w(); };
+
           const result = await renderPdfToImages(
-            item.file,
+            deckFile,
             async (pageFile, index, total) => {
+              await acquire();
               setQueue((prev) => prev.map((q) => q.key === item.key ? { ...q, status: "uploading", progress: `slide ${index}/${total}` } : q));
-              try { await uploadMediaFile(pageFile); ok++; }
-              catch { failedPages++; }
+              pending.push((async () => {
+                // ac.signal cancels the presign + PUT so a mid-import cancel
+                // actually stops the upload instead of leaking a media row.
+                try { await uploadMediaFile(pageFile, ac.signal); ok++; }
+                catch { failedPages++; }
+                finally { release(); }
+              })());
             },
             { signal: ac.signal },
           );
+          await Promise.all(pending); // let every overlapped upload settle before tallying
           media += ok;
           if (ok === 0) {
             const why = result.renderedPages === 0 ? "No pages found in PDF" : "Every slide failed to upload";
@@ -258,6 +347,10 @@ export function MediaImportWizard({ open, onClose, onImported }: Props) {
         } catch (err) {
           const aborted = err instanceof DOMException && err.name === "AbortError";
           const msg = aborted ? "Cancelled" : err instanceof Error ? err.message : "Deck import failed";
+          // Let every already-dispatched upload settle (ac.signal makes the
+          // aborted ones reject fast) BEFORE reading `ok`, so no upload keeps
+          // mutating the tally after cancel and no row is left mid-flight.
+          await Promise.all(pending);
           media += ok; // whatever uploaded before the failure is real
           setQueue((prev) => prev.map((q) => q.key === item.key ? { ...q, status: "error", error: msg, progress: undefined } : q));
           if (!aborted) { toast.error(`"${item.file.name}": ${msg}`); errors++; }
@@ -377,7 +470,7 @@ export function MediaImportWizard({ open, onClose, onImported }: Props) {
                   id="media-import-input"
                   type="file"
                   multiple
-                  accept=".jpg,.jpeg,.png,.webp,.gif,.avif,.mp4,.webm,.mov,.pdf,.pro6,.pro7,.pro7x,.pro5,.pro"
+                  accept=".jpg,.jpeg,.png,.webp,.gif,.avif,.mp4,.webm,.mov,.pdf,.pptx,.ppt,.pro6,.pro7,.pro7x,.pro5,.pro"
                   className="sr-only"
                   onChange={(e) => { enqueueFiles(Array.from(e.target.files ?? [])); e.target.value = ""; }}
                 />
@@ -410,10 +503,10 @@ export function MediaImportWizard({ open, onClose, onImported }: Props) {
                       JPG, PNG, WebP, GIF, AVIF, MP4, WebM, MOV
                     </p>
                     <p className="mt-0.5 text-sm text-[var(--color-muted-foreground)]">
-                      ProPresenter: .pro6 / .pro7 / .pro7x / .pro5 · Slide decks: PDF
+                      ProPresenter: .pro6 / .pro7 / .pro7x / .pro5 · Slide decks: PowerPoint (.pptx / .ppt) or PDF
                     </p>
                     <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
-                      PowerPoint, Google Slides or Gemini? Export as PDF and drop it here — each slide becomes a picture.
+                      Drop a PowerPoint straight in — each slide becomes a picture. Google Slides or Gemini? Export as PDF and drop that.
                     </p>
                   </div>
                   {/* Visual button only — the parent <label> handles the click. */}

@@ -38,7 +38,8 @@ type Asset = {
   kind: string; // "image" | "video" | others
   sizeBytes: number;
   createdAt: string;
-  url: string;
+  url: string;          // full-res original — used for projection + theme apply
+  thumbUrl?: string;    // small grid preview — falls back to url server-side
 };
 
 type Filter = "all" | "image" | "video";
@@ -110,6 +111,41 @@ export function MediaBrowser({
       .catch(() => { if (!cancelled) toast.error("Failed to load media"); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
+  }, []);
+
+  // One-time thumbnail backfill for PRE-EXISTING assets (rows that predate the
+  // on-upload thumbnail step). Fire-and-forget, bounded per call — loop until
+  // the server reports 0 remaining, then refresh the grid so the new thumbs
+  // show. Fully idempotent and safe to run on every mount: when nothing is
+  // missing the first call returns remaining:0 and does no work. Silent on
+  // failure — the grid already renders full-res as a fallback.
+  useEffect(() => {
+    // Once this session has drained the queue, don't re-run on every remount.
+    const DONE_KEY = "pf.media.thumbBackfillDone";
+    try { if (sessionStorage.getItem(DONE_KEY) === "1") return; } catch { /* no sessionStorage */ }
+    let cancelled = false;
+    (async () => {
+      let didWork = false;
+      let prevRemaining = Infinity;
+      for (let i = 0; i < 25 && !cancelled; i++) {
+        let res: Response;
+        try { res = await fetch("/api/media/backfill-thumbnails", { method: "POST" }); }
+        catch { return; }
+        if (!res.ok) return; // 401/429/500 — give up quietly
+        const { processed, remaining } = (await res.json().catch(() => ({}))) as { processed?: number; remaining?: number };
+        if (processed && processed > 0) didWork = true;
+        const rem = remaining ?? 0;
+        if (rem <= 0) { try { sessionStorage.setItem(DONE_KEY, "1"); } catch {} break; }
+        // No-progress guard: the server stamps a sentinel on every selected row,
+        // so `remaining` must strictly drop each pass. If it didn't, something is
+        // wrong — stop rather than burn the remaining iterations on dead work.
+        if (rem >= prevRemaining) break;
+        prevRemaining = rem;
+      }
+      if (didWork && !cancelled) loadAssets(true); // quiet refresh → thumbs appear
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Filtering ─────────────────────────────────────────────────────────────
@@ -516,7 +552,10 @@ export function MediaBrowser({
                       />
                     ) : (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={a.url} alt={a.fileName} loading="lazy" decoding="async" className="w-full h-full object-contain" />
+                      // Grid preview uses the small thumbnail (falls back to the
+                      // original server-side); the full-res url is reserved for
+                      // projection + theme apply so quality there is unchanged.
+                      <img src={a.thumbUrl ?? a.url} alt={a.fileName} loading="lazy" decoding="async" className="w-full h-full object-contain" />
                     )}
 
                     {/* Filename bar — always visible; pencil icon on hover */}
@@ -649,7 +688,8 @@ function SortableMediaCard({ asset }: { asset: Asset }) {
         <video src={asset.url} muted className="w-full h-full object-cover pointer-events-none" />
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={asset.url} alt={asset.fileName} draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover pointer-events-none" />
+        // Small reorder-card preview → thumbnail (falls back to url).
+        <img src={asset.thumbUrl ?? asset.url} alt={asset.fileName} draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover pointer-events-none" />
       )}
       <span className="absolute left-1 top-1 grid h-5 w-5 place-items-center rounded bg-black/60 text-white/80">
         <GripVertical className="w-3.5 h-3.5" />
