@@ -9,6 +9,7 @@ import { OutputReloadListener } from "@/components/system/OutputReloadListener";
 import { PostHogProvider } from "@/components/system/PostHogProvider";
 import { OfflineIndicator } from "@/components/system/OfflineIndicator";
 import "./globals.css";
+import "@/styles/openflow.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://presentflow.org"),

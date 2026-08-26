@@ -31,6 +31,8 @@ import { DesktopSlideEditorModal } from "./DesktopSlideEditorModal";
 import { BibleMode } from "./center/BibleMode";
 import { SongsBrowser } from "./center/SongsBrowser";
 import { MediaBrowser } from "./center/MediaBrowser";
+import { OpenFlowPanel } from "@/components/operator/openflow/OpenFlowPanel";
+import { OpenFlowSidebar } from "@/components/operator/openflow/OpenFlowSidebar";
 import { LivePreviewPanel } from "./right/LivePreviewPanel";
 import { AnnouncementBar } from "../AnnouncementBar";
 import { VideoControlBar } from "../VideoControlBar";
@@ -93,7 +95,12 @@ function pfTraceOn(): boolean {
  * Legacy value "playlist" is aliased to "slides" so older stored state /
  * external callers keep working.
  */
-export type CenterMode = "slides" | "bible" | "songs" | "media";
+export type CenterMode = "slides" | "bible" | "songs" | "media" | "openflow";
+
+// OpenFlow ships behind a public flag so the entry only appears where it's
+// actually enabled (both this flag AND the server-side OPENFLOW_GROQ_API_KEY).
+// Keeps a half-configured prod from showing a dead entry point.
+const OPENFLOW_ENABLED = process.env.NEXT_PUBLIC_OPENFLOW_ENABLED === "1";
 
 // Policy constants live in operatorConstants.ts so they are searchable
 // without reading this entire file. All sign-off history is documented there.
@@ -4054,6 +4061,12 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         >
           <LibrarySection onCenterMode={setCenterMode} />
           <PlaylistSection ctx={ctx} onCenterMode={setCenterMode} />
+          {OPENFLOW_ENABLED ? (
+            <OpenFlowSidebar
+              active={centerMode === "openflow"}
+              onOpen={() => setCenterMode(centerMode === "openflow" ? "slides" : "openflow")}
+            />
+          ) : null}
           <MediaSection onCenterMode={setCenterMode} centerMode={centerMode} />
           <HardwareSection />
           {/* Drag handle — 4px hit target on the right edge. Visible on hover
@@ -4074,13 +4087,19 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
             WYSIWYG with the projector, rather than flooding the whole workspace. */}
         <main data-tour="center" className="relative flex-1 min-w-0 flex flex-col bg-black">
           <div className="relative z-[1] flex flex-col min-h-0 flex-1">
-          <CenterHeader ctx={ctx} centerMode={centerMode} slideSize={slideSize} onSlideSize={setSlideSize} />
+          {/* OpenFlow takes the whole center area (its own full-panel UI), so the
+              slide/song CenterHeader is hidden while it's active. */}
+          {centerMode !== "openflow" ? (
+            <CenterHeader ctx={ctx} centerMode={centerMode} slideSize={slideSize} onSlideSize={setSlideSize} />
+          ) : null}
           <div className="flex-1 min-h-0 overflow-y-auto">
             {/* Error boundary per center-mode panel so a Bible/Songs/Media
                 crash doesn't nuke the whole operator UI mid-service — the
                 operator can hit "Reload panel" and keep going. */}
             <OperatorErrorBoundary fallbackLabel={`The ${centerMode} panel hit an error`}>
-              {centerMode === "bible" ? (
+              {centerMode === "openflow" && OPENFLOW_ENABLED ? (
+                <OpenFlowPanel />
+              ) : centerMode === "bible" ? (
                 <BibleMode ctx={ctx} session={bibleSession} />
               ) : centerMode === "songs" ? (
                 <SongsBrowser ctx={ctx} onExitToSlides={() => setCenterMode("slides")} />

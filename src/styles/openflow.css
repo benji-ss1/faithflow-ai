@@ -1,0 +1,182 @@
+/*
+ * OpenFlow design tokens — the single source of truth for the OpenFlow surface.
+ * Locked from the approved v3 identity pitch (2026-08-26): warm-sunset gradient
+ * (fired -> ember -> coral -> warm magenta, NO lavender/violet), cursive "Flow"
+ * wordmark, open-ring + current mark, hotter-ember flow shader, solid opinionated
+ * buttons. OpenFlow is cinematic dark, committed — it does not follow the app's
+ * light/dark theme. Every value here is a variable so the whole surface re-themes
+ * from one place.
+ *
+ * All tokens are scoped under .openflow-scope so nothing leaks into the rest of
+ * the app. The panel root applies .openflow-scope plus the font-variable classes
+ * from src/lib/openflow/fonts.ts.
+ */
+
+.openflow-scope {
+  --of-ground:    #0B0908;
+  --of-ground-2:  #0F0C0A;
+  --of-surface:   #17130F;
+  --of-surface-2: #1D1813;
+  --of-elevated:  #251E17;
+  --of-border:    #2C241B;
+  --of-border-2:  #3A2F22;
+  --of-hairline:  rgba(245, 238, 228, 0.07);
+
+  --of-text:   #F6F0E7;
+  --of-text-2: #CFC5B5;
+  --of-muted:  #988D7C;
+  --of-faint:  #6C6152;
+
+  /* warm sunset — identity, mark, ambient shader only (never on buttons) */
+  --of-fired:   #C0442E;
+  --of-ember:   #E8742A;
+  --of-coral:   #E0806A;
+  --of-magenta: #A64D6E;
+  --of-gold:    #EF9F27;
+  --of-grad: linear-gradient(100deg, #C0442E 0%, #E8742A 34%, #E0806A 66%, #A64D6E 100%);
+
+  /* the single accent, spent once — solid buttons + send key */
+  --of-accent:    #E8501A;
+  --of-accent-hi: #F76A2A;
+  --of-accent-lo: #C63C10;
+
+  /* semantic kind dots — deliberately OFF the accent */
+  --of-k-song:      #E0806A;
+  --of-k-scripture: #EF9F27;
+  --of-k-media:     #6E8C8C;
+  --of-k-sermon:    #E8742A;
+
+  --of-r-lg: 16px;
+  --of-r-md: 12px;
+  --of-r-sm: 8px;
+  --of-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* font-family stacks — the .variable classes (fonts.ts) fill the --of-font-*
+     custom props; these stacks reference them with robust fallbacks so nothing
+     silently falls back to a system default if a face fails to load. */
+  --of-serif:  var(--of-font-serif, "Iowan Old Style", "Charter", Georgia, serif);
+  --of-script: var(--of-font-script, "Snell Roundhand", "Apple Chancery", cursive);
+  --of-sans:   var(--of-font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif);
+  --of-mono:   var(--of-font-mono, "SF Mono", ui-monospace, "Menlo", monospace);
+
+  color-scheme: dark;
+  background: var(--of-ground);
+  color: var(--of-text);
+  font-family: var(--of-sans);
+}
+
+/* ============================ components ============================ */
+
+.openflow-scope * { box-sizing: border-box; }
+
+/* --- wordmark: Open (upright sans) + Flow (cursive script), warm gradient --- */
+.of-word { display: inline-flex; align-items: baseline; position: relative; white-space: nowrap; }
+.of-word .o { color: var(--of-text); font-weight: 500; letter-spacing: -0.01em; }
+.of-word .f {
+  font-family: var(--of-script); font-style: italic; font-weight: 500;
+  font-size: 1.28em; line-height: 0.8; margin-left: 0.02em;
+  background: var(--of-grad); background-size: 220% 100%;
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  animation: of-hueflow 9s var(--of-ease) infinite alternate;
+}
+.of-word .tick {
+  font-family: var(--of-mono); font-size: 0.3em; letter-spacing: 0.18em; color: var(--of-ember);
+  text-transform: uppercase; position: relative; top: -1.1em; margin-left: 4px;
+}
+@keyframes of-hueflow { from { background-position: 0% 0; } to { background-position: 100% 0; } }
+
+/* --- the mark: open ring + flowing current --- */
+.of-mark .of-current { stroke-dasharray: 5 7; animation: of-flowline 1.6s linear infinite; }
+@keyframes of-flowline { to { stroke-dashoffset: -12; } }
+
+/* --- panel host --- */
+.of-panel { position: relative; height: 100%; width: 100%; display: flex; flex-direction: column; background: var(--of-ground); color: var(--of-text); font-family: var(--of-sans); overflow: hidden; }
+.of-fade { animation: of-fadein 0.28s var(--of-ease) both; }
+@keyframes of-fadein { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* --- welcome --- */
+.of-hero { position: relative; flex: 1; display: grid; place-items: center; padding: 40px 24px; isolation: isolate; overflow: hidden; }
+.of-shader { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; display: block; }
+.of-scrim { position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: radial-gradient(120% 90% at 50% 46%, transparent 30%, rgba(11,9,8,0.55) 78%),
+              linear-gradient(180deg, rgba(11,9,8,0.5), transparent 30%, transparent 70%, rgba(11,9,8,0.55)); }
+.of-hero-inner { position: relative; z-index: 2; width: min(680px, 100%); text-align: center; }
+.of-lockup { display: inline-flex; align-items: center; gap: 14px; margin-bottom: 24px; }
+.of-lockup .of-mark { width: 46px; height: 46px; }
+.of-lockup .of-word { font-size: 40px; }
+.of-greeting { font-family: var(--of-serif); font-weight: 500; font-size: clamp(28px, 4.4vw, 40px); letter-spacing: -0.015em; margin: 0; line-height: 1.12; color: var(--of-text); }
+.of-brag { font-size: clamp(16px, 2.2vw, 19px); font-weight: 500; letter-spacing: -0.005em; color: var(--of-text-2); margin: 14px 0 30px; }
+.of-brag .hot { background: var(--of-grad); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; animation: of-hueflow 8s var(--of-ease) infinite alternate; }
+
+/* --- composer (flowing gradient border) --- */
+.of-composer-wrap { border-radius: calc(var(--of-r-md) + 1px); padding: 1.4px; background: var(--of-grad); background-size: 320% 100%; animation: of-flowborder 9s linear infinite; box-shadow: 0 22px 50px -26px rgba(0,0,0,0.9); text-align: left; }
+@keyframes of-flowborder { to { background-position: 320% 0; } }
+.of-composer { background: var(--of-surface); border-radius: var(--of-r-md); padding: 14px 14px 10px; }
+.of-textarea { width: 100%; border: none; outline: none; resize: none; background: transparent; color: var(--of-text); font-family: var(--of-sans); font-size: 15.5px; line-height: 1.5; padding: 2px 2px 12px; min-height: 26px; max-height: 200px; }
+.of-textarea::placeholder { color: var(--of-faint); }
+.of-composer-row { display: flex; align-items: center; gap: 8px; }
+.of-spacer { flex: 1; }
+
+.of-icon-btn { width: 34px; height: 34px; border-radius: var(--of-r-sm); border: 1px solid var(--of-border-2); background: var(--of-surface-2); color: var(--of-text-2); display: grid; place-items: center; cursor: pointer; transition: transform .18s var(--of-ease), background .18s var(--of-ease), color .18s var(--of-ease), border-color .18s var(--of-ease); }
+.of-icon-btn:hover { background: var(--of-elevated); color: var(--of-text); border-color: #4a3d2b; transform: translateY(-1px); }
+.of-icon-btn:disabled { opacity: 0.4; cursor: default; transform: none; }
+
+.of-mode-pill { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px; border: 1px solid var(--of-border-2); border-radius: 999px; background: var(--of-surface-2); color: var(--of-text-2); font-size: 13px; cursor: pointer; font-family: var(--of-sans); transition: background .18s var(--of-ease), color .18s var(--of-ease); }
+.of-mode-pill:hover { background: var(--of-elevated); color: var(--of-text); }
+
+.of-send { width: 36px; height: 36px; border-radius: 50%; border: none; cursor: pointer; background: var(--of-accent); color: #fff; display: grid; place-items: center; box-shadow: 0 8px 20px -8px rgba(232,80,26,0.7), inset 0 1px 0 rgba(255,255,255,0.22); transition: transform .16s var(--of-ease), background .18s var(--of-ease), box-shadow .18s var(--of-ease); }
+.of-send:hover:not(:disabled) { background: var(--of-accent-hi); transform: translateY(-2px); box-shadow: 0 12px 26px -8px rgba(232,80,26,0.8), inset 0 1px 0 rgba(255,255,255,0.28); }
+.of-send:active:not(:disabled) { transform: translateY(0); background: var(--of-accent-lo); }
+.of-send:disabled { opacity: 0.4; cursor: default; }
+
+/* --- pills --- */
+.of-pills { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 22px; }
+.of-pill { display: inline-flex; align-items: center; gap: 8px; padding: 8px 15px; border: 1px solid var(--of-border-2); border-radius: 999px; background: rgba(23,19,15,0.5); color: var(--of-text-2); font-size: 13px; font-weight: 500; cursor: pointer; font-family: var(--of-sans); backdrop-filter: blur(6px); transition: transform .18s var(--of-ease), border-color .18s var(--of-ease), background .18s var(--of-ease), color .18s var(--of-ease); }
+.of-pill:hover { border-color: rgba(232,116,42,0.6); background: rgba(232,116,42,0.10); color: var(--of-text); transform: translateY(-2px); }
+.of-pill svg { color: var(--of-ember); }
+.of-firstrun { margin-top: 16px; font-family: var(--of-mono); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--of-faint); }
+
+/* --- mode dropdown --- */
+.of-dd-anchor { position: relative; }
+.of-dd { position: absolute; bottom: calc(100% + 8px); right: 0; width: 240px; background: var(--of-surface); border: 1px solid var(--of-border-2); border-radius: var(--of-r-md); padding: 6px; box-shadow: 0 24px 54px -26px rgba(0,0,0,0.9); z-index: 30; transform-origin: bottom right; animation: of-pop 0.18s var(--of-ease) both; }
+@keyframes of-pop { from { opacity: 0; transform: scale(0.96) translateY(4px); } to { opacity: 1; transform: none; } }
+.of-dd-item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: var(--of-r-sm); color: var(--of-text-2); font-size: 13.5px; cursor: pointer; width: 100%; background: none; border: none; text-align: left; font-family: var(--of-sans); }
+.of-dd-item .chk { width: 15px; color: var(--of-ember); flex: none; display: grid; place-items: center; }
+.of-dd-item .ic { color: var(--of-muted); display: grid; place-items: center; }
+.of-dd-item.active { background: var(--of-surface-2); color: var(--of-text); }
+.of-dd-item.active .ic { color: var(--of-ember); }
+.of-dd-item:not(.active):hover { background: var(--of-surface-2); }
+
+/* --- chat thread --- */
+.of-thread { flex: 1; overflow-y: auto; padding: 26px; display: flex; flex-direction: column; gap: 22px; }
+.of-thread-inner { width: min(760px, 100%); margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+.of-msg-user { align-self: flex-end; max-width: 76%; background: var(--of-surface-2); border: 1px solid var(--of-border); border-radius: 14px 14px 4px 14px; padding: 12px 15px; color: var(--of-text); font-size: 14.5px; line-height: 1.55; white-space: pre-wrap; }
+.of-msg-ai { display: flex; gap: 13px; }
+.of-avatar { width: 32px; height: 32px; border-radius: 10px; flex: none; background: var(--of-surface-2); border: 1px solid var(--of-border-2); display: grid; place-items: center; }
+.of-ai-body { flex: 1; min-width: 0; }
+.of-ai-text { color: var(--of-text-2); font-size: 14.5px; line-height: 1.62; margin: 0; white-space: pre-wrap; }
+.of-ai-text p { margin: 0 0 10px; }
+.of-cursor { display: inline-block; width: 7px; height: 15px; background: var(--of-ember); margin-left: 2px; vertical-align: text-bottom; border-radius: 1px; animation: of-blink 1s steps(2) infinite; }
+@keyframes of-blink { 50% { opacity: 0; } }
+.of-thinking { display: inline-flex; gap: 4px; align-items: center; }
+.of-thinking b { width: 5px; height: 5px; border-radius: 50%; background: var(--of-muted); animation: of-tdot 1.2s var(--of-ease) infinite; }
+.of-thinking b:nth-child(2) { animation-delay: 0.15s; } .of-thinking b:nth-child(3) { animation-delay: 0.3s; }
+@keyframes of-tdot { 0%,100% { opacity: 0.3; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-3px); } }
+
+.of-composer-dock { padding: 16px 24px 22px; }
+.of-composer-dock .of-composer-wrap { width: min(760px, 100%); margin: 0 auto; }
+
+.of-error { color: #E5A05A; font-size: 13px; font-family: var(--of-mono); letter-spacing: 0.02em; }
+
+/* --- left-rail sidebar entry --- */
+.of-entry { display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px 12px; cursor: pointer; border: none; border-left: 3px solid var(--of-ember); background: rgba(232,116,42,0.05); color: var(--of-text); text-align: left; transition: background .2s var(--of-ease); }
+.of-entry:hover { background: rgba(232,116,42,0.09); }
+.of-entry.active { background: rgba(232,116,42,0.12); }
+.of-entry .of-word { font-size: 16px; }
+.of-entry .of-mark { width: 22px; height: 22px; flex: none; }
+.of-entry-ai { font-family: var(--of-mono); font-size: 8px; letter-spacing: 0.15em; color: var(--of-ember); text-transform: uppercase; margin-left: auto; }
+
+@media (prefers-reduced-motion: reduce) {
+  .openflow-scope *, .openflow-scope *::before, .openflow-scope *::after { animation: none !important; }
+}

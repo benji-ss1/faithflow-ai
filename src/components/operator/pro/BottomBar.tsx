@@ -40,7 +40,7 @@ export function BottomBar({
 }: {
   ctx: OperatorShellCtx;
   onOpenShortcutsHelp?: () => void;
-  centerMode?: "slides" | "bible" | "songs" | "media";
+  centerMode?: "slides" | "bible" | "songs" | "media" | "openflow";
 }) {
   const [transitionName, setTransitionName] = useState("Amoeba");
   const [transitionDuration, setTransitionDuration] = useState(0.6);
