@@ -516,7 +516,7 @@ export function MediaBrowser({
                       />
                     ) : (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={a.url} alt={a.fileName} className="w-full h-full object-contain" />
+                      <img src={a.url} alt={a.fileName} loading="lazy" decoding="async" className="w-full h-full object-contain" />
                     )}
 
                     {/* Filename bar — always visible; pencil icon on hover */}
@@ -649,7 +649,7 @@ function SortableMediaCard({ asset }: { asset: Asset }) {
         <video src={asset.url} muted className="w-full h-full object-cover pointer-events-none" />
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={asset.url} alt={asset.fileName} draggable={false} className="w-full h-full object-cover pointer-events-none" />
+        <img src={asset.url} alt={asset.fileName} draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover pointer-events-none" />
       )}
       <span className="absolute left-1 top-1 grid h-5 w-5 place-items-center rounded bg-black/60 text-white/80">
         <GripVertical className="w-3.5 h-3.5" />

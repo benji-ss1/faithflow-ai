@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.334",
+    date: "2026-08-26",
+    headline: "Quick Edit: type right on the slide — in its real fonts, over any design",
+    highlights: [
+      { text: "Right-click a song slide → Quick Edit and the slide pops out so you can type directly on the actual words — the cursor sits on the real letters, in the slide's own fonts and size, over its real theme, background and logos. No more misaligned box or jumbled text.", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "Save now just saves your change — it doesn't fling it to the projector. Hit “Send this slide live” when you're ready. And you can keep clicking other slides live while you edit this one.",
+      "“Tidy” is now also on the playlist header next to “Add slide”, and tidying does a bit more grammar clean-up (spacing around commas).",
+    ],
+  },
+  {
     version: "0.1.333",
     date: "2026-08-25",
     headline: "Smarter scripture detection — catches quoted phrases, not just references",

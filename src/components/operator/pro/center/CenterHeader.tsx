@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { LayoutGrid, List, Eye, Play, Music, BookOpen, Image as ImageIcon, Type, Pencil, Plus } from "lucide-react";
+import { LayoutGrid, List, Eye, Play, Music, BookOpen, Image as ImageIcon, Type, Pencil, Plus, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { createSongSlide } from "@/lib/actions";
+import { createSongSlide, reChunkSong } from "@/lib/actions";
 import { cn } from "@/lib/utils";
 import { dispatchInternal } from "@/lib/internal-events";
 import type { OperatorShellCtx } from "../../shell/types";
@@ -33,6 +33,7 @@ export function CenterHeader({
 }) {
   const item = ctx.plan.items[ctx.previewItemIdx];
   const router = useRouter();
+  const [isTidying, setIsTidying] = useState(false);
   // "Add slide" appends a new slide to the END of the current song's grid
   // WITHOUT opening the editor (user directive 2026-08-19). createSongSlide
   // inserts one slide server-side; router.refresh() re-fetches the plan so the
@@ -90,6 +91,30 @@ export function CenterHeader({
             className="shrink-0 h-7 px-2.5 rounded-md border border-[var(--color-border)] flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-foreground)] hover:bg-[var(--color-elevated)]"
           >
             <Plus className="w-3.5 h-3.5" /> Add slide
+          </button>
+          {/* Tidy — re-break THIS song into cleaner, fewer-words-per-slide slides
+              (A2), right where the operator manages the current song. */}
+          <button
+            disabled={isTidying}
+            onClick={() => {
+              if (isTidying) return; // guard double-click → double re-chunk + double refresh
+              const songId = (item as { songId?: string }).songId;
+              if (!songId) { toast.error("No song to tidy"); return; }
+              setIsTidying(true);
+              void reChunkSong(songId).then((res) => {
+                if (!res.ok) { toast.error(res.error || "Tidy failed"); return; }
+                const d = res.data;
+                if (!d || d.skipped === "noop") { toast.success("Slides are already tidy."); return; }
+                if (d.skipped === "rich") { toast.error("Custom-styled slides — tidy skipped to keep your styling."); return; }
+                if (d.skipped === "empty") { toast.error("No lyrics to tidy."); return; }
+                toast.success(`Tidied — ${d.before} → ${d.after} cleaner slides.`);
+                router.refresh();
+              }).finally(() => setIsTidying(false));
+            }}
+            title="Tidy slides — re-break into cleaner, easier-to-read slides"
+            className="shrink-0 h-7 px-2.5 rounded-md border border-[var(--color-border)] flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-foreground)] hover:bg-[var(--color-elevated)] disabled:opacity-50"
+          >
+            <Sparkles className="w-3.5 h-3.5" /> {isTidying ? "Tidying…" : "Tidy"}
           </button>
         </>
       )}

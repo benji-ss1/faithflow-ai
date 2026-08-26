@@ -79,7 +79,7 @@ function themeTextStyle(appearance: ThemeAppearance | null | undefined): React.C
   return Object.keys(s).length ? s : undefined;
 }
 
-export function SlideRenderer({ slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef, fontScale, referenceScale, referenceColor, appearance, overVideo }: {
+export function SlideRenderer({ slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef, fontScale, referenceScale, referenceColor, appearance, overVideo, editable, onEditInput }: {
   slide: SlidePayload;
   className?: string;
   // Phase 2a: rendering as an overlay ON TOP of a live video layer. Makes
@@ -116,6 +116,11 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
   // 2026-08-01: expose the <video> element to the parent (e.g. /live page)
   // so it can apply media-control commands and report media-status.
   onVideoRef?: (el: HTMLVideoElement | null) => void;
+  // In-place Quick Edit: make the single text element editable (song text slides
+  // only). Threaded straight to AutoFitText. Parent freezes `slide.text` while
+  // editing so the caret + fit stay stable.
+  editable?: boolean;
+  onEditInput?: (text: string) => void;
 }) {
   const base = "w-full h-full flex items-center justify-center overflow-hidden";
 
@@ -210,6 +215,8 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
               fontScale={fontScale}
               className={`text-white font-display font-semibold${animated ? " relative z-[1]" : ""}`}
               textStyle={{ ...themeTextStyle(appearance), ...objStyle }}
+              editable={editable}
+              onEditInput={onEditInput}
             />
           </div>
         );
@@ -259,6 +266,8 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
           fontScale={fontScale}
           className={`text-white font-display font-semibold${animated ? " relative z-[1]" : ""}`}
           textStyle={themeTextStyle(appearance)}
+          editable={editable}
+          onEditInput={onEditInput}
         />
         {refText && (
           // Fixed always-visible reference footer. Kept OUT of the AutoFitText box

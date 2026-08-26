@@ -183,6 +183,20 @@ function groupEvenly(lines: string[], target: number, max: number): string[][] {
  *  bare word set. */
 function grammarPass(line: string, stripEol: boolean, normCaps: boolean): string {
   let s = line.trim();
+  // Tidy internal punctuation/spacing (user directive 2026-08-26 — "a bit more
+  // grammar work, like commas"): collapse runs of spaces, remove a space BEFORE
+  // , ; : ! ? and ensure a single space AFTER , ; : when a word follows. Safe,
+  // deterministic; runs before the end-of-line strip + casing.
+  s = s
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([,;:.!?])/g, "$1")
+    // Add a single space AFTER , ; : when a word follows — but NEVER inside a
+    // number/reference (digit-adjacent), or "10,000 Reasons" → "10, 000" and
+    // "John 3:16" → "3: 16". The [^\s\d] lookahead skips a following digit, and
+    // (?<!\d) skips a preceding digit, so thousands separators, times and
+    // verse refs pass through untouched.
+    .replace(/(?<!\d)([,;:])(?=[^\s\d])/g, "$1 ")
+    .trim();
   if (stripEol) s = s.replace(/[.,;:]+$/, "").trimEnd();
   if (normCaps && isNormalizableAllCaps(s)) s = toSentenceCase(s);
   return s;

@@ -58,10 +58,19 @@ function warnOverflowOnce(text: string, floorPx: number) {
   );
 }
 
-export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRatio = 0.06, minPx, disablePagination, projectorFit, fontScale = 1 }:
+export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRatio = 0.06, minPx, disablePagination, projectorFit, fontScale = 1, editable, onEditInput }:
   {
     text: string;
     className?: string;
+    // In-place edit mode (Quick Edit). When true, the SAME rendered text node
+    // becomes contentEditable — so the caret sits on the real letters and the
+    // styling/wrapping is inherently correct. The parent MUST keep the `text`
+    // prop FROZEN while editing (pass the text at open, not the live-typed
+    // value): that both preserves the caret (React never re-renders the text
+    // node) and freezes the auto-fit (its dep is `text`), so letters don't jump
+    // mid-type. `onEditInput` receives the plain-text innerText on every input.
+    editable?: boolean;
+    onEditInput?: (text: string) => void;
     // Themes Phase 1: theme-driven text styling (color, fontFamily, fontWeight,
     // textAlign, textShadow). Merged so it overrides the readability defaults
     // but NOT the layout-critical props (fitted fontSize, wrapping, uppercase),
@@ -148,7 +157,10 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
   // 2026-07-25: skip pagination entirely when the caller opts out (grid
   // thumbnails prefer shrink-to-fit over page-split since a page indicator
   // is illegible at glance size).
-  const pages = useMemo(() => disablePagination ? [text] : paginateForFit(text), [text, disablePagination]);
+  // In edit mode the ENTIRE slide text must be one editable node — never
+  // paginated — or the contentEditable would show only page 0 and capturing
+  // its innerText on keystroke would silently truncate the slide on Save.
+  const pages = useMemo(() => (disablePagination || editable) ? [text] : paginateForFit(text), [text, disablePagination, editable]);
   const currentText = pages[Math.min(pageIdx, pages.length - 1)] || text;
 
   // B2 hierarchy (2026-08-10): a Bible slide ends with "\n\n<Book ch:verse (VER)>".
@@ -408,6 +420,23 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
     return () => window.removeEventListener("keydown", onKey);
   }, [pages.length]);
 
+  // Edit mode: focus the text node once and drop the caret at the end so the
+  // operator can type immediately. Runs only when entering edit mode.
+  useEffect(() => {
+    if (!editable) return;
+    const el = textRef.current;
+    if (!el) return;
+    el.focus();
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false); // caret to end
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    } catch { /* selection API best-effort */ }
+  }, [editable]);
+
   return (
     <div ref={boxRef} className="w-full h-full flex items-center justify-center overflow-hidden relative" style={{ padding: pad }}>
       {AF_DEBUG && projectorFit && (
@@ -418,7 +447,23 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
       <div
         ref={textRef}
         className={className}
+        {...(editable
+          ? {
+              contentEditable: "plaintext-only",
+              suppressContentEditableWarning: true,
+              spellCheck: false,
+              onInput: (e: React.FormEvent<HTMLDivElement>) =>
+                onEditInput?.((e.currentTarget as HTMLElement).innerText.replace(/\r\n?/g, "\n")),
+              onPaste: (e: React.ClipboardEvent<HTMLDivElement>) => {
+                // Force PLAIN text — never let rich HTML into a lyric slide.
+                e.preventDefault();
+                const t = e.clipboardData.getData("text/plain");
+                document.execCommand("insertText", false, t);
+              },
+            }
+          : {})}
         style={{
+          ...(editable ? { cursor: "text", outline: "none" } : {}),
           // Themeable defaults — overridable by the active theme's textStyle.
           fontWeight: 700, // bold — pastor projection readability floor
           textAlign: "center",
@@ -450,7 +495,14 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
           // stays correct. A caller MAY override via textStyle.textTransform — the
           // scripture editor passes "none" when the operator turns uppercase OFF,
           // so a reference-hidden verse stays one-to-one with the editor.
-          textTransform: (textStyle?.textTransform ?? "uppercase") as React.CSSProperties["textTransform"],
+          //
+          // EDIT MODE forces "none": innerText is layout-aware in Blink (the
+          // Electron operator app), so a text-transform:uppercase node returns
+          // ALL-CAPS from innerText — which we capture on every keystroke and
+          // persist on Save, permanently corrupting the stored casing. Editing
+          // in true case keeps the captured value one-to-one with what's typed;
+          // the projected (non-editable) render still uppercases as before.
+          textTransform: (editable ? "none" : (textStyle?.textTransform ?? "uppercase")) as React.CSSProperties["textTransform"],
         }}
       >
         {refSplit.body}

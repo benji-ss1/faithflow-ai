@@ -1,7 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import * as Dialog from "@radix-ui/react-dialog";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { ThemedSlideCard } from "./ThemedSlideCard";
 import type { BackgroundSpec } from "@/lib/broadcast";
@@ -89,9 +88,17 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
     return () => window.removeEventListener("presentflow:slide-view-mode", handler);
   }, []);
 
-  // Quick Edit — floating panel for inline slide text editing
-  const [quickEdit, setQuickEdit] = useState<{ slideIdx: number; text: string } | null>(null);
+  // Quick Edit — floating panel for inline slide text editing.
+  // quickEdit.text is the FROZEN text at open (kept stable so the in-place
+  // AutoFitText caret + fit don't jump mid-type); the LIVE typed value lives in
+  // editedTextRef (a ref, so keystrokes don't re-render the editable node).
+  // slideId is the STABLE per-slide id captured at open — Save targets it
+  // directly so a grid reorder/delete/paste while the (non-modal) editor is
+  // open can't make the array index resolve to a different slide. slideIdx is
+  // kept only for the live-preview render + focus re-keying.
+  const [quickEdit, setQuickEdit] = useState<{ slideIdx: number; slideId?: string; text: string } | null>(null);
   const [qeSaving, setQeSaving] = useState(false);
+  const editedTextRef = useRef("");
   // App-level clipboard for cut/copy/paste within the grid
   const clipboardSlide = useSlideClipboard();
 
@@ -136,10 +143,15 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   const handleQuickEditSave = async (newText: string) => {
     if (!quickEdit) return;
     const trimmed = newText.trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      const { toast } = await import("sonner");
+      toast.error("Slide text can't be empty");
+      return;
+    }
     if (item?.type !== "song" || !(item as { songId?: string }).songId) return;
-    // Per-slide id (aligned with `slides` by index, same as onDelete).
-    const slideId = item.songSlideRows?.[quickEdit.slideIdx]?.id;
+    // Prefer the STABLE id captured at open; fall back to the index lookup for
+    // safety. This survives a grid reorder while the non-modal editor is open.
+    const slideId = quickEdit.slideId ?? item.songSlideRows?.[quickEdit.slideIdx]?.id;
     if (!slideId) {
       const { toast } = await import("sonner");
       toast.error("Couldn't find that slide to save");
@@ -153,16 +165,12 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
       const res = await updateSongSlideText(slideId, trimmed);
       const { toast } = await import("sonner");
       if (!res.ok) { toast.error(res.error ?? "Save failed"); return; }
-      // Auto-push the edited slide LIVE in ITS OWN styling — apply the new text to
-      // the styled slide payload so the projector renders the church's fonts /
-      // weight / size (not the plain-text UPPERCASE default). applyTextToSlide is
-      // a no-op-on-objects for plain songs (they legitimately render as plain
-      // text), and swaps the text object in-place for designed songs.
-      const current = slides[quickEdit.slideIdx];
-      if (current) ctx.onSendSlideToLive(applyTextToSlide(current, trimmed));
-      toast.success("Slide updated & sent live");
-      setQuickEdit(null);
-      router.refresh(); // grid reflects the saved text
+      // Save ONLY persists + updates the slide — it does NOT push to the projector
+      // (user directive 2026-08-26). "Send this slide live" is the separate,
+      // explicit action; saving and sending live are independent choices. The
+      // editor stays open so the operator can then Send Live if they want to.
+      toast.success("Slide updated");
+      router.refresh(); // grid reflects the saved text; editor stays open
     } finally {
       setQeSaving(false);
     }
@@ -322,7 +330,11 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                     const firstText = objs.find((o) => o?.kind === "text");
                     if (firstText && typeof firstText.text === "string") text = firstText.text;
                   }
-                  setQuickEdit({ slideIdx: idx, text });
+                  editedTextRef.current = text; // seed the live-edit ref
+                  // Capture the STABLE slide id now so Save can't be misdirected
+                  // by a later reorder/delete while the editor stays open.
+                  const slideId = item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined;
+                  setQuickEdit({ slideIdx: idx, slideId, text });
                 }}
                 onDuplicate={() => {
                   if (guardObjectSong()) return;
@@ -406,78 +418,78 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
         </div>
       )}
 
-      {/* Quick Edit Dialog — ProPresenter-style inline slide text editor */}
-      <Dialog.Root open={quickEdit !== null} onOpenChange={(o) => { if (!o) setQuickEdit(null); }}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px]" />
-          <Dialog.Content
-            className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[480px] max-w-[90vw] rounded-xl bg-[var(--color-panel)] border border-[var(--color-border)] shadow-2xl flex flex-col"
+      {/* Quick Edit — ProPresenter-style NON-MODAL floating editor. The selected
+          slide pops out ~2x larger as the REAL slide (its own styling/background),
+          editable in place. Crucially it is NOT a modal: no overlay, no focus
+          trap — the operator can still click other slides in the grid and push
+          them LIVE mid-service while a quick edit is open. Small ✕ at top-left. */}
+      {quickEdit !== null && (() => {
+        const current = slides[quickEdit.slideIdx];
+        const preview = current
+          ? applyTextToSlide(current, quickEdit.text || " ")
+          : ({ kind: "text", text: quickEdit.text || " " } as SlidePayload);
+        return (
+          <div
+            className="fixed z-50 top-[14%] left-1/2 -translate-x-1/2 flex flex-col items-center"
+            role="dialog"
+            aria-label={`Quick Edit — Slide ${quickEdit.slideIdx + 1}`}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") { setQuickEdit(null); }
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { void handleQuickEditSave(editedTextRef.current); }
+            }}
           >
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--color-border)]">
-              <Pencil className="w-4 h-4 text-[var(--color-muted-foreground)]" />
-              <span className="text-[13px] font-semibold">Quick Edit — Slide {(quickEdit?.slideIdx ?? 0) + 1}</span>
-              <Dialog.Close asChild>
-                <button type="button" className="ml-auto w-6 h-6 flex items-center justify-center rounded hover:bg-white/10 text-[var(--color-muted-foreground)]">
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </Dialog.Close>
-            </div>
-            <div className="p-4">
-              <textarea
-                autoFocus
-                value={quickEdit?.text ?? ""}
-                onChange={(e) => setQuickEdit((prev) => prev ? { ...prev, text: e.target.value } : null)}
-                rows={6}
-                maxLength={5000}
-                className="w-full resize-y bg-[var(--color-elevated)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-[13px] leading-relaxed outline-none focus:border-[var(--color-brand)] text-[var(--color-foreground)] placeholder-[var(--color-muted-foreground)]"
-                placeholder="Slide text…"
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") { setQuickEdit(null); }
-                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { void handleQuickEditSave(quickEdit?.text ?? ""); }
-                }}
+            {/* The popped slide — the REAL render, edited IN PLACE. The themed text
+                node itself is contentEditable (via AutoFitText.editable), so the
+                caret sits on the real letters and the styling/wrapping is inherently
+                correct across ANY theme/background/logo. `preview` is derived from
+                the FROZEN quickEdit.text (not the live-typed value) so the caret +
+                auto-fit stay put; the live text lives in editedTextRef. */}
+            <div className="relative w-[min(56vw,520px)] aspect-video rounded-lg overflow-hidden shadow-[0_16px_56px_rgba(0,0,0,0.7)] ring-2 ring-white/30">
+              <ThemedSlideCard
+                // Re-key per edited slide so switching the target while the
+                // (non-modal) editor stays open remounts the editable node and
+                // re-runs its focus + caret-to-end effect on the new text.
+                key={quickEdit.slideId ?? quickEdit.slideIdx}
+                slide={preview}
+                textMinPx={18}
+                appearance={ctx.appearance ?? undefined}
+                background={ctx.background}
+                editable
+                onEditInput={(t) => { editedTextRef.current = t; }}
               />
-              <div className="text-[11px] text-[var(--color-muted-foreground)] mt-1">
-                ⌘↵ Save · Esc Cancel
-              </div>
+              {/* Close ✕ — top-left, like ProPresenter. */}
+              <button type="button" aria-label="Close" onClick={() => setQuickEdit(null)}
+                className="absolute top-1.5 left-1.5 w-6 h-6 flex items-center justify-center rounded-full bg-black/60 hover:bg-black/80 text-white/90 ring-1 ring-white/20 z-10">
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
-            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-[var(--color-border)]">
+
+            {/* Minimal floating action row. */}
+            <div className="mt-2.5 flex items-center justify-center gap-2">
               <button
                 type="button"
                 onClick={() => {
-                  const t = quickEdit?.text.trim();
-                  if (!t || !quickEdit) return;
-                  // Push the edited text in the slide's OWN styling (designed
-                  // objects preserved) — not a plain-text default. Does not persist
-                  // (that's Save); this is a quick preview-to-screen.
-                  const current = slides[quickEdit.slideIdx];
+                  const t = editedTextRef.current.trim();
+                  if (!t) return;
                   ctx.onSendSlideToLive(current ? applyTextToSlide(current, t) : { kind: "text", text: t });
                 }}
-                disabled={!quickEdit?.text.trim()}
-                className="h-8 px-3 rounded-md text-[12px] font-medium bg-[var(--color-elevated)] border border-[var(--color-border)] hover:bg-white/10 text-[var(--color-foreground)] disabled:opacity-40"
+                className="h-8 px-3 rounded-md text-[12px] font-medium bg-white/10 border border-white/20 hover:bg-white/20 text-white backdrop-blur-sm"
               >
-                Send Live
+                Send this slide live
               </button>
-              <Dialog.Close asChild>
-                <button
-                  type="button"
-                  className="h-8 px-3 rounded-md text-[12px] font-medium bg-transparent border border-[var(--color-border)] hover:bg-white/5 text-[var(--color-muted-foreground)]"
-                  disabled={qeSaving}
-                >
-                  Cancel
-                </button>
-              </Dialog.Close>
               <button
                 type="button"
-                onClick={() => void handleQuickEditSave(quickEdit?.text ?? "")}
+                onClick={() => void handleQuickEditSave(editedTextRef.current)}
                 disabled={qeSaving || !item?.type || item.type !== "song"}
                 className="h-8 px-4 rounded-md text-[12px] font-semibold bg-[var(--color-brand)] text-black hover:opacity-90 disabled:opacity-50"
               >
                 {qeSaving ? "Saving…" : "Save"}
               </button>
+              <span className="ml-1 text-[11px] text-white/60">⌘↵ Save · Esc Close · other slides stay live-clickable</span>
             </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+          </div>
+        );
+      })()}
     </div>
   );
 }
