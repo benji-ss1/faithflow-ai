@@ -151,7 +151,7 @@ export function BottomBar({
   const isBlank = ctx.liveSlide?.kind === "empty" || ctx.liveSlide?.kind === "blank";
   // Transport icon button inside the segmented cluster.
   const tBtn =
-    "w-8 h-[28px] grid place-items-center rounded-md text-[var(--color-muted-foreground)] transition-[background,color,transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)] hover:text-[var(--color-foreground)] hover:bg-white/[0.05] active:scale-90 disabled:opacity-40 disabled:pointer-events-none";
+    "w-8 h-[28px] grid place-items-center rounded-md text-[var(--color-muted-foreground)] transition-[background,color,transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10 active:scale-90 disabled:opacity-40 disabled:pointer-events-none";
 
   return (
     <div className="h-11 shrink-0 border-t border-[var(--color-border)] bg-[linear-gradient(180deg,var(--color-app-bg),var(--color-panel))] shadow-[var(--edge-top)] flex items-center px-2.5 gap-2">
@@ -222,7 +222,7 @@ export function BottomBar({
           onClick={onOpenShortcutsHelp}
           title="Keyboard shortcuts (?)"
           aria-label="Keyboard shortcuts"
-          className="w-8 h-8 grid place-items-center rounded-lg text-[var(--color-muted-foreground)] hover:bg-white/[0.06] hover:text-[var(--color-foreground)] transition-colors"
+          className="w-8 h-8 grid place-items-center rounded-lg text-[var(--color-muted-foreground)] hover:bg-[var(--color-brand)]/10 hover:text-[var(--color-foreground)] transition-colors"
         >
           <HelpCircle className="w-4 h-4" />
         </button>

@@ -269,7 +269,7 @@ export function TranscriptDisplay({ ctx }: Props) {
         <button
           type="button"
           onClick={toggleMinimized}
-          className="flex w-full items-center gap-2 px-2 hover:bg-white/[0.03] transition-colors"
+          className="flex w-full items-center gap-2 px-2 hover:bg-[var(--color-brand)]/10 transition-colors"
           style={{ height: MINIMIZED_BAR_HEIGHT_PX }}
           aria-label="Restore transcript panel"
           title="Restore transcript panel"
@@ -317,14 +317,14 @@ export function TranscriptDisplay({ ctx }: Props) {
           title="Clear visible transcript (does not stop AI listener)"
           aria-label="Clear transcript"
           onClick={() => setClearedAt(Date.now())}
-          className="text-[9px] font-mono font-bold uppercase tracking-[0.1em] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] px-2 py-1 rounded-md border border-transparent hover:border-[var(--color-border)] hover:bg-white/[0.05] transition-colors"
+          className="text-[9px] font-mono font-bold uppercase tracking-[0.1em] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] px-2 py-1 rounded-md border border-transparent hover:border-[var(--color-border)] hover:bg-[var(--color-brand)]/10 transition-colors"
         >
           Clear
         </button>
         <button
           type="button"
           onClick={toggleMinimized}
-          className="p-1 rounded text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/5 transition-colors"
+          className="p-1 rounded text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10 transition-colors"
           aria-label="Minimize transcript panel"
           title="Minimize transcript panel"
         >

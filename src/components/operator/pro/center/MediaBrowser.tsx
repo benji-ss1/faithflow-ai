@@ -372,7 +372,7 @@ export function MediaBrowser({
                   "h-7 px-3 rounded-lg text-[12px] transition-[color,background-color,box-shadow] duration-200 [transition-timing-function:var(--ease-house)]",
                   fit === o.value
                     ? "bg-[linear-gradient(180deg,#F2712E_0%,#E8501A_100%)] text-black font-bold shadow-[var(--edge-top),var(--shadow-ember)]"
-                    : "text-[var(--color-muted-foreground)] font-semibold hover:text-[var(--color-foreground)] hover:bg-white/[0.04]",
+                    : "text-[var(--color-muted-foreground)] font-semibold hover:text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10",
                 )}
               >
                 {o.label}

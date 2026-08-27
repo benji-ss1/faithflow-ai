@@ -158,7 +158,7 @@ function SortablePlaylistItem({
                 ? "border-[var(--color-brand)] bg-[var(--color-brand)]/15 ring-1 ring-inset ring-[var(--color-brand)]"
                 : isActive
                   ? "border-[var(--color-brand)] bg-[var(--color-elevated)] shadow-[var(--edge-top),inset_0_0_20px_-8px_var(--color-glow)]"
-                  : "border-transparent hover:bg-white/[0.05]",
+                  : "border-transparent hover:bg-[var(--color-brand)]/10",
             )}
           >
             {/* Drag handle — only this area initiates a drag */}
@@ -375,7 +375,7 @@ function SortablePlaylistItem({
                         type="button"
                         onClick={() => onProjectSlide?.(sIdx)}
                         title={`${name} — click to send live, right-click for options`}
-                        className="w-full flex items-center gap-2 py-0.5 pr-1 rounded text-left text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/5"
+                        className="w-full flex items-center gap-2 py-0.5 pr-1 rounded text-left text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10"
                       >
                         <span className="w-4 text-right opacity-50 shrink-0">{sIdx + 1}</span>
                         {url && isVideo ? (
@@ -819,7 +819,7 @@ export function PlaylistSection({
               <button className="w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded-lg font-medium transition-colors hover:bg-[var(--color-brand)]/12 hover:text-[var(--color-brand)]" onClick={() => onCenterMode?.("bible")}><BookOpen className="w-3.5 h-3.5 shrink-0 opacity-70" />From Bible</button>
               <button className="w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded-lg font-medium transition-colors hover:bg-[var(--color-brand)]/12 hover:text-[var(--color-brand)]" onClick={() => onCenterMode?.("media")}><ImageIcon className="w-3.5 h-3.5 shrink-0 opacity-70" />From Media</button>
               <div className="my-1 h-px bg-[var(--color-border)]" />
-              <button className="w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded-lg font-medium transition-colors hover:bg-white/[0.06]" onClick={addBlank}><Square className="w-3.5 h-3.5 shrink-0 opacity-70" />Blank</button>
+              <button className="w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded-lg font-medium transition-colors hover:bg-[var(--color-brand)]/10" onClick={addBlank}><Square className="w-3.5 h-3.5 shrink-0 opacity-70" />Blank</button>
             </Popover.Content>
           </Popover.Portal>
         </Popover.Root>

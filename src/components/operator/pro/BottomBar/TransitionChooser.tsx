@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import * as Tabs from "@radix-ui/react-tabs";
-import { Star, Search } from "lucide-react";
+import { Star, Search, Check } from "lucide-react";
 
 const FAV_KEY = "presentflow.pro.transitions.favorites.v1";
 
@@ -84,20 +84,19 @@ export function TransitionChooser({
           side="top"
           align="center"
           sideOffset={10}
-          className="rounded-2xl border border-[var(--color-border)] p-0 text-[12px] shadow-2xl z-50 w-[460px] overflow-hidden"
-          style={{ background: "linear-gradient(180deg, var(--color-raised-shell, #151517), var(--color-panel, #0b0b0d))" }}
+          className="rounded-xl border border-[var(--color-border)] bg-[var(--color-panel)] p-0 text-[12px] shadow-[var(--edge-top),var(--shadow-lg)] z-50 w-[460px] overflow-hidden"
         >
           <style>{PREVIEW_CSS}</style>
 
           {/* Header: tabs + search */}
-          <div className="flex items-center justify-between gap-3 px-4 pt-3.5 pb-2 border-b border-white/[0.06]">
+          <div className="flex items-center justify-between gap-3 px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
             <Tabs.Root value={tab} onValueChange={(v) => setTab(v as "all" | "favs")}>
-              <Tabs.List className="relative flex items-center gap-1 p-0.5 rounded-full border border-white/[0.08] bg-black/30">
+              <Tabs.List className="relative flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-app-bg)] p-[3px] shadow-[var(--edge-top),inset_0_1px_2px_rgba(0,0,0,0.28)]">
                 {(["all", "favs"] as const).map((v) => (
                   <Tabs.Trigger
                     key={v}
                     value={v}
-                    className="relative z-10 px-3.5 h-7 rounded-full text-[11px] font-semibold uppercase tracking-wide transition-colors data-[state=active]:text-black text-[var(--color-muted-foreground)] data-[state=active]:bg-[var(--color-brand)]"
+                    className="relative z-10 px-3.5 h-7 rounded-full text-[11px] font-semibold uppercase tracking-wide text-[var(--color-muted-foreground)] transition-[color,background,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)] hover:text-[var(--color-foreground)] data-[state=active]:text-black data-[state=active]:font-bold data-[state=active]:bg-[image:var(--grad-ember)] data-[state=active]:shadow-[var(--edge-top),var(--shadow-md)]"
                   >
                     {v === "all" ? "All" : "Favorites"}
                   </Tabs.Trigger>
@@ -111,13 +110,13 @@ export function TransitionChooser({
                 type="button"
                 onClick={() => onToggleOff?.(!transitionsOff)}
                 title={transitionsOff ? "Transitions are OFF — click to turn on" : "Turn transitions OFF (instant cut)"}
-                className={`h-8 px-3 rounded-full text-[11px] font-semibold uppercase tracking-wide border transition-colors ${
+                className={`h-8 px-3 rounded-full text-[11px] font-semibold uppercase tracking-wide inline-flex items-center gap-1 transition-[transform,box-shadow,border-color,color] duration-200 [transition-timing-function:var(--ease-spring)] active:scale-[0.97] ${
                   transitionsOff
-                    ? "bg-[var(--color-brand)] text-black border-[var(--color-brand)]"
-                    : "border-white/[0.12] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:border-white/25"
+                    ? "bg-[image:var(--grad-ember)] text-black font-bold shadow-[var(--edge-top),var(--shadow-ember)] motion-safe:hover:-translate-y-px hover:shadow-[var(--edge-top),var(--shadow-ember-lg)]"
+                    : "border border-[var(--color-border)] bg-[var(--color-card)] text-[var(--color-muted-foreground)] shadow-[var(--edge-top),var(--shadow-sm)] motion-safe:hover:-translate-y-px hover:text-[var(--color-foreground)] hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:shadow-[var(--edge-top),var(--shadow-md)]"
                 }`}
               >
-                {transitionsOff ? "Off ✓" : "Off"}
+                {transitionsOff && <Check className="w-3.5 h-3.5" />} Off
               </button>
               <div className="relative w-[150px]">
                 <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--color-muted-foreground)]" />
@@ -126,7 +125,7 @@ export function TransitionChooser({
                   value={filter}
                   onChange={(e) => setFilter(e.target.value)}
                   placeholder="Search"
-                  className="w-full h-8 pl-8 pr-2 rounded-lg border border-white/[0.08] bg-black/30 text-[12px] outline-none focus:border-[var(--color-brand)]/60"
+                  className="w-full h-8 pl-8 pr-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)] text-[12px] text-[var(--color-foreground)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)] outline-none transition-colors duration-200 focus:border-[var(--color-brand)]"
                 />
               </div>
             </div>
@@ -157,9 +156,9 @@ export function TransitionChooser({
           </div>
 
           {/* Duration (or OFF banner) */}
-          <div className={`px-4 pt-2.5 pb-4 border-t border-white/[0.06] ${transitionsOff ? "opacity-40 pointer-events-none" : ""}`}>
+          <div className={`px-4 pt-2.5 pb-4 border-t border-[var(--color-border)] ${transitionsOff ? "opacity-40 pointer-events-none" : ""}`}>
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--color-muted-foreground)]">{transitionsOff ? "Transitions off — instant cut" : "Duration"}</span>
+              <span className="eyebrow">{transitionsOff ? "Transitions off — instant cut" : "Duration"}</span>
               <span className="text-[12px] font-mono font-bold tabular-nums text-[var(--color-brand)]">{transitionDuration.toFixed(1)}s</span>
             </div>
             <input
@@ -169,7 +168,8 @@ export function TransitionChooser({
               step={0.1}
               value={transitionDuration}
               onChange={(e) => onDurationChange(parseFloat(e.target.value))}
-              className="w-full accent-[var(--color-brand)]"
+              className="w-full"
+              style={{ accentColor: "var(--color-brand)" }}
             />
           </div>
         </Popover.Content>
@@ -192,10 +192,10 @@ function TransitionCard({
     <button
       onClick={onSelect}
       title={`Use “${name}” transition`}
-      className={`group relative rounded-xl border p-1.5 text-left transition-all ${
+      className={`group relative rounded-xl border p-1.5 text-left transition-[transform,box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-spring)] active:scale-[0.97] ${
         selected
-          ? "border-[var(--color-brand)] bg-[var(--color-brand)]/[0.07] shadow-[0_0_0_1px_var(--color-brand),0_6px_18px_rgba(232,80,26,0.22)]"
-          : "border-white/[0.08] hover:border-white/20 hover:bg-white/[0.03]"
+          ? "border-[var(--color-brand)] bg-[var(--color-brand)]/[0.07] shadow-[0_0_0_1px_var(--color-brand),var(--shadow-ember)]"
+          : "border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] motion-safe:hover:-translate-y-px hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:shadow-[var(--edge-top),var(--shadow-md)]"
       }`}
     >
       {/* Animated mini-preview */}
@@ -209,10 +209,10 @@ function TransitionCard({
           role="button"
           tabIndex={-1}
           onClick={(e) => { e.stopPropagation(); onToggleFav(); }}
-          className="shrink-0 p-1 rounded-md hover:bg-white/[0.06]"
+          className="shrink-0 p-1 rounded-md hover:bg-[var(--color-brand)]/10"
           title={fav ? "Remove favourite" : "Add favourite"}
         >
-          <Star className={`w-3.5 h-3.5 transition-colors ${fav ? "fill-[var(--color-brand)] text-[var(--color-brand)]" : "text-white/30 hover:text-white/60"}`} />
+          <Star className={`w-3.5 h-3.5 transition-colors ${fav ? "fill-[var(--color-brand)] text-[var(--color-brand)]" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"}`} />
         </span>
       </div>
     </button>

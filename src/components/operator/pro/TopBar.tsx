@@ -37,7 +37,7 @@ function IconBtn({
             title={label}
             className={cn(
               "w-[34px] h-[34px] flex items-center justify-center rounded-md transition-colors",
-              "hover:bg-white/5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",
+              "hover:bg-[var(--color-brand)]/10 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",
               active && "text-[var(--color-foreground)] border-b-2 border-[var(--color-brand)] rounded-b-none",
             )}
             aria-label={label}
@@ -282,7 +282,7 @@ export function TopBar({
                 type="button"
                 title="ProContent — Max upgrade"
                 aria-label="ProContent"
-                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-[var(--color-brand)]/10 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
               >
                 <Sparkles className="w-4 h-4" />
               </button>
@@ -456,7 +456,7 @@ export function TopBar({
                                 "transition-[transform,background,color,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)] active:scale-[0.96]",
                                 active
                                   ? "bg-[var(--color-elevated)] text-[var(--color-foreground)] shadow-[var(--edge-top),var(--shadow-md)]"
-                                  : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/[0.04]",
+                                  : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10",
                               )}
                               style={active ? { boxShadow: `var(--edge-top), var(--shadow-md), inset 0 -2px 0 ${o.accent}` } : undefined}
                             >
@@ -687,7 +687,7 @@ export function TopBar({
             <button
               type="button"
               aria-label="Present Flow"
-              className="ml-1 flex items-center gap-1 h-[22px] px-1.5 rounded-md hover:bg-white/5"
+              className="ml-1 flex items-center gap-1 h-[22px] px-1.5 rounded-md hover:bg-[var(--color-brand)]/10"
               title="Present Flow"
             >
               <Image

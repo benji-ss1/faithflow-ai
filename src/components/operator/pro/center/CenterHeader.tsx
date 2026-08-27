@@ -131,7 +131,7 @@ export function CenterHeader({
         <CenterSizeSlider centerMode={centerMode} slideSize={slideSize} onSlideSize={onSlideSize} />
       )}
       <ViewModeToggle />
-      <button className="w-8 h-8 flex items-center justify-center rounded-lg text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/[0.06] transition-colors" title="Preview (open Live in a new window)"
+      <button className="w-8 h-8 flex items-center justify-center rounded-lg text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10 transition-colors" title="Preview (open Live in a new window)"
         onClick={() => { try { window.open("/live", "presentflow-live", "width=1280,height=720"); } catch { /* noop */ } }}
       >
         <Eye className="w-4 h-4" />
@@ -257,7 +257,7 @@ function ViewModeToggle() {
       "w-8 h-[26px] grid place-items-center rounded-lg transition-[background,color,box-shadow,transform] duration-200 [transition-timing-function:var(--ease-spring)] active:scale-95",
       active
         ? "bg-[var(--color-elevated)] text-[var(--color-foreground)] shadow-[var(--edge-top),var(--shadow-md)]"
-        : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/[0.04]",
+        : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10",
     );
   return (
     <div className="flex items-center gap-0.5 h-[30px] rounded-xl border border-[var(--color-border)] bg-[var(--color-app-bg)] p-[3px] shadow-[var(--edge-top),inset_0_1px_2px_rgba(0,0,0,0.28)]">

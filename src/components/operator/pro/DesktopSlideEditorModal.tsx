@@ -32,11 +32,13 @@ import { cn } from "@/lib/utils";
  * Library "Edit slide" button) instead of the playlist preview item.
  */
 
-// ── ZoneEditor palette (verbatim) ───────────────────────────────────────────
+// ── Design Language v2 palette (token-backed) ───────────────────────────────
+// AMBER stays the literal brand hex because it is composited with alpha suffixes
+// (e.g. `${AMBER}22`) in inline styles — it equals var(--color-brand).
 const AMBER = "#e8501a";
-const PANEL = "#0f0f11";
-const ELEV = "#17171b";
-const HAIR = "#ffffff14"; // hairline divider
+const PANEL = "var(--color-panel)";
+const ELEV = "var(--color-elevated)";
+const HAIR = "var(--color-border)"; // hairline divider
 const CHECKER = "repeating-conic-gradient(#141418 0% 25%, #0d0d10 0% 50%)";
 
 type DrawerTab = "design" | "add" | "templates" | "background" | "layers";
@@ -138,11 +140,11 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
       ctx.onSendSlideToLive(projectableTextSlide(text, cur.bgColor, cur.bgImageUrl, cur.objects));
       // Confirmation (user directive): the editor is fullscreen, so the operator
       // can't see the projector — tell them the slide went live.
-      toast.success(`Slide ${editor.currentIndex + 1} is now on the projector`, { icon: "📽️" });
+      toast.success(`Slide ${editor.currentIndex + 1} is now on the projector`, { icon: <Play className="w-4 h-4" /> });
       return;
     }
     // Fallback (no in-editor slide): jump the live output to the saved slide.
-    if (item) { ctx.onJumpSlide(ctx.previewItemIdx, editor.currentIndex); toast.success("Sent to the projector", { icon: "📽️" }); }
+    if (item) { ctx.onJumpSlide(ctx.previewItemIdx, editor.currentIndex); toast.success("Sent to the projector", { icon: <Play className="w-4 h-4" /> }); }
   }, [editor, ctx, item]);
 
   // Open on the slide the operator double-clicked (playlist mode); target song
@@ -219,27 +221,27 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
             else if (k === "x") { if (copySelection()) { e.preventDefault(); editor.removeObjects(editor.selectedObjectIds); } }
           }}
           className="fixed inset-0 z-[71] flex flex-col overflow-hidden outline-none"
-          style={{ background: "#08080c" }}
+          style={{ background: "var(--color-shell)" }}
         >
           {/* ── Top bar ───────────────────────────────────────────────────── */}
           <header className="h-14 shrink-0 flex items-center gap-2 px-4 border-b" style={{ borderColor: HAIR, background: PANEL }}>
             <span className="grid h-8 w-8 place-items-center rounded-xl" style={{ background: `${AMBER}1a` }}>
               <Type className="w-4 h-4" style={{ color: AMBER }} />
             </span>
-            <Dialog.Title className="text-[15px] font-semibold text-white">Edit slide</Dialog.Title>
-            <span className="text-[12px] text-white/45 truncate max-w-[220px]">— {title}</span>
+            <Dialog.Title className="text-[15px] font-semibold text-[var(--color-foreground)]">Edit slide</Dialog.Title>
+            <span className="text-[12px] text-[var(--color-muted-foreground)] truncate max-w-[220px]">— {title}</span>
             {editor.hasDirtyChanges
               ? <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full" style={{ color: AMBER, background: `${AMBER}1f` }}>Unsaved</span>
-              : <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full text-emerald-300/90" style={{ background: "#10b98122" }}>Saved</span>}
-            {!songId && <span className="text-[10px] italic text-amber-300/80 ml-1">Only song slides are editable</span>}
+              : <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full text-[var(--color-success)]" style={{ background: "color-mix(in oklab, var(--color-success) 14%, transparent)" }}>Saved</span>}
+            {!songId && <span className="text-[10px] italic text-[var(--color-warning)]/80 ml-1">Only song slides are editable</span>}
 
             <div className="ml-auto flex items-center gap-1.5">
               <button onClick={editor.undo} disabled={!editor.canUndo} title="Undo (⌘Z)"
-                className="grid h-9 w-9 place-items-center rounded-lg text-white/70 hover:bg-white/[0.06] hover:text-white disabled:opacity-30">
+                className="grid h-9 w-9 place-items-center rounded-lg text-[var(--color-muted-foreground)] hover:bg-[var(--color-brand)]/10 hover:text-[var(--color-foreground)] disabled:opacity-30">
                 <Undo2 className="w-4 h-4" />
               </button>
               <button onClick={editor.redo} disabled={!editor.canRedo} title="Redo (⌘⇧Z)"
-                className="grid h-9 w-9 place-items-center rounded-lg text-white/70 hover:bg-white/[0.06] hover:text-white disabled:opacity-30">
+                className="grid h-9 w-9 place-items-center rounded-lg text-[var(--color-muted-foreground)] hover:bg-[var(--color-brand)]/10 hover:text-[var(--color-foreground)] disabled:opacity-30">
                 <Redo2 className="w-4 h-4" />
               </button>
               <span className="mx-1 h-6 w-px" style={{ background: HAIR }} />
@@ -247,8 +249,7 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
                 onClick={onSave}
                 disabled={!isSong || saveState === "saving" || !editor.hasDirtyChanges}
                 title={!isSong ? "Editing is available for songs" : !editor.hasDirtyChanges ? "No changes to save" : "Save slide edits"}
-                className="h-9 px-3 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5 text-white/85 hover:bg-white/[0.06] disabled:opacity-40"
-                style={{ border: `1px solid ${HAIR}` }}
+                className="h-9 px-3 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5 text-[var(--color-foreground)] border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] motion-safe:hover:-translate-y-px hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:shadow-[var(--edge-top),var(--shadow-md)] active:scale-[0.97] transition-[transform,box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-spring)] disabled:opacity-40 disabled:pointer-events-none disabled:shadow-none"
               >
                 {saveState === "saving" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save
               </button>
@@ -256,15 +257,13 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
                 onClick={onShow}
                 disabled={!isSong || !editor.currentSlide}
                 title={!isSong ? "Editing is available for songs" : "Send the current slide to Preview / Live"}
-                className="h-9 px-3 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5 disabled:opacity-40"
-                style={{ color: AMBER, border: `1px solid ${AMBER}55` }}
+                className="h-9 px-3 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5 text-[var(--color-brand)] border border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] motion-safe:hover:-translate-y-px hover:border-[var(--color-brand)] hover:bg-[var(--color-brand)]/10 hover:shadow-[var(--edge-top),var(--shadow-md)] active:scale-[0.97] transition-[transform,box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-spring)] disabled:opacity-40 disabled:pointer-events-none disabled:shadow-none"
               >
                 <Play className="w-4 h-4" /> Show
               </button>
               <button
                 onClick={requestClose}
-                className="h-9 px-4 rounded-lg text-[13px] font-bold inline-flex items-center gap-1.5"
-                style={{ background: AMBER, color: "#0b0b0e" }}
+                className="h-9 px-4 rounded-lg text-[13px] font-bold inline-flex items-center gap-1.5 bg-[image:var(--grad-ember)] text-black shadow-[var(--edge-top),var(--shadow-ember)] motion-safe:hover:-translate-y-px hover:shadow-[var(--edge-top),var(--shadow-ember-lg)] active:translate-y-0 active:scale-[0.97] transition-[transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)]"
               >
                 Done
               </button>
@@ -294,7 +293,7 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
                     readOnly={false}
                   />
                 ) : (
-                  <div className="w-full h-full grid place-items-center text-[12px] text-white/50">
+                  <div className="w-full h-full grid place-items-center text-[12px] text-[var(--color-muted-foreground)]">
                     Editing is available for song slides.
                   </div>
                 )}
@@ -333,7 +332,7 @@ function SlideRail({ editor, isSong, itemId, open, onToggle }: { editor: Editor;
   if (!open) {
     return (
       <aside className="shrink-0 w-12 border-r flex flex-col min-h-0 items-center" style={{ borderColor: HAIR, background: PANEL }}>
-        <button onClick={onToggle} title="Show slides" className="shrink-0 my-2 grid h-8 w-8 place-items-center rounded-lg text-white/70 hover:bg-white/[0.06] hover:text-white">
+        <button onClick={onToggle} title="Show slides" className="shrink-0 my-2 grid h-8 w-8 place-items-center rounded-lg text-[var(--color-muted-foreground)] hover:bg-[var(--color-brand)]/10 hover:text-[var(--color-foreground)]">
           <PanelLeftOpen className="w-4 h-4" />
         </button>
         <div className="flex-1 min-h-0 overflow-y-auto w-full flex flex-col items-center gap-1.5 pb-2">
@@ -342,7 +341,7 @@ function SlideRail({ editor, isSong, itemId, open, onToggle }: { editor: Editor;
             return (
               <button key={s.id} onClick={() => editor.setCurrentIndex(i)} title={`Slide ${i + 1}`}
                 className="shrink-0 h-8 w-8 rounded-md text-[12px] font-mono tabular-nums grid place-items-center"
-                style={active ? { background: `${AMBER}22`, color: AMBER, outline: `1px solid ${AMBER}` } : { color: "#a1a1aa", border: "1px solid #ffffff14" }}>
+                style={active ? { background: `${AMBER}22`, color: AMBER, outline: `1px solid ${AMBER}` } : { color: "var(--color-muted-foreground)", border: "1px solid var(--color-border)" }}>
                 {i + 1}
               </button>
             );
@@ -357,8 +356,8 @@ function SlideRail({ editor, isSong, itemId, open, onToggle }: { editor: Editor;
       {/* Slide actions */}
       <div className="shrink-0 p-2 border-b" style={{ borderColor: HAIR }}>
         <div className="flex items-center justify-between mb-1.5 px-0.5">
-          <span className="text-[9px] font-semibold uppercase tracking-wide text-white/40">Slides</span>
-          <button onClick={onToggle} title="Hide slides" className="grid h-6 w-6 place-items-center rounded-md text-white/55 hover:bg-white/[0.06] hover:text-white">
+          <span className="text-[9px] font-semibold uppercase tracking-wide text-[var(--color-muted-foreground)]">Slides</span>
+          <button onClick={onToggle} title="Hide slides" className="grid h-6 w-6 place-items-center rounded-md text-[var(--color-muted-foreground)] hover:bg-[var(--color-brand)]/10 hover:text-[var(--color-foreground)]">
             <PanelLeftClose className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -371,7 +370,7 @@ function SlideRail({ editor, isSong, itemId, open, onToggle }: { editor: Editor;
       </div>
       {/* Thumbnails (1,2,3,4…) */}
       <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-2">
-        {editor.slides.length === 0 && <span className="block text-[11px] text-white/40 italic px-1 py-2">No slides yet — add one.</span>}
+        {editor.slides.length === 0 && <span className="block text-[11px] text-[var(--color-muted-foreground)] italic px-1 py-2">No slides yet — add one.</span>}
         {editor.slides.map((s, i) => {
           const active = i === editor.currentIndex;
           return (
@@ -386,9 +385,9 @@ function SlideRail({ editor, isSong, itemId, open, onToggle }: { editor: Editor;
                 className="relative rounded-lg overflow-hidden cursor-pointer flex items-center gap-1.5"
                 title={`Slide ${i + 1}${isSong ? " — drag to reorder" : ""}`}
               >
-                <span className="shrink-0 w-5 text-center text-[11px] font-mono tabular-nums" style={{ color: active ? AMBER : "#71717a" }}>{i + 1}</span>
+                <span className="shrink-0 w-5 text-center text-[11px] font-mono tabular-nums" style={{ color: active ? AMBER : "var(--color-muted-foreground)" }}>{i + 1}</span>
                 <div className="relative flex-1 rounded-md overflow-hidden"
-                  style={{ outline: active ? `2px solid ${AMBER}` : "1px solid #ffffff1a", boxShadow: active ? `0 0 0 3px ${AMBER}22` : undefined }}>
+                  style={{ outline: active ? `2px solid ${AMBER}` : "1px solid var(--color-border)", boxShadow: active ? `0 0 0 3px ${AMBER}22` : undefined }}>
                   <SlideThumb slide={s} />
                 </div>
               </div>
@@ -403,8 +402,8 @@ function SlideRail({ editor, isSong, itemId, open, onToggle }: { editor: Editor;
 function RailBtn({ label, icon: Icon, onClick, disabled, accent, danger }: { label: string; icon: typeof Type; onClick: () => void; disabled?: boolean; accent?: boolean; danger?: boolean }) {
   return (
     <button onClick={onClick} disabled={disabled}
-      className={cn("h-8 px-2.5 rounded-lg text-[11px] font-semibold inline-flex items-center gap-1.5 disabled:opacity-40",
-        danger ? "text-red-300 hover:bg-red-500/10" : "text-white/80 hover:bg-white/[0.06]")}
+      className={cn("h-8 px-2.5 rounded-lg text-[11px] font-semibold inline-flex items-center gap-1.5 shadow-[var(--edge-top),var(--shadow-sm)] motion-safe:hover:-translate-y-px hover:shadow-[var(--edge-top),var(--shadow-md)] active:scale-[0.97] transition-[transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)] disabled:opacity-40 disabled:pointer-events-none disabled:shadow-none",
+        danger ? "text-[var(--color-destructive)] hover:bg-[var(--color-destructive)]/10" : "text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10")}
       style={{ border: `1px solid ${accent ? `${AMBER}55` : HAIR}`, background: ELEV, color: accent ? AMBER : undefined }}>
       <Icon className="w-3.5 h-3.5" /> {label}
     </button>
@@ -413,10 +412,10 @@ function RailBtn({ label, icon: Icon, onClick, disabled, accent, danger }: { lab
 
 // ── Right drawer ────────────────────────────────────────────────────────────
 const FONTS = ["Inter", "Sora", "Plus Jakarta Sans", "Georgia", "Helvetica", "Arial", "Times New Roman"];
-const rowCls = "block text-[9px] uppercase tracking-wide text-white/40 mb-1";
-const inCls = "w-full h-8 px-2 rounded-md border text-[12px] text-zinc-100 bg-[#0b0b0e] outline-none focus:border-[#e8501a]/70";
-const segOn = { borderColor: AMBER, background: `${AMBER}22`, color: "#ffd9bf" };
-const segOff: React.CSSProperties = { borderColor: "#ffffff1a" };
+const rowCls = "eyebrow block mb-1";
+const inCls = "w-full h-8 px-2 rounded-lg border border-[var(--color-border)] text-[12px] text-[var(--color-foreground)] bg-[var(--color-muted)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)] outline-none transition-colors duration-200 focus:border-[var(--color-brand)]";
+const segOn = { borderColor: "var(--color-brand)", background: "color-mix(in oklab, var(--color-brand) 16%, transparent)", color: "var(--color-brand-hi)" };
+const segOff: React.CSSProperties = { borderColor: "var(--color-border)" };
 
 const TABS: { id: DrawerTab; label: string; icon: typeof Type }[] = [
   { id: "design", label: "Design", icon: SlidersHorizontal },
@@ -428,7 +427,7 @@ const TABS: { id: DrawerTab; label: string; icon: typeof Type }[] = [
 
 function RightDrawer({ editor, churchId, tab, setTab, addFocus }: { editor: Editor; churchId: string; tab: DrawerTab; setTab: (t: DrawerTab) => void; addFocus: (fn: () => void) => void }) {
   if (!editor.isEditable) {
-    return <aside className="w-[300px] shrink-0 border-l p-4 text-[12px] text-white/50" style={{ borderColor: HAIR, background: PANEL }}>Editing is available for song slides.</aside>;
+    return <aside className="w-[300px] shrink-0 border-l p-4 text-[12px] text-[var(--color-muted-foreground)]" style={{ borderColor: HAIR, background: PANEL }}>Editing is available for song slides.</aside>;
   }
   return (
     <aside className="w-[320px] shrink-0 border-l flex flex-col min-h-0" style={{ borderColor: HAIR, background: PANEL }}>
@@ -438,10 +437,10 @@ function RightDrawer({ editor, churchId, tab, setTab, addFocus }: { editor: Edit
           const on = tab === t.id;
           return (
             <button key={t.id} onClick={() => setTab(t.id)} title={t.label}
-              className="h-12 rounded-lg flex flex-col items-center justify-center gap-1 border transition-all hover:brightness-125"
+              className={cn("h-12 rounded-lg flex flex-col items-center justify-center gap-1 border shadow-[var(--edge-top),var(--shadow-sm)] active:scale-[0.97] transition-[transform,box-shadow,color] duration-200 [transition-timing-function:var(--ease-spring)]", !on && "hover:bg-[var(--color-brand)]/10")}
               style={on ? segOn : segOff}>
-              <t.icon className="w-4 h-4 shrink-0" style={{ color: on ? AMBER : "#a1a1aa" }} />
-              <span className="w-full px-0.5 text-center truncate text-[7.5px] font-semibold uppercase tracking-[0.02em] leading-none" style={{ color: on ? "#ffd9bf" : "#a1a1aa" }}>{t.label}</span>
+              <t.icon className="w-4 h-4 shrink-0" style={{ color: on ? AMBER : "var(--color-muted-foreground)" }} />
+              <span className="w-full px-0.5 text-center truncate text-[7.5px] font-semibold uppercase tracking-[0.02em] leading-none" style={{ color: on ? "var(--color-brand-hi)" : "var(--color-muted-foreground)" }}>{t.label}</span>
             </button>
           );
         })}
@@ -471,7 +470,7 @@ function DesignPanel({ editor }: { editor: Editor }) {
     return (
       <div className="p-3 space-y-3">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] uppercase tracking-wide text-white/50">{selIds.length} objects selected</span>
+          <span className="text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">{selIds.length} objects selected</span>
           <div className="flex items-center gap-0.5">
             <IconBtn icon={Copy} title="Duplicate all" onClick={() => editor.duplicateObjects(selIds)} />
             <IconBtn icon={Trash2} title="Delete all" danger onClick={() => editor.removeObjects(selIds)} />
@@ -495,16 +494,16 @@ function DesignPanel({ editor }: { editor: Editor }) {
             <AlignBtn label="Vertical" onClick={() => editor.distributeObjects(selIds, "v")} />
           </div></div>
         )}
-        <p className="text-[10px] text-white/40 leading-snug">Drag any selected object to move the group. ⇧-click to add or remove one.</p>
+        <p className="text-[10px] text-[var(--color-muted-foreground)] leading-snug">Drag any selected object to move the group. ⇧-click to add or remove one.</p>
       </div>
     );
   }
 
   if (!selected) {
     return (
-      <div className="p-6 text-center text-[12px] text-white/45">
-        <SlidersHorizontal className="w-5 h-5 mx-auto mb-2 text-white/25" />
-        Select an object on the canvas — or add one from the <b className="text-white/70">Add</b> tab — to edit all its properties here.
+      <div className="p-6 text-center text-[12px] text-[var(--color-muted-foreground)]">
+        <SlidersHorizontal className="w-5 h-5 mx-auto mb-2 text-[var(--color-muted-foreground)]" />
+        Select an object on the canvas — or add one from the <b className="text-[var(--color-muted-foreground)]">Add</b> tab — to edit all its properties here.
       </div>
     );
   }
@@ -512,7 +511,7 @@ function DesignPanel({ editor }: { editor: Editor }) {
   return (
     <div className="p-3 space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] uppercase tracking-wide text-white/50">{selected.kind} object</span>
+        <span className="text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">{selected.kind} object</span>
         <div className="flex items-center gap-0.5">
           <IconBtn icon={selected.hidden ? EyeOff : Eye} title={selected.hidden ? "Show on projector" : "Hide from projector"} onClick={() => editor.updateObject(selected.id, { hidden: !selected.hidden })} />
           <IconBtn icon={selected.locked ? Lock : Unlock} title={selected.locked ? "Unlock" : "Lock"} active={selected.locked} onClick={() => editor.updateObject(selected.id, { locked: !selected.locked })} />
@@ -522,7 +521,7 @@ function DesignPanel({ editor }: { editor: Editor }) {
         </div>
       </div>
       {clip && (
-        <button onClick={() => editor.addObject(clip)} className="w-full h-8 rounded-md border text-[11px] font-semibold text-white/80 inline-flex items-center justify-center gap-1.5 hover:bg-white/[0.04]" style={segOff}>
+        <button onClick={() => editor.addObject(clip)} className="w-full h-8 rounded-md border text-[11px] font-semibold text-[var(--color-foreground)] inline-flex items-center justify-center gap-1.5 hover:bg-[var(--color-brand)]/10" style={segOff}>
           <ClipboardPaste className="w-3.5 h-3.5" /> Paste copied object
         </button>
       )}
@@ -548,22 +547,22 @@ function DesignPanel({ editor }: { editor: Editor }) {
       </div>
 
       <div><span className={rowCls}>Entrance</span><div className="flex gap-1.5">
-        <select value={selected.anim ?? "none"} onChange={(e) => upd({ anim: e.target.value as ObjectAnim })} className={inCls} style={{ borderColor: "#26262b" }}>
+        <select value={selected.anim ?? "none"} onChange={(e) => upd({ anim: e.target.value as ObjectAnim })} className={inCls} style={{ borderColor: "var(--color-border)" }}>
           {(["none", "fade", "slide-up", "slide-down", "slide-left", "slide-right", "zoom"] as const).map((a) => <option key={a} value={a}>{a}</option>)}
         </select>
-        <input type="number" min={0} max={10000} step={100} value={selected.animDelayMs ?? 0} onChange={(e) => upd({ animDelayMs: Number(e.target.value) })} title="Delay (ms)" className="w-16 h-8 px-1.5 rounded-md border text-[12px] text-zinc-200 bg-[#0b0b0e] outline-none" style={{ borderColor: "#26262b" }} />
+        <input type="number" min={0} max={10000} step={100} value={selected.animDelayMs ?? 0} onChange={(e) => upd({ animDelayMs: Number(e.target.value) })} title="Delay (ms)" className="w-16 h-8 px-1.5 rounded-md border text-[12px] text-[var(--color-foreground)] bg-[var(--color-muted)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)] outline-none" style={{ borderColor: "var(--color-border)" }} />
       </div></div>
 
       <div className="grid grid-cols-4 gap-1.5">
-        <div><span className={rowCls}>X</span><input type="number" value={Math.round(selected.x)} onChange={(e) => upd({ x: Number(e.target.value) })} className={inCls} style={{ borderColor: "#26262b" }} /></div>
-        <div><span className={rowCls}>Y</span><input type="number" value={Math.round(selected.y)} onChange={(e) => upd({ y: Number(e.target.value) })} className={inCls} style={{ borderColor: "#26262b" }} /></div>
-        <div><span className={rowCls}>W</span><input type="number" value={Math.round(selected.w)} onChange={(e) => upd({ w: Math.max(20, Number(e.target.value)) })} className={inCls} style={{ borderColor: "#26262b" }} /></div>
-        <div><span className={rowCls}>H</span><input type="number" value={Math.round(selected.h)} onChange={(e) => upd({ h: Math.max(20, Number(e.target.value)) })} className={inCls} style={{ borderColor: "#26262b" }} /></div>
+        <div><span className={rowCls}>X</span><input type="number" value={Math.round(selected.x)} onChange={(e) => upd({ x: Number(e.target.value) })} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
+        <div><span className={rowCls}>Y</span><input type="number" value={Math.round(selected.y)} onChange={(e) => upd({ y: Number(e.target.value) })} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
+        <div><span className={rowCls}>W</span><input type="number" value={Math.round(selected.w)} onChange={(e) => upd({ w: Math.max(20, Number(e.target.value)) })} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
+        <div><span className={rowCls}>H</span><input type="number" value={Math.round(selected.h)} onChange={(e) => upd({ h: Math.max(20, Number(e.target.value)) })} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
       </div>
       <div><span className={rowCls}>Rotation — {Math.round(selected.rotation ?? 0)}°</span>
-        <input type="range" min={-180} max={180} value={selected.rotation ?? 0} onChange={(e) => upd({ rotation: Number(e.target.value) })} className="w-full accent-[#e8501a]" /></div>
+        <input type="range" min={-180} max={180} value={selected.rotation ?? 0} onChange={(e) => upd({ rotation: Number(e.target.value) })} className="w-full" style={{ accentColor: "var(--color-brand)" }} /></div>
       <div><span className={rowCls}>Opacity — {Math.round((selected.opacity ?? 1) * 100)}%</span>
-        <input type="range" min={0} max={100} value={(selected.opacity ?? 1) * 100} onChange={(e) => upd({ opacity: Number(e.target.value) / 100 })} className="w-full accent-[#e8501a]" /></div>
+        <input type="range" min={0} max={100} value={(selected.opacity ?? 1) * 100} onChange={(e) => upd({ opacity: Number(e.target.value) / 100 })} className="w-full" style={{ accentColor: "var(--color-brand)" }} /></div>
 
       {selected.kind === "text" && <TextProps o={selected} upd={upd} />}
       {selected.kind === "shape" && <ShapeProps o={selected} upd={upd} />}
@@ -598,9 +597,9 @@ function AddPanel({ editor, churchId, addFocus }: { editor: Editor; churchId: st
         </div>
         <div className="flex gap-1.5 mt-1.5">
           <input value={imgUrl} onChange={(e) => setImgUrl(e.target.value)} placeholder="…or paste an image URL"
-            className="flex-1 h-8 px-2 rounded-md border text-[12px] text-zinc-200 bg-[#0b0b0e] outline-none focus:border-[#e8501a]/70" style={{ borderColor: "#26262b" }} />
+            className="flex-1 h-8 px-2 rounded-md border text-[12px] text-[var(--color-foreground)] bg-[var(--color-muted)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)] outline-none focus:border-[var(--color-brand)]" style={{ borderColor: "var(--color-border)" }} />
           <button onClick={() => { if (imgUrl.trim()) { addFocus(() => editor.addImage(imgUrl.trim())); setImgUrl(""); } }}
-            className="h-8 px-3.5 rounded-md border text-[11px] font-bold text-white/80 transition-all hover:border-[#e8501a]/60 hover:bg-[#e8501a]/[0.08] hover:text-white" style={segOff}>Add</button>
+            className="h-8 px-3.5 rounded-md border text-[11px] font-bold text-[var(--color-foreground)] shadow-[var(--edge-top),var(--shadow-sm)] motion-safe:hover:-translate-y-px hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:bg-[var(--color-brand)]/10 hover:shadow-[var(--edge-top),var(--shadow-md)] active:scale-[0.97] transition-[transform,box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-spring)]" style={segOff}>Add</button>
         </div>
         {libKind && (
           <MediaLibraryPicker kind={libKind} onClose={() => setLibKind(null)}
@@ -612,23 +611,23 @@ function AddPanel({ editor, churchId, addFocus }: { editor: Editor; churchId: st
 
       <div className="space-y-1.5">
         <button onClick={editor.addBlankSlide}
-          className="w-full h-10 rounded-lg text-[12px] font-semibold text-white inline-flex items-center justify-center gap-1.5 transition-all hover:bg-[#e8501a]/[0.1] hover:border-[#e8501a]/80" style={{ background: ELEV, border: `1px solid ${AMBER}55` }}>
+          className="w-full h-10 rounded-lg text-[12px] font-semibold text-[var(--color-foreground)] inline-flex items-center justify-center gap-1.5 shadow-[var(--edge-top),var(--shadow-sm)] motion-safe:hover:-translate-y-px hover:bg-[var(--color-brand)]/10 hover:border-[var(--color-brand)] hover:shadow-[var(--edge-top),var(--shadow-md)] active:scale-[0.97] transition-[transform,box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-spring)]" style={{ background: ELEV, border: `1px solid ${AMBER}55` }}>
           <PlusSquare className="w-4 h-4" style={{ color: AMBER }} /> Blank slide
         </button>
         <button
           onClick={() => setConfirmAll(true)}
-          className="w-full h-10 rounded-lg text-[12px] font-bold inline-flex items-center justify-center gap-1.5 transition-all hover:brightness-110 hover:-translate-y-px" style={{ background: `linear-gradient(180deg, ${AMBER}, #c23e0f)`, color: "#0b0b0e", boxShadow: "0 4px 14px rgba(232,80,26,0.32), inset 0 1px 0 rgba(255,255,255,0.25)" }}>
+          className="w-full h-10 rounded-lg text-[12px] font-bold inline-flex items-center justify-center gap-1.5 bg-[image:var(--grad-ember)] text-black shadow-[var(--edge-top),var(--shadow-ember)] motion-safe:hover:-translate-y-px hover:shadow-[var(--edge-top),var(--shadow-ember-lg)] active:translate-y-0 active:scale-[0.97] transition-[transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)]">
           <Copy className="w-4 h-4" /> Apply to all slides
         </button>
         <ConfirmDialog
           open={confirmAll}
           title="Apply to all slides?"
           confirmLabel="Apply to all"
-          body={<>Copies this slide&rsquo;s background{editor.selectedObjectId ? " and the selected object's style/position" : ""} to all <b className="text-white/80">{editor.slides.length}</b> slides in this song. Text and media content are never overwritten — and you can undo this.</>}
+          body={<>Copies this slide&rsquo;s background{editor.selectedObjectId ? " and the selected object's style/position" : ""} to all <b className="text-[var(--color-foreground)]">{editor.slides.length}</b> slides in this song. Text and media content are never overwritten — and you can undo this.</>}
           onCancel={() => setConfirmAll(false)}
           onConfirm={() => { editor.applyToAll(); toast.success("Applied to all slides"); setConfirmAll(false); }}
         />
-        <p className="text-[10px] text-white/40 leading-snug">
+        <p className="text-[10px] text-[var(--color-muted-foreground)] leading-snug">
           Copies the background{editor.selectedObjectId ? " + the selected object's style and position" : ""} to every slide. Lyrics/text are kept.
         </p>
       </div>
@@ -664,7 +663,7 @@ function TemplatesPanel({ editor, churchId }: { editor: Editor; churchId: string
         <div className="grid grid-cols-2 gap-1.5">
           {SLIDE_TEMPLATES.map((tpl) => (
             <button key={tpl.id} onClick={() => applyTemplate(tpl.id)}
-              className="h-8 rounded-md border text-[11px] font-semibold text-zinc-200 hover:bg-white/[0.04]" style={{ ...segOff, background: ELEV }}>{tpl.name}</button>
+              className="h-8 rounded-md border text-[11px] font-semibold text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10" style={{ ...segOff, background: ELEV }}>{tpl.name}</button>
           ))}
         </div>
       </div>
@@ -675,8 +674,8 @@ function TemplatesPanel({ editor, churchId }: { editor: Editor; churchId: string
             {customTpls.map((ct) => (
               <div key={ct.id} className="flex gap-1">
                 <button onClick={() => applyCustom(ct)} title={`Apply "${ct.name}"`}
-                  className="flex-1 h-8 rounded-md border text-[11px] font-semibold text-zinc-200 hover:bg-white/[0.04] truncate px-2 text-left" style={{ ...segOff, background: ELEV }}>{ct.name}</button>
-                <button onClick={() => removeCustom(ct.id)} title="Delete template" className="grid h-8 w-8 place-items-center rounded-md border text-red-300 hover:bg-red-500/10" style={segOff}><Trash2 className="w-3.5 h-3.5" /></button>
+                  className="flex-1 h-8 rounded-md border text-[11px] font-semibold text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10 truncate px-2 text-left" style={{ ...segOff, background: ELEV }}>{ct.name}</button>
+                <button onClick={() => removeCustom(ct.id)} title="Delete template" className="grid h-8 w-8 place-items-center rounded-md border text-[var(--color-destructive)] hover:bg-[var(--color-destructive)]/10" style={segOff}><Trash2 className="w-3.5 h-3.5" /></button>
               </div>
             ))}
           </div>
@@ -686,12 +685,12 @@ function TemplatesPanel({ editor, churchId }: { editor: Editor; churchId: string
         <div className="flex gap-1">
           <input autoFocus value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} placeholder="Template name" maxLength={60}
             onKeyDown={(e) => { if (e.key === "Enter") commitSave(); else if (e.key === "Escape") setNaming(false); }}
-            className="flex-1 h-8 px-2 rounded-md border text-[12px] text-zinc-100 bg-[#0b0b0e] outline-none focus:border-[#e8501a]/70" style={{ borderColor: "#26262b" }} />
-          <button onClick={commitSave} className="h-8 px-3 rounded-md text-[11px] font-bold" style={{ background: AMBER, color: "#0b0b0e" }}>Save</button>
-          <button onClick={() => setNaming(false)} className="grid h-8 w-8 place-items-center rounded-md border text-zinc-400" style={segOff}><X className="w-3.5 h-3.5" /></button>
+            className="flex-1 h-8 px-2 rounded-md border text-[12px] text-[var(--color-foreground)] bg-[var(--color-muted)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)] outline-none focus:border-[var(--color-brand)]" style={{ borderColor: "var(--color-border)" }} />
+          <button onClick={commitSave} className="h-8 px-3 rounded-md text-[11px] font-bold bg-[image:var(--grad-ember)] text-black shadow-[var(--edge-top),var(--shadow-ember)] motion-safe:hover:-translate-y-px hover:shadow-[var(--edge-top),var(--shadow-ember-lg)] active:scale-[0.97] transition-[transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)]">Save</button>
+          <button onClick={() => setNaming(false)} className="grid h-8 w-8 place-items-center rounded-md border text-[var(--color-muted-foreground)]" style={segOff}><X className="w-3.5 h-3.5" /></button>
         </div>
       ) : (
-        <button onClick={beginSave} className="w-full h-9 rounded-lg border text-[11px] font-bold text-zinc-200 inline-flex items-center justify-center gap-1.5 hover:bg-white/[0.04]" style={{ ...segOff, background: ELEV }}>
+        <button onClick={beginSave} className="w-full h-9 rounded-lg border text-[11px] font-bold text-[var(--color-foreground)] inline-flex items-center justify-center gap-1.5 hover:bg-[var(--color-brand)]/10" style={{ ...segOff, background: ELEV }}>
           <Plus className="w-3.5 h-3.5" /> Save current slide as template
         </button>
       )}
@@ -717,30 +716,30 @@ function BackgroundPanel({ editor }: { editor: Editor }) {
       <div>
         <span className={rowCls}>Background colour</span>
         <input type="color" value={slide?.bgColor ?? "#0b0b0b"} onChange={(e) => editor.setBg({ bgColor: e.target.value })}
-          className="h-9 w-full rounded-md border cursor-pointer bg-transparent" style={{ borderColor: "#26262b" }} />
+          className="h-9 w-full rounded-md border cursor-pointer bg-transparent" style={{ borderColor: "var(--color-border)" }} />
       </div>
       <div>
         <span className={rowCls}>Background image</span>
         <button onClick={() => setBgLib(true)}
-          className="w-full h-9 rounded-lg border text-[11px] font-semibold text-zinc-200 inline-flex items-center justify-center gap-1.5 hover:bg-white/[0.04]" style={{ ...segOff, background: ELEV }}>
+          className="w-full h-9 rounded-lg border text-[11px] font-semibold text-[var(--color-foreground)] inline-flex items-center justify-center gap-1.5 hover:bg-[var(--color-brand)]/10" style={{ ...segOff, background: ELEV }}>
           <ImageIcon className="w-3.5 h-3.5" /> {slide?.bgImageUrl ? "Change background image" : "Choose background image…"}
         </button>
         {slide?.bgImageUrl && (
-          <button onClick={() => editor.setBg({ bgImageUrl: "" })} className="mt-1.5 text-[10px] text-red-300 hover:opacity-80">Remove background image</button>
+          <button onClick={() => editor.setBg({ bgImageUrl: "" })} className="mt-1.5 text-[10px] text-[var(--color-destructive)] hover:opacity-80">Remove background image</button>
         )}
         {bgLib && <MediaLibraryPicker kind="image" onPick={(url) => editor.setBg({ bgImageUrl: url })} onClose={() => setBgLib(false)} />}
       </div>
       <div className="h-px" style={{ background: HAIR }} />
       <button
         onClick={() => setConfirmBgAll(true)}
-        className="w-full h-9 rounded-lg text-[12px] font-bold inline-flex items-center justify-center gap-1.5 hover:brightness-110" style={{ background: AMBER, color: "#0b0b0e" }}>
+        className="w-full h-9 rounded-lg text-[12px] font-bold inline-flex items-center justify-center gap-1.5 bg-[image:var(--grad-ember)] text-black shadow-[var(--edge-top),var(--shadow-ember)] motion-safe:hover:-translate-y-px hover:shadow-[var(--edge-top),var(--shadow-ember-lg)] active:translate-y-0 active:scale-[0.97] transition-[transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)]">
         <Copy className="w-4 h-4" /> Apply background to all slides
       </button>
       <ConfirmDialog
         open={confirmBgAll}
         title="Apply background to all slides?"
         confirmLabel="Apply to all"
-        body={<>Copies this background to all <b className="text-white/80">{editor.slides.length}</b> slides in this song. You can undo this.</>}
+        body={<>Copies this background to all <b className="text-[var(--color-foreground)]">{editor.slides.length}</b> slides in this song. You can undo this.</>}
         onCancel={() => setConfirmBgAll(false)}
         onConfirm={() => { editor.applyToAll(); toast.success("Background applied to all slides"); setConfirmBgAll(false); }}
       />
@@ -753,7 +752,7 @@ function LayersPanel({ editor }: { editor: Editor }) {
   const slide = editor.currentSlide;
   const selIds = editor.selectedObjectIds;
   if (!slide || slide.objects.length === 0) {
-    return <div className="p-6 text-center text-[12px] text-white/45"><LayersIcon className="w-5 h-5 mx-auto mb-2 text-white/25" />No objects on this slide yet.</div>;
+    return <div className="p-6 text-center text-[12px] text-[var(--color-muted-foreground)]"><LayersIcon className="w-5 h-5 mx-auto mb-2 text-[var(--color-muted-foreground)]" />No objects on this slide yet.</div>;
   }
   return (
     <div className="p-3">
@@ -767,12 +766,12 @@ function LayersPanel({ editor }: { editor: Editor }) {
             <div key={o.id} onClick={() => editor.setSelectedObjectId(o.id)}
               className="flex items-center gap-1.5 rounded-md px-1.5 h-8 cursor-pointer border"
               style={isSel ? segOn : { borderColor: "transparent" }}>
-              <Icon className="w-3.5 h-3.5 shrink-0" style={{ color: isSel ? AMBER : "#a1a1aa" }} />
-              <span className={cn("flex-1 truncate text-[11px]", o.hidden ? "text-zinc-600 line-through" : isSel ? "text-[#ffd9bf]" : "text-zinc-300")}>{label}</span>
+              <Icon className="w-3.5 h-3.5 shrink-0" style={{ color: isSel ? AMBER : "var(--color-muted-foreground)" }} />
+              <span className={cn("flex-1 truncate text-[11px]", o.hidden ? "text-[var(--color-muted-foreground)] line-through" : isSel ? "text-[var(--color-brand-hi)]" : "text-[var(--color-foreground)]")}>{label}</span>
               <button onClick={(e) => { e.stopPropagation(); editor.updateObject(o.id, { hidden: !o.hidden }); }} title={o.hidden ? "Show" : "Hide"}
-                className="grid h-6 w-6 place-items-center rounded text-zinc-400 hover:text-white hover:bg-white/[0.06]">{o.hidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}</button>
+                className="grid h-6 w-6 place-items-center rounded text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10">{o.hidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}</button>
               <button onClick={(e) => { e.stopPropagation(); editor.updateObject(o.id, { locked: !o.locked }); }} title={o.locked ? "Unlock" : "Lock"}
-                className={cn("grid h-6 w-6 place-items-center rounded hover:bg-white/[0.06]", o.locked ? "text-amber-300" : "text-zinc-400 hover:text-white")}>{o.locked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}</button>
+                className={cn("grid h-6 w-6 place-items-center rounded hover:bg-[var(--color-brand)]/10", o.locked ? "text-[var(--color-warning)]" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]")}>{o.locked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}</button>
             </div>
           );
         })}
@@ -785,7 +784,7 @@ function LayersPanel({ editor }: { editor: Editor }) {
 function IconBtn({ icon: Icon, title, onClick, danger, active }: { icon: typeof Type; title: string; onClick: () => void; danger?: boolean; active?: boolean }) {
   return (
     <button onClick={onClick} title={title}
-      className={cn("grid h-7 w-7 place-items-center rounded-md hover:bg-white/[0.06]", danger ? "text-red-300 hover:bg-red-500/10" : active ? "text-amber-300" : "text-zinc-300")}>
+      className={cn("grid h-7 w-7 place-items-center rounded-md transition-colors duration-200 hover:bg-[var(--color-brand)]/10", danger ? "text-[var(--color-destructive)] hover:bg-[var(--color-destructive)]/10" : active ? "text-[var(--color-brand)]" : "text-[var(--color-foreground)]")}>
       <Icon className="w-3.5 h-3.5" />
     </button>
   );
@@ -793,7 +792,7 @@ function IconBtn({ icon: Icon, title, onClick, danger, active }: { icon: typeof 
 
 function ZBtn({ icon: Icon, title, onClick }: { icon: typeof Type; title: string; onClick: () => void }) {
   return (
-    <button onClick={onClick} title={title} className="flex-1 h-8 rounded-md border inline-flex items-center justify-center text-zinc-300 hover:bg-white/[0.04]" style={{ ...segOff, background: ELEV }}>
+    <button onClick={onClick} title={title} className="flex-1 h-8 rounded-md border inline-flex items-center justify-center text-[var(--color-foreground)] shadow-[var(--edge-top),var(--shadow-sm)] hover:bg-[var(--color-brand)]/10 active:scale-[0.97] transition-[transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)]" style={{ ...segOff, background: ELEV }}>
       <Icon className="w-3.5 h-3.5" />
     </button>
   );
@@ -801,7 +800,7 @@ function ZBtn({ icon: Icon, title, onClick }: { icon: typeof Type; title: string
 
 function AlignBtn({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <button onClick={onClick} title={`Align ${label}`} className="flex-1 h-8 rounded-md border text-[10px] font-bold text-zinc-300 hover:bg-white/[0.04]" style={{ ...segOff, background: ELEV }}>{label}</button>
+    <button onClick={onClick} title={`Align ${label}`} className="flex-1 h-8 rounded-md border text-[10px] font-bold text-[var(--color-foreground)] shadow-[var(--edge-top),var(--shadow-sm)] hover:bg-[var(--color-brand)]/10 active:scale-[0.97] transition-[transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)]" style={{ ...segOff, background: ELEV }}>{label}</button>
   );
 }
 
@@ -828,14 +827,14 @@ function ConfirmDialog({ open, title, body, confirmLabel = "Confirm", onConfirm,
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onCancel}>
-      <div className="w-[360px] max-w-full rounded-xl border p-4" style={{ borderColor: HAIR, background: PANEL, boxShadow: "0 20px 60px rgba(0,0,0,0.55)" }} onClick={(e) => e.stopPropagation()}>
-        <div className="text-[14px] font-semibold text-white">{title}</div>
-        <div className="mt-1.5 text-[12px] leading-relaxed text-white/60">{body}</div>
+      <div className="w-[360px] max-w-full rounded-xl border p-4" style={{ borderColor: HAIR, background: PANEL, boxShadow: "var(--edge-top), var(--shadow-xl)" }} onClick={(e) => e.stopPropagation()}>
+        <div className="text-[14px] font-semibold text-[var(--color-foreground)]">{title}</div>
+        <div className="mt-1.5 text-[12px] leading-relaxed text-[var(--color-muted-foreground)]">{body}</div>
         <div className="mt-4 flex justify-end gap-2">
           <button type="button" onClick={onCancel}
-            className="h-9 px-3.5 rounded-lg border text-[12px] font-semibold text-white/80 transition-colors hover:bg-white/[0.05]" style={segOff}>Cancel</button>
+            className="h-9 px-3.5 rounded-lg border text-[12px] font-semibold text-[var(--color-foreground)] shadow-[var(--edge-top),var(--shadow-sm)] motion-safe:hover:-translate-y-px hover:bg-[var(--color-brand)]/10 hover:shadow-[var(--edge-top),var(--shadow-md)] active:scale-[0.97] transition-[transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)]" style={segOff}>Cancel</button>
           <button type="button" autoFocus onClick={onConfirm}
-            className="h-9 px-4 rounded-lg text-[12px] font-bold inline-flex items-center gap-1.5 transition-all hover:brightness-110" style={{ background: `linear-gradient(180deg, ${AMBER}, #c23e0f)`, color: "#0b0b0e", boxShadow: "0 4px 14px rgba(232,80,26,0.32), inset 0 1px 0 rgba(255,255,255,0.25)" }}>{confirmLabel}</button>
+            className="h-9 px-4 rounded-lg text-[12px] font-bold inline-flex items-center gap-1.5 bg-[image:var(--grad-ember)] text-black shadow-[var(--edge-top),var(--shadow-ember)] motion-safe:hover:-translate-y-px hover:shadow-[var(--edge-top),var(--shadow-ember-lg)] active:translate-y-0 active:scale-[0.97] transition-[transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)]">{confirmLabel}</button>
         </div>
       </div>
     </div>
@@ -844,8 +843,8 @@ function ConfirmDialog({ open, title, body, confirmLabel = "Confirm", onConfirm,
 
 function ToolBtn({ icon: Icon, label, onClick }: { icon: typeof Type; label: string; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="group h-12 rounded-lg border text-[11px] font-semibold inline-flex flex-col items-center justify-center gap-1 text-zinc-200 transition-all hover:border-[#e8501a]/50 hover:bg-[#e8501a]/[0.06] hover:text-white" style={{ ...segOff, background: ELEV }}>
-      <Icon className="w-4 h-4 text-zinc-400 transition-colors group-hover:text-[#e8501a]" /> {label}
+    <button onClick={onClick} className="group h-12 rounded-lg border text-[11px] font-semibold inline-flex flex-col items-center justify-center gap-1 text-[var(--color-foreground)] shadow-[var(--edge-top),var(--shadow-sm)] motion-safe:hover:-translate-y-px hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:bg-[var(--color-brand)]/10 hover:shadow-[var(--edge-top),var(--shadow-md)] active:scale-[0.97] transition-[transform,box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-spring)]" style={{ ...segOff, background: ELEV }}>
+      <Icon className="w-4 h-4 text-[var(--color-muted-foreground)] transition-colors group-hover:text-[var(--color-brand)]" /> {label}
     </button>
   );
 }
@@ -853,7 +852,7 @@ function ToolBtn({ icon: Icon, label, onClick }: { icon: typeof Type; label: str
 // Selected-toggle pill (amber when on).
 function Toggle({ on, label, onClick, className }: { on: boolean; label: string; onClick: () => void; className?: string }) {
   return (
-    <button onClick={onClick} className={cn("flex-1 h-8 rounded-md border text-[10px]", className)}
+    <button onClick={onClick} className={cn("flex-1 h-8 rounded-md border text-[10px] shadow-[var(--edge-top),var(--shadow-sm)] active:scale-[0.97] transition-[transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)]", !on && "hover:bg-[var(--color-brand)]/10", className)}
       style={on ? segOn : segOff}>{label}</button>
   );
 }
@@ -863,23 +862,23 @@ function TextProps({ o, upd }: { o: TextObject; upd: (p: Partial<SlideObject>) =
     <>
       <div><span className={rowCls}>Text</span>
         <textarea value={o.text} onChange={(e) => upd({ text: e.target.value })} rows={3}
-          className="w-full px-2 py-1.5 rounded-md border text-[12px] text-zinc-100 bg-[#0b0b0e] outline-none focus:border-[#e8501a]/70 resize-y" style={{ borderColor: "#26262b" }} />
+          className="w-full px-2 py-1.5 rounded-md border text-[12px] text-[var(--color-foreground)] bg-[var(--color-muted)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)] outline-none focus:border-[var(--color-brand)] resize-y" style={{ borderColor: "var(--color-border)" }} />
       </div>
       <div><span className={rowCls}>Font</span>
-        <select value={o.fontFamily ?? "Inter"} onChange={(e) => upd({ fontFamily: e.target.value })} className={inCls} style={{ borderColor: "#26262b" }}>
+        <select value={o.fontFamily ?? "Inter"} onChange={(e) => upd({ fontFamily: e.target.value })} className={inCls} style={{ borderColor: "var(--color-border)" }}>
           {FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
         </select>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <div><span className={rowCls}>Size (px)</span><input type="number" min={8} max={800} value={o.fontSize ?? 96} onChange={(e) => upd({ fontSize: Number(e.target.value) })} className={inCls} style={{ borderColor: "#26262b" }} /></div>
+        <div><span className={rowCls}>Size (px)</span><input type="number" min={8} max={800} value={o.fontSize ?? 96} onChange={(e) => upd({ fontSize: Number(e.target.value) })} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
         <div><span className={rowCls}>Weight</span>
-          <select value={String(o.fontWeight ?? 600)} onChange={(e) => upd({ fontWeight: Number(e.target.value) })} className={inCls} style={{ borderColor: "#26262b" }}>
+          <select value={String(o.fontWeight ?? 600)} onChange={(e) => upd({ fontWeight: Number(e.target.value) })} className={inCls} style={{ borderColor: "var(--color-border)" }}>
             {[300, 400, 500, 600, 700, 800, 900].map((w) => <option key={w} value={w}>{w}</option>)}
           </select>
         </div>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <div><span className={rowCls}>Colour</span><input type="color" value={o.color ?? "#ffffff"} onChange={(e) => upd({ color: e.target.value })} className="h-8 w-full rounded-md border cursor-pointer bg-transparent" style={{ borderColor: "#26262b" }} /></div>
+        <div><span className={rowCls}>Colour</span><input type="color" value={o.color ?? "#ffffff"} onChange={(e) => upd({ color: e.target.value })} className="h-8 w-full rounded-md border cursor-pointer bg-transparent" style={{ borderColor: "var(--color-border)" }} /></div>
         <div><span className={rowCls}>Align</span><div className="flex gap-0.5">
           {(["left", "center", "right"] as const).map((a) => (
             <Toggle key={a} on={(o.align ?? "center") === a} label={a[0].toUpperCase()} onClick={() => upd({ align: a })} className="uppercase" />
@@ -895,12 +894,12 @@ function TextProps({ o, upd }: { o: TextObject; upd: (p: Partial<SlideObject>) =
         <Toggle on={o.shadow ?? true} label="Shadow" onClick={() => upd({ shadow: !(o.shadow ?? true) })} />
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <div><span className={rowCls}>Line height</span><input type="number" min={0.5} max={4} step={0.05} value={o.lineHeight ?? 1.1} onChange={(e) => upd({ lineHeight: Number(e.target.value) })} className={inCls} style={{ borderColor: "#26262b" }} /></div>
-        <div><span className={rowCls}>Letter spacing</span><input type="number" min={-20} max={100} step={1} value={o.letterSpacing ?? 0} onChange={(e) => upd({ letterSpacing: Number(e.target.value) })} className={inCls} style={{ borderColor: "#26262b" }} /></div>
+        <div><span className={rowCls}>Line height</span><input type="number" min={0.5} max={4} step={0.05} value={o.lineHeight ?? 1.1} onChange={(e) => upd({ lineHeight: Number(e.target.value) })} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
+        <div><span className={rowCls}>Letter spacing</span><input type="number" min={-20} max={100} step={1} value={o.letterSpacing ?? 0} onChange={(e) => upd({ letterSpacing: Number(e.target.value) })} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <div><span className={rowCls}>Outline</span><input type="color" value={o.stroke ?? "#000000"} onChange={(e) => upd({ stroke: e.target.value })} className="h-8 w-full rounded-md border cursor-pointer bg-transparent" style={{ borderColor: "#26262b" }} /></div>
-        <div><span className={rowCls}>Outline width</span><input type="number" min={0} max={40} step={1} value={o.strokeWidth ?? 0} onChange={(e) => upd({ strokeWidth: Number(e.target.value) })} className={inCls} style={{ borderColor: "#26262b" }} /></div>
+        <div><span className={rowCls}>Outline</span><input type="color" value={o.stroke ?? "#000000"} onChange={(e) => upd({ stroke: e.target.value })} className="h-8 w-full rounded-md border cursor-pointer bg-transparent" style={{ borderColor: "var(--color-border)" }} /></div>
+        <div><span className={rowCls}>Outline width</span><input type="number" min={0} max={40} step={1} value={o.strokeWidth ?? 0} onChange={(e) => upd({ strokeWidth: Number(e.target.value) })} className={inCls} style={{ borderColor: "var(--color-border)" }} /></div>
       </div>
     </>
   );
@@ -910,19 +909,19 @@ function ShapeProps({ o, upd }: { o: ShapeObject; upd: (p: Partial<SlideObject>)
   return (
     <>
       <div className="grid grid-cols-2 gap-2">
-        <div><span className={rowCls}>Fill</span><input type="color" value={o.fill ?? "#e8501a"} onChange={(e) => upd({ fill: e.target.value })} className="h-8 w-full rounded-md border cursor-pointer bg-transparent" style={{ borderColor: "#26262b" }} /></div>
-        <div><span className={rowCls}>Border</span><input type="color" value={o.stroke ?? "#0f766e"} onChange={(e) => upd({ stroke: e.target.value })} className="h-8 w-full rounded-md border cursor-pointer bg-transparent" style={{ borderColor: "#26262b" }} /></div>
+        <div><span className={rowCls}>Fill</span><input type="color" value={o.fill ?? "#e8501a"} onChange={(e) => upd({ fill: e.target.value })} className="h-8 w-full rounded-md border cursor-pointer bg-transparent" style={{ borderColor: "var(--color-border)" }} /></div>
+        <div><span className={rowCls}>Border</span><input type="color" value={o.stroke ?? "#0f766e"} onChange={(e) => upd({ stroke: e.target.value })} className="h-8 w-full rounded-md border cursor-pointer bg-transparent" style={{ borderColor: "var(--color-border)" }} /></div>
       </div>
       <Toggle on={!!o.fill2} label={`Gradient ${o.fill2 ? "on" : "off"}`} onClick={() => upd({ fill2: o.fill2 ? undefined : "#0f766e" })} className="uppercase" />
       {o.fill2 && (
         <div className="grid grid-cols-2 gap-2">
-          <div><span className={rowCls}>Fill 2</span><input type="color" value={o.fill2} onChange={(e) => upd({ fill2: e.target.value })} className="h-8 w-full rounded-md border cursor-pointer bg-transparent" style={{ borderColor: "#26262b" }} /></div>
-          <div><span className={rowCls}>Angle — {o.fillAngle ?? 135}°</span><input type="range" min={0} max={360} value={o.fillAngle ?? 135} onChange={(e) => upd({ fillAngle: Number(e.target.value) })} className="w-full accent-[#e8501a]" /></div>
+          <div><span className={rowCls}>Fill 2</span><input type="color" value={o.fill2} onChange={(e) => upd({ fill2: e.target.value })} className="h-8 w-full rounded-md border cursor-pointer bg-transparent" style={{ borderColor: "var(--color-border)" }} /></div>
+          <div><span className={rowCls}>Angle — {o.fillAngle ?? 135}°</span><input type="range" min={0} max={360} value={o.fillAngle ?? 135} onChange={(e) => upd({ fillAngle: Number(e.target.value) })} className="w-full" style={{ accentColor: "var(--color-brand)" }} /></div>
         </div>
       )}
-      <div><span className={rowCls}>Border width — {o.strokeWidth ?? 0}px</span><input type="range" min={0} max={40} value={o.strokeWidth ?? 0} onChange={(e) => upd({ strokeWidth: Number(e.target.value) })} className="w-full accent-[#e8501a]" /></div>
+      <div><span className={rowCls}>Border width — {o.strokeWidth ?? 0}px</span><input type="range" min={0} max={40} value={o.strokeWidth ?? 0} onChange={(e) => upd({ strokeWidth: Number(e.target.value) })} className="w-full" style={{ accentColor: "var(--color-brand)" }} /></div>
       {o.shape === "rect" && (
-        <div><span className={rowCls}>Corner radius — {o.radius ?? 0}px</span><input type="range" min={0} max={200} value={o.radius ?? 0} onChange={(e) => upd({ radius: Number(e.target.value) })} className="w-full accent-[#e8501a]" /></div>
+        <div><span className={rowCls}>Corner radius — {o.radius ?? 0}px</span><input type="range" min={0} max={200} value={o.radius ?? 0} onChange={(e) => upd({ radius: Number(e.target.value) })} className="w-full" style={{ accentColor: "var(--color-brand)" }} /></div>
       )}
     </>
   );

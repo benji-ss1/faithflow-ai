@@ -906,7 +906,7 @@ export function AudioTab() {
             <button
               key={m}
               onClick={() => { setCaptureMode(m); writeCaptureMode(m); }}
-              className={"h-7 flex-1 px-2 rounded-lg text-[10px] capitalize transition-[background,color,box-shadow,transform] duration-200 [transition-timing-function:var(--ease-spring)] " + (captureMode === m ? "bg-[linear-gradient(180deg,#F2712E_0%,#E8501A_100%)] text-black font-bold shadow-[var(--edge-top),var(--shadow-ember)]" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/[0.04] font-semibold")}
+              className={"h-7 flex-1 px-2 rounded-lg text-[10px] capitalize transition-[background,color,box-shadow,transform] duration-200 [transition-timing-function:var(--ease-spring)] " + (captureMode === m ? "bg-[linear-gradient(180deg,#F2712E_0%,#E8501A_100%)] text-black font-bold shadow-[var(--edge-top),var(--shadow-ember)]" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10 font-semibold")}
               title={m === "native" ? "Force ffmpeg subprocess capture (recommended for pro mixers)" : m === "browser" ? "Force Chromium getUserMedia (legacy)" : "Native if available, else browser"}
             >
               {m}
@@ -922,7 +922,7 @@ export function AudioTab() {
             <span>Native input device</span>
             <button
               onClick={() => void refreshNativeDevices()}
-              className="text-[9px] normal-case tracking-normal text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] inline-flex items-center gap-1 px-1 py-0.5 rounded hover:bg-white/5"
+              className="text-[9px] normal-case tracking-normal text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] inline-flex items-center gap-1 px-1 py-0.5 rounded hover:bg-[var(--color-brand)]/10"
               title="Rescan native devices via ffmpeg"
             >
               <RefreshCcw className="w-2.5 h-2.5" /> Refresh
@@ -939,7 +939,7 @@ export function AudioTab() {
                   live when it changes. */}
               <button
                 onClick={() => void enableFollowSystemDefault()}
-                className={"w-full text-left px-2 py-1.5 rounded text-[11px] flex flex-col gap-0.5 border " + (followActive ? "text-white bg-[color:rgba(249,115,22,0.15)]" : "text-[var(--color-foreground)] hover:bg-white/5")}
+                className={"w-full text-left px-2 py-1.5 rounded text-[11px] flex flex-col gap-0.5 border " + (followActive ? "text-white bg-[color:rgba(249,115,22,0.15)]" : "text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10")}
                 style={{ borderColor: followActive ? "#f97316" : "transparent" }}
                 title="Capture whatever input macOS is set to (System Settings → Sound → Input) and follow it when it changes"
               >
@@ -979,7 +979,7 @@ export function AudioTab() {
                       try { window.dispatchEvent(new CustomEvent("presentflow:native-audio-input-changed", { detail: { index: d.index, name: d.name } })); } catch { /* noop */ }
                       toast.success(`Native capture → ${d.name}${d.channelCount ? ` (${d.channelCount}ch)` : ""}`);
                     }}
-                    className={"w-full text-left px-2 py-1.5 rounded text-[11px] flex items-center gap-1.5 " + (isSel ? "text-white bg-[color:rgba(249,115,22,0.15)]" : "text-[var(--color-foreground)] hover:bg-white/5")}
+                    className={"w-full text-left px-2 py-1.5 rounded text-[11px] flex items-center gap-1.5 " + (isSel ? "text-white bg-[color:rgba(249,115,22,0.15)]" : "text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10")}
                   >
                     {tag && (
                       <span className="text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded shrink-0" style={tagStyle} title={tagTitle}>
@@ -1173,7 +1173,7 @@ export function AudioTab() {
                 </div>
                 <button
                   onClick={refreshDevices}
-                  className="text-[9px] uppercase tracking-wider text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] inline-flex items-center gap-1 px-1 py-0.5 rounded hover:bg-white/5"
+                  className="text-[9px] uppercase tracking-wider text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] inline-flex items-center gap-1 px-1 py-0.5 rounded hover:bg-[var(--color-brand)]/10"
                   title="Rescan devices"
                 >
                   <RefreshCcw className="w-2.5 h-2.5" /> Refresh
@@ -1195,7 +1195,7 @@ export function AudioTab() {
                     }}
                     className={
                       "w-full text-left px-2 py-1.5 rounded text-[11px] flex items-center gap-1.5 " +
-                      (isSelected ? "text-white bg-[color:rgba(249,115,22,0.15)]" : "text-[var(--color-foreground)] hover:bg-white/5")
+                      (isSelected ? "text-white bg-[color:rgba(249,115,22,0.15)]" : "text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10")
                     }
                   >
                     {ndi && (
@@ -1294,7 +1294,7 @@ export function AudioTab() {
                   <button
                     key={m}
                     onClick={() => handleModeChange(m)}
-                    className={"h-7 flex-1 px-2 rounded-lg text-[10px] capitalize transition-[background,color,box-shadow,transform] duration-200 [transition-timing-function:var(--ease-spring)] " + (gridMode === m ? "bg-[linear-gradient(180deg,#F2712E_0%,#E8501A_100%)] text-black font-bold shadow-[var(--edge-top),var(--shadow-ember)]" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/[0.04] font-semibold")}
+                    className={"h-7 flex-1 px-2 rounded-lg text-[10px] capitalize transition-[background,color,box-shadow,transform] duration-200 [transition-timing-function:var(--ease-spring)] " + (gridMode === m ? "bg-[linear-gradient(180deg,#F2712E_0%,#E8501A_100%)] text-black font-bold shadow-[var(--edge-top),var(--shadow-ember)]" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10 font-semibold")}
                   >
                     {m === "sum-all" ? "Sum all" : m}
                   </button>
@@ -1411,7 +1411,7 @@ export function AudioTab() {
             <button
               key={t}
               onClick={() => persistSourceType(t)}
-              className={"h-7 flex-1 px-2 rounded-lg text-[10px] capitalize transition-[background,color,box-shadow,transform] duration-200 [transition-timing-function:var(--ease-spring)] " + (sourceType === t ? "bg-[linear-gradient(180deg,#F2712E_0%,#E8501A_100%)] text-black font-bold shadow-[var(--edge-top),var(--shadow-ember)]" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/[0.04] font-semibold")}
+              className={"h-7 flex-1 px-2 rounded-lg text-[10px] capitalize transition-[background,color,box-shadow,transform] duration-200 [transition-timing-function:var(--ease-spring)] " + (sourceType === t ? "bg-[linear-gradient(180deg,#F2712E_0%,#E8501A_100%)] text-black font-bold shadow-[var(--edge-top),var(--shadow-ember)]" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10 font-semibold")}
               title={t === "mixer" ? "USB interface / mixer USB-out / BlackHole / NDI — DSP OFF" : "Bare microphone in the room — DSP ON to fight room noise"}
             >
               {t === "mixer" ? "Mixer / Interface" : "Microphone"}
