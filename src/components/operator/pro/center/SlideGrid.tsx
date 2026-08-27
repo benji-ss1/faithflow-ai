@@ -323,6 +323,16 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                     onOpenEditor();
                     return;
                   }
+                  // Media image → open the crop/frame/blur editor (same gesture as
+                  // the Media library thumbnails).
+                  if (item?.type === "media" && s.kind === "image") {
+                    const meta = item.mediaMeta?.[idx];
+                    if (meta?.id && s.url) {
+                      ctx.onJumpSlide(ctx.previewItemIdx, idx);
+                      window.dispatchEvent(new CustomEvent("presentflow:edit-media-image", { detail: { id: meta.id, url: s.url, fileName: meta.fileName || "Image" } }));
+                      return;
+                    }
+                  }
                   if (safeMode()) fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => ctx.onSendSlideToLive(s));
                 }}
                 onDelete={() => {

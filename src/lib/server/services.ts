@@ -182,6 +182,9 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
         const url = await presignGet(asset.s3Key);
         const fit = (payload.fitMode === "cover" ? "cover" : "contain") as "cover" | "contain";
         slides = [asset.kind === "video" ? { kind: "video", url, fit } : { kind: "image", url, fit }];
+        // Carry mediaMeta for single images too (was group-only) so the "Edit
+        // image" button + double-click-to-edit can resolve the assetId.
+        mediaMeta = [{ id: asset.id, fileName: asset.fileName }];
       }
     } else if (it.type === "sermon" && payload.pptxImportId) {
       // C1 defense-in-depth: two-hop verify the pptx_import belongs to

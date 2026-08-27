@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useTransition } from "react";
 import { toast } from "sonner";
-import { ChevronDown, Copy, Download, GripVertical, Image as ImageIcon, Palette, Plus, Star, Trash2, X } from "lucide-react";
+import { ChevronDown, Copy, Download, GripVertical, Image as ImageIcon, Palette, Plus, RefreshCw, Sparkles, Star, Trash2, Upload, X } from "lucide-react";
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, useSortable, arrayMove, rectSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -242,7 +242,7 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
       {/* Backgrounds — a NEW section that plugs into the Themes area (it does
           NOT modify the theme system). Placed at the top so operators find it
           the moment they open Themes. */}
-      <div className="rounded-lg border border-[var(--color-border)] p-3">
+      <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-3 shadow-[var(--edge-top),var(--shadow-sm)]">
         <BackgroundSelector />
       </div>
 
@@ -254,7 +254,7 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
         </div>
         <div className="flex items-center gap-2">
           {!operatorMode && (
-            <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-border px-4 text-sm font-medium text-foreground hover:bg-accent">
+            <label className={cn("inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl px-4 text-sm font-medium", btnOutline)}>
               <Download className="h-4 w-4 rotate-180" /> Import file
               <input
                 type="file"
@@ -272,7 +272,8 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
             type="button"
             onClick={() => setImportOpen(true)}
             className={cn(
-              "inline-flex items-center gap-2 rounded-xl border border-border font-medium text-foreground hover:bg-accent",
+              "inline-flex items-center gap-2 rounded-xl font-medium",
+              btnOutline,
               operatorMode ? "h-9 px-3 text-[13px]" : "h-10 px-4 text-sm",
             )}
           >
@@ -282,7 +283,8 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
             type="button"
             onClick={onNewTheme}
             className={cn(
-              "inline-flex items-center gap-2 rounded-xl bg-[var(--color-primary)] font-semibold text-[var(--color-primary-foreground)]",
+              "inline-flex items-center gap-2 rounded-xl",
+              btnPrimary,
               operatorMode ? "h-9 px-3 text-[13px]" : "h-10 px-4 text-sm",
             )}
           >
@@ -295,8 +297,8 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
       {operatorMode && <ContentTypeStyleBar themes={themes} />}
 
       {themes.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border bg-white/[0.02] p-12 text-center">
-          <div className="grid h-12 w-12 place-items-center rounded-full bg-[var(--color-primary)]/10 text-[var(--color-primary)]">
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] p-12 text-center shadow-[var(--edge-top),var(--shadow-md)]">
+          <div className="grid h-12 w-12 place-items-center rounded-full bg-[color-mix(in_oklab,var(--color-brand)_16%,var(--color-elevated))] text-[var(--color-brand)] shadow-[var(--edge-top),var(--shadow-sm)]">
             <Palette className="h-5 w-5" />
           </div>
           <div className="text-base font-semibold text-foreground">No themes yet</div>
@@ -306,7 +308,7 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
           <button
             type="button"
             onClick={onNewTheme}
-            className="mt-2 inline-flex h-10 items-center gap-2 rounded-xl bg-[var(--color-primary)] px-4 text-sm font-semibold text-[var(--color-primary-foreground)]"
+            className={cn("mt-2 inline-flex h-10 items-center gap-2 rounded-xl px-4 text-sm", btnPrimary)}
           >
             <Plus className="h-4 w-4" /> Create your first theme
           </button>
@@ -644,9 +646,9 @@ function ThemeEditor({
       {/* Left panel — controls */}
       <aside
         onClick={(e) => e.stopPropagation()}
-        className="flex h-full flex-col overflow-hidden bg-[var(--color-panel,#141818)] shadow-2xl"
+        className="flex h-full flex-col overflow-hidden bg-[var(--color-panel)] shadow-[var(--edge-top),var(--shadow-xl)]"
       >
-        <header className="flex items-center justify-between border-b border-border p-4">
+        <header className="flex items-center justify-between border-b border-[var(--color-border)] p-4">
           <div className="min-w-0 flex-1">
             <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               {theme.id ? "Edit theme" : "New theme"}
@@ -657,13 +659,13 @@ function ThemeEditor({
               autoFocus={!theme.id}
               placeholder="Theme name…"
               onChange={(e) => onChange({ ...theme, name: e.target.value })}
-              className="mt-0.5 w-full truncate bg-transparent text-lg font-semibold outline-none placeholder:text-muted-foreground/50"
+              className="mt-0.5 w-full truncate bg-transparent text-lg font-semibold text-foreground outline-none placeholder:text-muted-foreground/50"
             />
           </div>
           <button
             type="button"
             onClick={onCancel}
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-white/[0.05] hover:text-foreground"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-[var(--color-elevated)] hover:text-foreground"
             aria-label="Close editor"
           >
             <X className="h-4 w-4" />
@@ -698,7 +700,7 @@ function ThemeEditor({
                 <div className="flex gap-1">
                   {(["left", "center", "right"] as const).map((a) => (
                     <button key={a} type="button" onClick={() => set({ align: a })}
-                      className={cn("h-9 flex-1 rounded-md border text-xs capitalize", get(cfg, "align", "center") === a ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10" : "border-border text-muted-foreground")}>
+                      className={cn("h-9 flex-1 rounded-lg text-xs capitalize transition-colors", get(cfg, "align", "center") === a ? segActive : segInactive)}>
                       {a}
                     </button>
                   ))}
@@ -715,7 +717,7 @@ function ThemeEditor({
               <div className="grid grid-cols-4 gap-1">
                 {(["solid", "gradient", "image", "video"] as const).map((t) => (
                   <button key={t} type="button" onClick={() => set({ bgType: t })}
-                    className={cn("h-9 rounded-md border text-xs capitalize", get<"solid" | "gradient" | "image" | "video">(cfg, "bgType", "solid") === t ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10" : "border-border text-muted-foreground")}>
+                    className={cn("h-9 rounded-lg text-xs capitalize transition-colors", get<"solid" | "gradient" | "image" | "video">(cfg, "bgType", "solid") === t ? segActive : segInactive)}>
                     {t}
                   </button>
                 ))}
@@ -746,7 +748,7 @@ function ThemeEditor({
               />
             )}
             <Row label={`Opacity — ${Math.round((get(cfg, "bgOpacity", 1) as number) * 100)}%`}>
-              <input type="range" min={0} max={100} value={(get(cfg, "bgOpacity", 1) as number) * 100} onChange={(e) => set({ bgOpacity: Number(e.target.value) / 100 })} className="w-full" />
+              <input type="range" min={0} max={100} value={(get(cfg, "bgOpacity", 1) as number) * 100} onChange={(e) => set({ bgOpacity: Number(e.target.value) / 100 })} className="w-full" style={{ accentColor: "var(--color-brand)" }} />
             </Row>
             {(get<"solid" | "gradient" | "image" | "video">(cfg, "bgType", "solid") === "solid"
               || get<"solid" | "gradient" | "image" | "video">(cfg, "bgType", "solid") === "gradient") && (
@@ -754,7 +756,7 @@ function ThemeEditor({
                 <div className="grid grid-cols-4 gap-1">
                   {(["none", "drift", "aurora", "pulse"] as const).map((m) => (
                     <button key={m} type="button" onClick={() => set({ bgAnimation: m })}
-                      className={cn("h-9 rounded-md border text-xs capitalize", get(cfg, "bgAnimation", "none") === m ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10" : "border-border text-muted-foreground")}>
+                      className={cn("h-9 rounded-lg text-xs capitalize transition-colors", get(cfg, "bgAnimation", "none") === m ? segActive : segInactive)}>
                       {m}
                     </button>
                   ))}
@@ -780,18 +782,18 @@ function ThemeEditor({
               <div className="grid w-32 grid-cols-3 gap-1">
                 {LOGO_GRID.map((p) => (
                   <button key={p.key} type="button" onClick={() => set({ logoPosition: p.key })}
-                    className={cn("h-8 rounded", get(cfg, "logoPosition", "none") === p.key ? "bg-[var(--color-primary)]" : "border border-border bg-white/[0.02] hover:bg-white/[0.06]")}
+                    className={cn("h-8 rounded-md transition-colors", get(cfg, "logoPosition", "none") === p.key ? "bg-[image:var(--grad-ember)] shadow-[var(--edge-top),var(--shadow-sm)]" : "border border-[var(--color-border)] bg-[var(--color-elevated)] hover:border-[color-mix(in_oklab,var(--color-brand)_35%,var(--color-border))] hover:bg-[color-mix(in_oklab,var(--color-brand)_10%,var(--color-elevated))]")}
                     aria-label={p.key} title={p.key}
                   />
                 ))}
               </div>
               <button type="button" onClick={() => set({ logoPosition: "none" })}
-                className={cn("mt-2 h-8 rounded-md border px-3 text-xs", get(cfg, "logoPosition", "none") === "none" ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10" : "border-border text-muted-foreground")}>
+                className={cn("mt-2 h-8 rounded-lg px-3 text-xs transition-colors", get(cfg, "logoPosition", "none") === "none" ? segActive : segInactive)}>
                 None
               </button>
             </Row>
             <Row label={`Logo size — ${get(cfg, "logoSizePx", 48) as number}px`}>
-              <input type="range" min={24} max={200} value={get(cfg, "logoSizePx", 48) as number} onChange={(e) => set({ logoSizePx: Number(e.target.value) })} className="w-full" />
+              <input type="range" min={24} max={200} value={get(cfg, "logoSizePx", 48) as number} onChange={(e) => set({ logoSizePx: Number(e.target.value) })} className="w-full" style={{ accentColor: "var(--color-brand)" }} />
             </Row>
             <BgAssetPicker
               kind="image"
@@ -806,9 +808,10 @@ function ThemeEditor({
               onClick={autoColorway}
               disabled={paletteBusy || !((get(cfg, "logoUrl", "") as string) || churchLogoUrl)}
               title="Generate a matching gradient + readable text colour from your logo"
-              className="mt-1 w-full h-8 rounded-md border border-border text-xs font-semibold hover:bg-accent disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
+              className={cn("mt-1 w-full h-8 rounded-lg px-3 text-xs font-semibold inline-flex items-center justify-center gap-1.5", btnOutline)}
             >
-              {paletteBusy ? "Reading logo…" : "✨ Auto-colourway from logo"}
+              <Sparkles className="h-3.5 w-3.5 text-[var(--color-brand)]" />
+              {paletteBusy ? "Reading logo…" : "Auto-colourway from logo"}
             </button>
             <Row label="Church name">
               <Toggle value={get(cfg, "churchNameVisible", false)} onChange={(v) => set({ churchNameVisible: v })} />
@@ -818,7 +821,7 @@ function ThemeEditor({
                 <div className="flex gap-1">
                   {(["top", "bottom"] as const).map((p) => (
                     <button key={p} type="button" onClick={() => set({ churchNamePosition: p })}
-                      className={cn("h-9 flex-1 rounded-md border text-xs capitalize", get(cfg, "churchNamePosition", "bottom") === p ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10" : "border-border text-muted-foreground")}>
+                      className={cn("h-9 flex-1 rounded-lg text-xs capitalize transition-colors", get(cfg, "churchNamePosition", "bottom") === p ? segActive : segInactive)}>
                       {p}
                     </button>
                   ))}
@@ -837,7 +840,7 @@ function ThemeEditor({
                   <div className="flex gap-1">
                     {(["bar", "gradient-fade", "minimal"] as const).map((s) => (
                       <button key={s} type="button" onClick={() => set({ lowerThirdStyle: s })}
-                        className={cn("h-9 flex-1 rounded-md border text-[11px] capitalize", get(cfg, "lowerThirdStyle", "bar") === s ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10" : "border-border text-muted-foreground")}>
+                        className={cn("h-9 flex-1 rounded-lg text-[11px] capitalize transition-colors", get(cfg, "lowerThirdStyle", "bar") === s ? segActive : segInactive)}>
                         {s.replace("-", " ")}
                       </button>
                     ))}
@@ -858,7 +861,7 @@ function ThemeEditor({
               <div className="flex gap-1">
                 {(["above", "below", "inline"] as const).map((p) => (
                   <button key={p} type="button" onClick={() => set({ scriptureReferencePosition: p })}
-                    className={cn("h-9 flex-1 rounded-md border text-xs capitalize", get(cfg, "scriptureReferencePosition", "above") === p ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10" : "border-border text-muted-foreground")}>
+                    className={cn("h-9 flex-1 rounded-lg text-xs capitalize transition-colors", get(cfg, "scriptureReferencePosition", "above") === p ? segActive : segInactive)}>
                     {p}
                   </button>
                 ))}
@@ -878,20 +881,20 @@ function ThemeEditor({
               </select>
             </Row>
             <Row label={`Duration — ${get(cfg, "transitionDurationMs", 300) as number}ms`}>
-              <input type="range" min={0} max={1500} step={50} value={get(cfg, "transitionDurationMs", 300) as number} onChange={(e) => set({ transitionDurationMs: Number(e.target.value) })} className="w-full" />
+              <input type="range" min={0} max={1500} step={50} value={get(cfg, "transitionDurationMs", 300) as number} onChange={(e) => set({ transitionDurationMs: Number(e.target.value) })} className="w-full" style={{ accentColor: "var(--color-brand)" }} />
             </Row>
           </Section>
         </div>
 
-        <footer className="flex items-center justify-end gap-2 border-t border-border p-4">
-          <button type="button" onClick={onCancel} className="h-10 rounded-xl border border-border px-4 text-sm text-muted-foreground hover:text-foreground">
+        <footer className="flex items-center justify-end gap-2 border-t border-[var(--color-border)] p-4">
+          <button type="button" onClick={onCancel} className={cn("h-10 rounded-xl px-4 text-sm", btnOutline)}>
             Cancel
           </button>
           <button
             type="button"
             onClick={onSave}
             disabled={pending || !theme.name.trim()}
-            className="h-10 rounded-xl bg-[var(--color-primary)] px-4 text-sm font-semibold text-[var(--color-primary-foreground)] disabled:opacity-50"
+            className={cn("h-10 rounded-xl px-4 text-sm", btnPrimary)}
           >
             {pending ? "Saving…" : "Save theme"}
           </button>
@@ -907,9 +910,9 @@ function ThemeEditor({
               type="button"
               onClick={() => setMode(m)}
               className={cn(
-                "h-8 rounded-md px-3 text-xs font-medium capitalize transition-colors",
+                "h-8 rounded-lg px-3 text-xs font-medium capitalize transition-colors",
                 mode === m
-                  ? "bg-[var(--color-primary)] text-[var(--color-primary-foreground)]"
+                  ? "bg-[image:var(--grad-ember)] text-black font-bold shadow-[var(--edge-top),var(--shadow-ember)]"
                   : "border border-white/10 bg-white/[0.04] text-white/70 hover:bg-white/[0.08] hover:text-white",
               )}
             >
@@ -961,10 +964,10 @@ function SortableThemeCard({
     <li
       ref={setNodeRef}
       style={style}
-      className={cn("relative overflow-hidden rounded-2xl border bg-card/80", theme.isDefault ? "border-[var(--color-brand)]/40" : "border-border")}
+      className={cn("relative overflow-hidden rounded-2xl border bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-md)]", theme.isDefault ? "border-[var(--color-brand)]/50" : "border-[var(--color-border)]")}
     >
       {theme.isDefault ? (
-        <span className="absolute right-3 top-3 z-10 inline-flex items-center gap-1 rounded-full bg-[var(--color-brand)]/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--color-primary-foreground)]">
+        <span className="absolute right-3 top-3 z-10 inline-flex items-center gap-1 rounded-full bg-[image:var(--grad-ember)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black shadow-[var(--edge-top),var(--shadow-ember)]">
           <Star className="h-2.5 w-2.5 fill-current" /> Default
         </span>
       ) : null}
@@ -1012,7 +1015,7 @@ function SortableThemeCard({
             onClick={onDuplicate}
             title="Duplicate"
             disabled={pending}
-            className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-white/[0.04] hover:text-foreground disabled:opacity-50"
+            className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-[var(--color-elevated)] hover:text-foreground disabled:opacity-50"
           >
             <Copy className="h-3.5 w-3.5" />
           </button>
@@ -1021,7 +1024,7 @@ function SortableThemeCard({
             onClick={onExport}
             title="Export theme (.json)"
             disabled={pending}
-            className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-white/[0.04] hover:text-foreground disabled:opacity-50"
+            className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-[var(--color-elevated)] hover:text-foreground disabled:opacity-50"
           >
             <Download className="h-3.5 w-3.5" />
           </button>
@@ -1053,7 +1056,7 @@ function ContentTypeStyleBar({ themes }: { themes: ThemeRow[] }) {
     saveContentTypeStyles(next);
   };
   return (
-    <div className="rounded-lg border border-border bg-card/60 p-3">
+    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-3 shadow-[var(--edge-top),var(--shadow-sm)]">
       <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Default style per content type</div>
       <div className="grid grid-cols-2 gap-3">
         {CONTENT_STYLE_TYPES.map(({ key, label }) => (
@@ -1062,7 +1065,7 @@ function ContentTypeStyleBar({ themes }: { themes: ThemeRow[] }) {
             <select
               value={styles[key] ?? ""}
               onChange={(e) => set(key, e.target.value)}
-              className="h-9 rounded-md border border-border bg-[var(--color-elevated)] px-2 text-[12px] text-foreground"
+              className={cn("h-9 px-2 text-[12px] text-foreground", fieldCls)}
             >
               <option value="">Church default</option>
               {themes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -1095,11 +1098,11 @@ function OperatorThemeCard({
 }) {
   return (
     <li className={cn(
-      "group relative overflow-hidden rounded-xl border bg-card/80",
-      theme.isDefault ? "border-[var(--color-brand)] ring-1 ring-[var(--color-brand)]/40" : "border-border",
+      "group relative overflow-hidden rounded-xl border bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)]",
+      theme.isDefault ? "border-[var(--color-brand)] ring-1 ring-[var(--color-brand)]/40" : "border-[var(--color-border)]",
     )}>
       {theme.isDefault && (
-        <span className="absolute left-2 top-2 z-10 inline-flex items-center gap-1 rounded-full bg-[var(--color-brand)] px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-[var(--color-primary-foreground)]">
+        <span className="absolute left-2 top-2 z-10 inline-flex items-center gap-1 rounded-full bg-[image:var(--grad-ember)] px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] text-black shadow-[var(--edge-top),var(--shadow-ember)]">
           <span className="h-1.5 w-1.5 rounded-full bg-current" /> Live
         </span>
       )}
@@ -1113,7 +1116,7 @@ function OperatorThemeCard({
         <SlidePreview config={theme.config} mode="lyrics" churchLogoUrl={churchLogoUrl} />
         {!theme.isDefault && (
           <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
-            <span className="rounded-full bg-[var(--color-brand)] px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-[var(--color-primary-foreground)]">Go live</span>
+            <span className="rounded-full bg-[image:var(--grad-ember)] px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-black shadow-[var(--edge-top),var(--shadow-ember)]">Go live</span>
           </span>
         )}
       </button>
@@ -1123,7 +1126,7 @@ function OperatorThemeCard({
           type="button"
           onClick={onEdit}
           disabled={pending}
-          className="inline-flex h-7 items-center rounded-md border border-border px-2 text-[11px] font-semibold text-foreground hover:bg-accent disabled:opacity-50"
+          className={cn("inline-flex h-7 items-center rounded-lg px-2 text-[11px] font-semibold", btnOutline)}
         >
           Edit
         </button>
@@ -1132,7 +1135,7 @@ function OperatorThemeCard({
           onClick={onDuplicate}
           disabled={pending}
           title="Duplicate"
-          className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-white/[0.04] hover:text-foreground disabled:opacity-50"
+          className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-[var(--color-elevated)] hover:text-foreground disabled:opacity-50"
         >
           <Copy className="h-3.5 w-3.5" />
         </button>
@@ -1193,11 +1196,11 @@ function MediaLibraryPicker({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-[var(--color-panel,#141818)] shadow-2xl"
+        className="flex max-h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-panel)] shadow-[var(--edge-top),var(--shadow-xl)]"
       >
-        <header className="flex items-center justify-between border-b border-border p-4">
-          <div className="text-sm font-semibold">Choose {kind === "image" ? "an image" : "a video"} from your library</div>
-          <button type="button" onClick={onClose} aria-label="Close" className="grid h-8 w-8 place-items-center rounded-md text-muted-foreground hover:bg-white/[0.05] hover:text-foreground">
+        <header className="flex items-center justify-between border-b border-[var(--color-border)] p-4">
+          <div className="text-sm font-semibold text-foreground">Choose {kind === "image" ? "an image" : "a video"} from your library</div>
+          <button type="button" onClick={onClose} aria-label="Close" className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-[var(--color-elevated)] hover:text-foreground">
             <X className="h-4 w-4" />
           </button>
         </header>
@@ -1217,7 +1220,7 @@ function MediaLibraryPicker({
                   <button
                     type="button"
                     onClick={() => { onPick(a.url); onClose(); }}
-                    className="group block w-full overflow-hidden rounded-lg border border-border bg-black/40 text-left transition hover:border-[var(--color-primary)]"
+                    className="group block w-full overflow-hidden rounded-lg border border-[var(--color-border)] bg-black/40 text-left transition hover:border-[var(--color-brand)]"
                     title={a.fileName}
                   >
                     <div className="aspect-video w-full overflow-hidden bg-black/60">
@@ -1322,34 +1325,61 @@ function BgAssetPicker({
   }
 
   return (
-    <div className="space-y-2">
-      <Row label={label ?? `${kind === "image" ? "Image" : "Video"} URL`} hint={hint ?? `Paste a URL, drag a file here, or pick from your library (max ${maxMB} MB).`}>
-        <input
-          type="url"
-          value={url}
-          onChange={(e) => onUrl(e.target.value)}
-          placeholder="https://…"
-          className={inputCls}
-        />
-      </Row>
-      <button
-        type="button"
-        onClick={() => setLibOpen(true)}
-        className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md border border-border text-xs font-medium text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
-      >
-        <ImageIcon className="h-3.5 w-3.5" /> Choose from media library
-      </button>
-      {libOpen && (
-        <MediaLibraryPicker kind={kind} onPick={onUrl} onClose={() => setLibOpen(false)} />
-      )}
-      {/* Drag-and-drop zone — works in both Electron (Finder drag) and web (file drag) */}
+    <div className="space-y-2.5">
+      {/* Header — the label + hint that used to live on the URL Row. Surfaced
+          up top so the upload zone reads as the primary action. */}
+      <div>
+        <div className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+          {label ?? `${kind === "image" ? "Image" : "Video"}`}
+        </div>
+        <div className="mt-0.5 text-[10.5px] text-muted-foreground/70">
+          {hint ?? `Drag a file here, pick from your library, or paste a URL (max ${maxMB} MB).`}
+        </div>
+      </div>
+
+      {/* Current asset preview + Replace/Remove affordance */}
+      {url && !uploading ? (
+        <div className="flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-2 shadow-[var(--edge-top),var(--shadow-sm)]">
+          <div className="h-11 w-16 shrink-0 overflow-hidden rounded-lg border border-[var(--color-border)] bg-black/50">
+            {kind === "image" ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={url} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <video src={url} className="h-full w-full object-cover" muted playsInline preload="metadata" />
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-xs font-medium text-foreground">Current {kind}</div>
+            <div className="mt-1.5 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void openNativePicker()}
+                className={cn("inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold", btnOutline)}
+              >
+                <RefreshCw className="h-3 w-3" /> Replace
+              </button>
+              <button
+                type="button"
+                onClick={() => onUrl("")}
+                className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-2.5 text-[11px] font-semibold text-red-400 transition-colors hover:border-red-500/50 hover:bg-red-500/10"
+              >
+                <Trash2 className="h-3 w-3" /> Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Drag-and-drop zone — the hero. Works in both Electron (Finder drag)
+          and web (file drag). Reads as an inviting, obvious upload target. */}
       <div
         className={cn(
-          "relative flex h-16 cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed text-xs font-medium transition-colors",
+          "relative flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-4 text-center transition-colors [transition-timing-function:var(--ease-house)]",
+          url ? "min-h-[84px] py-4" : "min-h-[128px] py-6",
           dragOver
-            ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
-            : "border-border bg-[var(--pf-admin-bg-subtle,rgba(255,255,255,0.02))] text-muted-foreground hover:border-[var(--color-primary)]/50 hover:text-foreground",
-          uploading && "pointer-events-none cursor-wait opacity-60",
+            ? "border-[var(--color-brand)] bg-[color-mix(in_oklab,var(--color-brand)_12%,transparent)] text-[var(--color-brand)] shadow-[var(--edge-top),var(--shadow-ember)]"
+            : "border-[var(--color-border)] bg-[var(--color-muted)] text-muted-foreground hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:bg-[color-mix(in_oklab,var(--color-brand)_6%,var(--color-muted))] hover:text-foreground",
+          uploading && "pointer-events-none cursor-wait opacity-70",
         )}
         onClick={() => void openNativePicker()}
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -1375,12 +1405,24 @@ function BgAssetPicker({
           if (f) void pickFile(f);
         }}
       >
+        <div
+          className={cn(
+            "grid h-10 w-10 place-items-center rounded-full transition-colors",
+            dragOver
+              ? "bg-[var(--color-brand)] text-black shadow-[var(--edge-top),var(--shadow-ember)]"
+              : "bg-[color-mix(in_oklab,var(--color-brand)_14%,var(--color-elevated))] text-[var(--color-brand)] shadow-[var(--edge-top)]",
+          )}
+        >
+          <Upload className="h-5 w-5" />
+        </div>
         {uploading ? (
-          <span>Uploading…</span>
+          <span className="text-sm font-semibold">Uploading…</span>
         ) : (
           <>
-            <span>{dragOver ? `Drop ${kind} here` : `Drag & drop or click to browse`}</span>
-            <span className="text-[10px] opacity-60">{kind === "image" ? "PNG, JPG, WEBP, GIF" : "MP4, WEBM, MOV"} · max {maxMB} MB</span>
+            <span className="text-sm font-semibold text-foreground">
+              {dragOver ? `Drop ${kind} to upload` : `Drag ${kind === "image" ? "an image" : "a video"} here or click to upload`}
+            </span>
+            <span className="text-[10px] opacity-70">{kind === "image" ? "PNG, JPG, WEBP, GIF" : "MP4, WEBM, MOV"} · max {maxMB} MB</span>
           </>
         )}
         {/* Hidden fallback for non-Electron / older browsers */}
@@ -1396,29 +1438,55 @@ function BgAssetPicker({
           }}
         />
       </div>
-      {url && (
-        <button
-          type="button"
-          onClick={() => onUrl("")}
-          className="text-[11px] text-destructive hover:opacity-80"
-        >
-          Remove {kind}
-        </button>
+
+      {/* Secondary sources: media library + paste a URL */}
+      <button
+        type="button"
+        onClick={() => setLibOpen(true)}
+        className={cn("inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg text-xs font-medium", btnOutline)}
+      >
+        <ImageIcon className="h-3.5 w-3.5" /> Choose from media library
+      </button>
+      {libOpen && (
+        <MediaLibraryPicker kind={kind} onPick={onUrl} onClose={() => setLibOpen(false)} />
       )}
+      <input
+        type="url"
+        value={url}
+        onChange={(e) => onUrl(e.target.value)}
+        placeholder="Or paste an image URL (https://…)"
+        className={inputCls}
+      />
     </div>
   );
 }
 
 // -- small building blocks --
 
-const inputCls = "h-9 w-full rounded-md border border-border bg-background px-2.5 text-sm outline-none focus:border-[var(--color-primary)]/70";
-const selectCls = "h-9 w-full rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-[var(--color-primary)]/70";
-const colorCls = "h-9 w-full cursor-pointer rounded-md border border-border bg-background";
+// -- Design Language v2 shared recipes --------------------------------------
+// Charcoal + ember only. Reused so every control in the editor reads as one
+// system. `fieldCls` is the token field look; `segActive`/`segInactive` the
+// segmented-control recipe; `btnPrimary`/`btnOutline` the two button shapes.
+const fieldCls =
+  "rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)] outline-none transition-colors focus:border-[color-mix(in_oklab,var(--color-brand)_60%,var(--color-border))] focus:shadow-[inset_0_1px_2px_rgba(0,0,0,0.28),0_0_0_3px_color-mix(in_oklab,var(--color-brand)_22%,transparent)]";
+const inputCls = `h-9 w-full px-2.5 text-sm text-foreground ${fieldCls}`;
+const selectCls = `h-9 w-full px-2 text-sm text-foreground ${fieldCls}`;
+const colorCls = `h-9 w-full cursor-pointer ${fieldCls}`;
+
+const segActive =
+  "border-transparent bg-[color-mix(in_oklab,var(--color-brand)_16%,var(--color-elevated))] text-foreground shadow-[var(--edge-top),var(--shadow-sm)]";
+const segInactive =
+  "border border-[var(--color-border)] text-muted-foreground hover:text-foreground hover:border-[color-mix(in_oklab,var(--color-brand)_35%,var(--color-border))] hover:bg-[color-mix(in_oklab,var(--color-brand)_8%,transparent)]";
+
+const btnPrimary =
+  "bg-[image:var(--grad-ember)] text-black font-bold shadow-[var(--edge-top),var(--shadow-ember)] transition-transform duration-150 [transition-timing-function:var(--ease-spring)] motion-safe:hover:-translate-y-0.5 active:scale-[0.98] disabled:opacity-50 disabled:hover:translate-y-0";
+const btnOutline =
+  "border border-[var(--color-border)] bg-[var(--color-card)] text-foreground shadow-[var(--edge-top),var(--shadow-sm)] transition-[transform,border-color] duration-150 hover:border-[color-mix(in_oklab,var(--color-brand)_50%,var(--color-border))] motion-safe:hover:-translate-y-0.5 active:scale-[0.98] disabled:opacity-50 disabled:hover:translate-y-0";
 
 function Section({ title, defaultOpen = false, children }: { title: string; defaultOpen?: boolean; children: React.ReactNode }) {
   return (
-    <details open={defaultOpen} className="group rounded-md border border-border bg-white/[0.02]">
-      <summary className="flex cursor-pointer list-none items-center justify-between rounded-md px-3 py-2 text-sm font-medium hover:bg-white/[0.04]">
+    <details open={defaultOpen} className="group rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)]">
+      <summary className="flex cursor-pointer list-none items-center justify-between rounded-xl px-3 py-2.5 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground transition-colors hover:text-foreground">
         <span>{title}</span>
         <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" />
       </summary>
@@ -1445,11 +1513,11 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (next: boolean)
       aria-checked={value}
       onClick={() => onChange(!value)}
       className={cn(
-        "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors",
-        value ? "bg-[var(--color-primary)]" : "bg-white/[0.08]",
+        "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-150 shadow-[var(--edge-top)]",
+        value ? "bg-[image:var(--grad-ember)]" : "bg-[var(--color-elevated)] border border-[var(--color-border)]",
       )}
     >
-      <span className={cn("inline-block h-5 w-5 transform rounded-full bg-white transition-transform", value ? "translate-x-5" : "translate-x-0.5")} />
+      <span className={cn("inline-block h-5 w-5 transform rounded-full bg-white shadow-[var(--shadow-sm)] transition-transform duration-150 [transition-timing-function:var(--ease-spring)]", value ? "translate-x-5" : "translate-x-0.5")} />
     </button>
   );
 }

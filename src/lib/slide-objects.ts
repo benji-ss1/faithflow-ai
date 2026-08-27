@@ -70,6 +70,9 @@ export type ImageObject = {
   posY?: number;
   zoom?: number;
   opacity?: number;
+  // Blur-fill: when fit is "contain" (letterboxed), paint a blurred cover copy of
+  // this image behind it so portrait flyers fill the frame instead of black bars.
+  blurFill?: boolean;
 };
 
 export type VideoObject = {

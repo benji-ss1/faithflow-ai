@@ -443,12 +443,27 @@ function ObjectView({
       // Must mirror SlideObjectsLayer's image render EXACTLY (object-position pan +
       // transform zoom, clipped by overflow:hidden) so the editor canvas is 1:1
       // with the projector.
-      <div style={{ width: "100%", height: "100%", overflow: "hidden" }}>
+      <div style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative" }}>
+        {obj.blurFill === true && (obj.fit ?? "contain") === "contain" ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={obj.url}
+            alt=""
+            aria-hidden="true"
+            style={{
+              position: "absolute", inset: 0, width: "100%", height: "100%",
+              objectFit: "cover", objectPosition: "center", display: "block",
+              filter: "blur(34px) brightness(0.62) saturate(1.08)", transform: "scale(1.15)",
+            }}
+            draggable={false}
+          />
+        ) : null}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={obj.url}
           alt=""
           style={{
+            position: "relative", zIndex: 1,
             width: "100%", height: "100%", objectFit: obj.fit ?? "contain", display: "block", opacity: obj.opacity ?? 1,
             objectPosition: `${obj.posX ?? 50}% ${obj.posY ?? 50}%`,
             transform: obj.zoom && obj.zoom !== 1 ? `scale(${obj.zoom})` : undefined,

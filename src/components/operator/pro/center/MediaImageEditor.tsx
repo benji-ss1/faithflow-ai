@@ -51,9 +51,6 @@ export function MediaImageEditor({
   const [gradTo, setGradTo] = useState(saved0?.gradTo ?? "#0b1220");
   const [gradAngle, setGradAngle] = useState(saved0?.gradAngle ?? 135);
   const [logoSizePct, setLogoSizePct] = useState(saved0?.logoSizePct ?? 60);
-  // Blur-fill: fill the letterbox bars with a blurred cover copy of the image
-  // (portrait flyers). Only meaningful in Fit (contain) + full-screen (matte).
-  const [blurFill, setBlurFill] = useState<boolean>(saved0?.blurFill ?? false);
 
   // Seed the slide from a saved frame. In background mode the logo is a centred
   // box sized by logoSizePct; in matte mode it fills the canvas.
@@ -72,6 +69,8 @@ export function MediaImageEditor({
       posX: inBg ? 50 : (saved0?.posX ?? 50),
       posY: inBg ? 50 : (saved0?.posY ?? 50),
       zoom: inBg ? 1 : (saved0?.zoom ?? 1),
+      // Seed blur-fill from the saved frame so the canvas shows it on open (1:1).
+      ...(!inBg && saved0?.blurFill ? { blurFill: true } : {}),
     };
     const objects: SlideObject[] = inBg && saved0?.bgKind === "gradient"
       ? [{ id: shapeId, kind: "shape", x: 0, y: 0, w: CANVAS_W, h: CANVAS_H, shape: "rect", fill: saved0.gradFrom ?? "#1e293b", fill2: saved0.gradTo ?? "#0b1220", fillAngle: saved0.gradAngle ?? 135 } as ShapeObject, logo]
@@ -248,7 +247,7 @@ export function MediaImageEditor({
   function persist() {
     if (!img) return;
     const frame: MediaFrame = { fit: img.fit ?? "cover", posX: img.posX ?? 50, posY: img.posY ?? 50, zoom: img.zoom ?? 1 };
-    if (blurFill && bgMode === "matte" && (img.fit ?? "cover") === "contain") frame.blurFill = true;
+    if (img.blurFill && bgMode === "matte" && (img.fit ?? "cover") === "contain") frame.blurFill = true;
     if (bgMode === "background") {
       frame.bgMode = "background";
       frame.bgKind = bgKind;
@@ -278,15 +277,9 @@ export function MediaImageEditor({
     // editor still shows the image, so a silent black screen would be a lie).
     if (!hasImagePayload()) { toast.error("Couldn't project this image — try re-uploading it."); return; }
     persist();
-    // Blur-fill projects through the dedicated image payload (whole-image mode,
-    // no crop) so the renderer can paint the blurred cover backdrop behind the
-    // letterboxed flyer. Every other mode keeps the object-based payload.
-    const useBlur = blurFill && bgMode === "matte" && (img?.fit ?? "cover") === "contain" && !!img?.url;
-    if (useBlur) {
-      ctx.onSendSlideToLive({ kind: "image", url: img!.url, fit: "contain", blurFill: true }, undefined, { instant: true, force: true });
-    } else {
-      ctx.onSendSlideToLive(payload, undefined, { instant: true, force: true });
-    }
+    // The object payload carries blurFill on its image object, so the projector
+    // (SlideObjectsLayer) paints the blurred backdrop identically to this canvas.
+    ctx.onSendSlideToLive(payload, undefined, { instant: true, force: true });
     toast.success("Saved & on the projector");
   }
 
@@ -347,18 +340,21 @@ export function MediaImageEditor({
                     ))}
                   </div>
                   <div className="mt-1.5 text-[10px] text-zinc-500">{FITS.find((f) => f.value === img?.fit)?.hint}</div>
+                  {/* Blur fill — ALWAYS visible (not tucked behind Auto-fill). Turning
+                      it on forces Fit (blur fills the letterbox bars of a contained
+                      image). It's saved on the image + persists everywhere. */}
+                  <button
+                    onClick={() => patchImg(img?.blurFill ? { blurFill: false } : { blurFill: true, fit: "contain", x: 0, y: 0, w: CANVAS_W, h: CANVAS_H, posX: 50, posY: 50, zoom: 1 })}
+                    className={cn(btn, "w-full mt-2")}
+                    style={on(!!img?.blurFill)}
+                  >
+                    <Maximize2 className="w-3.5 h-3.5" /> {img?.blurFill ? "Blur fill: ON" : "Blur fill the bars"}
+                  </button>
+                  <div className="mt-1 text-[10px] text-zinc-500">Fills the black bars with a blurred copy of this image — perfect for portrait flyers so nothing sits thin on screen. Always matches, and it saves so it shows everywhere.</div>
                   <button onClick={autoFill} disabled={autofitting} className={cn(btn, "w-full mt-2")} style={on(false)}>
                     <Wand2 className="w-3.5 h-3.5" /> {autofitting ? "Measuring…" : "Auto-fill screen with logo"}
                   </button>
                   <div className="mt-1 text-[10px] text-zinc-500">Blows a padded logo up to fill the screen automatically. For photos, use Fill + Zoom.</div>
-                  {(img?.fit ?? "cover") === "contain" ? (
-                    <>
-                      <button onClick={() => setBlurFill((v) => !v)} className={cn(btn, "w-full mt-2")} style={on(blurFill)}>
-                        <Maximize2 className="w-3.5 h-3.5" /> {blurFill ? "Blur fill: ON" : "Blur fill the bars"}
-                      </button>
-                      <div className="mt-1 text-[10px] text-zinc-500">Fills the black bars with a blurred copy of this image — perfect for portrait flyers so nothing sits thin on screen. Always matches the flyer.</div>
-                    </>
-                  ) : null}
                 </Section>
 
                 <Section label="Position (pan)">

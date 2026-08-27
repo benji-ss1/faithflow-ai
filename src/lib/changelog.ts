@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.348",
+    date: "2026-08-27",
+    headline: "Blur-fill that actually sticks — and a fuller Themes editor",
+    highlights: [
+      { text: "Blur-fill now shows right in the image editor (1:1 with the projector) and it SAVES — turn it on once and the flyer stays blurred everywhere it plays: the media library, the playlist, and live. The toggle sits up front now, not hidden behind Auto-fill.", tryItHref: "/operator", tryItLabel: "Open Media" },
+      "Media images are editable from more places: double-click a slide in the grid, or use the Edit image button — the same crop/frame/blur editor, wherever you are.",
+      { text: "The Themes editor got the full refresh: the new warm look, and a proper drop zone to upload your church logo or a background image (drag it in or click). It always had a live preview — now it's obvious and consistent with the rest of the app.", tryItHref: "/library/themes", tryItLabel: "Open Themes" },
+    ],
+  },
+  {
     version: "0.1.347",
     date: "2026-08-27",
     headline: "Edit any image, from anywhere",

@@ -123,13 +123,34 @@ export function SlideObjectsLayer({ objects, fontScale = 1 }: { objects: SlideOb
         }
         // image — object-position (pan) + transform scale (zoom) enable
         // non-destructive crop/reframe; overflow:hidden clips the zoom.
+        {/* Blur-fill: when a letterboxed (contain) object image opts in, paint a
+            blurred COVER copy of the same image behind it so portrait flyers fill
+            the frame instead of sitting thin on black. Same image → always
+            matches. Rendered identically in SlideCanvas so the editor is 1:1. */}
+        const objBlurFill = obj.blurFill === true && (obj.fit ?? "contain") === "contain";
         return (
           <div key={key} className={animCls} style={{ ...boxStyle, overflow: "hidden" }}>
+            {objBlurFill ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={obj.url}
+                alt=""
+                aria-hidden="true"
+                style={{
+                  position: "absolute", inset: 0, width: "100%", height: "100%",
+                  objectFit: "cover", objectPosition: "center", display: "block",
+                  filter: "blur(34px) brightness(0.62) saturate(1.08)", transform: "scale(1.15)",
+                }}
+                draggable={false}
+                onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
+              />
+            ) : null}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={obj.url}
               alt=""
               style={{
+                position: "relative", zIndex: 1,
                 width: "100%", height: "100%", objectFit: obj.fit ?? "contain", display: "block", opacity: obj.opacity ?? 1,
                 objectPosition: `${obj.posX ?? 50}% ${obj.posY ?? 50}%`,
                 transform: obj.zoom && obj.zoom !== 1 ? `scale(${obj.zoom})` : undefined,

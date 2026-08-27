@@ -32,6 +32,8 @@ import {
   GripVertical,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { loadMediaFrame, buildMediaFrameSlide } from "../center/mediaFrame";
+import { projectableTextSlide } from "@/lib/broadcast";
 import type { OperatorShellCtx } from "../../shell/types";
 import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong, createSongSlide, deleteSongSlide, setServiceItemTheme, renameSong, renameServiceItem, applyThemeToSong, revertSongTheme, renameMediaAsset } from "@/lib/actions";
 import { useSlideClipboard, getSlideClipboard } from "@/lib/slide-clipboard";
@@ -743,8 +745,21 @@ export function PlaylistSection({
     ctx.onSetPreviewItem(idx);
     const s = it.slides?.[sIdx];
     if (!s) return;
+    // Frame-aware projection: if this media image has a saved frame (crop / pan /
+    // zoom / blur-fill), project it framed — exactly like the Media library's
+    // single click — so the saved look persists in the PLAYLIST too, not just the
+    // library. Un-framed images send their plain server slide.
+    let payload = s;
+    if (it.type === "media" && s.kind === "image") {
+      const assetId = it.mediaMeta?.[sIdx]?.id;
+      const frame = assetId ? loadMediaFrame(ctx.churchId, assetId) : null;
+      if (frame) {
+        const { bgColor, objects } = buildMediaFrameSlide(frame, s.url);
+        payload = projectableTextSlide("", bgColor, undefined, objects);
+      }
+    }
     try {
-      ctx.onSendSlideToLive(s);
+      ctx.onSendSlideToLive(payload);
       toast.success(`"${it.title}" — slide ${sIdx + 1} → LIVE`);
     } catch (e) {
       console.warn("[playlist] send-slide failed", e);

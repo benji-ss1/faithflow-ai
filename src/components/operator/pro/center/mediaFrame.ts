@@ -118,6 +118,12 @@ export function buildMediaFrameSlide(frame: MediaFrame, url: string): { bgColor?
     return { bgColor: frame.bgSolid ?? "#0b1220", objects: [logo] };
   }
   // Matte (default): full-canvas image on black, framed by fit/pan/zoom.
-  const logo: ImageObject = { id: newObjectId(), kind: "image", x: 0, y: 0, w: CANVAS_W, h: CANVAS_H, url, fit: frame.fit, posX: frame.posX, posY: frame.posY, zoom: frame.zoom };
+  // blurFill carries through so a saved blurred flyer projects blurred on a
+  // single click, everywhere (media library, playlist, editor) — 1:1 with live.
+  const logo: ImageObject = {
+    id: newObjectId(), kind: "image", x: 0, y: 0, w: CANVAS_W, h: CANVAS_H,
+    url, fit: frame.fit, posX: frame.posX, posY: frame.posY, zoom: frame.zoom,
+    ...(frame.blurFill && frame.fit === "contain" ? { blurFill: true } : {}),
+  };
   return { bgColor: "#000000", objects: [logo] };
 }
