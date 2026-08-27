@@ -280,15 +280,16 @@ export default function LivestreamPage() {
         <>
           {/* Background Templates layer for the broadcast/NDI output. Never in
               transparent (OBS-key) mode. When active the slide goes transparent. */}
-          {!transparent && background && background.type !== "none" && <BackgroundLayer key={background.shaderPreset ?? background.type} background={background} />}
-          {!transparent && hasVideoBackground(videoInput, appearance) && !(!transparent && background && background.type !== "none") ? (
+          {/* Live camera wins over a Background Template here too (mirrors /live). */}
+          {!transparent && background && background.type !== "none" && !videoInput && <BackgroundLayer key={background.shaderPreset ?? background.type} background={background} />}
+          {!transparent && hasVideoBackground(videoInput, appearance) && !(!transparent && background && background.type !== "none" && !videoInput) ? (
             <OutputSlide slide={slide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} projectorFit />
           ) : transitionsEnabled ? (
             <TransitionWrapper identityKey={slideOutputIdentity(slide)} transition={transition}>
-              <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} overVideo={!!(!transparent && background && background.type !== "none")} transparentBg={transparent} videoMuted={false} onVideoRef={handleVideoRef} />
+              <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} overVideo={!!(!transparent && background && background.type !== "none" && !videoInput)} transparentBg={transparent} videoMuted={false} onVideoRef={handleVideoRef} />
             </TransitionWrapper>
           ) : (
-            <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} overVideo={!!(!transparent && background && background.type !== "none")} transparentBg={transparent} videoMuted={false} onVideoRef={handleVideoRef} />
+            <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} overVideo={!!(!transparent && background && background.type !== "none" && !videoInput)} transparentBg={transparent} videoMuted={false} onVideoRef={handleVideoRef} />
           )}
           {/* No theme logo in OBS transparent mode — the overlay is text-only so
               OBS composites just the lyrics/verse over the camera. */}
