@@ -16,20 +16,23 @@
   /* Structural layers — dark default. Deep, NEUTRAL near-blacks (no purple
    * tint) so the background colour is unambiguous, still stepped into distinct
    * tiers: black canvas < panel/sidebar < raised card < elevated/hover. */
-  --color-app-bg:        #000000;
-  --color-panel:         #0b0b0d;
-  --color-raised-shell:  #151517;
-  --color-elevated:      #1f1f22;
-  --color-shell:         #050405;
-  --color-shell-edge:    rgba(255,255,255,0.06);
-  --color-overlay-soft:  rgba(255,255,255,0.03);
-  --color-glow:          rgba(255,144,72,0.18);
+  /* WARM near-blacks (design language 2026-08-27): shifted off pure black toward
+   * the OpenFlow warm-neutral ground so the whole app reads cinematic + premium
+   * instead of cold. Same stepped tiers, hue-biased toward the ember accent. */
+  --color-app-bg:        #0B0908;
+  --color-panel:         #100D0B;
+  --color-raised-shell:  #1A1610;
+  --color-elevated:      #241E17;
+  --color-shell:         #080605;
+  --color-shell-edge:    rgba(245,238,228,0.06);
+  --color-overlay-soft:  rgba(245,238,228,0.03);
+  --color-glow:          rgba(232,116,42,0.18);
 
   /* Backwards compat */
-  --color-background:    #000000;
-  --color-card:          #151517;
-  --color-popover:       #151517;
-  --color-muted:         #0b0b0d;
+  --color-background:    #0B0908;
+  --color-card:          #17130F;
+  --color-popover:       #17130F;
+  --color-muted:         #100D0B;
 
   /* Text */
   --color-foreground:            #ece7e0;
@@ -38,7 +41,7 @@
   --color-muted-foreground:      #aca498;
   --color-primary:               #e8501a;
   --color-primary-foreground:    #17130c;
-  --color-secondary:             #1f1f22;
+  --color-secondary:             #241E17;
   --color-secondary-foreground:  #ece7e0;
   --color-accent:                #f26a34;
   --color-accent-foreground:     #17130c;
@@ -53,14 +56,14 @@
   --color-destructive-foreground: #17130c;
 
   /* Borders and inputs */
-  --color-border:  rgba(255,255,255,0.12);
-  --color-input:   rgba(255,255,255,0.12);
+  --color-border:  rgba(245,238,228,0.11);
+  --color-input:   rgba(245,238,228,0.11);
   --color-ring:    #e8501a;
 
   /* Sidebar-specific */
-  --color-sidebar-bg:         #08080a;
-  --color-sidebar-item-hover: #151517;
-  --color-sidebar-item-active:#1f1f22;
+  --color-sidebar-bg:         #0C0A08;
+  --color-sidebar-item-hover: #1A1610;
+  --color-sidebar-item-active:#241E17;
   --color-sidebar-fg:         #d5cdc1;
   --color-sidebar-fg-muted:   #968e82;
 
@@ -71,12 +74,22 @@
   --color-ai-approved:  #4fd18b;
 
   --font-sans:    "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "SF Pro Text", "Inter", "Segoe UI", Roboto, sans-serif;
+  /* --font-display stays the clean sans — it is used by the LIVE PROJECTOR
+   * (SlideRenderer .font-display) for lyrics/verses, which must remain a
+   * crowd-legible sans. DO NOT point this at a serif. */
   --font-display: "Sora", ui-sans-serif, system-ui, -apple-system, "SF Pro Display", "Inter", "Segoe UI", Roboto, sans-serif;
+  /* NEW: chrome heading face — the OpenFlow serif (Fraunces via next/font,
+   * exposed on <body> as --of-font-serif). Used ONLY by operator/admin h1-h3,
+   * NEVER by projected text. Falls back to a system serif. */
+  --font-heading: var(--of-font-serif, "Fraunces", "Iowan Old Style", "Charter", "Palatino Linotype", Georgia, serif);
   --font-mono:    ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
   --radius-md: 8px;
   --radius-lg: 12px;
   --radius-xl: 14px;
+
+  /* The one house easing curve — used app-wide for entrances + hover. */
+  --ease-house: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 html {
@@ -91,7 +104,10 @@ html, body {
 }
 body { min-height: 100vh; }
 
-h1, h2, h3, .font-display { letter-spacing: -0.02em; font-family: var(--font-display); }
+/* Chrome headings get the OpenFlow serif; .font-display stays the projector sans
+ * (SlideRenderer uses .font-display for projected lyrics/verses — never serif). */
+h1, h2, h3 { letter-spacing: -0.015em; font-family: var(--font-heading); }
+.font-display { letter-spacing: -0.02em; font-family: var(--font-display); }
 ::selection { background: color-mix(in oklab, var(--color-brand) 30%, transparent); color: var(--color-foreground); }
 
 .eyebrow { font-family: var(--font-mono); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; color: var(--color-muted-foreground); }

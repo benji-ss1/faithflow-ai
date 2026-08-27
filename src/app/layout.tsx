@@ -10,6 +10,7 @@ import { PostHogProvider } from "@/components/system/PostHogProvider";
 import { OfflineIndicator } from "@/components/system/OfflineIndicator";
 import "./globals.css";
 import "@/styles/openflow.css";
+import { openFlowFontVars } from "@/lib/openflow/fonts";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://presentflow.org"),
@@ -63,7 +64,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
   return (
     <html lang="en" className={htmlClass} suppressHydrationWarning>
-      <body suppressHydrationWarning>
+      <body suppressHydrationWarning className={openFlowFontVars}>
         {children}
         <PostHogProvider />
         <ServiceWorkerRegister />
