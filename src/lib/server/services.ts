@@ -35,6 +35,10 @@ export type ExpandedItem = {
   // Themes 2c — optional per-item theme override (a "section theme"). When set,
   // the operator resolves this theme for the item instead of the church default.
   themeId?: string;
+  // For a grouped MEDIA item: the underlying asset id + name for each expanded
+  // slide, in the SAME order as `slides`. Lets the playlist rename / reorder /
+  // remove individual images inside a group.
+  mediaMeta?: { id: string; fileName: string }[];
 };
 
 export type ExpandedPlan = {
@@ -59,6 +63,7 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
   for (const it of items) {
     const payload = (it.payload || {}) as Record<string, unknown>;
     let slides: SlidePayload[] = [];
+    let mediaMeta: { id: string; fileName: string }[] | undefined;
 
     let songId: string | undefined;
     let songSlideRows: { id: string; lyrics: string; objectsJson: unknown }[] | undefined;
@@ -157,13 +162,16 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
           .where(and(inArray(mediaAssets.id, ids), eq(mediaAssets.churchId, churchId)));
         const byId = new Map(rows.map((r) => [r.id, r]));
         const out: SlidePayload[] = [];
+        const meta: { id: string; fileName: string }[] = [];
         for (const id of ids) {
           const asset = byId.get(id);
           if (!asset) continue;
           const url = await presignGet(asset.s3Key);
           out.push(asset.kind === "video" ? { kind: "video", url, fit } : { kind: "image", url, fit });
+          meta.push({ id: asset.id, fileName: asset.fileName });
         }
         slides = out;
+        mediaMeta = meta;
       }
     } else if (it.type === "media" && payload.mediaAssetId) {
       // C1 defense-in-depth: scope mediaAssets lookup by churchId.
@@ -206,7 +214,7 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
     const extra: { pptxImportId?: string; themeId?: string } = {};
     if (it.type === "sermon" && typeof payload.pptxImportId === "string") extra.pptxImportId = payload.pptxImportId;
     if (typeof payload.themeId === "string" && payload.themeId) extra.themeId = payload.themeId;
-    expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides, ...extra, songId, songSlideRows });
+    expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides, ...extra, songId, songSlideRows, mediaMeta });
   }
 
   return { id: plan.id, title: plan.title, items: expanded, logoUrl, blankBgColor };

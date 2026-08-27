@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as Popover from "@radix-ui/react-popover";
@@ -33,7 +33,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
-import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong, createSongSlide, deleteSongSlide, setServiceItemTheme, renameSong, renameServiceItem, applyThemeToSong, revertSongTheme } from "@/lib/actions";
+import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong, createSongSlide, deleteSongSlide, setServiceItemTheme, renameSong, renameServiceItem, applyThemeToSong, revertSongTheme, renameMediaAsset } from "@/lib/actions";
 import { useSlideClipboard, getSlideClipboard } from "@/lib/slide-clipboard";
 
 function itemIcon(type: string) {
@@ -62,6 +62,8 @@ function SortablePlaylistItem({
   onDeleteSong,
   onRename,
   onDropSlide,
+  onReorderGroup,
+  onRenameMedia,
   themes = [],
   currentThemeId = null,
   onSetTheme,
@@ -82,6 +84,10 @@ function SortablePlaylistItem({
   onDeleteSong?: () => void;
   onRename?: (newTitle: string) => void;
   onDropSlide?: (json: string) => void;
+  // Reorder the slides WITHIN this (media group) item — newOrder is "slide-<i>" ids.
+  onReorderGroup?: (newOrder: string[]) => void;
+  // Rename one underlying media asset (a child of a group).
+  onRenameMedia?: (assetId: string, name: string) => void;
   themes?: { id: string; name: string }[];
   currentThemeId?: string | null;
   onSetTheme?: (themeId: string | null) => void;
@@ -89,6 +95,11 @@ function SortablePlaylistItem({
   const id = item.id ?? `item-${idx}`;
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(item.title);
+  // Inline rename for a single child image inside an expanded group.
+  const [renamingChild, setRenamingChild] = useState<number | null>(null);
+  const [childDraft, setChildDraft] = useState("");
+  // Guards a blur-after-Escape from re-committing the (cancelled) draft.
+  const childCancelRef = useRef(false);
   const [slideDragOver, setSlideDragOver] = useState(false);
   const [expanded, setExpanded] = useState(false);
   // A grouped media item (multi-select "group") = a media item with >1 slide.
@@ -317,37 +328,81 @@ function SortablePlaylistItem({
         </ContextMenu.Portal>
       </ContextMenu.Root>
 
-      {/* Expanded media group — thumbnails of each image; click to project it. */}
-      {isGroup && expanded && (
+      {/* Expanded media group — each child image: click to project, right-click
+          for Send live / Rename / Move up / Move down. */}
+      {isGroup && expanded && (() => {
+        const slideIds = item.slides.map((_, i) => `slide-${i}`);
+        const moveChild = (from: number, to: number) => {
+          if (to < 0 || to >= slideIds.length) return;
+          const next = [...slideIds];
+          const [m] = next.splice(from, 1);
+          next.splice(to, 0, m);
+          onReorderGroup?.(next);
+        };
+        return (
         <ul className="pl-8 pr-2 pb-1 flex flex-col gap-0.5">
           {item.slides.map((s, sIdx) => {
             const url = (s as { url?: string }).url;
             const isVideo = (s as { kind?: string }).kind === "video";
             const label = isVideo ? "Video" : "Image";
+            const meta = item.mediaMeta?.[sIdx];
+            const name = meta?.fileName || `${label} ${sIdx + 1}`;
             return (
-              <li key={sIdx}>
-                <button
-                  type="button"
-                  onClick={() => onProjectSlide?.(sIdx)}
-                  title={`Send ${label.toLowerCase()} ${sIdx + 1} to live`}
-                  className="w-full flex items-center gap-2 py-0.5 pr-1 rounded text-left text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/5"
-                >
-                  <span className="w-4 text-right opacity-50 shrink-0">{sIdx + 1}</span>
-                  {url && isVideo ? (
-                    <video src={url} muted className="w-10 h-6 object-cover rounded border border-[var(--color-border)] shrink-0" />
-                  ) : url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={url} alt="" className="w-10 h-6 object-cover rounded border border-[var(--color-border)] shrink-0" />
-                  ) : (
-                    <span className="w-10 h-6 rounded border border-[var(--color-border)] bg-black/40 shrink-0" />
-                  )}
-                  <span className="truncate">{label} {sIdx + 1}</span>
-                </button>
+              <li key={meta?.id ?? sIdx}>
+                {renamingChild === sIdx ? (
+                  <div className="flex items-center gap-2 py-0.5 pr-1 pl-4">
+                    <input
+                      autoFocus
+                      value={childDraft}
+                      onChange={(e) => setChildDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") { e.preventDefault(); const n = childDraft.trim(); if (n && meta?.id && n !== name) onRenameMedia?.(meta.id, n); childCancelRef.current = true; setRenamingChild(null); }
+                        if (e.key === "Escape") { e.preventDefault(); childCancelRef.current = true; setRenamingChild(null); }
+                      }}
+                      onBlur={() => { if (childCancelRef.current) { childCancelRef.current = false; return; } const n = childDraft.trim(); if (n && meta?.id && n !== name) onRenameMedia?.(meta.id, n); setRenamingChild(null); }}
+                      className="flex-1 h-6 rounded border border-[var(--color-border)] bg-[var(--color-panel)] px-2 text-[11px] outline-none focus:border-[var(--color-brand)]"
+                    />
+                  </div>
+                ) : (
+                  <ContextMenu.Root>
+                    <ContextMenu.Trigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => onProjectSlide?.(sIdx)}
+                        title={`${name} — click to send live, right-click for options`}
+                        className="w-full flex items-center gap-2 py-0.5 pr-1 rounded text-left text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/5"
+                      >
+                        <span className="w-4 text-right opacity-50 shrink-0">{sIdx + 1}</span>
+                        {url && isVideo ? (
+                          <video src={url} muted className="w-10 h-6 object-cover rounded border border-[var(--color-border)] shrink-0" />
+                        ) : url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={url} alt="" className="w-10 h-6 object-cover rounded border border-[var(--color-border)] shrink-0" />
+                        ) : (
+                          <span className="w-10 h-6 rounded border border-[var(--color-border)] bg-black/40 shrink-0" />
+                        )}
+                        <span className="truncate">{name}</span>
+                      </button>
+                    </ContextMenu.Trigger>
+                    <ContextMenu.Portal>
+                      <ContextMenu.Content className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[150px]">
+                        <ContextMenu.Item onSelect={() => onProjectSlide?.(sIdx)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">Send to live</ContextMenu.Item>
+                        {meta?.id && onRenameMedia ? (
+                          <ContextMenu.Item onSelect={() => { childCancelRef.current = false; setChildDraft(name); setRenamingChild(sIdx); }} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">Rename</ContextMenu.Item>
+                        ) : null}
+                        <ContextMenu.Separator className="h-px my-1 bg-[var(--color-border)]" />
+                        <ContextMenu.Item disabled={sIdx === 0} onSelect={() => moveChild(sIdx, sIdx - 1)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer data-[disabled]:opacity-40 data-[disabled]:cursor-default">Move up</ContextMenu.Item>
+                        <ContextMenu.Item disabled={sIdx === item.slides.length - 1} onSelect={() => moveChild(sIdx, sIdx + 1)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer data-[disabled]:opacity-40 data-[disabled]:cursor-default">Move down</ContextMenu.Item>
+                      </ContextMenu.Content>
+                    </ContextMenu.Portal>
+                  </ContextMenu.Root>
+                )}
               </li>
             );
           })}
         </ul>
-      )}
+        );
+      })()}
     </li>
   );
 }
@@ -406,6 +461,13 @@ export function PlaylistSection({
   const setTheme = async (itemId: string, themeId: string | null) => {
     if (blockedIfOffline()) return;
     handleResult(await setServiceItemTheme(ctx.planId, itemId, themeId), themeId ? "Section theme set" : "Reset to default theme");
+  };
+
+  // Rename one image inside a media group (renames the underlying media asset;
+  // the change also propagates to any other place that references it).
+  const renameGroupImage = async (assetId: string, name: string) => {
+    if (blockedIfOffline()) return;
+    handleResult(await renameMediaAsset(assetId, name), "Image renamed");
   };
 
   // Toast with an Undo action that runs the inverse (server) operation, then
@@ -799,6 +861,8 @@ export function PlaylistSection({
                   onDeleteSong={it.type === "song" && it.songId ? () => void deleteFromLibrary(it) : undefined}
                   onRename={(it.type === "song" && it.songId) || it.id ? (newTitle) => void renameItem(it, newTitle) : undefined}
                   onDropSlide={it.type === "song" && it.songId ? (json) => void appendDroppedSlide(it, json) : undefined}
+                  onReorderGroup={it.type === "media" ? (newOrder) => ctx.onReorderSlidesInItem?.(idx, newOrder) : undefined}
+                  onRenameMedia={it.type === "media" ? (assetId, name) => void renameGroupImage(assetId, name) : undefined}
                   themes={themes}
                   currentThemeId={(it as { themeId?: string }).themeId ?? null}
                   onSetTheme={it.id ? (themeId) => void setTheme(it.id!, themeId) : undefined}
