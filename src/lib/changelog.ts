@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.348",
+    date: "2026-08-27",
+    headline: "Live camera now shows through your theme — full-screen lyrics over video",
+    highlights: [
+      { text: "Using Video Input? Your camera now appears behind the lyrics even when a background theme/template is set — previously an animated theme could hide the camera completely. Turn the camera on and it takes over; clear it and your theme returns.", tryItHref: "/operator", tryItLabel: "Open Video Input" },
+      "Lyrics and verses now fill the whole screen over the camera by default (they used to sit in a small bottom strip). Prefer the broadcast lower-third look? Pick it from the Overlay dropdown in Video Input.",
+    ],
+  },
+  {
     version: "0.1.347",
     date: "2026-08-27",
     headline: "Edit any image, from anywhere",

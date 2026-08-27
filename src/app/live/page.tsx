@@ -460,8 +460,14 @@ export default function LivePage() {
                   theme switch — reusing the canvas loses its context and freezes
                   the shader. The init gap is white-safe: ShaderBackground always
                   paints a dark floor. */}
-              {background && background.type !== "none" && <BackgroundLayer key={background.shaderPreset ?? background.type} background={background} />}
-              {hasVideoBackground(videoInput, appearance) && !(background && background.type !== "none") ? (
+              {/* A LIVE camera input wins over a Background Template. Turning on
+                  Video Input is an explicit, active choice; a Background Template
+                  is a passive theme setting. Previously the template unconditionally
+                  suppressed the camera here (church saw the shader instead of their
+                  camera). So: skip the template layer whenever a live camera is set,
+                  and let the camera path below take precedence over the template. */}
+              {background && background.type !== "none" && !videoInput && <BackgroundLayer key={background.shaderPreset ?? background.type} background={background} />}
+              {hasVideoBackground(videoInput, appearance) && !(background && background.type !== "none" && !videoInput) ? (
                 // Video behind the slide (camera or theme video bg): no slide-keyed
                 // transition wrapper, so the video stays playing across slide
                 // changes — only the overlay updates.
@@ -474,7 +480,7 @@ export default function LivePage() {
                 // wrapper can't affect text size anymore. This brings the projector's
                 // slide transitions (fade/cut/etc.) back, matching /stage.
                 <TransitionWrapper identityKey={slideOutputIdentity(slide)} transition={transition}>
-                  <SlideRenderer slide={slide} projectorFit fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} overVideo={!!(background && background.type !== "none")} videoMuted={false} onVideoRef={handleVideoRef} />
+                  <SlideRenderer slide={slide} projectorFit fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} overVideo={!!(background && background.type !== "none" && !videoInput)} videoMuted={false} onVideoRef={handleVideoRef} />
                 </TransitionWrapper>
               )}
               <ThemeLogoLayer appearance={appearance} />

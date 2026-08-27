@@ -15,6 +15,11 @@ import { DropdownDisclosure } from "../DropdownDisclosure";
 import { shellSupportsCamera } from "@/lib/electron-version";
 
 const LS_KEY = "presentflow.videoInput.v1";
+// One-time flag: correct the old "lower-third" overlay default (which hid lyrics
+// in the bottom 38% over a camera) to full-screen, ONCE, for operators who
+// already have lower-third persisted. Set after the migration runs so a later
+// deliberate re-pick of lower-third is respected.
+const OVERLAY_MIGRATED_KEY = "presentflow.videoInput.overlayMigrated";
 type Persisted = VideoInputState & { active?: boolean };
 
 function loadPersisted(): Persisted | null {
@@ -44,7 +49,11 @@ export function VideoInputPanel() {
   const [selectedId, setSelectedId] = useState<string>("");
   const [fit, setFit] = useState<NonNullable<VideoInputState["fit"]>>("cover");
   const [mirror, setMirror] = useState(false);
-  const [overlay, setOverlay] = useState<NonNullable<VideoInputState["overlay"]>>("lower-third");
+  // Default to FULL-screen lyrics over the camera (sanctuary projection). The
+  // old "lower-third" default confined verses/lyrics to the bottom 38% band, which
+  // churches projecting words over a camera read as "lyrics not showing". Operators
+  // who want a broadcast lower-third can still pick it from the Overlay dropdown.
+  const [overlay, setOverlay] = useState<NonNullable<VideoInputState["overlay"]>>("full");
   const [active, setActive] = useState(false);
   const [previewStatus, setPreviewStatus] = useState<"idle" | "loading" | "on" | "error">("idle");
   const previewRef = useRef<HTMLVideoElement | null>(null);
@@ -68,7 +77,18 @@ export function VideoInputPanel() {
       setSelectedId(p.deviceId);
       if (p.fit) setFit(p.fit);
       if (typeof p.mirror === "boolean") setMirror(p.mirror);
-      if (p.overlay) setOverlay(p.overlay);
+      // One-time overlay migration (see OVERLAY_MIGRATED_KEY): flip a persisted
+      // "lower-third" to full-screen once and re-persist so it sticks; respect a
+      // deliberate lower-third afterwards.
+      let overlayToUse = p.overlay;
+      try {
+        if (overlayToUse === "lower-third" && !localStorage.getItem(OVERLAY_MIGRATED_KEY)) {
+          overlayToUse = "full";
+          localStorage.setItem(OVERLAY_MIGRATED_KEY, "1");
+          savePersisted({ ...p, overlay: "full" });
+        }
+      } catch { /* ignore */ }
+      if (overlayToUse) setOverlay(overlayToUse);
       setActive(!!p.active);
     }
     void refresh();

@@ -45,7 +45,8 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, referenc
     // Media/image/logo slides render full-bleed and cover the video (which stays
     // mounted behind, so returning to a lyric/verse keeps it playing).
     const isOverlayKind = slide.kind === "text" || slide.kind === "blank";
-    // Camera → lower-third by default (broadcast look). Theme video background →
+    // Camera → full-screen lyrics by default (sanctuary look; operator can switch
+    // to lower-third). Theme video background →
     // centered content (it's a backdrop); readability comes from the theme dim
     // (applied in ThemeVideoBackground) + text shadow, so no extra scrim.
     const containerClass = videoInput
