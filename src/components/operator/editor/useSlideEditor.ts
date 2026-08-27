@@ -470,7 +470,13 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     const cur = prev[curIdx];
     if (!cur) return;
     const selId = selectedIdsRef.current.length === 1 ? selectedIdsRef.current[0] : null;
-    const source = selId ? cur.objects.find((o) => o.id === selId) ?? null : null;
+    // Style source: the single-selected object if there is one; otherwise fall
+    // back to the slide's primary TEXT object. This makes "change the font (or
+    // any style), then Save to all slides" work WITHOUT first clicking into the
+    // text box — the common operator flow for lyrics that share one look.
+    const source = (selId ? cur.objects.find((o) => o.id === selId) ?? null : null)
+      ?? cur.objects.find((o) => o.kind === "text")
+      ?? null;
 
     let stylePatch: Partial<SlideObject> | null = null;
     let sourceKind: SlideObject["kind"] | null = null;

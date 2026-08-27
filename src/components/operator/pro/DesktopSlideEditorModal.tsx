@@ -120,6 +120,26 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
     }
   }, [editor, songId, item, targetSong, router]);
 
+  // "Save to all slides" — apply the CURRENT slide's text style (+ background)
+  // to every slide, then persist. applyToAll() is a synchronous setState, so we
+  // flag a pending save and let the effect below fire onSave AFTER the applied
+  // slides have committed (calling onSave() in the same tick would save the
+  // pre-apply state). Auto-targets the slide's text object when nothing is
+  // explicitly selected (see useSlideEditor.applyToAll).
+  const [confirmSaveAll, setConfirmSaveAll] = useState(false);
+  const pendingSaveAllRef = useRef(false);
+  const doSaveToAll = useCallback(() => {
+    if (!editor.isEditable || !songId) return;
+    pendingSaveAllRef.current = true;
+    editor.applyToAll();
+  }, [editor, songId]);
+  useEffect(() => {
+    if (!pendingSaveAllRef.current) return;
+    pendingSaveAllRef.current = false;
+    void onSave();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor.slides]);
+
   // "Show" projects the CURRENT in-editor slide to the live projector — the ONLY
   // way edits reach the output (nothing auto-projects while editing). Fix
   // (2026-08-20 field video): the old handler sent { kind:"text", text: lyrics },
@@ -254,6 +274,14 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
                 {saveState === "saving" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save
               </button>
               <button
+                onClick={() => setConfirmSaveAll(true)}
+                disabled={!isSong || saveState === "saving" || editor.slides.length < 2}
+                title={!isSong ? "Editing is available for songs" : editor.slides.length < 2 ? "Only one slide" : "Apply this slide's font, size, colour & style to every slide, then save"}
+                className="h-9 px-3 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5 text-[var(--color-foreground)] border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] motion-safe:hover:-translate-y-px hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:shadow-[var(--edge-top),var(--shadow-md)] active:scale-[0.97] transition-[transform,box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-spring)] disabled:opacity-40 disabled:pointer-events-none disabled:shadow-none"
+              >
+                <LayersIcon className="w-4 h-4" /> Save to all
+              </button>
+              <button
                 onClick={onShow}
                 disabled={!isSong || !editor.currentSlide}
                 title={!isSong ? "Editing is available for songs" : "Send the current slide to Preview / Live"}
@@ -269,6 +297,15 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
               </button>
             </div>
           </header>
+
+          <ConfirmDialog
+            open={confirmSaveAll}
+            title="Save this look to every slide?"
+            confirmLabel="Save to all slides"
+            body={<>Applies this slide&rsquo;s font, size, weight, colour, alignment and style (and its background) to all <b className="text-[var(--color-foreground)]">{editor.slides.length}</b> slides in this song, then saves. Each slide keeps its own words — only the look changes. You can undo.</>}
+            onConfirm={() => { setConfirmSaveAll(false); doSaveToAll(); }}
+            onCancel={() => setConfirmSaveAll(false)}
+          />
 
           {/* ── Body: slides (left) · canvas + zone controls (center) · features (right) ── */}
           <div className="flex-1 min-h-0 flex">

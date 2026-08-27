@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.343",
+    date: "2026-08-27",
+    headline: "OpenFlow is back, and “Save to all slides” in the editor",
+    highlights: [
+      { text: "OpenFlow can talk to the AI again — the underlying model had been retired by our provider, so it's now on a current, more capable one. Ask it anything about your church.", tryItHref: "/operator", tryItLabel: "Open OpenFlow" },
+      { text: "In the slide editor there's now a “Save to all slides” button: change the font, size, colour or any styling on one slide, hit it, and every slide in the song gets the same look in one go (your words stay untouched, and you can undo).", tryItHref: "/operator", tryItLabel: "Open the editor" },
+    ],
+  },
+  {
     version: "0.1.342",
     date: "2026-08-27",
     headline: "The design refresh reaches every corner",
