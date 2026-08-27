@@ -5,8 +5,6 @@
  * and (first run only) a row of starting-point pills.
  */
 import { IconLayoutList, IconPhoto, IconBook2, IconMusic } from "@tabler/icons-react";
-import { OpenFlowShader } from "./OpenFlowShader";
-import { OpenFlowMark, OpenFlowWordmark } from "./OpenFlowMark";
 import { OpenFlowInput } from "./OpenFlowInput";
 import type { OpenFlowMode } from "@/hooks/useOpenFlowChat";
 
@@ -41,13 +39,8 @@ export function OpenFlowWelcome({
 }) {
   return (
     <div className="of-hero of-fade">
-      <OpenFlowShader className="of-shader" />
       <div className="of-scrim" />
       <div className="of-hero-inner">
-        <div className="of-lockup">
-          <OpenFlowMark size={46} />
-          <OpenFlowWordmark />
-        </div>
         <h1 className="of-greeting">{greeting ?? greetingWord()}, {churchName}.</h1>
         {configured ? (
           <p className="of-brag">Ask for anything. <span className="hot">I already know your church.</span></p>

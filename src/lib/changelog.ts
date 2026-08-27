@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.344",
+    date: "2026-08-27",
+    headline: "OpenFlow keeps its face while you talk",
+    highlights: [
+      { text: "OpenFlow now has a permanent header — its logo and name stay with you the whole conversation instead of vanishing the moment you send a message. There's a “New chat” button up top to start fresh and jump back to the welcome screen.", tryItHref: "/operator", tryItLabel: "Open OpenFlow" },
+      "The look is calmer and more alive: one soft ambient glow sits behind the whole panel (bold on the welcome screen, gentle once you're chatting) and the harsh full-screen sweep between modes is gone.",
+    ],
+  },
+  {
     version: "0.1.343",
     date: "2026-08-27",
     headline: "OpenFlow is back, and “Save to all slides” in the editor",

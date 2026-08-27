@@ -8,10 +8,12 @@
  * Increment 1 scope: Chat mode streaming from Groq with real church context.
  * Service Builder / Scripture / Songs / Image and their cards arrive next.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { openFlowFontVars } from "@/lib/openflow/fonts";
 import { OpenFlowGradientDefs } from "./OpenFlowMark";
+import { OpenFlowShader } from "./OpenFlowShader";
+import { OpenFlowHeader } from "./OpenFlowHeader";
 import { OpenFlowWelcome } from "./OpenFlowWelcome";
 import { OpenFlowChat } from "./OpenFlowChat";
 import { useOpenFlowChat, type OpenFlowMode } from "@/hooks/useOpenFlowChat";
@@ -22,22 +24,21 @@ const SEEN_KEY = "pf.openflow.seen.v1";
 
 export function OpenFlowPanel({ ctx }: { ctx: OperatorShellCtx }) {
   const router = useRouter();
-  const { messages, streaming, error, send, stop } = useOpenFlowChat();
+  const { messages, streaming, error, send, stop, reset } = useOpenFlowChat();
   const [draft, setDraft] = useState("");
   const [mode, setMode] = useState<OpenFlowMode>("chat");
   const [church, setChurch] = useState<{ churchName: string; greeting: string; configured: boolean }>({ churchName: "your church", greeting: "Welcome", configured: true });
   const [showFirstRun, setShowFirstRun] = useState(true);
-  // Mode transition — an ember shader-like sweep across the panel when the
-  // operator switches Chat -> Service Builder -> Scripture etc.
-  const [wipe, setWipe] = useState(0);
-  const prevMode = useRef(mode);
-  useEffect(() => {
-    if (prevMode.current === mode) return;
-    prevMode.current = mode;
-    setWipe((w) => w + 1);
-    const t = setTimeout(() => setWipe(0), 650);
-    return () => clearTimeout(t);
-  }, [mode]);
+
+  // New conversation / "back to the first OpenFlow screen". A1: an in-memory
+  // reset (persisted history + a conversation rail arrive in A2/A3, which reuse
+  // this same entry point).
+  const newChat = () => {
+    if (streaming) stop();
+    reset();
+    setDraft("");
+    setMode("chat");
+  };
 
   // First-run pills only until OpenFlow has been used once (per browser).
   useEffect(() => {
@@ -97,11 +98,24 @@ export function OpenFlowPanel({ ctx }: { ctx: OperatorShellCtx }) {
   }), [ctx, router, messages, send, streaming]);
 
   const started = messages.length > 0;
+  // A1 conversation title = the first thing the operator asked (trimmed). A2/A3
+  // replace this with a stored, auto-generated title.
+  const title = useMemo(() => {
+    const first = messages.find((m) => m.role === "user")?.content?.trim();
+    if (!first) return null;
+    return first.length > 48 ? `${first.slice(0, 48)}…` : first;
+  }, [messages]);
 
   return (
-    <div className={`of-panel openflow-scope ${openFlowFontVars}`}>
+    <div className={`of-panel openflow-scope ${openFlowFontVars}`} data-started={started ? "true" : "false"}>
       <OpenFlowGradientDefs />
-      {wipe > 0 ? <div key={wipe} className="of-mode-wipe" aria-hidden="true" /> : null}
+      {/* One ambient shader behind the whole panel — bold on the welcome screen,
+          gently dimmed once a conversation is live (CSS keys off data-started),
+          so OpenFlow always feels alive without the jarring full-screen wipe. */}
+      <OpenFlowShader className="of-ambient" />
+
+      <OpenFlowHeader started={started} title={title} onNewChat={newChat} />
+
       {started ? (
         <OpenFlowChat
           messages={messages}

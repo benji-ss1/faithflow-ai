@@ -95,6 +95,46 @@
 .of-fade { animation: of-fadein 0.28s var(--of-ease) both; }
 @keyframes of-fadein { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
+/* One persistent ambient shader behind the whole panel — bold on the welcome
+   screen, gently dimmed once a conversation is live so OpenFlow stays alive but
+   calm (no jarring full-screen wipe). */
+.of-ambient { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; display: block;
+  opacity: 0.62; transition: opacity 0.6s var(--of-ease); pointer-events: none; }
+.of-panel[data-started="true"] .of-ambient { opacity: 0.16; }
+@media (prefers-reduced-motion: reduce) { .of-ambient { transition: none; } }
+
+/* Content sits above the ambient shader, below the header. */
+.of-panel > .of-hero,
+.of-panel > .of-stage { position: relative; z-index: 1; }
+.of-stage { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* --- persistent identity + conversation bar --- */
+.of-header { position: relative; z-index: 3; flex: none; display: flex; align-items: center; gap: 12px;
+  height: 52px; padding: 0 16px 0 18px; border-bottom: 1px solid var(--of-hairline);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--of-ground) 82%, transparent), transparent);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.of-header-brand { display: inline-flex; align-items: center; gap: 10px; background: none; border: 0; cursor: pointer;
+  padding: 4px 6px; margin-left: -6px; border-radius: 10px; transition: background 0.18s var(--of-ease); }
+.of-header-brand:hover { background: color-mix(in oklab, var(--of-accent) 9%, transparent); }
+.of-header-brand .of-word { font-size: 19px; }
+.of-header-brand .of-mark { width: 26px; height: 26px; flex: none; }
+.of-header-title { min-width: 0; flex: 1; font-size: 12.5px; font-weight: 500; color: var(--of-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 4px;
+  animation: of-fadein 0.3s var(--of-ease) both; }
+.of-header-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.of-header-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; border: 0;
+  background: none; color: var(--of-muted); cursor: pointer; transition: background 0.18s var(--of-ease), color 0.18s var(--of-ease); }
+.of-header-icon:hover { background: color-mix(in oklab, var(--of-accent) 10%, transparent); color: var(--of-text); }
+.of-header-new { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px 0 10px;
+  border-radius: 9px; font-size: 12px; font-weight: 700; letter-spacing: -0.01em; cursor: pointer;
+  color: var(--of-text-2); background: color-mix(in oklab, var(--of-text) 6%, transparent);
+  border: 1px solid var(--of-hairline); box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+  transition: transform 0.2s var(--of-ease), background 0.2s var(--of-ease), color 0.2s var(--of-ease), border-color 0.2s var(--of-ease); }
+.of-header-new:hover { color: var(--of-text); border-color: color-mix(in oklab, var(--of-accent) 45%, var(--of-hairline));
+  background: color-mix(in oklab, var(--of-accent) 12%, transparent); }
+@media (prefers-reduced-motion: no-preference) { .of-header-new:hover { transform: translateY(-1px); } }
+.of-header-new:active { transform: translateY(0) scale(0.97); }
+
 /* --- welcome --- */
 .of-hero { position: relative; flex: 1; display: grid; place-items: center; padding: 40px 24px; isolation: isolate; overflow: hidden; }
 .of-shader { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; display: block; }

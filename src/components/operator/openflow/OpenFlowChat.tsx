@@ -42,7 +42,7 @@ export function OpenFlowChat({
   const lastId = messages[messages.length - 1]?.id;
 
   return (
-    <div className="of-panel of-fade">
+    <div className="of-stage of-fade">
       <div className="of-thread" ref={scrollRef}>
         <div className="of-thread-inner">
           {messages.map((m) => {
