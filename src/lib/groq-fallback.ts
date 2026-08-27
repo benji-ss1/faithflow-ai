@@ -26,7 +26,11 @@
 // is used for this by design.
 
 export const GROQ_PRIMARY_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
-export const GROQ_FALLBACK_MODEL = "llama-3.1-8b-instant";
+// 2026-08-27: llama-3.1-8b-instant was ALSO decommissioned by Groq (404
+// model_not_found), so the 429-fallback path would itself fail. Migrated to
+// openai/gpt-oss-20b — the fast/cheap member of the same gpt-oss family that
+// is still live (same OpenAI-compatible API + response_format support).
+export const GROQ_FALLBACK_MODEL = process.env.GROQ_FALLBACK_MODEL || "openai/gpt-oss-20b";
 
 const DEFAULT_LIMIT_MS = 60_000;
 const MAX_LIMIT_MS = 60 * 60_000; // cap: never mark limited for more than 1h

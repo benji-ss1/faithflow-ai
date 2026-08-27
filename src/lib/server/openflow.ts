@@ -12,7 +12,13 @@
  */
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-const OPENFLOW_MODEL = process.env.OPENFLOW_GROQ_MODEL || "llama-3.3-70b-versatile";
+// 2026-08-27: Groq DECOMMISSIONED llama-3.3-70b-versatile (now 404
+// model_not_found) — every OpenFlow call was failing at the non-OK branch
+// below. Migrated to openai/gpt-oss-120b (Groq's strongest general model,
+// already the shared-detection primary in groq-fallback.ts). It returns clean
+// delta.content (its chain-of-thought is a SEPARATE `reasoning` field, so the
+// SSE content stream is unaffected). Still env-overridable.
+const OPENFLOW_MODEL = process.env.OPENFLOW_GROQ_MODEL || "openai/gpt-oss-120b";
 const TIMEOUT_MS = 45_000;
 
 export class MissingOpenFlowKeyError extends Error {

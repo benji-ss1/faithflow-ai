@@ -14,7 +14,9 @@ import { transcriptSegments, sermonChunks } from "../db/schema";
 import { embed, toVectorLiteral } from "../embeddings";
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+// 2026-08-27: llama-3.3-70b-versatile decommissioned by Groq (404) — migrated
+// to openai/gpt-oss-120b (the shared detection primary). Still env-overridable.
+const GROQ_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
 const TIMEOUT_MS = 8000;
 
 // ---------- Chunking ---------------------------------------------------------
