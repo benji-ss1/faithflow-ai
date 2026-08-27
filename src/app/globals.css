@@ -128,7 +128,7 @@ h1 { letter-spacing: -0.028em; }
 .font-display { letter-spacing: -0.02em; font-family: var(--font-display); }
 ::selection { background: color-mix(in oklab, var(--color-brand) 32%, transparent); color: var(--color-foreground); }
 
-.eyebrow { font-family: var(--font-mono); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; color: var(--color-muted-foreground); }
+.eyebrow { font-family: var(--font-mono); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.16em; color: color-mix(in oklab, var(--color-muted-foreground) 82%, var(--color-foreground)); }
 
 /* Focus ring — ember, double-stop (dark gap + accent) so it reads on any surface. */
 :focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-app-bg), 0 0 0 4px color-mix(in oklab, var(--color-brand) 62%, transparent); border-radius: inherit; }

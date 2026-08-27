@@ -60,12 +60,17 @@ export function CenterHeader({
     : centerMode === "media" ? "Media Library"
     : (item?.title ?? "No item selected");
 
+  // Shared style for the header's outline action buttons — v2 weight: lit top
+  // edge, ambient shadow, spring hover-lift, ember-tinted hover border.
+  const actionBtn =
+    "shrink-0 h-8 px-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] flex items-center gap-1.5 text-[11.5px] font-semibold text-[var(--color-foreground)] transition-[transform,box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-spring)] hover:-translate-y-px hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:shadow-[var(--edge-top),var(--shadow-md)] active:translate-y-0 active:scale-[0.97] disabled:opacity-50 disabled:hover:translate-y-0";
+
   return (
-    <div className="h-11 shrink-0 border-b border-[var(--color-border)] flex items-center px-3 gap-2">
-      <Icon className="w-4 h-4 text-[var(--color-muted-foreground)]" />
+    <div className="h-11 shrink-0 border-b border-[var(--color-border)] bg-[linear-gradient(180deg,var(--color-panel),var(--color-app-bg))] shadow-[var(--edge-top)] flex items-center px-3 gap-2">
+      <Icon className="w-4 h-4 text-[var(--color-brand)]" />
       {/* Item title is read-only; edit via the library entry. */}
       <div
-        className="min-w-0 text-[14px] font-medium px-2 py-1 truncate"
+        className="min-w-0 text-[14px] font-semibold tracking-[-0.01em] px-1 py-1 truncate"
         title={title}
       >
         {title}
@@ -81,14 +86,14 @@ export function CenterHeader({
           <button
             onClick={() => window.dispatchEvent(new CustomEvent("presentflow:open-slide-editor"))}
             title="Edit slide — fonts, layout, backgrounds"
-            className="shrink-0 h-7 px-2.5 rounded-md border border-[var(--color-border)] flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-foreground)] hover:bg-[var(--color-elevated)]"
+            className={actionBtn}
           >
             <Pencil className="w-3.5 h-3.5" /> Edit slide
           </button>
           <button
             onClick={() => void onAddSlide()}
             title="Add a new slide to the end of this song"
-            className="shrink-0 h-7 px-2.5 rounded-md border border-[var(--color-border)] flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-foreground)] hover:bg-[var(--color-elevated)]"
+            className={actionBtn}
           >
             <Plus className="w-3.5 h-3.5" /> Add slide
           </button>
@@ -112,9 +117,9 @@ export function CenterHeader({
               }).finally(() => setIsTidying(false));
             }}
             title="Tidy slides — re-break into cleaner, easier-to-read slides"
-            className="shrink-0 h-7 px-2.5 rounded-md border border-[var(--color-border)] flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-foreground)] hover:bg-[var(--color-elevated)] disabled:opacity-50"
+            className={actionBtn}
           >
-            <Sparkles className="w-3.5 h-3.5" /> {isTidying ? "Tidying…" : "Tidy"}
+            <Sparkles className={cn("w-3.5 h-3.5 text-[var(--color-brand)]", isTidying && "animate-spin")} /> {isTidying ? "Tidying…" : "Tidy"}
           </button>
         </>
       )}
@@ -126,7 +131,7 @@ export function CenterHeader({
         <CenterSizeSlider centerMode={centerMode} slideSize={slideSize} onSlideSize={onSlideSize} />
       )}
       <ViewModeToggle />
-      <button className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-muted-foreground)]" title="Preview (open Live in a new window)"
+      <button className="w-8 h-8 flex items-center justify-center rounded-lg text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/[0.06] transition-colors" title="Preview (open Live in a new window)"
         onClick={() => { try { window.open("/live", "presentflow-live", "width=1280,height=720"); } catch { /* noop */ } }}
       >
         <Eye className="w-4 h-4" />
@@ -163,10 +168,10 @@ export function CenterHeader({
               toast.success(`Playing ${ctx.plan.items[ctx.previewItemIdx]?.title ?? "slide 1"}`, { duration: 1500 });
             }
           }}
-          className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-brand)]"
+          className="w-8 h-8 flex items-center justify-center rounded-lg text-black bg-[linear-gradient(180deg,#F2712E_0%,#E8501A_100%)] shadow-[var(--edge-top),var(--shadow-ember)] transition-[transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)] hover:-translate-y-px hover:shadow-[var(--edge-top),var(--shadow-ember-lg)] active:translate-y-0 active:scale-95"
           title={centerMode === "bible" ? "Play the currently selected Bible verse" : centerMode === "songs" ? "Play the currently selected song's first slide" : "Play first slide of this playlist item"}
         >
-          <Play className="w-4 h-4" />
+          <Play className="w-4 h-4 fill-current" />
         </button>
     </div>
   );
@@ -221,7 +226,7 @@ function CenterSizeSlider({
         value={value}
         onChange={(e) => onChange(parseInt(e.target.value, 10))}
         className="w-[150px]"
-        style={{ accentColor: "#5b9bd5" }}
+        style={{ accentColor: "var(--color-brand)" }}
         aria-label="Card size"
       />
     </div>
@@ -247,21 +252,22 @@ function ViewModeToggle() {
     try { window.localStorage.setItem(VIEW_MODE_KEY, m); } catch { /* noop */ }
     try { window.dispatchEvent(new CustomEvent("presentflow:slide-view-mode", { detail: m })); } catch { /* noop */ }
   };
+  const seg = (m: ViewMode, active: boolean) =>
+    cn(
+      "w-8 h-[26px] grid place-items-center rounded-md transition-[background,color,box-shadow,transform] duration-200 [transition-timing-function:var(--ease-spring)] active:scale-95",
+      active
+        ? "bg-[var(--color-elevated)] text-[var(--color-foreground)] shadow-[var(--edge-top),var(--shadow-sm)]"
+        : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/[0.04]",
+    );
   return (
-    <div className="flex items-center rounded border border-[var(--color-border)] overflow-hidden">
-      <button title="Grid view" aria-pressed={mode === "grid"} onClick={() => set("grid")}
-        className={cn("w-7 h-7 flex items-center justify-center hover:bg-white/5",
-          mode === "grid" ? "text-[var(--color-foreground)] bg-white/5" : "text-[var(--color-muted-foreground)]")}>
+    <div className="flex items-center gap-0.5 h-[30px] rounded-lg border border-[var(--color-border)] bg-[var(--color-app-bg)] p-[2px] shadow-[var(--edge-top),inset_0_1px_2px_rgba(0,0,0,0.28)]">
+      <button title="Grid view" aria-pressed={mode === "grid"} onClick={() => set("grid")} className={seg("grid", mode === "grid")}>
         <LayoutGrid className="w-4 h-4" />
       </button>
-      <button title="List view" aria-pressed={mode === "list"} onClick={() => set("list")}
-        className={cn("w-7 h-7 flex items-center justify-center border-l border-[var(--color-border)] hover:bg-white/5",
-          mode === "list" ? "text-[var(--color-foreground)] bg-white/5" : "text-[var(--color-muted-foreground)]")}>
+      <button title="List view" aria-pressed={mode === "list"} onClick={() => set("list")} className={seg("list", mode === "list")}>
         <List className="w-4 h-4" />
       </button>
-      <button title="Text view" aria-pressed={mode === "text"} onClick={() => set("text")}
-        className={cn("w-7 h-7 flex items-center justify-center border-l border-[var(--color-border)] hover:bg-white/5",
-          mode === "text" ? "text-[var(--color-foreground)] bg-white/5" : "text-[var(--color-muted-foreground)]")}>
+      <button title="Text view" aria-pressed={mode === "text"} onClick={() => set("text")} className={seg("text", mode === "text")}>
         <Type className="w-4 h-4" />
       </button>
     </div>

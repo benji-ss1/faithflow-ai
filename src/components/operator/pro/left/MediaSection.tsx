@@ -50,8 +50,8 @@ export function MediaSection({
           {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
           <span className="eyebrow">Media</span>
           <span
-            className="text-[9px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
-            style={{ background: "#f97316", color: "#000" }}
+            className="text-[9px] font-mono font-bold uppercase tracking-[0.12em] px-1.5 py-[3px] rounded-md shadow-[var(--edge-top),var(--shadow-ember)]"
+            style={{ background: "linear-gradient(180deg,#F2712E,#E8501A)", color: "#17130c" }}
             title="Premium content — Pro plan"
           >
             PRO
@@ -73,12 +73,14 @@ export function MediaSection({
                   onClick={() => handleClick(c)}
                   className={
                     c.locked
-                      ? "w-full text-left px-2 py-1 text-[12px] text-[var(--color-muted-foreground)] opacity-50 hover:opacity-70 hover:bg-white/5 flex items-center gap-1.5"
-                      : "w-full text-left px-2 py-1 text-[12px] text-[var(--color-muted-foreground)] hover:bg-white/5 hover:text-[var(--color-foreground)] flex items-center gap-1.5"
+                      ? "group/mc w-full text-left px-2 py-1.5 rounded-md text-[12.5px] font-medium text-[var(--color-muted-foreground)]/70 hover:text-[var(--color-muted-foreground)] hover:bg-white/[0.04] flex items-center gap-2 transition-colors"
+                      : "group/mc w-full text-left px-2 py-1.5 rounded-md text-[12.5px] font-semibold text-[var(--color-foreground)] hover:bg-white/[0.05] flex items-center gap-2 transition-colors"
                   }
                 >
-                  {c.locked && <Lock className="w-3 h-3 shrink-0" />}
                   <span>{c.name}</span>
+                  {c.locked
+                    ? <Lock className="ml-auto w-3 h-3 shrink-0 opacity-60" />
+                    : <span className="ml-auto text-[8.5px] font-mono font-bold uppercase tracking-[0.1em] px-1.5 py-[2px] rounded-full bg-[#4fd18b]/16 text-[#5fd89a]">Free</span>}
                 </button>
               </li>
             ))}

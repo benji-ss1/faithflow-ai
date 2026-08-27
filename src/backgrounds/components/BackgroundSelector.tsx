@@ -31,8 +31,11 @@ export function BackgroundSelector() {
             <div key={bg.id} className="relative group/bg">
               <button
                 onClick={() => setActive(bg.id)}
-                className="w-full relative rounded-md overflow-hidden border transition-all text-left"
-                style={{ borderColor: isActive ? "var(--color-brand)" : "var(--color-border)", boxShadow: isActive ? "0 0 0 1px var(--color-brand)" : "none" }}
+                className={`w-full relative rounded-lg overflow-hidden text-left transition-[transform,box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-house)] hover:-translate-y-[3px] active:translate-y-0 ${isActive ? "border-2" : "border hover:shadow-[var(--shadow-lg)]"}`}
+                style={{
+                  borderColor: isActive ? "var(--color-brand)" : "var(--color-border)",
+                  boxShadow: isActive ? "var(--shadow-ember)" : "var(--edge-top), var(--shadow-sm)",
+                }}
                 title={bg.name}
               >
                 <div className="relative aspect-video w-full overflow-hidden bg-black">

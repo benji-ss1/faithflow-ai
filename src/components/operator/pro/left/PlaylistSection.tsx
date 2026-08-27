@@ -153,12 +153,12 @@ function SortablePlaylistItem({
               if (json) { e.preventDefault(); onDropSlide(json); }
             } : undefined}
             className={cn(
-              "flex items-center gap-1 border-l-2 transition-colors",
+              "flex items-center gap-1 border-l-[3px] rounded-r-md transition-[background,border-color,box-shadow] duration-150",
               slideDragOver
                 ? "border-[var(--color-brand)] bg-[var(--color-brand)]/15 ring-1 ring-inset ring-[var(--color-brand)]"
                 : isActive
-                  ? "border-[var(--color-brand)] bg-[var(--color-elevated)]"
-                  : "border-transparent hover:bg-white/5",
+                  ? "border-[var(--color-brand)] bg-[var(--color-elevated)] shadow-[var(--edge-top),inset_0_0_20px_-8px_var(--color-glow)]"
+                  : "border-transparent hover:bg-white/[0.05]",
             )}
           >
             {/* Drag handle — only this area initiates a drag */}
@@ -213,15 +213,20 @@ function SortablePlaylistItem({
                 }}
                 title={onRename ? "Double-click to rename" : undefined}
                 className={cn(
-                  "flex-1 flex items-center gap-2 pr-2 py-1 text-[12px] text-left",
+                  "flex-1 flex items-center gap-2 pr-2 py-1.5 text-[12.5px] text-left transition-colors",
                   isActive
-                    ? "text-[var(--color-foreground)]"
-                    : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",
+                    ? "text-[var(--color-foreground)] font-semibold"
+                    : "text-[var(--color-muted-foreground)] font-medium hover:text-[var(--color-foreground)]",
                 )}
               >
-                <Icon className="w-4 h-4 shrink-0" />
+                <Icon className={cn("w-4 h-4 shrink-0 transition-colors", isActive && "text-[var(--color-brand)]")} />
                 <span className="truncate">{item.title}</span>
-                <span className="ml-auto text-[10px] opacity-60 shrink-0">{item.slides.length}</span>
+                <span className={cn(
+                  "ml-auto shrink-0 min-w-[18px] h-[17px] px-1 grid place-items-center rounded-full text-[10px] font-bold tabular-nums transition-colors",
+                  isActive
+                    ? "bg-[var(--color-brand)]/18 text-[var(--color-brand)]"
+                    : "bg-white/[0.06] text-[var(--color-muted-foreground)]",
+                )}>{item.slides.length}</span>
               </button>
             )}
           </div>
@@ -789,7 +794,7 @@ export function PlaylistSection({
         >
           {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
           <span className="eyebrow">Playlist</span>
-          <span className="eyebrow ml-1 text-[9px]">· {items.length} items</span>
+          <span className="ml-1.5 min-w-[16px] h-[15px] px-1 grid place-items-center rounded-full bg-[var(--color-brand)]/16 text-[var(--color-brand)] text-[9px] font-mono font-bold tabular-nums">{items.length}</span>
         </button>
         <span className="h-px flex-1 mx-2" style={{ background: "linear-gradient(90deg, var(--color-border), transparent)" }} aria-hidden />
 

@@ -97,11 +97,11 @@ export function HardwareSection() {
                 onClick={() => openPanel(k)}
                 className={
                   panel === k
-                    ? "w-full text-left px-2 py-1 text-[12px] text-[var(--color-foreground)] bg-white/5 flex items-center gap-1.5"
-                    : "w-full text-left px-2 py-1 text-[12px] text-[var(--color-muted-foreground)] hover:bg-white/5 hover:text-[var(--color-foreground)] flex items-center gap-1.5"
+                    ? "w-full text-left mx-0 px-2 py-1.5 rounded-md text-[12.5px] font-semibold text-[var(--color-foreground)] bg-[var(--color-elevated)] border-l-[3px] border-[var(--color-brand)] flex items-center gap-2 transition-colors"
+                    : "group/hw w-full text-left px-2 py-1.5 rounded-md text-[12.5px] font-medium text-[var(--color-muted-foreground)] border-l-[3px] border-transparent hover:bg-white/[0.05] hover:text-[var(--color-foreground)] flex items-center gap-2 transition-colors"
                 }
               >
-                <Icon className="w-3 h-3 shrink-0" />
+                <Icon className={`w-4 h-4 shrink-0 ${panel === k ? "text-[var(--color-brand)]" : "group-hover/hw:text-[var(--color-foreground)]"}`} />
                 <span>{label}</span>
               </button>
             </li>

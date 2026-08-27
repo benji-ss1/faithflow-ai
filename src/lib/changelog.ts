@@ -19,9 +19,10 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: "2026-08-27",
     headline: "A bolder, warmer look across the whole app",
     highlights: [
-      "New charcoal foundation — deeper, calmer, and warmer without the muddy brown. Panels and cards now sit on real depth instead of flat outlines, so the whole console feels more substantial.",
-      "Buttons carry weight now: the primary actions ride a warm ember gradient with a soft glow, and every button lifts on hover and presses in on click.",
-      "Serif headings, refined focus rings, and smoother motion throughout — the first pass of a bigger design refresh rolling out screen by screen.",
+      "New charcoal foundation — deeper, calmer, and warmer without the muddy brown. Panels, cards, playlist rows and slide previews now sit on real depth and lift as you hover.",
+      "Buttons carry weight now: primary actions ride a warm ember gradient with a soft glow, and every button lifts on hover and presses in on click — including the toolbar, the Play button, and the view switches.",
+      "The Worship / Auto / Preacher switch is redrawn with proper icons (no more emoji), a lit active pill, and motion. Section headers, the search bar, and the Media / Hardware lists all read stronger.",
+      "Serif headings, refined focus rings, ember scrollbars and smoother motion throughout — a bigger design refresh still rolling out screen by screen.",
     ],
   },
   {

@@ -10,6 +10,7 @@ import {
   Search, BookOpen,
   Sparkles, Image as ImageIcon,
   Music, Palette, Undo2, Redo2,
+  Music2, Wand2, Mic2,
 } from "lucide-react";
 import Image from "next/image";
 import type { OperatorShellCtx } from "../shell/types";
@@ -189,20 +190,20 @@ export function TopBar({
     onCenterMode(centerMode === m ? "slides" : m);
 
   return (
-    <div className="h-11 shrink-0 border-b border-[var(--color-border)] bg-[var(--color-panel)] flex items-center px-2 gap-1">
+    <div className="h-11 shrink-0 border-b border-[var(--color-border)] bg-[linear-gradient(180deg,var(--color-panel),var(--color-app-bg))] shadow-[var(--edge-top)] flex items-center px-2 gap-1">
       {/* Prominent search input (Task A) — read-only proxy for the SearchPalette. */}
       <button
         type="button"
         onClick={() => setSearchOpen(true)}
         aria-label="Open search (Cmd+K)"
-        className="group flex items-center h-[28px] w-[240px] rounded-md border border-[var(--color-border)] bg-[var(--color-app-bg)] hover:border-[var(--color-muted-foreground)] transition-colors px-2 gap-1.5 shrink-0"
+        className="group flex items-center h-[30px] w-[248px] rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)] hover:border-[color-mix(in_oklab,var(--color-brand)_40%,var(--color-border))] hover:bg-[var(--color-app-bg)] transition-[border-color,background] duration-150 px-2.5 gap-2 shrink-0"
         style={{ fontFamily: "var(--font-sans)" }}
       >
-        <Search className="w-4 h-4 text-[var(--color-muted-foreground)] shrink-0" />
-        <span className="flex-1 text-left text-[12px] text-[var(--color-muted-foreground)] truncate">
+        <Search className="w-4 h-4 text-[var(--color-muted-foreground)] group-hover:text-[var(--color-brand)] transition-colors shrink-0" />
+        <span className="flex-1 text-left text-[12.5px] font-medium text-[var(--color-muted-foreground)] truncate">
           Search lyrics, songs, Bible, media…
         </span>
-        <kbd className="text-[9px] font-mono px-1 py-[1px] rounded border border-[var(--color-border)] text-[var(--color-muted-foreground)] shrink-0">
+        <kbd className="text-[9px] font-mono font-semibold px-1.5 py-[2px] rounded-md border border-[var(--color-border)] bg-[var(--color-elevated)] text-[var(--color-muted-foreground)] shrink-0">
           ⌘K
         </kbd>
       </button>
@@ -423,20 +424,24 @@ export function TopBar({
                 operator flips it as the service moves worship → sermon. */}
             {(() => {
               const mode = ctx.serviceMode ?? "auto";
-              const opts: { id: "auto" | "worship" | "preacher"; label: string; icon: string; tip: string }[] = [
-                { id: "worship", label: "Worship", icon: "🎶", tip: "Worship mode — detects today's worship set (songs auto-project more readily); scripture is held as a chip so a sung lyric can't flash a verse." },
-                { id: "auto", label: "Auto", icon: "🤖", tip: "Auto — balanced. Songs and scripture both detect and auto-project on their normal confidence bars." },
-                { id: "preacher", label: "Preacher", icon: "📖", tip: "Preacher mode — scripture prioritised; songs are held as chips so the sermon's speech never auto-fires a song." },
+              const opts: {
+                id: "auto" | "worship" | "preacher"; label: string;
+                icon: typeof Music2; accent: string; tip: string;
+              }[] = [
+                { id: "worship", label: "Worship", icon: Music2, accent: "#7C6CF0", tip: "Worship mode — detects today's worship set (songs auto-project more readily); scripture is held as a chip so a sung lyric can't flash a verse." },
+                { id: "auto", label: "Auto", icon: Wand2, accent: "var(--color-brand)", tip: "Auto — balanced. Songs and scripture both detect and auto-project on their normal confidence bars." },
+                { id: "preacher", label: "Preacher", icon: Mic2, accent: "#F0A227", tip: "Preacher mode — scripture prioritised; songs are held as chips so the sermon's speech never auto-fires a song." },
               ];
               return (
                 <Tooltip.Provider delayDuration={200}>
                   <div
                     role="radiogroup"
                     aria-label="Service detection mode"
-                    className="flex items-center gap-0.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)] p-0.5"
+                    className="flex items-center gap-0.5 h-[30px] rounded-xl border border-[var(--color-border)] bg-[var(--color-app-bg)] p-[3px] shadow-[var(--edge-top),inset_0_1px_2px_rgba(0,0,0,0.30)]"
                   >
                     {opts.map((o) => {
                       const active = mode === o.id;
+                      const Icon = o.icon;
                       return (
                         <Tooltip.Root key={o.id}>
                           <Tooltip.Trigger asChild>
@@ -447,17 +452,22 @@ export function TopBar({
                               aria-label={`${o.label} mode`}
                               onClick={() => ctx.onServiceModeChange?.(o.id)}
                               className={cn(
-                                "px-2 py-1 rounded-md text-[11px] font-semibold leading-none transition-colors flex items-center gap-1 outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
+                                "group/mode relative h-full px-2.5 rounded-lg text-[11px] font-bold leading-none tracking-[-0.01em] flex items-center gap-1.5 outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)] focus-visible:ring-offset-0",
+                                "transition-[transform,background,color,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)] active:scale-[0.96]",
                                 active
-                                  ? o.id === "worship"
-                                    ? "bg-[#8b5cf6] text-white"
-                                    : o.id === "preacher"
-                                      ? "bg-[#f59e0b] text-black"
-                                      : "bg-[var(--color-elevated)] text-[var(--color-foreground)]"
-                                  : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",
+                                  ? "bg-[var(--color-elevated)] text-[var(--color-foreground)] shadow-[var(--edge-top),var(--shadow-md)]"
+                                  : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/[0.04]",
                               )}
+                              style={active ? { boxShadow: `var(--edge-top), var(--shadow-md), inset 0 -2px 0 ${o.accent}` } : undefined}
                             >
-                              <span aria-hidden>{o.icon}</span>
+                              <Icon
+                                className={cn(
+                                  "w-[15px] h-[15px] shrink-0 transition-transform duration-200 [transition-timing-function:var(--ease-spring)]",
+                                  active ? "scale-110" : "group-hover/mode:scale-105",
+                                )}
+                                strokeWidth={active ? 2.4 : 2}
+                                style={active ? { color: o.accent } : undefined}
+                              />
                               <span className="hidden xl:inline">{o.label}</span>
                             </button>
                           </Tooltip.Trigger>

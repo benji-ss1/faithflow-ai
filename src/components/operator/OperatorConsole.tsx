@@ -28,7 +28,7 @@ import { transition } from "@/lib/autopilot";
 import { useVerseBank, type BankedVerse } from "./useVerseBank";
 import { loadSessionState, updateSessionState } from "@/lib/operatorSessionState";
 import { parseContextCommand } from "@/lib/context-parser";
-import { Bookmark, Zap } from "lucide-react";
+import { Bookmark, Zap, Music2, Mic2, Wand2, MicOff } from "lucide-react";
 import { ProductionRail, type RailSection } from "./ProductionRail";
 import { WorkspaceTabs, type WorkspaceMode } from "./WorkspaceTabs";
 import { TimersShell, LowerThirdsShell, StageDisplayShell, LivestreamShell, ImportsShell, ArchiveShell, SettingsShell, SHELL_SECTIONS, railSectionToWorkspaceMode } from "./RailWorkspaceShells";
@@ -231,7 +231,11 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       if (prev === next) return prev;
       try { window.sessionStorage.setItem(SERVICE_MODE_KEY, next); } catch { /* noop */ }
       const label = next === "worship" ? "Worship mode" : next === "preacher" ? "Preacher mode" : "Auto mode";
-      const icon = next === "worship" ? "🎶" : next === "preacher" ? "📖" : "🤖";
+      const icon = next === "worship"
+        ? <Music2 className="w-4 h-4" style={{ color: "#7C6CF0" }} />
+        : next === "preacher"
+          ? <Mic2 className="w-4 h-4" style={{ color: "#F0A227" }} />
+          : <Wand2 className="w-4 h-4" style={{ color: "var(--color-brand)" }} />;
       const detail = next === "worship"
         ? "Detecting today's worship set; scripture held for manual"
         : next === "preacher"
@@ -1717,7 +1721,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       // Confirmation so the operator knows the click registered (the pill also
       // flips colour). No autopilot-mode gate can undo this now — the AI
       // listener is purely intent-driven (stale manual-mode force-off removed).
-      toast(turningOn ? "AI listening ON" : "AI listening OFF", { duration: 1400, icon: turningOn ? "🎙️" : "🔇" });
+      toast(turningOn ? "AI listening ON" : "AI listening OFF", { duration: 1400, icon: turningOn ? <Mic2 className="w-4 h-4" style={{ color: "#4fd18b" }} /> : <MicOff className="w-4 h-4" style={{ color: "#ff6d6d" }} /> });
     },
     onResumeAudio: resumeAudio,
     onRestartAudio: restartAudio,
