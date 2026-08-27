@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.346",
+    date: "2026-08-27",
+    headline: "Blur-fill for portrait flyers",
+    highlights: [
+      { text: "Projecting a tall flyer or phone photo? Open it in the image editor, choose Fit, then turn on “Blur fill the bars” — the black letterbox fills with a soft, blurred copy of the same image, so the flyer looks like a designed full-screen slide instead of a thin strip on black.", tryItHref: "/operator", tryItLabel: "Open Media" },
+    ],
+  },
+  {
     version: "0.1.345",
     date: "2026-08-27",
     headline: "OpenFlow remembers your conversations",

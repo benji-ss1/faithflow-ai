@@ -36,7 +36,7 @@ export type SlidePayload =
   // (scripture reference like "John 3:16 (KJV)") that never gets shrunk or
   // paginated off with the verse body — the body sizes independently above it.
   | { kind: "text"; text: string; bgColor?: string; bgImageUrl?: string; objects?: SlideObjectWire[]; reference?: string }
-  | { kind: "image"; url: string; fit?: "contain" | "cover" | "fill" }
+  | { kind: "image"; url: string; fit?: "contain" | "cover" | "fill"; blurFill?: boolean }
   | { kind: "video"; url: string; fit?: "contain" | "cover" | "fill"; loop?: boolean; volume?: number }
   | { kind: "blank"; bgColor?: string }
   | { kind: "logo"; url?: string }
@@ -678,7 +678,7 @@ export function slideOutputIdentity(s: SlidePayload): string {
   // sendSlideToLive compares this string). fit only changes on a deliberate
   // operator action, so it can't cause the identity-flap "pulse" that
   // appearance/transition fields would.
-  if (s.kind === "image") return `i:${s.url}|${s.fit ?? ""}`;
+  if (s.kind === "image") return `i:${s.url}|${s.fit ?? ""}|${s.blurFill ? "b" : ""}`;
   if (s.kind === "video") return `v:${s.url}|${s.fit ?? ""}`;
   if (s.kind === "blank") return `b:${s.bgColor ?? ""}`;
   if (s.kind === "logo") return `l:${s.url ?? ""}`;

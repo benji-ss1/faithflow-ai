@@ -372,17 +372,39 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
         : fitMode === "fill"
           ? { width: "100%", height: "100%", objectFit: "fill", objectPosition: "center", display: "block" }
           : { maxWidth: "100%", maxHeight: "100%", width: "auto", height: "auto", objectFit: "contain", objectPosition: "center", display: "block", margin: "auto" };
+    // Blur-fill: for a letterboxed (contain) image — typically a portrait
+    // flyer/iPhone photo on a 16:9 screen — fill the black bars with a blurred,
+    // zoomed COVER copy of the same image instead of dead black, so the flyer
+    // reads as a designed full-screen slide. Only meaningful for contain (cover/
+    // fill already reach the edges). The blurred layer always matches because it
+    // IS the same image.
+    const showBlurFill = slide.blurFill === true && fitMode === "contain";
     return (
-      <div className={`${base} bg-black relative ${className || ""}`}>
+      <div className={`${base} bg-black relative overflow-hidden ${className || ""}`}>
         {slide.url ? (
-          <img
-            src={slide.url}
-            alt=""
-            style={imgStyle}
-            onError={(e) => {
-              console.error("[slide] image failed to load:", (e.currentTarget as HTMLImageElement).src);
-            }}
-          />
+          <>
+            {showBlurFill ? (
+              <img
+                src={slide.url}
+                alt=""
+                aria-hidden="true"
+                style={{
+                  position: "absolute", inset: 0, width: "100%", height: "100%",
+                  objectFit: "cover", objectPosition: "center", display: "block",
+                  filter: "blur(34px) brightness(0.62) saturate(1.08)",
+                  transform: "scale(1.15)", // hide the blur's soft edges past the frame
+                }}
+              />
+            ) : null}
+            <img
+              src={slide.url}
+              alt=""
+              style={showBlurFill ? { ...imgStyle, position: "relative", zIndex: 1 } : imgStyle}
+              onError={(e) => {
+                console.error("[slide] image failed to load:", (e.currentTarget as HTMLImageElement).src);
+              }}
+            />
+          </>
         ) : (
           <div className="text-white text-xs opacity-50">Image not available</div>
         )}

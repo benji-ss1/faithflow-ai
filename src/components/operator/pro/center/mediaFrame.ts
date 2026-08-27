@@ -17,6 +17,9 @@ export type MediaFrame = {
   posX: number; // 0-100 (object-position %)
   posY: number; // 0-100
   zoom: number; // 1-8 (transform scale past the fit baseline)
+  // Blur-fill: when fit is "contain" (letterboxed), fill the bars with a blurred
+  // cover copy of the same image instead of black — great for portrait flyers.
+  blurFill?: boolean;
   // Logo-over-background mode (all optional — absent = the default black matte,
   // so every previously-saved frame keeps working unchanged).
   bgMode?: "matte" | "background";       // "matte" = full-screen image on black (default)
@@ -53,6 +56,7 @@ export function loadMediaFrame(churchId: string | undefined, assetId: string): M
       posY: clamp(p.posY, 0, 100, 50),
       zoom: clamp(p.zoom, 1, 8, 1),
     };
+    if (p.blurFill === true) out.blurFill = true;
     // Background-mode fields are all optional; only populate them when a valid
     // saved value exists so absence cleanly defaults to matte.
     if (p.bgMode === "background") out.bgMode = "background";
