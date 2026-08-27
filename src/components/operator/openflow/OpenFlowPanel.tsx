@@ -14,6 +14,7 @@ import { openFlowFontVars } from "@/lib/openflow/fonts";
 import { OpenFlowGradientDefs } from "./OpenFlowMark";
 import { OpenFlowShader } from "./OpenFlowShader";
 import { OpenFlowHeader } from "./OpenFlowHeader";
+import { OpenFlowHistory } from "./OpenFlowHistory";
 import { OpenFlowWelcome } from "./OpenFlowWelcome";
 import { OpenFlowChat } from "./OpenFlowChat";
 import { useOpenFlowChat, type OpenFlowMode } from "@/hooks/useOpenFlowChat";
@@ -24,9 +25,15 @@ const SEEN_KEY = "pf.openflow.seen.v1";
 
 export function OpenFlowPanel({ ctx }: { ctx: OperatorShellCtx }) {
   const router = useRouter();
-  const { messages, streaming, error, send, stop, reset } = useOpenFlowChat();
+  const { messages, streaming, error, send, stop, reset, conversationId, loadConversation } = useOpenFlowChat();
   const [draft, setDraft] = useState("");
   const [mode, setMode] = useState<OpenFlowMode>("chat");
+  const [historyOpen, setHistoryOpen] = useState(false);
+  // Bump to refetch the history list — when a conversation is created/switched
+  // (its id changes) or when a turn finishes streaming (a save just happened).
+  const [historyReload, setHistoryReload] = useState(0);
+  useEffect(() => { setHistoryReload((k) => k + 1); }, [conversationId]);
+  useEffect(() => { if (!streaming) setHistoryReload((k) => k + 1); }, [streaming]);
   const [church, setChurch] = useState<{ churchName: string; greeting: string; configured: boolean }>({ churchName: "your church", greeting: "Welcome", configured: true });
   const [showFirstRun, setShowFirstRun] = useState(true);
 
@@ -114,7 +121,21 @@ export function OpenFlowPanel({ ctx }: { ctx: OperatorShellCtx }) {
           so OpenFlow always feels alive without the jarring full-screen wipe. */}
       <OpenFlowShader className="of-ambient" />
 
-      <OpenFlowHeader started={started} title={title} onNewChat={newChat} />
+      <OpenFlowHeader
+        started={started}
+        title={title}
+        onNewChat={newChat}
+        onOpenHistory={() => setHistoryOpen(true)}
+      />
+
+      <OpenFlowHistory
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        onSelect={(id) => { void loadConversation(id); }}
+        onNewChat={newChat}
+        activeId={conversationId}
+        reloadKey={historyReload}
+      />
 
       {started ? (
         <OpenFlowChat

@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.345",
+    date: "2026-08-27",
+    headline: "OpenFlow remembers your conversations",
+    highlights: [
+      { text: "OpenFlow now saves your chats. Tap the history icon in the OpenFlow header to see past conversations — pinned first, then most recent — and click any one to pick up right where you left off.", tryItHref: "/operator", tryItLabel: "Open OpenFlow" },
+      "Rename a conversation, pin the ones you reuse, or delete the ones you don't — right from the list. History is shared across your church's team.",
+    ],
+  },
+  {
     version: "0.1.344",
     date: "2026-08-27",
     headline: "OpenFlow keeps its face while you talk",

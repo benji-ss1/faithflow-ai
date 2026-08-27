@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { OpenFlowMode } from "@/lib/openflow/types";
+import { saveOpenFlowConversation, getOpenFlowConversation } from "@/lib/openflow/conversations";
 
 export type OpenFlowRole = "user" | "assistant";
 export type OpenFlowMsg = { id: string; role: OpenFlowRole; content: string };
@@ -19,6 +20,13 @@ export function useOpenFlowChat() {
   const [messages, setMessages] = useState<OpenFlowMsg[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Persistence (A2): the DB id of the conversation being written. null until the
+  // first turn is saved (or when a fresh conversation is started). A ref mirrors
+  // it so the async save inside `send` reads the latest without being a dep.
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const convIdRef = useRef<string | null>(null);
+  convIdRef.current = conversationId;
+  const [loadingConversation, setLoadingConversation] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const stop = useCallback(() => {
@@ -32,6 +40,7 @@ export function useOpenFlowChat() {
     if (!content || streaming) return;
     setError(null);
 
+    const priorMsgs = messages; // pre-send thread (closure is fresh per render)
     const userMsg: OpenFlowMsg = { id: nextId(), role: "user", content };
     const aiMsg: OpenFlowMsg = { id: nextId(), role: "assistant", content: "" };
     // The history the server sees is everything BEFORE the empty assistant slot.
@@ -42,8 +51,13 @@ export function useOpenFlowChat() {
     const ac = new AbortController();
     abortRef.current = ac;
 
-    const appendToAi = (delta: string) =>
+    // Accumulate the assistant text locally too, so we can persist the finished
+    // turn without depending on the async React state settling.
+    let aiContent = "";
+    const appendToAi = (delta: string) => {
+      aiContent += delta;
       setMessages((prev) => prev.map((m) => (m.id === aiMsg.id ? { ...m, content: m.content + delta } : m)));
+    };
 
     try {
       const res = await fetch("/api/openflow/chat", {
@@ -84,6 +98,17 @@ export function useOpenFlowChat() {
         setError(streamError);
         // Drop the empty assistant bubble if nothing streamed before the error.
         setMessages((prev) => prev.filter((m) => !(m.id === aiMsg.id && m.content === "")));
+      } else if (aiContent.trim()) {
+        // Persist the completed turn (fail-soft: never throws to the UI). Adopt
+        // the returned id so subsequent turns update the same conversation.
+        const finalMessages = [
+          ...priorMsgs.map((m) => ({ role: m.role, content: m.content })),
+          { role: userMsg.role, content: userMsg.content },
+          { role: aiMsg.role, content: aiContent },
+        ];
+        void saveOpenFlowConversation({ id: convIdRef.current, mode, messages: finalMessages })
+          .then((res) => { if (res.ok && convIdRef.current !== res.id) setConversationId(res.id); })
+          .catch(() => { /* persistence is best-effort */ });
       }
     } catch (err) {
       if (!(err instanceof DOMException && err.name === "AbortError")) {
@@ -100,6 +125,24 @@ export function useOpenFlowChat() {
     stop();
     setMessages([]);
     setError(null);
+    setConversationId(null);
+  }, [stop]);
+
+  /** Restore a saved conversation by id (church-scoped on the server). */
+  const loadConversation = useCallback(async (id: string) => {
+    stop();
+    setError(null);
+    setLoadingConversation(true);
+    try {
+      const conv = await getOpenFlowConversation(id);
+      if (!conv) { setError("That conversation couldn't be opened."); return; }
+      setMessages(conv.messages.map((m) => ({ id: nextId(), role: m.role, content: m.content })));
+      setConversationId(conv.id);
+    } catch {
+      setError("That conversation couldn't be opened.");
+    } finally {
+      setLoadingConversation(false);
+    }
   }, [stop]);
 
   // Abort any in-flight stream when the panel unmounts (e.g. the operator
@@ -107,5 +150,5 @@ export function useOpenFlowChat() {
   // OpenFlow's dedicated Groq quota isn't burned streaming to a gone client.
   useEffect(() => () => { abortRef.current?.abort(); }, []);
 
-  return { messages, streaming, error, send, stop, reset };
+  return { messages, streaming, error, send, stop, reset, conversationId, loadConversation, loadingConversation };
 }

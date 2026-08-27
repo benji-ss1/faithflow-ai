@@ -596,6 +596,28 @@ export const betaApplications = pgTable("beta_applications", {
   index("idx_beta_applications_created").on(t.createdAt),
 ]);
 
+// OpenFlow conversations (Increment A2) — church-scoped chat history for the
+// in-app assistant. Messages are stored as a JSONB array on the row (a
+// conversation is small + always read whole, so no separate messages table /
+// join is needed). `messages` = [{ role, content, cards? }]. `mode` is the
+// composer mode the conversation was last in (chat/service_builder/…).
+export const openFlowConversations = pgTable("openflow_conversations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id).notNull(),
+  // Nullable: who started it (session user). Kept for future per-user filtering;
+  // A2 lists per-church so the whole team sees shared history.
+  createdByUserId: uuid("created_by_user_id"),
+  title: text("title").notNull().default("New conversation"),
+  mode: text("mode").notNull().default("chat"),
+  messages: jsonb("messages").notNull().default([]),
+  pinned: boolean("pinned").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  // Every list query is WHERE church_id = ? ORDER BY pinned DESC, updated_at DESC.
+  index("idx_openflow_conv_church_updated").on(t.churchId, t.updatedAt),
+]);
+
 export const servicePlanRelations = relations(servicePlans, ({ many }) => ({ items: many(serviceItems) }));
 export const serviceItemRelations = relations(serviceItems, ({ one }) => ({ plan: one(servicePlans, { fields: [serviceItems.servicePlanId], references: [servicePlans.id] }) }));
 export const songRelations = relations(songs, ({ many }) => ({ slides: many(songSlides) }));
