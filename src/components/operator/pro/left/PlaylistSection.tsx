@@ -813,12 +813,13 @@ export function PlaylistSection({
             <Popover.Content
               side="right"
               align="start"
-              className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[140px]"
+              className="rounded-xl bg-[var(--color-elevated)] border border-[var(--color-border)] p-1.5 text-[12.5px] shadow-[var(--edge-top),var(--shadow-lg)] z-50 min-w-[152px]"
             >
-              <button className="w-full text-left px-3 py-1.5 rounded hover:bg-[var(--color-panel)]" onClick={() => onCenterMode?.("songs")}>From Songs</button>
-              <button className="w-full text-left px-3 py-1.5 rounded hover:bg-[var(--color-panel)]" onClick={() => onCenterMode?.("bible")}>From Bible</button>
-              <button className="w-full text-left px-3 py-1.5 rounded hover:bg-[var(--color-panel)]" onClick={() => onCenterMode?.("media")}>From Media</button>
-              <button className="w-full text-left px-3 py-1.5 rounded hover:bg-[var(--color-panel)]" onClick={addBlank}>Blank</button>
+              <button className="w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded-lg font-medium transition-colors hover:bg-[var(--color-brand)]/12 hover:text-[var(--color-brand)]" onClick={() => onCenterMode?.("songs")}><Music className="w-3.5 h-3.5 shrink-0 opacity-70" />From Songs</button>
+              <button className="w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded-lg font-medium transition-colors hover:bg-[var(--color-brand)]/12 hover:text-[var(--color-brand)]" onClick={() => onCenterMode?.("bible")}><BookOpen className="w-3.5 h-3.5 shrink-0 opacity-70" />From Bible</button>
+              <button className="w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded-lg font-medium transition-colors hover:bg-[var(--color-brand)]/12 hover:text-[var(--color-brand)]" onClick={() => onCenterMode?.("media")}><ImageIcon className="w-3.5 h-3.5 shrink-0 opacity-70" />From Media</button>
+              <div className="my-1 h-px bg-[var(--color-border)]" />
+              <button className="w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded-lg font-medium transition-colors hover:bg-white/[0.06]" onClick={addBlank}><Square className="w-3.5 h-3.5 shrink-0 opacity-70" />Blank</button>
             </Popover.Content>
           </Popover.Portal>
         </Popover.Root>

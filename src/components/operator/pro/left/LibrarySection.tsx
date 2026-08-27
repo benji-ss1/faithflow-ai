@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { ChevronDown, ChevronRight, Plus, BookOpen } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, BookOpen, Music, Image as ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CenterMode } from "../ProOperatorShell";
 
@@ -33,11 +33,11 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
             <DropdownMenu.Content
               side="right"
               align="start"
-              className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[140px]"
+              className="rounded-xl bg-[var(--color-elevated)] border border-[var(--color-border)] p-1.5 text-[12.5px] shadow-[var(--edge-top),var(--shadow-lg)] z-50 min-w-[152px]"
             >
-              <DropdownMenu.Item onSelect={() => onCenterMode?.("songs")} className="px-3 py-1.5 rounded hover:bg-white/5 outline-none cursor-pointer">From Songs</DropdownMenu.Item>
-              <DropdownMenu.Item onSelect={() => onCenterMode?.("bible")} className="px-3 py-1.5 rounded hover:bg-white/5 outline-none cursor-pointer">From Bible</DropdownMenu.Item>
-              <DropdownMenu.Item onSelect={() => onCenterMode?.("media")} className="px-3 py-1.5 rounded hover:bg-white/5 outline-none cursor-pointer">From Media</DropdownMenu.Item>
+              <DropdownMenu.Item onSelect={() => onCenterMode?.("songs")} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg font-medium outline-none cursor-pointer transition-colors data-[highlighted]:bg-[var(--color-brand)]/12 data-[highlighted]:text-[var(--color-brand)]"><Music className="w-3.5 h-3.5 shrink-0 opacity-70" />From Songs</DropdownMenu.Item>
+              <DropdownMenu.Item onSelect={() => onCenterMode?.("bible")} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg font-medium outline-none cursor-pointer transition-colors data-[highlighted]:bg-[var(--color-brand)]/12 data-[highlighted]:text-[var(--color-brand)]"><BookOpen className="w-3.5 h-3.5 shrink-0 opacity-70" />From Bible</DropdownMenu.Item>
+              <DropdownMenu.Item onSelect={() => onCenterMode?.("media")} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg font-medium outline-none cursor-pointer transition-colors data-[highlighted]:bg-[var(--color-brand)]/12 data-[highlighted]:text-[var(--color-brand)]"><ImageIcon className="w-3.5 h-3.5 shrink-0 opacity-70" />From Media</DropdownMenu.Item>
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
