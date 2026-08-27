@@ -348,7 +348,10 @@ export default function LivestreamPage() {
         </div>
       )}
 
-      {showHelp && (
+      {/* NB: hidden in transparent (OBS-key) mode — like the pair/disconnect
+          badges below — so this help pill never flashes onto the live stream
+          when the livestream team refreshes the Browser Source mid-service. */}
+      {showHelp && !transparent && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/80 text-white text-xs px-3 py-2 rounded-md flex items-center gap-3 cursor-pointer pointer-events-auto"
              onClick={goFullscreen}>
           <Maximize2 className="w-4 h-4" />
