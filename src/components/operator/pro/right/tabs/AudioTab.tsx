@@ -22,7 +22,7 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as Popover from "@radix-ui/react-popover";
-import { ChevronDown, ChevronRight, Plus, RefreshCcw, Stethoscope, Wand2, Sliders } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, RefreshCcw, Stethoscope, Wand2, Sliders, Globe, Monitor, RotateCcw } from "lucide-react";
 import { AudioDiagnosticsScan } from "@/components/operator/AudioDiagnosticsScan";
 import { VocalChannelAutoDetectModal } from "@/components/operator/VocalChannelAutoDetectModal";
 import {
@@ -893,20 +893,20 @@ export function AudioTab() {
       {/* Wave 2 — Capture Mode toggle. Bypasses Chromium getUserMedia (which
           silently drops 32-ch USB pro-audio input, JPD field test confirmed)
           by routing through an ffmpeg subprocess in the Electron main process. */}
-      <div className="flex flex-col gap-1">
-        <div className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)] px-1 flex items-center justify-between">
+      <div className="flex flex-col gap-1.5">
+        <div className="eyebrow px-1 flex items-center justify-between">
           <span>Capture mode</span>
-          <span className="text-[9px] normal-case tracking-normal text-[var(--color-muted-foreground)]" title="Native: ffmpeg subprocess (reliable for pro mixers). Browser: Chromium getUserMedia (may fail with 32ch USB). Auto: Native when the desktop app supports it, otherwise Browser.">
-            {effectiveMode === "native" ? "🎛️ native active" : "🌐 browser active"}
+          <span className="inline-flex items-center gap-1 text-[9px] font-mono normal-case tracking-normal text-[var(--color-brand)]" title="Native: ffmpeg subprocess (reliable for pro mixers). Browser: Chromium getUserMedia (may fail with 32ch USB). Auto: Native when the desktop app supports it, otherwise Browser.">
+            {effectiveMode === "native" ? <Sliders className="w-2.5 h-2.5" /> : <Globe className="w-2.5 h-2.5" />}
+            {effectiveMode === "native" ? "native active" : "browser active"}
           </span>
         </div>
-        <div className="inline-flex rounded-md p-0.5 border border-[var(--color-border)] bg-[var(--color-elevated)]">
+        <div className="inline-flex rounded-xl border border-[var(--color-border)] bg-[var(--color-app-bg)] p-[3px] shadow-[var(--edge-top),inset_0_1px_2px_rgba(0,0,0,0.28)]">
           {(["auto", "native", "browser"] as const).map((m) => (
             <button
               key={m}
               onClick={() => { setCaptureMode(m); writeCaptureMode(m); }}
-              className={"h-6 flex-1 px-2 rounded text-[10px] font-medium capitalize " + (captureMode === m ? "text-white" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]")}
-              style={captureMode === m ? { background: "#f97316" } : {}}
+              className={"h-7 flex-1 px-2 rounded-lg text-[10px] capitalize transition-[background,color,box-shadow,transform] duration-200 [transition-timing-function:var(--ease-spring)] " + (captureMode === m ? "bg-[linear-gradient(180deg,#F2712E_0%,#E8501A_100%)] text-black font-bold shadow-[var(--edge-top),var(--shadow-ember)]" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/[0.04] font-semibold")}
               title={m === "native" ? "Force ffmpeg subprocess capture (recommended for pro mixers)" : m === "browser" ? "Force Chromium getUserMedia (legacy)" : "Native if available, else browser"}
             >
               {m}
@@ -947,7 +947,7 @@ export function AudioTab() {
                   <span className="text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded shrink-0" style={{ background: "#f97316", color: "white" }}>
                     SYSTEM
                   </span>
-                  <span className="truncate">🖥 Follow Mac system input</span>
+                  <span className="inline-flex items-center gap-1 truncate"><Monitor className="w-3 h-3 shrink-0" /> Follow Mac system input</span>
                 </span>
                 <span className="text-[9px] text-[var(--color-muted-foreground)] pl-0.5 truncate">
                   {followResolvedName ? `Currently: ${followResolvedName}` : "System input not resolved yet"}
@@ -1149,12 +1149,12 @@ export function AudioTab() {
       )}
 
       {/* Browser-mode Input device (existing) — hidden when native is active. */}
-      <div className={"flex flex-col gap-1 " + (effectiveMode === "native" ? "hidden" : "")}>
-        <div className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)] px-1">Input device</div>
+      <div className={"flex flex-col gap-1.5 " + (effectiveMode === "native" ? "hidden" : "")}>
+        <div className="eyebrow px-1">Input device</div>
         <Popover.Root open={pickerOpen} onOpenChange={setPickerOpen}>
           <Popover.Trigger asChild>
             <button
-              className="h-8 px-2 rounded-md border border-[var(--color-border)] bg-[var(--color-elevated)] text-[11px] hover:bg-white/5 inline-flex items-center justify-between gap-2"
+              className="h-9 px-2.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)] text-[11px] shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)] transition-colors duration-200 hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] focus:border-[var(--color-brand)] inline-flex items-center justify-between gap-2"
             >
               <span className="truncate">{selectedLabel}</span>
               <ChevronDown className="w-3.5 h-3.5 opacity-60 shrink-0" />
@@ -1289,13 +1289,12 @@ export function AudioTab() {
               </div>
 
               {/* Mode segmented toggle */}
-              <div className="inline-flex rounded-md p-0.5 border border-[var(--color-border)] bg-[var(--color-elevated)] w-full">
+              <div className="inline-flex rounded-xl border border-[var(--color-border)] bg-[var(--color-app-bg)] p-[3px] shadow-[var(--edge-top),inset_0_1px_2px_rgba(0,0,0,0.28)] w-full">
                 {(["sum-all", "mono", "stereo"] as const).map((m) => (
                   <button
                     key={m}
                     onClick={() => handleModeChange(m)}
-                    className={"h-6 flex-1 px-2 rounded text-[10px] font-medium capitalize " + (gridMode === m ? "text-white" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]")}
-                    style={gridMode === m ? { background: "#f97316" } : {}}
+                    className={"h-7 flex-1 px-2 rounded-lg text-[10px] capitalize transition-[background,color,box-shadow,transform] duration-200 [transition-timing-function:var(--ease-spring)] " + (gridMode === m ? "bg-[linear-gradient(180deg,#F2712E_0%,#E8501A_100%)] text-black font-bold shadow-[var(--edge-top),var(--shadow-ember)]" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/[0.04] font-semibold")}
                   >
                     {m === "sum-all" ? "Sum all" : m}
                   </button>
@@ -1372,7 +1371,7 @@ export function AudioTab() {
                   onTouchEnd={commitGainIfDirty}
                   onKeyUp={commitGainIfDirty}
                   onBlur={commitGainIfDirty}
-                  className="w-full accent-orange-500"
+                  className="w-full [accent-color:var(--color-brand)]"
                   aria-label="Channel gain"
                 />
               </div>
@@ -1405,15 +1404,14 @@ export function AudioTab() {
       )}
 
       {/* Source Type — mixer vs microphone (DSP off vs on) */}
-      <div className="flex flex-col gap-1">
-        <div className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)] px-1">Source type</div>
-        <div className="inline-flex rounded-md p-0.5 border border-[var(--color-border)] bg-[var(--color-elevated)]">
+      <div className="flex flex-col gap-1.5">
+        <div className="eyebrow px-1">Source type</div>
+        <div className="inline-flex rounded-xl border border-[var(--color-border)] bg-[var(--color-app-bg)] p-[3px] shadow-[var(--edge-top),inset_0_1px_2px_rgba(0,0,0,0.28)]">
           {(["mixer", "microphone"] as const).map((t) => (
             <button
               key={t}
               onClick={() => persistSourceType(t)}
-              className={"h-6 flex-1 px-2 rounded text-[10px] font-medium capitalize " + (sourceType === t ? "text-white" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]")}
-              style={sourceType === t ? { background: "#f97316" } : {}}
+              className={"h-7 flex-1 px-2 rounded-lg text-[10px] capitalize transition-[background,color,box-shadow,transform] duration-200 [transition-timing-function:var(--ease-spring)] " + (sourceType === t ? "bg-[linear-gradient(180deg,#F2712E_0%,#E8501A_100%)] text-black font-bold shadow-[var(--edge-top),var(--shadow-ember)]" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/[0.04] font-semibold")}
               title={t === "mixer" ? "USB interface / mixer USB-out / BlackHole / NDI — DSP OFF" : "Bare microphone in the room — DSP ON to fight room noise"}
             >
               {t === "mixer" ? "Mixer / Interface" : "Microphone"}
@@ -1431,7 +1429,7 @@ export function AudioTab() {
       <div className="flex items-center gap-2">
         <button
           onClick={() => setDiagOpen(true)}
-          className="h-8 px-3 rounded-md border border-[var(--color-border)] text-[11px] font-medium hover:bg-white/5 inline-flex items-center gap-1.5"
+          className="h-9 px-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] text-[11px] font-semibold shadow-[var(--edge-top),var(--shadow-sm)] inline-flex items-center gap-1.5 transition-[transform,border-color,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)] hover:-translate-y-px hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:shadow-[var(--edge-top),var(--shadow-md)] active:scale-[0.97]"
           title="Scan every audio input and report which have live signal"
         >
           <Stethoscope className="w-3.5 h-3.5" />
@@ -1439,18 +1437,18 @@ export function AudioTab() {
         </button>
         <button
           onClick={() => { try { window.dispatchEvent(new CustomEvent("presentflow:restart-audio")); } catch { /* noop */ } toast.success("AI listener restarting…"); }}
-          className="h-8 px-3 rounded-md border border-[var(--color-border)] text-[11px] font-medium hover:bg-white/5"
+          className="h-9 px-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] text-[11px] font-semibold shadow-[var(--edge-top),var(--shadow-sm)] inline-flex items-center gap-1.5 transition-[transform,border-color,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)] hover:-translate-y-px hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:shadow-[var(--edge-top),var(--shadow-md)] active:scale-[0.97]"
           title="Full teardown + restart of the AI listener pipeline"
         >
-          ↻ Restart
+          <RotateCcw className="w-3.5 h-3.5" /> Restart
         </button>
       </div>
 
       {/* Custom vocabulary quick-add — full management lives in Settings → Audio */}
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between px-1">
-          <div className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)]">Vocabulary</div>
-          <div className="text-[10px] text-[var(--color-muted-foreground)]">{vocabCount} / {MAX_VOCABULARY_TERMS}</div>
+          <div className="eyebrow">Vocabulary</div>
+          <div className="text-[10px] font-mono text-[var(--color-muted-foreground)]">{vocabCount} / {MAX_VOCABULARY_TERMS}</div>
         </div>
         <div className="flex items-center gap-1.5">
           <input
@@ -1458,13 +1456,12 @@ export function AudioTab() {
             onChange={(e) => setVocabTerm(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") addVocab(); }}
             placeholder="Name the AI mishears…"
-            className="flex-1 h-7 px-2 rounded-md border border-[var(--color-border)] bg-[var(--color-elevated)] text-[10px] text-[var(--color-foreground)] placeholder:text-[var(--color-muted-foreground)]"
+            className="flex-1 h-8 px-2.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)] text-[10px] text-[var(--color-foreground)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)] transition-colors duration-200 placeholder:text-[var(--color-muted-foreground)] focus:border-[var(--color-brand)] focus:outline-none"
           />
           <button
             onClick={addVocab}
             disabled={vocabCount >= MAX_VOCABULARY_TERMS}
-            className="h-7 px-2 rounded-md text-[10px] font-semibold text-white inline-flex items-center gap-1 disabled:opacity-50"
-            style={{ background: "#f97316" }}
+            className="h-8 px-2.5 rounded-lg text-[10px] font-bold text-black inline-flex items-center gap-1 bg-[linear-gradient(180deg,#F2712E_0%,#E8501A_100%)] shadow-[var(--edge-top),var(--shadow-ember)] transition-[transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)] hover:-translate-y-px hover:shadow-[var(--edge-top),var(--shadow-ember-lg)] active:scale-[0.97] disabled:opacity-50 disabled:hover:translate-y-0"
             title="Boost recognition of a name / song title Deepgram keeps mishearing"
           >
             <Plus className="w-3 h-3" /> Add

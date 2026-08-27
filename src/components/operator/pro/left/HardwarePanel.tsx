@@ -77,7 +77,7 @@ export function HardwareSection() {
 
   return (
     <section ref={rootRef} className="border-b border-[var(--color-border)]">
-      <header className="flex items-center h-7 px-2 gap-1">
+      <header className="flex items-center h-8 px-2.5 gap-1 bg-[linear-gradient(180deg,var(--color-panel),transparent)]">
         <button
           type="button"
           className="flex items-center gap-1 flex-1 text-left"
@@ -123,22 +123,22 @@ export function HardwareSection() {
           ref={panelRef}
           role="dialog"
           aria-label={`${HARDWARE_LABELS[panel]} hardware`}
-          className="fixed w-[360px] bg-[var(--color-elevated)] border-r border-[var(--color-border)] shadow-2xl flex flex-col z-40"
+          className="fixed w-[360px] bg-[var(--color-panel)] border-r border-[var(--color-border)] shadow-[var(--edge-top),var(--shadow-lg)] flex flex-col z-40"
           style={{
             top: anchor.top,
             bottom: 0,
             left: anchor.left,
           }}
         >
-          <div className="flex items-center justify-between px-3 h-8 border-b border-[var(--color-border)] shrink-0">
-            <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)]">
+          <div className="flex items-center justify-between px-3 h-10 border-b border-[var(--color-border)] shrink-0 bg-[linear-gradient(180deg,var(--color-elevated),transparent)] shadow-[var(--edge-top)]">
+            <span className="eyebrow">
               {HARDWARE_LABELS[panel]}
             </span>
             <button
               type="button"
               onClick={() => setPanel(null)}
               aria-label="Close"
-              className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] p-1"
+              className="rounded-md p-1 text-[var(--color-muted-foreground)] transition-colors duration-200 hover:text-[var(--color-foreground)] hover:bg-white/[0.06]"
             >
               <X className="w-3.5 h-3.5" />
             </button>

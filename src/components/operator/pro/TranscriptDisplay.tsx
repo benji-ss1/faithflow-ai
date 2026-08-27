@@ -303,14 +303,12 @@ export function TranscriptDisplay({ ctx }: Props) {
       data-minimized="false"
     >
       {/* Header — label + Clear + minimize chevron. */}
-      <div className="flex items-center gap-1.5 mb-1">
-        <span className="text-[9px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)]">
-          Live transcript
-        </span>
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <span className="eyebrow">Live transcript</span>
         {isRecording && (
           <span
             aria-label="recording"
-            className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 pf-ai-live-dot"
+            className="inline-block w-2 h-2 rounded-full bg-red-500 pf-ai-live-dot"
           />
         )}
         <span className="h-px flex-1" style={{ background: "linear-gradient(90deg, var(--color-border), transparent)" }} aria-hidden />
@@ -319,7 +317,7 @@ export function TranscriptDisplay({ ctx }: Props) {
           title="Clear visible transcript (does not stop AI listener)"
           aria-label="Clear transcript"
           onClick={() => setClearedAt(Date.now())}
-          className="text-[9px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] px-1.5 py-0.5 rounded hover:bg-white/5"
+          className="text-[9px] font-mono font-bold uppercase tracking-[0.1em] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] px-2 py-1 rounded-md border border-transparent hover:border-[var(--color-border)] hover:bg-white/[0.05] transition-colors"
         >
           Clear
         </button>
@@ -345,7 +343,7 @@ export function TranscriptDisplay({ ctx }: Props) {
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className="h-full w-full overflow-y-auto rounded bg-[var(--color-elevated)] border border-[var(--color-border)] px-2 py-1 text-[12px] leading-snug pf-transcript-scroll"
+          className="h-full w-full overflow-y-auto rounded-lg bg-[var(--color-app-bg)] border border-[var(--color-border)] shadow-[inset_0_1px_3px_rgba(0,0,0,0.35)] px-2.5 py-1.5 text-[12px] leading-relaxed pf-transcript-scroll"
           style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
         >
           {!hasContent ? (

@@ -34,21 +34,21 @@ export function BibleTextSizeControl() {
   const isAuto = Math.abs(scale - 1) < 1e-6;
   return (
     <div
-      className="h-9 inline-flex items-center rounded-md border border-[var(--color-border)] overflow-hidden"
+      className="h-9 inline-flex items-center gap-0.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] px-1 shadow-[var(--edge-top),var(--shadow-sm)]"
       title="Projected verse text size (also scales the reference footer)"
     >
-      <span className="pl-2 pr-1 text-[var(--color-muted-foreground)]"><Type className="w-3.5 h-3.5" /></span>
+      <span className="pl-1 pr-0.5 text-[var(--color-muted-foreground)]"><Type className="w-3.5 h-3.5" /></span>
       <button
         onClick={() => change(scale - FONT_SCALE_STEP)}
         disabled={scale <= FONT_SCALE_MIN + 1e-6}
-        className="h-full px-1.5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-elevated)] disabled:opacity-30 disabled:pointer-events-none"
+        className="h-7 w-7 inline-flex items-center justify-center rounded-lg text-[var(--color-muted-foreground)] transition-transform duration-150 [transition-timing-function:var(--ease-spring)] hover:bg-[var(--color-brand)]/10 hover:text-[var(--color-foreground)] active:scale-90 disabled:opacity-30 disabled:pointer-events-none"
         aria-label="Smaller verse text"
       >
         <Minus className="w-3.5 h-3.5" />
       </button>
       <button
         onClick={() => change(1)}
-        className="h-full px-1.5 min-w-[42px] text-[11px] font-mono text-[var(--color-foreground)] hover:bg-[var(--color-elevated)]"
+        className="h-7 px-1.5 min-w-[46px] rounded-lg text-[11px] font-bold tabular-nums text-[var(--color-foreground)] transition-colors hover:bg-[var(--color-brand)]/10"
         title="Reset to auto"
       >
         {isAuto ? "AUTO" : `${Math.round(scale * 100)}%`}
@@ -56,7 +56,7 @@ export function BibleTextSizeControl() {
       <button
         onClick={() => change(scale + FONT_SCALE_STEP)}
         disabled={scale >= FONT_SCALE_MAX - 1e-6}
-        className="h-full px-1.5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-elevated)] disabled:opacity-30 disabled:pointer-events-none"
+        className="h-7 w-7 inline-flex items-center justify-center rounded-lg text-[var(--color-muted-foreground)] transition-transform duration-150 [transition-timing-function:var(--ease-spring)] hover:bg-[var(--color-brand)]/10 hover:text-[var(--color-foreground)] active:scale-90 disabled:opacity-30 disabled:pointer-events-none"
         aria-label="Larger verse text"
       >
         <Plus className="w-3.5 h-3.5" />

@@ -11,6 +11,7 @@
 // layout. All information is now visible without scrolling.
 
 import { useEffect, useState, useCallback } from "react";
+import { Monitor } from "lucide-react";
 import type { DisplayInfo } from "@/types/electron";
 import { DropdownDisclosure } from "../pro/DropdownDisclosure";
 
@@ -67,7 +68,7 @@ export function parseStoredAssignments(raw: string | null): Record<number, Assig
   return out;
 }
 
-const selectCls = "rounded border border-[#2a3232] bg-[#1a2020] text-zinc-100 px-2 py-1 text-xs";
+const selectCls = "rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)] text-[var(--color-foreground)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)] px-2 py-1.5 text-xs focus:border-[var(--color-brand)] focus:outline-none";
 
 export function ScreensPanel() {
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
@@ -114,11 +115,17 @@ export function ScreensPanel() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch {}
   }, []);
 
-  if (inElectron === null) return <div className="p-4 text-sm text-zinc-400">Loading…</div>;
+  if (inElectron === null) return <div className="p-4 text-sm text-[var(--color-muted-foreground)]">Loading…</div>;
   if (!inElectron) {
     return (
-      <div className="p-4 text-sm text-zinc-400">
-        Screen configuration is available only in the PresentFlow desktop app.
+      <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+        <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-[var(--color-brand)]/12 text-[var(--color-brand)] shadow-[var(--edge-top)]">
+          <Monitor className="w-6 h-6" />
+        </div>
+        <div className="text-[13px] font-semibold text-[var(--color-foreground)]">Desktop app required</div>
+        <p className="text-[11px] text-[var(--color-muted-foreground)] leading-relaxed max-w-[260px]">
+          Screen configuration is available only in the PresentFlow desktop app.
+        </p>
       </div>
     );
   }
@@ -174,10 +181,11 @@ export function ScreensPanel() {
 
   return (
     <div className="p-4 space-y-4">
-      <label className="flex items-center gap-2 text-sm text-zinc-200">
+      <label className="flex items-center gap-2 text-sm text-[var(--color-foreground)]">
         <input
           type="checkbox"
           checked={autoRestore}
+          className="[accent-color:var(--color-brand)]"
           onChange={(e) => {
             setAutoRestore(e.target.checked);
             try { localStorage.setItem(AUTO_RESTORE_KEY, e.target.checked ? "1" : "0"); } catch {}
@@ -187,7 +195,7 @@ export function ScreensPanel() {
       </label>
 
       {displays.length === 0 && (
-        <div className="text-xs text-zinc-500 py-4 text-center">No displays detected.</div>
+        <div className="text-xs text-[var(--color-muted-foreground)] py-4 text-center">No displays detected.</div>
       )}
 
       <div className="space-y-3">
@@ -195,19 +203,19 @@ export function ScreensPanel() {
           const a = assignments[d.id] ?? { role: "None" as Role, preset: "1080p30" as Preset, spawned: false };
           const isSpawned = a.spawned;
           return (
-            <div key={d.id} className="rounded-lg border border-[#2a3232] bg-[#1a2020] overflow-hidden">
+            <div key={d.id} className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] overflow-hidden shadow-[var(--edge-top),var(--shadow-sm)]">
               {/* Card header: label + spawn/close */}
-              <div className="flex items-center justify-between px-3 py-2 border-b border-[#2a3232] bg-[#141c1c]">
+              <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--color-border)] bg-[linear-gradient(180deg,var(--color-elevated),transparent)]">
                 <div>
-                  <span className="text-sm font-medium text-zinc-100">{d.label}</span>
-                  {d.isPrimary && <span className="ml-2 text-[10px] text-zinc-500">(Primary)</span>}
-                  <div className="text-[11px] text-zinc-500 mt-0.5">
+                  <span className="text-sm font-semibold text-[var(--color-foreground)]">{d.label}</span>
+                  {d.isPrimary && <span className="ml-2 text-[10px] text-[var(--color-muted-foreground)]">(Primary)</span>}
+                  <div className="text-[11px] font-mono text-[var(--color-muted-foreground)] mt-0.5">
                     {d.size.width} × {d.size.height} @ {d.scaleFactor}x
                   </div>
                 </div>
                 {isSpawned ? (
                   <button
-                    className="rounded bg-red-600/80 hover:bg-red-600 text-white px-4 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="rounded-lg bg-red-600/80 hover:bg-red-600 text-white px-4 py-1.5 text-xs font-semibold shadow-[var(--edge-top),var(--shadow-sm)] transition-[transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)] hover:-translate-y-px active:scale-[0.97] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
                     disabled={spawning !== null}
                     onClick={() => handleClose(d.id)}
                   >
@@ -215,7 +223,7 @@ export function ScreensPanel() {
                   </button>
                 ) : (
                   <button
-                    className="rounded bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/60 text-teal-200 px-4 py-1.5 text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    className="rounded-lg bg-[linear-gradient(180deg,#F2712E_0%,#E8501A_100%)] text-black px-4 py-1.5 text-xs font-bold shadow-[var(--edge-top),var(--shadow-ember)] transition-[transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)] hover:-translate-y-px hover:shadow-[var(--edge-top),var(--shadow-ember-lg)] active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:translate-y-0"
                     disabled={a.role === "None" || spawning !== null}
                     onClick={() => handleSpawn(d.id)}
                   >
@@ -227,7 +235,7 @@ export function ScreensPanel() {
               {/* Card body: role + preset + obs mode */}
               <div className="flex items-end gap-4 px-3 py-3 flex-wrap">
                 <div>
-                  <div className="text-[10px] text-zinc-500 mb-1 uppercase tracking-wider">Role</div>
+                  <div className="eyebrow mb-1">Role</div>
                   <DropdownDisclosure
                     selectedId={a.role}
                     onSelect={(v) => updateAssignment(d.id, { role: v as Role })}
@@ -236,7 +244,7 @@ export function ScreensPanel() {
                   />
                 </div>
                 <div>
-                  <div className="text-[10px] text-zinc-500 mb-1 uppercase tracking-wider">Preset</div>
+                  <div className="eyebrow mb-1">Preset</div>
                   <DropdownDisclosure
                     selectedId={a.preset}
                     onSelect={(v) => updateAssignment(d.id, { preset: v as Preset })}
@@ -246,7 +254,7 @@ export function ScreensPanel() {
                 </div>
                 {a.role === "Livestream" && (
                   <div>
-                    <div className="text-[10px] text-zinc-500 mb-1 uppercase tracking-wider">OBS mode</div>
+                    <div className="eyebrow mb-1">OBS mode</div>
                     <select
                       value={a.obsMode ?? "full"}
                       onChange={(e) => updateAssignment(d.id, { obsMode: e.target.value as ObsMode })}
@@ -258,8 +266,8 @@ export function ScreensPanel() {
                   </div>
                 )}
                 {isSpawned && (
-                  <div className="ml-auto flex items-center gap-1.5 text-[11px] text-teal-400">
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse" />
+                  <div className="ml-auto flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-brand)]">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--color-brand)] animate-pulse" />
                     Live
                   </div>
                 )}
@@ -269,7 +277,7 @@ export function ScreensPanel() {
         })}
       </div>
 
-      <p className="text-[11px] text-zinc-500">
+      <p className="text-[11px] text-[var(--color-muted-foreground)] leading-relaxed">
         Assignments are stored locally and restored on the next launch when auto-restore is enabled.
       </p>
     </div>

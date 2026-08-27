@@ -29,18 +29,19 @@ export function RightTabs({
 }) {
   return (
     <Tabs.Root defaultValue="stage" className="h-full flex flex-col">
-      <Tabs.List className="flex border-b border-[var(--color-border)] overflow-x-auto shrink-0">
+      <Tabs.List className="flex border-b border-[var(--color-border)] bg-[linear-gradient(180deg,var(--color-panel),transparent)] overflow-x-auto shrink-0">
         {TABS.map(({ v, Icon, label }) => (
           <Tabs.Trigger
             key={v}
             value={v}
             title={label}
             className={cn(
-              "flex-1 min-w-0 h-9 flex items-center justify-center text-[var(--color-muted-foreground)]",
-              "data-[state=active]:text-[var(--color-foreground)] data-[state=active]:border-b-2 data-[state=active]:border-[var(--color-brand)]",
+              "group/rt relative flex-1 min-w-0 h-10 flex items-center justify-center text-[var(--color-muted-foreground)] transition-colors hover:text-[var(--color-foreground)]",
+              "data-[state=active]:text-[var(--color-brand)]",
+              "after:absolute after:bottom-0 after:left-1/2 after:-translate-x-1/2 after:h-[2.5px] after:w-0 after:rounded-full after:bg-[var(--color-brand)] after:shadow-[0_0_8px_var(--color-glow)] after:transition-[width] after:duration-200 data-[state=active]:after:w-2/3",
             )}
           >
-            <Icon className="w-4 h-4" />
+            <Icon className="w-[18px] h-[18px] transition-transform duration-200 [transition-timing-function:var(--ease-spring)] group-data-[state=active]/rt:scale-110" strokeWidth={2.2} />
           </Tabs.Trigger>
         ))}
       </Tabs.List>

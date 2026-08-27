@@ -33,21 +33,21 @@ export function BibleReferenceSizeControl() {
   const isDefault = Math.abs(scale - 1) < 1e-6;
   return (
     <div
-      className="h-9 inline-flex items-center rounded-md border border-[var(--color-border)] overflow-hidden"
+      className="h-9 inline-flex items-center gap-0.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] px-1 shadow-[var(--edge-top),var(--shadow-sm)]"
       title="Reference footer size (the Book Chapter:Verse line at the bottom)"
     >
-      <span className="pl-2 pr-1 text-[10px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)]">Ref</span>
+      <span className="pl-1 pr-0.5 text-[10px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)]">Ref</span>
       <button
         onClick={() => change(scale - REFERENCE_SCALE_STEP)}
         disabled={scale <= REFERENCE_SCALE_MIN + 1e-6}
-        className="h-full px-1.5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-elevated)] disabled:opacity-30 disabled:pointer-events-none"
+        className="h-7 w-7 inline-flex items-center justify-center rounded-lg text-[var(--color-muted-foreground)] transition-transform duration-150 [transition-timing-function:var(--ease-spring)] hover:bg-[var(--color-brand)]/10 hover:text-[var(--color-foreground)] active:scale-90 disabled:opacity-30 disabled:pointer-events-none"
         aria-label="Smaller reference"
       >
         <Minus className="w-3.5 h-3.5" />
       </button>
       <button
         onClick={() => change(1)}
-        className="h-full px-1.5 min-w-[42px] text-[11px] font-mono text-[var(--color-foreground)] hover:bg-[var(--color-elevated)]"
+        className="h-7 px-1.5 min-w-[46px] rounded-lg text-[11px] font-bold tabular-nums text-[var(--color-foreground)] transition-colors hover:bg-[var(--color-brand)]/10"
         title="Reset reference size"
       >
         {isDefault ? "100%" : `${Math.round(scale * 100)}%`}
@@ -55,7 +55,7 @@ export function BibleReferenceSizeControl() {
       <button
         onClick={() => change(scale + REFERENCE_SCALE_STEP)}
         disabled={scale >= REFERENCE_SCALE_MAX - 1e-6}
-        className="h-full px-1.5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-elevated)] disabled:opacity-30 disabled:pointer-events-none"
+        className="h-7 w-7 inline-flex items-center justify-center rounded-lg text-[var(--color-muted-foreground)] transition-transform duration-150 [transition-timing-function:var(--ease-spring)] hover:bg-[var(--color-brand)]/10 hover:text-[var(--color-foreground)] active:scale-90 disabled:opacity-30 disabled:pointer-events-none"
         aria-label="Larger reference"
       >
         <Plus className="w-3.5 h-3.5" />

@@ -146,13 +146,21 @@ export function VideoInputPanel() {
 
   if (supported !== true) {
     return (
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-4">
         <div className="eyebrow flex items-center gap-1.5"><Video className="w-3 h-3" /> Video Input</div>
-        <p className="text-[11px] text-[var(--color-muted-foreground)] leading-relaxed">
-          {supported === null
-            ? "Checking video support…"
-            : "Live Video Input needs the latest PresentFlow update. It'll install automatically the next time you relaunch the app — then reopen this panel to pick a camera."}
-        </p>
+        <div className="flex flex-col items-center gap-3 px-4 py-8 text-center">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-[var(--color-brand)]/12 text-[var(--color-brand)] shadow-[var(--edge-top)]">
+            <Video className="w-6 h-6" />
+          </div>
+          <div className="text-[13px] font-semibold text-[var(--color-foreground)]">
+            {supported === null ? "Checking video support…" : "Update required"}
+          </div>
+          <p className="text-[11px] text-[var(--color-muted-foreground)] leading-relaxed max-w-[260px]">
+            {supported === null
+              ? "Confirming this build can access cameras and capture cards."
+              : "Live Video Input needs the latest PresentFlow update. It'll install automatically the next time you relaunch the app — then reopen this panel to pick a camera."}
+          </p>
+        </div>
       </div>
     );
   }

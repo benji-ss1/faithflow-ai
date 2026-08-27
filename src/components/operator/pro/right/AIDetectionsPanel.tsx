@@ -17,7 +17,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { BookOpen, Music } from "lucide-react";
+import { BookOpen, Music, Quote } from "lucide-react";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { UnifiedSuggestion, SongSuggestion } from "../../useAudioStream";
 import { cachedLookup } from "@/lib/bible-client-cache";
@@ -439,8 +439,13 @@ export function AIDetectionsPanel({ ctx, sections }: { ctx: OperatorShellCtx; se
         </div>
         <div className="h-[200px] overflow-y-auto space-y-1 pr-0.5">
           {bibleRows.length === 0 ? (
-            <div className="text-[10px] italic text-[var(--color-muted-foreground)] py-2 px-1">
-              No Bible references detected yet. Speak a reference like &quot;John 3:16&quot; to see it here.
+            <div className="flex flex-col items-center gap-2 text-center py-6 px-3">
+              <span className="grid place-items-center w-9 h-9 rounded-xl bg-[var(--color-brand)]/10 text-[var(--color-brand)]/70 shadow-[var(--edge-top)]">
+                <BookOpen className="w-4 h-4" strokeWidth={2} />
+              </span>
+              <p className="text-[11px] font-medium text-[var(--color-muted-foreground)] leading-relaxed">
+                No Bible references detected yet.<br />Speak a reference like &quot;John 3:16&quot; to see it here.
+              </p>
             </div>
           ) : (
             bibleRows.map((row) => {
@@ -464,22 +469,23 @@ export function AIDetectionsPanel({ ctx, sections }: { ctx: OperatorShellCtx; se
                       else loadBible(row);
                     }
                   }}
-                  className="group flex items-center gap-1.5 px-1.5 py-1 rounded bg-[var(--color-elevated)] hover:bg-[var(--color-elevated-hover,var(--color-elevated))] cursor-pointer border border-transparent hover:border-[var(--color-border)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
+                  className="group flex items-center gap-2 px-2 py-1.5 rounded-lg bg-[var(--color-elevated)] shadow-[var(--edge-top),var(--shadow-sm)] hover:shadow-[var(--edge-top),var(--shadow-md)] hover:-translate-y-px transition-[transform,box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-spring)] cursor-pointer border border-[var(--color-border)] hover:border-[color-mix(in_oklab,var(--color-brand)_40%,var(--color-border))] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]"
                   data-testid={`bible-row-${row.key}`}
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1">
-                      <span className="text-[11px] font-semibold truncate">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[12.5px] font-bold tracking-[-0.01em] truncate">
                         {row.book} {row.chapter}:{row.verseStart}
                         {row.verseEnd !== row.verseStart ? `-${row.verseEnd}` : ""}
                       </span>
                       {row.isPhraseMatch && (
                         <span
-                          aria-label="Phrase match"
+                          aria-label="Phrase match — quoted text"
                           data-testid="phrase-match-badge"
-                          className="shrink-0 text-[8px] font-bold px-1 py-[1px] rounded bg-violet-500/80 text-white"
+                          title="Phrase match — quoted text, not a spoken reference"
+                          className="grid place-items-center shrink-0 w-[16px] h-[16px] rounded-md bg-[var(--color-scripture-gold,#EF9F27)]/18 text-[var(--color-scripture-gold,#EF9F27)]"
                         >
-                          ✦
+                          <Quote className="w-2.5 h-2.5" strokeWidth={2.6} />
                         </span>
                       )}
                       {passesAA && (
@@ -498,7 +504,7 @@ export function AIDetectionsPanel({ ctx, sections }: { ctx: OperatorShellCtx; se
                       {relTime(row.ts, nowTick)}
                     </div>
                   </div>
-                  <span className={cn("shrink-0 font-mono text-[9px] px-1 py-0.5 rounded border", confClass(conf))}>
+                  <span className={cn("shrink-0 font-mono text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded-md border shadow-[var(--edge-top)]", confClass(conf))}>
                     {conf}%
                   </span>
                   <button
@@ -597,8 +603,13 @@ export function AIDetectionsPanel({ ctx, sections }: { ctx: OperatorShellCtx; se
         </div>
         <div className="h-[200px] overflow-y-auto space-y-1 pr-0.5">
           {songRows.length === 0 ? (
-            <div className="text-[10px] italic text-[var(--color-muted-foreground)] py-2 px-1">
-              No song matches yet. Say &quot;let&apos;s sing…&quot; or a lyric line to see matches here.
+            <div className="flex flex-col items-center gap-2 text-center py-6 px-3">
+              <span className="grid place-items-center w-9 h-9 rounded-xl bg-[#7C6CF0]/12 text-[#9C8FF5]/80 shadow-[var(--edge-top)]">
+                <Music className="w-4 h-4" strokeWidth={2} />
+              </span>
+              <p className="text-[11px] font-medium text-[var(--color-muted-foreground)] leading-relaxed">
+                No song matches yet.<br />Say &quot;let&apos;s sing…&quot; or a lyric line to see matches here.
+              </p>
             </div>
           ) : (
             songRows.map((row) => {
@@ -610,12 +621,12 @@ export function AIDetectionsPanel({ ctx, sections }: { ctx: OperatorShellCtx; se
                   tabIndex={0}
                   onClick={() => void sendSongLive(row)}
                   title="Click to send song to live"
-                  className="group flex items-center gap-1.5 px-1.5 py-1 rounded bg-[var(--color-elevated)] hover:bg-[var(--color-elevated-hover,var(--color-elevated))] cursor-pointer border border-transparent hover:border-[var(--color-border)]"
+                  className="group flex items-center gap-2 px-2 py-1.5 rounded-lg bg-[var(--color-elevated)] shadow-[var(--edge-top),var(--shadow-sm)] hover:shadow-[var(--edge-top),var(--shadow-md)] hover:-translate-y-px transition-[transform,box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-spring)] cursor-pointer border border-[var(--color-border)] hover:border-[color-mix(in_oklab,var(--color-brand)_40%,var(--color-border))]"
                   data-testid={`song-row-${row.key}`}
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1">
-                      <span className="text-[11px] font-semibold truncate">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[12.5px] font-bold tracking-[-0.01em] truncate">
                         {row.title}
                       </span>
                       {row.artist && (
@@ -638,7 +649,7 @@ export function AIDetectionsPanel({ ctx, sections }: { ctx: OperatorShellCtx; se
                       </span>
                     </div>
                   </div>
-                  <span className={cn("shrink-0 font-mono text-[9px] px-1 py-0.5 rounded border", confClass(conf))}>
+                  <span className={cn("shrink-0 font-mono text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded-md border shadow-[var(--edge-top)]", confClass(conf))}>
                     {conf}%
                   </span>
                   <button

@@ -26,7 +26,7 @@ export const SwitchMode = forwardRef<HTMLButtonElement, {
   onColor = "var(--color-brand)", offColor = "var(--color-muted-foreground)",
   width = 90, title, ariaLabel, className, onClick: injectedOnClick, ...rest
 }, ref) {
-  const KNOB = 20;
+  const KNOB = 22;
   const PAD = 3;
   // When used as a Radix `asChild` trigger (tooltip/popover), Radix injects its
   // own onClick (e.g. tooltip-close) via props. Compose it with our onChange so
@@ -47,15 +47,18 @@ export const SwitchMode = forwardRef<HTMLButtonElement, {
       title={title}
       aria-label={ariaLabel ?? (checked ? onLabel : offLabel)}
       className={cn(
-        "relative h-[26px] rounded-full border transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
+        "group/sw relative h-[30px] rounded-full border transition-[background,border-color,box-shadow,transform] duration-200 [transition-timing-function:var(--ease-spring)] shrink-0 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-app-bg)]",
         className,
       )}
       style={{
         width,
         background: checked
-          ? `color-mix(in oklab, ${onColor} 20%, transparent)`
-          : `color-mix(in oklab, ${offColor} 14%, transparent)`,
+          ? `color-mix(in oklab, ${onColor} 22%, var(--color-app-bg))`
+          : `color-mix(in oklab, ${offColor} 15%, var(--color-app-bg))`,
         borderColor: checked ? onColor : `color-mix(in oklab, ${offColor} 55%, transparent)`,
+        boxShadow: checked
+          ? `var(--edge-top), inset 0 1px 2px rgba(0,0,0,0.28), 0 4px 14px -4px color-mix(in oklab, ${onColor} 60%, transparent)`
+          : "var(--edge-top), inset 0 1px 2px rgba(0,0,0,0.28)",
       }}
       {...rest}
       onClick={handleClick}
@@ -63,8 +66,8 @@ export const SwitchMode = forwardRef<HTMLButtonElement, {
       {/* label — opposite the knob */}
       <span
         className={cn(
-          "absolute inset-0 flex items-center text-[10px] font-bold uppercase tracking-wider transition-colors",
-          checked ? "justify-start pl-2.5" : "justify-end pr-2.5",
+          "absolute inset-0 flex items-center text-[10.5px] font-extrabold uppercase tracking-[0.08em] transition-colors",
+          checked ? "justify-start pl-3" : "justify-end pr-3",
         )}
         style={{ color: checked ? onColor : offColor }}
       >
@@ -78,9 +81,9 @@ export const SwitchMode = forwardRef<HTMLButtonElement, {
           height: KNOB,
           width: KNOB,
           left: checked ? width - KNOB - PAD : PAD,
-          background: checked ? onColor : offColor,
-          transition: "left .24s cubic-bezier(.4,0,.2,1), background .2s ease",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+          background: `radial-gradient(circle at 35% 30%, color-mix(in oklab, ${checked ? onColor : offColor} 55%, #fff) 0%, ${checked ? onColor : offColor} 62%)`,
+          transition: "left .26s var(--ease-spring), background .2s ease",
+          boxShadow: "var(--edge-top), 0 2px 5px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.10)",
         }}
       />
     </button>

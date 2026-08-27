@@ -148,24 +148,25 @@ export function BottomBar({
     next();
   };
 
+  const isBlank = ctx.liveSlide?.kind === "empty" || ctx.liveSlide?.kind === "blank";
+  // Transport icon button inside the segmented cluster.
+  const tBtn =
+    "w-8 h-[28px] grid place-items-center rounded-md text-[var(--color-muted-foreground)] transition-[background,color,transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)] hover:text-[var(--color-foreground)] hover:bg-white/[0.05] active:scale-90 disabled:opacity-40 disabled:pointer-events-none";
+
   return (
-    <div className="h-10 shrink-0 border-t border-[var(--color-border)] bg-[var(--color-panel)] flex items-center px-2 gap-2">
-      {/* Left */}
-      <div className="flex items-center gap-1">
+    <div className="h-11 shrink-0 border-t border-[var(--color-border)] bg-[linear-gradient(180deg,var(--color-app-bg),var(--color-panel))] shadow-[var(--edge-top)] flex items-center px-2.5 gap-2">
+      {/* Left — transport cluster (segmented, with depth) */}
+      <div className="flex items-center gap-0.5 h-[34px] rounded-xl border border-[var(--color-border)] bg-[var(--color-app-bg)] p-[3px] shadow-[var(--edge-top),inset_0_1px_2px_rgba(0,0,0,0.28)]">
         <button
-          title={ctx.liveSlide?.kind === "empty" || ctx.liveSlide?.kind === "blank" ? "Unblank live output" : "Blank live output"}
-          aria-pressed={ctx.liveSlide?.kind === "empty" || ctx.liveSlide?.kind === "blank"}
+          title={isBlank ? "Unblank live output" : "Blank live output"}
+          aria-pressed={isBlank}
           onClick={ctx.onBlank}
-          className={cn(
-            "w-7 h-7 flex items-center justify-center rounded hover:bg-white/5",
-            (ctx.liveSlide?.kind === "empty" || ctx.liveSlide?.kind === "blank")
-              ? "text-[var(--color-brand)] bg-white/5"
-              : "text-[var(--color-muted-foreground)]",
-          )}
-        ><Pause className="w-4 h-4" /></button>
-        <button title="Send to live" onClick={ctx.onSendToLive} className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-muted-foreground)]"><Play className="w-4 h-4" /></button>
-        <button title="Previous slide" onClick={prev} disabled={!hasPrev} className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-muted-foreground)] disabled:opacity-50"><SkipBack className="w-4 h-4" /></button>
-        <button title="Next slide" onClick={next} disabled={!hasNext} className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-muted-foreground)] disabled:opacity-50"><SkipForward className="w-4 h-4" /></button>
+          className={cn(tBtn, isBlank && "text-[var(--color-brand)] bg-[var(--color-brand)]/12 hover:bg-[var(--color-brand)]/16")}
+        ><Pause className="w-4 h-4" strokeWidth={2.2} /></button>
+        <button title="Send to live" onClick={ctx.onSendToLive} className={cn(tBtn, "text-[var(--color-brand)] hover:text-[var(--color-brand)]")}><Play className="w-4 h-4 fill-current" /></button>
+        <span className="w-px h-4 bg-[var(--color-border)] mx-0.5" aria-hidden />
+        <button title="Previous slide" onClick={prev} disabled={!hasPrev} className={tBtn}><SkipBack className="w-4 h-4" strokeWidth={2.2} /></button>
+        <button title="Next slide" onClick={next} disabled={!hasNext} className={tBtn}><SkipForward className="w-4 h-4" strokeWidth={2.2} /></button>
       </div>
 
       {/* Center — verse-nav is Bible-mode only; other modes just show
@@ -173,20 +174,20 @@ export function BottomBar({
       <div className="flex-1 flex items-center justify-center gap-3 text-[11px] text-[var(--color-muted-foreground)]">
         {centerMode === "bible" && (
           // Segmented Prev/Next verse control (joined pill with a shared divider).
-          <div className="inline-flex items-center rounded-lg border border-[var(--color-border)] overflow-hidden bg-[var(--color-panel)]">
+          <div className="inline-flex items-center h-[32px] rounded-xl border border-[var(--color-border)] overflow-hidden bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)]">
             <button
               onClick={versePrev}
               title="Previous verse (preview)"
-              className="h-7 pl-2 pr-2.5 inline-flex items-center gap-1.5 text-[11px] font-medium text-[var(--color-foreground)] hover:bg-white/[0.06] border-r border-[var(--color-border)] transition-colors"
+              className="h-full pl-2.5 pr-3 inline-flex items-center gap-1.5 text-[11.5px] font-bold text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10 border-r border-[var(--color-border)] transition-colors active:scale-95"
             >
-              <ArrowLeft className="w-3.5 h-3.5" /> Verse
+              <ArrowLeft className="w-4 h-4" strokeWidth={2.4} /> Verse
             </button>
             <button
               onClick={verseNext}
               title="Next verse (preview)"
-              className="h-7 pl-2.5 pr-2 inline-flex items-center gap-1.5 text-[11px] font-medium text-[var(--color-foreground)] hover:bg-white/[0.06] transition-colors"
+              className="h-full pl-3 pr-2.5 inline-flex items-center gap-1.5 text-[11.5px] font-bold text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10 transition-colors active:scale-95"
             >
-              Verse <ArrowRight className="w-3.5 h-3.5" />
+              Verse <ArrowRight className="w-4 h-4" strokeWidth={2.4} />
             </button>
           </div>
         )}
@@ -206,10 +207,11 @@ export function BottomBar({
           value={transitionDuration}
           onChange={(e) => setTransitionDuration(parseFloat(e.target.value))}
           className="pf-fade-slider w-28"
+          style={{ accentColor: "var(--color-brand)" }}
           title={`Transition Speed: ${transitionDuration.toFixed(1)}s`}
           aria-label="Transition Speed"
         />
-        <span className="text-[10px] uppercase tracking-wider font-mono text-[var(--color-muted-foreground)]">Speed: {transitionDuration.toFixed(1)}s</span>
+        <span className="text-[10px] uppercase tracking-[0.1em] font-mono font-bold text-[var(--color-muted-foreground)] tabular-nums">Speed: {transitionDuration.toFixed(1)}s</span>
       </div>
 
       {/* Right — 2026-08-16: the grid/list/text view toggles were REMOVED here;
@@ -220,7 +222,7 @@ export function BottomBar({
           onClick={onOpenShortcutsHelp}
           title="Keyboard shortcuts (?)"
           aria-label="Keyboard shortcuts"
-          className="w-7 h-7 flex items-center justify-center rounded text-[var(--color-muted-foreground)] hover:bg-white/5 hover:text-[var(--color-foreground)]"
+          className="w-8 h-8 grid place-items-center rounded-lg text-[var(--color-muted-foreground)] hover:bg-white/[0.06] hover:text-[var(--color-foreground)] transition-colors"
         >
           <HelpCircle className="w-4 h-4" />
         </button>

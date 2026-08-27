@@ -41,7 +41,7 @@ export function MediaSection({
 
   return (
     <section className="border-b border-[var(--color-border)]">
-      <header className="flex items-center h-7 px-2 gap-1">
+      <header className="flex items-center h-8 px-2.5 gap-1 bg-[linear-gradient(180deg,var(--color-panel),transparent)]">
         <button
           type="button"
           className="flex items-center gap-1 flex-1 text-left"

@@ -61,7 +61,7 @@ export function BibleOptionsPopover() {
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
-        <button className="h-8 px-2 rounded-md border border-[var(--color-border)] flex items-center gap-1 text-[12px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:border-[var(--color-muted-foreground)] transition-colors">
+        <button className="h-9 px-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] flex items-center gap-1.5 text-[12px] font-semibold text-[var(--color-muted-foreground)] shadow-[var(--edge-top),var(--shadow-sm)] transition-all duration-150 [transition-timing-function:var(--ease-spring)] hover:-translate-y-px hover:text-[var(--color-foreground)] hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:shadow-[var(--edge-top),var(--shadow-md)] active:scale-[0.97]">
           <Settings className="w-3.5 h-3.5" /> Options
         </button>
       </Popover.Trigger>
@@ -70,7 +70,7 @@ export function BibleOptionsPopover() {
           side="bottom"
           align="end"
           sideOffset={6}
-          className="w-[300px] rounded-lg bg-[var(--color-panel)] border border-[var(--color-border)] p-1.5 text-[12px] text-[var(--color-foreground)] shadow-2xl"
+          className="w-[300px] rounded-xl bg-[var(--color-panel)] border border-[var(--color-border)] p-1.5 text-[12px] text-[var(--color-foreground)] shadow-[var(--edge-top),var(--shadow-lg)]"
         >
           <div className="px-2 pt-1.5 pb-1 text-[10px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)]">
             Slide Options

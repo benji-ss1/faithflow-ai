@@ -640,20 +640,22 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
           up a loaded chapter. */}
       <div className="sticky top-0 z-30 -mx-4 -mt-4 px-4 pt-4 pb-3 bg-[var(--color-panel)] border-b border-[var(--color-border)] flex flex-col gap-4">
       {/* Reference / Browse tab switcher */}
-      <div className="inline-flex rounded-md border border-[var(--color-border)] overflow-hidden text-[11px] uppercase tracking-wider font-mono h-8 w-fit">
+      <div className="inline-flex items-center gap-1 rounded-xl border border-[var(--color-border)] bg-[var(--color-app-bg)] p-[3px] text-[11px] uppercase tracking-wider font-mono h-9 w-fit shadow-[var(--edge-top),inset_0_1px_2px_rgba(0,0,0,0.28)]">
         {(["reference", "browse"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={cn(
-              "px-3 h-full",
-              tab === t ? "bg-[var(--color-brand)] text-black" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",
+              "px-3 h-full rounded-lg transition-all duration-150 [transition-timing-function:var(--ease-spring)]",
+              tab === t
+                ? "bg-[var(--color-elevated)] text-[var(--color-foreground)] font-bold shadow-[var(--edge-top),var(--shadow-md)]"
+                : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",
             )}
           >{t}</button>
         ))}
         <button
           onClick={() => { const c = cards[selectedIdx ?? 0]; if (!c) { toast.info("Look up a verse first"); return; } setEditCard(c); }}
-          className="px-3 h-full border-l border-[var(--color-border)] inline-flex items-center gap-1.5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+          className="px-3 h-full rounded-lg inline-flex items-center gap-1.5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] transition-all duration-150 [transition-timing-function:var(--ease-spring)]"
           title="Edit slide — move, resize & style the verse and reference (text stays locked)"
         >
           <Palette className="w-3.5 h-3.5" /> Edit slide
@@ -699,7 +701,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
             onFocus={() => { if (dropdownHits.length > 0) setDropdownOpen(true); }}
             onBlur={() => { window.setTimeout(() => setDropdownOpen(false), 150); }}
             placeholder="John 3:16 or 'The Lord is my shepherd'"
-            className="w-full bg-[var(--color-elevated)] border border-[var(--color-border)] rounded-md px-3 pr-20 h-9 text-sm outline-none focus:border-[var(--color-brand)]"
+            className="w-full bg-[var(--color-muted)] border border-[var(--color-border)] rounded-xl px-3.5 pr-20 h-9 text-[15px] font-medium outline-none shadow-[var(--edge-top),inset_0_1px_2px_rgba(0,0,0,0.28)] transition-colors focus:border-[var(--color-brand)] focus:shadow-[inset_0_1px_2px_rgba(0,0,0,0.28),0_0_0_3px_color-mix(in_oklab,var(--color-brand)_30%,transparent)]"
           />
           <span
             className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--color-brand)]/15 text-[var(--color-brand)] font-mono"
@@ -826,7 +828,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
             void lookup();
           }}
           disabled={loading}
-          className="h-9 px-3 rounded-md bg-[var(--color-brand)] text-black text-sm font-semibold disabled:opacity-60"
+          className="h-9 px-4 rounded-xl bg-[linear-gradient(180deg,#F2712E_0%,#E8501A_100%)] text-black text-sm font-bold shadow-[var(--edge-top),var(--shadow-ember)] transition-all duration-150 [transition-timing-function:var(--ease-spring)] hover:-translate-y-px hover:shadow-[var(--edge-top),var(--shadow-ember-lg)] active:scale-[0.97] disabled:opacity-60 disabled:pointer-events-none"
         >
           {loading ? "…" : "Lookup"}
         </button>
@@ -953,7 +955,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
         <div className="flex justify-end gap-2 -mb-2">
           <button
             onClick={() => void loadWholeChapter()}
-            className="h-7 px-2 rounded border border-[var(--color-border)] text-[11px] font-mono uppercase tracking-wider hover:bg-[var(--color-elevated)]"
+            className="h-8 px-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] text-[11px] font-semibold font-mono uppercase tracking-wider shadow-[var(--edge-top),var(--shadow-sm)] transition-all duration-150 [transition-timing-function:var(--ease-spring)] hover:-translate-y-px hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:shadow-[var(--edge-top),var(--shadow-md)] active:scale-[0.97]"
             title="Load every verse of the current chapter into the grid (does not add to playlist)"
           >
             Load Chapter
@@ -963,12 +965,12 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
               onClick={() => void addAllVerses()}
               disabled={addAllPending}
               className={cn(
-                "h-7 px-3 rounded text-[11px] font-mono uppercase tracking-wider text-white bg-[var(--color-brand)] hover:brightness-110",
+                "h-8 px-3 rounded-xl inline-flex items-center gap-1.5 text-[11px] font-bold font-mono uppercase tracking-wider text-black bg-[linear-gradient(180deg,#F2712E_0%,#E8501A_100%)] shadow-[var(--edge-top),var(--shadow-ember)] transition-all duration-150 [transition-timing-function:var(--ease-spring)] hover:-translate-y-px hover:shadow-[var(--edge-top),var(--shadow-ember-lg)] active:scale-[0.97]",
                 addAllPending && "opacity-50 cursor-not-allowed pointer-events-none",
               )}
               title="Add each displayed verse to the playlist as its own scripture item"
             >
-              + Add to Playlist
+              <Plus className="w-3.5 h-3.5" /> Add to Playlist
             </button>
           )}
         </div>
@@ -1115,12 +1117,17 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
               // hover regardless.
               title={c.verses.map((v) => `${v.verse} ${v.text}`).join("\n")}
               className={cn(
-                "group/bcard relative aspect-video rounded-md overflow-hidden border-2 transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
-                selected ? "border-[var(--color-brand)]" : "border-[var(--color-border)] hover:border-[var(--color-muted-foreground)]",
+                "group/bcard relative aspect-video rounded-lg overflow-hidden cursor-pointer text-left",
+                "transition-[transform,box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-house)]",
+                "hover:-translate-y-[3px] active:translate-y-0 active:duration-75",
+                "focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
+                selected
+                  ? "border-2 border-[var(--color-brand)] shadow-[var(--shadow-ember)] hover:shadow-[var(--shadow-ember-lg)]"
+                  : "border border-[var(--color-border)] shadow-[var(--shadow-sm)] hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:shadow-[var(--shadow-lg)]",
               )}
             >
               <ThemedSlideCard slide={slide} textMinPx={14} appearance={ctx.appearance ?? undefined} background={ctx.background} />
-              <div className="absolute top-1 left-1 text-[10px] font-mono text-white/70 bg-black/40 px-1 rounded">
+              <div className="absolute top-1.5 left-1.5 min-w-[20px] h-5 px-1 flex items-center justify-center text-[10px] font-bold tabular-nums text-white/85 bg-black/55 border border-white/15 backdrop-blur-sm rounded-md">
                 {idx + 1}
               </div>
               {/* Reorder up/down — arrange the order verses appear in (doesn't
@@ -1212,18 +1219,18 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
                   type="button"
                   onClick={() => { void loadReferenceString(r); }}
                   style={{
-                    background: "rgba(155,143,232,0.08)",
-                    color: "#9B8FE8",
+                    background: "rgba(232,80,26,0.10)",
+                    color: "var(--color-brand-hi)",
                     fontSize: 12,
-                    fontWeight: 500,
-                    padding: "4px 8px",
-                    borderRadius: 4,
-                    border: "none",
+                    fontWeight: 600,
+                    padding: "4px 10px",
+                    borderRadius: 8,
+                    border: "1px solid rgba(232,80,26,0.20)",
                     cursor: "pointer",
                     transition: "background 120ms ease",
                   }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(155,143,232,0.15)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(155,143,232,0.08)"; }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(232,80,26,0.18)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(232,80,26,0.10)"; }}
                 >
                   {r}
                 </button>
@@ -1234,7 +1241,8 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
                   onClick={() => setShowAllCrossRefs(true)}
                   style={{
                     fontSize: 12,
-                    color: "#9B8FE8",
+                    fontWeight: 600,
+                    color: "var(--color-brand-hi)",
                     background: "transparent",
                     border: "none",
                     padding: "4px 6px",

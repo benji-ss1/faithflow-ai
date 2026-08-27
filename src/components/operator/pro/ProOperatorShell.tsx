@@ -18,6 +18,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { Quote } from "lucide-react";
 import type { OperatorShellCtx } from "../shell/types";
 import { OperatorErrorBoundary } from "../OperatorErrorBoundary";
 import { TopBar } from "./TopBar";
@@ -300,12 +301,10 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
 
   return (
     <div
-      className="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-1.5 flex items-center gap-3 min-h-[32px]"
+      className="shrink-0 border-t border-[var(--color-border)] bg-[linear-gradient(180deg,var(--color-panel),var(--color-app-bg))] shadow-[var(--edge-top)] px-3 py-1.5 flex items-center gap-3 min-h-[34px]"
       data-testid="ai-transcript-ticker"
     >
-      <span className="text-[9px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)] shrink-0">
-        AI chips
-      </span>
+      <span className="eyebrow shrink-0">AI chips</span>
       {scriptureCards.length > 0 && (
         <div className="flex items-center gap-1.5 shrink-0">
           {scriptureCards.map((s) => {
@@ -345,22 +344,23 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
                   boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 8px rgba(0,0,0,0.35)",
                 }}
               >
-                <span className="font-semibold">{ref}</span>
-                <span className="text-[9px] font-mono opacity-60">{s.confidence}%</span>
+                <span className="font-bold tracking-[-0.01em]">{ref}</span>
+                <span className="text-[9px] font-mono font-semibold tabular-nums opacity-70">{s.confidence}%</span>
                 {isPhrase ? (
-                  // ✦ phrase-match badge — visually distinct from the "AI"
-                  // hard-reference badge so operators can tell a fuzzy quote
-                  // match from a spoken reference at a glance.
+                  // Quote badge — a phrase/quoted-text match (not a spoken
+                  // reference). Gold, so it reads distinct from the green "AI"
+                  // spoken-reference badge at a glance. (Replaced the old purple
+                  // ✦ glyph with a proper icon.)
                   <span
-                    className="ml-1 text-[8px] font-bold px-1 py-[1px] rounded bg-violet-500/80 text-white"
-                    aria-label="Phrase match"
+                    className="grid place-items-center ml-0.5 w-[15px] h-[15px] rounded-md bg-[var(--color-scripture-gold,#EF9F27)]/20 text-[var(--color-scripture-gold,#EF9F27)]"
+                    aria-label="Phrase match — quoted text"
                     data-testid="phrase-match-badge"
                   >
-                    ✦
+                    <Quote className="w-2.5 h-2.5" strokeWidth={2.6} />
                   </span>
                 ) : (
                   <span
-                    className="ml-1 text-[8px] font-bold px-1 py-[1px] rounded bg-[var(--color-success,#10b981)] text-white"
+                    className="ml-0.5 text-[8px] font-extrabold tracking-wide px-1.5 py-[2px] rounded-md bg-[var(--color-success,#10b981)] text-black shadow-[var(--edge-top)]"
                     aria-label="AI detected"
                   >
                     AI

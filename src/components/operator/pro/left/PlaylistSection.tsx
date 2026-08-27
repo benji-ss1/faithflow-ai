@@ -786,7 +786,7 @@ export function PlaylistSection({
       }}
       onDrop={handleExternalDrop}
     >
-      <header className="flex items-center h-7 px-2 gap-1">
+      <header className="flex items-center h-8 px-2.5 gap-1 bg-[linear-gradient(180deg,var(--color-panel),transparent)]">
         <button
           type="button"
           className="flex items-center gap-1 shrink-0 text-left"
@@ -803,10 +803,10 @@ export function PlaylistSection({
           <Popover.Trigger asChild>
             <button
               type="button"
-              className="w-5 h-5 flex items-center justify-center rounded hover:bg-white/5 text-[var(--color-muted-foreground)]"
+              className="w-[22px] h-[22px] grid place-items-center rounded-md border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] text-[var(--color-muted-foreground)] transition-[transform,box-shadow,color,border-color] duration-200 [transition-timing-function:var(--ease-spring)] hover:-translate-y-px hover:text-[var(--color-brand)] hover:border-[color-mix(in_oklab,var(--color-brand)_50%,var(--color-border))] active:translate-y-0 active:scale-95"
               title="Add item"
             >
-              <Plus className="w-3 h-3" />
+              <Plus className="w-3.5 h-3.5" strokeWidth={2.4} />
             </button>
           </Popover.Trigger>
           <Popover.Portal>

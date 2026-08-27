@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import { Upload, Pencil, Trash2, CheckSquare, Square, ListPlus, ArrowUpDown, GripVertical, Check, Crop } from "lucide-react";
+import { Upload, Pencil, Trash2, CheckSquare, Square, ListPlus, ArrowUpDown, GripVertical, Check, Crop, X } from "lucide-react";
 import { DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCenter, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, useSortable, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -334,12 +334,12 @@ export function MediaBrowser({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={loading ? "Loading media…" : `Filter ${assets.length} asset${assets.length !== 1 ? "s" : ""}…`}
-            className="flex-1 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded-md px-3 h-8 text-sm outline-none focus:border-[var(--color-brand)]"
+            className="flex-1 bg-[var(--color-muted)] border border-[var(--color-border)] rounded-lg px-3 h-8 text-sm font-medium text-[var(--color-foreground)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)] outline-none transition-colors focus:border-[var(--color-brand)] focus:shadow-[inset_0_1px_2px_rgba(0,0,0,0.28),var(--shadow-ember)]"
           />
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value as Filter)}
-            className="h-8 px-2 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded-md text-sm"
+            className="h-8 px-2 bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg text-sm font-medium shadow-[var(--edge-top),var(--shadow-sm)] outline-none transition-colors focus:border-[var(--color-brand)]"
           >
             <option value="all">All</option>
             <option value="image">Images</option>
@@ -349,7 +349,7 @@ export function MediaBrowser({
             type="button"
             onClick={() => setWizardOpen(true)}
             title="Import media files"
-            className="h-8 px-3 rounded-md bg-[var(--color-brand)] text-black text-[12px] font-semibold flex items-center gap-1.5 hover:opacity-90 active:opacity-80 shrink-0 transition-opacity"
+            className="h-8 px-3 rounded-lg bg-[linear-gradient(180deg,#F2712E_0%,#E8501A_100%)] text-black text-[12px] font-bold flex items-center gap-1.5 shadow-[var(--edge-top),var(--shadow-ember)] shrink-0 transition-[transform,box-shadow] duration-200 [transition-timing-function:var(--ease-house)] hover:-translate-y-px hover:shadow-[var(--edge-top),var(--shadow-ember-lg)] active:translate-y-0 active:scale-[0.97]"
           >
             <Upload className="w-3.5 h-3.5" />
             Import
@@ -360,7 +360,7 @@ export function MediaBrowser({
             next item you project AND to whatever is already live (instant). */}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[11px] font-medium text-[var(--color-muted-foreground)]">Projected size</span>
-          <div className="inline-flex rounded-md border border-[var(--color-border)] overflow-hidden">
+          <div className="inline-flex items-center gap-[3px] rounded-xl border border-[var(--color-border)] bg-[var(--color-app-bg)] p-[3px] shadow-[var(--edge-top),inset_0_1px_2px_rgba(0,0,0,0.28)]">
             {FIT_OPTIONS.map((o) => (
               <button
                 key={o.value}
@@ -369,10 +369,10 @@ export function MediaBrowser({
                 title={o.hint}
                 aria-pressed={fit === o.value}
                 className={cn(
-                  "h-7 px-3 text-[12px] font-medium transition-colors border-r border-[var(--color-border)] last:border-r-0",
+                  "h-7 px-3 rounded-lg text-[12px] transition-[color,background-color,box-shadow] duration-200 [transition-timing-function:var(--ease-house)]",
                   fit === o.value
-                    ? "bg-[var(--color-brand)] text-black"
-                    : "bg-[var(--color-elevated)] text-[var(--color-foreground)] hover:bg-[var(--color-panel)]",
+                    ? "bg-[linear-gradient(180deg,#F2712E_0%,#E8501A_100%)] text-black font-bold shadow-[var(--edge-top),var(--shadow-ember)]"
+                    : "text-[var(--color-muted-foreground)] font-semibold hover:text-[var(--color-foreground)] hover:bg-white/[0.04]",
                 )}
               >
                 {o.label}
@@ -388,35 +388,37 @@ export function MediaBrowser({
         {filtered.length > 0 && !reorderMode && (
           <div className="px-1 pb-1 flex items-center gap-1.5">
             <button type="button" onClick={toggleSelectAll} title={allSelected ? "Deselect all" : "Select all"}
-              className="flex items-center gap-1.5 text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
+              className="flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-muted-foreground)] transition-colors hover:text-[var(--color-foreground)]">
               {allSelected ? <CheckSquare className="w-3.5 h-3.5 text-[var(--color-brand)]" /> : <Square className="w-3.5 h-3.5" />}
-              {bulkIds.size > 0 ? `${bulkIds.size} selected` : "Select"}
+              {bulkIds.size > 0
+                ? <span className="inline-flex items-center rounded-full border border-[color-mix(in_oklab,var(--color-brand)_40%,var(--color-border))] bg-[color-mix(in_oklab,var(--color-brand)_14%,transparent)] px-2 py-0.5 font-bold tabular-nums text-[var(--color-foreground)]">{bulkIds.size} selected</span>
+                : "Select"}
             </button>
             <button type="button" onClick={() => { setReorderMode(true); setBulkIds(new Set()); }} title="Drag to reorder the library"
-              className="ml-auto flex items-center gap-1 text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
+              className="ml-auto flex items-center gap-1 text-[11px] font-semibold text-[var(--color-muted-foreground)] transition-colors hover:text-[var(--color-foreground)]">
               <ArrowUpDown className="w-3.5 h-3.5" /> Reorder
             </button>
             {bulkIds.size > 0 && (
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5">
                 <button type="button" onClick={() => void bulkAddGroup()} disabled={addingGroup}
-                  className="h-6 px-2 rounded border border-teal-500/40 flex items-center gap-1 text-[10px] font-semibold text-teal-300 hover:bg-teal-500/10 disabled:opacity-50">
+                  className="h-7 px-2.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] flex items-center gap-1 text-[10px] font-semibold text-[var(--color-foreground)] transition-[transform,box-shadow,border-color,background-color] duration-200 [transition-timing-function:var(--ease-house)] hover:-translate-y-px hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] active:translate-y-0 active:scale-[0.97] disabled:opacity-50 disabled:pointer-events-none">
                   <ListPlus className="w-3 h-3" /> Add group to playlist
                 </button>
                 <button type="button" onClick={() => void bulkDelete()} disabled={bulkBusy}
-                  className="h-6 px-2 rounded border border-red-500/40 flex items-center gap-1 text-[10px] font-semibold text-red-300 hover:bg-red-500/10 disabled:opacity-50">
+                  className="h-7 px-2.5 rounded-lg border border-red-500/40 shadow-[var(--edge-top),var(--shadow-sm)] flex items-center gap-1 text-[10px] font-semibold text-red-300 transition-[transform,box-shadow,border-color,background-color] duration-200 [transition-timing-function:var(--ease-house)] hover:-translate-y-px hover:bg-red-500/10 hover:border-red-500/60 active:translate-y-0 active:scale-[0.97] disabled:opacity-50 disabled:pointer-events-none">
                   <Trash2 className="w-3 h-3" /> Delete
                 </button>
                 <button type="button" onClick={() => setBulkIds(new Set())} title="Clear selection"
-                  className="grid h-6 w-6 place-items-center rounded text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">×</button>
+                  className="grid h-7 w-7 place-items-center rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] text-[var(--color-muted-foreground)] transition-colors hover:text-[var(--color-foreground)] hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))]"><X className="w-3.5 h-3.5" /></button>
               </div>
             )}
           </div>
         )}
         {reorderMode && (
           <div className="px-1 pb-1 flex items-center gap-1.5">
-            <span className="flex items-center gap-1.5 text-[11px] text-teal-300"><GripVertical className="w-3.5 h-3.5" /> Reorder mode — drag cards to arrange the library</span>
+            <span className="flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-brand)]"><GripVertical className="w-3.5 h-3.5" /> Reorder mode — drag cards to arrange the library</span>
             <button type="button" onClick={() => setReorderMode(false)}
-              className="ml-auto h-6 px-2 rounded border border-teal-500/40 flex items-center gap-1 text-[10px] font-semibold text-teal-300 hover:bg-teal-500/10">
+              className="ml-auto h-7 px-2.5 rounded-lg bg-[linear-gradient(180deg,#F2712E_0%,#E8501A_100%)] text-black shadow-[var(--edge-top),var(--shadow-ember)] flex items-center gap-1 text-[10px] font-bold transition-[transform,box-shadow] duration-200 [transition-timing-function:var(--ease-house)] hover:-translate-y-px hover:shadow-[var(--edge-top),var(--shadow-ember-lg)] active:translate-y-0 active:scale-[0.97]">
               <Check className="w-3 h-3" /> Done
             </button>
           </div>
@@ -495,12 +497,12 @@ export function MediaBrowser({
                     }}
                     title="Click to project · double-click to crop/frame · drag to playlist · right-click for options"
                     className={cn(
-                      "relative aspect-video rounded-md overflow-hidden border-2 transition-all bg-black text-left group",
+                      "relative aspect-video rounded-lg overflow-hidden bg-black text-left group transition-[transform,box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-house)]",
                       bulkIds.has(a.id)
-                        ? "border-[var(--color-brand)] ring-2 ring-[var(--color-brand)]/50"
+                        ? "border-2 border-[var(--color-brand)] shadow-[var(--shadow-ember)]"
                         : selectedId === a.id
-                          ? "border-[var(--color-brand)]"
-                          : "border-[var(--color-border)] hover:border-[var(--color-muted-foreground)]",
+                          ? "border-2 border-[var(--color-brand)] shadow-[var(--shadow-ember)]"
+                          : "border border-[var(--color-border)] shadow-[var(--edge-top),var(--shadow-sm)] hover:-translate-y-[3px] hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:shadow-[var(--shadow-lg)]",
                     )}
                   >
                     {/* Bulk-select checkbox (top-left; stops the click from projecting) */}
@@ -682,7 +684,7 @@ function SortableMediaCard({ asset }: { asset: Asset }) {
       {...attributes}
       {...listeners}
       title={`${asset.fileName} — drag to reorder`}
-      className="relative aspect-video rounded-md overflow-hidden border-2 border-[var(--color-border)] bg-black text-left cursor-grab active:cursor-grabbing touch-none select-none"
+      className="relative aspect-video rounded-lg overflow-hidden border border-[var(--color-border)] shadow-[var(--edge-top),var(--shadow-sm)] bg-black text-left cursor-grab active:cursor-grabbing touch-none select-none transition-[box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-house)] hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:shadow-[var(--shadow-md)]"
     >
       {isVideo ? (
         <video src={asset.url} muted className="w-full h-full object-cover pointer-events-none" />

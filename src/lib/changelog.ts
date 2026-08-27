@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.341",
+    date: "2026-08-27",
+    headline: "The design refresh reaches every corner",
+    highlights: [
+      "The AI On/Off and Auto/Manual switches now lift and glow like the Worship/Auto/Preacher control, and the whole bottom transport bar — play, blank, skip, verse nav, speed — has real weight and motion.",
+      "The Cmd+K search, the Bible reference toolbar, the Audio/Screens/Video panels, the Media library, and the scripture-slide editor all got the same lift, depth, and ember accents. Stray blue sliders and purple badges are gone — replaced with proper icons.",
+      "AI detections and the live transcript read bolder and cleaner, the left sidebar carries more weight, and the little buttons (undo/redo, the + buttons, view switches) all feel deliberate now.",
+    ],
+  },
+  {
     version: "0.1.340",
     date: "2026-08-27",
     headline: "A bolder, warmer look across the whole app",

@@ -216,9 +216,9 @@ export function TopBar({
           disabled={!ctx.canUndoLive}
           title="Undo — go back to the previous slide on the projector"
           aria-label="Undo projector"
-          className="grid h-7 w-7 place-items-center rounded-md text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/5 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+          className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] text-[var(--color-muted-foreground)] transition-[transform,box-shadow,color,border-color] duration-200 [transition-timing-function:var(--ease-spring)] hover:-translate-y-px hover:text-[var(--color-foreground)] hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:shadow-[var(--edge-top),var(--shadow-md)] active:translate-y-0 active:scale-95 disabled:opacity-30 disabled:pointer-events-none disabled:shadow-none"
         >
-          <Undo2 className="w-4 h-4" />
+          <Undo2 className="w-4 h-4" strokeWidth={2.2} />
         </button>
         <button
           type="button"
@@ -226,9 +226,9 @@ export function TopBar({
           disabled={!ctx.canRedoLive}
           title="Redo — go forward to the next slide on the projector"
           aria-label="Redo projector"
-          className="grid h-7 w-7 place-items-center rounded-md text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/5 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+          className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] text-[var(--color-muted-foreground)] transition-[transform,box-shadow,color,border-color] duration-200 [transition-timing-function:var(--ease-spring)] hover:-translate-y-px hover:text-[var(--color-foreground)] hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:shadow-[var(--edge-top),var(--shadow-md)] active:translate-y-0 active:scale-95 disabled:opacity-30 disabled:pointer-events-none disabled:shadow-none"
         >
-          <Redo2 className="w-4 h-4" />
+          <Redo2 className="w-4 h-4" strokeWidth={2.2} />
         </button>
       </div>
       <div className="mx-1 h-5 w-px bg-[var(--color-border)]" aria-hidden />

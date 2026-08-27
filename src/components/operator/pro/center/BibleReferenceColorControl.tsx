@@ -31,11 +31,11 @@ export function BibleReferenceColorControl() {
 
   const isSet = /^#[0-9a-fA-F]{6}$/.test(color);
   return (
-    <div className="h-9 inline-flex items-center rounded-md border border-[var(--color-border)] overflow-hidden" title="Reference footer colour (empty = theme colour)">
-      <span className="pl-2 pr-1 text-[var(--color-muted-foreground)]"><Palette className="w-3.5 h-3.5" /></span>
-      <label className="h-full inline-flex items-center px-1 cursor-pointer hover:bg-[var(--color-elevated)]">
+    <div className="h-9 inline-flex items-center gap-0.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] px-1 shadow-[var(--edge-top),var(--shadow-sm)] transition-all duration-150 [transition-timing-function:var(--ease-spring)] hover:-translate-y-px hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:shadow-[var(--edge-top),var(--shadow-md)]" title="Reference footer colour (empty = theme colour)">
+      <span className="pl-1 pr-0.5 text-[var(--color-muted-foreground)]"><Palette className="w-3.5 h-3.5" /></span>
+      <label className="h-7 inline-flex items-center rounded-lg px-1.5 cursor-pointer hover:bg-[var(--color-brand)]/10">
         <span
-          className="w-4 h-4 rounded-full border border-[var(--color-border)]"
+          className="w-4 h-4 rounded-full border border-[var(--color-border)] shadow-[var(--shadow-sm)]"
           style={{ background: isSet ? color : "linear-gradient(135deg,#fff 0 50%,#888 50% 100%)" }}
         />
         <input
@@ -49,7 +49,7 @@ export function BibleReferenceColorControl() {
       {isSet && (
         <button
           onClick={() => change("")}
-          className="h-full px-1 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-elevated)]"
+          className="h-7 w-7 inline-flex items-center justify-center rounded-lg text-[var(--color-muted-foreground)] transition-transform duration-150 [transition-timing-function:var(--ease-spring)] hover:bg-[var(--color-brand)]/10 hover:text-[var(--color-foreground)] active:scale-90"
           title="Use theme colour"
           aria-label="Reset reference colour"
         >
