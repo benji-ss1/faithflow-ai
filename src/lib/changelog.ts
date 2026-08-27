@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.337",
+    date: "2026-08-27",
+    headline: "Livestream lyrics overlay for OBS — no capture card needed",
+    highlights: [
+      { text: "Put your song and scripture words straight over your camera in OBS as a transparent overlay. In the operator, open Sync devices → “Copy OBS URL”, then in OBS add a Browser source and paste it — the lyrics appear over your live camera and follow every slide automatically.", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "The overlay shows only the words (with a soft shadow so they stay readable over any background) — no black box, no operator controls. When nothing is live, it's fully clear. Works from any machine on your network using your sync code.",
+    ],
+  },
+  {
     version: "0.1.336",
     date: "2026-08-27",
     headline: "Reorder any slides, PowerPoint imports, and a movable Quick Edit",

@@ -267,6 +267,33 @@ export async function middleware(req: NextRequest) {
     return res;
   }
 
+  // OBS/NDI overlay + external pair-code output devices (2026-08-26): an output
+  // surface (/live, /stage, /livestream) carrying a valid-format ?pair= code is
+  // served WITHOUT auth. Rationale (partially re-opens Y10, scoped tightly):
+  //   • the pair code is the CAPABILITY token — church-scoped, 6-char, expiring,
+  //     revocable, minted only by an authenticated operator;
+  //   • the Supabase Realtime channel (ff-out-<church>-<code>) is the real access
+  //     gate, and its OutputState copy is already stripped of sensitive fields
+  //     (videoInput etc.) at publish time;
+  //   • the surface is READ-ONLY — it subscribes to live state, it can NEVER push;
+  //   • the content is lyrics/scripture already going out on a public livestream.
+  // This is what lets an OBS Browser Source (an unauthenticated Chromium) load
+  // /livestream?bg=transparent&pair=CODE. NO pair code → still requires login
+  // (Y10 unchanged). Format check is INLINE (mirrors isValidPairCode) to keep the
+  // edge middleware free of the realtime module's non-edge deps.
+  // Scoped to the PUBLIC-CONTENT surfaces only: /live (congregation projection)
+  // and /livestream (OBS overlay) show lyrics/scripture already going out on the
+  // public stream. /stage is deliberately EXCLUDED — it renders private stage-
+  // direction cues (operatorMessage), which are NOT public, so it keeps the Y10
+  // login requirement even with a pair code.
+  const PAIR_PUBLIC_PATHS = ["/live", "/livestream"];
+  if (PAIR_PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
+    const pair = req.nextUrl.searchParams.get("pair");
+    if (pair && /^[A-HJ-NP-Z2-9]{6}$/.test(pair.trim().toUpperCase())) {
+      return NextResponse.next();
+    }
+  }
+
   // Auth.js v5 renamed the cookie. Must pass salt + cookieName + secureCookie
   // explicitly for getToken to read the correct one in production.
   const secureCookie = req.nextUrl.protocol === "https:";

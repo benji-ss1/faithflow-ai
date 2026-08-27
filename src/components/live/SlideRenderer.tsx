@@ -5,6 +5,22 @@ import { AutoFitText } from "./AutoFitText";
 import { AnimatedThemeBg } from "./ThemeLayers";
 import { SlideObjectsLayer } from "./SlideObjectsLayer";
 
+// Drop-shadow applied to text ONLY in the OBS/NDI transparent-overlay mode
+// (transparentBg). There's no background scrim in that mode, so this keeps white
+// lyrics/verses legible when OBS composites them over a bright/busy camera feed.
+// Layered for two failure modes: a soft dark halo for busy backgrounds, PLUS
+// four 1px opaque offset copies that approximate a solid dark outline so white
+// text survives even over a bright/white wall (font-agnostic — safer than
+// -webkit-text-stroke, which thins some display faces).
+const OBS_OVERLAY_TEXT_SHADOW =
+  "0 2px 10px rgba(0,0,0,0.85), 0 0 5px rgba(0,0,0,0.9), " +
+  "1px 1px 0 rgba(0,0,0,0.95), -1px 1px 0 rgba(0,0,0,0.95), " +
+  "1px -1px 0 rgba(0,0,0,0.95), -1px -1px 0 rgba(0,0,0,0.95)";
+// Container-level halo for DESIGNED (multi-object) slides, whose text/image
+// objects carry their own styles — a filter drop-shadow lifts every child off a
+// busy camera without rewriting each object's per-object CSS.
+const OBS_OVERLAY_DROP_SHADOW = "drop-shadow(0 2px 6px rgba(0,0,0,0.9)) drop-shadow(0 0 2px rgba(0,0,0,0.95))";
+
 /** True when the active theme has a running animated (solid/gradient) background
  *  and this slide isn't over video / per-slide-coloured — i.e. AnimatedThemeBg
  *  will render and the text must be lifted to z-[1] to stay on top.
@@ -79,13 +95,21 @@ function themeTextStyle(appearance: ThemeAppearance | null | undefined): React.C
   return Object.keys(s).length ? s : undefined;
 }
 
-export function SlideRenderer({ slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef, fontScale, referenceScale, referenceColor, appearance, overVideo, editable, onEditInput }: {
+export function SlideRenderer({ slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef, fontScale, referenceScale, referenceColor, appearance, overVideo, transparentBg, editable, onEditInput }: {
   slide: SlidePayload;
   className?: string;
   // Phase 2a: rendering as an overlay ON TOP of a live video layer. Makes
   // text/blank backgrounds transparent (video shows through); the parent
   // supplies a readability scrim. Theme text styling still applies.
   overVideo?: boolean;
+  // OBS/NDI transparent overlay (2026-08-26): force a FULLY transparent slide
+  // background (alpha:0) — theme bg, per-slide bg AND the empty/blank fills are
+  // all skipped, so ONLY the lyric/verse/objects render and everything else is
+  // transparent for OBS to composite over the camera. Distinct from `overVideo`
+  // (which is about an in-app video layer + keeps per-slide bg precedence). The
+  // TEXT styling (theme font/colour/size) still applies so the overlay matches
+  // the projector. Highest-precedence background rule when set.
+  transparentBg?: boolean;
   // Themes Phase 1: active theme appearance (background + text styling) from
   // OutputState. Undefined ⇒ built-in defaults (dark bg, white text). A per-slide
   // `bgColor` still overrides the theme background. Applies to text/blank kinds;
@@ -124,12 +148,16 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
 }) {
   const base = "w-full h-full flex items-center justify-center overflow-hidden";
 
-  if (slide.kind === "empty") return <div className={`${base} bg-black ${className || ""}`} />;
+  // A cleared slide is transparent in overlay mode (camera shows through in OBS),
+  // otherwise opaque black.
+  if (slide.kind === "empty") return <div className={`${base} ${transparentBg ? "" : "bg-black"} ${className || ""}`} />;
 
   if (slide.kind === "blank") {
-    // Over video, a blank slide is fully transparent (shows the live feed).
-    const bg = overVideo ? { background: "transparent" } : slide.bgColor ? { background: slide.bgColor } : themeBackgroundStyle(appearance, "#000000");
-    const animated = usesAnimatedBg(appearance, overVideo, slide.bgColor);
+    // Over video OR in OBS transparent mode, a blank slide is fully transparent
+    // (shows the live feed / camera). transparentBg ignores any per-slide bgColor
+    // so "clear" always keys through.
+    const bg = (overVideo || transparentBg) ? { background: "transparent" } : slide.bgColor ? { background: slide.bgColor } : themeBackgroundStyle(appearance, "#000000");
+    const animated = usesAnimatedBg(appearance, overVideo || transparentBg, slide.bgColor);
     return (
       <div className={`${base} ${animated ? "relative" : ""} ${className || ""}`} style={bg}>
         {animated && <AnimatedThemeBg appearance={appearance} />}
@@ -138,6 +166,10 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
   }
 
   if (slide.kind === "logo") {
+    // OBS overlay contract is TEXT-over-camera. A holding/idle logo slide (shown
+    // constantly between songs) must NOT paint an opaque black box over the live
+    // camera on the stream — key it fully through so the camera stays clean.
+    if (transparentBg) return <div className={`${base} ${className || ""}`} style={{ background: "transparent" }} />;
     return (
       <div className={`${base} bg-black relative ${className || ""}`}>
         {slide.url ? (
@@ -170,13 +202,15 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
       // (bgColor "#000000") covers the theme. A slide with NO per-slide bg goes
       // transparent over the background layer so the theme shows through beneath
       // the objects (scripture/lyrics over the theme). Else the theme fill.
-      const designBg: React.CSSProperties = slide.bgImageUrl
-        ? { background: `#000 url("${slide.bgImageUrl}") center/cover no-repeat` }
-        : slide.bgColor
-          ? { background: slide.bgColor }
-          : overVideo
-            ? { background: "transparent" }
-            : themeBackgroundStyle(appearance, "#0b0b0b");
+      const designBg: React.CSSProperties = transparentBg
+        ? { background: "transparent" } // OBS overlay: only the objects render
+        : slide.bgImageUrl
+          ? { background: `#000 url("${slide.bgImageUrl}") center/cover no-repeat` }
+          : slide.bgColor
+            ? { background: slide.bgColor }
+            : overVideo
+              ? { background: "transparent" }
+              : themeBackgroundStyle(appearance, "#0b0b0b");
       // Lyric/verse slides are stored as a SINGLE centered text object (from
       // import or the slide editor). Rendering that at its stored ~96px font
       // makes it tiny on a sanctuary screen — the "songs project small" bug.
@@ -188,7 +222,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
       const visible = objects.filter((o) => !o.hidden);
       const soleText = visible.length === 1 && visible[0].kind === "text" ? visible[0] : null;
       if (soleText && soleText.text.trim()) {
-        const animated = usesAnimatedBg(appearance, overVideo, slide.bgColor || slide.bgImageUrl);
+        const animated = usesAnimatedBg(appearance, overVideo || transparentBg, slide.bgColor || slide.bgImageUrl);
         // Respect the operator's colour/font/weight/alignment; AutoFitText owns
         // the SIZE (fill-to-fit) + the always-on uppercase crowd-readability.
         const objStyle: React.CSSProperties = {
@@ -201,6 +235,9 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
           // (e.g. a reference-hidden scripture verse) stays one-to-one with the
           // editor. Undefined = leave AutoFitText's always-on lyric uppercase.
           ...(soleText.uppercase === false ? { textTransform: "none" } : soleText.uppercase === true ? { textTransform: "uppercase" } : {}),
+          // OBS overlay: no background scrim, so a strong drop-shadow keeps white
+          // text legible over ANY camera feed (bright/busy backgrounds).
+          ...(transparentBg ? { textShadow: OBS_OVERLAY_TEXT_SHADOW } : {}),
         };
         return (
           <div className={`${base} ${animated ? "relative" : ""} ${className || ""}`} style={designBg}>
@@ -228,22 +265,31 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
       const dRefText = slide.reference?.trim();
       const dRefDupe = !!dRefText && objects.some((o) => o.kind === "text" && !o.hidden && (o as { text?: string }).text?.trim() === dRefText);
       const showDesignedFooter = !!dRefText && !dRefDupe;
+      // OBS overlay: multi-object slides carry their own per-object styles, so a
+      // container-level drop-shadow filter lifts every text/image object off a
+      // busy camera without rewriting each object — the transparent-mode analogue
+      // of the per-text textShadow used on the soleText/plain-text paths.
+      const designedContainerStyle: React.CSSProperties = showDesignedFooter
+        ? { ...designBg, paddingBottom: projectorFit ? "8%" : "12%" }
+        : { ...designBg };
+      if (transparentBg) designedContainerStyle.filter = OBS_OVERLAY_DROP_SHADOW;
       return (
-        <div className={`${base} relative ${className || ""}`} style={showDesignedFooter ? { ...designBg, paddingBottom: projectorFit ? "8%" : "12%" } : designBg}>
+        <div className={`${base} relative ${className || ""}`} style={designedContainerStyle}>
           <SlideObjectsLayer objects={objects} fontScale={fontScale} />
           {showDesignedFooter && (
             <div className="absolute inset-x-0 bottom-0 flex justify-center pointer-events-none" style={{ paddingBottom: projectorFit ? "3.5%" : "2.5%" }}>
               <span className="font-display font-semibold uppercase tracking-wide" style={{
                 fontSize: projectorFit ? `${(32 * (referenceScale ?? 1)).toFixed(1)}px` : `calc(clamp(11px, 4%, 20px) * ${referenceScale ?? 1})`,
                 opacity: 0.82, ...themeTextStyle(appearance), ...(referenceColor ? { color: referenceColor } : {}),
+                ...(transparentBg ? { textShadow: OBS_OVERLAY_TEXT_SHADOW } : {}),
               }}>{dRefText}</span>
             </div>
           )}
         </div>
       );
     }
-    const bg = overVideo ? { background: "transparent" } : slide.bgColor ? { background: slide.bgColor } : themeBackgroundStyle(appearance, "#0b0b0b");
-    const animated = usesAnimatedBg(appearance, overVideo, slide.bgColor);
+    const bg = (overVideo || transparentBg) ? { background: "transparent" } : slide.bgColor ? { background: slide.bgColor } : themeBackgroundStyle(appearance, "#0b0b0b");
+    const animated = usesAnimatedBg(appearance, overVideo || transparentBg, slide.bgColor);
     const refText = slide.reference?.trim();
     return (
       <div
@@ -265,7 +311,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
           projectorFit={projectorFit}
           fontScale={fontScale}
           className={`text-white font-display font-semibold${animated ? " relative z-[1]" : ""}`}
-          textStyle={themeTextStyle(appearance)}
+          textStyle={transparentBg ? { ...themeTextStyle(appearance), textShadow: OBS_OVERLAY_TEXT_SHADOW } : themeTextStyle(appearance)}
           editable={editable}
           onEditInput={onEditInput}
         />
@@ -292,6 +338,9 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
                 ...themeTextStyle(appearance),
                 // Operator-chosen reference colour wins over the theme text colour.
                 ...(referenceColor ? { color: referenceColor } : {}),
+                // OBS overlay: shadow the reference too, else the white footer
+                // washes out over a bright camera while the verse body is shadowed.
+                ...(transparentBg ? { textShadow: OBS_OVERLAY_TEXT_SHADOW } : {}),
               }}
             >
               {refText}
@@ -308,6 +357,9 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
     //     shown, never cropped or distorted.
     //   cover ("Fill"): fills the pane edge-to-edge, cropping overflow.
     //   fill  ("Stretch"): fills the pane exactly, distorting aspect if needed.
+    // OBS overlay: media images belong on a dedicated OBS media scene, not the
+    // text overlay — keying a letterboxed image on black would cover the camera.
+    if (transparentBg) return <div className={`${base} ${className || ""}`} style={{ background: "transparent" }} />;
     const fitMode = slide.fit ?? "contain";
     const imgStyle: React.CSSProperties =
       fitMode === "cover"
@@ -334,6 +386,10 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
   }
 
   if (slide.kind === "video") {
+    // OBS overlay: don't render (or play the audio of) a media video on the text
+    // overlay — it would black-box the camera and dump a second audio track into
+    // the OBS page. Media video is a separate OBS scene.
+    if (transparentBg) return <div className={`${base} ${className || ""}`} style={{ background: "transparent" }} />;
     return <VideoSlide slide={slide} base={base} className={className} videoMuted={videoMuted} onVideoRef={onVideoRef} />;
   }
 

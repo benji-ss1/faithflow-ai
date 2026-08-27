@@ -81,6 +81,24 @@ export default function LivestreamPage() {
     } catch { /* ignore */ }
   }, []);
 
+  // OBS transparent-key mode: globals.css paints <html>/<body> solid black (this
+  // is a dark app). OBS Browser Source composites the ENTIRE page, so an opaque
+  // body would hide the camera behind black — the transparent root <div> alone is
+  // not enough. Force the document chrome transparent while ?bg=transparent, and
+  // restore on unmount so navigating away doesn't leave a see-through app shell.
+  useEffect(() => {
+    if (!transparent) return;
+    const htmlEl = document.documentElement;
+    const bodyEl = document.body;
+    const prevHtml = htmlEl.style.background;
+    const prevBody = bodyEl.style.background;
+    htmlEl.style.background = "transparent";
+    bodyEl.style.background = "transparent";
+    return () => {
+      try { htmlEl.style.background = prevHtml; bodyEl.style.background = prevBody; } catch { /* ignore */ }
+    };
+  }, [transparent]);
+
   useEffect(() => {
     let ch: LiveChannelLike | null = openLiveChannel();
     broadcastChRef.current = ch;
@@ -263,16 +281,18 @@ export default function LivestreamPage() {
           {/* Background Templates layer for the broadcast/NDI output. Never in
               transparent (OBS-key) mode. When active the slide goes transparent. */}
           {!transparent && background && background.type !== "none" && <BackgroundLayer key={background.shaderPreset ?? background.type} background={background} />}
-          {hasVideoBackground(videoInput, appearance) && !(!transparent && background && background.type !== "none") ? (
+          {!transparent && hasVideoBackground(videoInput, appearance) && !(!transparent && background && background.type !== "none") ? (
             <OutputSlide slide={slide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} projectorFit />
           ) : transitionsEnabled ? (
             <TransitionWrapper identityKey={slideOutputIdentity(slide)} transition={transition}>
-              <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} overVideo={!!(!transparent && background && background.type !== "none")} videoMuted={false} onVideoRef={handleVideoRef} />
+              <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} overVideo={!!(!transparent && background && background.type !== "none")} transparentBg={transparent} videoMuted={false} onVideoRef={handleVideoRef} />
             </TransitionWrapper>
           ) : (
-            <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} overVideo={!!(!transparent && background && background.type !== "none")} videoMuted={false} onVideoRef={handleVideoRef} />
+            <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} overVideo={!!(!transparent && background && background.type !== "none")} transparentBg={transparent} videoMuted={false} onVideoRef={handleVideoRef} />
           )}
-          <ThemeLogoLayer appearance={appearance} />
+          {/* No theme logo in OBS transparent mode — the overlay is text-only so
+              OBS composites just the lyrics/verse over the camera. */}
+          {!transparent && <ThemeLogoLayer appearance={appearance} />}
           <AnnouncementLayer ann={announcement} />
           {lowerThird && (
             <div className="absolute bottom-16 left-16 right-16 max-w-[70%]">
