@@ -232,9 +232,9 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       try { window.sessionStorage.setItem(SERVICE_MODE_KEY, next); } catch { /* noop */ }
       const label = next === "worship" ? "Worship mode" : next === "preacher" ? "Preacher mode" : "Auto mode";
       const icon = next === "worship"
-        ? <Music2 className="w-4 h-4" style={{ color: "#7C6CF0" }} />
+        ? <Music2 className="w-4 h-4" style={{ color: "var(--color-worship-soft)" }} />
         : next === "preacher"
-          ? <Mic2 className="w-4 h-4" style={{ color: "#F0A227" }} />
+          ? <Mic2 className="w-4 h-4" style={{ color: "var(--color-scripture-gold, #EF9F27)" }} />
           : <Wand2 className="w-4 h-4" style={{ color: "var(--color-brand)" }} />;
       const detail = next === "worship"
         ? "Detecting today's worship set; scripture held for manual"

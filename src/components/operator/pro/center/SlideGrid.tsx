@@ -665,7 +665,7 @@ function SlideCard({
             // a consistent 16:9 box for all.
             "relative w-full min-w-0 aspect-video rounded-lg overflow-hidden text-left",
             "transition-[transform,box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-house)]",
-            "hover:-translate-y-[3px] active:translate-y-0 active:duration-75",
+            "motion-safe:hover:-translate-y-[3px] active:translate-y-0 active:duration-75",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
             selected
               ? "border-2 border-[var(--color-brand)] pf-selected-glow shadow-[var(--shadow-ember)] hover:shadow-[var(--shadow-ember-lg)]"
@@ -681,7 +681,7 @@ function SlideCard({
               Live projector rendering unaffected (uses the 24px default). */}
           <ThemedSlideCard slide={slide} textMinPx={14} appearance={appearance} background={background} />
           <div
-            className="absolute top-1.5 left-1.5 min-w-[20px] h-5 px-1 flex items-center justify-center rounded-md text-[10px] font-bold tabular-nums transition-colors backdrop-blur-sm"
+            className="absolute top-1.5 left-1.5 min-w-[20px] h-5 px-1 flex items-center justify-center rounded-md text-[10px] font-bold tabular-nums transition-colors"
             style={selected
               ? { background: "var(--color-brand)", color: "#17130c", boxShadow: "var(--shadow-sm)" }
               : { background: "rgba(0,0,0,0.55)", color: "rgba(255,255,255,0.82)", border: "1px solid rgba(255,255,255,0.14)" }}

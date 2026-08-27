@@ -1119,7 +1119,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
               className={cn(
                 "group/bcard relative aspect-video rounded-lg overflow-hidden cursor-pointer text-left",
                 "transition-[transform,box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-house)]",
-                "hover:-translate-y-[3px] active:translate-y-0 active:duration-75",
+                "motion-safe:hover:-translate-y-[3px] active:translate-y-0 active:duration-75",
                 "focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]",
                 selected
                   ? "border-2 border-[var(--color-brand)] shadow-[var(--shadow-ember)] hover:shadow-[var(--shadow-ember-lg)]"
@@ -1127,7 +1127,7 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
               )}
             >
               <ThemedSlideCard slide={slide} textMinPx={14} appearance={ctx.appearance ?? undefined} background={ctx.background} />
-              <div className="absolute top-1.5 left-1.5 min-w-[20px] h-5 px-1 flex items-center justify-center text-[10px] font-bold tabular-nums text-white/85 bg-black/55 border border-white/15 backdrop-blur-sm rounded-md">
+              <div className="absolute top-1.5 left-1.5 min-w-[20px] h-5 px-1 flex items-center justify-center text-[10px] font-bold tabular-nums text-white/85 bg-black/60 border border-white/15 rounded-md">
                 {idx + 1}
               </div>
               {/* Reorder up/down — arrange the order verses appear in (doesn't

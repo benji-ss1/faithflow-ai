@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 // brand/live variants ride an ember gradient with a warm glow so the primary
 // action always reads as the hottest thing on the surface.
 const buttonVariants = cva(
-  "group/btn relative inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-semibold tracking-[-0.01em] transition-[transform,box-shadow,background,opacity] duration-200 [transition-timing-function:var(--ease-spring)] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:shadow-none hover:-translate-y-px active:translate-y-0 active:scale-[0.97] active:duration-75 focus-visible:outline-none",
+  "group/btn relative inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-semibold tracking-[-0.01em] transition-[transform,box-shadow,background,opacity] duration-200 [transition-timing-function:var(--ease-spring)] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:shadow-none motion-safe:hover:-translate-y-px active:translate-y-0 active:scale-[0.97] active:duration-75 focus-visible:outline-none",
   {
     variants: {
       variant: {

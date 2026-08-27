@@ -106,6 +106,16 @@
   --shadow-ember-lg:0 12px 34px -6px rgba(232,80,26,0.52), 0 4px 12px -4px rgba(232,80,26,0.38);
   /* Inset top highlight that reads as a lit top edge on raised surfaces. */
   --edge-top: inset 0 1px 0 rgba(255,255,255,0.06);
+
+  /* Single-source the primary/live fills so the ember gradient can't drift. */
+  --grad-ember: linear-gradient(180deg, #F2712E 0%, #E8501A 100%);
+  --grad-live:  linear-gradient(180deg, #FF6A2C 0%, #F2481A 100%);
+
+  /* Service-mode accents — three DISTINCT but all-warm hues (no cold purple):
+   * auto = ember (brand), preacher = scripture gold, worship = warm sunset rose
+   * (the mauve end of the OpenFlow gradient, lightened for on-dark legibility). */
+  --color-worship: #C56B8C;      /* warm rose — replaces the old cold violet */
+  --color-worship-soft: #D98FAA; /* lighter rose for icon/text on dark */
 }
 
 html {
@@ -122,9 +132,14 @@ body { min-height: 100vh; }
 
 /* Chrome headings get the OpenFlow serif; .font-display stays the projector sans
  * (SlideRenderer uses .font-display for projected lyrics/verses — never serif).
- * Weightier tracking + optical sizing so the serif carries real editorial heft. */
-h1, h2, h3 { letter-spacing: -0.02em; font-family: var(--font-heading); font-weight: 560; text-wrap: balance; }
-h1 { letter-spacing: -0.028em; }
+ * Weightier tracking + optical sizing so the serif carries real editorial heft.
+ * SCOPED OUT of the marketing site (.pf-site) — that surface has its own carefully
+ * tuned typography (light-weight Fraunces / Jakarta) and must NOT inherit this
+ * chrome serif, which faux-bolds its 800-weight heroes. Operator + admin keep it. */
+h1:not(.pf-site *), h2:not(.pf-site *), h3:not(.pf-site *) {
+  letter-spacing: -0.02em; font-family: var(--font-heading); font-weight: 560; text-wrap: balance;
+}
+h1:not(.pf-site *) { letter-spacing: -0.028em; }
 .font-display { letter-spacing: -0.02em; font-family: var(--font-display); }
 ::selection { background: color-mix(in oklab, var(--color-brand) 32%, transparent); color: var(--color-foreground); }
 
@@ -599,7 +614,6 @@ button.bg-\[var\(--color-brand\)\]:active:not(:disabled),
 /* --- Opt-in: interactive lift for clickable cards/rows/thumbnails --- */
 .pf-lift {
   transition: transform .22s var(--ease-house), box-shadow .22s var(--ease-house), border-color .22s var(--ease-house);
-  will-change: transform;
 }
 .pf-lift:hover {
   transform: translateY(-2px);

@@ -63,7 +63,7 @@ export function CenterHeader({
   // Shared style for the header's outline action buttons — v2 weight: lit top
   // edge, ambient shadow, spring hover-lift, ember-tinted hover border.
   const actionBtn =
-    "shrink-0 h-8 px-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] flex items-center gap-1.5 text-[11.5px] font-semibold text-[var(--color-foreground)] transition-[transform,box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-spring)] hover:-translate-y-px hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:shadow-[var(--edge-top),var(--shadow-md)] active:translate-y-0 active:scale-[0.97] disabled:opacity-50 disabled:hover:translate-y-0";
+    "shrink-0 h-8 px-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] flex items-center gap-1.5 text-[11.5px] font-semibold text-[var(--color-foreground)] transition-[transform,box-shadow,border-color] duration-200 [transition-timing-function:var(--ease-spring)] motion-safe:hover:-translate-y-px hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] hover:shadow-[var(--edge-top),var(--shadow-md)] active:translate-y-0 active:scale-[0.97] disabled:opacity-50 disabled:pointer-events-none disabled:shadow-none";
 
   return (
     <div className="h-11 shrink-0 border-b border-[var(--color-border)] bg-[linear-gradient(180deg,var(--color-panel),var(--color-app-bg))] shadow-[var(--edge-top)] flex items-center px-3 gap-2">
@@ -254,13 +254,13 @@ function ViewModeToggle() {
   };
   const seg = (m: ViewMode, active: boolean) =>
     cn(
-      "w-8 h-[26px] grid place-items-center rounded-md transition-[background,color,box-shadow,transform] duration-200 [transition-timing-function:var(--ease-spring)] active:scale-95",
+      "w-8 h-[26px] grid place-items-center rounded-lg transition-[background,color,box-shadow,transform] duration-200 [transition-timing-function:var(--ease-spring)] active:scale-95",
       active
-        ? "bg-[var(--color-elevated)] text-[var(--color-foreground)] shadow-[var(--edge-top),var(--shadow-sm)]"
+        ? "bg-[var(--color-elevated)] text-[var(--color-foreground)] shadow-[var(--edge-top),var(--shadow-md)]"
         : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-white/[0.04]",
     );
   return (
-    <div className="flex items-center gap-0.5 h-[30px] rounded-lg border border-[var(--color-border)] bg-[var(--color-app-bg)] p-[2px] shadow-[var(--edge-top),inset_0_1px_2px_rgba(0,0,0,0.28)]">
+    <div className="flex items-center gap-0.5 h-[30px] rounded-xl border border-[var(--color-border)] bg-[var(--color-app-bg)] p-[3px] shadow-[var(--edge-top),inset_0_1px_2px_rgba(0,0,0,0.28)]">
       <button title="Grid view" aria-pressed={mode === "grid"} onClick={() => set("grid")} className={seg("grid", mode === "grid")}>
         <LayoutGrid className="w-4 h-4" />
       </button>

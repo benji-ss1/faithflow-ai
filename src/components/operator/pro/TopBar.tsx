@@ -428,9 +428,9 @@ export function TopBar({
                 id: "auto" | "worship" | "preacher"; label: string;
                 icon: typeof Music2; accent: string; tip: string;
               }[] = [
-                { id: "worship", label: "Worship", icon: Music2, accent: "#7C6CF0", tip: "Worship mode — detects today's worship set (songs auto-project more readily); scripture is held as a chip so a sung lyric can't flash a verse." },
+                { id: "worship", label: "Worship", icon: Music2, accent: "var(--color-worship-soft)", tip: "Worship mode — detects today's worship set (songs auto-project more readily); scripture is held as a chip so a sung lyric can't flash a verse." },
                 { id: "auto", label: "Auto", icon: Wand2, accent: "var(--color-brand)", tip: "Auto — balanced. Songs and scripture both detect and auto-project on their normal confidence bars." },
-                { id: "preacher", label: "Preacher", icon: Mic2, accent: "#F0A227", tip: "Preacher mode — scripture prioritised; songs are held as chips so the sermon's speech never auto-fires a song." },
+                { id: "preacher", label: "Preacher", icon: Mic2, accent: "var(--color-scripture-gold, #EF9F27)", tip: "Preacher mode — scripture prioritised; songs are held as chips so the sermon's speech never auto-fires a song." },
               ];
               return (
                 <Tooltip.Provider delayDuration={200}>
