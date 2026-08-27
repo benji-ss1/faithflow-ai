@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.347",
+    date: "2026-08-27",
+    headline: "Edit any image, from anywhere",
+    highlights: [
+      { text: "The full image editor — crop, frame, pan/zoom, and blur-fill — is now reachable from the playlist too: right-click an image inside a media group and choose “Edit image”, or hit “Edit image” in the toolbar when a media group is open. Same editor, same powers as the Media library.", tryItHref: "/operator", tryItLabel: "Open operator" },
+    ],
+  },
+  {
     version: "0.1.346",
     date: "2026-08-27",
     headline: "Blur-fill for portrait flyers",

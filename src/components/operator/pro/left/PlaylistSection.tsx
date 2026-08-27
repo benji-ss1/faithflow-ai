@@ -392,6 +392,14 @@ function SortablePlaylistItem({
                     <ContextMenu.Portal>
                       <ContextMenu.Content className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[150px]">
                         <ContextMenu.Item onSelect={() => onProjectSlide?.(sIdx)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">Send to live</ContextMenu.Item>
+                        {meta?.id && url && !isVideo ? (
+                          <ContextMenu.Item
+                            onSelect={() => window.dispatchEvent(new CustomEvent("presentflow:edit-media-image", { detail: { id: meta.id, url, fileName: name } }))}
+                            className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer text-[var(--color-brand)] font-semibold"
+                          >
+                            Edit image
+                          </ContextMenu.Item>
+                        ) : null}
                         {meta?.id && onRenameMedia ? (
                           <ContextMenu.Item onSelect={() => { childCancelRef.current = false; setChildDraft(name); setRenamingChild(sIdx); }} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">Rename</ContextMenu.Item>
                         ) : null}

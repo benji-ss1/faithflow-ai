@@ -29,6 +29,7 @@ import { HardwareSection } from "./left/HardwarePanel";
 import { CenterHeader } from "./center/CenterHeader";
 import { SlideGrid } from "./center/SlideGrid";
 import { DesktopSlideEditorModal } from "./DesktopSlideEditorModal";
+import { MediaImageEditor } from "./center/MediaImageEditor";
 import { BibleMode } from "./center/BibleMode";
 import { SongsBrowser } from "./center/SongsBrowser";
 import { MediaBrowser } from "./center/MediaBrowser";
@@ -1527,6 +1528,21 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     };
     window.addEventListener("presentflow:open-slide-editor", open);
     return () => window.removeEventListener("presentflow:open-slide-editor", open);
+  }, []);
+
+  // Shared media-image editor — the SAME crop / frame / pan / zoom / blur-fill
+  // editor the Media library uses, reachable from ANYWHERE (a playlist media-
+  // group child's context menu, the center "Edit image" button) via a window
+  // event carrying { id, url, fileName }. Mounted once here so a single instance
+  // serves every entry point.
+  const [mediaEdit, setMediaEdit] = useState<{ id: string; url: string; fileName: string } | null>(null);
+  useEffect(() => {
+    const open = (e: Event) => {
+      const d = (e as CustomEvent<{ id?: string; url?: string; fileName?: string } | undefined>).detail;
+      if (d?.id && d?.url) setMediaEdit({ id: d.id, url: d.url, fileName: d.fileName || "Image" });
+    };
+    window.addEventListener("presentflow:edit-media-image", open);
+    return () => window.removeEventListener("presentflow:edit-media-image", open);
   }, []);
   // Change 4 — Left panel width state. Starts at the persisted value (or the
   // default), clamped once read is verified against window.innerWidth on mount.
@@ -4164,6 +4180,9 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       <SongAutopilotStaging ctx={ctx} />
       <AITranscriptTicker ctx={ctx} />
       <DesktopSlideEditorModal ctx={ctx} open={slideEditorOpen} targetSong={slideEditorTargetSong} openBlank={slideEditorBlank} openAdd={slideEditorAdd} onClose={() => { setSlideEditorOpen(false); setSlideEditorTargetSong(null); setSlideEditorBlank(false); setSlideEditorAdd(false); }} />
+      {mediaEdit ? (
+        <MediaImageEditor asset={mediaEdit} ctx={ctx} onClose={() => setMediaEdit(null)} />
+      ) : null}
 
       <div data-tour="bottom">
         <BottomBar

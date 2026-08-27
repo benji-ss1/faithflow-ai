@@ -123,6 +123,24 @@ export function CenterHeader({
           </button>
         </>
       )}
+      {/* Media groups: edit the CURRENTLY-PREVIEWED image with the same crop /
+          frame / pan / zoom / blur-fill editor the Media library uses. */}
+      {centerMode === "slides" && item?.type === "media" && (() => {
+        const mIdx = ctx.previewSlideIdx;
+        const meta = item.mediaMeta?.[mIdx];
+        const slide = item.slides?.[mIdx];
+        const url = slide && slide.kind === "image" ? slide.url : null;
+        if (!meta?.id || !url) return null;
+        return (
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent("presentflow:edit-media-image", { detail: { id: meta.id, url, fileName: meta.fileName || "Image" } }))}
+            title="Edit this image — crop, frame, pan/zoom, blur-fill"
+            className={actionBtn}
+          >
+            <Pencil className="w-3.5 h-3.5" /> Edit image
+          </button>
+        );
+      })()}
       <div className="flex-1" />
       {/* Unified size slider — slides mode uses the ctx-supplied setter,
           bible/songs modes broadcast to their own local size state via a
