@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.340",
+    date: "2026-08-27",
+    headline: "OBS overlay setup steps now live inside Sync devices",
+    highlights: [
+      { text: "Setting up the transparent lyrics overlay in OBS is now guided in-app: open Sync devices, and under the OBS overlay link tap “How to set up in OBS” for the exact steps — copy the URL, add a Browser source at 1920×1080, drag it above your camera — plus a quick pre-service test.", tryItHref: "/operator", tryItLabel: "Open operator" },
+    ],
+  },
+  {
     version: "0.1.339",
     date: "2026-08-27",
     headline: "OpenFlow plans now show real slide previews",
