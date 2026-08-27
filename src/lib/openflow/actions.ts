@@ -7,7 +7,11 @@
  * a plan is applied through the same addServiceItem the rest of the app uses
  * (auth-gated, validated, deduped).
  */
+import { asc, eq } from "drizzle-orm";
 import { requireCap } from "@/lib/session";
+import { getDb } from "@/lib/db/client";
+import { songSlides } from "@/lib/db/schema";
+import { sanitizeLyrics } from "@/lib/pro6-parser";
 import { parseReference } from "@/lib/bible-parser";
 import { listTranslations, lookupReference } from "@/lib/server/bible";
 import { listSongs } from "@/lib/server/services";
@@ -16,6 +20,87 @@ import type { ServicePlanBlock } from "@/lib/openflow/parse";
 import { matchSongIndex, formatScriptureLabel, lookupVerseEnd } from "@/lib/openflow/resolve-helpers";
 
 type Result<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
+
+/** A preview slide — real content (song lyric slide, resolved verse, or a label)
+ *  that the OpenFlow cards render through the SAME SlideRenderer as the projector. */
+export type OpenFlowMiniSlide = { kind: "text"; text: string; reference?: string };
+export type OpenFlowHydratedBlock = {
+  name: string;
+  durationMin: number;
+  type: ServicePlanBlock["type"];
+  chips: string[];       // matched song titles / verse refs / sermon speaker
+  missing: string[];     // suggested content NOT in the library / unresolvable
+  slides: OpenFlowMiniSlide[]; // the real slides this block would create (capped)
+};
+
+const MAX_PREVIEW_SLIDES = 10;
+const MAX_PREVIEW_BLOCKS = 20;
+
+/**
+ * Hydrate a generated plan into the REAL slides each block would create — song
+ * lyric slides from the church's library, resolved verse slides from the Bible —
+ * so the card can render true theme-accurate previews (not faked text). Church-
+ * scoped; never invents. Read-only. Auth + translations are resolved ONCE, and
+ * every block (and its songs/verses) is fetched CONCURRENTLY so a multi-block
+ * plan doesn't pay a serial round-trip per song on card mount.
+ */
+export async function hydrateOpenFlowPlan(blocks: ServicePlanBlock[]): Promise<Result<OpenFlowHydratedBlock[]>> {
+  const user = await requireCap("operate_services");
+  const db = getDb();
+  const [lib, translations] = await Promise.all([listSongs(user.churchId), listTranslations()]);
+  const libTitles = lib.map((s) => s.title);
+  const defaultT = translations.find((t) => t.code === "KJV") || translations[0];
+  const capped = (Array.isArray(blocks) ? blocks : []).slice(0, MAX_PREVIEW_BLOCKS);
+
+  // Inline scripture resolution (shares the single auth + translation list).
+  const resolveRef = async (ref: string) => {
+    const parsed = parseReference(ref);
+    if (!parsed || !defaultT) return null;
+    const verses = await lookupReference(
+      defaultT.id, parsed.book, parsed.chapter, parsed.verseStart, lookupVerseEnd(parsed),
+      parsed.chapterEnd, defaultT.code, user.churchId,
+    );
+    if (!verses.length) return null;
+    return { label: formatScriptureLabel(parsed), code: defaultT.code, verses };
+  };
+
+  const out = await Promise.all(capped.map(async (block): Promise<OpenFlowHydratedBlock> => {
+    const h: OpenFlowHydratedBlock = { name: block.name, durationMin: block.durationMin, type: block.type, chips: [], missing: [], slides: [] };
+    if (block.type === "songs") {
+      const matches = block.items.map((t) => ({ t, idx: matchSongIndex(libTitles, t) }));
+      const fetched = await Promise.all(matches.map((m) => m.idx < 0
+        ? Promise.resolve<{ lyrics: string }[]>([])
+        : db.select({ lyrics: songSlides.lyrics }).from(songSlides).where(eq(songSlides.songId, lib[m.idx].id)).orderBy(asc(songSlides.order))));
+      matches.forEach((m, i) => {
+        if (m.idx < 0) { h.missing.push(m.t); return; }
+        h.chips.push(lib[m.idx].title);
+        for (const r of fetched[i]) {
+          if (h.slides.length >= MAX_PREVIEW_SLIDES) break;
+          const t = sanitizeLyrics(r.lyrics || "").trim();
+          if (t) h.slides.push({ kind: "text", text: t });
+        }
+      });
+    } else if (block.type === "scripture") {
+      const results = await Promise.all(block.items.map(resolveRef));
+      block.items.forEach((ref, i) => {
+        const r = results[i];
+        if (!r) { h.missing.push(ref); return; }
+        h.chips.push(r.label);
+        for (const v of r.verses) {
+          if (h.slides.length >= MAX_PREVIEW_SLIDES) break;
+          h.slides.push({ kind: "text", text: v.text, reference: `${r.label} (${r.code})` });
+        }
+      });
+    } else if (block.type === "sermon") {
+      h.chips = block.items;
+      h.slides.push({ kind: "text", text: block.name });
+    } else {
+      h.chips = block.items;
+    }
+    return h;
+  }));
+  return { ok: true, data: out };
+}
 
 /** Resolve a free-text reference to REAL verse text from the DB (never the LLM).
  *  Handles single verse, same-chapter range, cross-chapter range, and whole

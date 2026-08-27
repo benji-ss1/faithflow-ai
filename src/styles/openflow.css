@@ -227,3 +227,65 @@
 .of-song-row { border-bottom: 1px solid var(--of-hairline); padding: 12px 0; }
 .of-song-row:last-child { border-bottom: none; }
 .of-skip { font-family: var(--of-mono); font-size: 11px; color: var(--of-faint); margin-top: 10px; }
+
+/* ==================== Phase 2 — real slide previews + motion ==================== */
+
+/* block row: grip | thumbnail | body | duration */
+.of-card .of-block { grid-template-columns: 16px 128px 1fr auto; align-items: center; }
+.of-block-body { display: block; width: 100%; background: none; border: none; text-align: left; cursor: pointer; min-width: 0; font-family: var(--of-sans); color: inherit; }
+.of-chev { color: var(--of-faint); transition: transform .2s var(--of-ease); flex: none; }
+
+/* the real-render preview wrapper */
+.of-preview { aspect-ratio: 16/9; border-radius: 8px; overflow: hidden; border: 1px solid var(--of-border); background: #000; position: relative; }
+.of-preview > * { position: absolute; inset: 0; }
+/* aspect-ratio gives the thumb a height even when its content is absolutely
+   positioned (the no-slides placeholder) — without it the media/offering blocks
+   collapsed to zero height and the thumbnail column vanished. */
+.of-thumb { position: relative; aspect-ratio: 16/9; border-radius: 8px; overflow: hidden; }
+.of-thumb-cnt { position: absolute; bottom: 3px; right: 4px; font-family: var(--of-mono); font-size: 8px; letter-spacing: .06em; color: rgba(255,255,255,.7); background: rgba(0,0,0,.5); border-radius: 3px; padding: 1px 4px; z-index: 2; }
+.of-thumb-ph { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 6px; border-radius: 8px; background: var(--of-surface-2); }
+.of-k-bg-songs { background: radial-gradient(120% 120% at 50% 20%, #241a2f, #120c18); }
+.of-k-bg-scripture { background: radial-gradient(120% 120% at 50% 25%, #2a1e12, #0f0a06); }
+.of-thumb-ph span { font-family: var(--of-serif); font-size: 9px; color: var(--of-text-2); text-transform: uppercase; letter-spacing: .04em; line-height: 1.15; }
+.of-k-bg-media { background: repeating-linear-gradient(135deg,#14100c,#14100c 6px,#181310 6px,#181310 12px); }
+.of-k-bg-sermon { background: radial-gradient(120% 120% at 50% 20%,#12221c,#0a120e); }
+.of-k-bg-other { background: var(--of-surface-2); }
+
+.of-eb-dur { text-align: right; }
+.of-eb-dur .d { font-family: var(--of-mono); font-size: 13px; color: var(--of-ember); font-variant-numeric: tabular-nums; }
+.of-eb-dur .s { display: block; font-family: var(--of-mono); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--of-faint); margin-top: 2px; }
+
+/* expandable per-block slide list */
+.of-expand { padding: 2px 16px 14px 64px; animation: of-expand-in .22s var(--of-ease) both; }
+@keyframes of-expand-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.of-expand-lbl { font-family: var(--of-mono); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--of-faint); margin: 6px 0 8px; }
+.of-exgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+@media (max-width: 720px) { .of-exgrid { grid-template-columns: repeat(3, 1fr); } }
+
+/* scripture card with preview */
+.of-scripture-top { display: grid; grid-template-columns: 150px 1fr; gap: 14px; margin-bottom: 14px; }
+@media (max-width: 620px) { .of-scripture-top { grid-template-columns: 1fr; } }
+
+/* song suggestion rows with preview */
+.of-song-grid { display: grid; grid-template-columns: 130px 1fr; gap: 14px; align-items: start; }
+@media (max-width: 620px) { .of-song-grid { grid-template-columns: 1fr; } }
+
+/* ---- mode transition: an ember shader-like sweep across the panel ---- */
+.of-mode-wipe { position: absolute; inset: 0; z-index: 40; pointer-events: none; overflow: hidden; }
+.of-mode-wipe::before {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(100deg, transparent 20%, rgba(232,116,42,0.0) 30%, rgba(232,116,42,0.28) 48%, rgba(212,83,126,0.22) 55%, transparent 72%);
+  transform: translateX(-100%);
+  animation: of-wipe .62s var(--of-ease) forwards;
+}
+.of-mode-wipe::after {
+  content: ""; position: absolute; inset: 0; background: var(--of-ground); opacity: 0;
+  animation: of-wipe-flash .62s var(--of-ease) forwards;
+}
+@keyframes of-wipe { to { transform: translateX(100%); } }
+@keyframes of-wipe-flash { 0% { opacity: 0; } 30% { opacity: 0.18; } 100% { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .of-mode-wipe, .of-expand { animation: none !important; }
+  .of-mode-wipe::before, .of-mode-wipe::after { animation: none !important; opacity: 0 !important; }
+}

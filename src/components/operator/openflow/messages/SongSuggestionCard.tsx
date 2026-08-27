@@ -6,10 +6,10 @@
  */
 import { useState } from "react";
 import { toast } from "sonner";
-import { IconMusic } from "@tabler/icons-react";
 import { addOpenFlowSongToPlan } from "@/lib/openflow/actions";
 import type { SongSuggestions } from "@/lib/openflow/parse";
 import type { OpenFlowActions } from "@/lib/openflow/types";
+import { OpenFlowSlidePreview } from "./SlidePreview";
 
 export function SongSuggestionCard({ data, actions }: { data: SongSuggestions; actions: OpenFlowActions }) {
   const [busy, setBusy] = useState<string | null>(null);
@@ -27,18 +27,16 @@ export function SongSuggestionCard({ data, actions }: { data: SongSuggestions; a
   return (
     <div className="of-card of-mini">
       {data.suggestions.map((s, i) => (
-        <div key={`${s.title}-${i}`} className="of-song-row">
-          <div className="of-song-top">
-            <div>
-              <p className="of-song-title">{s.title}</p>
-              {s.author ? <p className="of-song-author">{s.author}</p> : null}
-            </div>
-            <IconMusic size={16} stroke={1.7} style={{ color: "var(--of-k-song)", marginTop: 3, flex: "none" }} />
+        <div key={`${s.title}-${i}`} className="of-song-row of-song-grid">
+          <OpenFlowSlidePreview slide={{ kind: "text", text: s.title }} actions={actions} className="of-song-thumb" textMinPx={9} />
+          <div>
+            <p className="of-song-title">{s.title}</p>
+            {s.author ? <p className="of-song-author">{s.author}</p> : null}
+            {s.reason ? <p className="of-why">{s.reason}</p> : null}
+            <button type="button" className="of-btn of-btn-primary of-btn-sm" onClick={() => add(s.title)} disabled={busy === s.title}>
+              {busy === s.title ? "Adding…" : "Add to service"}
+            </button>
           </div>
-          {s.reason ? <p className="of-why">{s.reason}</p> : null}
-          <button type="button" className="of-btn of-btn-primary of-btn-sm" onClick={() => add(s.title)} disabled={busy === s.title}>
-            {busy === s.title ? "Adding…" : "Add to service"}
-          </button>
         </div>
       ))}
     </div>

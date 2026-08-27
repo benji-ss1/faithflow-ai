@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { resolveOpenFlowScripture, addOpenFlowScriptureToPlan } from "@/lib/openflow/actions";
 import type { ScriptureRef } from "@/lib/openflow/parse";
 import type { OpenFlowActions } from "@/lib/openflow/types";
+import { OpenFlowSlidePreview } from "./SlidePreview";
 
 type Resolved = { reference: string; translation: string; verses: { verse: number; text: string }[] };
 
@@ -41,10 +42,19 @@ export function ScriptureCard({ data, actions }: { data: ScriptureRef; actions: 
   };
 
   return (
-    <div className="of-card of-mini">
-      <span className="of-badge">{r.translation}</span>
-      <p className="of-verse-ref">{r.reference}</p>
-      <p className="of-verse-text">{text}</p>
+    <div className="of-card of-mini of-scripture">
+      <div className="of-scripture-top">
+        <OpenFlowSlidePreview
+          slide={{ kind: "text", text, reference: `${r.reference} (${r.translation})` }}
+          actions={actions}
+          className="of-scripture-thumb"
+        />
+        <div>
+          <span className="of-badge">{r.translation}</span>
+          <p className="of-verse-ref">{r.reference}</p>
+          <p className="of-verse-text">{text}</p>
+        </div>
+      </div>
       <div style={{ display: "flex", gap: 9 }}>
         <button type="button" className="of-btn of-btn-primary of-btn-sm" onClick={() => actions.projectScripture(r.verses, r.reference)}>Project</button>
         <button type="button" className="of-btn of-btn-ghost of-btn-sm" onClick={add} disabled={adding}>{adding ? "Adding…" : "Add to service"}</button>

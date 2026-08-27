@@ -8,7 +8,7 @@
  * Increment 1 scope: Chat mode streaming from Groq with real church context.
  * Service Builder / Scripture / Songs / Image and their cards arrive next.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { openFlowFontVars } from "@/lib/openflow/fonts";
 import { OpenFlowGradientDefs } from "./OpenFlowMark";
@@ -27,6 +27,17 @@ export function OpenFlowPanel({ ctx }: { ctx: OperatorShellCtx }) {
   const [mode, setMode] = useState<OpenFlowMode>("chat");
   const [church, setChurch] = useState<{ churchName: string; greeting: string; configured: boolean }>({ churchName: "your church", greeting: "Welcome", configured: true });
   const [showFirstRun, setShowFirstRun] = useState(true);
+  // Mode transition — an ember shader-like sweep across the panel when the
+  // operator switches Chat -> Service Builder -> Scripture etc.
+  const [wipe, setWipe] = useState(0);
+  const prevMode = useRef(mode);
+  useEffect(() => {
+    if (prevMode.current === mode) return;
+    prevMode.current = mode;
+    setWipe((w) => w + 1);
+    const t = setTimeout(() => setWipe(0), 650);
+    return () => clearTimeout(t);
+  }, [mode]);
 
   // First-run pills only until OpenFlow has been used once (per browser).
   useEffect(() => {
@@ -67,6 +78,8 @@ export function OpenFlowPanel({ ctx }: { ctx: OperatorShellCtx }) {
   // when the plan or send fn changes.
   const actions: OpenFlowActions = useMemo(() => ({
     planId: ctx.planId,
+    appearance: ctx.appearance,
+    background: ctx.background ?? null,
     projectScripture: (verses, reference) => {
       const text = verses.map((v) => v.text).join(" ").trim();
       if (!text) return;
@@ -88,6 +101,7 @@ export function OpenFlowPanel({ ctx }: { ctx: OperatorShellCtx }) {
   return (
     <div className={`of-panel openflow-scope ${openFlowFontVars}`}>
       <OpenFlowGradientDefs />
+      {wipe > 0 ? <div key={wipe} className="of-mode-wipe" aria-hidden="true" /> : null}
       {started ? (
         <OpenFlowChat
           messages={messages}

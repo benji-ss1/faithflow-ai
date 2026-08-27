@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.339",
+    date: "2026-08-27",
+    headline: "OpenFlow plans now show real slide previews",
+    highlights: [
+      { text: "When OpenFlow builds a service, every block shows a real preview of the slides it will create — in your church's actual theme, exactly like the projector. Click a block to expand and see every slide.", tryItHref: "/operator", tryItLabel: "Open OpenFlow" },
+      "Scripture and song suggestions preview in your theme too, and switching modes now has a smooth animated transition.",
+    ],
+  },
+  {
     version: "0.1.338",
     date: "2026-08-27",
     headline: "OpenFlow can now build your whole service",

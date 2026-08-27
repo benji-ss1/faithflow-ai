@@ -8,10 +8,15 @@ export type OpenFlowMode = "chat" | "service_builder" | "scripture" | "songs" | 
  *  adding a mode in one place surfaces everywhere. */
 export const OPENFLOW_MODES = ["chat", "service_builder", "scripture", "songs", "image_generator"] as const satisfies readonly OpenFlowMode[];
 
-/** Callbacks the structured cards use to act on the operator's real service —
- *  supplied by OpenFlowPanel (which holds the shell ctx). */
+/** Callbacks + theme the structured cards use to act on the operator's real
+ *  service and render true, theme-accurate slide previews — supplied by
+ *  OpenFlowPanel (which holds the shell ctx). */
 export type OpenFlowActions = {
   planId: string;
+  /** The active theme appearance + background, so card previews render exactly
+   *  like the operator grid / projector (via the same SlideRenderer). */
+  appearance: import("@/lib/broadcast").ThemeAppearance | null;
+  background: import("@/lib/broadcast").BackgroundSpec | null;
   /** Project scripture verses to the live output (uses the shell's send-to-live). */
   projectScripture: (verses: { verse: number; text: string }[], reference: string) => void;
   /** Called after a card mutates the plan, so the sidebar playlist refreshes. */
