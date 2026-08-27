@@ -16,23 +16,24 @@
   /* Structural layers — dark default. Deep, NEUTRAL near-blacks (no purple
    * tint) so the background colour is unambiguous, still stepped into distinct
    * tiers: black canvas < panel/sidebar < raised card < elevated/hover. */
-  /* WARM near-blacks (design language 2026-08-27): shifted off pure black toward
-   * the OpenFlow warm-neutral ground so the whole app reads cinematic + premium
-   * instead of cold. Same stepped tiers, hue-biased toward the ember accent. */
-  --color-app-bg:        #0B0908;
-  --color-panel:         #100D0B;
-  --color-raised-shell:  #1A1610;
-  --color-elevated:      #241E17;
-  --color-shell:         #080605;
-  --color-shell-edge:    rgba(245,238,228,0.06);
-  --color-overlay-soft:  rgba(245,238,228,0.03);
-  --color-glow:          rgba(232,116,42,0.18);
+  /* Refined CHARCOAL near-blacks (design language 2026-08-27, retuned): a
+   * near-neutral dark grey with only a whisper of warmth (R-B delta ~2, not the
+   * sepia ~8 that read brown). Expensive-dark, not cold, not muddy — the ember
+   * accent supplies the warmth; the ground stays a sophisticated graphite. */
+  --color-app-bg:        #0C0B0A;
+  --color-panel:         #121110;
+  --color-raised-shell:  #1A1917;
+  --color-elevated:      #222120;
+  --color-shell:         #080807;
+  --color-shell-edge:    rgba(255,255,255,0.06);
+  --color-overlay-soft:  rgba(255,255,255,0.03);
+  --color-glow:          rgba(232,116,42,0.16);
 
   /* Backwards compat */
-  --color-background:    #0B0908;
-  --color-card:          #17130F;
-  --color-popover:       #17130F;
-  --color-muted:         #100D0B;
+  --color-background:    #0C0B0A;
+  --color-card:          #161513;
+  --color-popover:       #161513;
+  --color-muted:         #121110;
 
   /* Text */
   --color-foreground:            #ece7e0;
@@ -41,7 +42,7 @@
   --color-muted-foreground:      #aca498;
   --color-primary:               #e8501a;
   --color-primary-foreground:    #17130c;
-  --color-secondary:             #241E17;
+  --color-secondary:             #222120;
   --color-secondary-foreground:  #ece7e0;
   --color-accent:                #f26a34;
   --color-accent-foreground:     #17130c;
@@ -56,14 +57,14 @@
   --color-destructive-foreground: #17130c;
 
   /* Borders and inputs */
-  --color-border:  rgba(245,238,228,0.11);
-  --color-input:   rgba(245,238,228,0.11);
+  --color-border:  rgba(255,255,255,0.10);
+  --color-input:   rgba(255,255,255,0.10);
   --color-ring:    #e8501a;
 
   /* Sidebar-specific */
-  --color-sidebar-bg:         #0C0A08;
-  --color-sidebar-item-hover: #1A1610;
-  --color-sidebar-item-active:#241E17;
+  --color-sidebar-bg:         #0B0A09;
+  --color-sidebar-item-hover: #1A1917;
+  --color-sidebar-item-active:#222120;
   --color-sidebar-fg:         #d5cdc1;
   --color-sidebar-fg-muted:   #968e82;
 
@@ -90,6 +91,21 @@
 
   /* The one house easing curve — used app-wide for entrances + hover. */
   --ease-house: cubic-bezier(0.22, 1, 0.36, 1);
+  /* A springier curve with a touch of overshoot for buttons + pop-ins. */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Depth scale (Design Language v2, 2026-08-27): layered shadows tuned for the
+   * charcoal ground — cool ambient + a warm ember-tinted contact shadow so
+   * raised surfaces feel lit by the accent, not floating in cold space. */
+  --shadow-sm:   0 1px 2px rgba(0,0,0,0.30), 0 1px 1px rgba(0,0,0,0.24);
+  --shadow-md:   0 4px 10px -2px rgba(0,0,0,0.42), 0 2px 4px -2px rgba(0,0,0,0.30);
+  --shadow-lg:   0 16px 34px -8px rgba(0,0,0,0.55), 0 6px 14px -8px rgba(0,0,0,0.40);
+  --shadow-xl:   0 30px 60px -14px rgba(0,0,0,0.62), 0 12px 24px -12px rgba(0,0,0,0.45);
+  /* Ember glows for brand/live/selected states. */
+  --shadow-ember:   0 6px 20px -4px rgba(232,80,26,0.45), 0 2px 6px -2px rgba(232,80,26,0.35);
+  --shadow-ember-lg:0 12px 34px -6px rgba(232,80,26,0.52), 0 4px 12px -4px rgba(232,80,26,0.38);
+  /* Inset top highlight that reads as a lit top edge on raised surfaces. */
+  --edge-top: inset 0 1px 0 rgba(255,255,255,0.06);
 }
 
 html {
@@ -105,21 +121,23 @@ html, body {
 body { min-height: 100vh; }
 
 /* Chrome headings get the OpenFlow serif; .font-display stays the projector sans
- * (SlideRenderer uses .font-display for projected lyrics/verses — never serif). */
-h1, h2, h3 { letter-spacing: -0.015em; font-family: var(--font-heading); }
+ * (SlideRenderer uses .font-display for projected lyrics/verses — never serif).
+ * Weightier tracking + optical sizing so the serif carries real editorial heft. */
+h1, h2, h3 { letter-spacing: -0.02em; font-family: var(--font-heading); font-weight: 560; text-wrap: balance; }
+h1 { letter-spacing: -0.028em; }
 .font-display { letter-spacing: -0.02em; font-family: var(--font-display); }
-::selection { background: color-mix(in oklab, var(--color-brand) 30%, transparent); color: var(--color-foreground); }
+::selection { background: color-mix(in oklab, var(--color-brand) 32%, transparent); color: var(--color-foreground); }
 
 .eyebrow { font-family: var(--font-mono); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; color: var(--color-muted-foreground); }
 
-/* Focus ring — subtle cyan */
-:focus-visible { outline: none; box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-brand) 42%, transparent); border-radius: inherit; }
+/* Focus ring — ember, double-stop (dark gap + accent) so it reads on any surface. */
+:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-app-bg), 0 0 0 4px color-mix(in oklab, var(--color-brand) 62%, transparent); border-radius: inherit; }
 
-/* Subtle scrollbars in dark UI */
+/* Refined ember scrollbars — thin, warm on hover. */
 * { scrollbar-color: var(--color-border) transparent; scrollbar-width: thin; }
-*::-webkit-scrollbar { width: 8px; height: 8px; }
-*::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 4px; }
-*::-webkit-scrollbar-thumb:hover { background: var(--color-muted-foreground); }
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-thumb { background: color-mix(in oklab, var(--color-border) 80%, transparent); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+*::-webkit-scrollbar-thumb:hover { background: color-mix(in oklab, var(--color-brand) 55%, var(--color-border)); background-clip: padding-box; }
 
 /*
  * Light mode — inverted structure with same token contract.
@@ -533,4 +551,78 @@ html:not(.light) .pf-admin-scope {
   height: 2px;
   background: var(--pf-gradient-brand);
   border-radius: 999px;
+}
+
+/* ============================================================================
+ * DESIGN LANGUAGE v2 — app-wide weight, depth + motion (2026-08-27)
+ * Lifts the whole operator surface without touching every component: broad,
+ * safe enhancements to the raw utility patterns already used across the app,
+ * plus a small set of opt-in utilities for per-screen tuning. All motion is
+ * gated behind prefers-reduced-motion.
+ * ==========================================================================*/
+
+/* --- Primary brand-fill BUTTONS (raw utility, not the <Button> primitive) ---
+ * The operator toolbar + action buttons use `bg-[var(--color-brand)]` directly.
+ * Give every such <button> the same ember gradient, warm glow, and spring
+ * hover-lift the primitive now has — so "Add", "Import", "Add to playlist",
+ * "Apply", etc. all read as the hottest thing on the surface. Scoped to
+ * <button> (and role=button) so brand-tinted chips/badges are untouched, and
+ * exact-class so the /10 and /90 opacity variants never match. */
+button.bg-\[var\(--color-brand\)\],
+[role="button"].bg-\[var\(--color-brand\)\] {
+  background-image: linear-gradient(180deg, #F2712E 0%, #E8501A 100%);
+  box-shadow: var(--edge-top), var(--shadow-ember);
+  transition: transform .2s var(--ease-spring), box-shadow .2s var(--ease-spring), filter .2s var(--ease-spring);
+}
+button.bg-\[var\(--color-brand\)\]:hover:not(:disabled),
+[role="button"].bg-\[var\(--color-brand\)\]:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: var(--edge-top), var(--shadow-ember-lg);
+  filter: brightness(1.06);
+}
+button.bg-\[var\(--color-brand\)\]:active:not(:disabled),
+[role="button"].bg-\[var\(--color-brand\)\]:active:not(:disabled) {
+  transform: translateY(0) scale(0.97);
+  transition-duration: .07s;
+}
+@media (prefers-reduced-motion: reduce) {
+  button.bg-\[var\(--color-brand\)\],
+  [role="button"].bg-\[var\(--color-brand\)\] { transition: none; }
+  button.bg-\[var\(--color-brand\)\]:hover:not(:disabled),
+  [role="button"].bg-\[var\(--color-brand\)\]:hover:not(:disabled) { transform: none; }
+}
+
+/* --- Opt-in: raised panel/card surface (lit top edge + ambient depth) --- */
+.pf-raised { box-shadow: var(--edge-top), var(--shadow-md); }
+.pf-raised-lg { box-shadow: var(--edge-top), var(--shadow-lg); }
+
+/* --- Opt-in: interactive lift for clickable cards/rows/thumbnails --- */
+.pf-lift {
+  transition: transform .22s var(--ease-house), box-shadow .22s var(--ease-house), border-color .22s var(--ease-house);
+  will-change: transform;
+}
+.pf-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--edge-top), var(--shadow-lg);
+}
+.pf-lift:active { transform: translateY(0); transition-duration: .08s; }
+@media (prefers-reduced-motion: reduce) {
+  .pf-lift, .pf-lift:hover, .pf-lift:active { transform: none; transition: none; }
+}
+
+/* --- Opt-in: staggered entrance for a freshly-mounted panel/grid --- */
+@keyframes pf-enter-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.pf-enter { animation: pf-enter-up .42s var(--ease-house) both; }
+.pf-enter-1 { animation: pf-enter-up .42s var(--ease-house) both; animation-delay: .04s; }
+.pf-enter-2 { animation: pf-enter-up .42s var(--ease-house) both; animation-delay: .09s; }
+.pf-enter-3 { animation: pf-enter-up .42s var(--ease-house) both; animation-delay: .14s; }
+@media (prefers-reduced-motion: reduce) {
+  .pf-enter, .pf-enter-1, .pf-enter-2, .pf-enter-3 { animation: none; }
+}
+
+/* --- Opt-in: gradient text for hero/section titles --- */
+.pf-grad-text {
+  background: var(--of-grad, linear-gradient(100deg,#C0442E,#E8742A 34%,#E0806A 66%,#A64D6E));
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent;
 }

@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.340",
+    date: "2026-08-27",
+    headline: "A bolder, warmer look across the whole app",
+    highlights: [
+      "New charcoal foundation — deeper, calmer, and warmer without the muddy brown. Panels and cards now sit on real depth instead of flat outlines, so the whole console feels more substantial.",
+      "Buttons carry weight now: the primary actions ride a warm ember gradient with a soft glow, and every button lifts on hover and presses in on click.",
+      "Serif headings, refined focus rings, and smoother motion throughout — the first pass of a bigger design refresh rolling out screen by screen.",
+    ],
+  },
+  {
     version: "0.1.339",
     date: "2026-08-27",
     headline: "OpenFlow plans now show real slide previews",
