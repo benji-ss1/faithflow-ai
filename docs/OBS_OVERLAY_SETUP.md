@@ -1,22 +1,33 @@
-# OBS lyrics overlay — Sunday setup & dry-run
+# OBS lyrics over camera — Sunday setup & dry-run
 
-Put your song words and scripture **over your live camera** in OBS, with a see-through
-background — no capture card, no extra hardware. This is the deadline-safe path and works today.
+Put your song words and scripture **over your live camera** in OBS — no capture card, no
+extra hardware. There are **two ways** to do it; pick the one that matches where your camera is.
 
 > **Do the 5-minute dry-run (bottom of this page) BEFORE the service.** That is how you
 > "verify on site." Don't wait until people are in the room.
 
 ---
 
-## What you need
-- **OBS** (or Streamlabs) on the PC that streams the service.
-- **PresentFlow operator** open and running your service plan.
-- Both on the **same network** (same Wi-Fi/LAN). They can be the **same PC** or two different PCs.
-- Your camera already added as a source in your OBS scene.
+## Which path? (pick one)
+
+**Path A — camera in PresentFlow (simplest, recommended for one computer).**
+You pick the camera in **Video Input**; PresentFlow puts the camera *behind* your lyrics and
+sends the combined picture to its output window. OBS just captures that window. No links, no codes.
+1. In the operator, open **Video Input**, choose your camera, set **Overlay = Full**, and **Activate**.
+2. In OBS: **Sources → + → macOS Screen Capture** (or **Window Capture**) → choose the
+   **PresentFlow output window**.
+3. Done — camera and lyrics are already combined. (Tip: in the Video Input panel, expand
+   **"Stream this to OBS?"** for these steps in-app.)
+
+**Path B — camera in OBS (camera stays in OBS; PresentFlow sends only the words).**
+Use this if OBS already has your camera, or the lyrics run on a **different computer**. Two options:
+- **Same computer (no code):** Operator → **Hardware → Screens** → set a screen's role to
+  **Livestream** with **OBS mode**, spawn it, and add that window in OBS above your camera.
+- **Different computer (browser link):** follow the **Browser Source** steps below.
 
 ---
 
-## Setup (one time, ~2 minutes)
+## Path B (different computer) — Browser Source setup (~2 minutes)
 
 **1. Get the overlay link from PresentFlow**
    - In the operator, click **Sync devices** (top bar). It creates a short **sync code**.

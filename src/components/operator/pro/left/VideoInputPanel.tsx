@@ -56,6 +56,7 @@ export function VideoInputPanel() {
   const [overlay, setOverlay] = useState<NonNullable<VideoInputState["overlay"]>>("full");
   const [active, setActive] = useState(false);
   const [previewStatus, setPreviewStatus] = useState<"idle" | "loading" | "on" | "error">("idle");
+  const [showObsHelp, setShowObsHelp] = useState(false);
   const previewRef = useRef<HTMLVideoElement | null>(null);
   const previewStreamRef = useRef<MediaStream | null>(null);
 
@@ -275,6 +276,32 @@ export function VideoInputPanel() {
       <p className="text-[10px] text-[var(--color-muted-foreground)] leading-relaxed">
         The live feed appears behind lyrics/Bible on the projector &amp; livestream. It stays running while you change slides. Clear removes the video without touching the current slide.
       </p>
+
+      {/* In-app OBS guidance (both paths). Desktop couldn't previously find any
+          OBS setup help; this puts it in the Video Input panel where operators
+          working with a camera actually are. Full runbook: docs/OBS_OVERLAY_SETUP.md. */}
+      <button
+        type="button"
+        onClick={() => setShowObsHelp((v) => !v)}
+        className="w-full text-left text-[10px] font-semibold text-[var(--color-foreground)] hover:text-[var(--color-brand)] flex items-center gap-1"
+        aria-expanded={showObsHelp}
+      >
+        <span className="inline-block w-2 text-[var(--color-muted-foreground)]">{showObsHelp ? "▾" : "▸"}</span>
+        Stream this to OBS?
+      </button>
+      {showObsHelp && (
+        <div className="space-y-2 text-[10px] text-[var(--color-muted-foreground)] leading-relaxed pl-1">
+          <div>
+            <div className="font-semibold text-[var(--color-foreground)]">Camera in PresentFlow (simplest)</div>
+            Pick your camera above and Activate. In OBS: Sources &rarr; add <span className="text-[var(--color-foreground)]">macOS Screen Capture</span> (or Window Capture) &rarr; choose the PresentFlow output window. The camera and lyrics are already combined &mdash; nothing else to set up.
+          </div>
+          <div>
+            <div className="font-semibold text-[var(--color-foreground)]">Camera in OBS instead</div>
+            Keep the camera in OBS and let PresentFlow send just the words: go to <span className="text-[var(--color-foreground)]">Hardware &rarr; Screens</span>, set a screen&#39;s role to <span className="text-[var(--color-foreground)]">Livestream</span> (OBS mode), spawn it, and add that window in OBS above your camera. For a second computer, use the OBS overlay link from Sync&nbsp;devices.
+          </div>
+          <div className="text-[var(--color-brand)]">Tip: test before the service &mdash; project a slide and confirm it shows in OBS.</div>
+        </div>
+      )}
     </div>
   );
 }

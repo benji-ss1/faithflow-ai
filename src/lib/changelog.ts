@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.351",
+    date: "2026-08-27",
+    headline: "In-app help: how to stream your lyrics to OBS",
+    highlights: [
+      { text: "The Video Input panel now has a “Stream this to OBS?” guide with steps for both setups — camera inside PresentFlow (OBS just captures the output window) or camera inside OBS (PresentFlow sends only the words). No more hunting for how to wire up the livestream.", tryItHref: "/operator", tryItLabel: "Open Video Input" },
+    ],
+  },
+  {
     version: "0.1.350",
     date: "2026-08-27",
     headline: "Media previews match the projector exactly",
