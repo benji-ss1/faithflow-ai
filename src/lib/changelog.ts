@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.350",
+    date: "2026-08-27",
+    headline: "Media previews match the projector exactly",
+    highlights: [
+      "The slide grid now shows media images with their saved framing and blur-fill — so the preview you see is exactly what goes live. Clicking a media slide projects that same framed look.",
+    ],
+  },
+  {
     version: "0.1.349",
     date: "2026-08-27",
     headline: "Blur-fill that actually sticks — and a fuller Themes editor",

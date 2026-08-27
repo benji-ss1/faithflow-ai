@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { ThemedSlideCard } from "./ThemedSlideCard";
@@ -9,7 +9,8 @@ import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload, ThemeAppearance } from "@/lib/broadcast";
 import { useSlideClipboard, setSlideClipboard, getSlideClipboard } from "@/lib/slide-clipboard";
 import { updateSongSlides, deleteSongSlide, updateSongSlideText } from "@/lib/actions";
-import { applyTextToSlide } from "@/lib/broadcast";
+import { applyTextToSlide, projectableTextSlide } from "@/lib/broadcast";
+import { loadMediaFrame, buildMediaFrameSlide } from "./mediaFrame";
 import { useRouter } from "next/navigation";
 import { X, Pencil, LayoutGrid, GripVertical, GripHorizontal } from "lucide-react";
 import { DotGridBackground } from "../DotGridBackground";
@@ -67,6 +68,22 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   const router = useRouter();
   const item = ctx.plan.items[ctx.previewItemIdx];
   const slides: SlidePayload[] = item?.slides ?? [];
+  // Frame-aware DISPLAY slides — media images are rendered (and projected) through
+  // their saved frame (crop / pan / zoom / blur-fill) so the grid preview is 1:1
+  // with what goes live. Non-media / un-framed slides pass through unchanged.
+  const displaySlides: SlidePayload[] = useMemo(() => {
+    if (item?.type !== "media") return slides;
+    return slides.map((s, i) => {
+      if (s.kind !== "image") return s;
+      const assetId = item.mediaMeta?.[i]?.id;
+      const frame = assetId ? loadMediaFrame(ctx.churchId, assetId) : null;
+      if (!frame) return s;
+      const { bgColor, objects } = buildMediaFrameSlide(frame, s.url);
+      return projectableTextSlide("", bgColor, undefined, objects);
+    });
+    // ctx.churchId + item identity drive this; slides is derived from item.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slides, item, ctx.churchId]);
   const lastDragEndRef = useRef(0);
 
   // View mode is toggled by the BottomBar (fires "presentflow:slide-view-mode").
@@ -283,14 +300,14 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
               <SortableSlideCard
                 key={slideIds[idx]}
                 id={slideIds[idx]}
-                slide={s}
+                slide={displaySlides[idx] ?? s}
                 index={idx + 1}
                 appearance={ctx.appearance ?? undefined}
                 background={ctx.background}
                 selected={idx === ctx.previewSlideIdx}
                 canQuickEdit={item?.type === "song" && !!(item as { songId?: string }).songId}
                 onSendLive={() => {
-                  fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => ctx.onSendSlideToLive(s));
+                  fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => ctx.onSendSlideToLive(displaySlides[idx] ?? s));
                 }}
                 onSelect={() => {
                   console.log("[click] slide", { id: slideIds[idx], idx, safeMode: safeMode() });
@@ -308,7 +325,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                     // Fix-loop 2026-07-27: dedupe key includes the playlist
                     // item — the `slide-${i}` fallback collides across items
                     // and across reorders.
-                    fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => ctx.onSendSlideToLive(s));
+                    fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => ctx.onSendSlideToLive(displaySlides[idx] ?? s));
                   }
                 }}
                 onDouble={() => {
@@ -333,7 +350,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                       return;
                     }
                   }
-                  if (safeMode()) fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => ctx.onSendSlideToLive(s));
+                  if (safeMode()) fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => ctx.onSendSlideToLive(displaySlides[idx] ?? s));
                 }}
                 onDelete={() => {
                   // Delete THIS slide immediately by its DB id (works for designed
@@ -454,7 +471,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
               >
                 {/* Fit text down to a small floor so the half-size stage mirror
                     doesn't clip long lyrics (matches the main grid's textMinPx). */}
-                <ThemedSlideCard slide={s} textMinPx={8} appearance={ctx.appearance ?? undefined} background={ctx.background} />
+                <ThemedSlideCard slide={displaySlides[idx] ?? s} textMinPx={8} appearance={ctx.appearance ?? undefined} background={ctx.background} />
                 <div className="absolute bottom-1 right-1 text-[8px] font-mono uppercase tracking-wider text-white/55 bg-black/60 px-1 py-px rounded-sm pointer-events-none">
                   Stage
                 </div>
