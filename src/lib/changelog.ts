@@ -15,7 +15,7 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    version: "0.1.341",
+    version: "0.1.342",
     date: "2026-08-27",
     headline: "The design refresh reaches every corner",
     highlights: [
@@ -25,7 +25,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     ],
   },
   {
-    version: "0.1.340",
+    version: "0.1.341",
     date: "2026-08-27",
     headline: "A bolder, warmer look across the whole app",
     highlights: [
@@ -33,6 +33,14 @@ export const CHANGELOG: ChangelogEntry[] = [
       "Buttons carry weight now: primary actions ride a warm ember gradient with a soft glow, and every button lifts on hover and presses in on click — including the toolbar, the Play button, and the view switches.",
       "The Worship / Auto / Preacher switch is redrawn with proper icons (no more emoji), a lit active pill, and motion. Section headers, the search bar, and the Media / Hardware lists all read stronger.",
       "Serif headings, refined focus rings, ember scrollbars and smoother motion throughout — a bigger design refresh still rolling out screen by screen.",
+    ],
+  },
+  {
+    version: "0.1.340",
+    date: "2026-08-27",
+    headline: "OBS overlay setup steps now live inside Sync devices",
+    highlights: [
+      { text: "Setting up the transparent lyrics overlay in OBS is now guided in-app: open Sync devices, and under the OBS overlay link tap “How to set up in OBS” for the exact steps — copy the URL, add a Browser source at 1920×1080, drag it above your camera — plus a quick pre-service test.", tryItHref: "/operator", tryItLabel: "Open operator" },
     ],
   },
   {

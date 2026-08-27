@@ -30,6 +30,7 @@ export function SyncControl({ planId, churchId, onCodeChange }: {
   const [expiresAt, setExpiresAt] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [showPanel, setShowPanel] = useState(false);
+  const [showObsHelp, setShowObsHelp] = useState(false);
 
   // Restore session-scoped code from localStorage. If expired, drop it.
   useEffect(() => {
@@ -167,9 +168,34 @@ export function SyncControl({ planId, churchId, onCodeChange }: {
               onClick={copyObs}
               className="w-full text-[10px] uppercase tracking-widest py-1 rounded border border-sky-400/40 text-sky-300 hover:border-sky-300"
             >Copy OBS URL</button>
-            <div className="text-[9px] text-white/40 leading-snug">
-              In OBS: <span className="text-white/60">Add Source → Browser</span>, paste this URL, set 1920×1080. The lyrics appear transparently over your camera and follow the live slide.
-            </div>
+            {/* Collapsible in-app setup guide — lives with the Copy button so the
+                livestream team can follow the steps + do a quick test without
+                leaving the app. Full runbook: docs/OBS_OVERLAY_SETUP.md. */}
+            <button
+              type="button"
+              onClick={() => setShowObsHelp((v) => !v)}
+              className="w-full text-left text-[10px] text-white/50 hover:text-white/80 flex items-center gap-1"
+              aria-expanded={showObsHelp}
+            >
+              <span className="inline-block w-2 text-white/40">{showObsHelp ? "▾" : "▸"}</span>
+              How to set up in OBS
+            </button>
+            {showObsHelp && (
+              <div className="space-y-1.5 pt-0.5">
+                <ol className="text-[9px] text-white/50 leading-relaxed list-decimal pl-4 space-y-0.5">
+                  <li>Tap <span className="text-white/70">Copy OBS URL</span> above.</li>
+                  <li>In OBS: <span className="text-white/70">Sources → + → Browser</span>, click OK.</li>
+                  <li>Paste the URL; set <span className="text-white/70">Width 1920, Height 1080</span>; OK.</li>
+                  <li>In Sources, drag the new item <span className="text-white/70">above your Camera</span>.</li>
+                </ol>
+                <div className="text-[9px] text-amber-300/70 leading-snug">
+                  Test before the service: project a slide → words show over the camera; clear it → camera is clean.
+                </div>
+                <div className="text-[9px] text-white/35 leading-snug">
+                  Words appear see-through over your live camera and follow every slide. View-only — it can’t change anything. On another PC? Both must share this network &amp; sync code.
+                </div>
+              </div>
+            )}
           </div>
           <button
             type="button"

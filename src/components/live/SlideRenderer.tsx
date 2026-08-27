@@ -18,8 +18,13 @@ const OBS_OVERLAY_TEXT_SHADOW =
   "1px -1px 0 rgba(0,0,0,0.95), -1px -1px 0 rgba(0,0,0,0.95)";
 // Container-level halo for DESIGNED (multi-object) slides, whose text/image
 // objects carry their own styles — a filter drop-shadow lifts every child off a
-// busy camera without rewriting each object's per-object CSS.
-const OBS_OVERLAY_DROP_SHADOW = "drop-shadow(0 2px 6px rgba(0,0,0,0.9)) drop-shadow(0 0 2px rgba(0,0,0,0.95))";
+// busy camera without rewriting each object's per-object CSS. Stacked to match
+// the near-outline strength of OBS_OVERLAY_TEXT_SHADOW (a soft halo PLUS tight
+// 1px offset copies) so designed scripture/song slides stay legible over a
+// bright/white wall, not just over a dark stage.
+const OBS_OVERLAY_DROP_SHADOW =
+  "drop-shadow(0 0 2px rgba(0,0,0,0.95)) drop-shadow(1px 1px 0 rgba(0,0,0,0.9)) " +
+  "drop-shadow(-1px -1px 0 rgba(0,0,0,0.9)) drop-shadow(0 2px 6px rgba(0,0,0,0.85))";
 
 /** True when the active theme has a running animated (solid/gradient) background
  *  and this slide isn't over video / per-slide-coloured — i.e. AnimatedThemeBg
