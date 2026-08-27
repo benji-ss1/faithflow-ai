@@ -4098,7 +4098,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
                 operator can hit "Reload panel" and keep going. */}
             <OperatorErrorBoundary fallbackLabel={`The ${centerMode} panel hit an error`}>
               {centerMode === "openflow" && OPENFLOW_ENABLED ? (
-                <OpenFlowPanel />
+                <OpenFlowPanel ctx={ctx} />
               ) : centerMode === "bible" ? (
                 <BibleMode ctx={ctx} session={bibleSession} />
               ) : centerMode === "songs" ? (

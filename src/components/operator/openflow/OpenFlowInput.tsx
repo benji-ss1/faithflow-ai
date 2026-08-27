@@ -17,10 +17,10 @@ type ModeDef = { id: OpenFlowMode; label: string; icon: React.ReactNode; ready: 
 
 const MODES: ModeDef[] = [
   { id: "chat", label: "Chat", icon: <IconMessageCircle size={17} stroke={1.7} />, ready: true },
-  { id: "service_builder", label: "Service Builder", icon: <IconLayoutList size={17} stroke={1.7} />, ready: false },
+  { id: "service_builder", label: "Service Builder", icon: <IconLayoutList size={17} stroke={1.7} />, ready: true },
+  { id: "scripture", label: "Scripture", icon: <IconBook2 size={17} stroke={1.7} />, ready: true },
+  { id: "songs", label: "Songs", icon: <IconMusic size={17} stroke={1.7} />, ready: true },
   { id: "image_generator", label: "Image Generator", icon: <IconPhoto size={17} stroke={1.7} />, ready: false },
-  { id: "scripture", label: "Scripture", icon: <IconBook2 size={17} stroke={1.7} />, ready: false },
-  { id: "songs", label: "Songs", icon: <IconMusic size={17} stroke={1.7} />, ready: false },
 ];
 
 function ModeDropdown({ mode, onModeChange }: { mode: OpenFlowMode; onModeChange: (m: OpenFlowMode) => void }) {

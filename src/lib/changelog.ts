@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.338",
+    date: "2026-08-27",
+    headline: "OpenFlow can now build your whole service",
+    highlights: [
+      { text: "Open OpenFlow and switch to Service Builder — ask for a Sunday, a convention, whatever — and it drafts a full running order from your real song library. Drag the blocks to reorder, then hit Apply to build the playlist in one click.", tryItHref: "/operator", tryItLabel: "Open OpenFlow" },
+      "Scripture mode looks up any verse in your translation (the real text, straight from your Bible) so you can Project it or add it to the service. Songs mode suggests from your own library and adds them with one tap.",
+      "It only ever uses songs you actually have and never makes up verse text — anything it can't find, it tells you.",
+    ],
+  },
+  {
     version: "0.1.337",
     date: "2026-08-27",
     headline: "Livestream lyrics overlay for OBS — no capture card needed",

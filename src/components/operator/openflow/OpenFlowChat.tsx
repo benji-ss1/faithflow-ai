@@ -5,12 +5,13 @@
  * streaming token-by-token with a caret. The composer docks at the bottom.
  */
 import { useEffect, useRef } from "react";
-import { OpenFlowMark } from "./OpenFlowMark";
 import { OpenFlowInput } from "./OpenFlowInput";
+import { AIMessage } from "./messages/AIMessage";
 import type { OpenFlowMsg, OpenFlowMode } from "@/hooks/useOpenFlowChat";
+import type { OpenFlowActions } from "@/lib/openflow/types";
 
 export function OpenFlowChat({
-  messages, streaming, error, value, onChange, onSend, onStop, mode, onModeChange,
+  messages, streaming, error, value, onChange, onSend, onStop, mode, onModeChange, actions,
 }: {
   messages: OpenFlowMsg[];
   streaming: boolean;
@@ -21,6 +22,7 @@ export function OpenFlowChat({
   onStop: () => void;
   mode: OpenFlowMode;
   onModeChange: (m: OpenFlowMode) => void;
+  actions: OpenFlowActions;
 }) {
   const endRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -47,22 +49,14 @@ export function OpenFlowChat({
             if (m.role === "user") {
               return <div key={m.id} className="of-msg-user">{m.content}</div>;
             }
-            const isLast = m.id === lastId;
-            const empty = m.content.length === 0;
             return (
-              <div key={m.id} className="of-msg-ai">
-                <div className="of-avatar"><OpenFlowMark size={18} /></div>
-                <div className="of-ai-body">
-                  {empty && streaming && isLast ? (
-                    <span className="of-thinking" aria-label="OpenFlow is thinking"><b /><b /><b /></span>
-                  ) : (
-                    <p className="of-ai-text">
-                      {m.content}
-                      {streaming && isLast ? <span className="of-cursor" /> : null}
-                    </p>
-                  )}
-                </div>
-              </div>
+              <AIMessage
+                key={m.id}
+                content={m.content}
+                isLast={m.id === lastId}
+                streaming={streaming}
+                actions={actions}
+              />
             );
           })}
           {error ? <p className="of-error">{error}</p> : null}

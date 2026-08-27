@@ -184,6 +184,36 @@ export function buildOpenFlowSystemPrompt(
   lines.push("");
   lines.push(`The operator's local greeting right now is "${greetingFor(ctx.timezone, now)}".`);
   lines.push("");
-  lines.push(`CURRENT MODE: ${mode}. In this mode, answer conversationally and helpfully.`);
+  lines.push(`CURRENT MODE: ${mode}.`);
+
+  if (mode === "service_builder") {
+    lines.push([
+      "You are building a SERVICE PLAN. Reply with one short sentence of framing, then a single tagged JSON block:",
+      "<service_plan>{",
+      '  "serviceType": "Convention",',
+      '  "blocks": [',
+      '    { "name": "Praise & Worship", "durationMin": 35, "type": "songs", "items": ["<exact library song titles>"] },',
+      '    { "name": "Scripture Reading", "durationMin": 5, "type": "scripture", "items": ["Romans 8:28-39"] },',
+      '    { "name": "The Word", "durationMin": 40, "type": "sermon", "items": ["Speaker name if known"] }',
+      "  ],",
+      '  "insights": ["One or two short, true notes about this plan for this church."]',
+      "}</service_plan>",
+      "RULES: block.type is one of songs | scripture | sermon | media | other. For songs, use ONLY exact titles from this church's library above — never invent a song; if you'd recommend one they don't have, say so in the prose, not in the block. durationMin is a whole number of minutes. Keep it to the blocks that fit the requested service type.",
+    ].join("\n"));
+  } else if (mode === "scripture") {
+    lines.push([
+      "You are in SCRIPTURE mode. When the operator asks for a verse or passage, reply with one short sentence, then a single tagged block:",
+      '<scripture>{ "reference": "Romans 8:28", "translation": "KJV" }</scripture>',
+      "Give ONLY the reference and (optionally) the translation code — DO NOT quote the verse text yourself; the app fetches the exact text from the church's Bible. Use the church's default translation unless the operator asks for another. For a thematic request (\"verses about hope\"), pick the single best passage.",
+    ].join("\n"));
+  } else if (mode === "songs") {
+    lines.push([
+      "You are in SONGS mode. Suggest songs from THIS church's library first. Reply with one short sentence, then a single tagged block:",
+      '<song_suggestions>{ "suggestions": [ { "title": "<exact library title>", "author": "<if known>", "reason": "<one short line>" } ] }</song_suggestions>',
+      "Use ONLY exact titles from the library above. If the church clearly doesn't have anything suitable, say so in the prose and suggest they add one — do not put a non-library song in the block.",
+    ].join("\n"));
+  } else {
+    lines.push("Answer conversationally and helpfully.");
+  }
   return lines.join("\n");
 }

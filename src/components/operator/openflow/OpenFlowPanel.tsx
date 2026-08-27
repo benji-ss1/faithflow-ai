@@ -8,16 +8,20 @@
  * Increment 1 scope: Chat mode streaming from Groq with real church context.
  * Service Builder / Scripture / Songs / Image and their cards arrive next.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { openFlowFontVars } from "@/lib/openflow/fonts";
 import { OpenFlowGradientDefs } from "./OpenFlowMark";
 import { OpenFlowWelcome } from "./OpenFlowWelcome";
 import { OpenFlowChat } from "./OpenFlowChat";
 import { useOpenFlowChat, type OpenFlowMode } from "@/hooks/useOpenFlowChat";
+import type { OpenFlowActions } from "@/lib/openflow/types";
+import type { OperatorShellCtx } from "../shell/types";
 
 const SEEN_KEY = "pf.openflow.seen.v1";
 
-export function OpenFlowPanel() {
+export function OpenFlowPanel({ ctx }: { ctx: OperatorShellCtx }) {
+  const router = useRouter();
   const { messages, streaming, error, send, stop } = useOpenFlowChat();
   const [draft, setDraft] = useState("");
   const [mode, setMode] = useState<OpenFlowMode>("chat");
@@ -59,6 +63,26 @@ export function OpenFlowPanel() {
     void send(text, mode);
   };
 
+  // Actions the structured cards use to touch the real service. Rebuilt only
+  // when the plan or send fn changes.
+  const actions: OpenFlowActions = useMemo(() => ({
+    planId: ctx.planId,
+    projectScripture: (verses, reference) => {
+      const text = verses.map((v) => v.text).join(" ").trim();
+      if (!text) return;
+      ctx.onSendSlideToLive({ kind: "text", text, reference });
+    },
+    onApplied: () => router.refresh(),
+    onSeedComposer: (seed) => setDraft(seed),
+    onRegenerate: () => {
+      if (streaming) return;
+      const lastUser = [...messages].reverse().find((m) => m.role === "user");
+      // Regenerate lives only on the service-plan card, so always re-run in
+      // service_builder mode even if the composer's mode was changed since.
+      if (lastUser) void send(lastUser.content, "service_builder");
+    },
+  }), [ctx, router, messages, send, streaming]);
+
   const started = messages.length > 0;
 
   return (
@@ -75,6 +99,7 @@ export function OpenFlowPanel() {
           onStop={stop}
           mode={mode}
           onModeChange={setMode}
+          actions={actions}
         />
       ) : (
         <OpenFlowWelcome
