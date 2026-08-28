@@ -638,6 +638,19 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       if (rtRef.current) { try { rtRef.current.close(); } catch { /* ignore */ } rtRef.current = null; }
     };
   }, [pairCode, churchIdForChannel]);
+  // Desktop OBS overlay: SyncControl (the web pair-code UI) doesn't render on
+  // desktop (it collides with the toolbar), so the desktop OBS card in
+  // Hardware→Screens mints its code and announces it via this window event. We
+  // set pairCode → the effect above opens the Realtime publisher, so the OBS
+  // Browser Source actually receives live state. Payload: { code } or { code:null }.
+  useEffect(() => {
+    const onObsPair = (e: Event) => {
+      const detail = (e as CustomEvent<{ code: string | null }>).detail;
+      setPairCode(detail && typeof detail.code === "string" ? detail.code : null);
+    };
+    window.addEventListener("presentflow:obs-pair-code", onObsPair as EventListener);
+    return () => window.removeEventListener("presentflow:obs-pair-code", onObsPair as EventListener);
+  }, []);
   const publishRealtime = useCallback((state: OutputState) => {
     if (!rtRef.current) return;
     void rtRef.current.publish(state);

@@ -14,6 +14,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Monitor } from "lucide-react";
 import type { DisplayInfo } from "@/types/electron";
 import { DropdownDisclosure } from "../pro/DropdownDisclosure";
+import { ObsOverlayCard } from "./ObsOverlayCard";
 
 type Role = "None" | "Projector" | "Stage" | "Livestream";
 type Preset = "720p" | "1080p30" | "1080p60" | "4K";
@@ -280,6 +281,8 @@ export function ScreensPanel() {
       <p className="text-[11px] text-[var(--color-muted-foreground)] leading-relaxed">
         Assignments are stored locally and restored on the next launch when auto-restore is enabled.
       </p>
+
+      <ObsOverlayCard />
     </div>
   );
 }

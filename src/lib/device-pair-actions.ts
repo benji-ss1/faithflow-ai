@@ -41,7 +41,7 @@ export async function mintPairCode(input: {
   planId?: string | null;
   label?: string | null;
   screenKind?: "projector" | "stage" | "stream" | "operator";
-} = {}): Promise<Result<{ code: string; expiresAt: string }>> {
+} = {}): Promise<Result<{ code: string; expiresAt: string; churchId: string }>> {
   const user = await requireUser();
   if (!(await mintLimiter(user.id))) {
     return { ok: false, error: "Too many pair-code mints. Please wait an hour before minting more." };
@@ -64,7 +64,10 @@ export async function mintPairCode(input: {
         createdByUserId: user.id,
         expiresAt,
       });
-      return { ok: true, data: { code, expiresAt: expiresAt.toISOString() } };
+      // churchId returned so a desktop surface can build the church-scoped OBS
+      // overlay URL (?church=…). It's the operator's own church UUID, already
+      // embedded in the pair URLs they use — no new exposure.
+      return { ok: true, data: { code, expiresAt: expiresAt.toISOString(), churchId: user.churchId } };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (!/unique|duplicate/i.test(msg)) return { ok: false, error: msg };
