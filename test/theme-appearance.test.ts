@@ -7,7 +7,7 @@
  */
 import assert from "node:assert";
 import { isValidThemeAppearance, isValidOutputState, EMPTY_OUTPUT } from "../src/lib/broadcast";
-import { themeConfigToAppearance } from "../src/lib/theme-appearance";
+import { themeConfigToAppearance, appearanceHasBackground } from "../src/lib/theme-appearance";
 
 let pass = 0, fail = 0;
 function check(name: string, fn: () => void) {
@@ -150,6 +150,34 @@ check("bgAnimation: a solid theme with only motion still counts as a theme", () 
   const a = themeConfigToAppearance({ bgType: "solid", bgAnimation: "pulse" });
   assert.ok(a, "animation alone is meaningful");
   assert.strictEqual(a!.bgAnimation, "pulse");
+});
+
+// appearanceHasBackground — the trigger that clears a Background Template when a
+// background-bearing theme is applied (mutually-exclusive backgrounds, 2026-08-28).
+check("hasBackground: null / undefined → false", () => {
+  assert.strictEqual(appearanceHasBackground(null), false);
+  assert.strictEqual(appearanceHasBackground(undefined), false);
+});
+check("hasBackground: text-only theme (no bg) → false (can coexist with a template)", () => {
+  assert.strictEqual(appearanceHasBackground({ textColor: "#fff", fontFamily: "Inter", fontWeight: 700 }), false);
+  // bgType defaults to "solid" for text-only themes — solid ALONE must not count.
+  assert.strictEqual(appearanceHasBackground({ bgType: "solid" }), false);
+});
+check("hasBackground: solid WITH a colour → true", () =>
+  assert.strictEqual(appearanceHasBackground({ bgType: "solid", bgColor: "#0b1020" }), true));
+check("hasBackground: gradient → true", () =>
+  assert.strictEqual(appearanceHasBackground({ bgType: "gradient" }), true));
+check("hasBackground: image with url → true; image without url → false", () => {
+  assert.strictEqual(appearanceHasBackground({ bgType: "image", bgImageUrl: "https://s3.example.com/bg.jpg" }), true);
+  assert.strictEqual(appearanceHasBackground({ bgType: "image" }), false);
+});
+check("hasBackground: video with url → true; video without url → false", () => {
+  assert.strictEqual(appearanceHasBackground({ bgType: "video", bgVideoUrl: "https://s3.example.com/v.mp4" }), true);
+  assert.strictEqual(appearanceHasBackground({ bgType: "video" }), false);
+});
+check("hasBackground: mapper output for a real bg theme → true", () => {
+  const a = themeConfigToAppearance({ bgType: "gradient", bgColor: "#001a33", bgColor2: "#00335c" });
+  assert.strictEqual(appearanceHasBackground(a), true);
 });
 
 console.log(`\n=== theme-appearance: ${pass} passed, ${fail} failed ===`);

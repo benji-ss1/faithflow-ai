@@ -67,6 +67,25 @@ const LOGO_POSITIONS = new Set([
  * Returns a validated ThemeAppearance, or null if the config yields nothing
  * meaningful (so callers can emit `appearance: null` = built-in defaults).
  */
+/**
+ * True when a theme appearance carries its OWN projected background (a fill the
+ * congregation would see), as opposed to text-only styling. Used to enforce the
+ * mutually-exclusive rule between a theme background and a Background Template:
+ * applying a background-bearing theme clears the active template so the theme's
+ * background actually reaches the projector. A text-only theme (fonts/colour but
+ * no background) returns false — it can safely coexist over a template.
+ */
+export function appearanceHasBackground(a: ThemeAppearance | null | undefined): boolean {
+  if (!a) return false;
+  if (a.bgType === "image" && a.bgImageUrl) return true;
+  if (a.bgType === "video" && a.bgVideoUrl) return true;
+  if (a.bgType === "gradient") return true;
+  // A solid fill counts only when a real colour is set (bgType defaults to
+  // "solid" even for text-only themes, so bgType alone is not enough).
+  if (a.bgColor) return true;
+  return false;
+}
+
 export function themeConfigToAppearance(config: unknown): ThemeAppearance | null {
   if (!config || typeof config !== "object") return null;
   const c = config as Record<string, unknown>;

@@ -24,6 +24,11 @@ export type OperatorShellCtx = {
   referenceScale?: number;
   referenceColor?: string;
   background?: import("@/lib/broadcast").BackgroundSpec | null;
+  // The active camera/video input, same value OperatorConsole puts on the wire
+  // (OutputState.videoInput). The live-output thumbnail uses it to mirror /live's
+  // camera-wins-over-template precedence (page.tsx:483) so the thumb never shows
+  // a template while the projector shows the camera.
+  videoInput?: import("@/lib/broadcast").VideoInputState | null;
   // Projection Zone Customizer: the active zone geometry, same value on the wire
   // (OutputState.zone). Preview surfaces pass it to PresentationCanvas so the
   // operator preview matches the projector's zone WYSIWYG. Its fontScale is

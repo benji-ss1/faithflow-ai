@@ -405,8 +405,19 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       if (!cancelled) setThemesVersion((v) => v + 1);
       const active = list.find((t) => t.isDefault) ?? null;
       if (!cancelled && !userTouched.current && active) {
-        const { themeConfigToAppearance } = await import("@/lib/theme-appearance");
-        setAppearance(themeConfigToAppearance(active.config));
+        const { themeConfigToAppearance, appearanceHasBackground } = await import("@/lib/theme-appearance");
+        const mapped = themeConfigToAppearance(active.config);
+        setAppearance(mapped);
+        // Self-heal a stale Background Template left active in a prior session:
+        // under the mutually-exclusive rule, the church's default theme background
+        // is the source of truth, so on load a leftover template that would
+        // otherwise override it (overVideo on /live) is cleared. Only when the
+        // default theme actually carries its OWN background — a text-only default
+        // theme leaves any template alone so the two can still be layered.
+        if (!cancelled && appearanceHasBackground(mapped)) {
+          const { readActiveBackgroundId, setActiveBackgroundId } = await import("@/backgrounds/store/backgroundStore");
+          if (readActiveBackgroundId() !== "none") setActiveBackgroundId("none");
+        }
       }
     };
     const load = async () => {
@@ -433,7 +444,19 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     const onChange = (e: Event) => {
       userTouched.current = true; // don't let the stale mount-fetch clobber this
       const detail = (e as CustomEvent).detail;
-      setAppearance(detail?.appearance ?? null);
+      const nextAppearance = detail?.appearance ?? null;
+      setAppearance(nextAppearance);
+      // Mutually-exclusive backgrounds (user-approved 2026-08-28): applying a
+      // theme that carries its OWN background turns OFF any active Background
+      // Template, so the theme's background actually reaches the projector — a
+      // template would otherwise override it (overVideo → transparent slide) on
+      // /live. A text-only theme (fonts/colour, no background) leaves the
+      // template alone, so the two can still coexist (theme text over template).
+      void import("@/lib/theme-appearance").then(({ appearanceHasBackground }) => {
+        if (appearanceHasBackground(nextAppearance)) {
+          void import("@/backgrounds/store/backgroundStore").then(({ setActiveBackgroundId }) => setActiveBackgroundId("none"));
+        }
+      });
       void load(); // refresh the by-id cache (default may have changed)
     };
     window.addEventListener("presentflow:theme-changed", onChange);
@@ -1718,6 +1741,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       referenceScale,
       referenceColor: referenceColor || undefined,
     background: backgroundSpec,
+    videoInput,
     appearance: effectiveAppearance,
     zone: activeZone,
     previewItemIdx: preview.itemIdx,
@@ -1947,7 +1971,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     startAudio, stopAudio, effectiveAppearance,
     // Preview WYSIWYG — recompute the ctx when these output values change so the
     // operator preview reflects size/colour/background even when AI is off.
-    effectiveFontScale, referenceScale, referenceColor, backgroundSpec,
+    effectiveFontScale, referenceScale, referenceColor, backgroundSpec, videoInput,
     // Live undo/redo: liveHistoryVer forces the can-* flags to recompute.
     undoLive, redoLive, liveHistoryVer,
   ]);

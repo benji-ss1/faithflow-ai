@@ -13,7 +13,7 @@ import { ShaderBackground } from "./ShaderBackground";
  * Every path fails safe: a bad image/video URL just shows the gradient/nothing,
  * never a crash or a blank projector.
  */
-export function BackgroundLayer({ background }: { background: BackgroundSpec | null | undefined }) {
+export function BackgroundLayer({ background, frozen = false }: { background: BackgroundSpec | null | undefined; frozen?: boolean }) {
   if (!background || background.type === "none") return null;
 
   const fill: React.CSSProperties = { position: "absolute", inset: 0, width: "100%", height: "100%", overflow: "hidden" };
@@ -31,6 +31,7 @@ export function BackgroundLayer({ background }: { background: BackgroundSpec | n
         intensity={background.intensity ?? 1}
         primaryColor={background.primaryColor || "#0A0A0E"}
         secondaryColor={background.secondaryColor || "#0F0F14"}
+        frozen={frozen}
       />
     );
   } else if (background.type === "image" && background.imageUrl) {
@@ -52,12 +53,15 @@ export function BackgroundLayer({ background }: { background: BackgroundSpec | n
     content = (
       <video
         src={background.videoUrl}
-        autoPlay
-        loop
+        // frozen (thumbnail mirror): show the first frame only, no second live
+        // decode of the same clip alongside the projector preview.
+        autoPlay={!frozen}
+        loop={!frozen}
         muted
         playsInline
+        preload={frozen ? "metadata" : "auto"}
         style={{ ...fill, objectFit: "cover" }}
-        ref={(el) => { if (el) el.playbackRate = Math.min(1, Math.max(0.25, background.videoSpeed ?? 0.5)); }}
+        ref={(el) => { if (el && !frozen) el.playbackRate = Math.min(1, Math.max(0.25, background.videoSpeed ?? 0.5)); }}
         onError={(e) => { (e.currentTarget as HTMLVideoElement).style.display = "none"; }}
       />
     );

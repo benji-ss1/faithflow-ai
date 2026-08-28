@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.353",
+    date: "2026-08-28",
+    headline: "Themes now reach the projector",
+    highlights: [
+      { text: "Your theme’s background now shows on the actual projector, not just in the app. Applying a theme that has its own background automatically turns off any Background Template that was covering it — pick one background at a time.", tryItHref: "/operator", tryItLabel: "Open Themes" },
+      "The little “what the projector shows” preview in the top-right is now honest: it shows exactly what’s on the projector, including an active Background Template, so preview and projector always match.",
+    ],
+  },
+  {
     version: "0.1.352",
     date: "2026-08-28",
     headline: "Lyrics over camera: no more cut-off, and you can move them",

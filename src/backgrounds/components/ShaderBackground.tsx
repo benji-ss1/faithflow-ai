@@ -13,9 +13,13 @@ import { hexToRgb, prefersReducedMotion, FLOOR_GRADIENT, FLOOR_TINT_OPACITY, tin
  * theme tint UNDER the canvas. The opaque shader covers it once it draws.
  */
 export function ShaderBackground({
-  preset, speed = 1, intensity = 1, primaryColor = "#0A0A0E", secondaryColor = "#0F0F14",
+  preset, speed = 1, intensity = 1, primaryColor = "#0A0A0E", secondaryColor = "#0F0F14", frozen = false,
 }: {
   preset: string; speed?: number; intensity?: number; primaryColor?: string; secondaryColor?: string;
+  // When true, draw a single frame and run NO animation loop. Used by small
+  // decorative mirrors (the operator's live-output thumbnail) so they show the
+  // template's real colour without a permanent extra RAF loop / WebGL animation.
+  frozen?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -32,11 +36,11 @@ export function ShaderBackground({
         intensity: Math.max(0.1, intensity),
         primaryColor: hexToRgb(primaryColor, PRIMARY_RGB_FALLBACK),
         secondaryColor: hexToRgb(secondaryColor, SECONDARY_RGB_FALLBACK),
-        frozen: prefersReducedMotion(),
+        frozen: frozen || prefersReducedMotion(),
       });
     });
     return () => { cancelAnimationFrame(raf); handle?.stop(); };
-  }, [preset, speed, intensity, primaryColor, secondaryColor]);
+  }, [preset, speed, intensity, primaryColor, secondaryColor, frozen]);
 
   return (
     <div style={{ position: "absolute", inset: 0, width: "100%", height: "100%", overflow: "hidden", background: FLOOR_GRADIENT }}>
