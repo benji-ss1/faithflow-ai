@@ -13,7 +13,7 @@ const POSITION_LABELS: Record<OverlayPosition, string> = {
 };
 
 export function MessagesTab({ api }: { api: MessagesApi }) {
-  const { state, setText, setDismiss, setAllowWeb, setPosition, toggleShow } = api;
+  const { state, setText, setDismiss, setAllowWeb, setPosition, setScroll, setScrollDir, setScrollSec, toggleShow } = api;
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   // NOTE: auto-dismiss is owned by useMessagesSession (pro/hooks.ts) so it
   // survives this popover unmounting — do not re-add a timeout here.
@@ -79,6 +79,54 @@ export function MessagesTab({ api }: { api: MessagesApi }) {
             <option key={p} value={p}>{POSITION_LABELS[p]}</option>
           ))}
         </select>
+      </div>
+      <div className="rounded border border-[var(--color-border)] p-2 flex flex-col gap-2">
+        <label className="flex items-center gap-2 font-semibold">
+          <input type="checkbox" checked={state.scroll} onChange={(e) => setScroll(e.target.checked)} />
+          Scroll across (ticker)
+        </label>
+        {state.scroll && (
+          <>
+            <div className="text-[10px] text-[var(--color-muted-foreground)] -mt-1">
+              The message keeps moving across its band. Stays in the position you chose above.
+            </div>
+            <div>
+              <div className="eyebrow mb-1">Direction</div>
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => setScrollDir("rtl")}
+                  className={`flex-1 h-8 rounded border ${state.scrollDir === "rtl" ? "border-[var(--color-brand)] text-[var(--color-brand)]" : "border-[var(--color-border)]"}`}
+                >Right → Left</button>
+                <button
+                  type="button"
+                  onClick={() => setScrollDir("ltr")}
+                  className={`flex-1 h-8 rounded border ${state.scrollDir === "ltr" ? "border-[var(--color-brand)] text-[var(--color-brand)]" : "border-[var(--color-border)]"}`}
+                >Left → Right</button>
+              </div>
+            </div>
+            <div>
+              <div className="eyebrow mb-1 flex justify-between">
+                <span>Speed</span>
+                <span className="text-[var(--color-muted-foreground)]">{state.scrollSec}s / pass</span>
+              </div>
+              {/* Slider drags RIGHT = faster. Underlying value is seconds-per-pass
+                  (lower = faster), inverted here so the control reads intuitively. */}
+              <input
+                type="range"
+                min={4}
+                max={120}
+                step={1}
+                value={124 - state.scrollSec}
+                onChange={(e) => setScrollSec(124 - Number(e.target.value))}
+                className="w-full"
+              />
+              <div className="flex justify-between text-[10px] text-[var(--color-muted-foreground)]">
+                <span>Slower</span><span>Faster</span>
+              </div>
+            </div>
+          </>
+        )}
       </div>
       <label className="flex items-center gap-2">
         <input

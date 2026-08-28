@@ -2125,6 +2125,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           dismissAfterMs: DISMISS_MS[s.dismiss] ?? null,
           position: s.position,
           allowWeb: s.allowWeb,
+          // Ticker: only send the motion fields when scroll is on, so a static
+          // message stays byte-identical on the wire (and old projectors ignore
+          // the extra fields harmlessly).
+          ...(s.scroll ? { scroll: true, scrollDir: s.scrollDir, scrollSec: s.scrollSec } : {}),
         },
       });
       messagePostedRef.current = true;
@@ -2132,7 +2136,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     post();
     const id = setInterval(post, 1000);
     return () => clearInterval(id);
-  }, [messages.state.showing, messages.state.text, messages.state.dismiss, messages.state.position, messages.state.allowWeb]);
+  }, [messages.state.showing, messages.state.text, messages.state.dismiss, messages.state.position, messages.state.allowWeb, messages.state.scroll, messages.state.scrollDir, messages.state.scrollSec]);
 
   // JPD Fix 1: timer overlay is projected ONLY while `shown` (explicit
   // "Show on screen" toggle in the Timers tab). While shown we heartbeat at

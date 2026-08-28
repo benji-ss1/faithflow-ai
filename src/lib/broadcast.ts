@@ -293,8 +293,18 @@ export type MessageOverlay =
   /** `allowWeb` gates the PUBLIC /livestream surface only (default true for
    * old-format compat). /live and /stage are in-building operator surfaces
    * and always render. */
-  | { text: string; dismissAfterMs?: number | null; position?: OverlayPosition; allowWeb?: boolean; clear?: false }
+  | { text: string; dismissAfterMs?: number | null; position?: OverlayPosition; allowWeb?: boolean;
+      /** Horizontal ticker: when true the message scrolls across its band
+       * (continuous loop). `scrollDir` is the travel direction; `scrollSec` is
+       * the seconds for one full pass (lower = faster). Absent/false = static. */
+      scroll?: boolean; scrollDir?: "ltr" | "rtl"; scrollSec?: number; clear?: false }
   | { clear: true };
+
+// Ticker speed bounds (seconds for one pass). Clamped on both the wire and the
+// operator control so a hostile/typo'd value can't freeze or hyper-spin the band.
+export const MSG_SCROLL_MIN_SEC = 4;
+export const MSG_SCROLL_MAX_SEC = 120;
+export const MSG_SCROLL_DEFAULT_SEC = 18;
 
 /**
  * Timer overlay — countdown / count-up displayed on outputs. `remainingSec`
@@ -433,6 +443,13 @@ export function isValidMessageOverlay(overlay: unknown): overlay is MessageOverl
   if (!isValidOverlayPosition(o.position)) return false;
   // allowWeb: optional boolean (absent = true, old-format compat).
   if (o.allowWeb !== undefined && typeof o.allowWeb !== "boolean") return false;
+  // Ticker: scroll boolean, direction enum, bounded numeric seconds.
+  if (o.scroll !== undefined && typeof o.scroll !== "boolean") return false;
+  if (o.scrollDir !== undefined && o.scrollDir !== "ltr" && o.scrollDir !== "rtl") return false;
+  if (o.scrollSec !== undefined) {
+    const s = o.scrollSec;
+    if (typeof s !== "number" || !Number.isFinite(s) || s < MSG_SCROLL_MIN_SEC || s > MSG_SCROLL_MAX_SEC) return false;
+  }
   return true;
 }
 

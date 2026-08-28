@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.355",
+    date: "2026-08-28",
+    headline: "Scrolling messages (ticker) on the projector",
+    highlights: [
+      { text: "Turn any message into a moving ticker: in Messages, switch on “Scroll across”, pick the direction (Right→Left or Left→Right) and the speed. It keeps moving across the band you chose (e.g. lower third) — great for standing announcements during worship.", tryItHref: "/operator", tryItLabel: "Open Messages" },
+    ],
+  },
+  {
     version: "0.1.354",
     date: "2026-08-28",
     headline: "Theme colours on verses & songs, working uploads, and fixes",

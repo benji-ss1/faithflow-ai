@@ -79,7 +79,7 @@ export default function LivePage() {
   const [appearance, setAppearance] = useState<ThemeAppearance | null>(null); // Themes Phase 1
   const [videoInput, setVideoInput] = useState<VideoInputState | null>(null); // Phase 2a live video
   const [zone, setZone] = useState<ProjectionZone | null>(null); // Projection Zone geometry
-  const [messageOverlay, setMessageOverlay] = useState<{ text: string; position: OverlayPosition } | null>(null);
+  const [messageOverlay, setMessageOverlay] = useState<{ text: string; position: OverlayPosition; scroll?: boolean; scrollDir?: "ltr" | "rtl"; scrollSec?: number } | null>(null);
   const messageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Content key (text|dismissAfterMs) of the currently shown message — the
   // operator heartbeats the same overlay at 1Hz, and we must only (re)arm the
@@ -181,7 +181,7 @@ export default function LivePage() {
             setMessageOverlay(null);
           } else if ("text" in msg.overlay) {
             lastMessageMsgAt.current = Date.now();
-            setMessageOverlay({ text: msg.overlay.text, position: msg.overlay.position ?? "lower-third" });
+            setMessageOverlay({ text: msg.overlay.text, position: msg.overlay.position ?? "lower-third", scroll: msg.overlay.scroll, scrollDir: msg.overlay.scrollDir, scrollSec: msg.overlay.scrollSec });
             // Operator re-posts the same message at 1Hz (heartbeat). Only
             // (re)arm the dismiss countdown when content actually changes —
             // otherwise the countdown would restart every second and a timed
@@ -512,14 +512,38 @@ export default function LivePage() {
                timer). Semi-transparent panel, auto-hides via the client-side
                dismiss timer. Position is operator-chosen; lower-third default. */
             <div className={`${overlayPosClass(messageOverlay.position)} pointer-events-none z-30`}>
-              <div
-                className={`bg-black/70 backdrop-blur-sm border-l-4 p-6 rounded-sm ${messageOverlay.position !== "lower-third" ? "inline-block max-w-[60vw]" : ""}`}
-                style={{ borderColor: "var(--color-brand, #06b6d4)" }}
-              >
-                <div className="text-white text-2xl md:text-4xl font-semibold leading-tight text-left">
-                  {messageOverlay.text}
+              {messageOverlay.scroll ? (
+                /* Ticker: the band spans its full positioned width, clips its
+                   overflow, and an inline-block inner element scrolls the text
+                   across (continuous loop). Stays within the chosen band. */
+                <div
+                  className="bg-black/70 backdrop-blur-sm border-l-4 py-4 rounded-sm overflow-hidden w-full"
+                  style={{ borderColor: "var(--color-brand, #06b6d4)" }}
+                >
+                  <div
+                    className="text-white text-2xl md:text-4xl font-semibold leading-tight whitespace-nowrap"
+                    style={{
+                      display: "inline-block",
+                      // starts the text just past the band's right edge (see the
+                      // pf-msg-ticker keyframe note) so any length traverses fully.
+                      paddingLeft: "100%",
+                      animation: `pf-msg-ticker ${Math.max(4, Math.min(120, messageOverlay.scrollSec ?? 18))}s linear infinite`,
+                      animationDirection: messageOverlay.scrollDir === "ltr" ? "reverse" : "normal",
+                    }}
+                  >
+                    {messageOverlay.text}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div
+                  className={`bg-black/70 backdrop-blur-sm border-l-4 p-6 rounded-sm ${messageOverlay.position !== "lower-third" ? "inline-block max-w-[60vw]" : ""}`}
+                  style={{ borderColor: "var(--color-brand, #06b6d4)" }}
+                >
+                  <div className="text-white text-2xl md:text-4xl font-semibold leading-tight text-left">
+                    {messageOverlay.text}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

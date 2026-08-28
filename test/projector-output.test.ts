@@ -301,6 +301,27 @@ async function main() {
     assert.strictEqual(s.aspectRatio, "4:3");
   });
 
+  // Ticker (scrolling lower-third message) — wire validation. (2026-08-28)
+  await check("validator accepts a scrolling message overlay", () => {
+    const m: LiveMessage = { type: "message", overlay: { text: "Welcome!", scroll: true, scrollDir: "rtl", scrollSec: 18 } };
+    assert.strictEqual(isValidLiveMessage(m), true);
+  });
+  await check("validator accepts ltr direction + boundary speeds", () => {
+    assert.strictEqual(isValidLiveMessage({ type: "message", overlay: { text: "a", scroll: true, scrollDir: "ltr", scrollSec: 4 } } as LiveMessage), true);
+    assert.strictEqual(isValidLiveMessage({ type: "message", overlay: { text: "a", scroll: true, scrollDir: "rtl", scrollSec: 120 } } as LiveMessage), true);
+  });
+  await check("validator rejects a bad scroll direction", () => {
+    assert.strictEqual(isValidLiveMessage({ type: "message", overlay: { text: "a", scroll: true, scrollDir: "up" } } as unknown), false);
+  });
+  await check("validator rejects out-of-range / non-finite scrollSec", () => {
+    assert.strictEqual(isValidLiveMessage({ type: "message", overlay: { text: "a", scroll: true, scrollSec: 1 } } as unknown), false);
+    assert.strictEqual(isValidLiveMessage({ type: "message", overlay: { text: "a", scroll: true, scrollSec: 999 } } as unknown), false);
+    assert.strictEqual(isValidLiveMessage({ type: "message", overlay: { text: "a", scroll: true, scrollSec: Infinity } } as unknown), false);
+  });
+  await check("validator rejects a non-boolean scroll flag", () => {
+    assert.strictEqual(isValidLiveMessage({ type: "message", overlay: { text: "a", scroll: "yes" } } as unknown), false);
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
 }

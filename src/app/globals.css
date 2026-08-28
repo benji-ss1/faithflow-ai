@@ -361,6 +361,14 @@ html.light {
 .pf-ribbon-track { display: inline-block; white-space: nowrap; font: 700 11px/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; animation: pfRibbon 20s linear infinite; }
 .pf-ribbon-track--rev { animation-direction: reverse; }
 @keyframes pfRibbon { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+/* Operator message ticker (lower-third scroll). Paired with `padding-left:100%`
+   on the inner element (so the text starts just past the RIGHT edge of the band
+   regardless of its length); translateX(0 → -100%) then carries the whole box
+   fully off the LEFT — a reliable marquee for ANY message length (right-to-left).
+   `ltr` uses animation-direction:reverse. Duration = operator speed. On the
+   PROJECTOR we do NOT disable this under prefers-reduced-motion — it's a
+   deliberate, operator-requested motion, not decorative UI chrome. */
+@keyframes pf-msg-ticker { from { transform: translateX(0); } to { transform: translateX(-100%); } }
 /* Flat horizontal ribbon strip — self-contained, sits inline under a header. */
 .pf-ribbon-strip {
   position: relative;

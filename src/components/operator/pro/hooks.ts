@@ -96,13 +96,16 @@ export function useTimerSession(): TimerApi {
 
 // ------------------------------------------------------------- Messages (R4)
 const MSG_KEY = "presentflow.pro.messages.v1";
-export type MessagesState = { text: string; dismiss: string; allowWeb: boolean; showing: boolean; position: OverlayPosition };
+export type MessagesState = { text: string; dismiss: string; allowWeb: boolean; showing: boolean; position: OverlayPosition; scroll: boolean; scrollDir: "ltr" | "rtl"; scrollSec: number };
 export type MessagesApi = {
   state: MessagesState;
   setText: (v: string) => void;
   setDismiss: (v: string) => void;
   setAllowWeb: (v: boolean) => void;
   setPosition: (v: OverlayPosition) => void;
+  setScroll: (v: boolean) => void;
+  setScrollDir: (v: "ltr" | "rtl") => void;
+  setScrollSec: (v: number) => void;
   toggleShow: () => void;
 };
 
@@ -113,7 +116,7 @@ const MSG_DISMISS_MS: Record<string, number> = {
 };
 
 export function useMessagesSession(): MessagesApi {
-  const [state, setState] = useState<MessagesState>({ text: "", dismiss: "manual", allowWeb: false, showing: false, position: "lower-third" });
+  const [state, setState] = useState<MessagesState>({ text: "", dismiss: "manual", allowWeb: false, showing: false, position: "lower-third", scroll: false, scrollDir: "rtl", scrollSec: 18 });
 
   // Auto-dismiss: when showing and dismiss !== manual, flip showing:false
   // after N ms. Lives at the session (shell) level so closing the Messages
@@ -140,8 +143,8 @@ export function useMessagesSession(): MessagesApi {
   }, []);
   useEffect(() => {
     try {
-      const { text, dismiss, allowWeb, position } = state;
-      window.localStorage.setItem(MSG_KEY, JSON.stringify({ text, dismiss, allowWeb, position }));
+      const { text, dismiss, allowWeb, position, scroll, scrollDir, scrollSec } = state;
+      window.localStorage.setItem(MSG_KEY, JSON.stringify({ text, dismiss, allowWeb, position, scroll, scrollDir, scrollSec }));
     } catch { /* noop */ }
   }, [state]);
 
@@ -151,6 +154,9 @@ export function useMessagesSession(): MessagesApi {
     setDismiss: (v) => setState((s) => ({ ...s, dismiss: v })),
     setAllowWeb: (v) => setState((s) => ({ ...s, allowWeb: v })),
     setPosition: (v) => setState((s) => ({ ...s, position: v })),
+    setScroll: (v) => setState((s) => ({ ...s, scroll: v })),
+    setScrollDir: (v) => setState((s) => ({ ...s, scrollDir: v })),
+    setScrollSec: (v) => setState((s) => ({ ...s, scrollSec: Math.max(4, Math.min(120, Math.round(v) || 18)) })),
     toggleShow: () => setState((s) => ({ ...s, showing: !s.showing })),
   };
 }
