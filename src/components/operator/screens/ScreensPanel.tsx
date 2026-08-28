@@ -118,15 +118,21 @@ export function ScreensPanel() {
 
   if (inElectron === null) return <div className="p-4 text-sm text-[var(--color-muted-foreground)]">Loading…</div>;
   if (!inElectron) {
+    // Physical screen assignment needs the desktop app, but the OBS overlay link
+    // is a pure-web action (mint code + copy URL) — it must NOT be trapped behind
+    // this gate, or a browser operator can never create an OBS link.
     return (
-      <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
-        <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-[var(--color-brand)]/12 text-[var(--color-brand)] shadow-[var(--edge-top)]">
-          <Monitor className="w-6 h-6" />
+      <div className="space-y-4">
+        <div className="flex flex-col items-center gap-3 px-4 py-8 text-center">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-[var(--color-brand)]/12 text-[var(--color-brand)] shadow-[var(--edge-top)]">
+            <Monitor className="w-6 h-6" />
+          </div>
+          <div className="text-[13px] font-semibold text-[var(--color-foreground)]">Desktop app required for screen assignment</div>
+          <p className="text-[11px] text-[var(--color-muted-foreground)] leading-relaxed max-w-[260px]">
+            Assigning outputs to physical monitors is available only in the PresentFlow desktop app. The OBS overlay link below works here too.
+          </p>
         </div>
-        <div className="text-[13px] font-semibold text-[var(--color-foreground)]">Desktop app required</div>
-        <p className="text-[11px] text-[var(--color-muted-foreground)] leading-relaxed max-w-[260px]">
-          Screen configuration is available only in the PresentFlow desktop app.
-        </p>
+        <ObsOverlayCard />
       </div>
     );
   }

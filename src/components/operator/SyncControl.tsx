@@ -21,6 +21,23 @@ import { mintPairCode, revokePairCode } from "@/lib/device-pair-actions";
 const STORAGE_KEY = "presentflow.sync.pairCode";
 const STORAGE_EXP_KEY = "presentflow.sync.pairExpiresAt";
 
+// Robust copy: await the async Clipboard API, fall back to a hidden-textarea
+// execCommand copy for Electron / non-secure origins where writeText rejects or
+// is unavailable. Returns true only when the text actually reached the clipboard.
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return true; }
+  } catch { /* fall through to execCommand */ }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch { return false; }
+}
+
 export function SyncControl({ planId, churchId, onCodeChange }: {
   planId?: string;
   churchId?: string;
@@ -89,14 +106,12 @@ export function SyncControl({ planId, churchId, onCodeChange }: {
     }
   }, [code, onCodeChange]);
 
-  const copy = useCallback(() => {
+  const copy = useCallback(async () => {
     if (!code) return;
-    try {
-      navigator.clipboard.writeText(code);
-      toast.success("Code copied");
-    } catch {
-      toast.error("Copy failed");
-    }
+    // writeText() is async and rejects on insecure/blocked contexts — a sync
+    // try/catch would toast success while nothing copied. Await + fallback.
+    if (await copyToClipboard(code)) toast.success("Code copied");
+    else toast.error("Couldn't copy — select the code and copy it manually");
   }, [code]);
 
   if (!code) {
@@ -127,9 +142,9 @@ export function SyncControl({ planId, churchId, onCodeChange }: {
   // an OBS Browser Source over the camera). Shares the SAME pair code, so it
   // follows LIVE and updates on every slide change on the broadcast machine.
   const obsUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/livestream?bg=transparent&pair=${code}${churchQ}`;
-  const copyObs = () => {
-    try { navigator.clipboard.writeText(obsUrl); toast.success("OBS overlay URL copied"); }
-    catch { toast.error("Copy failed"); }
+  const copyObs = async () => {
+    if (await copyToClipboard(obsUrl)) toast.success("OBS overlay URL copied");
+    else toast.error("Couldn't copy — select the link and copy it manually");
   };
 
   return (

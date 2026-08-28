@@ -71,10 +71,33 @@ export function ObsOverlayCard() {
     } finally { setBusy(false); }
   }, [code]);
 
-  const copy = useCallback(() => {
+  const copy = useCallback(async () => {
     if (!code) return;
-    try { navigator.clipboard.writeText(obsUrl(code, churchId)); toast.success("OBS overlay URL copied"); }
-    catch { toast.error("Copy failed"); }
+    const url = obsUrl(code, churchId);
+    // navigator.clipboard.writeText() is async and REJECTS on a blocked/non-secure
+    // context — a sync try/catch would toast "copied" while nothing landed. Await
+    // it, and fall back to a hidden-textarea execCommand copy (works in Electron /
+    // http origins where the async Clipboard API is unavailable).
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        toast.success("OBS overlay URL copied");
+        return;
+      }
+      throw new Error("clipboard unavailable");
+    } catch {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = url; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+        if (ok) toast.success("OBS overlay URL copied");
+        else toast.error("Couldn't copy — select the link and copy it manually");
+      } catch {
+        toast.error("Couldn't copy — select the link and copy it manually");
+      }
+    }
   }, [code, churchId]);
 
   return (

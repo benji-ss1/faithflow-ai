@@ -7,6 +7,30 @@ import type { SlidePayload } from "./broadcast";
 export const CANVAS_W = 1920;
 export const CANVAS_H = 1080;
 
+// Every text object is created with a default white fill (emptyTextObject,
+// scriptureStyle VERSE/REF_DEFAULT, slide-templates). That default should NOT
+// win over a Theme's textColor — otherwise a theme colour never reaches verse/
+// song text. These helpers let the renderer treat "the untouched default white"
+// as "inherit the theme colour", while a colour the operator EXPLICITLY changed
+// (anything non-white) still wins. Pure + unit-testable.
+export const DEFAULT_OBJECT_TEXT_COLOR = "#ffffff";
+export function isDefaultObjectTextColor(c: string | null | undefined): boolean {
+  if (!c) return true;
+  const v = c.trim().toLowerCase();
+  return v === "#ffffff" || v === "#fff" || v === "white" || v === "rgb(255,255,255)" || v === "rgb(255, 255, 255)";
+}
+/**
+ * The text colour to actually paint for an object. `themedColor` is the theme's
+ * textColor, and should be passed as non-null ONLY when the theme background is
+ * what's showing (no per-slide bg / template / camera behind) — i.e. the same
+ * condition under which the theme background paints. An explicit (non-default)
+ * per-object colour always wins; otherwise the theme colour fills in; else white.
+ */
+export function themedObjectTextColor(objColor: string | null | undefined, themedColor: string | null | undefined): string {
+  if (objColor && !isDefaultObjectTextColor(objColor)) return objColor;
+  return themedColor || objColor || DEFAULT_OBJECT_TEXT_COLOR;
+}
+
 // Per-object entrance animation, played once when a slide goes live.
 export type ObjectAnim = "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom";
 

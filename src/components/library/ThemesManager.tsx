@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useTransition } from "react";
+import { useState, useEffect, useTransition, useRef } from "react";
 import { toast } from "sonner";
 import { ChevronDown, Copy, Download, GripVertical, Image as ImageIcon, Palette, Plus, RefreshCw, Sparkles, Star, Trash2, Upload, X } from "lucide-react";
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
@@ -1266,6 +1266,10 @@ function BgAssetPicker({
 }) {
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  // Ref to the hidden <input type="file"> so the web-fallback picker can open it.
+  // (The old getElementById(`bg-picker-${kind}-${Math.random()}`) never matched
+  // an element, so clicking "upload" silently did nothing in the browser.)
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [libOpen, setLibOpen] = useState(false);
   const accept = kind === "image"
     ? "image/png,image/jpeg,image/webp,image/gif,image/avif"
@@ -1320,8 +1324,8 @@ function BgAssetPicker({
       }
       return;
     }
-    // Web fallback handled by the hidden <input> click below.
-    document.getElementById(`bg-picker-${kind}-${Math.random()}`)?.click();
+    // Web fallback: open the hidden <input type="file"> via its ref.
+    fileInputRef.current?.click();
   }
 
   return (
@@ -1427,6 +1431,7 @@ function BgAssetPicker({
         )}
         {/* Hidden fallback for non-Electron / older browsers */}
         <input
+          ref={fileInputRef}
           type="file"
           accept={accept}
           className="sr-only"

@@ -45,7 +45,14 @@ const PUBLIC_PATHS = [
 // includes viewing/driving the output surfaces themselves, not just the
 // operator console. Folded into desktopPathAllowed() below rather than
 // exempted from it (previously these bypassed the check entirely).
-const OUTPUT_SURFACE_PATHS = ["/live", "/stage", "/livestream"];
+// /ndi is the desktop-only OFFSCREEN render surface the NDI sender captures
+// (electron/ndi/NDIService loads ${appUrl}/ndi in a hidden BrowserWindow that
+// shares the authenticated desktop session). It MUST be desktop-allowed — before
+// this it fell through to the `desktop && !desktopPathAllowed` branch and got
+// redirected to /operator, so the NDI feed broadcast the operator console (or a
+// redirect) instead of the live output, and the broadcast PC saw no usable feed.
+// It is NOT pair-public (only the local offscreen window loads it, via session).
+const OUTPUT_SURFACE_PATHS = ["/live", "/stage", "/livestream", "/ndi"];
 
 // Non-API surfaces the desktop shell is allowed to render. Admin surfaces
 // (dashboard, organization, analytics, subscriptions, applications, products,

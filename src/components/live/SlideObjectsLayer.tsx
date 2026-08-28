@@ -1,6 +1,7 @@
 "use client";
 import type { SlideObjectWire } from "@/lib/broadcast";
 import { SLIDE_CANVAS_W, SLIDE_CANVAS_H } from "@/lib/broadcast";
+import { themedObjectTextColor } from "@/lib/slide-objects";
 
 /**
  * Read-only projector render of a slide's positioned objects (Phase 1 of the
@@ -12,7 +13,7 @@ import { SLIDE_CANVAS_W, SLIDE_CANVAS_H } from "@/lib/broadcast";
  * No drag handles, no interaction — this is output only. Objects render in
  * array order (first = back). Sits above the slide background, below the logo.
  */
-export function SlideObjectsLayer({ objects, fontScale = 1 }: { objects: SlideObjectWire[]; fontScale?: number }) {
+export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor }: { objects: SlideObjectWire[]; fontScale?: number; themedTextColor?: string | null }) {
   // Global font multiplier (operator A-/A+ × Projection-Zone Font). Previously
   // this layer ignored it, so the Font slider / A-/A+ had NO effect on the
   // projector for designed or song slides (only plain-lyric slides scaled).
@@ -63,7 +64,9 @@ export function SlideObjectsLayer({ objects, fontScale = 1 }: { objects: SlideOb
                   fontFamily: obj.fontFamily || "Inter, system-ui, sans-serif",
                   fontSize: `${((obj.fontSize ?? 96) * fs / SLIDE_CANVAS_H) * 100}cqh`,
                   fontWeight: obj.fontWeight ?? 600,
-                  color: obj.color ?? "#ffffff",
+                  // Default-white text inherits the theme's textColor when the
+                  // theme background is showing; an explicit colour still wins.
+                  color: themedObjectTextColor(obj.color, themedTextColor),
                   fontStyle: obj.italic ? "italic" : undefined,
                   textDecoration: obj.underline ? "underline" : undefined,
                   justifyContent: obj.align === "left" ? "flex-start" : obj.align === "right" ? "flex-end" : "center",

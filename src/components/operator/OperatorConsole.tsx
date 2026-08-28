@@ -1168,7 +1168,8 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     setLive({ kind: "empty" });
     chRef.current?.postMessage({ type: "clear" } as LiveMessage);
   }, []);
-  const clearLowerThird = useCallback(() => toast.info("Lower third cleared (placeholder)"), []);
+  // clearLowerThird is defined AFTER sendLowerThird (below) so it can call the
+  // real clear path — see the const near sendLowerThird. Placeholder removed.
   const stageMessage = useCallback(() => toast.info("Send-to-stage-message coming in Phase 2 stage-display wiring"), []);
 
   // --- AI approval: adds to bank + stages to Preview -----------------------
@@ -1606,6 +1607,10 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     lastOutputStateRef.current = state;
     toast.success(line1 || line2 ? "Lower third sent" : "Lower third cleared");
   }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, publishRealtime, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone]);
+  // Actually CLEAR the lower third on the projector (was a placeholder toast
+  // that left it on screen — a real live hazard). Reuses the working send path
+  // with empty lines, which broadcasts lowerThird:null and toasts "cleared".
+  const clearLowerThird = useCallback(() => sendLowerThird("", ""), [sendLowerThird]);
 
   /**
    * P2 message overlay — a transient lower-third bubble that displays on

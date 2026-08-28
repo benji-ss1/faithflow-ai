@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.354",
+    date: "2026-08-28",
+    headline: "Theme colours on verses & songs, working uploads, and fixes",
+    highlights: [
+      { text: "Your theme’s text colour now applies to Bible verses and song lyrics on the projector — not just plain text. A colour you set on a specific slide still wins.", tryItHref: "/operator", tryItLabel: "Open Themes" },
+      "Adding an image in the Themes editor now opens the file picker (clicking “upload” was doing nothing).",
+      "“Clear Lower Third” now actually clears it off the projector, and Copy buttons (sync code, OBS URL) reliably report success only when the copy really worked.",
+      "The OBS overlay link is now reachable in the browser too, and NDI output now sends the real live picture to your broadcast computer.",
+    ],
+  },
+  {
     version: "0.1.353",
     date: "2026-08-28",
     headline: "Themes now reach the projector",

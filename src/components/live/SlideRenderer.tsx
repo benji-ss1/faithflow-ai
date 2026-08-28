@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useCallback } from "react";
 import type { SlidePayload, ThemeAppearance } from "@/lib/broadcast";
+import { themedObjectTextColor } from "@/lib/slide-objects";
 import { AutoFitText } from "./AutoFitText";
 import { AnimatedThemeBg } from "./ThemeLayers";
 import { SlideObjectsLayer } from "./SlideObjectsLayer";
@@ -220,6 +221,15 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
             : overVideo
               ? { background: "transparent" }
               : themeBackgroundStyle(appearance, "#0b0b0b");
+      // Theme TEXT colour applies to a slide's objects only when the THEME
+      // BACKGROUND is what's showing (the last branch above) — i.e. no per-slide
+      // image/colour, no Background Template, no camera. In that case a per-object
+      // DEFAULT-white fill should inherit the theme's textColor (that's the "theme
+      // colour isn't applying to verses/songs" fix); an explicit non-white colour
+      // still wins. Over the slide's own bg / a template / camera, objects keep
+      // their designed colours. `undefined` = don't theme (keep object colour).
+      const themeBgShowing = !transparentBg && !slide.bgImageUrl && !slide.bgColor && !overVideo;
+      const themedTextColor = themeBgShowing ? (appearance?.textColor ?? undefined) : undefined;
       // Lyric/verse slides are stored as a SINGLE centered text object (from
       // import or the slide editor). Rendering that at its stored ~96px font
       // makes it tiny on a sanctuary screen — the "songs project small" bug.
@@ -235,7 +245,9 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
         // Respect the operator's colour/font/weight/alignment; AutoFitText owns
         // the SIZE (fill-to-fit) + the always-on uppercase crowd-readability.
         const objStyle: React.CSSProperties = {
-          ...(soleText.color ? { color: soleText.color } : {}),
+          // Default-white inherits the theme textColor when the theme bg is
+          // showing; an explicit colour still wins (themedObjectTextColor).
+          ...(soleText.color ? { color: themedObjectTextColor(soleText.color, themedTextColor) } : (themedTextColor ? { color: themedTextColor } : {})),
           ...(soleText.fontFamily ? { fontFamily: soleText.fontFamily } : {}),
           ...(soleText.fontWeight ? { fontWeight: soleText.fontWeight } : {}),
           ...(soleText.align ? { textAlign: soleText.align } : {}),
@@ -290,7 +302,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
       if (transparentBg) designedContainerStyle.filter = OBS_OVERLAY_DROP_SHADOW;
       return (
         <div className={`${base} relative ${className || ""}`} style={designedContainerStyle}>
-          <SlideObjectsLayer objects={objects} fontScale={fontScale} />
+          <SlideObjectsLayer objects={objects} fontScale={fontScale} themedTextColor={themedTextColor} />
           {showDesignedFooter && (
             <div className="absolute inset-x-0 bottom-0 flex justify-center pointer-events-none" style={{ paddingBottom: projectorFit ? "3.5%" : "2.5%" }}>
               <span className="font-display font-semibold uppercase tracking-wide" style={{

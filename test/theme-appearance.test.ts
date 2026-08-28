@@ -8,6 +8,7 @@
 import assert from "node:assert";
 import { isValidThemeAppearance, isValidOutputState, EMPTY_OUTPUT } from "../src/lib/broadcast";
 import { themeConfigToAppearance, appearanceHasBackground } from "../src/lib/theme-appearance";
+import { themedObjectTextColor, isDefaultObjectTextColor } from "../src/lib/slide-objects";
 
 let pass = 0, fail = 0;
 function check(name: string, fn: () => void) {
@@ -178,6 +179,31 @@ check("hasBackground: video with url → true; video without url → false", () 
 check("hasBackground: mapper output for a real bg theme → true", () => {
   const a = themeConfigToAppearance({ bgType: "gradient", bgColor: "#001a33", bgColor2: "#00335c" });
   assert.strictEqual(appearanceHasBackground(a), true);
+});
+
+// themedObjectTextColor — the fix that makes a Theme's textColor reach verse/
+// song text objects (whose default fill is white) without overriding a colour
+// the operator explicitly chose. (2026-08-28)
+check("objText: default white inherits the theme colour when theme bg is showing", () => {
+  assert.strictEqual(themedObjectTextColor("#ffffff", "#ffd700"), "#ffd700");
+  assert.strictEqual(themedObjectTextColor("#FFF", "#ffd700"), "#ffd700");
+  assert.strictEqual(themedObjectTextColor("white", "#ffd700"), "#ffd700");
+  assert.strictEqual(themedObjectTextColor(undefined, "#ffd700"), "#ffd700");
+});
+check("objText: an explicit (non-white) colour always wins over the theme", () => {
+  assert.strictEqual(themedObjectTextColor("#ff0000", "#ffd700"), "#ff0000");
+  assert.strictEqual(themedObjectTextColor("#0a1b2c", "#ffd700"), "#0a1b2c");
+});
+check("objText: no theme colour (not themeBgShowing) → keep the object colour / white", () => {
+  assert.strictEqual(themedObjectTextColor("#ffffff", undefined), "#ffffff");
+  assert.strictEqual(themedObjectTextColor("#ff0000", undefined), "#ff0000");
+  assert.strictEqual(themedObjectTextColor(undefined, undefined), "#ffffff");
+});
+check("objText: isDefaultObjectTextColor recognises the white defaults only", () => {
+  for (const w of ["#ffffff", "#fff", "WHITE", "  #FFFFFF  ", "rgb(255,255,255)", undefined, null])
+    assert.strictEqual(isDefaultObjectTextColor(w as string), true, `${w} is default`);
+  for (const c of ["#000000", "#ff0000", "#fffffe", "rgb(0,0,0)"])
+    assert.strictEqual(isDefaultObjectTextColor(c), false, `${c} is explicit`);
 });
 
 console.log(`\n=== theme-appearance: ${pass} passed, ${fail} failed ===`);
