@@ -8,11 +8,38 @@ capture, NOT screen share, NOT a virtual camera. See the 25-section spec the use
 ## Build phases & status
 | Phase | Deliverable | State |
 |---|---|---|
-| 1 | **NDI output render surface** `/ndi` (fixed 1920×1080, live-only, transparent/full modes, alpha **test pattern** §6/§18). Reuses SlideRenderer/OutputSlide — no second renderer. | ✅ **SHIPPED** (main @5e8dee8) |
-| 2 | **NDIService** module (§24 API) + **Settings → Output → NDI** UI (§17) + status (§19) | ☐ TODO (Electron/TS — typecheckable) |
-| 3 | **Offscreen capture**: hidden `BrowserWindow{offscreen:true, transparent, 1920×1080}` loads `/ndi`, `paint` → `getBitmap()` BGRA → un-premultiply → NDIService.updateFrame (§3,9,10). Runs in Electron MAIN (paint fires there — no renderer→main video IPC). | ☐ TODO (needs the app running) |
-| 4 | **Native NDI send addon** (N-API vs official SDK, or extend the existing Swift helper whose `NDIlib_v5` table already exposes the send funcs). BGRA/`NDIlib_FourCC_type_BGRA`, discovery, no receiver→keep broadcasting (§11,19), video-only (§13). | ☐ TODO (needs NDI SDK + build machine) |
-| 5 | **Signed DMG + two-computer OBS/DistroAV acceptance test** (§20,23,25) | ☐ TODO (on-site, church media team) |
+| 1 | **NDI output render surface** `/ndi` (fixed 1920×1080, live-only, transparent/full modes, alpha **test pattern** §6/§18). Reuses SlideRenderer/OutputSlide — no second renderer. | ✅ SHIPPED (main @5e8dee8) |
+| 2 | **NDIService** (§24 API) + **Settings → Output → NDI** UI (§17) + status (§19) | ✅ WRITTEN, typecheck-clean (main @01f0f30) |
+| 3 | **Offscreen capture**: hidden `BrowserWindow{offscreen,transparent,1920×1080}` loads `/ndi`, `paint`→`toBitmap()` BGRA→un-premultiply→native send (§3,9,10). In Electron MAIN. | ✅ WRITTEN, typecheck-clean |
+| 4 | **Native NDI send addon** (N-API vs official SDK v6.3.2.0). BGRA, discovery, keep-broadcasting-at-0-receivers (§11,19), video-only (§13). | ✅ **COMPILES + electron-rebuilds** (arm64) against the real SDK (main @62343f9) |
+| 5 | **Signed DMG + two-computer OBS/DistroAV acceptance test** (§20,23,25) | ☐ TODO — on-site, church media team |
+
+**What is verified vs not (honest, §25):** Phases 1–4 are code-complete and typecheck-clean;
+the native addon **compiles, links against libndi, and electron-rebuilds** for Electron 43
+(arm64). NOT yet verified: that frames actually reach OBS with correct alpha, discovery on the
+church LAN, long-service stability — all need the DMG built + the two-computer on-site test.
+
+## How to build the DMG with NDI (on a Mac with the NDI SDK installed)
+1. Install the **NDI SDK for Apple** (`/Library/NDI SDK for Apple`) — already present on this machine (v6.3.2.0).
+2. `npm run electron:build` (or `:signed`) — this now runs `ndi:rebuild` first (vendors the SDK to a
+   no-space path, `electron-rebuild`s the addon), then packages. If the SDK is missing the DMG still
+   builds; NDI just shows "runtime not loaded" (§2).
+3. **arch note:** the addon is built **arm64** (this Mac). The `--x64` slice of the universal DMG will
+   NOT have a working NDI addon unless the addon is also cross-built for x64. Church Macs are Apple
+   Silicon → arm64 is fine; drop `--x64` or cross-build if an Intel Mac is a target.
+4. **Signing/notarization:** the `.node` + `libndi.dylib` must be signed under hardened runtime for a
+   distributable build (current DMGs are ad-hoc/unsigned — see `docs/DMG_RELEASE_SOP.md`).
+5. **Reliable alpha:** if the OBS overlay shows a black box instead of transparency, the Electron
+   offscreen GPU path is flattening alpha — add `app.disableHardwareAcceleration()` at startup
+   (software OSR) and rebuild. Decide this during the on-site test (§6).
+6. **NDI® attribution** (§1 license): add "NDI® is a registered trademark of Vizrt NDI AB" to About —
+   confirm with the license before public release ("confirm with an expert, never final").
+
+## On-site acceptance test (§20, §23, §25) — the real completion gate
+Computer A (Mac): PresentFlow → Settings → Output → NDI → turn ON → **Test NDI Output**.
+Computer B (Windows, same LAN): OBS + DistroAV → Sources → NDI Source → pick `PresentFlow - NDI 1`.
+Confirm: source appears; test pattern shows with alpha (transparent bg keys through); change the
+LIVE slide → OBS updates; change PREVIEW only → OBS does NOT change; Clear → OBS shows camera.
 
 **ARCHITECTURE CORRECTION vs the 2026-08-27 draft below:** the spec forbids window/screen
 capture (§22 #1,#5), so the sender must **OFFSCREEN-RENDER the live-output canvas** (Phase 3),
