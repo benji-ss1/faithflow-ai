@@ -982,25 +982,22 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     ch.onmessage = (e) => {
       const msg = e.data as LiveMessage;
       if (msg.type === "ping") {
-        // Keep the slide-only pong (existing connection-alive + slide self-heal).
-        ch.postMessage({ type: "pong", slide: liveRef.current } as LiveMessage);
-        // Snapshot-on-join (2026-08-21): a freshly opened / reconnected projector
-        // otherwise renders the slide on a BLACK background, because the
-        // BACKGROUND (and appearance/zone/fontScale) only ride the "output"
-        // message — every live-FIRE uses the lighter "set" message, and the
-        // "output" post is deduped so it may never re-fire for an already-live
-        // slide. Replaying the last full OutputState makes the projector match
-        // the preview the instant it (re)connects.
-        // GATED to GENUINE (re)joins (join:true — mount / reopen), NOT the ~3s
-        // heartbeat ping: replying with a full OutputState on every heartbeat
-        // re-rendered the whole projector tree ~1×/sec all service (regression
-        // fix 2026-08-21). The heartbeat's job is only to self-heal the SLIDE,
-        // which the pong above already covers; background rarely changes and
-        // re-emits its own "output" when it does.
-        if ((msg as { join?: boolean }).join === true) {
-          const snap = lastOutputStateRef.current;
-          if (snap) ch.postMessage({ type: "output", state: snap } as LiveMessage);
-        }
+        // Answer EVERY heartbeat (and join) with the full OutputState snapshot,
+        // not the slide-only pong. The projector's theme/background/appearance
+        // ONLY ride the "output" message; every live-FIRE uses the lighter "set"
+        // message and the "output" post is deduped, so on a flaky cross-window
+        // BroadcastChannel (the projector has no IPC-relay preload) a dropped
+        // "output" leaves the theme missing for the whole service with no
+        // recovery (2026-08-28 field bug: yellow lyrics on a WHITE projector
+        // while the app preview shows the themed background). Re-sending the full
+        // snapshot every ~3s self-heals it. The 2026-08-21 "re-renders ~1×/sec"
+        // regression is now prevented on the RECEIVER: /live dedupes the
+        // non-slide fields by signature and applyLive dedupes the slide, so an
+        // unchanged snapshot is a no-op. Fall back to the slide-only pong only
+        // when no snapshot exists yet (nothing has gone live).
+        const snap = lastOutputStateRef.current;
+        if (snap) ch.postMessage({ type: "output", state: snap } as LiveMessage);
+        else ch.postMessage({ type: "pong", slide: liveRef.current } as LiveMessage);
       }
     };
     return () => { ch.close(); chRef.current = null; };

@@ -81,6 +81,10 @@ export default function LivePage() {
   const [zone, setZone] = useState<ProjectionZone | null>(null); // Projection Zone geometry
   const [messageOverlay, setMessageOverlay] = useState<{ text: string; position: OverlayPosition; scroll?: boolean; scrollDir?: "ltr" | "rtl"; scrollSec?: number } | null>(null);
   const messageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Signature of the last-applied non-slide output fields (appearance/background/
+  // zone/etc.) so a full output snapshot re-sent every ~3s (self-heal) doesn't
+  // re-render the projector unless something actually changed.
+  const lastOutputSigRef = useRef<string>("");
   // Content key (text|dismissAfterMs) of the currently shown message — the
   // operator heartbeats the same overlay at 1Hz, and we must only (re)arm the
   // client-side dismiss countdown when the CONTENT changes, not per heartbeat.
@@ -160,17 +164,34 @@ export default function LivePage() {
         else if (msg.type === "clear") applyLive({ kind: "empty" });
         else if (msg.type === "pong") applyLive(msg.slide);
         else if (msg.type === "output") {
-          applyLive(msg.state.live);
-          setAnnouncement(msg.state.announcement ?? null);
-          setTransition(msg.state.transition ?? null);
-          setAspectRatio(msg.state.aspectRatio);
-          setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);
-          setReferenceScale(typeof msg.state.referenceScale === "number" ? msg.state.referenceScale : 1);
-          setReferenceColor(typeof msg.state.referenceColor === "string" ? msg.state.referenceColor : undefined);
-          setBackground(msg.state.background ?? null);
-          setAppearance(msg.state.appearance ?? null);
-          setVideoInput(msg.state.videoInput ?? null);
-          setZone(msg.state.zone ?? null);
+          applyLive(msg.state.live); // has its own content-signature dedup
+          // The operator now answers the ~3s heartbeat with a FULL output snapshot
+          // (so a dropped theme/background self-heals on the projector — the
+          // appearance/background only ride "output", and cross-window
+          // BroadcastChannel can drop the rare deduped one). To avoid re-rendering
+          // the projector tree ~1×/sec (the 2026-08-21 regression), skip the
+          // non-slide setters when nothing in them changed since the last output.
+          let outSig: string;
+          try {
+            outSig = JSON.stringify([
+              msg.state.appearance ?? null, msg.state.background ?? null, msg.state.videoInput ?? null,
+              msg.state.zone ?? null, msg.state.announcement ?? null, msg.state.transition ?? null,
+              msg.state.aspectRatio, msg.state.fontScale, msg.state.referenceScale, msg.state.referenceColor ?? null,
+            ]);
+          } catch { outSig = String(Date.now()); }
+          if (outSig !== lastOutputSigRef.current) {
+            lastOutputSigRef.current = outSig;
+            setAnnouncement(msg.state.announcement ?? null);
+            setTransition(msg.state.transition ?? null);
+            setAspectRatio(msg.state.aspectRatio);
+            setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);
+            setReferenceScale(typeof msg.state.referenceScale === "number" ? msg.state.referenceScale : 1);
+            setReferenceColor(typeof msg.state.referenceColor === "string" ? msg.state.referenceColor : undefined);
+            setBackground(msg.state.background ?? null);
+            setAppearance(msg.state.appearance ?? null);
+            setVideoInput(msg.state.videoInput ?? null);
+            setZone(msg.state.zone ?? null);
+          }
         } else if (msg.type === "message") {
           // Auto-dismiss timer is client-side, so multiple output windows
           // stay in sync without needing a shared wall-clock deadline.
