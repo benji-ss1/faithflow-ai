@@ -296,7 +296,8 @@ function LayersTab({ ctx }: { ctx: OperatorShellCtx }) {
     { label: "Slide",       kind: ctx.liveSlide.kind !== "empty" ? "Active" : "Empty", clear: ctx.onClearSlide },
     { label: "Media",       kind: "None", clear: ctx.onClearMedia },
     { label: "Lower Third", kind: "None", clear: ctx.onClearLowerThird },
-    { label: "Props",       kind: "None", clear: () => { /* noop */ } },
+    // "Props" removed 2026-08-28 — it was a fake layer with a no-op Clear button
+    // (no props feature exists). Re-add only when there's a real props system.
   ];
   return (
     <div className="p-3 space-y-2">

@@ -43,11 +43,19 @@ export function TopToolbar({
   // the desktop shell). The `electronAPI.on` bridge is exposed by preload.
   useEffect(() => {
     if (typeof window === "undefined") return;
+    // Same-window CustomEvent path (e.g. the Display settings "Open Screens
+    // panel…" button) — was previously dispatched with no listener, so the
+    // button did nothing. Open the Screens modal here.
+    const winHandler = () => setScreensOpen(true);
+    window.addEventListener("presentflow:open-screens", winHandler);
     const api = (window as any).electronAPI;
-    if (!api?.on || !api?.off) return;
-    const handler = () => setScreensOpen(true);
-    api.on("shell:open-screens-modal", handler);
-    return () => { try { api.off("shell:open-screens-modal", handler); } catch { /* noop */ } };
+    if (api?.on && api?.off) {
+      api.on("shell:open-screens-modal", winHandler);
+    }
+    return () => {
+      window.removeEventListener("presentflow:open-screens", winHandler);
+      try { api?.off?.("shell:open-screens-modal", winHandler); } catch { /* noop */ }
+    };
   }, []);
 
   function handleTool(k: ToolKey) {

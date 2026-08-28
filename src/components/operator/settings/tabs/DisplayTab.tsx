@@ -2,34 +2,21 @@
 import { useEffect, useState } from "react";
 import { Monitor } from "lucide-react";
 
-const DEFAULT_OUT_KEY = "presentflow.pro.defaultOutput.v1";
-const ASPECT_KEY = "presentflow.pro.defaultAspect.v1";
-const SAFE_AREA_KEY = "presentflow.pro.safeArea.v1";
-
 export function DisplayTab() {
-  const [defaultOut, setDefaultOut] = useState<string>("main");
-  const [aspect, setAspect] = useState<string>("16:9");
-  const [safeArea, setSafeArea] = useState(false);
   const [hasElectron, setHasElectron] = useState<boolean>(false);
 
   useEffect(() => {
-    try {
-      setDefaultOut(localStorage.getItem(DEFAULT_OUT_KEY) || "main");
-      setAspect(localStorage.getItem(ASPECT_KEY) || "16:9");
-      setSafeArea(localStorage.getItem(SAFE_AREA_KEY) === "1");
-    } catch {}
     setHasElectron(typeof window !== "undefined" && !!window.electronAPI);
   }, []);
 
   function openScreens() {
-    // ScreensPanel is a full modal owned by the shell — dispatch a window event
-    // it can listen for. Fallback: no-op documented.
+    // Opens the shell's Screens modal (TopToolbar listens for this window event).
     try { window.dispatchEvent(new CustomEvent("presentflow:open-screens")); } catch {}
   }
 
   return (
     <div className="space-y-6">
-      <SectionHeader title="Display" description="Screen assignment, default output, and aspect ratio." />
+      <SectionHeader title="Display" description="Assign your projector, stage and livestream outputs to physical screens." />
 
       <Row label="Screen assignment">
         <div className="flex flex-col items-end gap-1">
@@ -47,39 +34,16 @@ export function DisplayTab() {
         </div>
       </Row>
 
-      <Row label="Default output">
-        <select
-          value={defaultOut}
-          onChange={(e) => { setDefaultOut(e.target.value); try { localStorage.setItem(DEFAULT_OUT_KEY, e.target.value); } catch {} }}
-          className="h-8 px-2 rounded-md border text-[11px] text-zinc-100"
-          style={{ borderColor: "#2a3232", background: "#1a2020" }}
-        >
-          <option value="main">Main channel</option>
-          <option value="stage">Stage display</option>
-          <option value="ndi">NDI (Multi-channel)</option>
-        </select>
-      </Row>
-
-      <Row label="Default aspect ratio">
-        <select
-          value={aspect}
-          onChange={(e) => { setAspect(e.target.value); try { localStorage.setItem(ASPECT_KEY, e.target.value); } catch {} }}
-          className="h-8 px-2 rounded-md border text-[11px] text-zinc-100"
-          style={{ borderColor: "#2a3232", background: "#1a2020" }}
-        >
-          <option>16:9</option>
-          <option>4:3</option>
-          <option>21:9</option>
-          <option>1:1</option>
-        </select>
-      </Row>
-
-      <Row label="Show safe-area guides">
-        <Toggle
-          on={safeArea}
-          onChange={(v) => { setSafeArea(v); try { localStorage.setItem(SAFE_AREA_KEY, v ? "1" : "0"); } catch {} }}
-        />
-      </Row>
+      {/* Removed 2026-08-28: "Default output", "Default aspect ratio" and
+          "Show safe-area guides" wrote to localStorage keys nothing read — they
+          looked like settings but changed nothing. Aspect ratio is set live in
+          the operator toolbar, safe-area guides in the live inspector, and output
+          routing via Screens above — so these duplicates were removed rather than
+          left misleading. Re-add here only if wired to real runtime state. */}
+      <p className="text-[11px] text-zinc-500 leading-relaxed">
+        Aspect ratio and safe-area guides are set live from the operator toolbar and the
+        output inspector, so they always match what’s on the projector.
+      </p>
     </div>
   );
 }
