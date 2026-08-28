@@ -139,6 +139,21 @@ export type PipelineStage =
   | "receiving_final"         // first final transcript received
   | "paused";                 // auto-paused after prolonged silence
 
+// Bound an init await so a genuine hang surfaces as a clear, catchable error
+// instead of stalling silently until the 15s stall watchdog fires and mislabels
+// it. Generous budgets: a HEALTHY init resolves in a few ms, so the timer never
+// arms in practice — this only changes the failure path, never the good path.
+// The returned promise wins whichever settles first; the loser is a no-op.
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    p.then(
+      (v) => { clearTimeout(t); resolve(v); },
+      (e) => { clearTimeout(t); reject(e); },
+    );
+  });
+}
+
 export type AudioStreamState = {
   listening: boolean;
   ready: boolean;
@@ -1395,10 +1410,20 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       stallWatchdogRef.current = null;
       setState((s) => {
         if (s.stage === "deepgram_ready" || s.stage === "receiving_interim" || s.stage === "receiving_final") return s;
-        // Include the last-observed stage so a tester can self-diagnose:
-        // stuck at 'opening_ws' → network/firewall; 'requesting_ticket' →
-        // auth or CSRF; 'mic_granted' but no deepgram_ready → Fly bridge down.
-        return { ...s, error: `AI failed to initialise (stuck at ${s.stage})` };
+        // Honest, stage-aware diagnosis. The stall watchdog only clears on the
+        // bridge's `ready` message, so reaching the LATE stages (ws_open /
+        // worklet_connected) with no `ready` means the audio graph built fine
+        // but the transcription bridge never answered — a network / bridge /
+        // origin-allowlist problem (exactly the 2026-08-28 outage), NOT the
+        // worklet. Earlier stages mean the mic/audio engine itself stalled.
+        // Keep the raw stage appended for developer self-diagnosis.
+        const bridgeStages = new Set(["opening_ws", "ws_open", "worklet_loaded", "worklet_connected", "first_chunk_sent"]);
+        const msg = bridgeStages.has(s.stage)
+          ? "Connected the mic, but the AI transcription service didn't respond — check the network/AI bridge."
+          : s.stage === "requesting_ticket" || s.stage === "ticket_ok"
+            ? "Couldn't reach the AI service to start — check the network and sign-in."
+            : "The audio engine didn't start — try toggling AI Off then On.";
+        return { ...s, error: `${msg} (stuck at ${s.stage})` };
       });
       // Kick a reconnect attempt if this wasn't an intentional stop, else stop.
       if (!intentionalStopRef.current) scheduleReconnect();
@@ -2368,7 +2393,16 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         }
       }
       audioCtxRef.current = audioCtx;
-      if (audioCtx.state === "suspended") await audioCtx.resume();
+      if (audioCtx.state === "suspended") {
+        // resume() can hang forever if the browser is still waiting for a user
+        // gesture (autoplay policy). Bound it so that hang becomes an actionable
+        // error the operator can fix, instead of a silent 15s "stuck" stall.
+        try {
+          await withTimeout(audioCtx.resume(), 5000, "AudioContext resume");
+        } catch {
+          throw new Error("Audio engine didn't start — tap the screen or toggle AI Off then On.");
+        }
+      }
       setStage("audioctx_ready"); log("4c audioctx", { state: audioCtx.state, sampleRate: audioCtx.sampleRate });
       const source = audioCtx.createMediaStreamSource(stream);
       sourceNodeRef.current = source;
@@ -2439,8 +2473,16 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       `;
       const blob = new Blob([workletCode], { type: "application/javascript" });
       const workletUrl = URL.createObjectURL(blob);
-      await audioCtx.audioWorklet.addModule(workletUrl);
-      URL.revokeObjectURL(workletUrl);
+      try {
+        // Bounded + distinctly-labelled: a worklet-load failure (CSP blob block,
+        // registration error) now surfaces as its own message rather than being
+        // swallowed by the outer catch's network-only special-casing.
+        await withTimeout(audioCtx.audioWorklet.addModule(workletUrl), 6000, "Audio worklet load");
+      } catch (workletErr) {
+        throw new Error(`Audio worklet failed to load: ${workletErr instanceof Error ? workletErr.message : "unknown"}`);
+      } finally {
+        URL.revokeObjectURL(workletUrl);
+      }
       setStage("worklet_loaded"); log("worklet_loaded");
 
       // 2026-07-26 mixer-USB fix — determine the actual channel count of
