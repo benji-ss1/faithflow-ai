@@ -44,6 +44,16 @@ static void init_recip() {
   g_recip_initialized = 1;
 }
 
+// Initialize the NDI runtime EXACTLY ONCE per process. Multiple senders (created
+// on every resolution/fps change) share it; never per-instance destroy (see the
+// destructor). Returns whether NDI is available.
+static bool ensure_ndi_initialized() {
+  static bool attempted = false;
+  static bool ok = false;
+  if (!attempted) { attempted = true; ok = NDIlib_initialize(); }
+  return ok;
+}
+
 class NdiSender : public Napi::ObjectWrap<NdiSender> {
 public:
   static Napi::Object Init(Napi::Env env, Napi::Object exports);
@@ -84,7 +94,7 @@ NdiSender::NdiSender(const Napi::CallbackInfo& info) : Napi::ObjectWrap<NdiSende
   if (info.Length() > 1 && info[1].IsNumber()) frame_rate_n_ = info[1].As<Napi::Number>().Int32Value();
   if (info.Length() > 2 && info[2].IsNumber()) frame_rate_d_ = info[2].As<Napi::Number>().Int32Value();
 
-  if (!NDIlib_initialize()) {
+  if (!ensure_ndi_initialized()) {
     Napi::Error::New(env, "NDIlib_initialize() failed (CPU unsupported or SDK not found)").ThrowAsJavaScriptException();
     return;
   }
@@ -100,8 +110,12 @@ NdiSender::NdiSender(const Napi::CallbackInfo& info) : Napi::ObjectWrap<NdiSende
 }
 
 NdiSender::~NdiSender() {
+  // Only tear down THIS sender. NDIlib_destroy() is a PROCESS-GLOBAL teardown and
+  // must NOT run per-instance (it would kill the NDI runtime under any other live
+  // sender when this object is GC'd — e.g. after a resolution/fps change that
+  // creates a new sender before the old one is collected). The runtime is init'd
+  // once (ensure_ndi_initialized) and left for the OS to reclaim at process exit.
   if (send_) { NDIlib_send_destroy(send_); send_ = nullptr; }
-  NDIlib_destroy();
 }
 
 Napi::Value NdiSender::SendFrame(const Napi::CallbackInfo& info) {

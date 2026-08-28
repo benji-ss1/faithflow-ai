@@ -53,17 +53,25 @@ export function registerNdiIpc(appUrl: string) {
   ipcMain.handle("ndi:get-status", () => service!.getStatus());
 
   ipcMain.handle("ndi:set-settings", async (_e, patch: Partial<NdiSettings>) => {
-    const merged = sanitize({ ...service!.getSettings(), ...(patch || {}) });
+    const prev = service!.getSettings();
+    const merged = sanitize({ ...prev, ...(patch || {}) });
     service!.initialize(merged);
     saveSettings(merged);
-    // Apply live where cheap; a running sender restarts for create-time fields.
-    if (merged.enabled && !service!.getStatus().broadcasting) await service!.start();
-    else if (!merged.enabled && service!.getStatus().broadcasting) service!.stop();
-    else if (service!.getStatus().broadcasting) {
-      service!.setSourceName(merged.sourceName);
-      service!.setResolution(merged.width, merged.height);
-      service!.setFrameRate(merged.fps);
-      service!.setOutputMode(merged.mode);
+    if (merged.enabled && !service!.getStatus().broadcasting) {
+      await service!.start();
+    } else if (!merged.enabled && service!.getStatus().broadcasting) {
+      service!.stop();
+    } else if (service!.getStatus().broadcasting) {
+      // Coalesce into ONE restart only if a create-time field (source name /
+      // resolution / fps) changed — otherwise a mode change is a cheap URL reload.
+      // Previously this fired three separate restarts per save (LAN flicker).
+      const createChanged =
+        merged.sourceName !== prev.sourceName ||
+        merged.width !== prev.width ||
+        merged.height !== prev.height ||
+        merged.fps !== prev.fps;
+      if (createChanged) service!.restart();
+      else if (merged.mode !== prev.mode) service!.setOutputMode(merged.mode);
     }
     return service!.getStatus();
   });

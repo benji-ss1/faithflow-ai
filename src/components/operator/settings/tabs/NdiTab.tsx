@@ -15,6 +15,7 @@ export function NdiTab() {
   const [testing, setTesting] = useState(false);
   const ndi = typeof window !== "undefined" ? window.electronAPI?.ndi : undefined;
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const testTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!ndi) return;
@@ -22,7 +23,10 @@ export function NdiTab() {
     void ndi.getStatus().then(setStatus);
     // Poll status (receivers/broadcasting/fps) once a second while the panel is open.
     pollRef.current = setInterval(() => { void ndi.getStatus().then(setStatus); }, 1000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      if (testTimerRef.current) clearTimeout(testTimerRef.current);
+    };
   }, [ndi]);
 
   const patch = useCallback(async (p: Partial<NdiSettingsWire>) => {
@@ -37,7 +41,8 @@ export function NdiTab() {
     if (!ndi) return;
     setTesting(true);
     await ndi.test(true);
-    setTimeout(() => setTesting(false), 15000);
+    if (testTimerRef.current) clearTimeout(testTimerRef.current);
+    testTimerRef.current = setTimeout(() => setTesting(false), 15000);
   }, [ndi]);
 
   if (!ndi) {

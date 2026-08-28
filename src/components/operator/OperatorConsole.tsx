@@ -649,6 +649,15 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       setPairCode(detail && typeof detail.code === "string" ? detail.code : null);
     };
     window.addEventListener("presentflow:obs-pair-code", onObsPair as EventListener);
+    // Resume publishing after an app reload WITHOUT needing the operator to open
+    // the Screens panel (ObsOverlayCard, and its restore effect, are mounted
+    // lazily). Restore a still-valid persisted OBS code here, on the always-mounted
+    // console, so the OBS Browser Source keeps receiving after a restart.
+    try {
+      const c = localStorage.getItem("presentflow.obs.pairCode");
+      const exp = localStorage.getItem("presentflow.obs.pairExpiresAt");
+      if (c && exp && Number(exp) > Date.now()) setPairCode(c);
+    } catch { /* ignore */ }
     return () => window.removeEventListener("presentflow:obs-pair-code", onObsPair as EventListener);
   }, []);
   const publishRealtime = useCallback((state: OutputState) => {

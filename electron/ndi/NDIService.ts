@@ -89,9 +89,6 @@ export class NDIService {
   private receiverPoll: NodeJS.Timeout | null = null;
   private error: string | null = null;
   private broadcasting = false;
-  // Frame-rate governance (§9): if paints can't keep up, fall back 60→30.
-  private lastPaintAt = 0;
-  private droppedInARow = 0;
 
   constructor(appUrl: string) { this.appUrl = appUrl; }
 
@@ -133,29 +130,30 @@ export class NDIService {
   stop() {
     this.broadcasting = false;
     if (this.receiverPoll) { clearInterval(this.receiverPoll); this.receiverPoll = null; }
+    if (this.testTimer) { clearTimeout(this.testTimer); this.testTimer = null; }
     if (this.win && !this.win.isDestroyed()) { try { this.win.destroy(); } catch { /* ignore */ } }
     this.win = null;
     if (this.sender) { try { this.sender.destroy(); } catch { /* ignore */ } this.sender = null; }
     this.receivers = 0;
   }
 
-  setSourceName(name: string) {
-    this.settings.sourceName = name || NDI_DEFAULTS.sourceName;
-    if (this.broadcasting) { this.restart(); } // source name is set at create time
-  }
-  setResolution(width: number, height: number) {
-    this.settings.width = width; this.settings.height = height;
-    if (this.broadcasting) this.restart();
-  }
+  // These are pure field setters (+ cheap live updates where safe). They do NOT
+  // restart on their own — the caller coalesces into a SINGLE restart() so one
+  // settings save doesn't tear down + rebuild the NDI source 3× (LAN flicker).
+  setSourceName(name: string) { this.settings.sourceName = name || NDI_DEFAULTS.sourceName; }
+  setResolution(width: number, height: number) { this.settings.width = width; this.settings.height = height; }
   setFrameRate(fps: number) {
     this.settings.fps = fps;
     if (this.win && !this.win.isDestroyed()) this.win.webContents.setFrameRate(fps);
-    if (this.broadcasting) this.restart(); // frame_rate_N/D is set at sender create
   }
   setOutputMode(mode: NdiOutputMode) {
+    // Mode change is cheap — just reload the offscreen URL (no sender rebuild).
     this.settings.mode = mode;
     if (this.win && !this.win.isDestroyed()) this.win.loadURL(this.ndiUrl());
   }
+  // Public: caller uses this to apply create-time changes (source name /
+  // resolution / fps) in ONE teardown+rebuild instead of three.
+  restart() { this.stop(); void this.start(); }
 
   getStatus(): NdiStatus {
     return {
@@ -185,8 +183,6 @@ export class NDIService {
   private testMode = false;
 
   // ---- internals --------------------------------------------------------------
-
-  private restart() { this.stop(); void this.start(); }
 
   private ndiUrl(): string {
     // The offscreen surface built in Phase 1. Live-only; §4/§5 enforced there.
@@ -220,19 +216,12 @@ export class NDIService {
     wc.on("paint", (_event, _dirty, image) => {
       if (!this.sender) return;
       try {
-        // Graceful 60→30 fallback (§9): if paints bunch up (system can't sustain
-        // 60), halve the requested rate rather than freeze.
-        const now = Date.now();
-        const dt = now - this.lastPaintAt;
-        this.lastPaintAt = now;
-        if (fps >= 60 && dt > 0 && dt < 10) {
-          if (++this.droppedInARow > 30) { wc.setFrameRate(30); this.settings.fps = 30; this.droppedInARow = 0; }
-        } else {
-          this.droppedInARow = 0;
-        }
         const size = image.getSize();
         // toBitmap() → BGRA, premultiplied, top-left origin (getBitmap is a
-        // deprecated void-typed alias in Electron 43).
+        // deprecated void-typed alias in Electron 43). The offscreen paint rate is
+        // already governed by wc.setFrameRate(fps); a true adaptive 60→30 fallback
+        // needs a sender rebuild (frame_rate_N/D is fixed at create) — deferred
+        // rather than shipping the previous heuristic, which mislabeled the stream.
         const bmp = image.toBitmap();
         this.sender.sendFrame(bmp, size.width, size.height, true);
       } catch { /* never crash the app (§2) */ }
