@@ -1,11 +1,40 @@
-# NDI video output (alpha lyrics over camera) — Phase 2 design
+# NDI video output (native sender) — build spec & status
 
-**Status:** design / not built. Phase 1 (OBS Browser Source, transparent web overlay) is
-shipped and is the Sunday-safe path. This doc is the plan for the *native* NDI upgrade.
+**Goal (2026-08-28 full spec):** PresentFlow itself becomes a genuine NDI® network source
+(official SDK) so an OBS+DistroAV broadcast PC on the same LAN discovers `PresentFlow - NDI 1`
+and receives the LIVE lyrics/graphics with alpha — replacing ProPresenter at JPD. NOT window
+capture, NOT screen share, NOT a virtual camera. See the 25-section spec the user supplied.
+
+## Build phases & status
+| Phase | Deliverable | State |
+|---|---|---|
+| 1 | **NDI output render surface** `/ndi` (fixed 1920×1080, live-only, transparent/full modes, alpha **test pattern** §6/§18). Reuses SlideRenderer/OutputSlide — no second renderer. | ✅ **SHIPPED** (main @5e8dee8) |
+| 2 | **NDIService** module (§24 API) + **Settings → Output → NDI** UI (§17) + status (§19) | ☐ TODO (Electron/TS — typecheckable) |
+| 3 | **Offscreen capture**: hidden `BrowserWindow{offscreen:true, transparent, 1920×1080}` loads `/ndi`, `paint` → `getBitmap()` BGRA → un-premultiply → NDIService.updateFrame (§3,9,10). Runs in Electron MAIN (paint fires there — no renderer→main video IPC). | ☐ TODO (needs the app running) |
+| 4 | **Native NDI send addon** (N-API vs official SDK, or extend the existing Swift helper whose `NDIlib_v5` table already exposes the send funcs). BGRA/`NDIlib_FourCC_type_BGRA`, discovery, no receiver→keep broadcasting (§11,19), video-only (§13). | ☐ TODO (needs NDI SDK + build machine) |
+| 5 | **Signed DMG + two-computer OBS/DistroAV acceptance test** (§20,23,25) | ☐ TODO (on-site, church media team) |
+
+**ARCHITECTURE CORRECTION vs the 2026-08-27 draft below:** the spec forbids window/screen
+capture (§22 #1,#5), so the sender must **OFFSCREEN-RENDER the live-output canvas** (Phase 3),
+NOT ScreenCaptureKit the visible window. Everything else in the draft (un-premultiply, DistroAV
+Normal-latency, signing, NDI® attribution) still holds.
+
+**VERIFICATION REALITY (honest, per §25):** Phases 1–2 are typecheck/browser-verifiable here.
+Phases 3–5 are NOT — they need the app running, the NDI SDK on a build machine, and two
+computers + OBS/DistroAV on a LAN. Native NDI code cannot be hot-deployed (Vercel) — it needs a
+signed/notarized DMG. Do **not** mark NDI "done" until the §20 two-computer test passes on-site.
+
+**NDIService API to implement (§24):** `initialize() · start() · stop() · updateFrame(bgra,w,h) ·
+setSourceName() · setResolution() · setFrameRate() · setOutputMode('transparent'|'full') ·
+getStatus() · shutdown()`. NDI networking stays OUT of the render components.
+
+---
+
+## (Original 2026-08-27 design — architecture research, still largely valid)
 
 **Author:** synthesized from a 3-agent investigation (codebase map + native-pipeline research +
-strategy) on 2026-08-27. Where a claim is version-sensitive or unverifiable without NDI
-hardware, it is flagged — do **not** treat those as final.
+strategy). Where a claim is version-sensitive or unverifiable without NDI hardware, it is
+flagged — do **not** treat those as final.
 
 ---
 
