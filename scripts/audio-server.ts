@@ -376,6 +376,15 @@ const ORIGIN_ALLOWLIST = new Set<string>([
   "https://presentflow.app",
   "https://app.presentflow.com",
   "https://faithflow-ai.vercel.app",
+  // The desktop shell now loads the hosted app from presentflow.org (electron
+  // commit 173280a repointed DEFAULT_HOSTED_URL), so its renderer opens the WS
+  // with Origin: https://presentflow.org. Without this, EVERY current-DMG user
+  // is 403'd at the upgrade handshake ("web error / AI reconnecting, never
+  // connects"). Include www + the .ai domain we may move to next.
+  "https://presentflow.org",
+  "https://www.presentflow.org",
+  "https://presentflow.ai",
+  "https://www.presentflow.ai",
   ...(process.env.EXTRA_ALLOWED_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean),
 ]);
 // Preview + branch deploys under our Vercel scope — matched by suffix so we
