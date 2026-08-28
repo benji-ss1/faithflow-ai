@@ -406,10 +406,13 @@ function isOriginAllowed(origin: string | undefined): boolean {
 }
 
 // R7: per-user concurrent-connection cap. Each user is bounded to
-// AUDIO_WS_PER_USER_CAP concurrent sessions (default 3). When exceeded, the
-// oldest (LRU) is closed with 1013 "too many concurrent sessions". Also:
-// same-plan dedupe — a newer connection for the same planId supersedes older.
-const PER_USER_CAP = Number(process.env.AUDIO_WS_PER_USER_CAP || 3);
+// AUDIO_WS_PER_USER_CAP concurrent sessions (default 6 — headroom for a couple
+// of operators on the same account on different Macs, plus reconnect ghosts,
+// without the LRU ever evicting a real operator). When exceeded, the oldest
+// (LRU) is closed with 1013 "too many concurrent sessions". The same-plan
+// supersede was REMOVED (2026-08-28) so two operators on one account coexist.
+// Raise via env for larger teams; different accounts are isolated by userId.
+const PER_USER_CAP = Number(process.env.AUDIO_WS_PER_USER_CAP || 6);
 const openByUser = new Map<string, Set<WebSocket>>();
 const wsMeta = new WeakMap<WebSocket, { userId: string; planId: string; openedAt: number }>();
 
@@ -565,27 +568,27 @@ wss.on("connection", async (ws: WebSocket, req) => {
   if (setupCancelled || ws.readyState !== WebSocket.OPEN) return;
   if (!plan) { ws.close(1008, "unknown plan"); return; }
 
-  // R7: enforce per-user concurrent-connection cap + same-plan dedupe.
-  // - Same planId, same user → newer supersedes; close older with 1013.
-  // - Total per user > cap → close oldest (LRU) with 1013.
+  // R7: enforce per-user concurrent-connection cap ONLY. (2026-08-28) The old
+  // "same planId, same user → newer supersedes older with 1013" rule assumed ONE
+  // device per account, so two operators signed into the SAME account on two Macs
+  // superseded each other in an infinite loop (1013 is a retryable close → each
+  // reconnect re-superseded the other → both operators' AI audio flapped off all
+  // service). Removed: multiple concurrent sessions per (user, plan) are now
+  // allowed — they're additive (append-only transcript/detection rows; each
+  // operator drives their own projector). Ghost sockets are still pruned below,
+  // and the per-user LRU cap still bounds resource use. Different accounts are
+  // fully isolated (keyed by userId), so this only affects same-account use.
   let userSet = openByUser.get(userId);
   if (!userSet) { userSet = new Set(); openByUser.set(userId, userSet); }
   trackedUserSet = userSet;
   // Prune ghost sockets first — abnormal disconnects (Fly restart, upstream
   // reset) don't always fire ws.on("close"), so the Set can retain sockets
-  // whose readyState is CLOSED. Without this pruning, force-closing a dead
-  // socket is a no-op and the per-user cap effectively fails open.
+  // whose readyState is CLOSED. This also reclaims a device's own stale socket
+  // after it reconnects, so we no longer need the same-plan supersede for that.
   for (const other of Array.from(userSet)) {
     if (other.readyState !== WebSocket.OPEN && other.readyState !== WebSocket.CONNECTING) {
       userSet.delete(other);
       wsMeta.delete(other);
-    }
-  }
-  for (const other of Array.from(userSet)) {
-    const meta = wsMeta.get(other);
-    if (meta && meta.planId === planId) {
-      try { other.close(1013, "superseded by newer session"); } catch { /* ignore */ }
-      userSet.delete(other);
     }
   }
   while (userSet.size >= PER_USER_CAP) {
