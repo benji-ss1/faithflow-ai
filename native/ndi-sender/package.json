@@ -1,0 +1,18 @@
+{
+  "name": "presentflow-ndi-sender",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PresentFlow native NDI video sender addon (N-API). UNVERIFIED — build with electron-rebuild against the NDI SDK; validate against OBS+DistroAV on-site.",
+  "main": "index.js",
+  "gypfile": true,
+  "scripts": {
+    "build": "node-gyp rebuild",
+    "rebuild-electron": "electron-rebuild -f -w presentflow-ndi-sender"
+  },
+  "dependencies": {
+    "node-addon-api": "^8.0.0"
+  },
+  "devDependencies": {
+    "node-gyp": "^10.0.0"
+  }
+}

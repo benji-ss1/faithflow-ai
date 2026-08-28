@@ -5,6 +5,7 @@ import { registerScreenIpc, closeAllOutputWindows, openOutputForRole } from "./i
 import { registerAudioIpc, registerNativeAudioIpc, stopAllNativeAudio } from "./ipc/audio";
 import { registerDialogIpc } from "./ipc/dialog";
 import { registerFsIpc } from "./ipc/fs";
+import { registerNdiIpc } from "./ipc/ndi";
 import { autoUpdater } from "electron-updater";
 
 const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
@@ -618,6 +619,11 @@ app.whenReady().then(async () => {
   registerNativeAudioIpc(() => mainWindow);
   registerDialogIpc();
   registerFsIpc();
+  // NDI output (spec §17/§24). Owns its own offscreen render window + native
+  // sender; auto-starts if the persisted settings enable it. Uses the resolved
+  // hosted app URL to load the /ndi surface. UNVERIFIED — needs the native addon
+  // compiled + on-site OBS test.
+  try { registerNdiIpc(appUrl); } catch (e) { console.warn("[main] NDI IPC init failed:", e instanceof Error ? e.message : String(e)); }
 
   // Utility IPC
   ipcMain.handle("app:version", () => app.getVersion());

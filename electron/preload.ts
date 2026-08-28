@@ -128,6 +128,15 @@ const api = {
       return () => ipcRenderer.removeListener("pf:live", handler);
     },
   },
+  // NDI output control for the Settings→Output→NDI panel (spec §17).
+  ndi: {
+    getSettings: () => ipcRenderer.invoke("ndi:get-settings"),
+    getStatus: () => ipcRenderer.invoke("ndi:get-status"),
+    setSettings: (patch: unknown) => ipcRenderer.invoke("ndi:set-settings", patch),
+    start: () => ipcRenderer.invoke("ndi:start"),
+    stop: () => ipcRenderer.invoke("ndi:stop"),
+    test: (on: boolean) => ipcRenderer.invoke("ndi:test", on),
+  },
   on: (channel: string, handler: Handler) => {
     const wrapped = (_e: IpcRendererEvent, ...args: any[]) => handler(...args);
     listeners.set(handler, wrapped);

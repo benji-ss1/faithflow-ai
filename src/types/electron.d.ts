@@ -91,8 +91,39 @@ export interface ElectronAPI {
     onError: (cb: (info: { message: string }) => void) => () => void;
     installNow: () => Promise<{ ok: boolean; error?: string }>;
   };
+  // NDI output control (Settings→Output→NDI, spec §17). Present only in the
+  // Electron shell; the web build guards on `window.electronAPI?.ndi`.
+  ndi?: {
+    getSettings: () => Promise<NdiSettingsWire>;
+    getStatus: () => Promise<NdiStatusWire>;
+    setSettings: (patch: Partial<NdiSettingsWire>) => Promise<NdiStatusWire>;
+    start: () => Promise<NdiStatusWire>;
+    stop: () => Promise<NdiStatusWire>;
+    test: (on: boolean) => Promise<NdiStatusWire>;
+  };
   on: (channel: string, handler: (...args: any[]) => void) => void;
   off: (channel: string, handler: (...args: any[]) => void) => void;
+}
+
+export interface NdiSettingsWire {
+  enabled: boolean;
+  sourceName: string;
+  mode: "transparent" | "full";
+  width: number;
+  height: number;
+  fps: number;
+  audio: boolean;
+}
+export interface NdiStatusWire {
+  available: boolean;
+  broadcasting: boolean;
+  sourceName: string;
+  receivers: number;
+  fps: number;
+  width: number;
+  height: number;
+  mode: "transparent" | "full";
+  error: string | null;
 }
 
 declare global {
