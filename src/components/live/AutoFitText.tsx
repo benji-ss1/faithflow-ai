@@ -153,6 +153,12 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
   // sanctuary-readability default (24 px).
   const effectiveMinPx = Math.max(1, Math.min(maxPx, minPx ?? MIN_READABLE_PX));
   const lastFittedRef = useRef<number>(effectiveMinPx);
+  // While the operator is actively editing (Quick Edit), the `text` prop is
+  // frozen (to keep the caret stable), so the fit cache is keyed on the OLD
+  // text. Set true only for an edit-triggered refit so fit() measures the LIVE
+  // contentEditable DOM and skips the stale cache — otherwise a paste keeps the
+  // open-time font size and overflows the box.
+  const editingRef = useRef(false);
   const [size, setSize] = useState(lastFittedRef.current);
   // Projector floor-clipping mode: at the hard 3%-of-height floor a very
   // long slide may still overflow. We tighten line-height (1.15 → 1.05)
@@ -281,7 +287,7 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
       // word-count band for fast convergence; cached by text+box.
       const projKey = `projfit|${Math.round(ebw / 4) * 4}|${Math.round(ebh / 4) * 4}|${absMinPx}|${ceilPx}|${fontToken}|${currentText}`;
       let best: number;
-      const cachedProj = fitCacheGet(projKey);
+      const cachedProj = editingRef.current ? undefined : fitCacheGet(projKey);
       if (cachedProj !== undefined) {
         best = cachedProj;
       } else {
@@ -294,7 +300,7 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
           if (fitsAt(mid)) { found = mid; lo = mid + 1; } else { hi = mid - 1; }
         }
         best = found >= absMinPx ? found : absMinPx;
-        fitCacheSet(projKey, best);
+        if (!editingRef.current) fitCacheSet(projKey, best);
       }
       // Below the preferred floor → a long passage; tighten leading for a touch
       // more room. Only a pathological single line can still overflow (paginateForFit
@@ -321,7 +327,7 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
     // cache entries with live-projector renders of the same text (different
     // valid font sizes for different min floors).
     const cacheKey = fitCacheKey(currentText, bw, bh, maxPx) + `|${effectiveMinPx}|${fontToken}`;
-    const cached = fitCacheGet(cacheKey);
+    const cached = editingRef.current ? undefined : fitCacheGet(cacheKey);
     if (cached !== undefined) {
       lastFittedRef.current = cached;
       setSize(Math.max(effectiveMinPx, Math.min(maxPx, Math.round(cached * fontScaleRef.current))));
@@ -360,7 +366,7 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
     // unchanged best) would otherwise leave it on screen.
     t.style.fontSize = `${shown}px`;
     lastFittedRef.current = best; // seed off the UNSCALED fit
-    fitCacheSet(cacheKey, best);
+    if (!editingRef.current) fitCacheSet(cacheKey, best);
     setSize(shown);
   };
 
@@ -373,6 +379,19 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
   // this because its aspect-video box has a stable height on first paint.
   const fitRef = useRef(fit);
   fitRef.current = fit;
+
+  // Re-fit the editable box to its LIVE content after a keystroke/paste. The
+  // `text` prop stays frozen during editing (caret stability), so we bypass the
+  // stale cache (editingRef) and let fit() measure the contentEditable DOM — this
+  // is what makes pasted lyrics shrink to fit the box instead of overflowing at
+  // the open-time size. Only mutates fontSize, never the node's text, so the
+  // caret is preserved.
+  const refitAfterEdit = () => {
+    editingRef.current = true;
+    requestAnimationFrame(() => {
+      try { fitRef.current(); } finally { editingRef.current = false; }
+    });
+  };
 
   useLayoutEffect(() => {
     fit();
@@ -486,13 +505,18 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
               contentEditable: "plaintext-only",
               suppressContentEditableWarning: true,
               spellCheck: false,
-              onInput: (e: React.FormEvent<HTMLDivElement>) =>
-                onEditInput?.((e.currentTarget as HTMLElement).innerText.replace(/\r\n?/g, "\n")),
+              onInput: (e: React.FormEvent<HTMLDivElement>) => {
+                onEditInput?.((e.currentTarget as HTMLElement).innerText.replace(/\r\n?/g, "\n"));
+                refitAfterEdit(); // shrink/grow to fit the new content, keep caret
+              },
               onPaste: (e: React.ClipboardEvent<HTMLDivElement>) => {
                 // Force PLAIN text — never let rich HTML into a lyric slide.
                 e.preventDefault();
                 const t = e.clipboardData.getData("text/plain");
                 document.execCommand("insertText", false, t);
+                // execCommand fires onInput (→ refit), but refit explicitly too in
+                // case a browser/Electron build doesn't emit input for execCommand.
+                refitAfterEdit();
               },
             }
           : {})}
