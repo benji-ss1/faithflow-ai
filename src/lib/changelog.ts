@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.358",
+    date: "2026-08-28",
+    headline: "Theme & template backgrounds now show on songs",
+    highlights: [
+      { text: "Big fix: your theme background AND moving templates (like Gradient Waves) now actually appear behind song lyrics on the projector. Song slides carried a hidden black background that was blocking every theme/template — that’s removed, so the look you pick now shows on the big screen.", tryItHref: "/operator", tryItLabel: "Open Themes" },
+    ],
+  },
+  {
     version: "0.1.357",
     date: "2026-08-28",
     headline: "Themes stay on the projector — reliably now",

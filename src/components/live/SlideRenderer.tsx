@@ -42,6 +42,19 @@ function usesAnimatedBg(appearance: ThemeAppearance | null | undefined, overVide
   return !!a && a !== "none" && appearance?.bgType !== "image" && appearance?.bgType !== "video";
 }
 
+// Every song/scripture slide is stored with a NON-NULL default bgColor of
+// "#000000" (schema.ts). A truthy slide.bgColor beats the theme background AND
+// Background Templates in the designBg precedence below — so that default black
+// silently SUPPRESSED every theme/template background on the projector (it
+// rendered black, and a projector shows black as an unlit white/grey screen).
+// Treat the default black as "no per-slide background set" so the theme/template
+// shows through; a NON-default colour the operator actually chose still wins.
+function isDefaultSlideBg(c: string | null | undefined): boolean {
+  if (!c) return true;
+  const v = c.trim().toLowerCase();
+  return v === "#000000" || v === "#000" || v === "black" || v === "rgb(0,0,0)" || v === "rgb(0, 0, 0)";
+}
+
 // ── Themes Phase 1: compute CSS from the active theme appearance ───────────
 // Background supports solid / gradient / image, with an optional dark "dim"
 // overlay for text readability (a single `background` shorthand — image/gradient
@@ -157,6 +170,12 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
   onEditInput?: (text: string) => void;
 }) {
   const base = "w-full h-full flex items-center justify-center overflow-hidden";
+  // Effective per-slide background: the DEFAULT black ("#000000") counts as
+  // "unset" so the theme/template can show through (see isDefaultSlideBg). A
+  // colour the operator actually customised still wins. Used by the song/
+  // scripture (text) paths below — NOT the deliberate "blank" kind.
+  const rawSlideBg = "bgColor" in slide ? slide.bgColor : undefined;
+  const slideBg = rawSlideBg && !isDefaultSlideBg(rawSlideBg) ? rawSlideBg : undefined;
 
   // A cleared slide is transparent in overlay mode (camera shows through in OBS),
   // otherwise opaque black.
@@ -216,8 +235,8 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
         ? { background: "transparent" } // OBS overlay: only the objects render
         : slide.bgImageUrl
           ? { background: `#000 url("${slide.bgImageUrl}") center/cover no-repeat` }
-          : slide.bgColor
-            ? { background: slide.bgColor }
+          : slideBg
+            ? { background: slideBg }
             : overVideo
               ? { background: "transparent" }
               : themeBackgroundStyle(appearance, "#0b0b0b");
@@ -228,7 +247,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
       // colour isn't applying to verses/songs" fix); an explicit non-white colour
       // still wins. Over the slide's own bg / a template / camera, objects keep
       // their designed colours. `undefined` = don't theme (keep object colour).
-      const themeBgShowing = !transparentBg && !slide.bgImageUrl && !slide.bgColor && !overVideo;
+      const themeBgShowing = !transparentBg && !slide.bgImageUrl && !slideBg && !overVideo;
       // Use themeTextStyle's EFFECTIVE colour (explicit textColor OR the
       // readableTextColor auto-contrast for a solid/gradient theme bg) — not just
       // appearance.textColor — so object verses/songs on a LIGHT theme with no
@@ -246,7 +265,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
       const visible = objects.filter((o) => !o.hidden);
       const soleText = visible.length === 1 && visible[0].kind === "text" ? visible[0] : null;
       if (soleText && soleText.text.trim()) {
-        const animated = usesAnimatedBg(appearance, overVideo || transparentBg, slide.bgColor || slide.bgImageUrl);
+        const animated = usesAnimatedBg(appearance, overVideo || transparentBg, slideBg || slide.bgImageUrl);
         // Respect the operator's colour/font/weight/alignment; AutoFitText owns
         // the SIZE (fill-to-fit) + the always-on uppercase crowd-readability.
         const objStyle: React.CSSProperties = {
@@ -320,8 +339,8 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
         </div>
       );
     }
-    const bg = (overVideo || transparentBg) ? { background: "transparent" } : slide.bgColor ? { background: slide.bgColor } : themeBackgroundStyle(appearance, "#0b0b0b");
-    const animated = usesAnimatedBg(appearance, overVideo || transparentBg, slide.bgColor);
+    const bg = (overVideo || transparentBg) ? { background: "transparent" } : slideBg ? { background: slideBg } : themeBackgroundStyle(appearance, "#0b0b0b");
+    const animated = usesAnimatedBg(appearance, overVideo || transparentBg, slideBg);
     const refText = slide.reference?.trim();
     return (
       <div
