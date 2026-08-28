@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.359",
+    date: "2026-08-29",
+    headline: "Auto verse-advance & voice translation switches project again",
+    highlights: [
+      "Auto “next verse” now actually moves the verse on the projector as the reading continues (an internal check was comparing the wrong slide format and silently skipping every advance).",
+      "Saying a translation (e.g. “New King James”) now re-projects the live verse in that translation immediately — previously it only worked from the dropdown, and only when the reference showed the translation code.",
+    ],
+  },
+  {
     version: "0.1.358",
     date: "2026-08-28",
     headline: "Theme & template backgrounds now show on songs",

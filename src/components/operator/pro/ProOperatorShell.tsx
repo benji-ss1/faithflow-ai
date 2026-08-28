@@ -1483,6 +1483,15 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
 // imported above from operatorConstants.ts (Change 4, 2026-07-27).
 // Bounded [MIN, 50vw] at all times; SSR-safe read post-mount.
 
+// A scripture reference with its optional trailing translation code stripped
+// ("John 3:16 (KJV)" → "John 3:16"). Used to identify the currently-live verse
+// robustly: the projected slide's `.reference` is code-less when the operator's
+// "display translation" toggle is off, while a card's label carries the code —
+// so a raw equality would miss. (2026-08-29 auto-advance / translation fixes.)
+function stripRefCode(s: string | null | undefined): string {
+  return (s ?? "").replace(/\s*\([^)]+\)\s*$/, "").trim();
+}
+
 export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const [centerMode, setCenterMode] = useState<CenterMode>("slides");
@@ -2922,8 +2931,14 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // Only continue a verse that's actually confirmed live right now.
     const current = cards[idx];
     const currentBody = current.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
-    const currentText = `${currentBody}\n\n${current.label}`;
-    if (!(ctx.liveSlide?.kind === "text" && ctx.liveSlide.text === currentText)) return;
+    // Match the live verse by BODY or code-stripped REFERENCE. The slide stores
+    // the body in `text` and the reference in a SEPARATE `.reference` field, so
+    // the old `body\n\n label` equality never matched → auto-advance never fired.
+    const liveIsThisVerse = ctx.liveSlide?.kind === "text" && (
+      ctx.liveSlide.text === currentBody ||
+      stripRefCode(ctx.liveSlide.reference) === stripRefCode(current.label)
+    );
+    if (!liveIsThisVerse) return;
 
     const nextBody = nextCard.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
     const result = matchNextSlide(bibleRecentWordsRef.current, nextBody);
@@ -2984,8 +2999,14 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // Confirm current card is actually live before advancing past it.
     const current = cards[idx];
     const currentBody = current.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
-    const currentText = `${currentBody}\n\n${current.label}`;
-    if (!(ctx.liveSlide?.kind === "text" && ctx.liveSlide.text === currentText)) return;
+    // Match the live verse by BODY or code-stripped REFERENCE. The slide stores
+    // the body in `text` and the reference in a SEPARATE `.reference` field, so
+    // the old `body\n\n label` equality never matched → auto-advance never fired.
+    const liveIsThisVerse = ctx.liveSlide?.kind === "text" && (
+      ctx.liveSlide.text === currentBody ||
+      stripRefCode(ctx.liveSlide.reference) === stripRefCode(current.label)
+    );
+    if (!liveIsThisVerse) return;
     const combined = [...bibleRecentWordsRef.current, ...words].slice(-24);
     const nextBody = nextCard.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
     const result = matchNextSlide(combined, nextBody, 4); // stricter than final=3
@@ -3023,8 +3044,12 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       // Only advance the verse that's currently confirmed live.
       const current = cards[idx];
       const currentBody = current.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
-      const currentText = `${currentBody}\n\n${current.label}`;
-      if (!(bibleLiveSlideRef.current?.kind === "text" && bibleLiveSlideRef.current.text === currentText)) return;
+      const liveSlideNow = bibleLiveSlideRef.current;
+      const liveIsThisVerse = liveSlideNow?.kind === "text" && (
+        liveSlideNow.text === currentBody ||
+        stripRefCode(liveSlideNow.reference) === stripRefCode(current.label)
+      );
+      if (!liveIsThisVerse) return;
       const silenceMs = Date.now() - bibleLastWordTsRef.current;
       if (silenceMs < BIBLE_SILENCE_ADVANCE_MS) return; // not silent enough
       const cov = scoreCoverage(bibleRecentWordsRef.current, currentBody);
@@ -3800,10 +3825,17 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       // dedicated-field paths, so a voice translation-switch wouldn't re-render
       // the live verse. Accept either.
       const label = (live.reference ?? live.text.split("\n\n").pop() ?? "").trim();
-      const m = /^(.+?)\s+(\d+):(\d+)(?:-(\d+))?\s+\(([A-Za-z0-9]+)\)$/.exec(label);
+      // 2026-08-29 FIX (voice translation-switch not re-projecting): the old regex
+      // REQUIRED a trailing "(CODE)" suffix, but when the operator's "display
+      // translation" toggle is OFF the projected reference is code-less ("John
+      // 3:16"), so it returned null → the live verse never re-rendered on the
+      // projector (only the dropdown path, which uses this lenient shape, worked).
+      // Parse leniently; decide "already in target" from the OUTGOING session
+      // translation (the code isn't necessarily on the label).
+      const m = /^(.+?)\s+(\d+):(\d+)(?:-(\d+))?/.exec(label);
       if (m) {
-        const [, book, chapterStr, startStr, endStr, liveCode] = m;
-        if (liveCode.toUpperCase() === upper) {
+        const [, book, chapterStr, startStr, endStr] = m;
+        if (outgoing && outgoing.toUpperCase() === upper) {
           liveUpdated = true; // already in target translation — live output is correct
         } else {
           const chapter = Number(chapterStr);
