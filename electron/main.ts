@@ -584,9 +584,16 @@ app.whenReady().then(async () => {
   // staleness source; assets are simply re-fetched once on launch (online app).
   try {
     await session.defaultSession.clearCache();
-    console.log("[main] cleared HTTP cache on launch (fresh renderer for all windows)");
+    // DURABLE FIX (2026-08-28): also purge any leftover SERVICE WORKER + Cache
+    // Storage on every launch — BEFORE any window loads the app. A stale service
+    // worker from an older build pins the desktop to an old cached JS bundle that
+    // re-registers itself in a reload loop, tearing the audio WebSocket down every
+    // 1-2s (the recurring "AI keeps dropping / fresh DMG fixes it" outage). Nuking
+    // it here guarantees the freshly-deployed renderer loads clean every time.
+    await session.defaultSession.clearStorageData({ storages: ["serviceworkers", "cachestorage"] });
+    console.log("[main] cleared HTTP cache + service workers on launch (fresh renderer for all windows)");
   } catch (e) {
-    console.warn("[main] clearCache on launch failed (continuing)", e);
+    console.warn("[main] cache/SW clear on launch failed (continuing)", e);
   }
 
   registerFirstPartyHosts();
