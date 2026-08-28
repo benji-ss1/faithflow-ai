@@ -6,7 +6,7 @@
       "sources": [ "ndi_sender.cc" ],
       "include_dirs": [
         "<!@(node -p \"require('node-addon-api').include\")",
-        "/Library/NDI SDK for Apple/include"
+        "ndi-sdk/include"
       ],
       "dependencies": [
         "<!(node -p \"require('node-addon-api').gyp\")"
@@ -15,17 +15,23 @@
       "conditions": [
         [ "OS==\"mac\"", {
           "libraries": [
-            "/Library/NDI SDK for Apple/lib/macOS/libndi.dylib"
+            "<(module_root_dir)/ndi-sdk/lib/libndi.dylib"
           ],
           "xcode_settings": {
             "GCC_ENABLE_CPP_EXCEPTIONS": "YES",
             "CLANG_CXX_LIBRARY": "libc++",
-            "MACOSX_DEPLOYMENT_TARGET": "11.0",
-            "OTHER_CPLUSPLUSFLAGS": [ "-std=c++17" ],
+            "MACOSX_DEPLOYMENT_TARGET": "13.0",
+            "OTHER_CPLUSPLUSFLAGS": [
+              "-std=c++17",
+              "-isysroot", "<!(xcrun --show-sdk-path)",
+              "-isystem", "<!(xcrun --show-sdk-path)/usr/include/c++/v1"
+            ],
             "OTHER_LDFLAGS": [
+              "-isysroot", "<!(xcrun --show-sdk-path)",
               "-Wl,-rpath,@loader_path",
-              "-Wl,-rpath,@loader_path/../../resources/native/macos",
-              "-Wl,-rpath,/Library/NDI SDK for Apple/lib/macOS"
+              "-Wl,-rpath,<(module_root_dir)/ndi-sdk/lib",
+              "-Wl,-rpath,@loader_path/../../../macos",
+              "-Wl,-rpath,@loader_path/../../../../resources/native/macos"
             ]
           }
         } ]

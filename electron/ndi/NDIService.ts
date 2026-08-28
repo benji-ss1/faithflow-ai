@@ -58,17 +58,26 @@ export const NDI_DEFAULTS: NdiSettings = {
 type NativeSender = { sendFrame(b: Buffer, w: number, h: number, premultiplied?: boolean): void; getConnections(): number; destroy(): void; };
 type NativeMod = { NdiSender?: new (name: string, frN?: number, frD?: number) => NativeSender; __loadError?: string };
 function loadNative(): { mod: NativeMod | null; error: string | null } {
-  try {
-    // In dev: native/ndi-sender/index.js. In a packaged app the addon is copied
-    // into resources; resolve both. (Path tuning is a build-machine task.)
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require(path.join(__dirname, "..", "..", "native", "ndi-sender")) as NativeMod;
-    if (mod.__loadError) return { mod: null, error: mod.__loadError };
-    if (!mod.NdiSender) return { mod: null, error: "ndi_sender addon missing NdiSender export" };
-    return { mod, error: null };
-  } catch (e) {
-    return { mod: null, error: e instanceof Error ? e.message : String(e) };
+  // Packaged: extraResources copies native/ndi-sender → <Resources>/native/
+  // ndi-sender (outside asar — native .node can't load from inside asar). Dev:
+  // resolve relative to the compiled dist-electron/ndi dir.
+  const candidates = [
+    process.resourcesPath ? path.join(process.resourcesPath, "native", "ndi-sender") : null,
+    path.join(__dirname, "..", "..", "native", "ndi-sender"),
+  ].filter(Boolean) as string[];
+  let lastErr = "NDI addon not found";
+  for (const p of candidates) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mod = require(p) as NativeMod;
+      if (mod.__loadError) { lastErr = mod.__loadError; continue; }
+      if (!mod.NdiSender) { lastErr = "ndi_sender addon missing NdiSender export"; continue; }
+      return { mod, error: null };
+    } catch (e) {
+      lastErr = e instanceof Error ? e.message : String(e);
+    }
   }
+  return { mod: null, error: lastErr };
 }
 
 export class NDIService {
