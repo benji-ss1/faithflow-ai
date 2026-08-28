@@ -15,6 +15,24 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.357",
+    date: "2026-08-28",
+    headline: "Themes stay on the projector — reliably now",
+    highlights: [
+      "Your theme’s background now reaches the projector and stays there — if the projector ever missed the themed background, it now heals itself within a few seconds instead of showing a plain screen for the rest of the service.",
+      { text: "Tidy now works on songs you’ve styled — it re-breaks the lines into cleaner slides while keeping your background, font and colour. (Songs with images or shapes are still left untouched.)", tryItHref: "/operator", tryItLabel: "Open a song" },
+      "Tidied up the operator buttons: removed a couple that didn’t do anything yet, and the “Open Screens panel” button now actually opens Screens.",
+    ],
+  },
+  {
+    version: "0.1.356",
+    date: "2026-08-28",
+    headline: "Bible verse & song text uses your theme colour",
+    highlights: [
+      "Continues the theme fixes: verse and song text now take your theme’s colour on the projector (and auto-picks a readable colour on light themes), so nothing shows white-on-white.",
+    ],
+  },
+  {
     version: "0.1.355",
     date: "2026-08-28",
     headline: "Scrolling messages (ticker) on the projector",

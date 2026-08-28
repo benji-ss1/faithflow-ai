@@ -95,10 +95,14 @@ export function createOutputWindow(
       contextIsolation: true,
       nodeIntegration: false,
       backgroundThrottling: false,
-      // Y6: output pages (/live, /stage, /livestream) never call
-      // window.electronAPI — verified by grep. Sandbox on for defense in
-      // depth; if a future output page ever needs preload IPC, revisit.
+      // 2026-08-28: output pages now DO use one IPC surface — the same-machine
+      // live-sync relay (window.electronAPI.live) — so the projector receives
+      // operator state (esp. the theme/background) over a reliable transport
+      // instead of the flaky cross-window BroadcastChannel. A MINIMAL preload
+      // exposes ONLY that relay (no other electronAPI). Sandbox stays ON — a
+      // sandboxed preload can still use ipcRenderer + contextBridge.
       sandbox: true,
+      preload: path.join(__dirname, "..", "preload-output.js"),
     },
   });
   win.webContents.setBackgroundThrottling(false);

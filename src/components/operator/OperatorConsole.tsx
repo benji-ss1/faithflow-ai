@@ -1283,16 +1283,10 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
         });
         return;
       }
-      if (cmd.verb === "captions_on") {
-        toast("Voice: turn captions on?", {
-          action: { label: "Approve", onClick: () => toast.info("Captions on (placeholder — full captions land later)") },
-        });
-        return;
-      }
-      if (cmd.verb === "captions_off") {
-        toast("Voice: turn captions off?", {
-          action: { label: "Approve", onClick: () => toast.info("Captions off (placeholder)") },
-        });
+      if (cmd.verb === "captions_on" || cmd.verb === "captions_off") {
+        // Captions aren't a shipped feature — say so plainly instead of offering a
+        // fake "Approve" that only toasts a placeholder.
+        toast.info("Live captions aren’t available yet.");
         return;
       }
       if (cmd.verb === "show_chorus") {

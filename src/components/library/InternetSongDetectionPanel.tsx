@@ -49,8 +49,9 @@ function localResultToCard(result: Awaited<ReturnType<typeof matchSongCue>>[numb
     subtitle: result.artist || null,
     actions: [
       { label: "Open song", href: `/library/songs/${result.songId}`, variant: "default" },
-      { label: "Preview safe", disabled: false, variant: "outline" },
-      { label: "Live-ready", disabled: false, variant: "outline" },
+      // Status indicators, not actions — inert so they don't read as dead buttons.
+      { label: "Preview safe", disabled: true, variant: "outline" },
+      { label: "Live-ready", disabled: true, variant: "outline" },
     ],
   };
 }

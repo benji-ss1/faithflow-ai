@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Send, Square, Sun, XCircle, Eraser, Image as ImageIcon, Type, MessageSquare, MoreHorizontal } from "lucide-react";
+import { Send, Square, Sun, XCircle, Eraser, Image as ImageIcon, Type, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "./types";
 
@@ -31,7 +31,9 @@ export function ActionBar({ ctx }: { ctx: OperatorShellCtx }) {
           <Btn onClick={ctx.onClearSlide}       tone="ghost" label="Clear Slide"       icon={<Eraser className="w-3 h-3" />} small />
           <Btn onClick={ctx.onClearMedia}       tone="ghost" label="Clear Media"       icon={<ImageIcon className="w-3 h-3" />} small />
           <Btn onClick={ctx.onClearLowerThird}  tone="ghost" label="Clear Lower Third" icon={<Type className="w-3 h-3" />} small />
-          <Btn onClick={ctx.onStageMessage}     tone="ghost" label="Stage Message"     icon={<MessageSquare className="w-3 h-3" />} small />
+          {/* "Stage Message" removed 2026-08-28 — it was a placeholder (Phase 2
+              stage-display wiring) that only toasted, presenting as a working
+              button. Re-add when stage-only messaging is actually implemented. */}
         </>
       ) : (
         <div className="relative">
@@ -46,7 +48,6 @@ export function ActionBar({ ctx }: { ctx: OperatorShellCtx }) {
               <MoreItem onClick={() => { ctx.onClearSlide(); setMoreOpen(false); }} label="Clear Slide" />
               <MoreItem onClick={() => { ctx.onClearMedia(); setMoreOpen(false); }} label="Clear Media" />
               <MoreItem onClick={() => { ctx.onClearLowerThird(); setMoreOpen(false); }} label="Clear Lower Third" />
-              <MoreItem onClick={() => { ctx.onStageMessage(); setMoreOpen(false); }} label="Stage Message" />
             </div>
           )}
         </div>
