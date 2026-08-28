@@ -45,7 +45,13 @@ export interface NdiStatus {
 }
 
 export const NDI_DEFAULTS: NdiSettings = {
-  enabled: false,
+  // On by default (2026-08-28, user directive) so a broadcast PC can discover the
+  // source without the operator hunting for the toggle. Desktop-only feature; the
+  // auto-recovery below heals the boot-before-login race. NOTE: only affects a
+  // FRESH install / a machine that never saved NDI settings — an existing v0.1.322
+  // install keeps its stored `enabled:false` until toggled once, and this default
+  // only ships in a NEW DMG.
+  enabled: true,
   sourceName: "PresentFlow - NDI 1",
   mode: "transparent",
   width: 1920,
@@ -89,6 +95,12 @@ export class NDIService {
   private receiverPoll: NodeJS.Timeout | null = null;
   private error: string | null = null;
   private broadcasting = false;
+  // Auth-recovery for the offscreen /ndi surface: if NDI auto-starts at boot
+  // before the operator has signed in, middleware redirects /ndi -> /login and
+  // the offscreen page would broadcast the login screen forever. We retry the
+  // load (bounded) until it reaches the real /ndi surface.
+  private authRetryTimer: NodeJS.Timeout | null = null;
+  private authRetries = 0;
 
   constructor(appUrl: string) { this.appUrl = appUrl; }
 
@@ -131,6 +143,8 @@ export class NDIService {
     this.broadcasting = false;
     if (this.receiverPoll) { clearInterval(this.receiverPoll); this.receiverPoll = null; }
     if (this.testTimer) { clearTimeout(this.testTimer); this.testTimer = null; }
+    if (this.authRetryTimer) { clearTimeout(this.authRetryTimer); this.authRetryTimer = null; }
+    this.authRetries = 0;
     if (this.win && !this.win.isDestroyed()) { try { this.win.destroy(); } catch { /* ignore */ } }
     this.win = null;
     if (this.sender) { try { this.sender.destroy(); } catch { /* ignore */ } this.sender = null; }
@@ -227,8 +241,29 @@ export class NDIService {
       } catch { /* never crash the app (§2) */ }
     });
     wc.on("render-process-gone", () => { this.error = "NDI offscreen renderer crashed"; });
+    // Auth-recovery (bounded): if the offscreen load lands on /login (not signed
+    // in yet at boot) or fails, retry every 3s (up to ~36s) so the surface heals
+    // to the live /ndi output once the operator is authenticated — instead of
+    // pinning to the login page and broadcasting it. A successful /ndi navigation
+    // resets the budget.
+    const scheduleAuthRetry = () => {
+      if (this.authRetries >= 12) return;
+      this.authRetries++;
+      if (this.authRetryTimer) clearTimeout(this.authRetryTimer);
+      this.authRetryTimer = setTimeout(() => {
+        if (this.win && !this.win.isDestroyed()) this.win.loadURL(this.ndiUrl()).catch(() => {});
+      }, 3000);
+    };
+    wc.on("did-navigate", (_e, url) => {
+      if (/\/login(?:[/?#]|$)/.test(url)) scheduleAuthRetry();
+      else this.authRetries = 0; // reached the real surface — reset the retry budget
+    });
+    wc.on("did-fail-load", (_e, _code, _desc, validatedURL, isMainFrame) => {
+      if (isMainFrame && !/\/ndi\b/.test(validatedURL || "")) scheduleAuthRetry();
+    });
     this.win.loadURL(this.ndiUrl()).catch((e) => {
       this.error = e instanceof Error ? e.message : String(e);
+      scheduleAuthRetry();
     });
   }
 }
