@@ -229,7 +229,12 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
       // still wins. Over the slide's own bg / a template / camera, objects keep
       // their designed colours. `undefined` = don't theme (keep object colour).
       const themeBgShowing = !transparentBg && !slide.bgImageUrl && !slide.bgColor && !overVideo;
-      const themedTextColor = themeBgShowing ? (appearance?.textColor ?? undefined) : undefined;
+      // Use themeTextStyle's EFFECTIVE colour (explicit textColor OR the
+      // readableTextColor auto-contrast for a solid/gradient theme bg) — not just
+      // appearance.textColor — so object verses/songs on a LIGHT theme with no
+      // explicit text colour render dark/legible, matching the plain-text path
+      // (avoids white-on-light invisible verses).
+      const themedTextColor = themeBgShowing ? ((themeTextStyle(appearance)?.color as string | undefined) ?? undefined) : undefined;
       // Lyric/verse slides are stored as a SINGLE centered text object (from
       // import or the slide editor). Rendering that at its stored ~96px font
       // makes it tiny on a sanctuary screen — the "songs project small" bug.
