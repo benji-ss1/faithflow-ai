@@ -110,7 +110,7 @@ export function CenterHeader({
                 if (!res.ok) { toast.error(res.error || "Tidy failed"); return; }
                 const d = res.data;
                 if (!d || d.skipped === "noop") { toast.success("Slides are already tidy."); return; }
-                if (d.skipped === "rich") { toast.error("Custom-styled slides — tidy skipped to keep your styling."); return; }
+                if (d.skipped === "rich") { toast.error("This song has images or shapes on its slides — tidy skipped so they aren't moved. Text-styled songs tidy fine."); return; }
                 if (d.skipped === "empty") { toast.error("No lyrics to tidy."); return; }
                 toast.success(`Tidied — ${d.before} → ${d.after} cleaner slides.`);
                 router.refresh();

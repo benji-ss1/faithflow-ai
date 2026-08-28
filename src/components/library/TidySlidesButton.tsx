@@ -24,7 +24,7 @@ export function TidySlidesButton({ songId }: { songId: string }) {
       if (!res.ok) { toast.error(res.error ?? "Tidy failed"); return; }
       const d = res.data;
       if (!d || d.skipped === "noop") { toast.success("Slides are already tidy — nothing to change."); return; }
-      if (d.skipped === "rich") { toast.error("This song has custom-styled slides — tidy skipped so your styling isn't lost."); return; }
+      if (d.skipped === "rich") { toast.error("This song has images or shapes on its slides — tidy skipped so they aren't moved. Text-styled songs tidy fine."); return; }
       if (d.skipped === "empty") { toast.error("This song has no lyrics to tidy."); return; }
       toast.success(`Tidied — ${d.before} slide${d.before === 1 ? "" : "s"} → ${d.after} cleaner slide${d.after === 1 ? "" : "s"}.`);
       router.refresh();
