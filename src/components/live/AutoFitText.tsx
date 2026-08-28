@@ -58,7 +58,7 @@ function warnOverflowOnce(text: string, floorPx: number) {
   );
 }
 
-export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRatio = 0.06, minPx, disablePagination, projectorFit, fontScale = 1, editable, onEditInput }:
+export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRatio = 0.06, minPx, disablePagination, projectorFit, fontScale = 1, reserveVerticalRatio = 0, verticalAlign = "center", editable, onEditInput }:
   {
     text: string;
     className?: string;
@@ -106,6 +106,17 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
     // operator preview panes do NOT pass this flag — their sizing is
     // untouched.
     projectorFit?: boolean;
+    // 2026-08-27: reserve a fraction of the canvas HEIGHT that the fit must NOT
+    // use (vertical title-safe area), so text can't grow edge-to-edge and clip on
+    // real-world overscan. Used for lyrics rendered OVER a live camera / video
+    // background, where there is no letterbox slack. 0 (default) = current
+    // behaviour, byte-identical, so normal projector sizing is unaffected.
+    // Projector mode only; clamped 0..0.2.
+    reserveVerticalRatio?: number;
+    // Vertical alignment of the text within its box. Default "center". Used with
+    // reserveVerticalRatio to MOVE lyrics up/down over a camera (the reserve makes
+    // the text smaller so there's slack to move within).
+    verticalAlign?: "top" | "center" | "bottom";
   }) {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
@@ -187,8 +198,11 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
     // whole class of bug. Grid thumbnails render OUTSIDE a canvas (context null),
     // so they keep measuring their own box exactly as before.
     const useCanvas = !!(projectorFit && canvas && canvas.w > 0 && canvas.h > 0);
+    // Vertical safe-area: shrink the height the fit targets (projector/canvas
+    // path only) so lyrics over a camera keep a top/bottom margin and never clip.
+    const reserveV = Math.max(0, Math.min(0.5, reserveVerticalRatio || 0));
     const measW = useCanvas ? canvas!.w : box.clientWidth;
-    const measH = useCanvas ? canvas!.h : box.clientHeight;
+    const measH = useCanvas ? Math.round(canvas!.h * (1 - reserveV)) : box.clientHeight;
     const padPx = Math.max(4, Math.min(48, Math.round(Math.min(measW, measH) * paddingRatio)));
     setPad(padPx);
     const bw = measW - padPx * 2;
@@ -219,7 +233,13 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
       let ebw = bw;
       let ebh = bh;
       let containerH = measH;
-      if (ebh < ebw * 0.45) {
+      // Only substitute when measuring a real DOM box that could TRANSIENTLY
+      // collapse (grid thumbnails, non-canvas). In canvas mode the height is the
+      // authoritative fixed-canvas value — never a mid-layout collapse — and an
+      // INTENTIONAL vertical reserve (reserveV, for moving/safe-area'ing lyrics
+      // over a camera) legitimately drops ebh below the 0.45 aspect. Substituting
+      // there would silently negate the reserve (the off-centre-lyrics bug).
+      if (!useCanvas && ebh < ebw * 0.45) {
         ebh = Math.round(ebw * 0.5625); // 16:9 safe-area height from the width
         containerH = Math.round(measW * 0.5625);
       }
@@ -376,7 +396,7 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
       clearTimeout(t1); clearTimeout(t2); clearTimeout(t3);
     };
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
-  }, [currentText, fontScale, fontToken]);
+  }, [currentText, fontScale, fontToken, reserveVerticalRatio]);
 
   useEffect(() => {
     const box = boxRef.current;
@@ -438,7 +458,21 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
   }, [editable]);
 
   return (
-    <div ref={boxRef} className="w-full h-full flex items-center justify-center overflow-hidden relative" style={{ padding: pad }}>
+    <div
+      ref={boxRef}
+      className={`w-full h-full flex justify-center overflow-hidden relative ${verticalAlign === "top" ? "items-start" : verticalAlign === "bottom" ? "items-end" : "items-center"}`}
+      // Uniform `pad` on all sides for the default (centre) — byte-identical to
+      // before. When lyrics are aligned to the TOP/BOTTOM edge (over a camera),
+      // DOUBLE the padding on that edge so the aligned line keeps a real safe-area
+      // instead of sitting flush at ~pad and clipping on overscan. The reserve
+      // gives ample slack for this extra inset.
+      style={{
+        paddingTop: pad + (verticalAlign === "top" ? pad : 0),
+        paddingBottom: pad + (verticalAlign === "bottom" ? pad : 0),
+        paddingLeft: pad,
+        paddingRight: pad,
+      }}
+    >
       {AF_DEBUG && projectorFit && (
         <div style={{ position: "absolute", bottom: 4, left: 4, zIndex: 9999, background: "#0a84ff", color: "#fff", font: "700 13px monospace", padding: "2px 6px", borderRadius: 4, pointerEvents: "none" }}>
           AF box {afDbg.bw}×{afDbg.bh} fit={afDbg.best}px

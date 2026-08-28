@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.352",
+    date: "2026-08-28",
+    headline: "Lyrics over camera: no more cut-off, and you can move them",
+    highlights: [
+      { text: "When lyrics sit over a live camera, they no longer grow so large the bottom line is cut off — they now keep a safe margin and always fit the frame.", tryItHref: "/operator", tryItLabel: "Open Video Input" },
+      "New Position control in Video Input (full-screen overlay): place the words at the Top, Centre, or Bottom over your camera. Combine with the size slider for exactly the look you want.",
+    ],
+  },
+  {
     version: "0.1.351",
     date: "2026-08-27",
     headline: "In-app help: how to stream your lyrics to OBS",

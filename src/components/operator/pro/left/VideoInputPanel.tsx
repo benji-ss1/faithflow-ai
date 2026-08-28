@@ -54,6 +54,8 @@ export function VideoInputPanel() {
   // churches projecting words over a camera read as "lyrics not showing". Operators
   // who want a broadcast lower-third can still pick it from the Overlay dropdown.
   const [overlay, setOverlay] = useState<NonNullable<VideoInputState["overlay"]>>("full");
+  // Vertical placement of the lyrics over the camera (full-screen overlay only).
+  const [lyricsPos, setLyricsPos] = useState<NonNullable<VideoInputState["lyricsPos"]>>("center");
   const [active, setActive] = useState(false);
   const [previewStatus, setPreviewStatus] = useState<"idle" | "loading" | "on" | "error">("idle");
   const [showObsHelp, setShowObsHelp] = useState(false);
@@ -90,6 +92,7 @@ export function VideoInputPanel() {
         }
       } catch { /* ignore */ }
       if (overlayToUse) setOverlay(overlayToUse);
+      if (p.lyricsPos) setLyricsPos(p.lyricsPos);
       setActive(!!p.active);
     }
     void refresh();
@@ -135,10 +138,10 @@ export function VideoInputPanel() {
   const selectedLabel = devices.find((d) => d.deviceId === selectedId)?.label || "Camera";
 
   const persistAndMaybeEmit = useCallback((nextActive: boolean) => {
-    const state: VideoInputState = { deviceId: selectedId, label: selectedLabel, fit, mirror, overlay };
+    const state: VideoInputState = { deviceId: selectedId, label: selectedLabel, fit, mirror, overlay, lyricsPos };
     savePersisted({ ...state, active: nextActive });
     emit(nextActive ? state : null);
-  }, [selectedId, selectedLabel, fit, mirror, overlay]);
+  }, [selectedId, selectedLabel, fit, mirror, overlay, lyricsPos]);
 
   // Re-emit live when the device OR a config knob changes WHILE active, so
   // switching camera mid-service actually updates the projector (not just the
@@ -146,12 +149,12 @@ export function VideoInputPanel() {
   // silently dropped and the projector kept the old camera.
   useEffect(() => {
     if (active && selectedId) {
-      const state: VideoInputState = { deviceId: selectedId, label: selectedLabel, fit, mirror, overlay };
+      const state: VideoInputState = { deviceId: selectedId, label: selectedLabel, fit, mirror, overlay, lyricsPos };
       savePersisted({ ...state, active: true });
       emit(state);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId, fit, mirror, overlay]);
+  }, [selectedId, fit, mirror, overlay, lyricsPos]);
 
   const activate = () => {
     if (!selectedId) { toast.error("Select a camera first"); return; }
@@ -245,6 +248,20 @@ export function VideoInputPanel() {
           />
         </div>
       </div>
+      {overlay === "full" && (
+        <div className="flex items-center gap-2 text-[11px]">
+          <label className="text-[var(--color-muted-foreground)]">Position</label>
+          <div className="flex-1">
+            <DropdownDisclosure
+              selectedId={lyricsPos}
+              onSelect={(v) => setLyricsPos(v as typeof lyricsPos)}
+              triggerClassName="w-full justify-between"
+              panelWidth={200}
+              items={[{ id: "top", name: "Top" }, { id: "center", name: "Centre" }, { id: "bottom", name: "Bottom" }]}
+            />
+          </div>
+        </div>
+      )}
       <div className="flex items-center gap-2 text-[11px]">
         <label className="text-[var(--color-muted-foreground)]">Fit</label>
         <div className="flex-1">

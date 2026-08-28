@@ -60,7 +60,7 @@ export function OutputSlide({ slide, videoInput, appearance, fontScale, referenc
         {slide.kind !== "empty" && (
           isOverlayKind ? (
             <div className={containerClass}>
-              <SlideRenderer slide={slide} overVideo projectorFit={projectorFit} fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} />
+              <SlideRenderer slide={slide} overVideo projectorFit={projectorFit} fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} verticalAlign={videoInput?.overlay === "full" ? (videoInput?.lyricsPos ?? "center") : "center"} />
             </div>
           ) : (
             <div className="absolute inset-0">

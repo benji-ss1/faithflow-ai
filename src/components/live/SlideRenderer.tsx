@@ -100,7 +100,7 @@ function themeTextStyle(appearance: ThemeAppearance | null | undefined): React.C
   return Object.keys(s).length ? s : undefined;
 }
 
-export function SlideRenderer({ slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef, fontScale, referenceScale, referenceColor, appearance, overVideo, transparentBg, editable, onEditInput }: {
+export function SlideRenderer({ slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef, fontScale, referenceScale, referenceColor, appearance, overVideo, transparentBg, verticalAlign = "center", editable, onEditInput }: {
   slide: SlidePayload;
   className?: string;
   // Phase 2a: rendering as an overlay ON TOP of a live video layer. Makes
@@ -115,6 +115,10 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
   // TEXT styling (theme font/colour/size) still applies so the overlay matches
   // the projector. Highest-precedence background rule when set.
   transparentBg?: boolean;
+  // Vertical placement of lyrics over a live camera/video ("move the lyrics").
+  // Only meaningful with overVideo (the reserve gives slack to move within);
+  // scripture (with a reference footer) stays centred to avoid footer overlap.
+  verticalAlign?: "top" | "center" | "bottom";
   // Themes Phase 1: active theme appearance (background + text styling) from
   // OutputState. Undefined ⇒ built-in defaults (dark bg, white text). A per-slide
   // `bgColor` still overrides the theme background. Applies to text/blank kinds;
@@ -255,6 +259,12 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
               disablePagination={disablePagination}
               projectorFit={projectorFit}
               fontScale={fontScale}
+              // Over a live camera/video: keep a vertical safe-area so lyrics
+              // can't grow edge-to-edge and clip. When the operator moves the
+              // lyrics off-centre, reserve MORE (smaller text) so there's room to
+              // sit in the top/bottom portion over the camera.
+              reserveVerticalRatio={overVideo ? (verticalAlign !== "center" ? 0.42 : 0.07) : 0}
+              verticalAlign={overVideo ? verticalAlign : "center"}
               className={`text-white font-display font-semibold${animated ? " relative z-[1]" : ""}`}
               textStyle={{ ...themeTextStyle(appearance), ...objStyle }}
               editable={editable}
@@ -315,6 +325,13 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
           disablePagination={disablePagination}
           projectorFit={projectorFit}
           fontScale={fontScale}
+          // Over a live camera/video: keep a vertical safe-area so lyrics/verses
+          // don't grow edge-to-edge and clip. Scripture reserves the fixed
+          // reference footer's room (the paddingBottom below is invisible to the
+          // canvas-based fit) and stays centred. Songs honour the operator's
+          // vertical placement — off-centre reserves more so there's room to move.
+          reserveVerticalRatio={overVideo ? (refText ? 0.14 : (verticalAlign !== "center" ? 0.42 : 0.07)) : 0}
+          verticalAlign={overVideo && !refText ? verticalAlign : "center"}
           className={`text-white font-display font-semibold${animated ? " relative z-[1]" : ""}`}
           textStyle={transparentBg ? { ...themeTextStyle(appearance), textShadow: OBS_OVERLAY_TEXT_SHADOW } : themeTextStyle(appearance)}
           editable={editable}

@@ -209,9 +209,10 @@ export type ThemeAppearance = {
 export type VideoInputState = {
   deviceId: string;                          // MediaDeviceInfo.deviceId
   label?: string;                            // display name (for reconnect UX)
-  fit?: "contain" | "cover" | "fill" | "fill";        // how the video fills the frame (default cover)
+  fit?: "contain" | "cover" | "fill";        // how the video fills the frame (default cover)
   mirror?: boolean;                          // flip horizontally (front cameras)
   overlay?: "normal" | "lower-third" | "full"; // how slide content sits over video
+  lyricsPos?: "top" | "center" | "bottom";   // vertical placement of lyrics over the video (default center)
 };
 
 // Background Templates (2026-08-20): a compact, wire-safe render spec for the
@@ -545,6 +546,7 @@ export function isValidVideoInput(v: unknown): v is VideoInputState {
   if (p.fit !== undefined && !["contain", "cover", "fill"].includes(p.fit as string)) return false;
   if (p.mirror !== undefined && typeof p.mirror !== "boolean") return false;
   if (p.overlay !== undefined && !["normal", "lower-third", "full"].includes(p.overlay as string)) return false;
+  if (p.lyricsPos !== undefined && !["top", "center", "bottom"].includes(p.lyricsPos as string)) return false;
   return true;
 }
 
