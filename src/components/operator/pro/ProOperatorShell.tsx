@@ -3853,11 +3853,24 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       // projector (only the dropdown path, which uses this lenient shape, worked).
       // Parse leniently; decide "already in target" from the OUTGOING session
       // translation (the code isn't necessarily on the label).
-      const m = /^(.+?)\s+(\d+):(\d+)(?:-(\d+))?/.exec(label);
+      // 2026-08-29 PROJECTOR RE-PUSH FIX (field JPD: switch changed the preview +
+      // LIVE box but NOT the real 2nd-screen projector). Two bugs, both here:
+      // (1) "already in target" was decided from `outgoing` — the SESSION's
+      //     translation. When the switch is driven by the picker-sync effect
+      //     (dropdown, or any setTranslation-first path) the session is ALREADY
+      //     the target by the time this runs, so `outgoing === upper` was true
+      //     and the live verse was never re-projected. Decide from the LIVE
+      //     SLIDE's OWN code instead (JPD shows it: "John 3:17 (NLT)"); when the
+      //     reference is code-less, fall through and re-project (can't prove it's
+      //     already correct — the sender's force-post below is idempotent).
+      // (2) the re-push used a fade WITHOUT force, so the sender's already-live
+      //     skip could silently drop it. Match the known-good dropdown path
+      //     (reprojectLiveInTranslation): send with { instant, force }.
+      const m = /^(.+?)\s+(\d+):(\d+)(?:-(\d+))?(?:\s*\(([A-Za-z0-9]+)\))?/.exec(label.slice(0, 200));
       if (m) {
-        const [, book, chapterStr, startStr, endStr] = m;
-        if (outgoing && outgoing.toUpperCase() === upper) {
-          liveUpdated = true; // already in target translation — live output is correct
+        const [, book, chapterStr, startStr, endStr, liveCode] = m;
+        if (liveCode && liveCode.toUpperCase() === upper) {
+          liveUpdated = true; // live slide is ALREADY in the target translation — output is correct
         } else {
           const chapter = Number(chapterStr);
           const verseStart = Number(startStr);
@@ -3885,26 +3898,20 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
               const newText = res.verses
                 .map((v) => showVerseNumbers ? `${v.verse} ${v.text}` : v.text)
                 .join(breakOnNewVerse ? "\n" : " ");
-              // 2026-07-30 fade-on-swap (Change 1 to-100): force a one-shot
-              // ~200ms cross-fade transition for the re-render so the swap
-              // is visibly a smooth text change, not a hard cut — regardless
-              // of the operator's default transition. Uses the existing
-              // TransitionSpec pathway (LiveMessage.transition), same
-              // mechanism the operator's fade dropdown uses. TransitionWrapper
-              // remounts on identityKey change and plays the specified fade.
-              // Also dispatches a CustomEvent for same-window diagnostics /
-              // future extension (transcript UI or badge fade hooks).
+              // Same-window diagnostics / future extension (transcript UI or
+              // badge fade hooks).
               try {
                 window.dispatchEvent(new CustomEvent("presentflow:live-translation-swap", {
                   detail: { code: upper, book, chapter, verseStart, verseEnd },
                 }));
               } catch { /* noop */ }
-              const fadeSpec: import("@/lib/broadcast").TransitionSpec = {
-                effectId: "cross_fade",
-                durationMs: 200,
-                easing: "ease-in-out",
-              };
-              sendLiveRef.current({ kind: "text", text: newText, reference: newLabel }, fadeSpec);
+              // Send exactly like the known-good dropdown path
+              // (reprojectLiveInTranslation): { instant, force }. `force` bypasses
+              // the sender's already-live identity skip so a same-reference,
+              // new-translation re-render always reaches the projector; `instant`
+              // is a hard cut (no forced fade) — the same reliable path a fresh
+              // verse fire uses to reach the 2nd screen.
+              sendLiveRef.current({ kind: "text", text: newText, reference: newLabel }, undefined, { instant: true, force: true });
               liveUpdated = true;
             }
           } catch (e) {
