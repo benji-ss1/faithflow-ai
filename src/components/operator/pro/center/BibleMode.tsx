@@ -487,7 +487,10 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
       const v = ch.verses.find((x) => x.verse === h.verse);
       if (v?.text) text = v.text;
     } catch { /* keep the search-result text */ }
-    ctx.onSendSlideToLive({ kind: "text", text: `${text}\n\n${label} (${translation})` }, undefined, { instant: true });
+    // Split shape (2026-08-29): reference in its own field (not embedded in the
+    // body) so it renders in the footer AND the Bible auto-advance guards
+    // recognise this as the live verse.
+    ctx.onSendSlideToLive({ kind: "text", text, reference: `${label} (${translation})` }, undefined, { instant: true });
   }, [translation, ctx]);
 
   const loadReferenceString = useCallback(async (referenceStr: string) => {

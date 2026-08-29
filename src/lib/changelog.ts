@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.360",
+    date: "2026-08-29",
+    headline: "More reliable verse projection",
+    highlights: [
+      "Auto-advance now works even through repeated-line passages (e.g. a refrain where every verse reads the same), and recognises verses projected from a phrase match or the verse bank — so it keeps moving with the reader.",
+      "Auto verse-advance recovers faster after you touch a control (the pause after a manual action is now shorter), so hands-free reading isn’t stalled during a busy service.",
+    ],
+  },
+  {
     version: "0.1.359",
     date: "2026-08-29",
     headline: "Auto verse-advance & voice translation switches project again",

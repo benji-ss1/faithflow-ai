@@ -1382,7 +1382,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
           if (res.error) throw new Error(res.error);
           const text = (res.verses || []).map((v: { text: string }) => v.text).join(" ");
           const label = `${ref.book} ${ref.chapter}:${ref.verseStart}${ref.verseStart !== ref.verseEnd ? `-${ref.verseEnd}` : ""} (${res.translation})`;
-          setStagedAISlide({ kind: "text", text: `${text}\n\n${label}` });
+          setStagedAISlide({ kind: "text", text, reference: label });
           toast.success(`${label} staged to Preview`);
           break;
         }

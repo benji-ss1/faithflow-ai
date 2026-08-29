@@ -9,7 +9,8 @@ export type BankedVerse = {
   verseStart: number;
   verseEnd: number;
   translation: string;       // e.g. "KJV"
-  text: string;              // rendered slide text (with reference label)
+  text: string;              // verse BODY only (reference is a separate field)
+  reference: string;         // the label, e.g. "John 3:16 (KJV)" — projected in the footer
   approvedAt: number;
   // ±5 window preloaded so "next verse" / "back" is instant
   before: { verse: number; text: string }[];
@@ -56,7 +57,8 @@ export function useVerseBank(defaultTranslationCode: string) {
         verseStart: ref.verseStart,
         verseEnd: ref.verseEnd,
         translation: res.translation,
-        text: `${primaryText}\n\n${label}`,
+        text: primaryText,
+        reference: label,
         approvedAt: Date.now(),
         before: (res.before as { verse: number; text: string }[]) || [],
         after: (res.after as { verse: number; text: string }[]) || [],
@@ -111,7 +113,8 @@ export function useVerseBank(defaultTranslationCode: string) {
           book: nextRef.book, chapter: nextRef.chapter,
           verseStart: nextRef.verseStart, verseEnd: nextRef.verseEnd,
           translation: cur.translation,
-          text: `${preloaded.text}\n\n${label}`,
+          text: preloaded.text,
+          reference: label,
           approvedAt: Date.now(),
           before: [...cur.before, { verse: cur.verseStart, text: "" }].slice(-5),
           after: cur.after.filter((v) => v.verse > nextRef!.verseEnd),
@@ -154,6 +157,7 @@ export function useVerseBank(defaultTranslationCode: string) {
   const bankedToSlide = useCallback((v: BankedVerse): SlidePayload => ({
     kind: "text",
     text: v.text,
+    reference: v.reference,
   }), []);
 
   return { bank, currentRef, currentIdx, addReference, advanceOne, jumpTo, clear, bankedToSlide };

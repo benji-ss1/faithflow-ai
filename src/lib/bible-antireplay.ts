@@ -42,7 +42,11 @@ export type LiveScriptureRef = {
  * message overlay, or scripture with reference display turned off). */
 export function parseLiveScriptureRef(liveText: string | null | undefined): LiveScriptureRef | null {
   if (!liveText) return null;
-  const m = liveText.match(/(\d?\s*[A-Za-z]+)\s+(\d+):(\d+)(?:-(\d+))?\s*\([A-Za-z0-9]+\)\s*$/);
+  // Translation code is OPTIONAL (2026-08-29): the projected reference is
+  // code-less when the operator's "display translation" toggle is off, so a
+  // mandatory (CODE) suffix made this always return null → the already-live
+  // suppression guard was silently defeated.
+  const m = liveText.match(/(\d?\s*[A-Za-z]+)\s+(\d+):(\d+)(?:-(\d+))?(?:\s*\([A-Za-z0-9]+\))?\s*$/);
   if (!m) return null;
   const verseStart = parseInt(m[3], 10);
   const verseEnd = m[4] ? parseInt(m[4], 10) : verseStart;

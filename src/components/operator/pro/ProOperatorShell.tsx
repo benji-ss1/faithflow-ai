@@ -1140,7 +1140,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   // cooldown so the AI never fights the operator.
   useEffect(() => {
     const cancelTracking = () => {
-      cooldownUntilRef.current = Date.now() + 4000;
+      cooldownUntilRef.current = Date.now() + 2000; // 4s → 2s (see Bible cancel note)
       matchStreakRef.current = 0;
       interimMatchStreakRef.current = 0;
     };
@@ -2306,7 +2306,14 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // fade — the audience-visible pulse. Skip the instant label-fire entirely
     // when the ref is already live; the full-text step below is separately
     // guarded by exact-text identity.
-    const liveTextForGuard = currentLiveSlideRef.current?.kind === "text" ? currentLiveSlideRef.current.text : null;
+    // Feed the reference too (2026-08-29): the projected slide keeps the label in
+    // a SEPARATE `.reference` field, so passing body-only `.text` made
+    // parseLiveScriptureRef always return null → the already-live suppression was
+    // silently defeated. Re-embed the reference so the guard can read it.
+    const liveGuardSlide = currentLiveSlideRef.current;
+    const liveTextForGuard = liveGuardSlide?.kind === "text"
+      ? `${liveGuardSlide.text}${liveGuardSlide.reference ? `\n\n${liveGuardSlide.reference}` : ""}`
+      : null;
     const refAlreadyLive = !isDifferentRefLive(liveTextForGuard, scripture.ref);
     if (autoOn && isHighConf && !refAlreadyLive) {
       const fireKey = `ai-instant-${key}`;
@@ -2567,7 +2574,13 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       // identical CURRENTLY-live slide — a repeat after moving to something else
       // still re-projects, preserving the "preacher repeats a verse" behaviour.)
       const liveNow = bibleLiveSlideRef.current;
-      if (slide.kind === "text" && liveNow?.kind === "text" && liveNow.text === slide.text) {
+      // Compare the REFERENCE too, not just the body: two DIFFERENT verses can
+      // have byte-identical bodies (e.g. a Psalm 136 / call-and-response refrain
+      // with verse numbers off), and a text-only check would swallow the advance
+      // to the next verse. Mirror slideOutputIdentity (text + reference).
+      if (slide.kind === "text" && liveNow?.kind === "text"
+          && liveNow.text === slide.text
+          && (liveNow.reference ?? "") === (slide.reference ?? "")) {
         return true;
       }
       // AI auto-fire uses an instant one-shot transition while preserving the
@@ -2826,7 +2839,11 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     //   Songs keep their 5-minute policy (SONG_AUTO_FIRED_SESSION_KEY).
     //   Scope of this change is Bible only.
     const liveKind = ctx.liveSlide?.kind;
-    const currentLiveText = liveKind === "text" ? ctx.liveSlide.text : "";
+    // Re-embed the reference (see the liveTextForGuard note above) so
+    // decideBibleAutoFire's already-live check sees the current verse's ref.
+    const currentLiveText = liveKind === "text"
+      ? `${ctx.liveSlide.text}${ctx.liveSlide.reference ? `\n\n${ctx.liveSlide.reference}` : ""}`
+      : "";
     // Merge the sessionStorage snapshot into the synchronous in-memory ref.
     // The ref wins on conflicts because it's always the more-recent value
     // (any write we did this tick has already landed there but may not have
@@ -2965,7 +2982,11 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // too, same guardrail philosophy as the song version's cancelTracking.
   useEffect(() => {
     const cancel = () => {
-      bibleCooldownUntilRef.current = Date.now() + 4000;
+      // 2026-08-29: 4s → 2s. This armed on ANY window click/keypress, so during a
+      // live service the operator's constant interaction chained 4s windows that
+      // routinely stalled hands-free auto-advance. 2s still absorbs a deliberate
+      // manual action without fighting the operator, but recovers twice as fast.
+      bibleCooldownUntilRef.current = Date.now() + 2000;
       bibleMatchStreakRef.current = 0;
       bibleInterimMatchStreakRef.current = 0;
     };
