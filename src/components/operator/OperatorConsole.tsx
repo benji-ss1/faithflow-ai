@@ -529,6 +529,22 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   // default for the live item, then the church default.
   const effectiveAppearance = itemAppearance ?? contentTypeAppearance ?? appearance;
 
+  // Mutual-exclusivity heal against the EFFECTIVE appearance (2026-08-29): the
+  // mount + theme-changed heals only cleared a Background Template when the
+  // DEFAULT theme carried a background — a per-item or content-type theme with
+  // its own background left a stale template active, which suppressed it on
+  // /live (overVideo → transparent). Clear the template whenever the appearance
+  // actually being emitted has its own background.
+  useEffect(() => {
+    if (!effectiveAppearance) return;
+    void import("@/lib/theme-appearance").then(({ appearanceHasBackground }) => {
+      if (!appearanceHasBackground(effectiveAppearance)) return;
+      void import("@/backgrounds/store/backgroundStore").then(({ readActiveBackgroundId, setActiveBackgroundId }) => {
+        if (readActiveBackgroundId() !== "none") setActiveBackgroundId("none");
+      });
+    });
+  }, [effectiveAppearance]);
+
   // Phase 2a — active live video input, emitted on OutputState so the output
   // windows open the feed. Restored from the Video Input panel's persisted
   // active selection on mount; the panel fires `presentflow:video-input-changed`

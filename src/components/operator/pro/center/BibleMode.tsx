@@ -553,37 +553,34 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
     // Reference/label (also needed by the override + invalid branches below, so
     // an edited or invalid verse still carries its footer reference and the
     // auto-advance / already-live guards recognise it).
-    const includeRefTop = opts.refFormat !== "none";
+    // "each" → every verse shows the reference; "last" → only the final verse of
+    // a multi-verse passage (2026-08-29 R1 restore — this had regressed to always
+    // show, ignoring the operator's "last" choice); "none" → hidden.
+    const includeRef = opts.refFormat === "each" || (opts.refFormat === "last" && idx === total - 1);
     const refLabel = opts.displayTranslation ? c.label : c.label.replace(/\s*\([^)]+\)\s*$/, "");
     const override = editOverrides[c.id];
     if (typeof override === "string" && override.trim().length > 0) {
-      return { kind: "text", text: override, ...(includeRefTop ? { reference: refLabel } : {}) };
+      return { kind: "text", text: override, ...(includeRef ? { reference: refLabel } : {}) };
     }
     // Invalid-verse notice — render the friendly message with the reference
     // below it (no verse numbers). This is what projects if the operator sends
     // a non-existent reference like "Genesis 1:102".
     if (c.invalid) {
-      return { kind: "text", text: c.invalid, ...(includeRefTop ? { reference: c.label } : {}) };
+      return { kind: "text", text: c.invalid, ...(includeRef ? { reference: c.label } : {}) };
     }
     const separator = opts.breakOnNewVerse ? "\n" : " ";
     const body = c.verses
       .map((v) => opts.showVerseNumbers ? `${v.verse} ${v.text}` : v.text)
       .join(separator);
-    // The reference now rides in the dedicated `reference` field, rendered as a
-    // fixed always-visible footer (never paginated/shrunk off with a long verse).
-    // refFormat "none" hides it; "each"/"last" both show it per card (a footer per
-    // verse reads better than one at the end, and the operator asked for it to
-    // always be visible).
-    const includeRef = opts.refFormat !== "none";
-    const label = opts.displayTranslation
-      ? c.label
-      : c.label.replace(/\s*\([^)]+\)\s*$/, "");
+    // The reference rides in the dedicated `reference` field, rendered as a fixed
+    // footer (never paginated/shrunk off with a long verse). includeRef/refLabel
+    // computed at the top (respects each/last/none).
     // A saved scripture style applies to EVERY verse (grid preview + live) —
     // this is what makes "Save (all slides)" affect all scripture, not one.
     if (scriptureStyle) {
-      return scriptureSlidePayload(body, includeRef ? label : "", translation, scriptureStyle);
+      return scriptureSlidePayload(body, includeRef ? refLabel : "", translation, scriptureStyle);
     }
-    return { kind: "text", text: body, ...(includeRef ? { reference: label } : {}) };
+    return { kind: "text", text: body, ...(includeRef ? { reference: refLabel } : {}) };
   }, [opts.showVerseNumbers, opts.refFormat, opts.breakOnNewVerse, opts.displayTranslation, editOverrides, scriptureStyle, translation]);
   // Sync ref for the bible-play-current handler above.
   useEffect(() => { cardToSlideRef.current = cardToSlide; }, [cardToSlide]);

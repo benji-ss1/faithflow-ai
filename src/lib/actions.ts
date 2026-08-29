@@ -1595,14 +1595,39 @@ export async function applyThemeToSong(themeId: string, songId: string): Promise
   // wins over the render-time auto-contrast forever. Substitute an auto-contrast
   // colour whenever the theme's text and (solid) background share the same tone.
   const bakeBg = typeof cfg.bgColor === "string" ? cfg.bgColor : undefined;
+  // Expand 3-digit hex (#fff → #ffffff) so readableTextColor (6-hex only) judges
+  // tone correctly; leave anything else (rgb()/named) as-is.
+  const to6Hex = (c: string): string => {
+    const m = /^#?([0-9a-fA-F]{3})$/.exec(c.trim());
+    return m ? "#" + m[1].split("").map((ch) => ch + ch).join("") : c.trim();
+  };
+  const isHex6 = (c: string) => /^#[0-9a-fA-F]{6}$/.test(c);
   const bakeTextColor = (themeText: unknown, objColor: unknown): unknown => {
     if (typeof bakeBg !== "string") return themeText ?? objColor; // image/video/no solid bg → trust theme/object
-    if (typeof themeText !== "string") return readableTextColor(bakeBg); // no explicit text → auto-contrast
+    const bg6 = to6Hex(bakeBg);
+    if (typeof themeText !== "string") return isHex6(bg6) ? readableTextColor(bg6) : (objColor ?? "#ffffff"); // no explicit text → auto-contrast
+    const text6 = to6Hex(themeText);
+    // Only flip when we can reliably judge BOTH tones (6-hex). For rgb()/named
+    // colours we can't, so keep the theme's chosen colour rather than risk a
+    // wrong flip.
+    if (!isHex6(bg6) || !isHex6(text6)) return themeText;
     // readableTextColor(X) === "#111111" ⇒ X is LIGHT; "#ffffff" ⇒ X is DARK.
-    const bgLight = readableTextColor(bakeBg) === "#111111";
-    const textLight = readableTextColor(themeText) === "#111111";
-    return bgLight === textLight ? readableTextColor(bakeBg) : themeText; // same tone ⇒ unreadable ⇒ flip
+    const bgLight = readableTextColor(bg6) === "#111111";
+    const textLight = readableTextColor(text6) === "#111111";
+    return bgLight === textLight ? readableTextColor(bg6) : themeText; // same tone ⇒ unreadable ⇒ flip
   };
+  // A baked PURE-BLACK bg is treated as "unset" by the projector's
+  // isDefaultSlideBg (so the song would inherit the live theme, not the applied
+  // theme's black). Bake a near-black sentinel so an intentionally-dark theme
+  // stays dark on the song.
+  const isBlackBg = typeof cfg.bgColor === "string" && ["#000000", "#000", "black", "rgb(0,0,0)"].includes(cfg.bgColor.trim().toLowerCase());
+  const bakeBgColor = isBlackBg ? "#010101" : cfg.bgColor;
+  // A GRADIENT theme can't be baked onto a song: the wire slide only carries a
+  // solid bgColor, so it would flatten to one stop (the "editor shows a gradient,
+  // projected song is flat" bug). Instead, DON'T bake the background for gradient
+  // themes — leave the slide's default-black bg so the live theme appearance path
+  // (themeBackgroundStyle, which renders true gradients) shows through it.
+  const bakeGradient = cfg.bgType === "gradient";
   for (const s of slides) {
     const raw = (s.objectsJson as Record<string, unknown> | null) ?? {};
     const objects = Array.isArray(raw.objects) ? (raw.objects as Record<string, unknown>[]) : [];
@@ -1615,9 +1640,11 @@ export async function applyThemeToSong(themeId: string, songId: string): Promise
       // Persist the FULL background — bgType + both gradient stops — so a
       // red→yellow gradient theme actually shows a gradient (was collapsing to
       // solid bgColor because bgType/bgColor2 were dropped).
-      bgType: cfg.bgType ?? raw.bgType,
-      bgColor: cfg.bgColor ?? raw.bgColor,
-      bgColor2: cfg.bgColor2 ?? raw.bgColor2,
+      // Gradient themes: keep the slide's own bg (so the live gradient shows
+      // through); solid/image themes: bake the theme's bg.
+      bgType: bakeGradient ? raw.bgType : (cfg.bgType ?? raw.bgType),
+      bgColor: bakeGradient ? raw.bgColor : (bakeBgColor ?? raw.bgColor),
+      bgColor2: bakeGradient ? raw.bgColor2 : (cfg.bgColor2 ?? raw.bgColor2),
       bgImageUrl: cfg.bgImageUrl ?? raw.bgImageUrl,
       transition: cfg.transition ?? raw.transition,
       objects: objects.map((o) => {

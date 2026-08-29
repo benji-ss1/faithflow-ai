@@ -386,8 +386,18 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                   // slide's other objects can't be duplicated into the first on save.
                   // Falls back to the flat text for plain-lyric slides.
                   let text = s.kind === "text" ? ((s as { text?: string }).text ?? "") : "";
-                  const objs = s.kind === "text" ? (s as { objects?: Array<{ kind?: string; text?: string }> }).objects : undefined;
+                  const objs = s.kind === "text" ? (s as { objects?: Array<{ kind?: string; text?: string; hidden?: boolean }> }).objects : undefined;
                   if (Array.isArray(objs)) {
+                    // In-place edit only works for a single text object (the
+                    // soleText render path); a multi-object custom layout renders
+                    // via SlideObjectsLayer which has no contentEditable, so the
+                    // panel would open dead. Guard with an honest message.
+                    const visible = objs.filter((o) => !o?.hidden);
+                    const soleEditable = visible.length === 1 && visible[0]?.kind === "text";
+                    if (!soleEditable) {
+                      void import("sonner").then(({ toast }) => toast.info("This slide has a custom layout — open it in the slide editor to change its text."));
+                      return;
+                    }
                     const firstText = objs.find((o) => o?.kind === "text");
                     if (firstText && typeof firstText.text === "string") text = firstText.text;
                   }
