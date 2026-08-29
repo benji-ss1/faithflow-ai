@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.361",
+    date: "2026-08-29",
+    headline: "Readable song themes, working Blank, tidier verse footer",
+    highlights: [
+      { text: "Applying a theme to a song can no longer produce unreadable text — if the theme’s text and background are too close in tone, the text is auto-adjusted so it always stays legible on the projector.", tryItHref: "/operator", tryItLabel: "Open a song" },
+      "“Blank” is now a proper toggle — press it (or B) again to bring the exact slide that was live right back, instead of being stuck on a black screen.",
+      "On long Bible verses, the reference at the bottom no longer overlaps the last line — the verse now shrinks to sit neatly above it.",
+    ],
+  },
+  {
     version: "0.1.360",
     date: "2026-08-29",
     headline: "More reliable verse projection",

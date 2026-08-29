@@ -47,7 +47,8 @@ export function StageTab({ ctx: _ctx }: { ctx: OperatorShellCtx }) {
           {RESOLUTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
         </select>
         <div className="text-[10px] text-[var(--color-muted-foreground)] mt-1">
-          Preference remembered per-machine. Applied on the next Stage window open.
+          Saved preference. The Stage output currently renders at your display’s
+          native resolution — this preference is reserved for a future release.
         </div>
       </div>
 

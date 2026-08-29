@@ -2,6 +2,7 @@
 import { revalidatePath } from "next/cache";
 import { eq, and, asc, sql, inArray } from "drizzle-orm";
 import { getDb } from "./db/client";
+import { readableTextColor } from "./colorway";
 import { servicePlans, serviceItems, songs, songSlides, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes } from "./db/schema";
 import { requireUser, requireRole, requireCap } from "./session";
 import { deleteObject, getBuffer, putBuffer } from "./s3";
@@ -1588,6 +1589,20 @@ export async function applyThemeToSong(themeId: string, songId: string): Promise
   // exact previous look (the theme apply is reversible per user directive).
   const backup = slides.map((s) => ({ id: s.id, objectsJson: s.objectsJson ?? null }));
   let updated = 0;
+  // Contrast guard for the baked text colour (2026-08-29): baking cfg.textColor
+  // raw made a poor-contrast theme (light text on a light bg, or dark on dark)
+  // produce a PERMANENTLY unreadable song — because a baked explicit colour
+  // wins over the render-time auto-contrast forever. Substitute an auto-contrast
+  // colour whenever the theme's text and (solid) background share the same tone.
+  const bakeBg = typeof cfg.bgColor === "string" ? cfg.bgColor : undefined;
+  const bakeTextColor = (themeText: unknown, objColor: unknown): unknown => {
+    if (typeof bakeBg !== "string") return themeText ?? objColor; // image/video/no solid bg → trust theme/object
+    if (typeof themeText !== "string") return readableTextColor(bakeBg); // no explicit text → auto-contrast
+    // readableTextColor(X) === "#111111" ⇒ X is LIGHT; "#ffffff" ⇒ X is DARK.
+    const bgLight = readableTextColor(bakeBg) === "#111111";
+    const textLight = readableTextColor(themeText) === "#111111";
+    return bgLight === textLight ? readableTextColor(bakeBg) : themeText; // same tone ⇒ unreadable ⇒ flip
+  };
   for (const s of slides) {
     const raw = (s.objectsJson as Record<string, unknown> | null) ?? {};
     const objects = Array.isArray(raw.objects) ? (raw.objects as Record<string, unknown>[]) : [];
@@ -1612,7 +1627,7 @@ export async function applyThemeToSong(themeId: string, songId: string): Promise
           fontFamily: cfg.fontFamily ?? o.fontFamily,
           fontSize: cfg.fontSizePx ?? o.fontSize,
           fontWeight: cfg.fontWeight ?? o.fontWeight,
-          color: cfg.textColor ?? o.color,
+          color: bakeTextColor(cfg.textColor, o.color),
           align: cfg.align ?? o.align,
         };
       }),

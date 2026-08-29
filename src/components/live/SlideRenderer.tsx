@@ -366,7 +366,11 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
           // reference footer's room (the paddingBottom below is invisible to the
           // canvas-based fit) and stays centred. Songs honour the operator's
           // vertical placement — off-centre reserves more so there's room to move.
-          reserveVerticalRatio={overVideo ? (refText ? 0.14 : (verticalAlign !== "center" ? 0.42 : 0.07)) : 0}
+          // Reserve room for the reference footer in the FIT (not just CSS
+          // padding, which the canvas fit ignores) so a long verse body shrinks
+          // to sit ABOVE the footer instead of overlapping it — on the normal
+          // projector path too, not only over a camera (2026-08-29 R2 fix).
+          reserveVerticalRatio={refText ? (overVideo ? 0.16 : 0.12) : (overVideo ? (verticalAlign !== "center" ? 0.42 : 0.07) : 0)}
           verticalAlign={overVideo && !refText ? verticalAlign : "center"}
           className={`text-white font-display font-semibold${animated ? " relative z-[1]" : ""}`}
           textStyle={transparentBg ? { ...themeTextStyle(appearance), textShadow: OBS_OVERLAY_TEXT_SHADOW } : themeTextStyle(appearance)}

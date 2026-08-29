@@ -30,8 +30,9 @@ export function LanguageTab() {
       <Row label="UI Language">
         <select
           value={ui}
+          disabled
           onChange={(e) => { setUi(e.target.value); try { localStorage.setItem(UI_LANG_KEY, e.target.value); } catch {} }}
-          className="h-8 px-2 rounded-md border text-[11px] text-zinc-100"
+          className="h-8 px-2 rounded-md border text-[11px] text-zinc-100 disabled:opacity-50 disabled:cursor-not-allowed"
           style={{ borderColor: "#2a3232", background: "#1a2020" }}
         >
           {LANGS.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
@@ -41,8 +42,9 @@ export function LanguageTab() {
       <Row label="Bible Display Language">
         <select
           value={bible}
+          disabled
           onChange={(e) => { setBible(e.target.value); try { localStorage.setItem(BIBLE_LANG_KEY, e.target.value); } catch {} }}
-          className="h-8 px-2 rounded-md border text-[11px] text-zinc-100"
+          className="h-8 px-2 rounded-md border text-[11px] text-zinc-100 disabled:opacity-50 disabled:cursor-not-allowed"
           style={{ borderColor: "#2a3232", background: "#1a2020" }}
         >
           {LANGS.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
@@ -50,7 +52,8 @@ export function LanguageTab() {
       </Row>
 
       <div className="text-[11px] text-zinc-500 italic">
-        Note: UI localization strings are not yet wired — these are display placeholders for the pilot.
+        Coming soon — neither the app’s UI language nor the Bible display language is
+        wired yet (English only for now). Disabled so they don’t look active.
       </div>
     </div>
   );

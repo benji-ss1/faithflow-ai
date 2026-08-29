@@ -1075,7 +1075,22 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     toast.success(`↷ Projector moved forward to: ${liveSnippet(target)}`, { duration: 2200 });
   }, [reprojectFromHistory, liveSnippet]);
 
-  const goBlank = useCallback(() => send({ kind: "blank", bgColor: plan.blankBgColor }), [plan.blankBgColor, send]);
+  // Blank is a TOGGLE (2026-08-29 fix — it used to only ever blank, so the
+  // "Unblank" button/B-key left the projector black with no way back except
+  // re-clicking a slide). Remember the slide that was live when we blank, and
+  // restore it when the operator un-blanks.
+  const prevBeforeBlankRef = useRef<SlidePayload | null>(null);
+  const goBlank = useCallback(() => {
+    const cur = liveRef.current;
+    const isBlank = cur?.kind === "blank" || cur?.kind === "empty";
+    const prev = prevBeforeBlankRef.current;
+    if (isBlank && prev && prev.kind !== "blank" && prev.kind !== "empty") {
+      sendSlideToLive(prev, undefined, { instant: true, force: true }); // un-blank
+      return;
+    }
+    if (cur && cur.kind !== "blank" && cur.kind !== "empty") prevBeforeBlankRef.current = cur;
+    send({ kind: "blank", bgColor: plan.blankBgColor });
+  }, [plan.blankBgColor, send, sendSlideToLive]);
   const goLogo = useCallback(() => send({ kind: "logo", url: plan.logoUrl }), [plan.logoUrl, send]);
 
   // Use sendSlideToLive with instant:true so the LIVE button is always zero-latency.

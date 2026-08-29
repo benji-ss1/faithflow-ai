@@ -550,15 +550,20 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
   const cardToSlide = useCallback((c: VerseCard, idx: number, total: number): SlidePayload => {
     // Session edit override wins over the fetched text so the operator can
     // fix a typo / adjust line breaks without touching the DB.
+    // Reference/label (also needed by the override + invalid branches below, so
+    // an edited or invalid verse still carries its footer reference and the
+    // auto-advance / already-live guards recognise it).
+    const includeRefTop = opts.refFormat !== "none";
+    const refLabel = opts.displayTranslation ? c.label : c.label.replace(/\s*\([^)]+\)\s*$/, "");
     const override = editOverrides[c.id];
     if (typeof override === "string" && override.trim().length > 0) {
-      return { kind: "text", text: override };
+      return { kind: "text", text: override, ...(includeRefTop ? { reference: refLabel } : {}) };
     }
     // Invalid-verse notice — render the friendly message with the reference
     // below it (no verse numbers). This is what projects if the operator sends
     // a non-existent reference like "Genesis 1:102".
     if (c.invalid) {
-      return { kind: "text", text: `${c.invalid}\n\n${c.label}` };
+      return { kind: "text", text: c.invalid, ...(includeRefTop ? { reference: c.label } : {}) };
     }
     const separator = opts.breakOnNewVerse ? "\n" : " ";
     const body = c.verses
