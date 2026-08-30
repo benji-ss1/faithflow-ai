@@ -52,6 +52,18 @@ test("preaching streak → isSpokenContext true", () => {
   const snap = e.observe({ text: PREACH2, now: 5000 });
   assert.equal(snap.isSpokenContext, true);
 });
+test("preaching streak → isStoryContext true (Phase 2 nav-suppression signal)", () => {
+  const e = new ContextEngine();
+  e.observe({ text: PREACH1, now: 1000 });
+  const snap = e.observe({ text: PREACH2, now: 5000 });
+  assert.equal(snap.isStoryContext, true, "story context is what suppresses mid-conf voice-nav mid-sermon");
+});
+test("scripture-reading is NOT story context (voice nav must still work while reading)", () => {
+  const e = new ContextEngine();
+  e.observe({ text: SCRIPTURE, now: 1000, signals: { hasScriptureRef: true } });
+  const snap = e.observe({ text: "and it says in the next verse", now: 4000, signals: { hasScriptureRef: true } });
+  assert.equal(snap.isStoryContext, false, "reading scripture must not suppress nav");
+});
 test("real worship (audio signal) → isSpokenContext FALSE, isWorshipContext TRUE (songs NOT capped)", () => {
   const e = new ContextEngine();
   e.observe({ text: LYRIC, now: 1000, signals: { musicSuspected: true, lyricMatchScore: 70 } });

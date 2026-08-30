@@ -3179,6 +3179,12 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       cmd.verb === "next_verse" || cmd.verb === "continue" ||
       cmd.verb === "prev_verse" || cmd.verb === "back";
     if (!isRelNav) return;
+    // Phase 2 (Context Engine): during confident STORY/PREACHING, suppress
+    // MID-confidence relative-nav ("continue"/"go on to next", 70-84) — a preacher
+    // narrating a story while a verse is still on screen shouldn't step the verse.
+    // Anchored high-confidence nav ("next verse"/"previous verse", ≥85) still
+    // fires. No-op when the engine flag is off (contextIsStory is always false).
+    if (ctx.audio.contextIsStory && cmd.confidence < 85) return;
     const matched = (cmd.matchedText ?? "").toLowerCase().trim();
     const liveText = (ctx.liveSlide?.kind === "text" ? ctx.liveSlide.text : "").toLowerCase();
     if (matched && liveText.includes(matched)) return; // reading guard
@@ -3245,13 +3251,20 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     //      short utterance so a phrase embedded in narration never fires.
     const wordCount = utterance.split(/\s+/).filter(Boolean).length;
     if (wordCount > 5) return;
+    // Phase 2 (Context Engine): raise the immediate-fire floor to 85 during
+    // confident STORY/PREACHING, so a mid-confidence nav ("continue"/"go on to
+    // next", 70-84) becomes a one-tap CONFIRM instead of stepping the verse while
+    // the preacher is narrating. Anchored nav ("next verse"/"previous verse", ≥85)
+    // still fires instantly. No-op when the engine flag is off (contextIsStory
+    // is always false then) → the floor stays 70 exactly as before.
+    const navFireFloor = ctx.audio.contextIsStory ? 85 : 70;
     // CONFIDENCE-GATED CONFIRMATION (2026-08-20 field directive): when the
     // command is plausible but not certain (CONFIRM_FLOOR..69) — e.g. "go on",
     // "moving on" — don't silently act OR silently drop. Surface a one-tap
     // confirmation toast so the operator decides. processedVoiceSegmentsRef has
     // already deduped this segment, so the toast shows at most once per phrase.
-    // High confidence (>=70) skips this and fires instantly below.
-    if (cmd.confidence < 70) {
+    // High confidence (>= navFireFloor) skips this and fires instantly below.
+    if (cmd.confidence < navFireFloor) {
       const dir =
         cmd.verb === "prev_verse" || cmd.verb === "back" ? "prev"
         : cmd.verb === "next_verse" || cmd.verb === "continue" ? "next"

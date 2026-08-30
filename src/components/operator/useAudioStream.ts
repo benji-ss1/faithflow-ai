@@ -172,6 +172,12 @@ export type AudioStreamState = {
   error: string | null;
   transcript: TranscriptChunk[];
   interim: string;
+  // Context Engine (Phase 2): true when the rolling speech context is confidently
+  // STORY/PREACHING — used to suppress MID-confidence voice-nav ("continue", "go
+  // on to next") that fires during storytelling while a verse happens to still be
+  // live. Only ever true when the engine flag is on (else the engine never runs),
+  // so it's a pure no-op by default. Anchored high-confidence nav is never gated.
+  contextIsStory: boolean;
   detections: Detection[];
   phraseMatches: PhraseMatch[];
   songSuggestions: SongSuggestion[];
@@ -299,7 +305,7 @@ export const MIC_HIGHPASS_KEY = "presentflow.pro.micHighpass.v1"; // "1" | "0"
 
 export function useAudioStream(planId: string, opts?: { library?: IndexedSong[]; getDetectContext?: DetectContextProvider }) {
   const [state, setState] = useState<AudioStreamState>({
-    listening: false, ready: false, error: null, transcript: [], interim: "",
+    listening: false, ready: false, error: null, transcript: [], interim: "", contextIsStory: false,
     detections: [], phraseMatches: [], songSuggestions: [], commandSuggestions: [], suggestions: [],
     stage: "idle", stageHistory: [], chunksSent: 0, dgMessagesReceived: 0,
     reconnectFailed: false, reconnectAttempts: 0, warmStarted: false,
@@ -466,6 +472,10 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
             navHit: result.command.length > 0,
           },
         });
+        // Surface story-context to the shell (Phase 2 nav suppression). Only
+        // setState on a CHANGE so this doesn't add a render per utterance.
+        const nextStory = !!contextSnapshotRef.current?.isStoryContext;
+        setState((s) => (s.contextIsStory === nextStory ? s : { ...s, contextIsStory: nextStory }));
       } catch (e) { console.warn("[presentflow-detect] context engine skipped", e); }
     }
 
