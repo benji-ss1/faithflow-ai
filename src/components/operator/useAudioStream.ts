@@ -9,7 +9,11 @@ import { ContextEngine, type ContextSnapshot } from "@/lib/ai-detection/context-
 // key. When off, ctx.context is never set → detectAll is byte-identical to today.
 function contextEngineEnabled(): boolean {
   try {
-    if (typeof window !== "undefined" && window.localStorage.getItem("pro.contextEngine.v1") === "1") return true;
+    if (typeof window !== "undefined") {
+      const v = window.localStorage.getItem("presentflow.pro.contextEngine.v1");
+      if (v === "1") return true;
+      if (v === "0") return false; // explicit off wins over the env default
+    }
   } catch { /* noop */ }
   return process.env.NEXT_PUBLIC_CONTEXT_ENGINE === "1";
 }

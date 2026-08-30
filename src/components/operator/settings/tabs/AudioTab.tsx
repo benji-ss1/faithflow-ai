@@ -39,6 +39,7 @@ const AUTO_PAUSE_KEY = "presentflow.pro.autoPause.enabled";
 const AUTO_ADVANCE_KEY = "presentflow.pro.autoAdvanceSec.v1";
 // Y8: hold Bible auto-approve while a song is currently on live output.
 const HOLD_DURING_SONG_KEY = "presentflow.pro.holdAutoApproveDuringSong.v1";
+const CONTEXT_ENGINE_KEY = "presentflow.pro.contextEngine.v1";
 
 type AudioInputSel = { kind: "device" | "ndi"; id: string; label: string };
 
@@ -96,6 +97,7 @@ export function AudioTab() {
   const [autoPause, setAutoPause] = useState(false);
   const [autoAdvanceSec, setAutoAdvanceSec] = useState(0);
   const [holdDuringSong, setHoldDuringSong] = useState(false);
+  const [contextEngineOn, setContextEngineOn] = useState(false);
   const [selected, setSelected] = useState<AudioInputSel>({ kind: "ndi", id: "ndi:default", label: "NDI Audio (Routed)" });
   const [sourceType, setSourceType] = useState<"mixer" | "microphone">("mixer");
   // 2026-07-25 distant-mic improvements. null = "auto" (follow Source Type:
@@ -142,6 +144,7 @@ export function AudioTab() {
       if (!Number.isNaN(aa) && aa >= 0) setAutoAdvanceSec(aa);
       const hs = localStorage.getItem(HOLD_DURING_SONG_KEY);
       setHoldDuringSong(hs === "1");
+      setContextEngineOn(localStorage.getItem(CONTEXT_ENGINE_KEY) === "1");
       const parsedSel = parseAudioInput(localStorage.getItem(AUDIO_INPUT_KEY));
       if (parsedSel) setSelected(parsedSel);
       const st = localStorage.getItem(AUDIO_SOURCE_TYPE_KEY);
@@ -864,6 +867,17 @@ export function AudioTab() {
           <Toggle
             on={voiceOn}
             onChange={(v) => { setVoiceOn(v); try { localStorage.setItem(VOICE_COMMANDS_KEY, v ? "1" : "0"); } catch {} }}
+          />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-[12px] font-semibold text-zinc-100">Contextual awareness <span className="text-[9px] uppercase tracking-wide text-amber-400/80 ml-1">beta</span></div>
+            <div className="text-[11px] text-zinc-500 mt-0.5">Understands the moment — holds a song when a prayer/sermon just uses worship words (“in the mighty name of Jesus”), and won’t step a verse on an ambiguous “continue” mid-story. Takes effect on the next detection.</div>
+          </div>
+          <Toggle
+            on={contextEngineOn}
+            onChange={(v) => { setContextEngineOn(v); try { localStorage.setItem(CONTEXT_ENGINE_KEY, v ? "1" : "0"); } catch {} }}
           />
         </div>
 
