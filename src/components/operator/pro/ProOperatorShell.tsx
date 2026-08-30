@@ -2393,25 +2393,16 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           } catch { /* treat as unknown */ }
 
           if (chapterExists) {
+            // 2026-08-30: an out-of-range verse (valid chapter but no such verse —
+            // e.g. present in KJV but not the church's loaded translation, or one
+            // that slipped past the parser's verse-range guard) must NOT project a
+            // "not in the Bible" notice to LIVE and must NOT strand a notice card in
+            // the preview (field report: an invalid "Romans 8:80" notice card stuck
+            // in the center while the live verse moved on). Inform the operator with
+            // a toast only; leave the projector AND the center panel untouched — a
+            // complete no-op on screen.
             const refLabel = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}${scripture.ref.verseStart !== scripture.ref.verseEnd ? `-${scripture.ref.verseEnd}` : ""}`;
-            const notice = "This verse isn't in the Bible.\nPlease check the reference.";
-            autoFireCardsRef.current = [{
-              id: `ai-invalid-${key}`,
-              label: refLabel,
-              verses: [{ verse: scripture.ref.verseStart, text: notice }],
-              invalid: notice,
-              placeholder: true, // never auto-fires; already handled here
-            }];
-            // Replace the label-only slide we instant-fired with the notice, so
-            // the projector shows the message instead of a bare reference. Recency-
-            // guarded: a superseded detection must not clobber the current verse.
-            if (autoOn && isHighConf && lastRoutedScriptureRef.current === scripture.id) {
-              try {
-                sendLiveRef.current({ kind: "text", text: notice, reference: refLabel }, null, { instant: true });
-              } catch { /* noop */ }
-              bibleSession.setCards(autoFireCardsRef.current);
-              bibleSession.setSelectedIdx(0);
-            }
+            autoFireCardsRef.current = [];
             toast.warning(`"${refLabel}" isn't a verse in the Bible — check the reference.`);
             setAutoFireCardsTick((t) => t + 1);
             return;

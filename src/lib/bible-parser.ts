@@ -531,8 +531,25 @@ function normalize(text: string): string {
   let s = text
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "") // strip diacritics
-    .toLowerCase()
-    .replace(/[,.;!?]/g, " ");
+    .toLowerCase();
+
+  // 2026-08-30 SENTENCE-BOUNDARY guard (field bug): a full stop between a BARE
+  // number and a NUMBERED-BOOK tail word ("…be like 2. John 4 7", "…point 3.
+  // Corinthians") is a sentence END, never the ordinal of a numbered book —
+  // nobody writes "2. John". Without this, stripping the period below turns
+  // "2. John" into "2 john" and it binds as the book 2 John (→ "2 John 1:47"
+  // instead of the correct "John 4:7"). Drop the orphan sentence-number so it
+  // can't glue on. Runs BEFORE the punctuation strip so the period is still
+  // visible. Fires ONLY before an actual numbered-book tail, so a verse-then-new-
+  // ref ("John 3:16. Romans 8" — romans isn't a numbered tail) and an
+  // abbreviation ("1 Cor. 4:7" — the period is AFTER the book, not between the
+  // ordinal and it) are both untouched, as is a real "2 John" (no interior period).
+  s = s.replace(
+    /(^|\s)\d{1,3}\.\s+(?=(?:john|corinthians?|cor|samuel|sam|kings?|kgs|chronicles?|chron|chr|thessalonians?|thess|thes|timothy|tim|peter|pet)\b)/g,
+    "$1",
+  );
+
+  s = s.replace(/[,.;!?]/g, " ");
 
   // Accent/ASR number-homophone repair (TH-fronting: tree→three, tirty→thirty…)
   // BEFORE any number pattern runs, so "john tree sixteen" parses as John 3:16.
@@ -650,6 +667,7 @@ export type ParsedReference = {
 };
 
 import { maxChapterFor } from "./bible-max-chapters";
+import { isValidVerse } from "./bible-chapter-verses";
 
 const SINGLE_CHAPTER_BOOKS = new Set(["Obadiah", "Philemon", "2 John", "3 John", "Jude"]);
 
@@ -1097,7 +1115,15 @@ export function parseReferences(rawText: string): ParsedReference[] {
       );
       if (overlap) continue;
       const ref = pat.parse(m);
-      if (ref) {
+      // 2026-08-30 VERSE-RANGE validity (field bug: "Romans 8:80", "2 John 4:7"):
+      // reject any reference whose verse is out of range for that book/chapter in
+      // the KJV canon, so an invalid verse never becomes a detection/projection.
+      // Data-driven across all 66 books (bible-chapter-verses.ts); unknown
+      // book/chapter fails open (never drops a real verse). Chapter range is
+      // already guarded upstream by maxChapterFor in each pattern's parse().
+      if (ref &&
+          isValidVerse(ref.book, ref.chapter, ref.verseStart) &&
+          isValidVerse(ref.book, ref.chapterEnd ?? ref.chapter, ref.verseEnd)) {
         ref.start = start;
         ref.end = end;
         found.push(ref);

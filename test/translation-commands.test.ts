@@ -485,26 +485,42 @@ async function main() {
   });
 
   // ── Cooldown ─────────────────────────────────────────────────────────────
-  await check("10s cooldown blocks an immediate repeat", () => {
+  await check("10s cooldown blocks an immediate repeat of the SAME code", () => {
     resetTranslationSwitchCooldown();
     const first = detectTranslationSwitch("give me NIV", ALL, { now: 100_000 });
     assert.strictEqual(first?.code, "NIV");
-    const second = detectTranslationSwitch("give me KJV", ALL, { now: 105_000 });
-    assert.strictEqual(second, null, "5s later should still be in cooldown");
+    const second = detectTranslationSwitch("give me NIV", ALL, { now: 105_000 });
+    assert.strictEqual(second, null, "same code 5s later should still be in cooldown (echo suppression)");
   });
 
-  await check("cooldown expires after 10s", () => {
+  await check("a switch to a DIFFERENT translation fires immediately (field bug: NLT then NKJV)", () => {
     resetTranslationSwitchCooldown();
-    assert.strictEqual(detectTranslationSwitch("give me NIV", ALL, { now: 100_000 })?.code, "NIV");
-    const later = detectTranslationSwitch("give me KJV", ALL, { now: 110_001 });
-    assert.strictEqual(later?.code, "KJV");
+    assert.strictEqual(detectTranslationSwitch("NLT please", ALL, { now: 100_000 })?.code, "NLT");
+    const nkjv = detectTranslationSwitch("NKJV please", ALL, { now: 103_000 });
+    assert.strictEqual(nkjv?.code, "NKJV", "a different translation within 10s MUST NOT be swallowed by the cooldown");
   });
 
-  await check("resetTranslationSwitchCooldown clears the cooldown", () => {
+  await check("same-code cooldown expires after 10s", () => {
+    resetTranslationSwitchCooldown();
+    assert.strictEqual(detectTranslationSwitch("give me NIV", ALL, { now: 100_000 })?.code, "NIV");
+    const later = detectTranslationSwitch("give me NIV", ALL, { now: 110_001 });
+    assert.strictEqual(later?.code, "NIV");
+  });
+
+  await check("resetTranslationSwitchCooldown clears the (same-code) cooldown", () => {
     resetTranslationSwitchCooldown();
     assert.strictEqual(detectTranslationSwitch("give me NIV", ALL, { now: 100_000 })?.code, "NIV");
     resetTranslationSwitchCooldown();
-    assert.strictEqual(detectTranslationSwitch("give me KJV", ALL, { now: 100_500 })?.code, "KJV");
+    assert.strictEqual(detectTranslationSwitch("give me NIV", ALL, { now: 100_500 })?.code, "NIV");
+  });
+
+  await check("MKJV (Deepgram mishearing of NKJV) resolves to NKJV", () => {
+    resetTranslationSwitchCooldown();
+    assert.strictEqual(detectTranslationSwitch("can we get MKJV please", ALL, { now: 100_000 })?.code, "NKJV");
+    resetTranslationSwitchCooldown();
+    assert.strictEqual(detectTranslationSwitch("switch to MKJV", ALL, { now: 100_000 })?.code, "NKJV");
+    resetTranslationSwitchCooldown();
+    assert.strictEqual(detectTranslationSwitch("give me the new king james", ALL, { now: 100_000 })?.code, "NKJV");
   });
 
   await check("non-firing text does NOT consume the cooldown", () => {

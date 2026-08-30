@@ -82,9 +82,11 @@ export function getAvailableTranslationCodes(): string[] {
 // ── Cooldown (same pattern as voice-commands DEBOUNCE) ────────────────────
 const COOLDOWN_MS = 10_000;
 let lastFiredAt = 0;
+let lastFiredCode = ""; // the code of the last fired switch — enables a per-code cooldown
 
 export function resetTranslationSwitchCooldown(): void {
   lastFiredAt = 0;
+  lastFiredCode = "";
 }
 
 // ── Vocabulary ────────────────────────────────────────────────────────────
@@ -123,6 +125,7 @@ const MISHEARD_NAMES: Array<{ phrase: RegExp; code: string }> = [
   { phrase: /\b(?:iv|n\.?\s?i\.?\s?v)\b/i, code: "NIV" },     // NIV → "IV" / "N I V" / "N.I.V"
   { phrase: /\b(?:e\.?\s?s\.?\s?v|esb)\b/i, code: "ESV" },    // ESV → "E S V" / "ESB"
   { phrase: /\bn\.?\s?k\.?\s?j\.?\s?v\b/i, code: "NKJV" },    // NKJV → "N K J V"
+  { phrase: /\bmkjv\b/i, code: "NKJV" },                      // NKJV → "MKJV" (Deepgram hears N as M)
   { phrase: /\bk\.?\s?j\.?\s?v\b/i, code: "KJV" },            // KJV → "K J V"
   { phrase: /\bn\.?\s?l\.?\s?t\b/i, code: "NLT" },            // NLT → "N L T"
   { phrase: /\bn\.?\s?a\.?\s?s\.?\s?b\b/i, code: "NASB" },    // NASB → "N A S B"
@@ -333,7 +336,15 @@ export function detectTranslationSwitch(
   }
 
   if (!hit) return null;
-  if (now - lastFiredAt < COOLDOWN_MS) return null;
+  // Per-code cooldown (2026-08-30 field fix): the cooldown exists to absorb
+  // Deepgram interim→final→whisper echoes of the SAME switch phrase — NOT to
+  // block a genuine change to a DIFFERENT translation. Only suppress a repeat of
+  // the same code within the window (mirrors rule 7's different-ref bypass).
+  // Field bug: operator said "NLT" then "NKJV" a few seconds later and the NKJV
+  // switch was swallowed by the global time-only cooldown → never re-projected.
+  const sameTarget = !hit.revert && !!hit.code && hit.code === lastFiredCode;
+  if (sameTarget && now - lastFiredAt < COOLDOWN_MS) return null;
   lastFiredAt = now;
+  lastFiredCode = hit.revert ? "" : hit.code;
   return hit;
 }

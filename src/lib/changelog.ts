@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.366",
+    date: "2026-08-30",
+    headline: "No more invalid verses, smarter references, and NKJV on command",
+    highlights: [
+      "Invalid verses can't project anymore. A reference that doesn't exist — like “Romans 8:80” (Romans 8 ends at 39) or a mis-heard “2 John 4:7” — is now recognised as invalid across all 66 books and never goes to the screen or gets stuck in the preview.",
+      "Smarter reference reading: when a sentence ends on a number before a new book (“…be like 2. John 4:7”), it now reads the correct John 4:7 instead of gluing it into “2 John”.",
+      { text: "Say the translation you want and it switches — even right after another one. “NLT… actually NKJV” now both project (a cooldown used to swallow the second), and “MKJV” is understood as NKJV.", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "The Contextual awareness (beta) toggle is now easy to find — it's in the right-hand Settings (⚙) under the Bible tab.",
+    ],
+  },
+  {
     version: "0.1.365",
     date: "2026-08-30",
     headline: "Preview follows the live verse — plus Contextual awareness (beta)",
