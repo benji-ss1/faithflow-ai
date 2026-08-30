@@ -21,6 +21,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { getDb } from "../src/lib/db/client";
 import { transcriptSegments, detectedReferences, servicePlans, bibleTranslations, churchPreferences } from "../src/lib/db/schema";
 import { parseReferences, knownBook, parseBareVerse, isValidChapter, extractCorrections, combineStutteredReference } from "../src/lib/bible-parser";
+import { decideSemanticOverride } from "../src/lib/bible-semantic-override";
 
 // 2026-07-24 refactor B — semantic search moves off the Fly bridge to
 // a Vercel-side internal endpoint. Bridge no longer imports @xenova/
@@ -1019,33 +1020,37 @@ wss.on("connection", async (ws: WebSocket, req) => {
             // confidence rather than replacing — a low parser signal +
             // strong semantic hit should still be honest, not inflated.
             if (top) {
-              const semanticSim = Math.max(0, Math.round((1 - top.distance) * 100));
-              // Only override the position (book/chapter/verse) when the
-              // semantic top hit is clearly better than the parser guess
-              // (semanticSim >= 55 AND parser confidence < 75).
-              if (semanticSim >= 55 && confidence < 75) {
-                const canonicalTop = knownBook(top.book) || top.book;
-                book = canonicalTop; chapter = top.chapter; vs = top.verse; ve = top.verse;
-              }
-              // Blended confidence: weighted, never higher than the
-              // stronger of the two signals.
-              confidence = Math.min(95, Math.max(confidence, Math.round(0.6 * semanticSim + 0.4 * confidence)));
+              // 2026-08-30 (Revelation→Romans fix): delegate to the pure
+              // decideSemanticOverride helper. It preserves the parser's BOOK
+              // when the parser already resolved a valid one (only refining
+              // chapter/verse if the vector hit AGREES on the book), so a
+              // cross-book hit — a Romans verse that merely contains the word
+              // "revelation" — can never relabel Revelation → Romans. Same
+              // thresholds and confidence blend as before.
+              const decided = decideSemanticOverride(
+                { book: ref.book, chapter: ref.chapter, verseStart: ref.verseStart, verseEnd: ref.verseEnd, confidence },
+                top,
+              );
+              book = decided.book; chapter = decided.chapter; vs = decided.vs; ve = decided.ve;
+              confidence = decided.confidence;
             }
           }
         } catch (e) {
-          // 2026-07-24: sharp/xenova stack fails to install on the Fly
-          // container (native binary mismatch), so semantic fallback errors
-          // on every low-conf detection. That's dozens of noisy log lines
-          // per service. Log the message once (rate-limited via module-
-          // level flag) instead of on every error. Detection proceeds with
-          // the original parser guess — this is a graceful degrade, not
-          // a functional failure. Fix path: rebuild sharp for linux-x64
-          // in Dockerfile.audio postinstall, or drop semantic search to
-          // a Vercel-side helper endpoint that the bridge calls out to.
+          // Semantic search now runs OFF the bridge as a Vercel HTTP call
+          // (semanticSearchHttp → /api/internal/semantic-search, since the
+          // 2026-07-24 refactor), so the old "sharp/xenova missing on the
+          // container" failure no longer applies — the HTTP helper swallows its
+          // own errors and returns []. This catch now only fires on an
+          // unexpected throw around the call (e.g. getDefaultTranslationId).
+          // Detection proceeds with the original parser guess — a graceful
+          // degrade, not a functional failure. NOTE: if INTERNAL_API_SECRET is
+          // unset on the Fly app, the helper returns [] (no throw) and the whole
+          // semantic-override path — including the Revelation→Romans book guard
+          // in decideSemanticOverride — is simply dormant.
           const msg = e instanceof Error ? e.message : String(e);
           if (!semanticFallbackErrorSeen) {
             semanticFallbackErrorSeen = true;
-            console.error("[audio] semantic fallback disabled (sharp binary missing on container). First error:", msg.slice(0, 120));
+            console.error("[audio] semantic fallback error (proceeding with parser guess). First error:", msg.slice(0, 120));
           }
           // Preserve original parser guess; don't drop the suggestion.
         }
