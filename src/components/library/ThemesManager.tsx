@@ -21,7 +21,7 @@ type ThemeRow = { id: string; name: string; config: ThemeConfig; isDefault?: boo
 
 type PreviewMode = "lyrics" | "scripture" | "sermon" | "blank";
 
-const FONT_CHOICES = ["Inter", "Sora", "Plus Jakarta Sans", "Georgia", "Helvetica", "Arial", "Times New Roman"];
+const FONT_CHOICES = ["Inter", "Sora", "Plus Jakarta Sans", "Playfair Display", "Cormorant Garamond", "Fraunces", "Spectral", "Montserrat", "DM Serif Display", "Georgia", "Helvetica", "Arial", "Times New Roman"];
 const LOGO_GRID: { key: string; row: number; col: number }[] = [
   { key: "top-left", row: 0, col: 0 }, { key: "top-center", row: 0, col: 1 }, { key: "top-right", row: 0, col: 2 },
   { key: "middle-left", row: 1, col: 0 }, { key: "middle-center", row: 1, col: 1 }, { key: "middle-right", row: 1, col: 2 },

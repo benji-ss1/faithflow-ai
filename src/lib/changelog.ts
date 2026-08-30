@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.367",
+    date: "2026-08-31",
+    headline: "Songs match what you're actually singing — plus 5 beautiful new fonts",
+    highlights: [
+      { text: "Song detection is smarter. It no longer jumps to the “next song in the plan” just because the last one finished — it only pre-stages the next song on a real quiet gap, and while you're singing it finds the song you're actually singing. Repeated worship phrases (“glory to glory to glory”) now match their song properly instead of scoring too low to surface.", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "The “next in plan” prompt no longer shows a misleading “100%” — a percentage now only appears for a real lyric match.",
+      { text: "5 beautiful new slide fonts to choose from — Playfair Display, Cormorant Garamond, Fraunces, Spectral, Montserrat (and DM Serif Display). Pick them per slide in the editor or per theme.", tryItHref: "/library/themes", tryItLabel: "Open Themes" },
+      "Tidy now also fixes the standalone “i” → “I” when cleaning up song lyrics.",
+    ],
+  },
+  {
     version: "0.1.366",
     date: "2026-08-30",
     headline: "No more invalid verses, smarter references, and NKJV on command",

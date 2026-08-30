@@ -96,6 +96,11 @@ export function matchLyricFragment(chunk: string, index: SongIndex, opts: { limi
   if (candidateSongIds.size === 0) return [];
 
   const chunkSet = new Set(chunkGrams);
+  const chunkDistinct = chunkSet.size;
+  // A "repetitive" sung phrase = many raw trigrams but very few DISTINCT ones
+  // ("glory to glory to glory to glory", "holy holy holy"). Only these get the
+  // containment rescue below; everything else scores EXACTLY as before (parity).
+  const chunkIsRepetitive = chunkGrams.length >= chunkDistinct * 2 && chunkDistinct <= 8;
   const results: LyricMatch[] = [];
   for (const songId of candidateSongIds) {
     const song = index.songs.get(songId)!;
@@ -105,9 +110,21 @@ export function matchLyricFragment(chunk: string, index: SongIndex, opts: { limi
       let inter = 0;
       for (const g of l.grams) if (chunkSet.has(g)) inter++;
       if (inter === 0) continue;
-      // Dice coefficient: 2·|A∩B| / (|A|+|B|)
+      // Dice coefficient: 2·|A∩B| / (|A|+|B|) — UNCHANGED.
       const dice = (2 * inter) / (l.grams.length + chunkGrams.length);
-      const score = Math.round(dice * 100);
+      let score = Math.round(dice * 100);
+      // 2026-08-30 repetitive-phrase rescue (field bug: singing "glory to glory"
+      // did NOT match the "GLORY TO GLORY" song because the long rolling window /
+      // repeated grams inflate Dice's denominator). ONLY for a sustained
+      // repetitive chunk, lift the score by how fully its distinct grams cover
+      // this line. Ordinary speech/singing (not repetitive) is untouched.
+      if (chunkIsRepetitive) {
+        const lineDistinct = new Set(l.grams);
+        let interD = 0;
+        for (const g of lineDistinct) if (chunkSet.has(g)) interD++;
+        const containment = interD / Math.max(1, Math.min(lineDistinct.size, chunkDistinct));
+        score = Math.max(score, Math.round(containment * 100));
+      }
       if (!best || score > best.score) best = { line: l.line, slideOrder: l.slideOrder, score };
     }
     if (best && best.score > 0) {

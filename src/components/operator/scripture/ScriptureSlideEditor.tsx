@@ -27,7 +27,7 @@ import {
  * via projectableTextSlide (the exact song-editor converter).
  */
 
-const FONTS = ["Sora", "Plus Jakarta Sans", "Inter", "Georgia", "Times New Roman", "Helvetica", "Arial", "Courier New"];
+const FONTS = ["Sora", "Plus Jakarta Sans", "Inter", "Playfair Display", "Cormorant Garamond", "Fraunces", "Spectral", "Montserrat", "DM Serif Display", "Georgia", "Times New Roman", "Helvetica", "Arial", "Courier New"];
 const WEIGHTS = [400, 500, 600, 700, 800];
 
 export function ScriptureSlideEditor({

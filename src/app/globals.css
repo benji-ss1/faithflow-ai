@@ -1,5 +1,10 @@
 @import "tailwindcss";
 @import url("https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap");
+/* Slide/worship display fonts — beautiful, projector-legible faces operators can
+   pick for song lyrics & scripture (2026-08-30). Elegant display serifs
+   (Playfair, DM Serif), refined worshipful serifs (Cormorant, Fraunces), a clean
+   readable serif (Spectral) and a strong modern sans (Montserrat). */
+@import url("https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Cormorant+Garamond:wght@400;500;600;700&family=Fraunces:wght@400;500;600;700&family=Spectral:wght@400;500;600;700&family=Montserrat:wght@400;500;600;700&family=DM+Serif+Display&display=swap");
 
 /*
  * PresentFlow — dark AI-native production console.

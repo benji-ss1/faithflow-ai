@@ -199,6 +199,12 @@ function grammarPass(line: string, stripEol: boolean, normCaps: boolean): string
     .trim();
   if (stripEol) s = s.replace(/[.,;:]+$/, "").trimEnd();
   if (normCaps && isNormalizableAllCaps(s)) s = toSentenceCase(s);
+  // 2026-08-30: fix the standalone pronoun "i" → "I" (and "i'm"/"i'll"/… — \bi\b
+  // matches the i before the apostrophe) when casing normalization is on. Guarded
+  // ASCII-only so Yoruba/Igbo lines (diacritics) are never touched. (First-letter
+  // capitalization of every line was tried but changes existing golden chunk
+  // output for all songs — deferred to a dedicated opt-in tidy flag + test pass.)
+  if (normCaps && !/[^\x00-\x7f]/.test(s)) s = s.replace(/\bi\b/g, "I"); // eslint-disable-line no-control-regex
   return s;
 }
 

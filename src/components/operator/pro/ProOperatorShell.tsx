@@ -1417,7 +1417,12 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
               AI staged — not live
             </span>
             <span className="text-[13px] font-semibold truncate text-white">{stagedSong.title}</span>
-            <span className="text-[10px] font-mono text-[#ff9d5c]">{Math.round(stagedSong.confidence)}%</span>
+            {/* Show a % only for a real LYRIC/title match. A plan-position
+                progression has no match score — showing "100%" read as a confident
+                match (field complaint), so it just says "next in plan". */}
+            {stagedSong.source !== "progression" && (
+              <span className="text-[10px] font-mono text-[#ff9d5c]">{Math.round(stagedSong.confidence)}%</span>
+            )}
             {stagedSong.source === "progression" && (
               <span className="text-[9px] font-mono text-white/40">next in plan</span>
             )}

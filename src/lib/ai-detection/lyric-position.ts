@@ -137,10 +137,17 @@ export function isLikelyEndOfSong(opts: {
 }): boolean {
   const { isLastSlide, recentWords, lastSlideText, silenceMs, silenceFloorMs = 4000 } = opts;
   if (!isLastSlide) return false;
+  // 2026-08-30 (field bug: plan-progression staged "Im so glad you here" while the
+  // congregation was actively singing "glory to glory"): auto-progress to the next
+  // PLAN item ONLY on a genuine SILENCE gap. The old "recent words no longer match
+  // the last slide → assume ended" branch mis-fired the moment the congregation
+  // started singing a DIFFERENT song — but that's exactly when the real lyric
+  // detector (Part 5) should recognise and stage the song actually being sung, not
+  // when we should blind-advance the plan. So: quiet gap ⇒ pre-stage next plan
+  // song; active singing of anything else ⇒ leave it to real detection.
   if (silenceMs >= silenceFloorMs) return true;
-  // Or: recent words no longer match the last slide's own lyrics at all —
-  // singer has moved on to spoken word / next song without a matched next
-  // slide (there isn't one, since this IS the last slide).
+  // Keep a fast-path ONLY when the transcript is essentially empty (no active
+  // singing at all) yet the slide floor hasn't elapsed — a genuine dead-air tail.
   const m = matchNextSlide(recentWords, lastSlideText, 2);
-  return m.consecutiveMatches === 0 && recentWords.length >= 4;
+  return m.consecutiveMatches === 0 && recentWords.length === 0;
 }
