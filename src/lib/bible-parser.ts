@@ -257,6 +257,54 @@ function chunkToNum(raw: string): number {
   return wordsToNumber(s);
 }
 
+// Collapse a stuttered number in a spoken reference. See the call site in
+// normalize() for the full rationale (2026-08-30 "Romans four four eighteen" bug).
+// Removes the middle of any run of THREE adjacent number tokens whose first two
+// are numerically EQUAL and whose THIRD is a "big" number (>= 10), leaving that
+// third intact ("four four eighteen" → "four eighteen" → 4:18; "four four four
+// eighteen" → "four eighteen"). Two guards make it provably safe:
+//   • Third >= 10: the ONLY valid 3-digit chapters that start with two equal
+//     digits are Psalms 110-119, whose third digit is always a single digit (<10)
+//     — so a real digit-spelled chapter ("one one nine" = 119, "one one one" =
+//     111) is never collapsed. This runs BEFORE the compound/3-digit fusions in
+//     normalize() so we still see the individual tokens.
+//   • Requires a THIRD number, so a genuine two-token chapter:verse ("Genesis one
+//     one" = 1:1) is untouched; adjacency-only, so an explicit marker blocks it
+//     ("Romans four verse four" = 4:4).
+// Loops to a fixed point (restart-from-0 so a triple stutter "four four four
+// eighteen" also fully resolves — a forward-only pass would strand it; the O(n²)
+// cost is negligible on a short ASR utterance). KNOWN LIMITS, both safe:
+//   • A stutter whose intended verse is a single digit ("Romans four four seven"
+//     = 4:7) is NOT collapsed (third < 10 is indistinguishable from a 3-digit
+//     chapter spelling); it yields NO reference rather than a wrong 4:4.
+//   • A connective-less verse RANGE with an equal-leading start ("Genesis eleven
+//     eleven eighteen" meaning 11:11-18) is collapsed to 11:18 — we bias to the
+//     stutter reading. Real range speech nearly always says "to"/"through", which
+//     breaks adjacency and blocks the collapse ("Genesis eleven eleven to
+//     eighteen" stays the 11:11-18 range).
+const NUM_ATOM_ANCHORED = new RegExp(`^${NUM_ATOM_PATTERN}$`, "i");
+function collapseStutteredNumbers(s: string): string {
+  const toks = s.split(/\s+/);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let i = 0; i + 2 < toks.length; i++) {
+      if (
+        NUM_ATOM_ANCHORED.test(toks[i]) &&
+        NUM_ATOM_ANCHORED.test(toks[i + 1]) &&
+        NUM_ATOM_ANCHORED.test(toks[i + 2]) &&
+        chunkToNum(toks[i]) === chunkToNum(toks[i + 1]) &&
+        chunkToNum(toks[i + 2]) >= 10
+      ) {
+        toks.splice(i + 1, 1); // drop the stuttered duplicate
+        changed = true;
+        break;
+      }
+    }
+  }
+  return toks.join(" ");
+}
+
 // Accent / ASR homophone repair for spoken numbers. The dominant real-world
 // failure (reported from live African-preacher services) is TH-fronting:
 // Deepgram transcribes "three" as "tree", "third" as "tird", "thirty" as
@@ -512,6 +560,15 @@ function normalize(text: string): string {
   // ambiguous 1-7 range too.)
   s = s.replace(/\bmicah\b(\s+(?:chapter\s+)?)(\d+)/g, (m, mid, num) =>
     parseInt(num, 10) > 7 ? `mark${mid}${num}` : m);
+
+  // 2026-08-30 field bug (number STUTTER): African-Pentecostal preachers restate a
+  // reference and stutter the number — "Romans four four eighteen" (the "four"
+  // repeated) was read as Romans 4:4, stranding the "18", and then that wrong ref
+  // OVERWROTE the correct live verse. Collapse the stutter to "four eighteen" (4:18).
+  // MUST run BEFORE the compound/3-digit fusions below so it sees the individual
+  // tokens; the >=10 third-token guard (see helper) keeps every legit 3-digit Psalm
+  // spelling ("one one nine"=119, "one one one"=111) intact.
+  s = collapseStutteredNumbers(s);
 
   // Fuse compound word numerals with an underscore so "twenty-eight" stays
   // atomic during pattern matching (won't be split by range separators or

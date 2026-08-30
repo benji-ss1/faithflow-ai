@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.364",
+    date: "2026-08-30",
+    headline: "Sharper scripture detection — repeated numbers and the right book",
+    highlights: [
+      "When a preacher restates a verse and stutters the number — “Romans four four eighteen” — it now lands on the right verse (Romans 4:18) instead of the wrong one, and a correct verse already on screen won’t get bumped to a wrong one.",
+      "The right book stays on screen: a passage about “Revelation” is no longer occasionally shown as “Romans”.",
+    ],
+  },
+  {
     version: "0.1.363",
     date: "2026-08-30",
     headline: "Repeated verses stay put — no preview churn, no accidental skip",
