@@ -15,6 +15,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.363",
+    date: "2026-08-30",
+    headline: "Repeated verses stay put — no preview churn, no accidental skip",
+    highlights: [
+      { text: "When a preacher repeats a verse that's already on screen — “John 3:16… let's go to John 3:16… John 3:16” — the app now leaves it completely alone: it won't re-shuffle your center/preview panel, and it won't jump ahead to the next verse just because the current one was already up. Moving to a different verse, a real “next verse”, and translation switches all still work exactly as before.", tryItHref: "/operator", tryItLabel: "Open operator" },
+    ],
+  },
+  {
     version: "0.1.362",
     date: "2026-08-29",
     headline: "Translation switch now reaches the projector, not just the preview",

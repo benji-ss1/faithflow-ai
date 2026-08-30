@@ -187,3 +187,14 @@ export const BIBLE_SILENCE_ADVANCE_MS = 2500;
 
 /** Coverage fraction (0–1) of current verse words needed to silence-advance. */
 export const BIBLE_COVERAGE_THRESHOLD = 0.60;
+
+/**
+ * Minimum consecutive NEXT-verse word matches required before the Bible
+ * silence+coverage path advances (2026-08-30 repeat-hold fix). Coverage of the
+ * CURRENT verse + silence alone must NOT advance: African-Pentecostal preachers
+ * re-read/repeat the same verse and pause constantly, which used to jump the
+ * screen to the next verse "just because it was already up". Requiring real
+ * evidence the NEXT verse is being read means a pure repeat holds, while genuine
+ * forward reading still advances quickly. Matches the streak floor Part 2a uses.
+ */
+export const BIBLE_NEXT_EVIDENCE_MIN = 3;

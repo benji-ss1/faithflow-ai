@@ -49,7 +49,7 @@ import { useTimerSession, useMessagesSession, useBibleSession } from "./hooks";
 import { openLiveChannel, safePost, type LiveChannelLike } from "@/lib/broadcast";
 import { cachedLookup } from "@/lib/bible-client-cache";
 import { setAvailableTranslationCodes, getAvailableTranslationCodes } from "@/lib/translation-commands";
-import { BIBLE_MICRO_COOLDOWN_MS, decideBibleAutoFire, parseLiveScriptureRef, isDifferentRefLive } from "@/lib/bible-antireplay";
+import { BIBLE_MICRO_COOLDOWN_MS, decideBibleAutoFire, parseLiveScriptureRef, isDifferentRefLive, resolvedDetectionAction } from "@/lib/bible-antireplay";
 import { fetchChapterCached, getCachedChapter, chapterKey, prefetchChapter } from "@/lib/bible-chapter-cache";
 import { cn } from "@/lib/utils";
 import { useOperatorHotkeys } from "@/hooks/useOperatorHotkeys";
@@ -132,6 +132,7 @@ import {
   BIBLE_SLIDE_FLOOR_MS,
   BIBLE_SILENCE_ADVANCE_MS,
   BIBLE_COVERAGE_THRESHOLD,
+  BIBLE_NEXT_EVIDENCE_MIN,
 } from "./operatorConstants";
 
 /**
@@ -2436,19 +2437,27 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           const first = cards[0];
           const body = first.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
           const fullSlide: import("@/lib/broadcast").SlidePayload = { kind: "text", text: body, reference: first.label };
-          // Skip if this EXACT verse is already on the projector (re-detection of
-          // a held verse) — re-sending identical text just replays the fade.
+          // 2026-08-30 verse-repeat deeper fix: decide from the REFERENCE (via
+          // resolvedDetectionAction), recomputed against the CURRENT live slide
+          // post-await. When this re-detection is the ALREADY-LIVE verse, do NOT
+          // re-send to the projector (was a raw text-identity check that re-pulsed
+          // on formatting/translation body differences) AND do NOT churn the
+          // center/preview panel (previously synced unconditionally — the reported
+          // "hearing the correct verse yet pushing something else"). A DIFFERENT
+          // ref (swap-back / next verse / new passage) still projects and syncs.
           const liveNowFull = currentLiveSlideRef.current;
-          const identicalLive = liveNowFull?.kind === "text" && liveNowFull.text === fullSlide.text;
+          const { send: shouldSend, syncPreview: shouldSync } = resolvedDetectionAction(liveNowFull, scripture.ref);
           try {
             // Transition-replay guard: fade only on the first projection of
             // this reference family; cascade re-fires hard-cut (see aiShouldFade).
-            if (!identicalLive) sendLiveRef.current(fullSlide, null, aiShouldFade(fullSlide.text) ? { preserveConfiguredTransition: true } : { instant: true });
+            if (shouldSend) sendLiveRef.current(fullSlide, null, aiShouldFade(fullSlide.text) ? { preserveConfiguredTransition: true } : { instant: true });
           } catch { /* noop */ }
           // Sync the center preview WITHOUT collapsing a loaded chapter: if this
           // verse is already a tile in the current grid (e.g. after Load
-          // Chapter), keep the whole grid and just move the selection.
-          syncBibleCenterToDetection(scripture.ref, refText, cards);
+          // Chapter), keep the whole grid and just move the selection — but ONLY
+          // when this isn't the already-live verse (else it churns the operator's
+          // staged preview for nothing).
+          if (shouldSync) syncBibleCenterToDetection(scripture.ref, refText, cards);
           console.log(`[latency] verse-text-update ref="${refText}" (full text now on projector)`);
         }
         // Bump tick so the auto-approve effect re-runs for non-instant-fire cases
@@ -3075,15 +3084,34 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       if (silenceMs < BIBLE_SILENCE_ADVANCE_MS) return; // not silent enough
       const cov = scoreCoverage(bibleRecentWordsRef.current, currentBody);
       if (cov < BIBLE_COVERAGE_THRESHOLD) return; // verse not sufficiently covered
-      // Verse covered + silence = preacher finished reading → advance
       const nextBody = nextCard.verses.map((v) => `${v.verse} ${v.text}`).join(" ");
+      // 2026-08-30 REPEAT-HOLD: coverage-of-current + silence ALONE must not
+      // advance. African-Pentecostal preachers re-read/repeat the live verse and
+      // pause constantly ("John 3:16… let's go to John 3:16… John 3:16") — that
+      // used to jump the screen to the next verse "just because it was already
+      // up". Require positive evidence the NEXT verse is actually being read; a
+      // pure repeat has none → HOLD. Genuine forward reading (the preacher has
+      // started the next verse then paused) still advances quickly. A verbatim
+      // "next verse" voice command is a different path and is unaffected.
+      //
+      // CRITICAL: match against the verse TEXT ONLY (no "17 " number prefix).
+      // matchNextSlide anchors every run at the target's FIRST token; the spoken
+      // stream never contains the verse NUMBER, so feeding the numbered body made
+      // the match always 0 and would have stranded genuine forward reading. With
+      // the number stripped, continuous reading of the next verse matches, while a
+      // repeat of the current verse still does not (it doesn't contain the next
+      // verse's opening words).
+      const nextText = nextCard.verses.map((v) => v.text).join(" ");
+      const nextEvidence = matchNextSlide(bibleRecentWordsRef.current, nextText);
+      if (nextEvidence.consecutiveMatches < BIBLE_NEXT_EVIDENCE_MIN) return; // repeat / no forward motion → hold
+      // Verse covered + silence + next-verse evidence = preacher moved on → advance
       safeSendLiveRef.current({ kind: "text", text: nextBody, reference: nextCard.label });
       bibleSetSelectedIdxRef.current(nextIdx);
       bibleLastAdvanceTsRef.current = Date.now();
       bibleMatchStreakRef.current = 0;
       bibleInterimMatchStreakRef.current = 0;
       bibleRecentWordsRef.current = []; // reset so we don't chain-advance immediately
-      console.log(`[bible-autoprogression] silence+coverage advance to ${nextCard.label} (cov=${Math.round(cov * 100)}%, silence=${Math.round(silenceMs)}ms)`, { ts: Date.now() });
+      console.log(`[bible-autoprogression] silence+coverage+nextEvidence advance to ${nextCard.label} (cov=${Math.round(cov * 100)}%, silence=${Math.round(silenceMs)}ms, nextMatch=${nextEvidence.consecutiveMatches})`, { ts: Date.now() });
     }, 500);
     return () => window.clearInterval(iv);
     // eslint-disable-next-line react-hooks/exhaustive-deps

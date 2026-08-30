@@ -22,8 +22,11 @@ import {
   BIBLE_MICRO_COOLDOWN_MS,
   decideBibleAutoFire,
   isDifferentRefLive,
+  liveGuardText,
   parseLiveScriptureRef,
+  resolvedDetectionAction,
 } from "../src/lib/bible-antireplay";
+import type { SlidePayload } from "../src/lib/broadcast";
 
 let pass = 0;
 let fail = 0;
@@ -208,6 +211,50 @@ async function main() {
     });
     assert.strictEqual(d.suppress, false);
     assert.strictEqual(d.reason, "fire:different-ref-live");
+  });
+
+  // ── resolvedDetectionAction: re-hearing the live verse is a COMPLETE no-op ──
+  // (2026-08-30 verse-repeat deeper fix — live output AND preview must both hold)
+  const johnLive: SlidePayload = { kind: "text", text: "16 For God so loved the world", reference: "John 3:16 (KJV)" };
+  const johnRef = { book: "John", chapter: 3, verseStart: 16, verseEnd: 16 };
+
+  await check("liveGuardText: returns the reference label", () => {
+    assert.strictEqual(liveGuardText(johnLive), "John 3:16 (KJV)");
+  });
+  await check("liveGuardText: non-text slide → null", () => {
+    assert.strictEqual(liveGuardText({ kind: "image", url: "x" }), null);
+    assert.strictEqual(liveGuardText(null), null);
+  });
+  await check("resolvedDetectionAction: SAME verse already live → no send, no preview churn", () => {
+    const a = resolvedDetectionAction(johnLive, johnRef);
+    assert.strictEqual(a.send, false);
+    assert.strictEqual(a.syncPreview, false);
+  });
+  await check("resolvedDetectionAction: same ref, DIFFERENT body text (formatting/translation) → still no re-send/churn", () => {
+    const differentBody: SlidePayload = { kind: "text", text: "For God so loved the world (v16)", reference: "John 3:16 (NIV)" };
+    const a = resolvedDetectionAction(differentBody, johnRef);
+    assert.strictEqual(a.send, false, "same reference → no projector re-pulse even if body differs");
+    assert.strictEqual(a.syncPreview, false);
+  });
+  await check("resolvedDetectionAction: NEXT verse (different ref) → send + sync", () => {
+    const a = resolvedDetectionAction(johnLive, { book: "John", chapter: 3, verseStart: 17, verseEnd: 17 });
+    assert.strictEqual(a.send, true);
+    assert.strictEqual(a.syncPreview, true);
+  });
+  await check("resolvedDetectionAction: swap-back to a DIFFERENT passage → send + sync", () => {
+    const a = resolvedDetectionAction(johnLive, { book: "Genesis", chapter: 1, verseStart: 1, verseEnd: 1 });
+    assert.strictEqual(a.send, true);
+    assert.strictEqual(a.syncPreview, true);
+  });
+  await check("resolvedDetectionAction: non-scripture live (song/image) → treated as different → send + sync", () => {
+    const a = resolvedDetectionAction({ kind: "image", url: "x" }, johnRef);
+    assert.strictEqual(a.send, true);
+    assert.strictEqual(a.syncPreview, true);
+  });
+  await check("resolvedDetectionAction: reference display OFF (no label) → safe default fires", () => {
+    const noRef: SlidePayload = { kind: "text", text: "16 For God so loved the world" };
+    const a = resolvedDetectionAction(noRef, johnRef);
+    assert.strictEqual(a.send, true, "unlabelled slide isn't ref-identifiable → allow (safe default)");
   });
 
   console.log(`\n${pass} passed, ${fail} failed`);

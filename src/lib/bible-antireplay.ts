@@ -24,6 +24,8 @@
  * usually doesn't come back for 40 min). This helper is Bible-only.
  */
 
+import type { SlidePayload } from "./broadcast";
+
 /** How long a same-reference re-fire is suppressed. 3s absorbs one utterance's
  * worth of interim → final → whisper duplicate detections without ever
  * swallowing a legitimate second citation of the same verse. */
@@ -73,6 +75,35 @@ export function isDifferentRefLive(
     || live.chapter !== target.chapter
     || live.verseStart !== target.verseStart
     || live.verseEnd !== target.verseEnd;
+}
+
+/** The guard string for a live slide's already-live check: prefer the reference
+ * LABEL ("John 3:16 (NIV)") — parseLiveScriptureRef matches a trailing label —
+ * and fall back to the body text only when reference display is off (an
+ * unlabelled slide isn't ref-identifiable, so it's treated as "different"). */
+export function liveGuardText(slide: SlidePayload | null | undefined): string | null {
+  if (!slide || slide.kind !== "text") return null;
+  return slide.reference ?? slide.text;
+}
+
+/** Decide whether a freshly-resolved AI Bible detection should touch the
+ * projector (`send`) and the center/preview panel (`syncPreview`). When the
+ * target verse is ALREADY the live verse (by reference) BOTH are false — re-
+ * hearing an on-screen verse must be a COMPLETE no-op: the live output holds AND
+ * the operator's staged preview is left alone. A DIFFERENT reference (swap-back,
+ * next verse, a new passage) returns both true.
+ *
+ * 2026-08-30 verse-repeat deeper fix: the async-lookup path in the routing effect
+ * used a raw TEXT-identity check for the projector send and synced the preview
+ * UNCONDITIONALLY — so re-hearing a held verse churned the operator's center
+ * panel (and could re-pulse the projector on a formatting/translation body
+ * difference for the same reference). Deciding from the REFERENCE fixes both. */
+export function resolvedDetectionAction(
+  liveSlide: SlidePayload | null | undefined,
+  target: { book: string; chapter: number; verseStart: number; verseEnd: number },
+): { send: boolean; syncPreview: boolean } {
+  const different = isDifferentRefLive(liveGuardText(liveSlide), target);
+  return { send: different, syncPreview: different };
 }
 
 /** Decision inputs for the guard. */
