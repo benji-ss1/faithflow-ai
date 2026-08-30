@@ -50,6 +50,7 @@ import { openLiveChannel, safePost, type LiveChannelLike } from "@/lib/broadcast
 import { cachedLookup } from "@/lib/bible-client-cache";
 import { setAvailableTranslationCodes, getAvailableTranslationCodes } from "@/lib/translation-commands";
 import { BIBLE_MICRO_COOLDOWN_MS, decideBibleAutoFire, parseLiveScriptureRef, isDifferentRefLive, resolvedDetectionAction } from "@/lib/bible-antireplay";
+import { shouldHoldForOperator } from "@/lib/operator-takeover";
 import { fetchChapterCached, getCachedChapter, chapterKey, prefetchChapter } from "@/lib/bible-chapter-cache";
 import { cn } from "@/lib/utils";
 import { useOperatorHotkeys } from "@/hooks/useOperatorHotkeys";
@@ -85,6 +86,54 @@ function pfTraceOn(): boolean {
       }
     } catch { /* fall through */ }
     return raw === "1";
+  } catch { return false; }
+}
+
+/**
+ * never-override (2026-08-31): is this DOM event the operator "driving the
+ * output" — i.e. deciding what goes on the projector by hand? This is the
+ * SCOPED signal that stamps the auto-fire hold window (see OPERATOR_FLOW_MS).
+ * It is deliberately NARROWER than the auto-ADVANCE cancel listeners (which
+ * fire on ANY window interaction): a broad "any click anywhere" stamp let
+ * mic-board mixing during worship chain-hold the fire path and starve
+ * hands-free auto-live (the exact 4s→2s starvation the advance path already
+ * fought). Driving = (a) a keydown while focus is in a text field (typing a
+ * reference / search), or (b) a click inside the center staging panel
+ * (data-tour="center": Bible input, verse cards, slide grid, song browser,
+ * manual send buttons). Clicks in the right sidebar (mic board, timers,
+ * messages), the top bar, and elsewhere do NOT stamp — so mixing never starves
+ * auto-fire. AI fires dispatch only CustomEvents (never synthetic click/
+ * keydown), so this never self-stamps.
+ */
+function isDrivingInteraction(e: Event): boolean {
+  try {
+    if (e.type === "keydown") {
+      const el = typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null;
+      if (!el) return false;
+      const tag = (el.tagName || "").toUpperCase();
+      return tag === "INPUT" || tag === "TEXTAREA" || el.isContentEditable;
+    }
+    if (e.type === "click") {
+      const t = e.target as HTMLElement | null;
+      return !!(t && typeof t.closest === "function" && t.closest('[data-tour="center"]'));
+    }
+  } catch { /* fail open → don't stamp */ }
+  return false;
+}
+
+/**
+ * never-override: point-in-time "the operator has a text field focused right
+ * now" — complements the sliding window so a pause mid-typing (cursor still in
+ * the reference/search box, no keystroke for >OPERATOR_FLOW_MS) still holds
+ * auto-fire. Mirrors the long-standing activeElement guard the Bible
+ * auto-approve fallback already uses; added to the instant-fire path too.
+ */
+function focusInTextField(): boolean {
+  try {
+    const el = typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null;
+    if (!el) return false;
+    const tag = (el.tagName || "").toUpperCase();
+    return tag === "INPUT" || tag === "TEXTAREA" || el.isContentEditable;
   } catch { return false; }
 }
 
@@ -133,6 +182,7 @@ import {
   BIBLE_SILENCE_ADVANCE_MS,
   BIBLE_COVERAGE_THRESHOLD,
   BIBLE_NEXT_EVIDENCE_MIN,
+  OPERATOR_FLOW_MS,
 } from "./operatorConstants";
 
 /**
@@ -669,6 +719,19 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   // where stale closures would otherwise capture an old ctx.
   const sendLiveStableRef = useRef(ctx.onSendSlideToLive);
   const cooldownUntilRef = useRef(0);
+  // 2026-08-31 never-override (song path): mirror of ProOperatorShell's
+  // operator-driving hold, local to this component (autoLiveSong lives here and
+  // can't reach the outer ref). Stamped by the same real click/keydown listener
+  // that stamps cooldownUntilRef; a longer window (OPERATOR_FLOW_MS) than the 2s
+  // advance-cancel so a burst of manual staging holds the zero-click auto-live.
+  // Chip-click firing is a direct operator action and never routes through
+  // autoLiveSong, so it's unaffected. Kill-switch: presentflow.pro.manualTakeoverHold.v1="0".
+  const songLastOperatorInteractionRef = useRef(0);
+  const songOperatorInFlow = useCallback(() => {
+    let enabled = true;
+    try { enabled = window.localStorage.getItem("presentflow.pro.manualTakeoverHold.v1") !== "0"; } catch { /* default ON */ }
+    return shouldHoldForOperator({ lastInteractionMs: songLastOperatorInteractionRef.current, now: Date.now(), windowMs: OPERATOR_FLOW_MS, enabled });
+  }, []);
   const lastAdvanceTsRef = useRef(0);
   const progressionHandledForRef = useRef<Set<string>>(new Set());
   // ── Anti-oscillation guard (2026-08-15) ────────────────────────────────────
@@ -766,6 +829,15 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   const autoLiveSong = useCallback(async (songId: string, title: string, confidence: number) => {
     if (stagingInFlightRef.current.has(songId)) return;
     if (liveSongRef.current?.songId === songId) return; // already live
+    // 2026-08-31 never-override: HOLD zero-click song auto-live while the
+    // operator is driving by hand — a spontaneous manual stage/search/click
+    // shouldn't be overridden by the plan's next song firing itself. The
+    // detection remains a tappable chip (a direct chip click bypasses this
+    // whole function), and auto-live resumes once the operator goes idle.
+    if (songOperatorInFlow()) {
+      if (pfTraceOn()) console.log(`[song-autolive] held (operator driving): "${title}"`);
+      return;
+    }
     // 2026-07-26 hard debounce — the field-report "glitching, repeatedly
     // firing GTF → LIVE toast" that survived v0.1.68's outer-effect guards.
     // Even after id + freshness dedup at the effect layer, Deepgram's
@@ -871,7 +943,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     } finally {
       stagingInFlightRef.current.delete(songId);
     }
-  }, [ctx, stageSong]);
+  }, [ctx, stageSong, songOperatorInFlow]);
 
   useEffect(() => {
     // 2026-07-26 policy change (user sign-off): song auto-fire is NO
@@ -934,6 +1006,12 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       // otherwise still see `stagedSong` non-null and re-enter this branch
       // before autoLiveSong's own guards kick in.
       if (risen && !promotionInFlightRef.current.has(risen.songId)) {
+        // 2026-08-31 never-override: if the operator is driving by hand, HOLD
+        // the promotion WITHOUT un-staging — clearing stagedSong first and then
+        // having autoLiveSong bail on the hold would drop the song into limbo
+        // (neither staged nor live, G affordance gone). Keep it staged; the next
+        // detection tick re-promotes cleanly once the operator goes idle.
+        if (songOperatorInFlow()) return;
         promotionInFlightRef.current.add(risen.songId);
         setStagedSong(null);
         void autoLiveSong(risen.songId, risen.title, risen.confidence).finally(() => {
@@ -1051,7 +1129,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     }
     // autoApprove intentionally NOT in deps — see 2026-07-26 policy note
     // above (song auto-fire no longer gated on the AUTO/MANUAL toggle).
-  }, [ctx.audio.suggestions, ctx.audio.songSuggestions, stagedSong, stageSong, autoLiveSong]);
+  }, [ctx.audio.suggestions, ctx.audio.songSuggestions, stagedSong, stageSong, autoLiveSong, songOperatorInFlow]);
 
   // ---- Part 6: THE ONE confirm path that may touch ctx.onSendSlideToLive --
   const confirmStagedSongLive = useCallback(() => {
@@ -1155,6 +1233,21 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     return () => {
       window.removeEventListener("click", onClick, true);
       window.removeEventListener("keydown", onKeyAny, true);
+    };
+  }, []);
+
+  // 2026-08-31 never-override: SCOPED operator-driving stamp for the song
+  // auto-live hold (mirror of the Bible one; same narrow isDrivingInteraction
+  // so mic-board mixing never starves song auto-live). A direct chip click
+  // still bypasses autoLiveSong entirely, so this only governs the zero-click
+  // auto-live path.
+  useEffect(() => {
+    const stamp = (e: Event) => { if (isDrivingInteraction(e)) songLastOperatorInteractionRef.current = Date.now(); };
+    window.addEventListener("click", stamp, true);
+    window.addEventListener("keydown", stamp, true);
+    return () => {
+      window.removeEventListener("click", stamp, true);
+      window.removeEventListener("keydown", stamp, true);
     };
   }, []);
 
@@ -2321,7 +2414,18 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       ? `${liveGuardSlide.text}${liveGuardSlide.reference ? `\n\n${liveGuardSlide.reference}` : ""}`
       : null;
     const refAlreadyLive = !isDifferentRefLive(liveTextForGuard, scripture.ref);
-    if (autoOn && isHighConf && !refAlreadyLive) {
+    // 2026-08-31 never-override: if the operator is actively driving the output
+    // by hand (typing a reference, staging/sending a slide) HOLD this instant
+    // auto-fire — the detection still sits as a tappable chip and fires normally
+    // once they go idle (OPERATOR_FLOW_MS). ONLY an explicit spoken directive
+    // (voiceCommand: "next verse"/"go back") bypasses — a plain restatement
+    // (forceLive) is NOT treated as intent to override a working operator.
+    // Hold if the operator is mid-flow (sliding window) OR has a text field
+    // focused right now (a >window pause while still typing must also hold —
+    // reviewer 🟡). voiceCommand always bypasses.
+    const operatorHoldInstant = (operatorInFlow() || focusInTextField()) && !scripture.voiceCommand;
+    if (operatorHoldInstant && pfTraceOn()) console.log("[instant-fire] held (operator driving)");
+    if (autoOn && isHighConf && !refAlreadyLive && !operatorHoldInstant) {
       const fireKey = `ai-instant-${key}`;
       // Anti-replay check before instant-fire (same 3s cooldown as the full path).
       const nowInstant = Date.now();
@@ -2444,7 +2548,13 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           const liveNowFull = currentLiveSlideRef.current;
           // SEND uses the post-fire live state (don't re-pulse an identical live
           // verse); the PREVIEW sync below uses the PRE-fire refAlreadyLive.
-          const shouldSend = resolvedDetectionAction(liveNowFull, scripture.ref).send;
+          // 2026-08-31 never-override: this lookup resolves 5-15s later; re-check
+          // the operator-driving hold at resolve time so a late fire can't yank
+          // the screen if the operator started typing/staging AFTER the initial
+          // gate passed. voiceCommand still bypasses. Re-evaluated live (not the
+          // gate-time value) so it correctly RESUMES once the operator goes idle.
+          const operatorHoldFull = (operatorInFlow() || focusInTextField()) && !scripture.voiceCommand;
+          const shouldSend = !operatorHoldFull && resolvedDetectionAction(liveNowFull, scripture.ref).send;
           try {
             // Transition-replay guard: fade only on the first projection of
             // this reference family; cascade re-fires hard-cut (see aiShouldFade).
@@ -2460,7 +2570,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           // the preview was stuck on Matthew 5:7). `refAlreadyLive` is true ONLY
           // for a genuine re-hearing of an already-live verse → we skip the sync
           // only then, preserving the anti-churn behaviour.
-          if (!refAlreadyLive) syncBibleCenterToDetection(scripture.ref, refText, cards);
+          // Also skip the center/preview sync while the operator is driving — it
+          // calls bibleSession.setRef and would clobber a reference they're
+          // typing into the BibleMode input (2026-08-31 never-override).
+          if (!refAlreadyLive && !operatorHoldFull) syncBibleCenterToDetection(scripture.ref, refText, cards);
           console.log(`[latency] verse-text-update ref="${refText}" (full text now on projector)`);
         }
         // Bump tick so the auto-approve effect re-runs for non-instant-fire cases
@@ -2545,6 +2658,24 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const bibleMatchStreakRef = useRef(0);
   const bibleInterimMatchStreakRef = useRef(0); // Part 2b: interim-based advance
   const bibleCooldownUntilRef = useRef(0);
+  // 2026-08-31 never-override: a purpose-named "operator is driving the output
+  // right now" stamp, distinct from bibleCooldownUntilRef (which is tuned to a
+  // fast 2s so incidental clicks don't starve verse auto-ADVANCE). This one
+  // gates the auto-FIRE chokepoints: when the operator is actively typing a
+  // reference or staging a slide by hand, the AI must HOLD (never yank the
+  // screen) and let the detection sit as a tappable chip; it re-arms itself the
+  // moment the operator goes idle for OPERATOR_FLOW_MS. Voice commands
+  // (forceLive/voiceCommand) always bypass. Stamped ONLY by real DOM
+  // click/keydown (the capture listener below) — AI fires call sendLiveRef
+  // directly and never dispatch synthetic events, so they never self-stamp.
+  // Kill-switch: localStorage presentflow.pro.manualTakeoverHold.v1 = "0" disables it live
+  // (default ON) — a fail-safe if it ever starves a real service.
+  const lastOperatorInteractionRef = useRef(0);
+  const operatorInFlow = useCallback(() => {
+    let enabled = true;
+    try { enabled = window.localStorage.getItem("presentflow.pro.manualTakeoverHold.v1") !== "0"; } catch { /* default ON */ }
+    return shouldHoldForOperator({ lastInteractionMs: lastOperatorInteractionRef.current, now: Date.now(), windowMs: OPERATOR_FLOW_MS, enabled });
+  }, []);
   const bibleLastAdvanceTsRef = useRef(0);
   const bibleLastWordTsRef = useRef<number>(Date.now()); // for silence detection
   // Refs that mirror state/props for the setInterval-based Part 2c ticker
@@ -2807,6 +2938,21 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       }
       return;
     }
+    // 2026-08-31 never-override: HOLD the auto-approve fallback fire while the
+    // operator is driving the output by hand. The point-in-time activeElement
+    // guard above only catches focus-in-a-textbox at the exact fire tick; this
+    // sliding window also covers clicking to stage a slide, the gaps between
+    // keystrokes, and a just-finished manual action. The high-conf detection
+    // is NOT dropped — it stays as a tappable scripture chip in the AI chip bar
+    // (click = preview, Shift+click = live) and this effect re-fires it the
+    // moment the operator goes idle (a re-render tick keeps it eligible). ONLY
+    // an explicit spoken directive (voiceCommand) bypasses; a plain restatement
+    // (forceLive) does not override a working operator. Kill-switch:
+    // localStorage presentflow.pro.manualTakeoverHold.v1 = "0".
+    if (!scripture.voiceCommand && operatorInFlow()) {
+      if (pfTraceOn()) console.log("[auto-approve] held (operator driving)");
+      return;
+    }
     // 2026-07-29 crash fix (Maximum update depth exceeded): this effect depends
     // on ctx.liveSlide, so a fire re-runs it. forceLive/voiceCommand suggestions
     // bypass BOTH the min-gap and the 5-min replay guard, so the SAME suggestion
@@ -3007,6 +3153,21 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     return () => {
       window.removeEventListener("click", cancel, true);
       window.removeEventListener("keydown", cancel, true);
+    };
+  }, []);
+
+  // 2026-08-31 never-override: SCOPED operator-driving stamp (separate from the
+  // broad advance-cancel listener above). Only genuine "I'm choosing what to
+  // project" actions arm the auto-fire hold — see isDrivingInteraction. Mixing
+  // on the mic board / touching sidebar tools does NOT stamp, so hands-free
+  // auto-fire is never starved during worship.
+  useEffect(() => {
+    const stamp = (e: Event) => { if (isDrivingInteraction(e)) lastOperatorInteractionRef.current = Date.now(); };
+    window.addEventListener("click", stamp, true);
+    window.addEventListener("keydown", stamp, true);
+    return () => {
+      window.removeEventListener("click", stamp, true);
+      window.removeEventListener("keydown", stamp, true);
     };
   }, []);
 

@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.368",
+    date: "2026-08-31",
+    headline: "The AI never takes the screen while you're driving",
+    highlights: [
+      { text: "When you're typing a reference or staging a slide by hand, the AI now HOLDS — it won't push its own detection over what you're doing. The moment you pause for a couple of seconds, auto-fire picks back up. Applies to Bible verses and songs.", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "The held detection isn't lost — it stays as a chip you can tap (or Shift-click to send live) whenever you're ready.",
+      "Spoken commands still cut through instantly — say “next verse” and it fires even if your hand was just on the mouse.",
+      "If it ever gets in your way, you can switch it off live: set localStorage “presentflow.pro.manualTakeoverHold.v1” to “0”.",
+    ],
+  },
+  {
     version: "0.1.367",
     date: "2026-08-31",
     headline: "Songs match what you're actually singing — plus 5 beautiful new fonts",
