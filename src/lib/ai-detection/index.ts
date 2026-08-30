@@ -13,6 +13,7 @@ import { matchSongCue, type SongMatchResult, type MatchContext } from "./song-ma
 import { detectSongInTranscript, resetSongDedupe } from "./song-detection";
 export { resetSongDedupe };
 import type { IndexedSong, SongIndex } from "./lyric-fragment";
+import type { ContextSnapshot } from "./context-engine";
 import { topPhraseForSpeech } from "@/services/bible/phraseSearch";
 
 // Widened ParsedReference — carries the phrase-match provenance flag so
@@ -58,6 +59,11 @@ export type DetectAllContext = {
   hasVerseContext: boolean;
   hasSlideContext: boolean;
   hasSongContext: boolean;
+  /** Optional Context-Engine snapshot (context-engine.ts). When present and
+   * `isSpokenContext` is true, song/lyric matches are capped to chip-tier — a
+   * "song" heard mid-prayer/preaching/reading is a spoken worship-adjacent
+   * phrase, not an actual song. Undefined (engine flag off) => provable no-op. */
+  context?: ContextSnapshot;
 };
 
 export type DetectAllResult = {
@@ -248,6 +254,27 @@ export async function detectAll(chunk: string, ctx: DetectAllContext): Promise<D
     return s === undefined || m.confidence > s;
   });
 
+  // ── Context Engine spoken-context cap (2026-08-30, Phase 1) ────────────────
+  // When the ContextEngine says we're in a confidently SPOKEN moment (prayer /
+  // scripture-reading / preaching / announcement — NOT singing), a "song" match
+  // is almost certainly a spoken worship-adjacent phrase ("in the mighty name of
+  // Jesus", "king of kings", "praise the Lord"), so cap it to chip-tier: still
+  // tappable, never zero-click auto-projected. Mirrors the verse-vs-song
+  // SUGGEST_CAP=84 below — 84 sits in the 80-89 manual-chip band, safely under
+  // the live SONG_AUTOLIVE_CONFIDENCE=90 auto bar (operatorConstants.ts) and at
+  // or above SONG_STAGE_CONFIDENCE=80 so it still surfaces. Exempts an explicit "let's
+  // sing" cue or an exact TITLE trigger (real song intent). isSpokenContext is
+  // itself gated so it's NEVER true during actual singing (worship-EWMA guard),
+  // so real songs are not capped. Pure NO-OP when ctx.context is undefined
+  // (engine flag off) — provable parity with today.
+  const SPOKEN_SUGGEST_CAP = 84;
+  const spokenCap = (m: SongMatchResult): SongMatchResult =>
+    ctx.context?.isSpokenContext && cue.length === 0 && m.songId !== triggerHit?.songId && m.confidence > SPOKEN_SUGGEST_CAP
+      ? { ...m, confidence: SPOKEN_SUGGEST_CAP }
+      : m;
+  const ctxSong = finalSong.map(spokenCap);
+  const ctxLyric = finalLyric.map(spokenCap);
+
   // ── Verse-vs-song arbitration (2026-08-14) ────────────────────────────────
   // "Deeper listening" for spoken scripture vs sung lyrics. When someone READS
   // or ANNOUNCES a verse, the verse words routinely overlap a song's lyrics
@@ -314,9 +341,9 @@ export async function detectAll(chunk: string, ctx: DetectAllContext): Promise<D
       hasCue || m.songId === triggerHit?.songId || m.confidence <= SUGGEST_CAP
         ? m
         : { ...m, confidence: SUGGEST_CAP };
-    const cappedSong = finalSong.map(cap);
-    const cappedLyric = finalLyric.map(cap);
-    const capped = finalSong.concat(finalLyric).filter((m) => m.confidence > SUGGEST_CAP).length;
+    const cappedSong = ctxSong.map(cap);
+    const cappedLyric = ctxLyric.map(cap);
+    const capped = ctxSong.concat(ctxLyric).filter((m) => m.confidence > SUGGEST_CAP).length;
     if (capped > 0 && !hasCue) {
       console.log(
         `[verse-vs-song] explicit scripture reference present → holding ${capped} co-occurring song/lyric match(es) at chip-tier (no zero-click) until the reference clears (trigger=${triggerHit?.songId ?? "none"})`,
@@ -334,8 +361,8 @@ export async function detectAll(chunk: string, ctx: DetectAllContext): Promise<D
 
   return {
     scripture: scriptureOut,
-    song: capSongs(finalSong),
-    lyric: capSongs(finalLyric),
+    song: capSongs(ctxSong),
+    lyric: capSongs(ctxLyric),
     command: cmd ? [cmd] : [],
     cue,
     section,
