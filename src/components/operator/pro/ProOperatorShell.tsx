@@ -2446,18 +2446,25 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           // "hearing the correct verse yet pushing something else"). A DIFFERENT
           // ref (swap-back / next verse / new passage) still projects and syncs.
           const liveNowFull = currentLiveSlideRef.current;
-          const { send: shouldSend, syncPreview: shouldSync } = resolvedDetectionAction(liveNowFull, scripture.ref);
+          // SEND uses the post-fire live state (don't re-pulse an identical live
+          // verse); the PREVIEW sync below uses the PRE-fire refAlreadyLive.
+          const shouldSend = resolvedDetectionAction(liveNowFull, scripture.ref).send;
           try {
             // Transition-replay guard: fade only on the first projection of
             // this reference family; cascade re-fires hard-cut (see aiShouldFade).
             if (shouldSend) sendLiveRef.current(fullSlide, null, aiShouldFade(fullSlide.text) ? { preserveConfiguredTransition: true } : { instant: true });
           } catch { /* noop */ }
-          // Sync the center preview WITHOUT collapsing a loaded chapter: if this
-          // verse is already a tile in the current grid (e.g. after Load
-          // Chapter), keep the whole grid and just move the selection — but ONLY
-          // when this isn't the already-live verse (else it churns the operator's
-          // staged preview for nothing).
-          if (shouldSync) syncBibleCenterToDetection(scripture.ref, refText, cards);
+          // Sync the center preview to the detected verse. 2026-08-30 REGRESSION
+          // FIX: the sync must key off the PRE-fire `refAlreadyLive` (computed at
+          // the top of this effect, before instant-fire), NOT the post-await live
+          // slide via `shouldSync`. Instant-fire puts a FRESH verse LIVE before
+          // this async block runs, so `shouldSync` (post-fire same-ref) was false
+          // even for a brand-new verse → the center preview never followed it and
+          // stayed on a STALE verse (field report: LIVE = 1 Corinthians 4:7 while
+          // the preview was stuck on Matthew 5:7). `refAlreadyLive` is true ONLY
+          // for a genuine re-hearing of an already-live verse → we skip the sync
+          // only then, preserving the anti-churn behaviour.
+          if (!refAlreadyLive) syncBibleCenterToDetection(scripture.ref, refText, cards);
           console.log(`[latency] verse-text-update ref="${refText}" (full text now on projector)`);
         }
         // Bump tick so the auto-approve effect re-runs for non-instant-fire cases

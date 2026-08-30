@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.365",
+    date: "2026-08-30",
+    headline: "Preview follows the live verse — plus Contextual awareness (beta)",
+    highlights: [
+      { text: "The center preview now stays in sync with what's LIVE. Before, when the AI fired a new verse to the projector, the preview panel could stay stuck on the previous verse — now it follows to the live verse (while a repeated verse still won't churn your staged panel).", tryItHref: "/operator", tryItLabel: "Open operator" },
+      { text: "New — Contextual awareness (beta): turn it on in Settings → Audio. It understands the moment, so a prayer/sermon that just uses worship words (“in the mighty name of Jesus”) won't auto-fire a song, and an ambiguous “continue” mid-story won't step the verse. On by your choice; off by default.", tryItHref: "/operator", tryItLabel: "Open Settings" },
+      "The service-mode switch (Auto / Worship / Preacher) is now honest: it biases detection, but verses auto-project via the AUTO toggle — the toast nudges you to turn AUTO on when it's off.",
+    ],
+  },
+  {
     version: "0.1.364",
     date: "2026-08-30",
     headline: "Sharper scripture detection — repeated numbers and the right book",
