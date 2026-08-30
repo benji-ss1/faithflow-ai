@@ -236,15 +236,22 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
         : next === "preacher"
           ? <Mic2 className="w-4 h-4" style={{ color: "var(--color-scripture-gold, #EF9F27)" }} />
           : <Wand2 className="w-4 h-4" style={{ color: "var(--color-brand)" }} />;
+      // 2026-08-30: the mode BIASES detection only — it does NOT control whether
+      // verses auto-PROJECT. Scripture auto-projection follows the separate AUTO
+      // toggle (autopilotMode === "active"); earlier copy ("…both auto") implied
+      // the mode did it, so operators picked Preacher expecting hands-free verses
+      // with AUTO off and got only chips. Be honest, and nudge to turn AUTO on.
+      const autoOn = autopilotMode === "active";
+      const autoNote = autoOn ? "" : " · turn on AUTO to auto-project verses";
       const detail = next === "worship"
         ? "Detecting today's worship set; scripture held for manual"
         : next === "preacher"
-          ? "Scripture prioritised; songs held for manual"
-          : "Balanced — songs and scripture both auto";
+          ? `Scripture prioritised; songs held for manual${autoNote}`
+          : `Songs & scripture both eligible${autoNote}`;
       toast(`${label}`, { description: detail, icon, duration: 2600 });
       return next;
     });
-  }, []);
+  }, [autopilotMode]);
 
   const autoApprove = useMemo<AutoApproveConfig>(() => ({
     enabled: autopilotMode === "active",
