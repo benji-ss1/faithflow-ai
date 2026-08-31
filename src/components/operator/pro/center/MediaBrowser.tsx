@@ -45,6 +45,15 @@ type Asset = {
 type Filter = "all" | "image" | "video";
 type Fit = "contain" | "cover" | "fill";
 
+// 2026-08-31 media-library speed (field report "media library slow"): the panel
+// is unmounted when the operator switches center-mode (slides/bible/songs) and
+// remounted on return, so it used to re-fetch the whole list + block on a
+// network round-trip EVERY open. This module-level cache (per church) survives
+// remounts: on re-open the grid paints INSTANTLY from the last list, then
+// revalidates quietly in the background (stale-while-revalidate). Church-keyed
+// so no cross-church bleed; the server route stays church-scoped regardless.
+const mediaListCache = new Map<string, Asset[]>();
+
 const FIT_KEY = "pf.media.fit.v1";
 const FIT_OPTIONS: { value: Fit; label: string; hint: string }[] = [
   { value: "contain", label: "Fit", hint: "Whole image, letterboxed (never cropped)" },
@@ -59,7 +68,8 @@ export function MediaBrowser({
   ctx: OperatorShellCtx;
   onExitToSlides: () => void;
 }) {
-  const [assets, setAssets] = useState<Asset[]>([]);
+  // Seed from the per-church cache so re-opening the panel paints immediately.
+  const [assets, setAssets] = useState<Asset[]>(() => mediaListCache.get(ctx.churchId) ?? []);
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -104,14 +114,31 @@ export function MediaBrowser({
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    // If we have a cached list, the grid is already showing it — revalidate
+    // quietly (no spinner blanking the grid). Only show the spinner on a genuine
+    // cold open with nothing to show.
+    const hasCache = (mediaListCache.get(ctx.churchId)?.length ?? 0) > 0;
+    if (!hasCache) setLoading(true);
     fetch("/api/media/list")
       .then((r) => r.json())
       .then((data: unknown) => { if (!cancelled) setAssets((data as { assets?: Asset[] }).assets ?? []); })
-      .catch(() => { if (!cancelled) toast.error("Failed to load media"); })
+      // On a revalidation failure, KEEP the cached grid (graceful) — only surface
+      // the error when we had nothing cached to fall back to.
+      .catch(() => { if (!cancelled && !hasCache) toast.error("Failed to load media"); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx.churchId]);
+
+  // Write-through: mirror every assets change (revalidation + optimistic
+  // rename/delete/import updates) into the per-church cache so the next re-open
+  // paints the latest state instantly. Guarded so an initial empty state never
+  // clobbers a populated cache before the first load resolves.
+  useEffect(() => {
+    if (assets.length > 0 || mediaListCache.has(ctx.churchId)) {
+      mediaListCache.set(ctx.churchId, assets);
+    }
+  }, [assets, ctx.churchId]);
 
   // One-time thumbnail backfill for PRE-EXISTING assets (rows that predate the
   // on-upload thumbnail step). Fire-and-forget, bounded per call — loop until

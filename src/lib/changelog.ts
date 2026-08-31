@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.370",
+    date: "2026-08-31",
+    headline: "Media library opens instantly",
+    highlights: [
+      { text: "The Media library no longer reloads from scratch every time you open it. Switch to Media and it appears immediately from what it loaded before, then quietly refreshes in the background — no more waiting on a spinner mid-service.", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "Faster underneath too: media now loads via an indexed query, so it stays quick as your library grows.",
+    ],
+  },
+  {
     version: "0.1.369",
     date: "2026-08-31",
     headline: "“Continue to the next verse” now actually advances",

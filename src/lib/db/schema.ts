@@ -202,7 +202,14 @@ export const mediaAssets = pgTable("media_assets", {
   heightPx: integer("height_px"),
   durationMs: integer("duration_ms"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (t) => [
+  // 2026-08-31 media-library speed: listMedia does
+  // where(church_id).orderBy(created_at) on every panel open — this composite
+  // index turns the seq-scan + sort into an index range scan (matches the
+  // song_slides pattern above). Migration:
+  // docs/migrations/2026-08-31-add-media-assets-church-created-index.sql
+  index("idx_media_assets_church_created").on(t.churchId, t.createdAt),
+]);
 
 export const pptxImports = pgTable("pptx_imports", {
   id: uuid("id").primaryKey().defaultRandom(),
