@@ -1,22 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { detectAll, SuggestionDedupe, WORSHIP_SCRIPTURE_CAP, type DetectAllResult } from "@/lib/ai-detection";
-import { ContextEngine, type ContextSnapshot } from "@/lib/ai-detection/context-engine";
-
-// Context Engine (Phase 1) — classifies the live speech moment (prayer/reading/
-// preaching/worship/…) and caps a "song" heard mid-prayer/preaching to chip-tier.
-// OFF by default; opt in via NEXT_PUBLIC_CONTEXT_ENGINE=1 or a session localStorage
-// key. When off, ctx.context is never set → detectAll is byte-identical to today.
-function contextEngineEnabled(): boolean {
-  try {
-    if (typeof window !== "undefined") {
-      const v = window.localStorage.getItem("presentflow.pro.contextEngine.v1");
-      if (v === "1") return true;
-      if (v === "0") return false; // explicit off wins over the env default
-    }
-  } catch { /* noop */ }
-  return process.env.NEXT_PUBLIC_CONTEXT_ENGINE === "1";
-}
 import { parseBareVerse, parseBookVerseOnly, isValidChapter } from "@/lib/bible-parser";
 import { buildIndex, type IndexedSong, type SongIndex } from "@/lib/ai-detection/lyric-fragment";
 import type { SongMatchResult } from "@/lib/ai-detection/song-match";
@@ -176,12 +160,6 @@ export type AudioStreamState = {
   error: string | null;
   transcript: TranscriptChunk[];
   interim: string;
-  // Context Engine (Phase 2): true when the rolling speech context is confidently
-  // STORY/PREACHING — used to suppress MID-confidence voice-nav ("continue", "go
-  // on to next") that fires during storytelling while a verse happens to still be
-  // live. Only ever true when the engine flag is on (else the engine never runs),
-  // so it's a pure no-op by default. Anchored high-confidence nav is never gated.
-  contextIsStory: boolean;
   detections: Detection[];
   phraseMatches: PhraseMatch[];
   songSuggestions: SongSuggestion[];
@@ -309,7 +287,7 @@ export const MIC_HIGHPASS_KEY = "presentflow.pro.micHighpass.v1"; // "1" | "0"
 
 export function useAudioStream(planId: string, opts?: { library?: IndexedSong[]; getDetectContext?: DetectContextProvider }) {
   const [state, setState] = useState<AudioStreamState>({
-    listening: false, ready: false, error: null, transcript: [], interim: "", contextIsStory: false,
+    listening: false, ready: false, error: null, transcript: [], interim: "",
     detections: [], phraseMatches: [], songSuggestions: [], commandSuggestions: [], suggestions: [],
     stage: "idle", stageHistory: [], chunksSent: 0, dgMessagesReceived: 0,
     reconnectFailed: false, reconnectAttempts: 0, warmStarted: false,
@@ -322,8 +300,6 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
 
   // Dedupe primitive: 30s cooldown per (type, key), refresh on +10 confidence.
   const dedupeRef = useRef(new SuggestionDedupe(30_000));
-  const contextEngineRef = useRef(new ContextEngine());
-  const contextSnapshotRef = useRef<ContextSnapshot | undefined>(undefined);
   // Track the last-seen churchId so we can nuke dedupe on church change.
   const lastDetectChurchIdRef = useRef<string | null>(null);
   const libraryRef = useRef<IndexedSong[]>(opts?.library || []);
@@ -432,55 +408,16 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     // church and would suppress fresh detections. Reset it on transition.
     if (lastDetectChurchIdRef.current !== null && lastDetectChurchIdRef.current !== base.churchId) {
       dedupeRef.current = new SuggestionDedupe(30_000);
-      contextEngineRef.current.reset();
-      contextSnapshotRef.current = undefined;
     }
     lastDetectChurchIdRef.current = base.churchId;
     // R6/R10: capture generation to abort stale detections after restart.
     const capturedGeneration = pipelineGenerationRef.current;
-    // Context Engine (Phase 1): the song cap uses the ACCUMULATED context from
-    // PRIOR utterances (contextSnapshotRef) — so sustained prayer/preaching vs
-    // sustained worship is what decides, not this single line. Flag-gated; when
-    // off, context stays undefined → detectAll is byte-identical to today.
-    const context = contextEngineEnabled() ? contextSnapshotRef.current : undefined;
     let result: DetectAllResult;
     try {
-      result = await detectAll(text, { ...base, context, library: libraryRef.current, prebuiltIndex: songIndexRef.current ?? undefined });
+      result = await detectAll(text, { ...base, library: libraryRef.current, prebuiltIndex: songIndexRef.current ?? undefined });
     } catch (e) {
       console.warn("[presentflow-detect] detectAll failed", e);
       return;
-    }
-
-    // Fold THIS detection's signals into the rolling context for the NEXT
-    // utterance's cap. Critically this includes the LYRIC-MATCH SCORE — the
-    // reliable "a song is actually matching" signal that lifts the worship-EWMA
-    // guard, so sustained real worship stops the spoken-cap after the first line
-    // (musicSuspected alone is anti-correlated with clean singing and can't be
-    // trusted). Runs AFTER detectAll so the score exists; wrapped so it can never
-    // break detection. Any match (even one capped to 84) still maxes the worship
-    // lyric signal, which is what we want.
-    if (contextEngineEnabled()) {
-      try {
-        const topLyric = Math.max(
-          0,
-          ...result.song.map((m) => m.confidence),
-          ...result.lyric.map((m) => m.confidence),
-        );
-        contextSnapshotRef.current = contextEngineRef.current.observe({
-          text,
-          now: Date.now(),
-          signals: {
-            musicSuspected: musicSuspectedRef.current,
-            lyricMatchScore: topLyric,
-            hasScriptureRef: result.scripture.length > 0,
-            navHit: result.command.length > 0,
-          },
-        });
-        // Surface story-context to the shell (Phase 2 nav suppression). Only
-        // setState on a CHANGE so this doesn't add a render per utterance.
-        const nextStory = !!contextSnapshotRef.current?.isStoryContext;
-        setState((s) => (s.contextIsStory === nextStory ? s : { ...s, contextIsStory: nextStory }));
-      } catch (e) { console.warn("[presentflow-detect] context engine skipped", e); }
     }
 
     // Bare "verse 11" / "what does verse 7 say" — no book or chapter spoken
@@ -1268,8 +1205,6 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     primarySpeakerRef.current = null;
     rollingConfRef.current = [];
     audioQualityStateRef.current = null;
-    contextEngineRef.current.reset(); // fresh speech-context state per session
-    contextSnapshotRef.current = undefined;
     // WS1/WS2 — reset music + clip state so a new session starts clean.
     audioDbfsRef.current = -Infinity;
     musicSuspectedRef.current = false;

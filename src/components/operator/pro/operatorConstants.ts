@@ -198,18 +198,3 @@ export const BIBLE_COVERAGE_THRESHOLD = 0.60;
  * forward reading still advances quickly. Matches the streak floor Part 2a uses.
  */
 export const BIBLE_NEXT_EVIDENCE_MIN = 3;
-
-/**
- * never-override (2026-08-31): how long after the operator's last hands-on action
- * (typing a reference, clicking to stage/send a slide by hand) the AI auto-FIRE
- * chokepoints stay held so they don't yank the screen out from under a driving
- * operator. A short sliding window — long enough to cover a burst of typing/
- * clicking, short enough that a legitimate swap-back (operator puts A live, then
- * the preacher moves to B) isn't starved. Sits just above the 2s verse-advance
- * cancel window (bibleCooldownUntilRef) on purpose: incidental clicks shouldn't
- * hold the FIRE path as aggressively as they pause the ADVANCE path, but a real
- * "I'm driving this" burst should. Voice commands always bypass; the hold
- * re-arms automatically on idle (never a latch). Kill-switch:
- * localStorage "presentflow.pro.manualTakeoverHold.v1" = "0".
- */
-export const OPERATOR_FLOW_MS = 3500;

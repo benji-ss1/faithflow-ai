@@ -31,13 +31,6 @@ export function BibleLicensingTab() {
   const [apiKeyError, setApiKeyError] = useState<string | null>(null);
   const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
 
-  // Contextual awareness (beta) — the Context Engine on/off, read live by
-  // useAudioStream on the next detection (no reload). Same key as the Audio-tab
-  // toggle; surfaced here because operators look for it in this Bible/AI popover.
-  const CONTEXT_ENGINE_KEY = "presentflow.pro.contextEngine.v1";
-  const [ctxOn, setCtxOn] = useState(false);
-  useEffect(() => { try { setCtxOn(localStorage.getItem(CONTEXT_ENGINE_KEY) === "1"); } catch { /* noop */ } }, []);
-
   const [translations, setTranslations] = useState<TranslationStatus[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -174,33 +167,6 @@ export function BibleLicensingTab() {
 
   return (
     <div className="flex flex-col gap-4 py-1">
-      {/* Contextual awareness (beta) — the Context Engine toggle */}
-      <section>
-        <div className="flex items-start justify-between gap-3 rounded-lg border border-[var(--color-brand)]/30 bg-[var(--color-brand)]/5 p-3">
-          <div>
-            <div className="text-[12px] font-semibold text-[var(--color-foreground)]">
-              Contextual awareness <span className="text-[9px] uppercase tracking-wide text-[var(--color-brand)] ml-1">beta</span>
-            </div>
-            <p className="text-[10px] text-[var(--color-muted-foreground)] leading-relaxed mt-1">
-              Understands the moment — a prayer/sermon that just uses worship words
-              (&ldquo;in the mighty name of Jesus&rdquo;) won&apos;t auto-fire a song, and an
-              ambiguous &ldquo;continue&rdquo; mid-story won&apos;t step the verse. Takes effect on the next detection.
-            </p>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={ctxOn}
-            onClick={() => { const v = !ctxOn; setCtxOn(v); try { localStorage.setItem(CONTEXT_ENGINE_KEY, v ? "1" : "0"); } catch { /* noop */ } }}
-            className={cn(
-              "relative shrink-0 w-10 h-6 rounded-full transition-colors",
-              ctxOn ? "bg-[var(--color-brand)]" : "bg-[var(--color-muted)]",
-            )}
-          >
-            <span className={cn("absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform", ctxOn && "translate-x-4")} />
-          </button>
-        </div>
-      </section>
       {/* CCLI Number */}
       <section>
         <label className="block text-[10px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)] mb-1">

@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.372",
+    date: "2026-08-31",
+    headline: "Simpler, steadier AI behaviour",
+    highlights: [
+      "We've pulled back two experimental detection behaviours (the “hold while you're driving” pause and the “contextual awareness” beta) to keep AI projection simple and predictable. The AI now behaves exactly as it did before those experiments.",
+      "Everything else stays: smarter song matching, the new fonts, faster media library, voice “continue to the next verse”, and verse ranges going live one verse at a time.",
+    ],
+  },
+  {
     version: "0.1.371",
     date: "2026-08-31",
     headline: "Verse ranges go live one verse at a time — like the preview",
@@ -41,17 +50,6 @@ export const CHANGELOG: ChangelogEntry[] = [
       { text: "Fixed voice verse-nav: saying “continue to the next verse, please” (or “can you go on to the next verse”) now advances the verse. Before, the polite wording pushed the command just over the length limit and it silently did nothing — so only the terse “go back to verse 7” worked.", tryItHref: "/operator", tryItLabel: "Open operator" },
       "Better with accents: when speech-to-text mishears “verse” as “wrist”, “1st” or “Esther” in “the next ___”, we now understand it as “next verse” and advance anyway.",
       "Ordinary preaching that happens to contain “…in the next verse” still won't move the screen — only a real, terse command does.",
-    ],
-  },
-  {
-    version: "0.1.368",
-    date: "2026-08-31",
-    headline: "The AI never takes the screen while you're driving",
-    highlights: [
-      { text: "When you're typing a reference or staging a slide by hand, the AI now HOLDS — it won't push its own detection over what you're doing. The moment you pause for a couple of seconds, auto-fire picks back up. Applies to Bible verses and songs.", tryItHref: "/operator", tryItLabel: "Open operator" },
-      "The held detection isn't lost — it stays as a chip you can tap (or Shift-click to send live) whenever you're ready.",
-      "Spoken commands still cut through instantly — say “next verse” and it fires even if your hand was just on the mouse.",
-      "If it ever gets in your way, you can switch it off live: set localStorage “presentflow.pro.manualTakeoverHold.v1” to “0”.",
     ],
   },
   {
