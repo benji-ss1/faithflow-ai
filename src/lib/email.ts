@@ -7,7 +7,13 @@
 
 import { Resend } from "resend";
 
-const FROM = process.env.EMAIL_FROM || "PresentFlow <no-reply@presentflow.ai>";
+// Default sender is on presentflow.org — the domain VERIFIED in Resend
+// (SPF/DKIM/DMARC). The old default (no-reply@presentflow.ai) was an UNverified
+// domain, so Resend silently rejected every transactional email (signup
+// confirmation, password reset, invites). Override per-env with EMAIL_FROM, but
+// it MUST stay on a Resend-verified domain or delivery fails. (2026-09-01,
+// pilot-readiness — user confirmed presentflow.org.)
+const FROM = process.env.EMAIL_FROM || "PresentFlow <contact@presentflow.org>";
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
 let _resend: Resend | null = null;
