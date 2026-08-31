@@ -123,7 +123,8 @@
     "productName": "Present Flow",
     "copyright": "Copyright © 2026 PresentFlow",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build-resources"
     },
     "protocols": [
       {
@@ -211,6 +212,13 @@
     },
     "win": {
       "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "artifactName": "PresentFlow-Setup-${version}.exe",
+      "shortcutName": "Present Flow",
+      "uninstallDisplayName": "Present Flow"
     },
     "publish": [
       {
