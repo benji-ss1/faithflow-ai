@@ -63,7 +63,7 @@ import { OperatorTour, hasSeenTour } from "@/components/tutorial/OperatorTour";
 import { WhatsNewModal } from "../WhatsNewModal";
 import { dispatchInternal, isInternalEvent, internalPayload } from "@/lib/internal-events";
 import { matchNextSlide, isLikelyEndOfSong, scoreCoverage, slideWords } from "@/lib/ai-detection/lyric-position";
-import { parseContextCommand } from "@/lib/context-parser";
+import { parseContextCommand, terseCommandWordCount } from "@/lib/context-parser";
 // Audio Guardian (2026-07-27) — native-capture self-healing watchdog.
 // The shell only CONSUMES its state events (toasts + red chip); the state
 // machine itself lives in src/lib/audio/audioGuardian.ts, fed by
@@ -3313,6 +3313,12 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     voiceNavEchoRef.current = { dir: navDir(verb), ts: Date.now() };
   };
 
+  // 2026-08-31 field fix (JPD recording — "I mentioned next verse. It didn't go
+  // next verse"): the STANDALONE word-count guards below use terseCommandWordCount
+  // (politeness/filler stripped before counting) so a natural "Continue to the
+  // next verse, please." fires, while narration still stays blocked. See
+  // context-parser.ts for the helper + rationale.
+
   // FAST PATH: early-fire relative verse-nav from the live Deepgram INTERIM
   // (arrives ~200ms+ before the finalized segment). Only the terse, unambiguous
   // relative commands ("next verse", "continue", "go back") early-fire here —
@@ -3352,7 +3358,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     const matched = (cmd.matchedText ?? "").toLowerCase().trim();
     const liveText = (ctx.liveSlide?.kind === "text" ? ctx.liveSlide.text : "").toLowerCase();
     if (matched && liveText.includes(matched)) return; // reading guard
-    if (interimText.split(/\s+/).filter(Boolean).length > 5) return; // standalone guard
+    if (terseCommandWordCount(interimText) > 5) return; // standalone guard (politeness-stripped)
     if (isNavEcho(cmd.verb)) return; // already fired this command (prior interim tick or final)
     if (navDir(cmd.verb) === "prev") {
       dispatchInternal("presentflow:bible-prev", { live: true });
@@ -3413,7 +3419,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     //      "go to the next verse"), not buried in a sentence ("we're gonna see
     //      this in the next verse", "go back to what I said earlier"). Require a
     //      short utterance so a phrase embedded in narration never fires.
-    const wordCount = utterance.split(/\s+/).filter(Boolean).length;
+    const wordCount = terseCommandWordCount(utterance);
     if (wordCount > 5) return;
     // Phase 2 (Context Engine): raise the immediate-fire floor to 85 during
     // confident STORY/PREACHING, so a mid-confidence nav ("continue"/"go on to

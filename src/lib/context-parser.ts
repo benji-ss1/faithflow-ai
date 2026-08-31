@@ -250,7 +250,36 @@ export type ContextAvailability = {
  * This is the wake-word-free path: same architecture as the mid-sentence
  * Bible detection — pattern-match the intent, don't require a prefix.
  */
+// 2026-08-31 (JPD field recording, rule 9 — African-accent ASR): Deepgram
+// mishears the spoken word "verse" in "next verse" as "wrist", "1st", the book
+// name "Esther", or close phonetic cousins ("worse", "nurse", "verst"), so a
+// genuine "continue to the next verse" arrived as "…next wrist / next 1st /
+// next Esther" and matched NO nav pattern — the operator narrated the failure
+// on-camera ("I mentioned next verse. It didn't go next verse"). Repair ONLY in
+// the unambiguous "(the) next ___" navigation slot so the command still resolves
+// to next_verse; a standalone "Esther"/"1st" elsewhere is untouched. "first" is
+// deliberately EXCLUDED (too ambiguous — "next first Sunday" etc.).
+const VERSE_MISHEARING_RE = /\bnext\s+(?:wrist|worse|nurse|verst|1st|esther)\b/gi;
+export function repairNavVerseHomophones(text: string): string {
+  return text.replace(VERSE_MISHEARING_RE, "next verse");
+}
+
+// 2026-08-31 (JPD field recording): the operator's voice-nav "standalone guard"
+// (ProOperatorShell) rejected any nav utterance over 5 words to avoid firing on
+// narration — but a natural spoken command carries politeness + a lead-in that
+// blows past 5 ("Continue to the next verse, please." = 6; "Can you continue to
+// the next verse please" = 8), so real commands never fired while the terse "go
+// back to verse 7" did (the on-camera failure). Count only the COMMAND words:
+// strip leading/trailing politeness + filler, THEN apply the terseness gate.
+// Genuine narration ("we're gonna see this in the next verse" = 8, no filler to
+// strip) still exceeds the limit and stays blocked.
+const NAV_FILLER_RE = /\b(?:please|thanks|thank\s+you|okay|ok|alright|all\s+right|so|now|well|yeah|yep|can\s+you|could\s+you|would\s+you|can\s+we|shall\s+we|let's|kindly|just|then|and|hey|oh|erm|um|uh)\b/gi;
+export function terseCommandWordCount(text: string): number {
+  return text.replace(NAV_FILLER_RE, " ").replace(/[,.?!;:]/g, " ").split(/\s+/).filter(Boolean).length;
+}
+
 export function parseContextCommand(text: string, available: ContextAvailability): ContextCommand | null {
+  text = repairNavVerseHomophones(text);
   for (const p of PATTERNS) {
     const kind = VERB_KIND[p.verb];
     if (kind === "verse" && !available.hasVerseContext) continue;

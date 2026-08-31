@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.369",
+    date: "2026-08-31",
+    headline: "“Continue to the next verse” now actually advances",
+    highlights: [
+      { text: "Fixed voice verse-nav: saying “continue to the next verse, please” (or “can you go on to the next verse”) now advances the verse. Before, the polite wording pushed the command just over the length limit and it silently did nothing — so only the terse “go back to verse 7” worked.", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "Better with accents: when speech-to-text mishears “verse” as “wrist”, “1st” or “Esther” in “the next ___”, we now understand it as “next verse” and advance anyway.",
+      "Ordinary preaching that happens to contain “…in the next verse” still won't move the screen — only a real, terse command does.",
+    ],
+  },
+  {
     version: "0.1.368",
     date: "2026-08-31",
     headline: "The AI never takes the screen while you're driving",
