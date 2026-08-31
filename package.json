@@ -138,6 +138,8 @@
       "dist-electron/**",
       "electron/splash.html",
       "electron/output-fallback.html",
+      "electron/tray-icon.ico",
+      "electron/tray-icon.png",
       "config/**",
       "package.json",
       "!node_modules/**/*",

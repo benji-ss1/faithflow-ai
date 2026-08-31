@@ -271,7 +271,13 @@ function installApplicationMenu() {
 
 function createTray() {
   try {
-    const icon = nativeImage.createEmpty();
+    // A real tray icon — an EMPTY image renders NOTHING in the Windows
+    // notification area, so a hidden window would be unrecoverable except via
+    // the taskbar. Load the branded icon (multi-DPI .ico on Windows, .png
+    // elsewhere); fall back to empty only if the asset is missing.
+    const iconFile = process.platform === "win32" ? "tray-icon.ico" : "tray-icon.png";
+    let icon = nativeImage.createFromPath(path.join(__dirname, "..", "electron", iconFile));
+    if (icon.isEmpty()) icon = nativeImage.createEmpty();
     tray = new Tray(icon);
     const menu = Menu.buildFromTemplate([
       { label: "Show / Hide Window", click: toggleMain },

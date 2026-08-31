@@ -72,12 +72,14 @@ jobs:
 
           # Attach to the existing macOS release for this version; create it if
           # this Windows build is the first artifact for the tag.
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --generate-notes
+          # `|| true` so a concurrent macOS run creating the tag first can't
+          # abort this job under `set -e`.
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --generate-notes || true
 
           echo "→ release artifacts:"
           ls -lh release/*.exe release/latest.yml || { echo "::error::Windows artifacts missing"; ls -la release || true; exit 1; }
 
-          # Globs preserve the space in "Present Flow Setup <ver>.exe".
+          # Artifact is PresentFlow-Setup-<ver>.exe (no spaces); glob catches it.
           gh release upload "$TAG" release/*.exe --clobber
           gh release upload "$TAG" release/*.exe.blockmap --clobber || true
           gh release upload "$TAG" release/latest.yml --clobber
