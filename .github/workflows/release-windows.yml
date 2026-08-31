@@ -1,0 +1,83 @@
+name: Release desktop app (Windows)
+
+# Dedicated Windows build — kept SEPARATE from release-desktop.yml (macOS) on
+# purpose, so cutting a Windows installer NEVER rebuilds or clobbers the macOS
+# release/DMG. Trigger manually (workflow_dispatch) with the version to attach
+# to, or on a `win-v*` tag.
+#
+# Builds the Electron shell for Windows x64 as an UNSIGNED NSIS installer (.exe)
+# and uploads it + the Windows auto-update manifest (latest.yml) to the matching
+# GitHub Release. The .exe is the THIN CLIENT — it loads the hosted Vercel app,
+# so it is 1:1 with the macOS build by construction. Unsigned → first launch
+# shows a SmartScreen "More info -> Run anyway" prompt; installs + runs normally.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build + attach to the v<version> release (e.g. 0.1.230). Blank = package.json version."
+        required: false
+  push:
+    tags:
+      - "win-v*.*.*"
+
+concurrency:
+  group: release-windows-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-win:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci --no-audit --no-fund
+
+      - name: Sync version (workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.version != ''
+        run: npm version "${{ github.event.inputs.version }}" --no-git-tag-version
+
+      - name: Compile Electron main
+        run: npm run electron:build:tsc
+
+      - name: Build Windows NSIS installer (unsigned)
+        # No CSC_* / signing cert — electron-builder produces an unsigned
+        # installer. Intentional for the pilot (SmartScreen "Run anyway").
+        run: npx electron-builder --win nsis --x64 --publish never
+
+      - name: Upload installer + latest.yml to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v${VERSION}"
+
+          # Attach to the existing macOS release for this version; create it if
+          # this Windows build is the first artifact for the tag.
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --generate-notes
+
+          echo "→ release artifacts:"
+          ls -lh release/*.exe release/latest.yml || { echo "::error::Windows artifacts missing"; ls -la release || true; exit 1; }
+
+          # Globs preserve the space in "Present Flow Setup <ver>.exe".
+          gh release upload "$TAG" release/*.exe --clobber
+          gh release upload "$TAG" release/*.exe.blockmap --clobber || true
+          gh release upload "$TAG" release/latest.yml --clobber
