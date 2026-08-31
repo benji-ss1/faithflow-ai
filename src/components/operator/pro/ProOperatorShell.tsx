@@ -2445,8 +2445,16 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           const cached = getCachedChapter(ck);
           const cv = cached?.verses.filter((v) => v.verse >= scripture.ref.verseStart && v.verse <= scripture.ref.verseEnd) ?? [];
           if (cv.length > 0) {
-            const body = cv.map((v) => `${v.verse} ${v.text}`).join(" ");
-            const cachedLabel = `${scripture.ref.book} ${scripture.ref.chapter}:${scripture.ref.verseStart}${scripture.ref.verseStart !== scripture.ref.verseEnd ? `-${scripture.ref.verseEnd}` : ""} (${cached!.translation})`;
+            // 2026-08-31 field fix (JPD recording — "you have 10, 11, and 12
+            // here"): a multi-verse RANGE (e.g. "Exodus 3:10-12") must go LIVE
+            // ONE VERSE AT A TIME — the same per-verse slides the operator sees
+            // in the preview grid — NOT all verses concatenated into one wall of
+            // text. Project only the FIRST verse of the range here (the async
+            // path below already fires cards[0] = first verse), so live matches
+            // the preview and the operator advances 10→11→12 with next-verse.
+            const firstV = cv[0];
+            const body = `${firstV.verse} ${firstV.text}`;
+            const cachedLabel = `${scripture.ref.book} ${scripture.ref.chapter}:${firstV.verse} (${cached!.translation})`;
             sendLiveRef.current({ kind: "text", text: body, reference: cachedLabel }, null, { instant: true });
           }
         } catch { /* async lookup below still projects the full verse */ }

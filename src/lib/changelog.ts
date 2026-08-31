@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.371",
+    date: "2026-08-31",
+    headline: "Verse ranges go live one verse at a time — like the preview",
+    highlights: [
+      { text: "When a range like “Exodus 3:10–12” is detected, it now goes LIVE one verse at a time — exactly the separate, per-verse slides you see in the preview — instead of cramming all three verses onto one crowded slide. Advance through them with “next verse”.", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "This is consistent everywhere now — auto-detection, tapping a chip, or a spoken command all project the range verse-by-verse.",
+      "Voice nav also understands the misheard word going backwards now (“previous verse” as well as “next verse”).",
+    ],
+  },
+  {
     version: "0.1.370",
     date: "2026-08-31",
     headline: "Media library opens instantly",

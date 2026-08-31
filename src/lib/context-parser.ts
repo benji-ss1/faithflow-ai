@@ -259,9 +259,16 @@ export type ContextAvailability = {
 // the unambiguous "(the) next ___" navigation slot so the command still resolves
 // to next_verse; a standalone "Esther"/"1st" elsewhere is untouched. "first" is
 // deliberately EXCLUDED (too ambiguous — "next first Sunday" etc.).
-const VERSE_MISHEARING_RE = /\bnext\s+(?:wrist|worse|nurse|verst|1st|esther)\b/gi;
+// The anchor ("next"/"previous"/"prev") disambiguates: only in a relative-nav
+// slot do we rewrite the mishearing to "verse". A standalone "Esther"/"1st"
+// elsewhere is untouched; "first" is excluded (too ambiguous — "next first
+// Sunday"). Symmetric on previous so "go to the previous wrist" also resolves.
+const VERSE_MISHEARING_RE = /\b(next|previous|prev)\s+(?:wrist|worse|nurse|verst|1st|esther)\b/gi;
 export function repairNavVerseHomophones(text: string): string {
-  return text.replace(VERSE_MISHEARING_RE, "next verse");
+  // Normalise the clipped "prev" → "previous" so the repaired phrase actually
+  // matches a prev_verse PATTERN (all of which require the full word "previous").
+  return text.replace(VERSE_MISHEARING_RE, (_m, dir: string) =>
+    `${/^prev$/i.test(dir) ? "previous" : dir} verse`);
 }
 
 // 2026-08-31 (JPD field recording): the operator's voice-nav "standalone guard"

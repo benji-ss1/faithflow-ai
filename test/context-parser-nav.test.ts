@@ -61,6 +61,18 @@ check("standalone 'the book of Esther' is NOT rewritten (no 'next' anchor)", () 
 check("'next first' is NOT rewritten (deliberately excluded — too ambiguous)", () => {
   assert.strictEqual(repairNavVerseHomophones("the next first Sunday"), "the next first Sunday");
 });
+check("repair 'go to the previous wrist' → 'previous verse' (symmetric)", () => {
+  assert.ok(repairNavVerseHomophones("go to the previous wrist").includes("previous verse"));
+});
+check("parse 'go to the previous 1st please' (misheard) → prev_verse", () => {
+  const c = parseContextCommand("go to the previous 1st please", VERSE_CTX);
+  assert.ok(c && c.verb === "prev_verse", `verb=${c?.verb}`);
+});
+check("clipped 'prev wrist' repairs to 'previous verse' and resolves → prev_verse", () => {
+  assert.ok(repairNavVerseHomophones("prev wrist").includes("previous verse"));
+  const c = parseContextCommand("go to the prev wrist", VERSE_CTX);
+  assert.ok(c && c.verb === "prev_verse", `verb=${c?.verb}`);
+});
 
 // ── (3) end-to-end: parseContextCommand fires next_verse for the field inputs ─
 check("parse 'Continue to the next verse, please.' → next_verse ≥70", () => {
