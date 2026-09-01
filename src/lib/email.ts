@@ -15,6 +15,12 @@ import { Resend } from "resend";
 // pilot-readiness — user confirmed presentflow.org.)
 const FROM = process.env.EMAIL_FROM || "PresentFlow <contact@presentflow.org>";
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+// No-silent-rejections guard: on a Vercel deploy, an empty NEXT_PUBLIC_APP_URL
+// would silently make every email link point at localhost (dead links). Surface
+// it loudly at boot rather than shipping broken confirmation links.
+if (process.env.VERCEL_ENV && APP_URL.includes("localhost")) {
+  console.error(`[email] NEXT_PUBLIC_APP_URL is empty in ${process.env.VERCEL_ENV} — email links will be broken (localhost). Set it to the production URL.`);
+}
 
 let _resend: Resend | null = null;
 function resend(): Resend | null {
@@ -33,6 +39,15 @@ async function deliver(
 ) {
   const r = resend();
   if (!r) {
+    // 2026-09-01 (no-silent-rejections): on ANY Vercel deployment, a missing
+    // RESEND_API_KEY must FAIL LOUD — never silently "dev-log" a fake success.
+    // Otherwise every transactional email (signup confirmation, reset, invite)
+    // would no-op while callers see ok:true and users are stranded. Only LOCAL
+    // dev (not on Vercel) keeps the copy-pasteable console fallback.
+    if (process.env.VERCEL_ENV) {
+      console.error(`[email] RESEND_API_KEY missing in ${process.env.VERCEL_ENV} — NOT sent: "${subject}" → ${to}`);
+      return { ok: false, dev: false, error: "Email service not configured" } as const;
+    }
     // Dev-mode fallback. Prints the message in a copy-pasteable block.
     console.log("\n" + "═".repeat(60));
     console.log(`📧 [dev-email] to=${to}`);
