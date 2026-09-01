@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.373",
+    date: "2026-09-02",
+    headline: "Rock-solid audio setup on Windows",
+    highlights: [
+      "On Windows, PresentFlow now defaults to the proven audio-capture path (the same getUserMedia/WASAPI route that works everywhere), so a mixer over USB is picked up reliably out of the box. Mac keeps its native path unchanged — the two never interfere.",
+      "New setup help: “Capturing this computer's audio instead of a mixer?” walks you through a loopback route on Windows (VB-Audio Virtual Cable or Stereo Mix) or Mac (BlackHole), then it appears in the input list like any other device.",
+      "Clearer wording throughout audio setup for Windows churches — no more Mac-only phrasing.",
+    ],
+  },
+  {
     version: "0.1.372",
     date: "2026-08-31",
     headline: "Simpler, steadier AI behaviour",

@@ -36,6 +36,25 @@ function isBrowserEnv(): boolean {
 }
 
 /**
+ * True on a Windows browser / Electron renderer.
+ *
+ * The native ffmpeg capture path is field-proven on macOS (CoreAudio via the
+ * Swift helper) but UNVERIFIED on Windows, where it runs through ffmpeg's
+ * DirectShow (dshow) backend. dshow device-name matching is fragile (long
+ * parenthesised names, historical 31-char truncation, duplicate-name
+ * collisions) and — critically — a silent "success" on the wrong device or a
+ * silent channel has NO auto-fallback to the browser path (it would surface
+ * only as a mid-service "no audio" toast). Until that path is field-tested on
+ * Windows, "auto" must NOT select it. An operator can still opt into native
+ * explicitly via the capture-mode toggle; this only changes the default.
+ */
+function isWindowsRenderer(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = `${navigator.userAgent} ${(navigator as Navigator).platform || ""}`.toLowerCase();
+  return /windows|win32|win64|wow64/.test(ua);
+}
+
+/**
  * Read the operator's preferred capture mode from localStorage. Defaults
  * to "auto" (native when available, browser otherwise). SSR-safe:
  * returns "browser" during server-side render so any pipeline
@@ -106,6 +125,12 @@ export function isNativeAvailable(): Promise<boolean> {
 export async function resolveEffectiveMode(preferred: CaptureMode): Promise<"native" | "browser"> {
   if (preferred === "browser") return "browser";
   if (preferred === "native") return "native";
+  // preferred === "auto":
+  // Windows defaults to the proven browser/WASAPI path — its native dshow
+  // backend is unverified (see isWindowsRenderer). macOS keeps native
+  // auto-selection. These are fully separate branches: the Windows path never
+  // engages the native surface, the Mac path never changes.
+  if (isWindowsRenderer()) return "browser";
   const available = await isNativeAvailable();
   return available ? "native" : "browser";
 }

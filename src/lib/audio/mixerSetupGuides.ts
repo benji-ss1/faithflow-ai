@@ -41,7 +41,7 @@ export const MIXER_SETUP_GUIDES: MixerSetupGuide[] = [
     ],
     channelCount: 32,
     steps: [
-      "1. Connect the SQ to your Mac via USB-B (rear panel USB-B, not the USB-A ports).",
+      "1. Connect the SQ to your computer via USB-B (rear panel USB-B, not the USB-A ports).",
       "2. Install Allen & Heath's SQ USB driver from allen-heath.com/hardware/sq.",
       "3. On the SQ: Setup -> I/O -> USB, and patch your vocal mic input to a USB Send channel (e.g. USB Send 1).",
       "4. Save the routing to a Scene so it survives a power cycle.",
@@ -69,7 +69,7 @@ export const MIXER_SETUP_GUIDES: MixerSetupGuide[] = [
     ],
     channelCount: 32,
     steps: [
-      "1. Connect the X32/M32 to your Mac via USB-B on the X-USB (X32) or M-USB (M32) expansion card.",
+      "1. Connect the X32/M32 to your computer via USB-B on the X-USB (X32) or M-USB (M32) expansion card.",
       "2. Install the X-USB / M-USB driver from behringer.com or midasconsoles.com.",
       "3. On the console: Routing -> Card, set USB Sends source to 'Ch 1-32' for direct channel sends, or 'AUX 1-6 + Main LR' for bus sends.",
       "4. Save to a Scene / Show so routing persists across power cycles.",
@@ -92,7 +92,7 @@ export const MIXER_SETUP_GUIDES: MixerSetupGuide[] = [
     ],
     channelCount: 18,
     steps: [
-      "1. Connect the XR18 to your Mac via USB-B on the top panel.",
+      "1. Connect the XR18 to your computer via USB-B on the top panel.",
       "2. Install the X-Air USB driver from behringer.com.",
       "3. Open X-Air Edit, go to Routing -> USB Sends, and set the source to 'Ch 1-16' (or 'AUX 1-2 + Main LR' for a mix).",
       "4. Save to a Snapshot so routing survives a power cycle.",
@@ -115,7 +115,7 @@ export const MIXER_SETUP_GUIDES: MixerSetupGuide[] = [
     ],
     channelCount: 34,
     steps: [
-      "1. Connect the TF to your Mac via USB-B on the rear panel.",
+      "1. Connect the TF to your computer via USB-B on the rear panel.",
       "2. Install the Yamaha Steinberg USB driver from yamaha.com (search 'Yamaha Steinberg USB Driver').",
       "3. On the TF console: Setup -> Recording -> USB, choose per-channel routing (Input Direct Out or Main LR).",
       "4. Save to a Scene so routing persists.",
@@ -137,7 +137,7 @@ export const MIXER_SETUP_GUIDES: MixerSetupGuide[] = [
     ],
     channelCount: 2,
     steps: [
-      "1. Connect the Ui24R to your Mac via USB. IMPORTANT: Ui12 and Ui16 do NOT have multi-channel USB — only the Ui24R does (2ch stereo).",
+      "1. Connect the Ui24R to your computer via USB. IMPORTANT: Ui12 and Ui16 do NOT have multi-channel USB — only the Ui24R does (2ch stereo).",
       "2. In the Ui web interface (usually http://ui-mixer.local), open Settings -> USB and set the USB Send source to Main LR.",
       "3. In PresentFlow's audio picker, select 'Soundcraft Ui24R' and set the mode to stereo.",
     ],
@@ -160,7 +160,7 @@ export const MIXER_SETUP_GUIDES: MixerSetupGuide[] = [
     ],
     channelCount: 34,
     steps: [
-      "1. Connect the StudioLive to your Mac via USB-B on the rear panel.",
+      "1. Connect the StudioLive to your computer via USB-B on the rear panel.",
       "2. Install PreSonus Universal Control from presonus.com — this bundles the driver and the mixer surface.",
       "3. In Universal Control (or on the console): per channel, set USB Send Source to Pre-Fader, Post-Fader, or Main.",
       "4. Save to a Scene so routing persists across power cycles.",
@@ -183,7 +183,7 @@ export const MIXER_SETUP_GUIDES: MixerSetupGuide[] = [
     ],
     channelCount: 32,
     steps: [
-      "1. Connect the TouchMix to your Mac via USB-B on the rear panel.",
+      "1. Connect the TouchMix to your computer via USB-B on the rear panel.",
       "2. Install the TouchMix USB driver from qsc.com (search 'TouchMix Multitrack Driver').",
       "3. On the TouchMix: Menu -> Setup -> USB Recording, and enable Multitrack.",
       "4. Save to a Scene so multitrack stays enabled after power cycles.",
@@ -206,7 +206,7 @@ export const MIXER_SETUP_GUIDES: MixerSetupGuide[] = [
     ],
     channelCount: 32,
     steps: [
-      "1. Connect the mixer to your Mac via USB (DL16S/DL32S: USB-B; Onyx: USB-C).",
+      "1. Connect the mixer to your computer via USB (DL16S/DL32S: USB-B; Onyx: USB-C).",
       "2. Install the Mackie USB driver from mackie.com if required (macOS often uses Core Audio class-compliant mode).",
       "3. On the mixer / Master Fader app, set USB Send source per channel.",
       "4. In PresentFlow's audio picker, select the mixer and pick the channel with the vocal mic.",
@@ -217,6 +217,58 @@ export const MIXER_SETUP_GUIDES: MixerSetupGuide[] = [
     ],
     vocalChannelHint:
       "Route the pastor's mic to USB channel 1 for a single-channel capture.",
+  },
+  {
+    // WINDOWS system-audio capture — VB-Audio Virtual Cable. Placed before
+    // the Mac BlackHole entries; its patterns ("CABLE Output", "VB-Audio",
+    // "VoiceMeeter") can't collide with the macOS loopback labels. Shows the
+    // moment a Windows operator selects the virtual cable in the picker.
+    id: "vb-audio-cable-windows",
+    displayName: "Windows — capture computer audio (VB-Audio)",
+    matchPatterns: [
+      /vb-?audio/i,
+      /\bcable\s*output\b/i,
+      /voicemeeter/i,
+      /\bvb-?cable\b/i,
+    ],
+    channelCount: 2,
+    steps: [
+      "1. Download VB-CABLE (free) from vb-audio.com/Cable. Unzip it, right-click VBCABLE_Setup_x64.exe, choose 'Run as administrator', click 'Install Driver', then reboot.",
+      "2. Send your computer's sound into the cable: Windows Settings -> System -> Sound, set the output device to 'CABLE Input (VB-Audio Virtual Cable)'. (Per-app: Settings -> System -> Sound -> Volume mixer, route just the app you want.)",
+      "3. To still HEAR the audio while it routes, open Sound Control Panel -> Recording -> 'CABLE Output' -> Properties -> Listen -> tick 'Listen to this device' and pick your speakers.",
+      "4. Back in PresentFlow, press Refresh and pick 'CABLE Output (VB-Audio Virtual Cable)'. Play audio — the meter should move.",
+    ],
+    tips: [
+      "Use this ONLY to capture what the computer itself is playing (a media player, a video, Zoom/Teams). If your service audio comes from a mixer, connect the mixer over USB instead — that's cleaner and lower-latency.",
+      "VoiceMeeter (also from VB-Audio) does the same job with a built-in monitor mix if you'd rather not use the 'Listen to this device' trick.",
+      "VB-CABLE is a virtual driver — latency is negligible, so it won't hurt live detection timing.",
+    ],
+    vocalChannelHint:
+      "Whatever the computer plays comes through as stereo. Make sure the speech you want detected is actually audible in that playback.",
+  },
+  {
+    // WINDOWS system-audio capture — built-in Stereo Mix (no download, but
+    // not all audio drivers expose it). Listed after VB-Audio because
+    // VB-Audio is the more reliable path we recommend first.
+    id: "stereo-mix-windows",
+    displayName: "Windows — capture computer audio (Stereo Mix)",
+    matchPatterns: [
+      /stereo\s*mix/i,
+      /wave\s*out\s*mix/i,
+      /what\s*u?\s*hear/i,
+    ],
+    channelCount: 2,
+    steps: [
+      "1. Right-click the speaker icon in the taskbar -> 'Sound settings' -> 'More sound settings' (or run mmsys.cpl) -> Recording tab.",
+      "2. Right-click an empty area -> 'Show Disabled Devices'. If 'Stereo Mix' appears, right-click it -> Enable, then right-click -> 'Set as Default Device' (optional).",
+      "3. Back in PresentFlow, press Refresh and pick 'Stereo Mix'. Play audio — the meter should move.",
+    ],
+    tips: [
+      "Not every Windows sound driver exposes Stereo Mix (many Realtek do; many USB/HDMI ones don't). If it isn't listed after 'Show Disabled Devices', use VB-CABLE instead.",
+      "Stereo Mix captures the final speaker mix — anything routed to your speakers is captured, so mute notifications you don't want detected.",
+    ],
+    vocalChannelHint:
+      "Stereo Mix is the summed speaker output. Ensure the speech you want detected is in that mix and loud enough.",
   },
   {
     // Placed BEFORE the generic "blackhole" entry: findGuideForDevice
@@ -242,7 +294,7 @@ export const MIXER_SETUP_GUIDES: MixerSetupGuide[] = [
     matchPatterns: [/blackmagic/i],
     channelCount: 2,
     steps: [
-      "1. Connect the ATEM (or Blackmagic capture device) to your Mac via USB — program audio arrives as a standard 2ch input.",
+      "1. Connect the ATEM (or Blackmagic capture device) to your computer via USB — program audio arrives as a standard 2ch input.",
       "2. On the ATEM, make sure the program mix includes the vocal mic (check the Audio page in ATEM Software Control).",
       "3. In PresentFlow's input list, pick the Blackmagic device — sum-all mode captures the stereo program feed.",
     ],

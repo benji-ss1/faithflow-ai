@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Mic, MicOff, CheckCircle2, AlertCircle, ArrowRight, Volume2, Play } from "lucide-react";
 import { toast } from "sonner";
+import { SystemAudioCaptureGuide } from "./SystemAudioCaptureGuide";
 
 /**
  * 5-step gated audio wizard.
@@ -206,6 +207,7 @@ export function AudioSetupWizard() {
                 Skip for now
               </button>
             </div>
+            <SystemAudioCaptureGuide onRefresh={() => { setNoDevices(false); requestPermission(); }} />
           </div>
         )}
         {step === "pickDevice" && !noDevices && (
@@ -231,6 +233,9 @@ export function AudioSetupWizard() {
                 className="h-9 px-3 text-xs bg-foreground text-background rounded-md font-semibold disabled:opacity-50">
                 Continue
               </button>
+            </div>
+            <div className="mt-3">
+              <SystemAudioCaptureGuide onRefresh={requestPermission} />
             </div>
           </>
         )}

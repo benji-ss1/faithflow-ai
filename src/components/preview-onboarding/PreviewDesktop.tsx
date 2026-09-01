@@ -244,13 +244,13 @@ export function PreviewDesktop() {
           </>)}
 
           {step === 3 && (<>
-            <div className="eyebrow">3 · The magic moment ⭐</div>
+            <div className="eyebrow">3 · The magic moment</div>
             <h1>Say a <em>Bible reference</em>.</h1>
             <p className="sub">Say a verse out loud — &ldquo;John 3:16&rdquo;, &ldquo;Romans 8:1&rdquo; — and PresentFlow hears it, finds it, and puts it on the church screen. This is what your team just does, live, every Sunday.</p>
             <div className="transcript">{transcript || <span className="m">{listening ? "Listening…" : "Press start and speak, or type a reference."}</span>}</div>
             {verse && <div className="detect"><b>{verse.ref}</b> detected<span className="pct">{conf}%</span></div>}
             {speechOk && (!listening
-              ? <button className="cta" style={{ marginTop: 0 }} onClick={startListening}>Start listening <span>🎙</span></button>
+              ? <button className="cta" style={{ marginTop: 0 }} onClick={startListening}>Start listening <span>→</span></button>
               : <button className="cta" style={{ marginTop: 0, background: "var(--hair-strong)", color: "var(--paper)", boxShadow: "none" }} onClick={stopListening}>Stop <span>■</span></button>)}
             <label className="fl" style={{ marginTop: 16 }}>{speechOk ? "…or type it" : "Type a reference"}</label>
             <div style={{ display: "flex", gap: 8 }}>
