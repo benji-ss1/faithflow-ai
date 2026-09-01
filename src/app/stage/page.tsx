@@ -184,6 +184,14 @@ export default function StagePage() {
         let firstMsg = true;
         realtime.subscribe((state) => {
           setFontScale(typeof state.fontScale === "number" ? state.fontScale : 1);
+          // 2026-09-01 fix ("stage should mirror the projector"): the cross-device
+          // (pair-code) path was missing the theme background + reference sizing/
+          // colour that the same-machine path already applies (lines ~105-107), so
+          // a stage monitor connected over the network showed no background and
+          // default reference styling. Mirror all three here too.
+          setReferenceScale(typeof state.referenceScale === "number" ? state.referenceScale : 1);
+          setReferenceColor(typeof state.referenceColor === "string" ? state.referenceColor : undefined);
+          setBackground(state.background ?? null);
           setAppearance(state.appearance ?? null);
           setZone(state.zone ?? null);
           lastMsgAt.current = Date.now();

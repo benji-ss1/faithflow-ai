@@ -829,14 +829,12 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
         />
         <button
           onClick={() => {
-            if (!isRef && dropdownHits.length > 0) {
-              void loadPhraseHit(dropdownHits[0]);
-              return;
-            }
-            if (!isRef && dropdownNoResults) {
-              toast.info("No results found. Try a verse reference like \"John 3:16\"");
-              return;
-            }
+            // 2026-09-01: clicking Lookup means "look up exactly what I typed" —
+            // it must NOT silently load the top autocomplete hit (that caused the
+            // "type Revelation → stays on Romans" glitch on the button too). lookup()
+            // runs the full resolution ladder (reference → book-less → range →
+            // did-you-mean → phrase), so a typed reference always wins.
+            setDropdownOpen(false);
             void lookup();
           }}
           disabled={loading}

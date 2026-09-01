@@ -3543,7 +3543,18 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       // cut — no transition flicker on rapid advance). This restores the fast
       // voice auto-advance that the 2026-08-16 change had inadvertently
       // disabled by routing voice through the same preview-only event.
-      if (live) {
+      // 2026-09-01 fix (operator report: "when nothing is live, if the preacher
+      // says 'go back' it shouldn't project anything unless something is
+      // currently live"): only PROJECT when a SCRIPTURE verse is already on the
+      // projector (i.e. we're advancing within a displayed passage). If the
+      // screen is blank/idle or showing non-scripture, advance the PREVIEW only —
+      // never resurrect a verse onto a blank screen from a stale selected card.
+      const liveNow = currentLiveSlideRef.current;
+      const liveRefText = liveNow?.kind === "text"
+        ? `${liveNow.text}${liveNow.reference ? `\n\n${liveNow.reference}` : ""}`
+        : null;
+      const scriptureIsLive = liveRefText != null && parseLiveScriptureRef(liveRefText) != null;
+      if (live && scriptureIsLive) {
         try {
           sendLiveRef.current({ kind: "text", text, reference: label }, undefined, { instant: true });
         } catch (e) {

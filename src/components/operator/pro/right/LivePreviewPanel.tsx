@@ -26,7 +26,18 @@ function splitBodyAndReference(text: string): { body: string; reference: string 
 
 export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; onVideoRef?: (el: HTMLVideoElement | null) => void }) {
   const isLive = ctx.liveSlide.kind !== "empty";
-  const { reference } = ctx.liveSlide.kind === "text" ? splitBodyAndReference(ctx.liveSlide.text) : { reference: null };
+  // 2026-09-01 fix ("copy text on slide doesn't work"): the reference now lives
+  // in the slide's dedicated `.reference` field, NOT appended into `text` after a
+  // blank line. Reading it only via splitBodyAndReference(text) returned null for
+  // every real scripture verse → the reference strip + copy button never rendered.
+  // Prefer the structured field; fall back to the legacy text-appended form.
+  const reference = ctx.liveSlide.kind === "text"
+    ? (ctx.liveSlide.reference ?? splitBodyAndReference(ctx.liveSlide.text).reference)
+    : null;
+  // Full copyable text = verse body + reference (whichever way it's stored).
+  const copyText = ctx.liveSlide.kind === "text"
+    ? (reference && !ctx.liveSlide.text.includes(reference) ? `${ctx.liveSlide.text}\n\n${reference}` : ctx.liveSlide.text)
+    : (reference ?? "");
   return (
     <div className="p-2 flex flex-col gap-2">
       {/* 2026-07-25 Phase 1 refactor:
@@ -100,7 +111,7 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
         <div className="flex items-center gap-1.5 px-2 py-1.5 rounded bg-[var(--color-elevated)] border border-[var(--color-border)]">
           <span className="flex-1 min-w-0 text-[12px] font-semibold text-center truncate" title={reference}>{reference}</span>
           <CopyConfirm
-            text={(ctx.liveSlide.kind === "text" ? ctx.liveSlide.text : "") || reference}
+            text={copyText || reference}
             label={undefined}
             className="shrink-0 p-0.5"
           />
