@@ -13,7 +13,7 @@ import { lookupDemoVerse, DEMO_VERSE_SUGGESTIONS, type DemoVerse } from "@/lib/p
 // output happens in the desktop app — the banner says so.
 const LoginScene = dynamic(() => import("@/components/auth/LoginScene"), { ssr: false });
 
-const SECTIONS = ["Welcome", "Let it listen", "Try it live", "Ready for Sunday"];
+const SECTIONS = ["Welcome", "How Sunday works", "See it live", "Ready for Sunday"];
 const COMING_FROM = ["ProPresenter", "EasyWorship", "VideoPsalm", "Proclaim", "PowerPoint / Keynote", "OpenLP", "MediaShout", "First system"];
 
 const CSS = `
@@ -250,9 +250,10 @@ export function PreviewOnboarding() {
 
           {step === 1 && (
             <>
-              <div className="eyebrow">Section 2 · Let it listen</div>
-              <h1>Can PresentFlow <em>hear</em> your service?</h1>
-              <p className="sub">PresentFlow listens to your service to show verses and lyrics automatically. Let&apos;s make sure it hears you — connect your mic or mixer and speak.</p>
+              <div className="eyebrow">On Sunday · in the desktop app</div>
+              <h1>How PresentFlow runs your <em>service</em>.</h1>
+              <p className="sub">On Sunday your team runs the <b>PresentFlow desktop app</b> on the church computer — connected to your <b>mixer</b> (Behringer, X32, etc.), driving your projector and stage. It listens to the service and puts verses &amp; lyrics up automatically. This web app is just for setup: your songs, Bibles, and library.</p>
+              <p className="sub" style={{ marginTop: -8 }}>Want a taste of the live listening right here? (This uses your laptop mic — the real thing uses your mixer.)</p>
               {!micOn ? (
                 <button className="cta" style={{ marginTop: 0 }} onClick={startMic}>Turn on the microphone <span>🎙</span></button>
               ) : (
@@ -270,9 +271,9 @@ export function PreviewOnboarding() {
 
           {step === 2 && (
             <>
-              <div className="eyebrow">Section 2 · Try it live ⭐</div>
+              <div className="eyebrow">In the desktop app · the magic moment ⭐</div>
               <h1>Say a <em>Bible reference</em>.</h1>
-              <p className="sub">This is the moment. Say a verse out loud — like &ldquo;John 3:16&rdquo; or &ldquo;Romans 8:1&rdquo; — and watch PresentFlow hear it, find it, and put it on the screen.</p>
+              <p className="sub">This is what your team sees on Sunday in the desktop app: say a verse out loud — like &ldquo;John 3:16&rdquo; or &ldquo;Romans 8:1&rdquo; — and PresentFlow hears it, finds it, and puts it on the church screen. (Try it here to feel it.)</p>
               <div className="transcript">{transcript ? transcript : <span className="muted">{listening ? "Listening…" : "Press the button and speak, or type a reference below."}</span>}</div>
               {verse && <div className="detect"><b>{verse.ref}</b> detected<span className="pct">{conf}%</span></div>}
               {speechOk ? (
@@ -312,7 +313,7 @@ export function PreviewOnboarding() {
         </div>
       </div>
 
-      <div className="banner">Preview mode — real projector &amp; stage output, mixer selection, and full Bible + song libraries run in the desktop app.</div>
+      <div className="banner">Preview · This web app is for setup (songs, Bibles, library). On Sunday you run the PresentFlow desktop app — connected to your mixer, driving your projector &amp; stage.</div>
     </div>
   );
 }
