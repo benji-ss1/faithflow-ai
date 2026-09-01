@@ -255,7 +255,7 @@ export function PreviewOnboarding() {
               <p className="sub">On Sunday your team runs the <b>PresentFlow desktop app</b> on the church computer — connected to your <b>mixer</b> (Behringer, X32, etc.), driving your projector and stage. It listens to the service and puts verses &amp; lyrics up automatically. This web app is just for setup: your songs, Bibles, and library.</p>
               <p className="sub" style={{ marginTop: -8 }}>Want a taste of the live listening right here? (This uses your laptop mic — the real thing uses your mixer.)</p>
               {!micOn ? (
-                <button className="cta" style={{ marginTop: 0 }} onClick={startMic}>Turn on the microphone <span>🎙</span></button>
+                <button className="cta" style={{ marginTop: 0 }} onClick={startMic}>Turn on the microphone <span>→</span></button>
               ) : (
                 <>
                   <label className="fld">Input level — say &ldquo;Welcome to PresentFlow&rdquo;</label>
@@ -271,14 +271,14 @@ export function PreviewOnboarding() {
 
           {step === 2 && (
             <>
-              <div className="eyebrow">In the desktop app · the magic moment ⭐</div>
+              <div className="eyebrow">In the desktop app · the magic moment</div>
               <h1>Say a <em>Bible reference</em>.</h1>
               <p className="sub">This is what your team sees on Sunday in the desktop app: say a verse out loud — like &ldquo;John 3:16&rdquo; or &ldquo;Romans 8:1&rdquo; — and PresentFlow hears it, finds it, and puts it on the church screen. (Try it here to feel it.)</p>
               <div className="transcript">{transcript ? transcript : <span className="muted">{listening ? "Listening…" : "Press the button and speak, or type a reference below."}</span>}</div>
               {verse && <div className="detect"><b>{verse.ref}</b> detected<span className="pct">{conf}%</span></div>}
               {speechOk ? (
                 !listening ? (
-                  <button className="cta" style={{ marginTop: 0 }} onClick={startListening}>Start listening <span>🎙</span></button>
+                  <button className="cta" style={{ marginTop: 0 }} onClick={startListening}>Start listening <span>→</span></button>
                 ) : (
                   <button className="cta" style={{ marginTop: 0, background: "var(--hair-strong)", color: "var(--paper)", boxShadow: "none" }} onClick={stopListening}>Stop listening <span>■</span></button>
                 )
