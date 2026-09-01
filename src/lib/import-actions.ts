@@ -62,7 +62,7 @@ export async function previewImportDrop(input: { drop: FileDrop[] }): Promise<Re
     return { ok: false, error: `Drop is too large (${Math.round(total / 1024 / 1024)} MB). Split into smaller batches.` };
   }
   if (input.drop.length === 0) return { ok: false, error: "No files provided" };
-  if (input.drop.length > 5000) return { ok: false, error: "Too many files in one drop (max 5000)" };
+  if (input.drop.length > 8000) return { ok: false, error: "Too many files in one drop (max 8000)" };
 
   const buffers = input.drop.map((f) => ({ path: f.path, contents: Buffer.from(f.b64, "base64") }));
   const output: PipelineOutput = runImportPipeline(buffers);
@@ -118,7 +118,7 @@ export async function importDrop(input: {
     return { ok: false, error: `Drop is too large (${Math.round(total / 1024 / 1024)} MB). Split into smaller batches.` };
   }
   if (input.drop.length === 0) return { ok: false, error: "No files provided" };
-  if (input.drop.length > 5000) return { ok: false, error: "Too many files in one drop (max 5000)" };
+  if (input.drop.length > 8000) return { ok: false, error: "Too many files in one drop (max 8000)" };
 
   const buffers = input.drop.map((f) => ({ path: f.path, contents: Buffer.from(f.b64, "base64") }));
   const output: PipelineOutput = runImportPipeline(buffers);

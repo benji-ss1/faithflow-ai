@@ -13,7 +13,7 @@ import { ElectronPickFilesButton, ElectronPickFolderButton } from "@/components/
 import { stripProBundles } from "@/lib/pro-bundle-strip";
 
 type SourceCard = {
-  id: "propresenter" | "easyworship" | "proclaim" | "openlp" | "mediashout" | "worshiptools" | "csv" | "none";
+  id: "propresenter" | "easyworship" | "proclaim" | "openlp" | "mediashout" | "worshiptools" | "videopsalm" | "csv" | "none";
   title: string;
   subtitle: string;
   support: "full" | "partial" | "stub" | "skip";
@@ -21,6 +21,7 @@ type SourceCard = {
 
 const SOURCES: SourceCard[] = [
   { id: "propresenter", title: "ProPresenter", subtitle: ".pro6 / .pro5 XML", support: "full" },
+  { id: "videopsalm", title: "VideoPsalm", subtitle: ".json songbook export", support: "full" },
   { id: "csv", title: "CSV or Plain Text", subtitle: "Spreadsheet export or copy-paste", support: "full" },
   { id: "proclaim", title: "Proclaim (Faithlife)", subtitle: "JSON export", support: "partial" },
   { id: "openlp", title: "OpenLP", subtitle: ".osz OpenLyrics archive", support: "partial" },

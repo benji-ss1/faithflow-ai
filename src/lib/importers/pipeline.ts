@@ -14,7 +14,7 @@ import AdmZip from "adm-zip";
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB per song file
 const MAX_BUNDLE_BYTES = 500 * 1024 * 1024; // 500 MB per .proBundle
-const MAX_BUNDLE_ENTRIES = 5000; // guard against zip bombs
+const MAX_BUNDLE_ENTRIES = 8000; // guard against zip bombs; fits a full ~6600-song ProPresenter library with headroom
 
 export type PipelineInput = { path: string; contents: Buffer }[];
 

@@ -36,6 +36,7 @@ export type ParserId =
   | "openlp"
   | "mediashout"
   | "worshiptools"
+  | "videopsalm"
   | "csv";
 
 export interface Parser {
@@ -59,6 +60,7 @@ import { proclaimParser } from "./proclaim";
 import { openlpParser } from "./openlp";
 import { mediashoutParser } from "./mediashout";
 import { worshiptoolsParser } from "./worshiptools";
+import { videopsalmParser } from "./videopsalm";
 import { csvParser } from "./csv";
 
 export const PARSERS: Parser[] = [
@@ -68,6 +70,7 @@ export const PARSERS: Parser[] = [
   openlpParser,
   mediashoutParser,
   worshiptoolsParser,
+  videopsalmParser,
   csvParser,
 ];
 
