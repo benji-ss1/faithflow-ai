@@ -1,12 +1,38 @@
 import Link from "next/link";
-import { requireUser } from "@/lib/session";
+import { eq } from "drizzle-orm";
+import { requireUser, requirePartialUser } from "@/lib/session";
+import { getDb } from "@/lib/db/client";
+import { churches, users } from "@/lib/db/schema";
 import { mintDeviceLinkToken } from "@/lib/device-link-actions";
 import { DesktopDownloadPanel } from "@/components/settings/DesktopDownloadPanel";
 
 export const dynamic = "force-dynamic";
 
+// Reaching this page means the church has walked the wizard to its final step,
+// so mark onboarding complete HERE. This is the critical fix for the desktop
+// first-run: if the account is still "in_progress" when they install and launch
+// the .exe, the (app) layout bounces them to /onboarding and (before the
+// middleware universal-allow fix) they dead-looped. Completing now guarantees a
+// fresh Windows install boots straight into /operator. Done inline (not via the
+// completeOnboarding server action) because that action calls revalidatePath(),
+// which throws when invoked during a server-component render. Idempotent +
+// church-scoped, mirroring completeOnboarding() exactly.
+async function markOnboardingCompleteOnFinalStep(): Promise<void> {
+  try {
+    const partial = await requirePartialUser();
+    if (!partial.churchId) return;
+    const db = getDb();
+    await db.update(churches).set({ onboardingStatus: "complete" }).where(eq(churches.id, partial.churchId));
+    await db.update(users).set({ tutorialCompletedAt: new Date() }).where(eq(users.id, partial.id));
+  } catch {
+    // Never block the download page on a completion write — the middleware
+    // universal-allow fix already prevents the dead-loop as a safety net.
+  }
+}
+
 export default async function OnboardingDownloadPage() {
   await requireUser();
+  await markOnboardingCompleteOnFinalStep();
   // Minted fresh on every page load (5 min TTL) — if the user sits on this
   // page a while before clicking, they can just refresh for a new one.
   const link = await mintDeviceLinkToken();

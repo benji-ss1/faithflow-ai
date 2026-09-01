@@ -158,6 +158,21 @@ function isDesktopShell(req: NextRequest): boolean {
   return false;
 }
 
+// Pages reachable in BOTH the web app AND the desktop shell. These are neither
+// desktop-exclusive (like /operator) nor web-exclusive (like /dashboard) — they
+// are account-lifecycle gates the desktop shell MUST be able to render, or a
+// not-yet-onboarded desktop session dead-loops: (app)/layout redirects an
+// incomplete admin to /onboarding, and if the shell can't reach /onboarding it
+// bounces back to /operator, which redirects to /onboarding again → infinite
+// 307s masked as a "reconnecting" splash. Allowing these lets a fresh church
+// finish onboarding / verify email inside the desktop window and then land in
+// /operator. (Browsers already reach these — they're not in the desktop-only
+// list — so this only relaxes the desktop-block branch.)
+const UNIVERSAL_ALLOWED_PAGE_PREFIXES = ["/onboarding", "/verify-email"];
+function isUniversalAllowedPath(pathname: string): boolean {
+  return UNIVERSAL_ALLOWED_PAGE_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
+}
+
 // This allowlist now does double duty: it's both "the only things desktop
 // can reach" (enforced below) AND, as of the web/desktop split, "the only
 // things a plain browser CANNOT reach" (enforced further below). It is the
@@ -358,7 +373,7 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (desktop && !desktopPathAllowed(pathname)) {
+  if (desktop && !desktopPathAllowed(pathname) && !isUniversalAllowedPath(pathname)) {
     // API surfaces get a JSON 403 so client fetches surface a clear error
     // rather than the HTML of the operator landing page.
     if (pathname.startsWith("/api/")) {

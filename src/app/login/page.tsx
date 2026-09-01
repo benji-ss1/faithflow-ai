@@ -1,5 +1,6 @@
 "use client";
 import { Suspense, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { toast } from "sonner";
@@ -94,7 +95,7 @@ function LoginForm() {
           </button>
         </form>
 
-        <p className="note"><span className="o">Wave I is invite-only.</span> Your login was sent to you — no account yet? Ask your team lead.</p>
+        <p className="note"><span className="o">Wave I is invite-only.</span> Have your beta code? <Link href="/signup">Set up your church →</Link> — or email <a href={`mailto:${HELP_EMAIL}`}>{HELP_EMAIL}</a> if you&apos;re stuck.</p>
       </div>
 
       <div className="aside-foot">
