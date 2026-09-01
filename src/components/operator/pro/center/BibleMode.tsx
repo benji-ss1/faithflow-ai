@@ -695,11 +695,18 @@ function BibleModeInner({ ctx, session }: { ctx: OperatorShellCtx; session: Bibl
               }
               if (e.key === "Enter") {
                 e.preventDefault();
-                if (dropdownOpen && dropdownHits.length > 0) {
-                  const idx = dropdownHighlight >= 0 ? dropdownHighlight : 0;
-                  void loadPhraseHit(dropdownHits[idx]);
+                // 2026-09-01 fix (operator report: "type Revelation while on
+                // Romans → glitches and stays on Romans"): Enter used to load
+                // the autocomplete dropdown's hit whenever the dropdown was
+                // open, so a freshly-typed reference was overridden by a stale/
+                // top suggestion. Now the dropdown only wins when the operator
+                // has EXPLICITLY arrowed into it (dropdownHighlight >= 0);
+                // otherwise Enter looks up exactly what was typed.
+                if (dropdownOpen && dropdownHits.length > 0 && dropdownHighlight >= 0) {
+                  void loadPhraseHit(dropdownHits[dropdownHighlight]);
                   return;
                 }
+                setDropdownOpen(false);
                 void lookup();
               }
             }}
