@@ -190,7 +190,7 @@ export function PreviewDesktop() {
             ) : verse && step === 3 ? (
               <><div className="livedot"><i />Live</div><div className="verse">{verse.text}</div><div className="vref">{verse.ref} · {verse.translation}</div></>
             ) : step === 2 ? (
-              <div className="big" style={{ color: "var(--paper-faint)" }}>🎚 Your mixer<br /><em style={{ fontSize: "0.6em" }}>→ PresentFlow</em></div>
+              <div className="big" style={{ color: "var(--paper-faint)" }}>Your mixer<br /><em style={{ fontSize: "0.6em" }}>→ PresentFlow</em></div>
             ) : step === 4 ? (
               <div className="big">Bring your<br /><em>whole library.</em></div>
             ) : step === 5 ? (
@@ -227,7 +227,7 @@ export function PreviewDesktop() {
             <h1>Connect your <em>mixer</em>.</h1>
             <p className="sub">Bring your service audio in from your mixer (Behringer, X32, Allen &amp; Heath…) over USB, or through a USB audio interface. Pick it here and speak — the meter should move.</p>
             {!micOn ? (
-              <button className="cta" style={{ marginTop: 0 }} onClick={startMic}>Detect my audio inputs <span>🎚</span></button>
+              <button className="cta" style={{ marginTop: 0 }} onClick={startMic}>Detect my audio inputs <span>→</span></button>
             ) : (<>
               {devices.length > 0 && (<><label className="fl">Audio input</label>
                 <select className="sel" value={device} onChange={(e) => setDevice(e.target.value)}>
@@ -238,7 +238,7 @@ export function PreviewDesktop() {
               <div className="meter"><i style={{ width: `${level}%` }} /></div>
               <span className={`heard${heard ? " on" : ""}`}>✓ Getting a clean signal</span>
             </>)}
-            <p className="note">Tip: for the strongest detection, use a direct <b>mixer / USB feed</b> — PresentFlow turns off phone-call noise-suppression on a clean desk feed so it hears every word.</p>
+            <p className="note">Tip: for the strongest detection, feed PresentFlow a direct <b>mixer / USB line</b> rather than a room mic — a clean board feed is what it hears best.</p>
             <button className="cta" disabled={!heard} onClick={() => setStep(3)}>{heard ? "Sound is coming in — continue" : "Speak to continue…"} <span>→</span></button>
             <button className="gh" onClick={() => { setHeard(true); setStep(3); }}>Skip for now</button>
           </>)}

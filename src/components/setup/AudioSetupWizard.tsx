@@ -175,7 +175,7 @@ export function AudioSetupWizard() {
         done={["meter", "testRecord", "save"].includes(step)}
         icon={Volume2}
         what="Choose the audio source"
-        why="If your church runs a mixer feeding a USB interface (Focusrite, PreSonus, etc.), that's what you want — not your Mac's built-in mic. We pinned likely mixers to the top of the list."
+        why="If your church runs a mixer feeding in over USB (Behringer, X32, Allen & Heath, Focusrite, PreSonus, etc.), that's what you want — not the computer's built-in mic. We pinned likely mixers to the top of the list."
       >
         {step === "pickDevice" && noDevices && (
           <div className="space-y-3">
@@ -184,10 +184,11 @@ export function AudioSetupWizard() {
               <div className="text-sm">
                 <div className="font-semibold text-warning mb-1">No audio input devices detected</div>
                 <div className="text-muted-foreground text-xs">
-                  Mac Studio has no built-in microphone. Plug in a USB audio interface
-                  (Focusrite Scarlett, Behringer, PreSonus, etc.) or a USB microphone,
-                  then press Refresh. You can still use PresentFlow for manual
-                  presenting — AI listening simply won't fire without an input.
+                  No microphone or mixer is reaching this computer yet. Connect your
+                  mixer over USB (Behringer, X32, Allen &amp; Heath, etc.), or plug in a
+                  USB audio interface (Focusrite Scarlett, PreSonus, etc.) or a USB
+                  microphone, then press Refresh. You can still use PresentFlow for
+                  manual presenting — AI listening simply won&apos;t fire without an input.
                 </div>
               </div>
             </div>
