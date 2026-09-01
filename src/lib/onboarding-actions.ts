@@ -22,40 +22,59 @@ export async function createChurchAndAttachUser(input: {
   if (!input.name.trim()) return { ok: false, error: "Church name required" };
 
   const db = getDb();
-  const [church] = await db.insert(churches).values({
-    name: input.name.trim(),
-    city: input.city?.trim() || null,
-    country: input.country?.trim() || null,
-    timezone: input.timezone || "UTC",
-    congregationSize: input.congregationSize || null,
-    denomination: input.denomination?.trim() || null,
-    onboardingStatus: "in_progress",
-    isDemo: input.isDemo === true,
-  }).returning();
-
-  // Attach user + promote to admin (first user of a church always admin).
-  await db.update(users).set({
-    churchId: church.id,
-    role: "admin",
-    jobTitle: input.jobTitle?.trim() || null,
-  }).where(eq(users.id, partial.id));
-
-  // Default prefs: KJV, 90-day retention, presentflow prefix. Same as seed.
+  // Read the default translation BEFORE the write transaction (no lock needed).
   const [kjv] = await db.select().from(bibleTranslations).where(eq(bibleTranslations.code, "KJV")).limit(1);
-  await db.insert(churchPreferences).values({
-    churchId: church.id,
-    defaultTranslationId: kjv?.id ?? null,
-  });
 
-  // Default subscription: Pilot (never charges).
-  await db.insert(subscriptions).values({
-    churchId: church.id,
-    tier: "pilot",
-    status: "pilot",
-  });
+  // 2026-09-01 (pilot signup hardening): all four writes are wrapped in ONE
+  // transaction so church creation is ATOMIC. Previously a failure after the
+  // `users` update (e.g. the subscription insert) left the user row with a
+  // churchId set but NO churchPreferences / NO subscription — and because
+  // createChurchAndAttachUser short-circuits on `partial.churchId`, those rows
+  // could NEVER be created afterward, permanently stranding a half-onboarded
+  // church (no billing state, defaulted prefs). All-or-nothing fixes that.
+  let churchId: string;
+  try {
+    churchId = await db.transaction(async (tx) => {
+      const [church] = await tx.insert(churches).values({
+        name: input.name.trim(),
+        city: input.city?.trim() || null,
+        country: input.country?.trim() || null,
+        timezone: input.timezone || "UTC",
+        congregationSize: input.congregationSize || null,
+        denomination: input.denomination?.trim() || null,
+        onboardingStatus: "in_progress",
+        isDemo: input.isDemo === true,
+      }).returning();
+
+      // Attach user + promote to admin (first user of a church always admin).
+      await tx.update(users).set({
+        churchId: church.id,
+        role: "admin",
+        jobTitle: input.jobTitle?.trim() || null,
+      }).where(eq(users.id, partial.id));
+
+      // Default prefs: KJV. Same as seed.
+      await tx.insert(churchPreferences).values({
+        churchId: church.id,
+        defaultTranslationId: kjv?.id ?? null,
+      });
+
+      // Default subscription: Pilot (never charges).
+      await tx.insert(subscriptions).values({
+        churchId: church.id,
+        tier: "pilot",
+        status: "pilot",
+      });
+
+      return church.id;
+    });
+  } catch (e) {
+    console.error("[onboarding] createChurchAndAttachUser failed (rolled back):", e);
+    return { ok: false, error: "Could not create your church — please try again." };
+  }
 
   revalidatePath("/onboarding");
-  return { ok: true, data: { churchId: church.id } };
+  return { ok: true, data: { churchId } };
 }
 
 export async function completeOnboarding(): Promise<Result> {

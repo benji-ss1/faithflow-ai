@@ -34,7 +34,20 @@ export default function SignUpPage() {
       setLoading(false);
       return;
     }
-    await signIn("credentials", { email, password, redirect: false });
+    // Account created. If the confirmation email couldn't be sent, tell them
+    // (they can Resend on the next screen) rather than leaving them waiting on
+    // an email that never arrives.
+    if (res.data?.emailFailed) {
+      toast.warning("Account created, but we couldn't send the confirmation email. You can resend it on the next screen.");
+    }
+    // If auto sign-in fails, the account still exists — send them to /login with
+    // a clear message instead of pushing to /onboarding with no session.
+    const signInRes = await signIn("credentials", { email, password, redirect: false });
+    if (signInRes?.error) {
+      toast.message("Account created — please sign in to continue.");
+      router.push("/login");
+      return;
+    }
     setSent(true);
     setLoading(false);
     setTimeout(() => router.push("/onboarding"), 800);

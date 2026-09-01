@@ -50,7 +50,7 @@ export async function signUp(input: {
   password: string;
   name: string;
   code?: string;
-}): Promise<Result> {
+}): Promise<Result<{ emailFailed?: boolean }>> {
   // Rate-limit FIRST (per IP) so beta-code guesses are throttled — an attacker
   // can't grind the code with unlimited attempts.
   if (!(await checkSignUpRateLimit())) {
@@ -87,7 +87,9 @@ export async function signUp(input: {
       const token = await issueAuthToken(existing.id, "verify_email", 24 * 60 * 60 * 1000);
       await sendVerificationEmail(existing.email, existing.name, token);
     }
-    return { ok: true };
+    // Same shape as the new-account branch (below), emailFailed:false, so the
+    // response can't be used to enumerate existing accounts.
+    return { ok: true, data: { emailFailed: false } };
   }
 
   const passwordHash = await bcrypt.hash(input.password, 12);
@@ -100,10 +102,16 @@ export async function signUp(input: {
   }).returning();
 
   const token = await issueAuthToken(row.id, "verify_email", 24 * 60 * 60 * 1000);
-  await sendVerificationEmail(row.email, row.name, token);
+  // 2026-09-01 (pilot signup hardening): surface a FAILED confirmation-email
+  // send instead of swallowing it. Resend doesn't throw on API errors (bad
+  // key, unverified domain, quota) — deliver() returns { ok:false }. For a
+  // BRAND-NEW account there's no enumeration concern, so we pass emailFailed
+  // back and the signup page tells the operator to use Resend / contact support
+  // rather than stranding them at a silent "check your inbox".
+  const sendRes = await sendVerificationEmail(row.email, row.name, token);
   // Non-enumerating response: never return userId in the create branch either.
   // Callers that need the id can fetch it after email verification lands.
-  return { ok: true };
+  return { ok: true, data: { emailFailed: !sendRes.ok } };
 }
 
 export async function verifyEmail(token: string): Promise<Result<{ userId: string }>> {
