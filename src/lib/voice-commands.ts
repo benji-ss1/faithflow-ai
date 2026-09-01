@@ -152,16 +152,21 @@ export function audioConstraintsFor(
   sourceType?: AudioSourceType,
 ): MediaStreamConstraints {
   const type = sourceType ?? readAudioSourceType();
-  void type; // retained for future per-source tuning
-  // NOTE (2026-08-10): a source-aware DSP-off-for-mixer variant was trialled
-  // and reverted — it silently reversed the deliberate `d357516` fix ("enable
-  // DSP for all audio sources") for every default-mixer church at once, risking
-  // an under-driven feed dropping below Deepgram's floor mid-service. DSP stays
-  // ON for all browser sources until a per-church toggle + field A/B exists.
-  // NDI/native audio never reaches this path — it bypasses browser DSP entirely.
+  // 2026-09-01 (weak-pickup fix, field report): Chromium's WebRTC voice DSP is
+  // tuned for close-talk VoIP. On a CLEAN line-level MIXER feed (Behringer/X32/
+  // etc.) the two SUPPRESSORS — noiseSuppression + echoCancellation — gate the
+  // quiet consonants/tails + far/accented speech Deepgram needs, BEFORE it ever
+  // reaches DG, which is exactly the "not picking up" report. So for a mixer
+  // feed we turn the suppressors OFF (a desk feed has no room noise / no echo
+  // loop to cancel). We deliberately KEEP autoGainControl ON — the 2026-08-10
+  // revert was caused by a FULL DSP-off (AGC off too) UNDER-DRIVING quiet feeds
+  // below DG's floor; keeping AGC preserves level, so this can't reintroduce
+  // that. A bare far-field/room "microphone" keeps full DSP (it genuinely needs
+  // noise suppression). NDI/native audio bypasses browser DSP entirely.
+  const isMixer = type === "mixer";
   const base: MediaTrackConstraints = {
-    echoCancellation: true,
-    noiseSuppression: true,
+    echoCancellation: !isMixer,
+    noiseSuppression: !isMixer,
     autoGainControl: true,
     sampleRate: 16000,
   };
