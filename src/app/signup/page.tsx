@@ -5,16 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { signUp } from "@/lib/auth-actions";
 import { signIn } from "next-auth/react";
-import {
-  AuthShell,
-  AuthHeader,
-  authInputCls,
-  authInputStyle,
-  authLabelCls,
-  authLabelStyle,
-  authCtaCls,
-  authCtaStyle,
-} from "@/components/auth/AuthShell";
+import { PfAuthScene } from "@/components/auth/PfAuthScene";
 
 export default function SignUpPage() {
   const [name, setName] = useState("");
@@ -54,111 +45,52 @@ export default function SignUpPage() {
   }
 
   return (
-    <AuthShell>
-      <AuthHeader
-        eyebrow="Wave I · invite only"
-        heading="Create your account"
-        sub="You'll need the beta code from your invitation to set up your workspace."
-      />
+    <PfAuthScene>
+      <div className="aside-top"><span className="o">Create account</span><span>01 / 01</span></div>
+      <div className="form-wrap">
+        <div className="welcome">Wave I · Invite only.</div>
+        <h2 className="signin"><span className="o">Create</span> your <em>account</em>.</h2>
+        <p className="subtle">You&apos;ll need the beta code from your invitation to set up your workspace.</p>
 
-      {sent ? (
-        <div
-          className="p-5 rounded-2xl mb-5 flex gap-3.5 items-start"
-          style={{ background: "rgba(255,144,72,0.08)", border: "1px solid rgba(255,144,72,0.24)" }}
-        >
-          <div
-            className="flex-none w-[34px] h-[34px] rounded-[10px] flex items-center justify-center text-base"
-            style={{
-              background: "linear-gradient(135deg,#ffb861,#ff6a1f)",
-              color: "#17130c",
-            }}
-          >
-            ✉
+        {sent ? (
+          <div className="sent-card" style={{ marginTop: 26 }} role="status">
+            <div className="rc-title">Check your inbox</div>
+            <div>We sent a confirmation link to <span style={{ fontFamily: "ui-monospace,Menlo,monospace" }}>{email}</span>. Taking you to setup…</div>
           </div>
-          <div className="text-[14px] leading-[1.55]" style={{ color: "#c4bcaf" }}>
-            We sent a confirmation link to{" "}
-            <span className="font-mono">{email}</span>. Continuing to onboarding…
-          </div>
-        </div>
-      ) : (
-        <form onSubmit={submit}>
-          <div className="mb-4">
-            <label className={authLabelCls} style={authLabelStyle}>
-              Beta code
-            </label>
-            <input
-              required
-              autoComplete="off"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder="From your invitation"
-              className={authInputCls}
-              style={authInputStyle}
-            />
-          </div>
+        ) : (
+          <form onSubmit={submit}>
+            <div className="field">
+              <label htmlFor="code">Beta code</label>
+              <input id="code" required autoComplete="off" placeholder="From your invitation" value={code} onChange={(e) => setCode(e.target.value)} />
+            </div>
+            <div className="field">
+              <label htmlFor="name">Your name</label>
+              <input id="name" required autoComplete="name" placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div className="field">
+              <label htmlFor="email">Email</label>
+              <input id="email" type="email" required autoComplete="email" placeholder="you@yourchurch.org" value={email} onChange={(e) => setEmail(e.target.value)} />
+            </div>
+            <div className="field">
+              <label htmlFor="pw">Password</label>
+              <input id="pw" type="password" required minLength={8} autoComplete="new-password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} />
+              <span className="hint">At least 8 characters</span>
+            </div>
 
-          <div className="mb-4">
-            <label className={authLabelCls} style={authLabelStyle}>
-              Your name
-            </label>
-            <input
-              required
-              autoComplete="name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className={authInputCls}
-              style={authInputStyle}
-            />
-          </div>
+            <button className="signin-btn" type="submit" disabled={loading}>
+              <span className="label">{loading ? "Creating…" : "Create account"}</span>
+              <span className="arr">→</span>
+            </button>
+          </form>
+        )}
 
-          <div className="mb-4">
-            <label className={authLabelCls} style={authLabelStyle}>
-              Email
-            </label>
-            <input
-              type="email"
-              required
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              className={authInputCls}
-              style={authInputStyle}
-            />
-          </div>
-
-          <div className="mb-4">
-            <label className={authLabelCls} style={authLabelStyle}>
-              Password
-            </label>
-            <input
-              type="password"
-              required
-              minLength={8}
-              autoComplete="new-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className={authInputCls}
-              style={authInputStyle}
-            />
-            <span className="text-[11px] block mt-1.5" style={{ color: "#6f685e" }}>
-              At least 8 characters
-            </span>
-          </div>
-
-          <button type="submit" disabled={loading} className={authCtaCls} style={authCtaStyle}>
-            {loading ? "Creating…" : "Create account"}
-          </button>
-        </form>
-      )}
-
-      <div className="text-center mt-6 text-sm" style={{ color: "#9c958b" }}>
-        Already have an account?{" "}
-        <Link href="/login" className="font-semibold" style={{ color: "#ff9048" }}>
-          Sign in
-        </Link>
+        <p className="note">Already have an account? <Link href="/login">Sign in</Link>.</p>
       </div>
-    </AuthShell>
+
+      <div className="aside-foot">
+        <div><span className="o">Trusted for churches</span></div>
+        <div><Link href="/login" style={{ color: "var(--orange)" }}>Sign in</Link></div>
+      </div>
+    </PfAuthScene>
   );
 }
