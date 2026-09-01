@@ -43,9 +43,23 @@ function compareSemver(a: string, b: string): number {
   return (a1 - b1) || (a2 - b2) || (a3 - b3);
 }
 
+// Which installer artifact THIS platform needs, so a release that only carries
+// the OTHER platform's build never nags this one. Mac and Windows are separate
+// apps sharing one GitHub releases feed; without this a Windows-only release
+// (or vice-versa) tells the wrong app to "download" an artifact that isn't in
+// the release. Renderer-side UA detection (the shell is Chromium on both).
+function platformArtifact(): { test: RegExp; label: string } {
+  const ua = (typeof navigator !== "undefined"
+    ? `${navigator.userAgent} ${(navigator as Navigator).platform || ""}`
+    : ""
+  ).toLowerCase();
+  if (/windows|win32|win64|wow64/.test(ua)) return { test: /\.exe$/i, label: "installer" };
+  return { test: /\.dmg$/i, label: "DMG" };
+}
+
 type State =
   | { kind: "idle" }
-  | { kind: "manual-available"; version: string; url: string }
+  | { kind: "manual-available"; version: string; url: string; label: string }
   | { kind: "downloading"; version: string }
   | { kind: "ready"; version: string }
   | { kind: "error"; message: string };
@@ -110,12 +124,24 @@ export function UpdateBanner({ liveSlide, listening }: { liveSlide?: SlidePayloa
           cache: "no-store",
         });
         if (!res.ok || cancelled) return;
-        const data = await res.json() as { tag_name?: string; html_url?: string };
+        const data = await res.json() as {
+          tag_name?: string;
+          html_url?: string;
+          assets?: { name?: string; browser_download_url?: string }[];
+        };
         const latest = (data.tag_name || "").replace(/^v/, "");
         if (!latest) return;
-        if (compareSemver(latest, current) > 0) {
+        // Platform gate: only treat this as an update if the release actually
+        // carries an artifact for THIS OS. A Windows-exclusive release has no
+        // .dmg, so a Mac must NOT be told to update (and vice-versa). A release
+        // built for both carries both, and each OS resolves to its own file.
+        const plat = platformArtifact();
+        const assets = Array.isArray(data.assets) ? data.assets : [];
+        const myAsset = assets.find((a) => plat.test.test(a.name || ""));
+        const isNewer = compareSemver(latest, current) > 0;
+        if (isNewer && myAsset) {
           // Respect a prior dismissal for this exact tag — user X'd it out,
-          // don't nag until a NEWER DMG tag actually ships.
+          // don't nag until a NEWER tag actually ships.
           let dismissed: string | null = null;
           try { dismissed = window.localStorage.getItem(DISMISSED_MANUAL_KEY); } catch { /* noop */ }
           if (dismissed && compareSemver(dismissed, latest) >= 0) {
@@ -124,13 +150,13 @@ export function UpdateBanner({ liveSlide, listening }: { liveSlide?: SlidePayloa
             setState((prev) => (prev.kind === "manual-available" ? { kind: "idle" } : prev));
             return;
           }
-          // Newer release available AND not dismissed. Keep any downloading/
-          // ready/error state the auto-updater path may have set; only claim
-          // the banner from idle OR refresh a stale manual-available with
-          // the new version.
+          // Newer release with an artifact for this OS AND not dismissed. Point
+          // the click at THIS platform's file directly (fallback: release page)
+          // so a Mac never lands on a page of Windows files or vice-versa.
+          const url = myAsset.browser_download_url || data.html_url || GITHUB_RELEASE_PAGE;
           setState((prev) => {
-            if (prev.kind === "idle") return { kind: "manual-available", version: latest, url: data.html_url || GITHUB_RELEASE_PAGE };
-            if (prev.kind === "manual-available" && prev.version !== latest) return { kind: "manual-available", version: latest, url: data.html_url || GITHUB_RELEASE_PAGE };
+            if (prev.kind === "idle") return { kind: "manual-available", version: latest, url, label: plat.label };
+            if (prev.kind === "manual-available" && prev.version !== latest) return { kind: "manual-available", version: latest, url, label: plat.label };
             return prev;
           });
         } else {
@@ -194,13 +220,14 @@ export function UpdateBanner({ liveSlide, listening }: { liveSlide?: SlidePayloa
     return (
       <div
         className="w-full px-4 py-2 text-sm font-medium text-white flex items-center justify-center gap-2 bg-violet-600"
-        title="Open the release page in your browser to download the latest DMG"
+        title={`Download the latest ${state.label} for your computer`}
       >
         <button
           onClick={openDownload}
           className="flex-1 text-center hover:underline cursor-pointer"
         >
-          ⬇ Update {state.version} available — click to download the new DMG (right-click → Open on first launch)
+          ⬇ Update {state.version} available — click to download the new {state.label}
+          {state.label === "DMG" ? " (right-click → Open on first launch)" : " (if Windows warns, choose More info → Run anyway)"}
         </button>
         <button
           onClick={() => {
