@@ -340,17 +340,24 @@ export function AudioSetupModal({ open, onClose, audio, listening, onStartListen
             </div>
           </section>
 
-          {/* Setup guidance */}
+          {/* Setup guidance — how to get your church's sound into PresentFlow.
+              Covers every connection method (digital mixer, analog + interface,
+              mics, system audio) on Windows AND Mac. Best options first. */}
           <section>
-            <SectionHeader label="5 · Setup guidance" />
+            <SectionHeader label="5 · How to connect your sound" />
+            <p className="text-[11px] text-[color:var(--color-muted-foreground)] mb-2 leading-relaxed">
+              PresentFlow captures from <b>any</b> mixer, mic, or computer audio. Pick the row that matches your church — best accuracy first. Then choose that device in the list above and watch the green bar move.
+            </p>
             <div className="grid grid-cols-2 gap-2 text-xs">
-              <GuidanceCard title="Laptop microphone" body="Built-in mic captures room noise + PA reverb. Good enough for a small setting; expect lower accuracy in a large sanctuary." />
-              <GuidanceCard title="USB microphone" body="A dedicated USB mic pointed at the pastor gives the biggest accuracy jump. Blue Yeti / Samson Q2U class works well." />
-              <GuidanceCard title="USB audio interface" body="Focusrite Scarlett / Behringer UM2 etc. — take a mixer send into the interface, then select the interface as input here." />
-              <GuidanceCard title="Mixer USB output" body="Most modern mixers (Behringer XR-series, Yamaha MG-U, Allen &amp; Heath ZED) expose a stereo USB out. Feed that in — cleanest option for a live house sound." />
-              <GuidanceCard title="Capture card audio" body="If your sound goes through a video capture card (Elgato etc.), select its virtual input here." />
-              <GuidanceCard title="Virtual audio device" body="BlackHole / Loopback / VB-Audio bridge audio between apps. Route your program mix into one of these, select it here." />
-              <GuidanceCard title="Headphone jack ≠ line in" body="Most modern laptop headphone jacks are output-only (or TRRS combo, mic-only). If nothing appears in the picker after granting permission, use one of the USB paths above." />
+              <GuidanceCard title="① Digital mixer → USB (best)" body="Behringer X32 / XR12·16·18 / Wing / Flow 8 — also Yamaha, Midas, Allen & Heath, Soundcraft, PreSonus. One USB cable from the mixer to the laptop; it appears here as a multi-channel input. Pick it, then the pastor's mic channel or the main mix. Cleanest, lowest-noise feed." />
+              <GuidanceCard title="② Analog mixer → USB interface" body="Behringer Xenyx or any analog console with no USB: run a Main / Aux / Mix-bus OUT into a USB audio interface (Behringer UMC / UM2, Focusrite Scarlett, PreSonus) using XLR or 1/4&quot; TRS cables, then USB into the laptop. Select the interface here." />
+              <GuidanceCard title="③ A single mic → interface / DI" body="One wired mic (XLR) or wireless receiver into a USB interface; instruments/keys via a DI box. Point it at the preacher. Great when there's no house mixer." />
+              <GuidanceCard title="④ USB microphone (simplest)" body="A plug-and-play USB mic near the pastor — Rode / Shure / Blue Yeti / Samson Q2U class. No mixer or interface needed; just plug in and select it." />
+              <GuidanceCard title="⑤ Windows — computer / media audio" body="To capture what the PC is playing (media, Zoom, a browser), install VB-Audio Virtual Cable (or Voicemeeter) and route your program mix into it, then select it here. WASAPI/ASIO loopback also works." />
+              <GuidanceCard title="⑤ Mac — computer / media audio" body="To capture what the Mac is playing, use BlackHole or Loopback (or an Aggregate Device to combine a mic + system audio), route your mix in, and select it here." />
+              <GuidanceCard title="Video capture card" body="If house sound rides on an HDMI/SDI capture card (Elgato etc.), select the card's audio input here." />
+              <GuidanceCard title="Laptop mic (last resort)" body="The built-in mic hears room noise + PA reverb — OK for a small room, lower accuracy in a large sanctuary. Use a USB path above whenever you can." />
+              <GuidanceCard title="Headphone jack ≠ line in" body="Most laptop 3.5mm jacks are output-only (or mic-only TRRS) — a mixer feed plugged there won't be heard. If nothing shows after granting permission, use USB (options ① – ④)." />
             </div>
           </section>
         </div>
