@@ -166,6 +166,7 @@
       "**/node_modules/ffmpeg-static/**"
     ],
     "mac": {
+      "icon": "build-resources/icon.icns",
       "extraResources": [
         {
           "from": "resources/native/macos",
