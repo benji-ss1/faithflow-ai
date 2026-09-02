@@ -136,9 +136,15 @@ export function MessagesTab({ api }: { api: MessagesApi }) {
         />
         Allow on web (livestream output)
       </label>
+      {/* Sticky so the primary action is ALWAYS reachable — when the ticker
+          settings expand, this panel can grow taller than its scroll area and
+          the button was scrolling off the bottom, out of reach (field report
+          2026-09-02: "you can't see the button… it's stuck"). Pinned to the
+          bottom of the scroll container, opaque, with a shadow so content
+          scrolls cleanly under it. */}
       <button
         onClick={toggleShow}
-        className="h-9 rounded-md bg-[var(--color-brand)] text-black font-semibold"
+        className="sticky bottom-0 z-10 h-9 rounded-md bg-[var(--color-brand)] text-black font-semibold shadow-[0_-12px_16px_-10px_var(--color-background,#000)]"
       >
         {state.showing ? "Hide" : "Show"}
       </button>
