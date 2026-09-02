@@ -7,6 +7,8 @@ import { churches, settings, users } from "@/lib/db/schema";
 import { presignGet } from "@/lib/s3";
 import { AppShell } from "@/components/layout/AppShell";
 import { TourGate } from "@/components/tutorial/TourGate";
+import { getEntitlement } from "@/lib/server/entitlement";
+import { TrialEndedLock } from "@/components/billing/TrialEndedLock";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
@@ -26,6 +28,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const [me] = await db.select({ tutorialCompletedAt: users.tutorialCompletedAt }).from(users).where(eq(users.id, user.id)).limit(1);
   const [display] = await db.select({ logoS3Key: settings.logoS3Key }).from(settings).where(eq(settings.churchId, user.churchId)).limit(1);
   const churchLogoUrl = display?.logoS3Key ? await presignGet(display.logoS3Key) : null;
+
+  // Beta trial lock — gates the WHOLE (app) group, so both the web dashboard and
+  // the desktop operator lock once the trial expires. Fail-open: getEntitlement
+  // only reports trialExpired when it can positively prove now > trialEnd, so a
+  // DB/date hiccup never wrongly locks a church. pilot/active churches never lock.
+  const entitlement = await getEntitlement(user.churchId);
+  if (entitlement.trialExpired) {
+    return <TrialEndedLock churchName={church?.name} />;
+  }
   // CP5 guarded redirect: if the church is mid-onboarding AND the user hasn't
   // dismissed the tutorial yet, funnel them into /onboarding. Once the
   // tutorial is completed OR skipped, tutorialCompletedAt is stamped and
