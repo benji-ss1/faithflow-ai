@@ -56,6 +56,24 @@ export function NdiTab() {
     );
   }
 
+  // The native NDI sender ships on macOS only (the addon is scoped to
+  // mac.extraResources; no sender is bundled in the Windows .exe). On Windows
+  // the IPC surface exists but can never broadcast, so showing the interactive
+  // toggle would present a control that silently does nothing. Show a clear
+  // not-yet state + the real Windows path instead.
+  const isWindows = typeof navigator !== "undefined"
+    && /windows|win32|win64|wow64/i.test(`${navigator.userAgent} ${(navigator as Navigator).platform || ""}`);
+  if (isWindows) {
+    return (
+      <div className="space-y-3">
+        <SectionHeader title="NDI Output" description="Send PresentFlow's live output to OBS over your network as an NDI source." />
+        <p className="text-[12px] text-[var(--color-muted-foreground)]">
+          NDI Output isn&apos;t available on Windows yet — it currently ships on macOS only. On Windows, add PresentFlow&apos;s live output to OBS with a Window Capture of the Projector output window instead.
+        </p>
+      </div>
+    );
+  }
+
   const s = settings;
   const st = status;
   return (

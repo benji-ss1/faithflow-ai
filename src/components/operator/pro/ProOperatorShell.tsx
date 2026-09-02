@@ -1780,9 +1780,9 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       //   >1 channel  → mixer is negotiated multi-ch but sending silence — check USB routing on the mixer
       let guidance: string;
       if (streamChannelCount != null && streamChannelCount > 1) {
-        guidance = "PresentFlow IS receiving multi-channel audio but every channel is silent. Most likely: your mixer isn't routing anything to USB Sends. Open the mixer's USB Send menu (Home → Setup → I/O → USB on Allen & Heath SQ) and route your vocal mic to USB. Or pick a specific channel via the channel grid in Settings › Audio.";
+        guidance = "PresentFlow IS receiving multi-channel audio but every channel is silent. Most likely your mixer isn't routing anything to its USB send. On your mixer, open its USB / recording routing and send your vocal mic to USB (on a Behringer X32/XR18 that's Routing → Card / USB Sends; on Allen & Heath SQ it's Setup → I/O → USB; other desks have an equivalent USB-send menu). Or pick a specific channel via the channel grid in Settings › Audio.";
       } else {
-        guidance = "PresentFlow is receiving a single-channel stream and it's silent. Check: (1) mixer channel isn't muted, (2) USB cable is seated, (3) you've picked the correct input in Settings › Audio. If this is a multi-channel mixer, install the vendor USB driver (e.g. Allen & Heath SQ driver from allen-heath.com).";
+        guidance = "PresentFlow is receiving a single-channel stream and it's silent. Check: (1) the mixer channel isn't muted, (2) the USB cable is seated, (3) you've picked the correct input in Settings › Audio. If this is a multi-channel mixer, install its USB driver from the manufacturer (Behringer, Allen & Heath, Yamaha, PreSonus, etc.) so its channels appear.";
       }
       // JPD Fix 4: lead with "AI is still ON" — operators read this toast
       // during natural service silences (prayer, communion) as "the AI
