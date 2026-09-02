@@ -2153,9 +2153,22 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
               const suggestion = err?.suggestion ? " " + err.suggestion : "";
               console.warn("[presentflow-audio:native] error", msg, err?.suggestion || "");
               guardianOnError(msg);
+              // Mac-native parity with the browser path: a DEVICE-LOSS error while
+              // listening (USB mixer unplugged mid-service) arms the same bounded
+              // reconnect window, so the replug's devicechange survives the gate
+              // and native start() re-resolves the device BY NAME and recaptures —
+              // no operator toggle. Harmless for a non-device error: the window
+              // just times out with no devicechange to act on. Same 120s window +
+              // flap guard as the browser path.
+              if (listeningRef.current && /device (not found|disconnect|disappear|unplug)|no such device|input\/output|i\/o error|revoked|not readable/i.test(msg)) {
+                beginDeviceReconnect();
+              }
               setState((s) => ({ ...s, error: msg + suggestion }));
             });
             nativeUnsubsRef.current = [unsubChunk, unsubLevel, unsubError];
+            // Native recapture succeeded — close the reconnect window (mirrors the
+            // browser mic-granted endDeviceReconnect). No-op on a normal first start.
+            endDeviceReconnect();
             setState((s) => ({ ...s, listening: true }));
             // Skip the rest of start() — the browser mic/AudioContext/worklet
             // block below is entirely irrelevant in native mode.
