@@ -26,23 +26,23 @@ type Branch = "yes" | "no" | null;
 
 type TopicKey =
   | "library" | "playlist" | "golive" | "editsong" | "editscripture" | "themes"
-  | "announce" | "chips" | "detectsettings" | "servicemode" | "stage" | "settings";
+  | "announce" | "chips" | "translations" | "servicemode" | "stage" | "settings";
 
 type Topic = { key: TopicKey; title: string; one: string; target: string; body: string; tip: string };
 
 const TOPICS: Topic[] = [
-  { key: "library", title: "Your library", one: "Songs · Bible · Media · Themes", target: "libtabs", body: "Everything you present lives across these four tabs at the top. Songs and scripture, your images and videos, and the looks that style them.", tip: "Tap a tab to browse — then drag or click an item into today's service." },
+  { key: "library", title: "Your library", one: "Songs · Bible · Media · Themes", target: "libtabs", body: "Everything you present lives up here: three tabs — Songs, Bible, Media — plus a Themes button for the looks that style them.", tip: "Tap a tab to browse — then drag or click an item into today's service." },
   { key: "playlist", title: "Build today's service", one: "Add to the Playlist", target: "playlist", body: "The Playlist on the left is today's running order. Add the songs, verses, and media you'll use, in the order you'll use them.", tip: "Tap + on Playlist, then pick from your library — reorder by dragging." },
   { key: "golive", title: "Go live", one: "Send a slide to the screen", target: "slide", body: "Tap any slide and it goes straight to the projector. The play / next controls at the bottom move you through, and you can blank the screen anytime.", tip: "Click a slide to project it; use ▶ / next to advance." },
   { key: "editsong", title: "Edit a song slide", one: "Fix a typo, restyle", target: "editbtn", body: "Select a song slide and tap Edit slide. Change the words, the line breaks, or the styling — it updates everywhere that slide is used.", tip: "Select the slide → Edit slide → type your change → done." },
   { key: "editscripture", title: "Edit a scripture slide", one: "Text locked, look editable", target: "editbtn", body: "For Bible verses the words are locked (so scripture is never altered), but you can restyle it — font size, background, position — with the same Edit slide.", tip: "Scripture text stays true; only its look changes." },
   { key: "themes", title: "Themes", one: "Change the whole look", target: "themestab", body: "A Theme is the look of your slides — background, font, colour. Apply one and it restyles everything at once, so your service looks consistent.", tip: "Themes tab → tap a theme to apply it live." },
-  { key: "announce", title: "Announcements", one: "Put a notice on screen", target: "detpanel", body: "For the preacher's notices — offerings, events, 'turn to your neighbour'. Show a message as a lower-third strip or full screen, with an optional scrolling ticker.", tip: "Open the Messages panel → type it → choose position → Show." },
-  { key: "chips", title: "AI chips vs Detections", one: "Fire now vs review", target: "chips", body: "The AI CHIPS along the bottom are live tap-to-fire suggestions — the AI heard something, tap to project it. The Detections panel on the right is the running list + how detections display.", tip: "Chips = act now. Panel = review + settings." },
-  { key: "detectsettings", title: "Detection display", one: "Position, ticker, dismiss", target: "gear", body: "Control how a detected verse appears: lower-third or centre, auto-dismiss or manual, scroll it as a ticker, and whether it shows on your web/livestream output.", tip: "Gear tab → Messages → set position, ticker, dismiss." },
+  { key: "announce", title: "Announcements", one: "Put a notice on screen", target: "gear", body: "For the preacher's notices — offerings, events, “turn to your neighbour”. Type a message and show it in a corner, lower-third, or centred, with an optional scrolling ticker and auto-dismiss.", tip: "Settings (gear) → Messages → type it → choose position → Show." },
+  { key: "chips", title: "AI chips vs Detections", one: "Fire now vs review", target: "chips", body: "The AI CHIPS along the bottom are live tap-to-fire suggestions — the AI heard something, tap to project it. The Detections panel on the right is the running list of everything it's heard — tap one to load or send it.", tip: "Chips = act now. Panel = review the running list." },
+  { key: "translations", title: "Switch Bible translation", one: "KJV · NIV · NKJV…", target: "libtabs", body: "You preach from several translations. Switch the active one for the service from the Bible options — KJV and NIV project instantly. Add more translations under Settings → Bible Store.", tip: "Open Bible → pick the translation; enable more in Settings → Bible Store." },
   { key: "servicemode", title: "Service modes", one: "Worship · Auto · Preacher", target: "mode", body: "Tell the AI the moment it's in. Worship leans detection toward your songs; Preacher leans toward spoken scripture; Auto balances both. It only nudges — it never takes over.", tip: "Top bar → tap Worship / Auto / Preacher." },
   { key: "stage", title: "Stage display", one: "The platform's monitor", target: "stage", body: "The Stage screen is the confidence monitor facing the platform — what's live, what's next, timers — so the worship leader and preacher stay in sync without looking at the congregation's screen.", tip: "Assign a Stage screen in Hardware → Screens." },
-  { key: "settings", title: "Settings", one: "Audio, translations, capture", target: "gear", body: "In Settings you choose your audio source, your Bible translations (KJV, NIV…), capture mode, and more. Set once — it's remembered.", tip: "Gear icon → Settings tabs." },
+  { key: "settings", title: "Settings", one: "Audio, capture, Bible Store", target: "gear", body: "In Settings you choose your audio source and capture mode, and enable Bible translations under the Bible Store tab. Set once — it's remembered.", tip: "Gear icon → Settings → Audio / Bible Store." },
 ];
 
 export function PreviewCoachmark() {
@@ -61,7 +61,7 @@ export function PreviewCoachmark() {
 
   const openTopic = (t: Topic) => { setTopic(t); setPhase("topic"); };
   const closeTopic = () => { if (topic) setViewed((v) => new Set(v).add(topic.key)); setTopic(null); setPhase("learn"); };
-  const restart = () => { setPhase("setup"); setStep(0); setTestSeen(null); setMicOn(false); setAiOn(false); setViewed(new Set()); setTopic(null); };
+  const restart = () => { setPhase("setup"); setStep(0); setTestSeen(null); setTsOpen(false); setMicOn(false); setAiOn(false); setViewed(new Set()); setTopic(null); };
 
   return (
     <div className="pfw">
@@ -199,13 +199,18 @@ function TopicSpotlight({ topic, onClose }: { topic: Topic; onClose: () => void 
   }, [measure]);
 
   let tip: React.CSSProperties;
-  if (!rect) tip = { top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: 340 };
+  if (!rect) tip = { top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: "min(340px, calc(100vw - 32px))" };
   else {
     const vw = typeof window !== "undefined" ? window.innerWidth : 1440;
     const vh = typeof window !== "undefined" ? window.innerHeight : 900;
-    const W = 330;
-    const right = rect.left + rect.width + 18 + W < vw;
-    tip = { top: Math.min(Math.max(70, rect.top - 6), vh - 280), left: right ? rect.left + rect.width + 16 : Math.max(16, rect.left - W - 16), width: W };
+    const W = Math.min(330, vw - 32); // never wider than the viewport
+    const right = rect.left + rect.width + 16 + W < vw;
+    const left = right ? rect.left + rect.width + 16 : rect.left - W - 16;
+    tip = {
+      top: Math.min(Math.max(70, rect.top - 6), Math.max(70, vh - 280)),
+      left: Math.min(Math.max(16, left), vw - W - 16), // clamp within the viewport
+      width: W,
+    };
   }
 
   return (
@@ -267,12 +272,12 @@ function ConsoleMock() {
         <aside className="side">
           <div className="s-head">Library</div><div className="s-item">Default</div>
           <div className="s-head pl" data-t="playlist">Playlist +</div><div className="s-item">My service</div>
-          <div className="s-head hw">Hardware</div><div className="s-item" data-t="stage">Screens · Audio</div>
+          <div className="s-head hw">Hardware</div><div className="s-item">Screens · Audio</div>
         </aside>
         <main className="cmain">
           <div className="c-head"><span className="ct">My service</span><span className="cbtn" data-t="editbtn">Edit slide</span><span className="cbtn">+ Add</span></div>
           <div className="cslides"><div className="cslide sel" data-t="slide"><span>1</span></div><div className="cslide"><span>2</span></div><div className="cslide"><span>3</span></div></div>
-          <div className="clabel">Stage</div><div className="cstage"><i /><i /></div>
+          <div className="clabel">Stage</div><div className="cstage" data-t="stage"><i /><i /></div>
         </main>
         <section className="cright" data-t="detpanel">
           <div className="tabrow"><span data-t="gear" className="g">Settings</span></div>
@@ -328,7 +333,7 @@ const CSS = `
 .pfw .gcard{text-align:left;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:15px;transition:border-color .15s,transform .08s}
 .pfw .gcard:hover{border-color:var(--orange);transform:translateY(-1px)}.pfw .gcard.done{border-color:rgba(51,209,122,.4)}
 .pfw .gc-top{display:flex;align-items:center;justify-content:space-between}.pfw .gc-title{font-size:15px;font-weight:600;color:var(--txt)}
-.pfw .gc-check{color:var(--green);font-size:14px}.pfw .gc-one{margin-top:5px;font-size:12.5px;color:var(--faint)}
+.pfw .gc-check{color:var(--green);font-size:14px}.pfw .gc-one{margin-top:5px;font-size:12.5px;color:var(--dim)}
 .pfw .learn-foot{margin-top:auto;padding-top:12px;display:flex;align-items:center;justify-content:space-between;gap:16px}
 
 /* topic spotlight */
@@ -352,9 +357,9 @@ const CSS = `
 .pfw .cchips{height:40px;border-top:1px solid var(--line);background:#0c0c0e;display:flex;align-items:center;gap:9px;padding:0 14px}.pfw .cl{font-size:9.5px;letter-spacing:.14em;color:var(--faint)}.pfw .chip{font-size:11.5px;border:1px solid var(--line);border-radius:999px;padding:4px 10px;color:var(--txt)}.pfw .chip.on{border-color:rgba(51,209,122,.5);color:var(--green)}
 
 .pfw .dimfull{position:absolute;inset:0;background:rgba(6,5,8,.76);z-index:40;animation:pfin .3s ease both}
-.pfw .spot{position:absolute;z-index:41;border-radius:10px;box-shadow:0 0 0 9999px rgba(6,5,8,.76),0 0 0 2px var(--orange),0 0 30px -4px rgba(255,122,44,.6);pointer-events:none;transition:all .35s cubic-bezier(.2,0,.2,1);animation:pfpulse 2.2s ease-in-out infinite}
+.pfw .spot{position:fixed;z-index:41;border-radius:10px;box-shadow:0 0 0 9999px rgba(6,5,8,.76),0 0 0 2px var(--orange),0 0 30px -4px rgba(255,122,44,.6);pointer-events:none;transition:all .35s cubic-bezier(.2,0,.2,1);animation:pfpulse 2.2s ease-in-out infinite}
 @keyframes pfpulse{0%,100%{box-shadow:0 0 0 9999px rgba(6,5,8,.76),0 0 0 2px var(--orange),0 0 22px -6px rgba(255,122,44,.5)}50%{box-shadow:0 0 0 9999px rgba(6,5,8,.76),0 0 0 2px var(--orange),0 0 40px 0 rgba(255,122,44,.75)}}
-.pfw .tcard{position:absolute;z-index:50;background:linear-gradient(180deg,#151317,#0e0d10);border:1px solid var(--line2);border-radius:15px;padding:18px;box-shadow:0 30px 90px -30px #000;animation:pfin .3s cubic-bezier(.2,0,.2,1) both}
+.pfw .tcard{position:fixed;z-index:50;background:linear-gradient(180deg,#151317,#0e0d10);border:1px solid var(--line2);border-radius:15px;padding:18px;box-shadow:0 30px 90px -30px #000;animation:pfin .3s cubic-bezier(.2,0,.2,1) both}
 .pfw .tc-title{font-size:19px;font-weight:700;letter-spacing:-.02em;margin-bottom:8px}
 .pfw .tc-body{color:var(--dim);font-size:13.5px;line-height:1.55;margin:0 0 12px}
 .pfw .tc-tip{font-size:12.5px;color:var(--glow);background:rgba(255,122,44,.08);border:1px solid rgba(255,122,44,.22);border-radius:9px;padding:9px 11px;line-height:1.5;margin-bottom:14px}.pfw .tc-tip b{color:var(--orange)}
@@ -373,5 +378,5 @@ const CSS = `
 .pfw .mini-console{width:420px;background:#0c0c0e;border:1px solid var(--line);border-radius:14px;overflow:hidden}.pfw .mc-top{padding:12px;border-bottom:1px solid var(--line);display:flex;justify-content:flex-end}.pfw .ai-pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line2);color:var(--faint);border-radius:999px;padding:6px 12px;font-size:12px;font-weight:700}.pfw .ai-pill i{width:7px;height:7px;border-radius:50%;background:var(--faint)}.pfw .ai-pill.on{border-color:rgba(51,209,122,.5);color:var(--green);background:rgba(51,209,122,.1)}.pfw .ai-pill.on i{background:var(--green);box-shadow:0 0 8px var(--green)}.pfw .mc-live{min-height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px;position:relative}.pfw .mc-dot{position:absolute;top:12px;left:14px;color:#ff5a5a;font-size:9px;letter-spacing:.18em}.pfw .mc-verse{font-weight:600;font-size:17px;color:#fff;line-height:1.35}.pfw .mc-ref{margin-top:10px;font-size:12px;color:var(--dim)}.pfw .mc-idle{color:var(--faint);font-size:13px}
 .pfw .ready-big{font-size:clamp(40px,6vw,68px);font-weight:700;letter-spacing:-.04em;line-height:1;text-align:center}.pfw .ready-big em{font-style:normal;color:var(--orange)}
 .pfw-foot{text-align:center;font-family:ui-monospace,Menlo,monospace;font-size:10px;color:var(--faint);padding:8px;border-top:1px solid var(--line)}
-@media (max-width:900px){.pfw-body{grid-template-columns:1fr}.pfw .stage{display:none}.pfw .panel{padding:28px}.pfw .cbody{grid-template-columns:1fr}}
+@media (max-width:900px){.pfw-body{grid-template-columns:1fr}.pfw .stage{display:none}.pfw .panel{padding:28px}.pfw .learn{padding:24px 20px}.pfw .grid{grid-template-columns:1fr}.pfw .cbody{grid-template-columns:1fr}}
 `;
