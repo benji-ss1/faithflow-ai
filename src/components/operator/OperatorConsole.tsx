@@ -1797,7 +1797,9 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       // listening automatically (2026-07-25 Bug-3 auto-start above).
       const turningOn = !audio.listening;
       try { window.localStorage.setItem(AI_LISTEN_INTENT_KEY, turningOn ? "1" : "0"); } catch { /* noop */ }
-      if (turningOn) startAudio(); else stopAudio();
+      // {operator:true} marks this as an explicit operator stop so it cancels
+      // any pending mid-service device auto-reconnect (they chose to stop).
+      if (turningOn) startAudio(); else stopAudio({ operator: true });
       // Confirmation so the operator knows the click registered (the pill also
       // flips colour). No autopilot-mode gate can undo this now — the AI
       // listener is purely intent-driven (stale manual-mode force-off removed).

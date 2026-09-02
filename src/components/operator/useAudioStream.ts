@@ -1053,6 +1053,51 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stallWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Mid-service DEVICE auto-reconnect (2026-09-02). When the CAPTURE DEVICE is
+  // lost while listening (a USB mixer bumped loose / unplugged), the OS revokes
+  // the track and the parallel devicechange-restart fails (device gone), which
+  // leaves listeningRef=false — so when the cable is plugged back in, the
+  // devicechange-restart is gated off and the operator had to manually toggle
+  // AI off/on. This opens a bounded window where a replug's devicechange (or
+  // audio-input-changed) is allowed through the restart gate so listening
+  // auto-resumes. Cleared on a successful recapture, on an OPERATOR stop, or
+  // after the window elapses. Deliberately event-driven (no polling) so a
+  // still-absent device never churns stop/start against Deepgram.
+  const deviceReconnectPendingRef = useRef(false);
+  const deviceReconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const DEVICE_RECONNECT_WINDOW_MS = 120_000; // 2 min to plug the cable back in
+  // Flap guard: timestamp of the last SUCCESSFUL auto-reconnect + a counter of
+  // rapid make/break cycles. A partially-seated USB connector can make/break
+  // every ~1-2s; without this, each brief success would re-arm the window and
+  // churn Deepgram every ~5s forever. After MAX_FLAPS rapid cycles we STOP
+  // auto-reconnecting so a chronically-flapping cable settles to "off" (the
+  // pre-change behaviour) instead of perpetual churn; the operator can re-toggle
+  // AI once the cable is properly seated. Resets once a reconnect holds steady.
+  const lastReconnectAtRef = useRef(0);
+  const flapCountRef = useRef(0);
+  const FLAP_WINDOW_MS = 8_000;
+  const MAX_FLAPS = 3;
+  const endDeviceReconnect = useCallback(() => {
+    // Record the moment a genuine reconnect completed (pending was open), so the
+    // flap guard can tell a steady reconnect from a make/break flap.
+    if (deviceReconnectPendingRef.current) lastReconnectAtRef.current = Date.now();
+    deviceReconnectPendingRef.current = false;
+    if (deviceReconnectTimerRef.current) { clearTimeout(deviceReconnectTimerRef.current); deviceReconnectTimerRef.current = null; }
+  }, []);
+  const beginDeviceReconnect = useCallback(() => {
+    if (deviceReconnectPendingRef.current) return;
+    const now = Date.now();
+    if (now - lastReconnectAtRef.current < FLAP_WINDOW_MS) {
+      flapCountRef.current += 1;
+      if (flapCountRef.current > MAX_FLAPS) return; // cable is flapping — settle off
+    } else {
+      flapCountRef.current = 0; // last reconnect held steady — fresh start
+    }
+    deviceReconnectPendingRef.current = true;
+    if (deviceReconnectTimerRef.current) clearTimeout(deviceReconnectTimerRef.current);
+    deviceReconnectTimerRef.current = setTimeout(() => { deviceReconnectPendingRef.current = false; deviceReconnectTimerRef.current = null; }, DEVICE_RECONNECT_WINDOW_MS);
+  }, []);
   // Flicker fix: pending "downgrade the pill to connecting" timer, armed on an
   // abnormal WS close and cancelled if the reconnect re-readies within grace.
   const readyDowngradeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1219,9 +1264,14 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     setState((s) => (s.uplinkCongested ? { ...s, uplinkCongested: false } : s));
   }, [planId]);
 
-  const stop = useCallback(() => {
+  const stop = useCallback((opts?: { operator?: boolean }) => {
     if (isDevOrTraceOn()) console.log("[presentflow-audio] stop() called — hard-stopping pipeline");
     intentionalStopRef.current = true;
+    // An OPERATOR stop (AI toggled off) cancels any pending device-reconnect —
+    // they don't want it to auto-resume if the cable is plugged back in later.
+    // Internal restart-stops (scheduleRestart, guardian) pass no opts, so a
+    // mid-service unplug's restart does NOT cancel the reconnect window.
+    if (opts?.operator) endDeviceReconnect();
     // Audio Guardian — an intentional stop() ends the pipeline lifecycle,
     // so the watchdog goes down with it. Restarts (scheduleRestart path,
     // guardian-initiated rebuilds) call stop()+start() back-to-back; the
@@ -2345,6 +2395,9 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       }
       setStage("mic_granted"); log("4b mic granted", stream.getAudioTracks().map((t) => t.label));
       streamRef.current = stream;
+      // Capture succeeded — if this was an auto-reconnect after an unplug, the
+      // device is back and listening has resumed; close the reconnect window.
+      endDeviceReconnect();
       // 🔴 Stress F3 — track.onended fires when the OS revokes the capture,
       // typically because the USB interface was unplugged mid-service. Without
       // this handler, worklet chunks silently stop arriving, the level meter
@@ -2358,7 +2411,12 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         const handleDeviceEnded = () => {
           if (isDevOrTraceOn()) console.log("[presentflow-audio] track.ended — device likely unplugged");
           noAudioSignalRef.current = true;
-          setState((s) => ({ ...s, noAudioSignal: true, audioLevel: 0, error: "Audio device disconnected — reconnect the USB cable or pick a different input in Settings › Audio." }));
+          // Open the bounded auto-reconnect window so plugging the cable back in
+          // resumes listening WITHOUT the operator toggling AI off/on. Only when
+          // we were actually listening (an unplug mid-service), never a warm/idle
+          // teardown.
+          if (listeningRef.current) beginDeviceReconnect();
+          setState((s) => ({ ...s, noAudioSignal: true, audioLevel: 0, error: "Audio device disconnected — plug the USB cable back in and it will reconnect automatically, or pick a different input in Settings › Audio." }));
         };
         const track = stream.getAudioTracks()[0];
         if (track) {
@@ -2862,8 +2920,11 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       if (restartTimer) clearTimeout(restartTimer);
       restartTimer = setTimeout(() => {
         restartTimer = null;
-        // Refs, not captured state — F2.
-        if (!listeningRef.current && !warmStartedRef.current) return;
+        // Refs, not captured state — F2. deviceReconnectPendingRef keeps this
+        // path alive after a mid-service unplug: the failed unplug-restart clears
+        // listeningRef, but a pending device-reconnect still lets the REPLUG's
+        // devicechange restart through so listening auto-resumes.
+        if (!listeningRef.current && !warmStartedRef.current && !deviceReconnectPendingRef.current) return;
         const sinceLast = Date.now() - lastPipelineRestartAt;
         if (sinceLast < RESTART_FLOOR_MS) {
           if (isDevOrTraceOn()) console.log(`[presentflow-audio] ${reason} — inside restart floor, deferring ${RESTART_FLOOR_MS - sinceLast}ms`);
