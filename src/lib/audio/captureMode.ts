@@ -124,13 +124,17 @@ export function isNativeAvailable(): Promise<boolean> {
  */
 export async function resolveEffectiveMode(preferred: CaptureMode): Promise<"native" | "browser"> {
   if (preferred === "browser") return "browser";
+  // WINDOWS: the native ffmpeg/dshow backend is stubbed + unverified — its
+  // startCapture returns ok on ffmpeg SPAWN (not device open), so a silent
+  // wrong/duplicate-named-device success has NO fallback and surfaces only as a
+  // mid-service "no audio" toast. That is unacceptable for a live service. So on
+  // Windows we lock native OFF ENTIRELY: even an EXPLICIT 'native' pick resolves
+  // to the proven browser/WASAPI path. macOS keeps its field-proven native path.
+  if (isWindowsRenderer()) {
+    if (preferred === "native") console.warn("[capture] native mode is not available on Windows yet — using the browser/WASAPI path.");
+    return "browser";
+  }
   if (preferred === "native") return "native";
-  // preferred === "auto":
-  // Windows defaults to the proven browser/WASAPI path — its native dshow
-  // backend is unverified (see isWindowsRenderer). macOS keeps native
-  // auto-selection. These are fully separate branches: the Windows path never
-  // engages the native surface, the Mac path never changes.
-  if (isWindowsRenderer()) return "browser";
   const available = await isNativeAvailable();
   return available ? "native" : "browser";
 }

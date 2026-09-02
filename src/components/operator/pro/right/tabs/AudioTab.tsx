@@ -902,7 +902,13 @@ export function AudioTab() {
           </span>
         </div>
         <div className="inline-flex rounded-xl border border-[var(--color-border)] bg-[var(--color-app-bg)] p-[3px] shadow-[var(--edge-top),inset_0_1px_2px_rgba(0,0,0,0.28)]">
-          {(["auto", "native", "browser"] as const).map((m) => (
+          {/* Native capture is locked off on Windows (its dshow backend is
+              stubbed + can silently capture the wrong/silent device with no
+              fallback) — offering only Auto + Browser removes the one-tap
+              footgun. Mac keeps its field-proven native option. */}
+          {((typeof navigator !== "undefined" && /windows|win32|win64|wow64/i.test(`${navigator.userAgent} ${(navigator as Navigator).platform || ""}`)
+            ? ["auto", "browser"]
+            : ["auto", "native", "browser"]) as CaptureMode[]).map((m) => (
             <button
               key={m}
               onClick={() => { setCaptureMode(m); writeCaptureMode(m); }}
