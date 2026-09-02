@@ -68,9 +68,21 @@ export async function submitApplication(raw: unknown): Promise<ApplyResult> {
   // Best-effort identity for the notification subject line.
   const all = answered.map((a) => a.answer).join(" — ");
   const contact = EMAIL_RE.exec(all)?.[0];
-  const churchName =
-    answered.find((a) => /church name/i.test(a.question))?.answer ||
-    answered.find((a) => /church/i.test(a.question))?.answer;
+  // Church name. The "What's your church called" answer is shaped
+  // "Church name: X · City: Y · Country: Z", so match the ANSWER shape first
+  // (most reliable). Fall back to a church-specific QUESTION, explicitly
+  // excluding the mixer/soundboard question — it also contains the word
+  // "church" ("...does your church use?") and was previously being stored as
+  // the church name (e.g. "Behringer X32").
+  const churchNameRaw =
+    answered.find((a) => /church name\s*:/i.test(a.answer))?.answer ??
+    answered.find(
+      (a) => /church/i.test(a.question) && !/mixer|soundboard|\buse\b/i.test(a.question),
+    )?.answer ??
+    null;
+  const churchName: string | undefined = churchNameRaw
+    ? (/church name\s*:\s*([^·—\n|]+)/i.exec(churchNameRaw)?.[1]?.trim() || churchNameRaw.trim())
+    : undefined;
 
   // Capture identity of this request for triage / anti-abuse review.
   let ua = "";
