@@ -36,7 +36,7 @@ import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { TimerApi, MessagesApi } from "../hooks";
 import type { UnifiedSuggestion } from "../../useAudioStream";
-import { AIDetectionsPanel } from "./AIDetectionsPanel";
+import { AIDetectionsPanel, songRowFromSuggestion } from "./AIDetectionsPanel";
 import { MessagesTab } from "./tabs/MessagesTab";
 import { TimersTab } from "./tabs/TimersTab";
 import { MacrosTab } from "./tabs/MacrosTab";
@@ -105,7 +105,14 @@ export function RightIconBar({
   // Badge counts derived directly from live suggestion state — updates
   // reactively as detections land, no separate subscription needed.
   const bibleCount = ctx.audio.suggestions.filter((s: UnifiedSuggestion) => s.type === "scripture").length;
-  const songCount = ctx.audio.suggestions.filter((s: UnifiedSuggestion) => s.type === "song" || s.type === "lyric").length;
+  // Count ONLY suggestions that actually resolve to a real song row (a matched
+  // songId) — the exact same filter the Song Detections panel uses to render.
+  // Previously this counted every "song"/"lyric" suggestion regardless of
+  // whether it matched a real library song, so spoken scripture that fuzzy-grazed
+  // a lyric phrase (with no songId) inflated the badge to e.g. "6" while the
+  // panel correctly showed "No song matches yet". Reusing songRowFromSuggestion
+  // guarantees the badge can never disagree with the list.
+  const songCount = ctx.audio.suggestions.filter((s: UnifiedSuggestion) => songRowFromSuggestion(s) !== null).length;
   const xrefCount = ctx.audio.phraseMatches.length;
 
   return (
