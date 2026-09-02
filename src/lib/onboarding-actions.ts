@@ -62,9 +62,8 @@ export async function createChurchAndAttachUser(input: {
       // Beta trial: full pilot-tier features, but on a TRIALING clock. After
       // TRIAL_DAYS the app locks behind the "trial ended — contact us" prompt
       // until they pay (getEntitlement.trialExpired). tier stays "pilot" so every
-      // feature is unlocked during the trial. 8 days ≈ one week + a buffer day so
-      // the lock can never land during a church's Sunday/Wednesday service.
-      const TRIAL_DAYS = 8;
+      // feature is unlocked during the trial. Exactly one week.
+      const TRIAL_DAYS = 7;
       const trialEnd = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
       await tx.insert(subscriptions).values({
         churchId: church.id,
