@@ -1376,29 +1376,35 @@ export function AudioTab() {
                 />
               </div>
 
-              {/* Setup guide (collapsible, default closed in the sidebar) */}
-              {guide && (
-                <div className="border-t pt-2" style={{ borderColor: "var(--color-border)" }}>
-                  <button
-                    onClick={() => setGuideOpen((v) => !v)}
-                    className="w-full flex items-center gap-1 text-left text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] px-1"
-                  >
-                    {guideOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                    Setup guide: {guide.displayName}
-                  </button>
-                  {guideOpen && (
-                    <ol className="mt-1 px-3 py-2 rounded space-y-1 text-[10px] leading-snug text-[var(--color-muted-foreground)] list-decimal list-inside" style={{ background: "var(--color-elevated)" }}>
-                      {guide.steps.map((s, i) => <li key={i}>{s}</li>)}
-                      {guide.vocalChannelHint && (
-                        <li className="mt-1 pt-1 border-t text-[var(--color-foreground)]" style={{ borderColor: "var(--color-border)" }}>
-                          <span className="font-semibold">Vocal hint: </span>{guide.vocalChannelHint}
-                        </li>
-                      )}
-                    </ol>
-                  )}
-                </div>
-              )}
             </>
+          )}
+        </div>
+      )}
+
+      {/* Setup guide — rendered INDEPENDENT of the channel grid so it shows for
+          ANY selected device that has a guide (2ch interfaces, analog mixers
+          with a USB main-mix out, mono USB mics, and Windows devices whose
+          channel count wasn't probed). Previously it was nested inside the
+          `channelCount > 1` grid block, so 2ch/mono/unprobed rigs — the most
+          common "any interface" case — got no on-screen setup help. */}
+      {guide && (
+        <div className="flex flex-col border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
+          <button
+            onClick={() => setGuideOpen((v) => !v)}
+            className="w-full flex items-center gap-1 text-left text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] px-1"
+          >
+            {guideOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+            Setup guide: {guide.displayName}
+          </button>
+          {guideOpen && (
+            <ol className="mt-1 px-3 py-2 rounded space-y-1 text-[10px] leading-snug text-[var(--color-muted-foreground)] list-decimal list-inside" style={{ background: "var(--color-elevated)" }}>
+              {guide.steps.map((s, i) => <li key={i}>{s}</li>)}
+              {guide.vocalChannelHint && (
+                <li className="mt-1 pt-1 border-t text-[var(--color-foreground)]" style={{ borderColor: "var(--color-border)" }}>
+                  <span className="font-semibold">Vocal hint: </span>{guide.vocalChannelHint}
+                </li>
+              )}
+            </ol>
           )}
         </div>
       )}
