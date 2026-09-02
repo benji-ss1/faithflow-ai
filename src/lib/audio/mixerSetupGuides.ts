@@ -367,6 +367,61 @@ export const MIXER_SETUP_GUIDES: MixerSetupGuide[] = [
     vocalChannelHint:
       "The NDI source itself decides what audio arrives. Confirm the source mix carries the pastor's mic before troubleshooting inside PresentFlow.",
   },
+  {
+    // Analog mixer with a USB output that carries the MAIN MIX — the most
+    // common church rig (Behringer/Yamaha/Soundcraft/Mackie analog desks).
+    // Unlike the digital consoles above there is NO per-channel USB routing:
+    // the USB feed IS the main L/R mix, so the fix is at the faders, not a USB
+    // Send menu. Listed AFTER the specific digital consoles so they win first;
+    // broad patterns also catch generic driverless names ("USB Audio CODEC").
+    id: "analog-usb-mixer",
+    displayName: "Analog mixer with USB out (main mix)",
+    matchPatterns: [
+      /usb\s*audio\s*codec/i,
+      /usb\s*audio\s*device/i,
+      /\bmain\s*mix\b/i,
+    ],
+    channelCount: 2,
+    steps: [
+      "1. Connect the mixer to the computer with a USB cable (USB-B on the mixer to a USB port on the computer).",
+      "2. On a class-compliant analog mixer the USB feed IS the main L/R mix — there is nothing per-channel to route. If a driver is required, install it from the manufacturer (Behringer, Yamaha, Soundcraft, Mackie).",
+      "3. In PresentFlow's audio picker, select the mixer (it may show as 'USB Audio CODEC' if no driver is installed — that is still it).",
+      "4. Make sure the pastor's mic channel fader is up and unmuted in the main mix, then speak and watch the level meter move.",
+    ],
+    tips: [
+      "The USB feed carries whatever is in your main mix — if the congregation hears it, PresentFlow hears it.",
+      "For the cleanest detection, keep the pastor's mic clearly present in the mix.",
+    ],
+    vocalChannelHint:
+      "This is the stereo main mix — there is no channel to pick. Just ensure the pastor's mic is up in the mix.",
+  },
+  {
+    // GENERIC fallback for any USB audio interface / class-compliant device we
+    // don't have a specific guide for (Focusrite Scarlett, PreSonus AudioBox, a
+    // no-name interface, a USB mic). Also returned by findGuideForDevice's
+    // fallback below when nothing specific matched but the device still looks
+    // external. Broad, safe, encouraging — so no church is ever left with zero
+    // on-screen help.
+    id: "generic-usb-interface",
+    displayName: "USB audio interface / device",
+    matchPatterns: [
+      /usb\s*audio/i,
+      /interface/i,
+    ],
+    channelCount: 2,
+    steps: [
+      "1. Connect your interface or mixer to the computer over USB.",
+      "2. Feed it your service audio — a vocal mic, or your mixer's main-out / a spare aux — so a clear voice reaches the input.",
+      "3. In PresentFlow's audio picker, select this device and speak: the level meter should move.",
+      "4. If nothing moves, check the input gain on the interface, the cable, and that the correct input is armed.",
+    ],
+    tips: [
+      "PresentFlow captures any USB audio device your computer can see — you don't need a specific brand.",
+      "If the device only appears after installing a manufacturer driver, install it, then reopen PresentFlow.",
+    ],
+    vocalChannelHint:
+      "Make sure a clear voice is reaching this input — that is all PresentFlow needs.",
+  },
 ];
 
 /**
@@ -380,6 +435,16 @@ export function findGuideForDevice(label: string): MixerSetupGuide | null {
     for (const pattern of guide.matchPatterns) {
       if (pattern.test(label)) return guide;
     }
+  }
+  // Fallback: an unrecognised device that still looks like an EXTERNAL audio
+  // interface/mixer gets the generic guide rather than nothing — but never a
+  // built-in laptop mic / webcam / virtual device (those aren't a "connect your
+  // mixer" situation, so guidance would just confuse).
+  const l = label.toLowerCase();
+  const looksExternal = /usb|audio|interface|mixer|codec|\bline\b/.test(l);
+  const isBuiltIn = /built-?in|macbook|internal|imac|display audio|webcam|facetime|array/.test(l);
+  if (looksExternal && !isBuiltIn) {
+    return MIXER_SETUP_GUIDES.find((g) => g.id === "generic-usb-interface") ?? null;
   }
   return null;
 }
