@@ -751,6 +751,37 @@ export function AudioTab() {
     try { window.dispatchEvent(new CustomEvent("presentflow:audio-input-changed", { detail: sel })); } catch { /* noop */ }
   }
 
+  // Browser-path AUTO-PICK — the mirror of the native auto-pick, for the
+  // Windows/browser path. On first load with NO saved device preference, pick
+  // the best available MIXER / NDI feed and select it, so the AI never silently
+  // captures the laptop's built-in mic (the Windows *default* input when nothing
+  // is chosen — see the 2026-09-02 audio audit). Deliberately conservative:
+  //   - fires ONCE (autoPickedBrowserRef), never overriding an existing pick;
+  //   - browser mode only (native has its own auto-pick);
+  //   - only when the best option is actually a mixer/interface or NDI — it will
+  //     NOT auto-grab a plain microphone (the operator picks that on purpose, so
+  //     we never hijack a deliberate laptop-mic / room-mic setup);
+  //   - waits for post-permission device LABELS before it can rank.
+  // The operator can always change the selection afterwards.
+  const autoPickedBrowserRef = useRef(false);
+  useEffect(() => {
+    if (autoPickedBrowserRef.current) return;
+    if (effectiveMode !== "browser") return;
+    if (selected) { autoPickedBrowserRef.current = true; return; }
+    const labeled = devices.filter((d) => d.label && d.deviceId && d.deviceId !== "default");
+    if (!labeled.length) return; // labels not yet available (pre-permission)
+    const best = [...labeled].sort(
+      (a, b) => categoryRank(categorizeDevice(a.label)) - categoryRank(categorizeDevice(b.label)),
+    )[0];
+    const cat = categorizeDevice(best!.label);
+    if (cat !== "mixer" && cat !== "ndi") { autoPickedBrowserRef.current = true; return; }
+    autoPickedBrowserRef.current = true;
+    persistSelection({ kind: "device", id: best!.deviceId, label: best!.label });
+    toast.success(`Auto-selected ${best!.label.replace(/^Default - /, "")} — ${cat === "ndi" ? "NDI feed" : "mixer detected"}`);
+    // persistSelection is a stable local closure; intentionally not a dep.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [devices, selected, effectiveMode]);
+
   function persistSourceType(next: "mixer" | "microphone") {
     setSourceType(next);
     try { localStorage.setItem(AUDIO_SOURCE_TYPE_KEY, next); } catch { /* noop */ }
