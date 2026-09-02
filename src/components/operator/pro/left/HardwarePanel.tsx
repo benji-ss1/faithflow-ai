@@ -8,6 +8,7 @@
 // prop-less and already share state with the right-sidebar paths via
 // localStorage + window events, so both access points stay in sync.
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePersistedDisclosure } from "./usePersistedDisclosure";
 import { createPortal } from "react-dom";
 import { ChevronDown, ChevronRight, Mic, Monitor, Video, X } from "lucide-react";
 import { AudioTab } from "../right/tabs/AudioTab";
@@ -19,7 +20,7 @@ type HardwareKey = "screens" | "audio" | "video";
 const HARDWARE_LABELS: Record<HardwareKey, string> = { screens: "Screens", audio: "Audio", video: "Video Input" };
 
 export function HardwareSection() {
-  const [open, setOpen] = useState(true);
+  const [open, toggleOpen] = usePersistedDisclosure("presentflow.pro.sidebar.hardware.v1", false);
   // Only one hardware panel open at a time — single key of state.
   const [panel, setPanel] = useState<HardwareKey | null>(null);
   const rootRef = useRef<HTMLElement | null>(null);
@@ -81,7 +82,7 @@ export function HardwareSection() {
         <button
           type="button"
           className="flex items-center gap-1 flex-1 text-left"
-          onClick={() => setOpen((v) => !v)}
+          onClick={toggleOpen}
         >
           {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
           <span className="eyebrow">Hardware</span>

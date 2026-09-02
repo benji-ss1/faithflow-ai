@@ -1,7 +1,7 @@
 "use client";
-import { useState } from "react";
 import { ChevronDown, ChevronRight, Lock } from "lucide-react";
 import { RibbonMarquee } from "../RibbonMarquee";
+import { usePersistedDisclosure } from "./usePersistedDisclosure";
 import { toast } from "sonner";
 import type { CenterMode } from "../ProOperatorShell";
 
@@ -28,7 +28,7 @@ export function MediaSection({
   onCenterMode?: (m: CenterMode) => void;
   centerMode?: CenterMode;
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, toggleOpen] = usePersistedDisclosure("presentflow.pro.sidebar.media.v1", false);
 
   const handleClick = (c: Category) => {
     if (c.locked) {
@@ -45,7 +45,7 @@ export function MediaSection({
         <button
           type="button"
           className="flex items-center gap-1 flex-1 text-left"
-          onClick={() => setOpen((v) => !v)}
+          onClick={toggleOpen}
         >
           {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
           <span className="eyebrow">Media</span>
