@@ -195,50 +195,32 @@ export function BillingPanel({ tier, status, currentPeriodEnd, trialEnd, hasStri
           trialEnd={trialEnd}
         />
 
-        {/* Section 2 — Upgrade plans */}
+        {/* Section 2 — Billing coming soon. Prices are intentionally hidden
+            until pilot pricing is finalised; a church that wants to pay now is
+            directed to email us. (Plan cards + Stripe checkout are kept in the
+            code but not shown.) */}
         {tier === "pilot" && (
-          <div className="space-y-6">
-            <div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-between">
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.2em]" style={{ color: "#E8A838" }}>
-                  Upgrade plans
-                </div>
-                <h2 className="mt-1 text-2xl font-semibold sm:text-3xl" style={{ color: "#FFFFFF" }}>
-                  Pricing that fits your Sunday
-                </h2>
-              </div>
-              <CycleToggle cycle={cycle} onChange={setCycle} />
+          <div
+            className="flex flex-col items-center gap-3 rounded-xl px-6 py-10 text-center"
+            style={{ background: "#111115", border: "1px solid #2A2A2E" }}
+          >
+            <div className="text-[11px] font-semibold uppercase tracking-[0.2em]" style={{ color: "#E8A838" }}>
+              Billing
             </div>
-
-            {/* pt-6 so the Recommended badge (which is absolutely positioned
-                at -top-3 on the Pro card) never gets clipped by the parent's
-                edge — noticeable at narrow widths where cards start closer to
-                the container top. */}
-            <div className="grid gap-4 pt-6 md:grid-cols-3">
-              {TIERS.map((t) => (
-                <PlanCard
-                  key={t.key}
-                  plan={t}
-                  cycle={cycle}
-                  href={TIER_TO_HREF[t.key]}
-                />
-              ))}
-            </div>
-
-            <div
-              className="flex items-start gap-2.5 rounded-lg px-4 py-3 text-xs"
-              style={{
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid #2A2A2E",
-                color: "#8B8B92",
-              }}
+            <h2 className="text-2xl font-semibold sm:text-3xl" style={{ color: "#FFFFFF" }}>
+              Billing coming soon
+            </h2>
+            <p className="max-w-md text-sm" style={{ color: "#8B8B92" }}>
+              You&rsquo;re on beta / pilot access — every feature is unlocked. Paid plans and pricing are on the way.
+              Want to get set up now? Email us and we&rsquo;ll sort it out.
+            </p>
+            <a
+              href="mailto:contact@presentflow.org?subject=PresentFlow%20—%20I%27d%20like%20to%20subscribe"
+              className="mt-1 inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold"
+              style={{ background: "linear-gradient(180deg,#F2712E,#E8501A)", color: "#1a0f06" }}
             >
-              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: "#E8A838" }} />
-              <span>
-                Prices are placeholders until we validate them with pilot churches.
-                Any &ldquo;Start free trial&rdquo; click here uses Stripe test mode — no card is ever charged.
-              </span>
-            </div>
+              Contact us — contact@presentflow.org
+            </a>
           </div>
         )}
 
