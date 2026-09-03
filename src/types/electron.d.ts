@@ -101,6 +101,18 @@ export interface ElectronAPI {
     stop: () => Promise<NdiStatusWire>;
     test: (on: boolean) => Promise<NdiStatusWire>;
   };
+  // NDI AUDIO RECEIVE — discover/select an NDI source and stream its audio into
+  // the AI pipeline (no USB cable). Desktop-only; web build guards on
+  // `window.electronAPI?.ndiAudio`. PCM arrives 16 kHz mono int16 as ArrayBuffer.
+  ndiAudio?: {
+    listSources: () => Promise<Array<{ name: string; urlAddress: string }>>;
+    getStatus: () => Promise<{ available: boolean; connected: boolean; sourceName: string | null; error: string | null }>;
+    startReceive: (sourceName: string) => Promise<{ ok: boolean; error?: string }>;
+    stopReceive: () => Promise<unknown>;
+    onPcmChunk: (cb: (chunk: ArrayBuffer) => void) => () => void;
+    onLevel: (cb: (level: { rms: number; db: number; peak: number }) => void) => () => void;
+    onError: (cb: (err: { message: string; suggestion?: string }) => void) => () => void;
+  };
   on: (channel: string, handler: (...args: any[]) => void) => void;
   off: (channel: string, handler: (...args: any[]) => void) => void;
 }

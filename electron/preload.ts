@@ -137,6 +137,34 @@ const api = {
     stop: () => ipcRenderer.invoke("ndi:stop"),
     test: (on: boolean) => ipcRenderer.invoke("ndi:test", on),
   },
+  // NDI AUDIO RECEIVE — discover/select an NDI source and stream its audio into
+  // the AI pipeline as if it were a USB device (no cable to the mixer needed).
+  // PCM arrives 16 kHz mono int16 as an ArrayBuffer; the renderer forwards it into
+  // the SAME onPcmChunk → Deepgram WebSocket path as the native audio bridge.
+  ndiAudio: {
+    listSources: (): Promise<Array<{ name: string; urlAddress: string }>> =>
+      ipcRenderer.invoke("ndiAudio:list-sources"),
+    getStatus: (): Promise<{ available: boolean; connected: boolean; sourceName: string | null; error: string | null }> =>
+      ipcRenderer.invoke("ndiAudio:get-status"),
+    startReceive: (sourceName: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke("ndiAudio:start", sourceName),
+    stopReceive: (): Promise<unknown> => ipcRenderer.invoke("ndiAudio:stop"),
+    onPcmChunk: (cb: (chunk: ArrayBuffer) => void) => {
+      const handler = (_e: IpcRendererEvent, chunk: ArrayBuffer) => cb(chunk);
+      ipcRenderer.on("ndiAudio:pcm", handler);
+      return () => ipcRenderer.removeListener("ndiAudio:pcm", handler);
+    },
+    onLevel: (cb: (level: { rms: number; db: number; peak: number }) => void) => {
+      const handler = (_e: IpcRendererEvent, level: { rms: number; db: number; peak: number }) => cb(level);
+      ipcRenderer.on("ndiAudio:level", handler);
+      return () => ipcRenderer.removeListener("ndiAudio:level", handler);
+    },
+    onError: (cb: (err: { message: string; suggestion?: string }) => void) => {
+      const handler = (_e: IpcRendererEvent, err: { message: string; suggestion?: string }) => cb(err);
+      ipcRenderer.on("ndiAudio:error", handler);
+      return () => ipcRenderer.removeListener("ndiAudio:error", handler);
+    },
+  },
   on: (channel: string, handler: Handler) => {
     const wrapped = (_e: IpcRendererEvent, ...args: any[]) => handler(...args);
     listeners.set(handler, wrapped);

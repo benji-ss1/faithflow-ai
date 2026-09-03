@@ -1,0 +1,18 @@
+{
+  "name": "presentflow-ndi-receiver",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PresentFlow native NDI AUDIO receiver addon (N-API). Discovers + receives NDI audio for the AI pipeline. UNVERIFIED — build with electron-rebuild against the NDI SDK (Windows primary); validate on-site against OBS+DistroAV.",
+  "main": "index.js",
+  "gypfile": true,
+  "scripts": {
+    "build": "node-gyp rebuild",
+    "rebuild-electron": "electron-rebuild -f -w presentflow-ndi-receiver"
+  },
+  "dependencies": {
+    "node-addon-api": "^8.0.0"
+  },
+  "devDependencies": {
+    "node-gyp": "^10.0.0"
+  }
+}

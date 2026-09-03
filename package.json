@@ -12,10 +12,11 @@
     "electron:dev": "concurrently -k \"next dev\" \"wait-on http://localhost:3000 && npm run electron:build:tsc && cross-env NODE_ENV=development electron .\"",
     "electron:build:tsc": "tsc -p electron/tsconfig.json",
     "ndi:rebuild": "bash scripts/ndi-rebuild.sh",
+    "ndi:rebuild:win": "powershell -ExecutionPolicy Bypass -File scripts/ndi-rebuild.ps1",
     "electron:build": "npm run ndi:rebuild && next build && npm run electron:build:tsc && electron-builder --mac --x64 --arm64",
     "electron:build:signed": "npm run ndi:rebuild && next build && npm run electron:build:tsc && node --env-file=.env.local ./node_modules/.bin/electron-builder --mac --x64 --arm64",
     "electron:build:tester": "bash scripts/build-tester.sh",
-    "electron:build:win": "next build && npm run electron:build:tsc && electron-builder --win nsis",
+    "electron:build:win": "npm run ndi:rebuild:win && next build && npm run electron:build:tsc && electron-builder --win nsis",
     "electron:preview": "next build && npm run electron:build:tsc && cross-env NODE_ENV=production electron .",
     "ws": "tsx --env-file=.env.local scripts/audio-server.ts",
     "build": "next build",
@@ -183,6 +184,15 @@
             "index.js",
             "package.json"
           ]
+        },
+        {
+          "from": "native/ndi-receiver",
+          "to": "native/ndi-receiver",
+          "filter": [
+            "build/Release/ndi_receiver.node",
+            "index.js",
+            "package.json"
+          ]
         }
       ],
       "target": [
@@ -214,7 +224,22 @@
       "identity": null
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "extraResources": [
+        {
+          "from": "native/ndi-receiver",
+          "to": "native/ndi-receiver",
+          "filter": [
+            "build/Release/ndi_receiver.node",
+            "index.js",
+            "package.json"
+          ]
+        },
+        {
+          "from": "native/ndi-receiver/ndi-sdk/lib/Processing.NDI.Lib.x64.dll",
+          "to": "native/ndi-receiver/build/Release/Processing.NDI.Lib.x64.dll"
+        }
+      ]
     },
     "nsis": {
       "oneClick": true,

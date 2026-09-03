@@ -19,7 +19,7 @@
  * now come from `src/lib/audio/deviceCategorization.ts` (single source
  * of truth) instead of duplicated inline regexes.
  */
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as Popover from "@radix-ui/react-popover";
 import { ChevronDown, ChevronRight, Plus, RefreshCcw, Stethoscope, Wand2, Sliders, Globe, Monitor, RotateCcw } from "lucide-react";
@@ -57,8 +57,12 @@ import {
   readCaptureMode,
   writeCaptureMode,
   resolveEffectiveMode,
+  readNdiAudioSource,
+  writeNdiAudioSource,
+  isNdiAudioBridgePresent,
   CAPTURE_MODE_CHANGED_EVENT,
   type CaptureMode,
+  type EffectiveCaptureMode,
 } from "@/lib/audio/captureMode";
 import {
   readNativeDevicePref,
@@ -144,7 +148,44 @@ export function AudioTab() {
 
   // Wave 2 — capture-mode toggle state.
   const [captureMode, setCaptureMode] = useState<CaptureMode>("auto");
-  const [effectiveMode, setEffectiveMode] = useState<"native" | "browser">("browser");
+  const [effectiveMode, setEffectiveMode] = useState<EffectiveCaptureMode>("browser");
+  // NDI network audio (desktop only) — discover sources on the LAN like OBS and
+  // let the operator select one as the live audio input (no USB cable needed).
+  const ndiBridge = isNdiAudioBridgePresent();
+  const [ndiSources, setNdiSources] = useState<Array<{ name: string; urlAddress: string }>>([]);
+  const [ndiSelected, setNdiSelected] = useState<string | null>(() => readNdiAudioSource());
+  const [ndiConnected, setNdiConnected] = useState(false);
+  // Poll the LAN for NDI sources (like OBS's source list) while the panel is open.
+  useEffect(() => {
+    if (!ndiBridge) return;
+    const api = (window as unknown as { electronAPI?: { ndiAudio?: {
+      listSources: () => Promise<Array<{ name: string; urlAddress: string }>>;
+      getStatus: () => Promise<{ connected: boolean }>;
+    } } }).electronAPI?.ndiAudio;
+    if (!api) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const list = await api.listSources();
+        if (!cancelled && Array.isArray(list)) setNdiSources(list);
+        const st = await api.getStatus();
+        if (!cancelled && st) setNdiConnected(!!st.connected);
+      } catch { /* ignore */ }
+    };
+    void poll();
+    const id = setInterval(poll, 2000);
+    const onChange = () => setNdiSelected(readNdiAudioSource());
+    window.addEventListener(CAPTURE_MODE_CHANGED_EVENT, onChange);
+    return () => { cancelled = true; clearInterval(id); window.removeEventListener(CAPTURE_MODE_CHANGED_EVENT, onChange); };
+  }, [ndiBridge]);
+  // Select (or clear) the NDI source. writeNdiAudioSource fires the capture-mode
+  // change event → the audio hook does a full pipeline restart onto the NDI path.
+  const selectNdiSource = useCallback((name: string | null) => {
+    writeNdiAudioSource(name);
+    setNdiSelected(name);
+    if (name) toast.success(`NDI audio source: ${name}`);
+    else toast.success("NDI audio off — using device input");
+  }, []);
   // Native-mode device list + selected pick.
   const [nativeDevices, setNativeDevices] = useState<NativeDeviceInfo[]>([]);
   const [nativeSelected, setNativeSelected] = useState<NativeDeviceInfo | null>(null);
@@ -277,7 +318,9 @@ export function AudioTab() {
     // The probe grabs the device briefly and can trigger the exact
     // device-busy conflict the native path defends against. In native
     // mode the browser channel grid is hidden anyway — skip the probe.
-    if (effectiveMode === "native") return;
+    // NDI mode is also a non-browser capture source → skip the local probe
+    // (it would needlessly open the mic and can pop a spurious permission).
+    if (effectiveMode !== "browser") return;
     let cancelled = false;
     (async () => {
       const caps = await getDeviceCapabilities(selected.id);
@@ -332,7 +375,7 @@ export function AudioTab() {
     // Also stand down while the Mic Board modal is open — it opens its OWN
     // preview capture on the same device, and two Web Audio captures contending
     // for one mixer is wasteful (and can fail on some drivers).
-    if (effectiveMode === "native" || !pickerOpen || !selected || !capsProbed || channelCount <= 1 || micBoardOpen) {
+    if (effectiveMode !== "browser" || !pickerOpen || !selected || !capsProbed || channelCount <= 1 || micBoardOpen) {
       teardown();
       return;
     }
@@ -921,15 +964,57 @@ export function AudioTab() {
 
   return (
     <div className="flex flex-col gap-3 py-2 text-[12px]">
+      {/* NDI network audio — receive the mixer feed over the LAN from a streaming
+          PC (OBS + DistroAV), no USB cable. Desktop only. Selecting a source
+          restarts the pipeline onto the NDI receive path. */}
+      {ndiBridge && (
+        <div className="flex flex-col gap-1.5 rounded-xl border p-2" style={{ borderColor: "color-mix(in oklab, var(--color-brand) 40%, var(--color-border))", background: "color-mix(in oklab, var(--color-brand) 6%, transparent)" }}>
+          <div className="eyebrow px-1 flex items-center justify-between">
+            <span>NDI network audio</span>
+            <span className="inline-flex items-center gap-1 text-[9px] font-mono normal-case tracking-normal" style={{ color: ndiConnected ? "#34d399" : "var(--color-muted-foreground)" }}>
+              <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: ndiConnected ? "#34d399" : "var(--color-muted-foreground)" }} />
+              {ndiConnected ? "receiving" : ndiSources.length > 0 ? `${ndiSources.length} found` : "scanning…"}
+            </span>
+          </div>
+          {ndiSources.length === 0 ? (
+            <div className="text-[10px] text-[var(--color-muted-foreground)] px-1 leading-relaxed">
+              No NDI sources yet. On the streaming PC: OBS → <span className="text-[var(--color-foreground)]">Tools → DistroAV NDI Settings → Main Output</span>, and make sure both PCs are on the <span className="text-[var(--color-foreground)]">same network</span>.
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {ndiSources.map((s) => {
+                const on = ndiSelected === s.name;
+                return (
+                  <button key={s.name} onClick={() => selectNdiSource(on ? null : s.name)}
+                    className="w-full text-left px-2 py-1.5 rounded-lg text-[11px] border transition-colors flex items-center justify-between gap-2"
+                    style={on
+                      ? { borderColor: "var(--color-brand)", background: "color-mix(in oklab, var(--color-brand) 18%, var(--color-card))", color: "var(--color-brand-hi)" }
+                      : { borderColor: "var(--color-border)", background: "var(--color-card)", color: "var(--color-foreground)" }}>
+                    <span className="truncate">{s.name}</span>
+                    {on && <span className="text-[9px] font-semibold shrink-0">{ndiConnected ? "● LIVE" : "selected"}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {ndiSelected && (
+            <button onClick={() => selectNdiSource(null)} className="text-[10px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] px-1 text-left">
+              Stop NDI — use a device input instead
+            </button>
+          )}
+          {/* NDI® trademark attribution — required whenever NDI is offered. */}
+          <div className="text-[9px] text-[var(--color-muted-foreground)] px-1 opacity-70">NDI® is a registered trademark of Vizrt NDI AB.</div>
+        </div>
+      )}
       {/* Wave 2 — Capture Mode toggle. Bypasses Chromium getUserMedia (which
           silently drops 32-ch USB pro-audio input, JPD field test confirmed)
           by routing through an ffmpeg subprocess in the Electron main process. */}
       <div className="flex flex-col gap-1.5">
         <div className="eyebrow px-1 flex items-center justify-between">
           <span>Capture mode</span>
-          <span className="inline-flex items-center gap-1 text-[9px] font-mono normal-case tracking-normal text-[var(--color-brand)]" title="Native: ffmpeg subprocess (reliable for pro mixers). Browser: Chromium getUserMedia (may fail with 32ch USB). Auto: Native when the desktop app supports it, otherwise Browser.">
+          <span className="inline-flex items-center gap-1 text-[9px] font-mono normal-case tracking-normal text-[var(--color-brand)]" title="NDI: network audio from a streaming PC. Native: ffmpeg subprocess (reliable for pro mixers). Browser: Chromium getUserMedia. Auto: Native when the desktop app supports it, otherwise Browser.">
             {effectiveMode === "native" ? <Sliders className="w-2.5 h-2.5" /> : <Globe className="w-2.5 h-2.5" />}
-            {effectiveMode === "native" ? "native active" : "browser active"}
+            {effectiveMode === "ndi" ? "NDI network active" : effectiveMode === "native" ? "native active" : "browser active"}
           </span>
         </div>
         <div className="inline-flex rounded-xl border border-[var(--color-border)] bg-[var(--color-app-bg)] p-[3px] shadow-[var(--edge-top),inset_0_1px_2px_rgba(0,0,0,0.28)]">
@@ -1185,8 +1270,9 @@ export function AudioTab() {
         </div>
       )}
 
-      {/* Browser-mode Input device (existing) — hidden when native is active. */}
-      <div className={"flex flex-col gap-1.5 " + (effectiveMode === "native" ? "hidden" : "")}>
+      {/* Browser-mode Input device (existing) — hidden when native OR NDI is the
+          active capture source (the operator uses "Stop NDI" to return to a device). */}
+      <div className={"flex flex-col gap-1.5 " + (effectiveMode !== "browser" ? "hidden" : "")}>
         <div className="eyebrow px-1">Input device</div>
         <Popover.Root open={pickerOpen} onOpenChange={setPickerOpen}>
           <Popover.Trigger asChild>

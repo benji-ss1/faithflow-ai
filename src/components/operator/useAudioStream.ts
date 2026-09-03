@@ -28,6 +28,7 @@ import {
 import {
   readCaptureMode,
   resolveEffectiveMode,
+  readNdiAudioSource,
   CAPTURE_MODE_CHANGED_EVENT,
 } from "@/lib/audio/captureMode";
 import {
@@ -722,6 +723,9 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   // session took the browser path so the teardown branch stays a no-op.
   const nativeActiveRef = useRef<boolean>(false);
   const nativeUnsubsRef = useRef<Array<() => void>>([]);
+  // NDI audio-receive session active (reuses nativeUnsubsRef for the IPC listener
+  // cleanup — only one capture mode is ever active at a time).
+  const ndiActiveRef = useRef<boolean>(false);
   // "Follow Mac system input" — the raw system-default input name that was
   // resolved at the last native capture start. The devicechange follower
   // compares against this to decide whether a rebuild is actually needed
@@ -1165,6 +1169,18 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       // teardown also runs mid-ladder (the guardian's own restart nudges
       // land here) and killing the guardian would abort its recovery.
       // stopGuardian() lives in stop() (intentional operator stop).
+      guardianOnCaptureStop();
+    }
+    // NDI audio-receive teardown — mirrors native: unsubscribe every IPC listener
+    // and stop the receiver in the main process. stopReceive() is idempotent.
+    if (ndiActiveRef.current) {
+      for (const un of nativeUnsubsRef.current) { try { un(); } catch { /* ignore */ } }
+      nativeUnsubsRef.current = [];
+      const ndiApi = (typeof window !== "undefined"
+        ? (window as Window & { electronAPI?: { ndiAudio?: { stopReceive?: () => Promise<unknown> } } }).electronAPI
+        : undefined);
+      try { void ndiApi?.ndiAudio?.stopReceive?.(); } catch { /* ignore */ }
+      ndiActiveRef.current = false;
       guardianOnCaptureStop();
     }
     currentDeviceIdRef.current = null;
@@ -1924,7 +1940,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       // bad native pref can never break a live service — same defence-
       // in-depth pattern as the per-channel routing fallback below.
       const preferredMode = readCaptureMode();
-      let effectiveMode: "native" | "browser" = "browser";
+      let effectiveMode: "native" | "browser" | "ndi" = "browser";
       try {
         effectiveMode = await resolveEffectiveMode(preferredMode);
       } catch { effectiveMode = "browser"; }
@@ -2198,6 +2214,122 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
         }
       }
       // ---------------- end native branch ---------------------------------------
+
+      // ---------------- NDI audio-receive branch --------------------------------
+      // The operator picked an NDI source (Audio tab → NDI source). The Electron
+      // main process receives that source's audio over the network and streams
+      // 16 kHz mono PCM here via electronAPI.ndiAudio — we feed it into the SAME
+      // downstream (sendAudioChunk → Deepgram WS, level meter, guardian) as a USB
+      // device. This removes the physical USB cable to the mixer. Any failure
+      // falls back to the browser path so a bad NDI pref can't break a service.
+      if (effectiveMode === "ndi") {
+        const ndiApi = (typeof window !== "undefined"
+          ? (window as Window & { electronAPI?: {
+              ndiAudio?: {
+                startReceive: (s: string) => Promise<{ ok: boolean; error?: string }>;
+                stopReceive: () => Promise<unknown>;
+                onPcmChunk: (cb: (chunk: ArrayBuffer) => void) => () => void;
+                onLevel: (cb: (level: { rms: number; db: number; peak: number }) => void) => () => void;
+                onError: (cb: (err: { message: string; suggestion?: string }) => void) => () => void;
+              };
+            }; }).electronAPI?.ndiAudio
+          : undefined);
+        const ndiSource = readNdiAudioSource();
+        if (ndiApi && ndiSource) {
+          try {
+            const startRes = await ndiApi.startReceive(ndiSource);
+            if (!startRes?.ok) throw new Error(startRes?.error || "NDI startReceive returned ok=false");
+            if (generation !== pipelineGenerationRef.current) { try { ws.close(1000, "superseded"); } catch { /* ignore */ } try { void ndiApi.stopReceive(); } catch { /* ignore */ } return; }
+            ndiActiveRef.current = true;
+            currentDeviceIdRef.current = "ndi:" + ndiSource;
+            startGuardian();
+            guardianOnCaptureStart(ndiSource);
+            setState((s) => ({ ...s, streamChannelCount: 1, streamSampleRate: 16000 }));
+            setStage("mic_granted"); log("4b-ndi receiving", { source: ndiSource });
+            setStage("audioctx_ready");
+            setStage("worklet_loaded");
+            setStage("worklet_connected"); log("worklet_connected (ndi)");
+
+            let sentChunks = 0;
+            const unsubChunk = ndiApi.onPcmChunk((chunk) => {
+              if (micMutedRef.current) return;
+              if (!sessionStartRef.current) sessionStartRef.current = Date.now();
+              const bytes = new Uint8Array(chunk);
+              if (wsRef.current?.readyState !== WebSocket.OPEN) {
+                ringBufferRef.current.push(bytes);
+                ringBufferBytesRef.current += bytes.length;
+                while (ringBufferBytesRef.current > RING_CAP_BYTES && ringBufferRef.current.length > 0) {
+                  const dropped = ringBufferRef.current.shift();
+                  if (dropped) ringBufferBytesRef.current -= dropped.length;
+                }
+                return;
+              }
+              if (!sendAudioChunk(wsRef.current, bytes)) return;
+              sentChunks++;
+              if (firstChunkAtRef.current === null) firstChunkAtRef.current = Date.now();
+              if (sentChunks - (lastChunkStateAtRef.current ?? 0) >= 40) {
+                lastChunkStateAtRef.current = sentChunks;
+                setState((s) => ({ ...s, chunksSent: sentChunks }));
+              }
+              if (sentChunks === 1) { setStage("first_chunk_sent"); log("6 first NDI audio chunk sent"); }
+            });
+            const unsubLevel = ndiApi.onLevel((level) => {
+              const nowMs = Date.now();
+              const rms = Number.isFinite(level.rms) ? Math.max(0, Math.min(1, level.rms)) : 0;
+              guardianOnLevel(rms);
+              const dbfs = typeof level.db === "number" && Number.isFinite(level.db) ? level.db : (rms > 0 ? 20 * Math.log10(rms) : -Infinity);
+              audioDbfsRef.current = dbfs;
+              if (typeof level.peak === "number" && Number.isFinite(level.peak)) {
+                noteClipPeak(Math.max(0, Math.min(1, level.peak)), nowMs);
+              }
+              const normalized = dbfs === -Infinity ? 0 : Math.max(0, Math.min(1, (dbfs + 60) / 60));
+              if (normalized > levelPeakRef.current) levelPeakRef.current = normalized;
+              if (nowMs - levelLastPushRef.current >= LEVEL_TICK_MS) {
+                const bucket = Math.round(levelPeakRef.current * LEVEL_QUANTIZE) / LEVEL_QUANTIZE;
+                levelPeakRef.current = 0;
+                levelLastPushRef.current = nowMs;
+                setState((s) => (s.audioLevel === bucket ? s : { ...s, audioLevel: bucket }));
+              }
+              if (dbfs < NO_SIGNAL_DBFS) {
+                if (noSignalStartRef.current === null) noSignalStartRef.current = nowMs;
+                if (!noAudioSignalRef.current && nowMs - noSignalStartRef.current >= NO_SIGNAL_HOLD_MS) {
+                  noAudioSignalRef.current = true;
+                  setState((s) => ({ ...s, noAudioSignal: true }));
+                }
+              } else {
+                noSignalStartRef.current = null;
+                if (noAudioSignalRef.current) {
+                  noAudioSignalRef.current = false;
+                  setState((s) => ({ ...s, noAudioSignal: false }));
+                }
+              }
+            });
+            const unsubError = ndiApi.onError((err) => {
+              const msg = err?.message || "NDI receive error";
+              const suggestion = err?.suggestion ? " " + err.suggestion : "";
+              console.warn("[presentflow-audio:ndi] error", msg, err?.suggestion || "");
+              guardianOnError(msg);
+              setState((s) => ({ ...s, error: msg + suggestion }));
+            });
+            nativeUnsubsRef.current = [unsubChunk, unsubLevel, unsubError];
+            endDeviceReconnect();
+            setState((s) => ({ ...s, listening: true }));
+            return;
+          } catch (ndiErr) {
+            console.warn(
+              "[presentflow-audio:ndi] startReceive failed — falling back to browser mode",
+              ndiErr instanceof Error ? ndiErr.message : ndiErr,
+            );
+            for (const un of nativeUnsubsRef.current) { try { un(); } catch { /* ignore */ } }
+            nativeUnsubsRef.current = [];
+            ndiActiveRef.current = false;
+            try { void ndiApi.stopReceive(); } catch { /* ignore */ }
+          }
+        } else {
+          log("ndi mode but bridge/source missing, using browser mode");
+        }
+      }
+      // ---------------- end NDI branch ------------------------------------------
 
       // Honour user's Audio Input picker preference. Live NDI network audio
       // is now captured via the NATIVE tier (the Swift helper receives NDI

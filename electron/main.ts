@@ -6,6 +6,7 @@ import { registerAudioIpc, registerNativeAudioIpc, stopAllNativeAudio } from "./
 import { registerDialogIpc } from "./ipc/dialog";
 import { registerFsIpc } from "./ipc/fs";
 import { registerNdiIpc } from "./ipc/ndi";
+import { registerNdiReceiveIpc } from "./ipc/ndi-receive";
 import { autoUpdater } from "electron-updater";
 
 const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
@@ -637,6 +638,11 @@ app.whenReady().then(async () => {
   // hosted app URL to load the /ndi surface. UNVERIFIED — needs the native addon
   // compiled + on-site OBS test.
   try { registerNdiIpc(appUrl); } catch (e) { console.warn("[main] NDI IPC init failed:", e instanceof Error ? e.message : String(e)); }
+  // NDI AUDIO RECEIVE — discover + receive an NDI audio source and stream it into
+  // the AI pipeline (no USB cable to the mixer). Owns the native receiver addon;
+  // pushes 16 kHz mono PCM to the renderer. UNVERIFIED — needs the native addon
+  // compiled (Windows primary) + on-site test against the church's NDI source.
+  try { registerNdiReceiveIpc(() => mainWindow); } catch (e) { console.warn("[main] NDI receive IPC init failed:", e instanceof Error ? e.message : String(e)); }
 
   // Utility IPC
   ipcMain.handle("app:version", () => app.getVersion());

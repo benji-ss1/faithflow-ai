@@ -15,9 +15,42 @@
  */
 
 export type CaptureMode = "native" | "browser" | "auto";
+// The concrete mode the pipeline actually runs. "ndi" receives audio over the
+// network from an NDI source (via the Electron main-process receiver) and feeds
+// it into the SAME downstream as native/browser PCM.
+export type EffectiveCaptureMode = "native" | "browser" | "ndi";
 
 export const CAPTURE_MODE_KEY = "presentflow.pro.audioCaptureMode.v1";
 export const CAPTURE_MODE_CHANGED_EVENT = "presentflow:capture-mode-changed";
+
+// The operator's selected NDI audio source (exact NDI name). Empty/absent = NDI
+// audio off (use native/browser). Persisted per-machine; a change fires the same
+// capture-mode-changed event so the audio hook rebuilds the pipeline.
+export const NDI_AUDIO_SOURCE_KEY = "presentflow.audio.ndiSource.v1";
+
+export function readNdiAudioSource(): string | null {
+  if (!isBrowserEnv()) return null;
+  try {
+    const v = localStorage.getItem(NDI_AUDIO_SOURCE_KEY);
+    return v && v.trim() ? v : null;
+  } catch { return null; }
+}
+export function writeNdiAudioSource(name: string | null): void {
+  if (!isBrowserEnv()) return;
+  try {
+    if (name && name.trim()) localStorage.setItem(NDI_AUDIO_SOURCE_KEY, name.trim());
+    else localStorage.removeItem(NDI_AUDIO_SOURCE_KEY);
+  } catch { /* ignore */ }
+  // Reuse the capture-mode change signal so the audio hook does a full restart.
+  try { window.dispatchEvent(new CustomEvent(CAPTURE_MODE_CHANGED_EVENT, { detail: { ndiSource: name ?? null } })); } catch { /* ignore */ }
+}
+
+// Whether the Electron NDI-receive bridge is present (desktop app only).
+export function isNdiAudioBridgePresent(): boolean {
+  if (!isBrowserEnv()) return false;
+  const api = (window as unknown as { electronAPI?: { ndiAudio?: { startReceive?: unknown } } }).electronAPI;
+  return typeof api?.ndiAudio?.startReceive === "function";
+}
 
 // Type-narrowed view of the electronAPI surface we care about. Kept local
 // (not imported from electron.d.ts) so this module compiles cleanly even
@@ -122,7 +155,12 @@ export function isNativeAvailable(): Promise<boolean> {
  * explicitly asked for native and the pipeline should surface any
  * downstream error rather than silently pretend they picked browser.
  */
-export async function resolveEffectiveMode(preferred: CaptureMode): Promise<"native" | "browser"> {
+export async function resolveEffectiveMode(preferred: CaptureMode): Promise<EffectiveCaptureMode> {
+  // NDI audio takes priority whenever the operator has selected a source AND the
+  // desktop NDI-receive bridge is present — this is an EXPLICIT choice and works
+  // on Windows (unlike the native ffmpeg path). If the NDI receive later fails to
+  // start, the caller falls back to the browser path like it does for native.
+  if (isNdiAudioBridgePresent() && readNdiAudioSource()) return "ndi";
   if (preferred === "browser") return "browser";
   // WINDOWS: the native ffmpeg/dshow backend is stubbed + unverified — its
   // startCapture returns ok on ffmpeg SPAWN (not device open), so a silent
