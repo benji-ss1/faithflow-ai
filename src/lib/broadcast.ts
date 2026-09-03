@@ -28,6 +28,20 @@ export const SLIDE_CANVAS_W = 1920;
 export const SLIDE_CANVAS_H = 1080;
 export const MAX_SLIDE_OBJECTS = 60;
 
+// Lower-third scripture band (Christ Embassy lower-third mode). Describes the
+// coloured band drawn behind a lower-third verse. Present on a text payload ONLY
+// when the church's scripture layout is "lowerThird" AND the band mode isn't
+// "none" (a transparent lower-third sets scriptureLayout but omits the band).
+// Geometry (band position/height + verse text region) is owned by the renderer
+// (SlideRenderer's lower-third branch) so the editor preview is byte-identical
+// to the projector — the wire only carries the paint (colour/gradient/opacity).
+export type ScriptureBandWire = {
+  color: string;       // solid fill, or gradient start
+  color2?: string;     // gradient end (when set, band is a linear gradient)
+  angle?: number;      // gradient angle in degrees (default 180 = vertical)
+  opacity: number;     // 0..1
+};
+
 export type SlidePayload =
   // `objects`, when present, drives a positioned multi-object render on every
   // output surface; `text` is kept as the flattened fallback (AI/lyric matching,
@@ -35,7 +49,7 @@ export type SlidePayload =
   // `reference`, when present, is rendered as a fixed always-visible footer
   // (scripture reference like "John 3:16 (KJV)") that never gets shrunk or
   // paginated off with the verse body — the body sizes independently above it.
-  | { kind: "text"; text: string; bgColor?: string; bgImageUrl?: string; objects?: SlideObjectWire[]; reference?: string }
+  | { kind: "text"; text: string; bgColor?: string; bgImageUrl?: string; objects?: SlideObjectWire[]; reference?: string; scriptureLayout?: "lowerThird"; scriptureBand?: ScriptureBandWire }
   | { kind: "image"; url: string; fit?: "contain" | "cover" | "fill"; blurFill?: boolean }
   | { kind: "video"; url: string; fit?: "contain" | "cover" | "fill"; loop?: boolean; volume?: number }
   | { kind: "blank"; bgColor?: string }
@@ -666,6 +680,13 @@ export function projectableTextSlide(text: unknown, bgColor?: unknown, bgImageUr
  */
 export function slideDesignSig(s: Extract<SlidePayload, { kind: "text" }>): string {
   let sig = `${s.bgColor ?? ""}|${s.bgImageUrl ?? ""}`;
+  // Lower-third layout + band are visible design: fold them in so a layout/band
+  // change updates the output identity (crossfades + defeats the already-live
+  // skip). A plain (non-lower-third) slide adds nothing here → identity unchanged.
+  if (s.scriptureLayout) {
+    const b = s.scriptureBand;
+    sig += `|lt${b ? `${b.color},${b.color2 ?? ""},${b.angle ?? ""},${b.opacity}` : "none"}`;
+  }
   if (s.objects?.length) {
     sig += "|o" + s.objects.length + ":" + s.objects.map((o) => {
       const base = `${o.kind[0]}${Math.round(o.x)},${Math.round(o.y)},${Math.round(o.w)},${Math.round(o.h)}${o.rotation ? "@" + Math.round(o.rotation) : ""}`;
@@ -705,6 +726,17 @@ export function slideOutputIdentity(s: SlidePayload): string {
   return "e";
 }
 
+function isValidScriptureBand(b: unknown): boolean {
+  if (!b || typeof b !== "object") return false;
+  if (hasPollutionKey(b)) return false;
+  const p = b as Record<string, unknown>;
+  if (!isValidColor(p.color)) return false;
+  if (p.color2 !== undefined && !isValidColor(p.color2)) return false;
+  if (p.angle !== undefined && (typeof p.angle !== "number" || !Number.isFinite(p.angle) || p.angle < 0 || p.angle > 360)) return false;
+  if (typeof p.opacity !== "number" || !Number.isFinite(p.opacity) || p.opacity < 0 || p.opacity > 1) return false;
+  return true;
+}
+
 function isValidSlide(s: unknown): s is SlidePayload {
   if (!s || typeof s !== "object") return false;
   if (hasPollutionKey(s)) return false;
@@ -719,6 +751,8 @@ function isValidSlide(s: unknown): s is SlidePayload {
         if (!Array.isArray(st.objects) || st.objects.length > MAX_SLIDE_OBJECTS) return false;
         if (!st.objects.every(isValidSlideObject)) return false;
       }
+      if (st.scriptureLayout !== undefined && st.scriptureLayout !== "lowerThird") return false;
+      if (st.scriptureBand !== undefined && !isValidScriptureBand(st.scriptureBand)) return false;
       return true;
     case "image":
     case "video":

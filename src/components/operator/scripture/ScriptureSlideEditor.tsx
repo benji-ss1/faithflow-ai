@@ -1,14 +1,17 @@
 "use client";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { X, Lock, Image as ImageIcon, Play, Save, Type, AlignLeft, AlignCenter, AlignRight, BookOpen } from "lucide-react";
+import { X, Lock, Image as ImageIcon, Play, Save, Type, AlignLeft, AlignCenter, AlignRight, BookOpen, Maximize2, PanelBottom } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { SlidePayload, TransitionSpec, ThemeAppearance } from "@/lib/broadcast";
 import { projectableTextSlide } from "@/lib/broadcast";
 import type { EditableSlide, SlideObject, TextObject } from "@/lib/slide-objects";
 import { SlideCanvas } from "@/components/operator/editor/SlideCanvas";
+import { SlideRenderer } from "@/components/live/SlideRenderer";
+import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import {
-  type ScriptureDesign, DEFAULT_SCRIPTURE_DESIGN, scriptureEditableSlide,
+  type ScriptureDesign, type ScriptureLayout, type BandStyle, DEFAULT_SCRIPTURE_DESIGN, BAND_DEFAULT,
+  scriptureEditableSlide, scriptureLowerThirdPayload,
   designFromSlide, saveScriptureStyle, referenceLabel,
 } from "./scriptureStyle";
 
@@ -50,6 +53,10 @@ export function ScriptureSlideEditor({
     return v ? [v.id] : [];
   });
   const [showTranslation, setShowTranslation] = useState(baseDesign.reference.showTranslation);
+  // Lower-third: layout + band are preset state (not draggable objects).
+  const [layout, setLayout] = useState<ScriptureLayout>(baseDesign.layout ?? "fullscreen");
+  const [band, setBand] = useState<BandStyle>(baseDesign.band ?? BAND_DEFAULT);
+  const isLowerThird = layout === "lowerThird";
 
   // Identify verse (first text) + reference (second text) objects.
   const texts = slide.objects.filter((o): o is TextObject => o.kind === "text");
@@ -87,10 +94,29 @@ export function ScriptureSlideEditor({
     const d = designFromSlide(slide, baseDesign);
     d.reference.showTranslation = showTranslation;
     d.reference.show = refObj ? !refObj.hidden : false;
+    d.layout = layout;
+    d.band = band;
     return d;
   }
+  // The lower-third design assembled purely from preset state (independent of the
+  // drag-canvas objects, which only drive the fullscreen layout).
+  // Reference visibility honours the same Show toggle as fullscreen (refObj.hidden).
+  const showRef = refObj ? !refObj.hidden : true;
+  const lowerThirdDesign = useMemo<ScriptureDesign>(() => ({
+    layout: "lowerThird",
+    verse: baseDesign.verse,
+    reference: { ...baseDesign.reference, showTranslation, show: showRef },
+    band,
+  }), [baseDesign, showTranslation, band, showRef]);
+  // WYSIWYG lower-third preview payload — the SAME payload/renderer the projector
+  // uses, so the preview is one-to-one with the live output.
+  const lowerThirdPreview = useMemo<SlidePayload>(
+    () => scriptureLowerThirdPayload(verse.text, showRef ? verse.reference : "", verse.translation, lowerThirdDesign),
+    [verse.text, verse.reference, verse.translation, lowerThirdDesign, showRef]);
+
   // No per-slide background — theme background is authoritative on the projector.
   function show() {
+    if (isLowerThird) { onShow(lowerThirdPreview, transition); return; }
     const p = projectableTextSlide(verse.text, undefined, undefined, slide.objects);
     // Carry the reference in the dedicated field too (footer guarantee; deduped
     // against the reference object so it never shows twice).
@@ -152,22 +178,72 @@ export function ScriptureSlideEditor({
         </div>
 
         <div className="flex-1 min-h-0 flex">
-          {/* Canvas */}
+          {/* Canvas (fullscreen: drag editor) / Preview (lower third: live renderer) */}
           <div className="flex-1 min-w-0 min-h-0 relative" style={{ backgroundColor: "#0d0d10", backgroundImage: CHECKER, backgroundSize: "28px 28px" }}>
-            <SlideCanvas
-              slide={slide}
-              selectedIds={selectedIds}
-              onSelectObject={onSelectObject}
-              onSetSelection={setSelectedIds}
-              onUpdateObject={updateObject}
-              onUpdateObjects={updateObjects}
-              onRemoveObjects={removeObjects}
-              readOnly={false}
-            />
+            {isLowerThird ? (
+              <div className="absolute inset-0 flex items-center justify-center p-5">
+                <div className="relative w-full rounded-lg overflow-hidden shadow-[var(--shadow-lg)]" style={{ aspectRatio: "16 / 9", maxHeight: "100%", background: "#000" }}>
+                  {/* Wrapped in PresentationCanvas + projectorFit so the preview
+                     composes against the SAME fixed 1920×1080 canvas the projector
+                     uses — the verse fit AND the reference footer are then pixel-
+                     proportional to the live output (true WYSIWYG). */}
+                  <PresentationCanvas>
+                    <SlideRenderer slide={lowerThirdPreview} appearance={appearance ?? undefined} projectorFit />
+                  </PresentationCanvas>
+                  <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md text-[10px] font-semibold tracking-wide pointer-events-none z-10" style={{ background: "rgba(0,0,0,0.55)", color: "rgba(255,255,255,0.85)" }}>Lower-third preview</div>
+                </div>
+              </div>
+            ) : (
+              <SlideCanvas
+                slide={slide}
+                selectedIds={selectedIds}
+                onSelectObject={onSelectObject}
+                onSetSelection={setSelectedIds}
+                onUpdateObject={updateObject}
+                onUpdateObjects={updateObjects}
+                onRemoveObjects={removeObjects}
+                readOnly={false}
+              />
+            )}
           </div>
 
           {/* Controls */}
           <div className="w-[320px] shrink-0 border-l overflow-y-auto" style={{ borderColor: "var(--color-border)", background: "var(--color-panel)" }}>
+            <Section label="Layout">
+              <div className={SEG_WRAP}>
+                <button onClick={() => setLayout("fullscreen")} className={cn(segBase, "flex-1 gap-1.5")} style={seg(!isLowerThird)}><Maximize2 className="w-3.5 h-3.5" /> Full screen</button>
+                <button onClick={() => setLayout("lowerThird")} className={cn(segBase, "flex-1 gap-1.5")} style={seg(isLowerThird)}><PanelBottom className="w-3.5 h-3.5" /> Lower third</button>
+              </div>
+              <div className="flex items-start gap-1.5 text-[10px] text-zinc-500 mt-2">
+                <PanelBottom className="w-3 h-3 mt-0.5 shrink-0" />
+                <span>{isLowerThird ? "Big verse in a bottom band — great over your own camera/graphics. Long verses split into readable cards." : "Classic full-screen verse — drag & style each part below."}</span>
+              </div>
+            </Section>
+
+            {isLowerThird && (
+              <Section label="Band">
+                <Row label="Style"><div className={SEG_WRAP}>
+                  {(["none", "solid", "gradient"] as const).map((m) => (
+                    <button key={m} onClick={() => setBand((b) => ({ ...b, mode: m }))} className={cn(segBase, "flex-1 capitalize")} style={seg(band.mode === m)}>{m === "none" ? "None" : m}</button>
+                  ))}
+                </div></Row>
+                {band.mode !== "none" && (
+                  <>
+                    <Row label={band.mode === "gradient" ? "From" : "Colour"}><input type="color" value={band.color} onChange={(e) => setBand((b) => ({ ...b, color: e.target.value }))} className="h-8 w-full rounded-lg border bg-transparent shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)]" style={{ borderColor: "var(--color-border)" }} /></Row>
+                    {band.mode === "gradient" && (
+                      <>
+                        <Row label="To"><input type="color" value={band.color2} onChange={(e) => setBand((b) => ({ ...b, color2: e.target.value }))} className="h-8 w-full rounded-lg border bg-transparent shadow-[inset_0_1px_2px_rgba(0,0,0,0.28)]" style={{ borderColor: "var(--color-border)" }} /></Row>
+                        <Row label="Angle"><div className="flex items-center gap-2"><input type="range" min={0} max={360} step={5} value={band.angle} onChange={(e) => setBand((b) => ({ ...b, angle: Number(e.target.value) }))} className="flex-1" style={emberSlider} /><span className="text-[10px] font-mono text-zinc-400 w-8 text-right">{band.angle}</span></div></Row>
+                      </>
+                    )}
+                    <Row label="Opacity"><div className="flex items-center gap-2"><input type="range" min={0} max={1} step={0.02} value={band.opacity} onChange={(e) => setBand((b) => ({ ...b, opacity: Number(e.target.value) }))} className="flex-1" style={emberSlider} /><span className="text-[10px] font-mono text-zinc-400 w-8 text-right">{Math.round(band.opacity * 100)}%</span></div></Row>
+                  </>
+                )}
+                <div className="flex items-start gap-1.5 text-[10px] text-zinc-500 mt-1"><ImageIcon className="w-3 h-3 mt-0.5 shrink-0" /><span>{band.mode === "none" ? "No band — the verse floats with a shadow so it reads over any feed." : "A scrim behind the verse only. Black at ~70% is the safest over any background."}</span></div>
+              </Section>
+            )}
+
+            {!isLowerThird && (
             <Section label={selText ? (isVerseSelected ? "Verse text" : "Reference / translation") : "Selection"}>
               {selText ? (
                 <>
@@ -193,6 +269,7 @@ export function ScriptureSlideEditor({
                 <div className="text-[11px] text-zinc-500">Click the verse or the reference on the canvas to edit its style. Drag to move; use the handles to resize.</div>
               )}
             </Section>
+            )}
 
             <Section label="Reference / translation">
               <Row label="Show"><button onClick={toggleReference} className={cn(btn, "w-full font-semibold")} style={toggle(!!refObj && !refObj.hidden)}>{refObj && !refObj.hidden ? "Shown on screen" : "Hidden"}</button></Row>

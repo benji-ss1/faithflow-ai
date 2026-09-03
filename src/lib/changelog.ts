@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.374",
+    date: "2026-09-03",
+    headline: "New: Lower-third scripture — big verses in a bottom band",
+    highlights: [
+      { text: "Edit a scripture slide and pick “Lower third” to project the verse as a big caption in a bottom band instead of a full screen — perfect when you're running your own camera or graphics behind it. Short verses go large; long verses split into readable cards.", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "Choose the band look: a solid or gradient colour with adjustable opacity, or “None” for a clean transparent caption with a shadow. It defaults to a black band at ~70% — the safest, most readable choice over anything.",
+      "It's a per-church preset: set it once and every verse — whether you tap it, or the AI fires it, or you say “next verse” — comes up in the lower third automatically. Switch back to “Full screen” any time.",
+      "The editor shows a live, true-to-projector preview as you tune the band, so what you see is exactly what the congregation gets.",
+    ],
+  },
+  {
     version: "0.1.373",
     date: "2026-09-02",
     headline: "Rock-solid audio setup on Windows",

@@ -4,7 +4,7 @@
 // edit applies to EVERY scripture slide. Drag positions/sizes are captured in
 // the template, so "Save (all slides)" reproduces the exact layout per verse.
 
-import { projectableTextSlide, type SlidePayload } from "@/lib/broadcast";
+import { projectableTextSlide, type SlidePayload, type ScriptureBandWire } from "@/lib/broadcast";
 import { newObjectId, CANVAS_W, CANVAS_H, type EditableSlide, type SlideObject, type TextObject } from "@/lib/slide-objects";
 
 export type TextStyle = {
@@ -15,13 +15,36 @@ export type TextStyle = {
   stroke: string; strokeWidth: number; lineHeight: number; letterSpacing: number;
 };
 
+// Scripture projection layout. "fullscreen" = the classic full-canvas verse
+// (styled per-object, drag-editable). "lowerThird" = Christ Embassy's lower-
+// third mode: a big verse confined to a bottom band (optionally coloured), so a
+// verse can be composited over the church's own content. The band's geometry is
+// owned by the renderer; the design only carries the band paint + which layout.
+export type ScriptureLayout = "fullscreen" | "lowerThird";
+
+// The lower-third band behind the verse. mode "none" = a transparent lower-third
+// (verse floats with just a text shadow — for compositing over a busy feed);
+// "solid" = flat colour; "gradient" = colour → color2. Default is a BLACK solid
+// band (safest legibility over anything), per the pilot sign-off.
+export type BandStyle = {
+  mode: "none" | "solid" | "gradient";
+  color: string;
+  color2: string;
+  angle: number;   // gradient angle in degrees
+  opacity: number; // 0..1
+};
+
 // NOTE: scripture slides deliberately carry NO per-slide background. The
 // background always comes from the active theme / overall picked background
 // (user directive 2026-08-24) — so a scripture slide styles TEXT only and lets
-// the theme show through, exactly like every other slide.
+// the theme show through, exactly like every other slide. (The lower-third band
+// is NOT a background — it is a foreground scrim drawn behind the verse text
+// only, so the theme/camera still shows above and below it.)
 export type ScriptureDesign = {
+  layout: ScriptureLayout;
   verse: TextStyle;
   reference: TextStyle & { show: boolean; showTranslation: boolean };
+  band: BandStyle;
 };
 
 const VERSE_DEFAULT: TextStyle = {
@@ -38,10 +61,42 @@ const REF_DEFAULT: TextStyle & { show: boolean; showTranslation: boolean } = {
   show: true, showTranslation: true,
 };
 
+// Black band by default — legible over ANY content the church runs underneath.
+export const BAND_DEFAULT: BandStyle = {
+  mode: "solid", color: "#000000", color2: "#000000", angle: 180, opacity: 0.72,
+};
+
 export const DEFAULT_SCRIPTURE_DESIGN: ScriptureDesign = {
+  layout: "fullscreen",
   verse: { ...VERSE_DEFAULT },
   reference: { ...REF_DEFAULT },
+  band: { ...BAND_DEFAULT },
 };
+
+// The wire band for a design, or undefined when the band shouldn't paint
+// (fullscreen layout, or a transparent "none" lower-third). Only the paint is
+// carried — the renderer owns geometry so preview == projector.
+export function bandWireFromDesign(d: ScriptureDesign): ScriptureBandWire | undefined {
+  if (d.layout !== "lowerThird" || d.band.mode === "none") return undefined;
+  const b = d.band;
+  return b.mode === "gradient"
+    ? { color: b.color, color2: b.color2, angle: b.angle, opacity: b.opacity }
+    : { color: b.color, opacity: b.opacity };
+}
+
+// A lower-third scripture payload: a PLAIN text slide (no per-object geometry)
+// marked scriptureLayout:"lowerThird" so the renderer's dedicated lower-third
+// branch confines the verse to the bottom band, auto-fits it big, and paginates
+// long verses — reusing AutoFitText. The reference rides the dedicated field so
+// the always-visible footer shows it. No `objects` → never hits the fullscreen
+// designed-objects path.
+export function scriptureLowerThirdPayload(verseText: string, reference: string, translation: string | undefined, d: ScriptureDesign): SlidePayload {
+  const p: Extract<SlidePayload, { kind: "text" }> = { kind: "text", text: verseText, scriptureLayout: "lowerThird" };
+  if (reference) p.reference = referenceLabel(reference, translation, d.reference.showTranslation);
+  const band = bandWireFromDesign(d);
+  if (band) p.scriptureBand = band;
+  return p;
+}
 
 // The reference label shown (with or without translation).
 export function referenceLabel(reference: string, translation: string | undefined, showTranslation: boolean): string {
@@ -83,6 +138,9 @@ export function scriptureEditableSlide(verseText: string, reference: string, tra
 // The projectable payload — routed through projectableTextSlide (the exact
 // converter the song editor uses). No bg passed → theme background is used.
 export function scriptureSlidePayload(verseText: string, reference: string, translation: string | undefined, d: ScriptureDesign): SlidePayload {
+  // Lower-third layout takes the dedicated plain-payload path (no per-object
+  // geometry — the renderer confines + auto-fits the verse in the band).
+  if (d.layout === "lowerThird") return scriptureLowerThirdPayload(verseText, reference, translation, d);
   const p = projectableTextSlide(verseText, undefined, undefined, scriptureObjects(verseText, reference, translation, d));
   // ALWAYS carry the reference in the dedicated field — even when the operator
   // hid the movable reference OBJECT — so it is never stripped from the payload
@@ -114,7 +172,8 @@ export function scriptureSlidePayload(verseText: string, reference: string, tran
 // failure falls back to the plain slide so a live send is never broken.
 export function styleScriptureSlide(slide: SlidePayload, churchId: string): SlidePayload {
   if (slide.kind !== "text" || !slide.reference) return slide;
-  if (slide.objects && slide.objects.length > 0) return slide; // already styled
+  if (slide.objects && slide.objects.length > 0) return slide; // already styled (fullscreen)
+  if (slide.scriptureLayout) return slide; // already styled (lower-third)
   try {
     // Cap before the regex: `reference` is not length-validated on the wire, and
     // the match `^(.*?)\s*\(…\)$` is O(n²) on a pathological all-"(" string. A
@@ -147,7 +206,9 @@ export function designFromSlide(slide: EditableSlide, prev: ScriptureDesign): Sc
   const reference: ScriptureDesign["reference"] = refText
     ? { ...styleOf(refText, prev.reference), show: !refText.hidden, showTranslation: prev.reference.showTranslation }
     : { ...prev.reference, show: false };
-  return { verse, reference };
+  // layout + band aren't draggable objects — carried from prev (the editor sets
+  // them from its own toggle state before persisting).
+  return { layout: prev.layout, verse, reference, band: { ...prev.band } };
 }
 
 // ---- Persistence (active style per church) --------------------------------
@@ -161,8 +222,12 @@ export function loadScriptureStyle(churchId?: string): ScriptureDesign {
     if (!raw) return DEFAULT_SCRIPTURE_DESIGN;
     const parsed = JSON.parse(raw) as Partial<ScriptureDesign>;
     return {
+      // back-compat: pre-lower-third saved styles have no layout/band → default
+      // to fullscreen + the black band, so an existing church is unchanged.
+      layout: parsed.layout === "lowerThird" ? "lowerThird" : "fullscreen",
       verse: { ...DEFAULT_SCRIPTURE_DESIGN.verse, ...parsed.verse },
       reference: { ...DEFAULT_SCRIPTURE_DESIGN.reference, ...parsed.reference },
+      band: { ...DEFAULT_SCRIPTURE_DESIGN.band, ...parsed.band },
     };
   } catch { return DEFAULT_SCRIPTURE_DESIGN; }
 }
