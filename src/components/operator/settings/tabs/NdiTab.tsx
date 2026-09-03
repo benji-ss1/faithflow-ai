@@ -4,6 +4,7 @@
 // must be compiled and the two-computer OBS/DistroAV test run on-site (§20/§25).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SectionHeader, Row, Toggle } from "./DisplayTab";
+import { ObsOverlayCard } from "@/components/operator/screens/ObsOverlayCard";
 import type { NdiSettingsWire, NdiStatusWire } from "@/types/electron";
 
 const selectCls =
@@ -64,11 +65,20 @@ export function NdiTab() {
   const isWindows = typeof navigator !== "undefined"
     && /windows|win32|win64|wow64/i.test(`${navigator.userAgent} ${(navigator as Navigator).platform || ""}`);
   if (isWindows) {
+    // Windows churches run OBS in software (no native NDI sender in the .exe yet).
+    // The RIGHT path is the transparent OBS Browser Source overlay — it composites
+    // PresentFlow's live lyrics AND lower-third scripture over the camera with true
+    // alpha, over the network, no capture card. Reuses the same proven overlay
+    // control as Hardware → Screens (one shared pair code).
     return (
       <div className="space-y-3">
-        <SectionHeader title="NDI Output" description="Send PresentFlow's live output to OBS over your network as an NDI source." />
-        <p className="text-[12px] text-[var(--color-muted-foreground)]">
-          NDI Output isn&apos;t available on Windows yet — it currently ships on macOS only. On Windows, add PresentFlow&apos;s live output to OBS with a Window Capture of the Projector output window instead.
+        <SectionHeader title="OBS overlay (Windows)" description="Composite PresentFlow's live lyrics + lower-third scripture over your camera in OBS — as a transparent Browser Source. No NDI runtime or capture card needed." />
+        <div className="rounded-md border border-[var(--color-brand)]/30 bg-[color-mix(in_oklab,var(--color-brand)_8%,transparent)] p-3 text-[11px] text-[var(--color-muted-foreground)] leading-relaxed">
+          <span className="text-[var(--color-foreground)] font-semibold">Tip for a broadcast lower-third:</span> open a verse&apos;s <span className="text-[var(--color-foreground)]">Edit slide</span> → set <span className="text-[var(--color-foreground)]">Lower third</span> and a band of <span className="text-[var(--color-foreground)]">None</span> (or low opacity). The verse then floats as a clean caption over your camera feed in OBS.
+        </div>
+        <ObsOverlayCard />
+        <p className="text-[11px] text-[var(--color-muted-foreground)] leading-relaxed">
+          Native in-app NDI output (PresentFlow as a genuine NDI network source) currently ships on macOS only — it&apos;s coming to Windows later. For OBS, the Browser Source overlay above is the recommended path and needs no extra software.
         </p>
       </div>
     );

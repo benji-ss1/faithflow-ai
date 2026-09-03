@@ -23,6 +23,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "Choose the band look: a solid or gradient colour with adjustable opacity, or “None” for a clean transparent caption with a shadow. It defaults to a black band at ~70% — the safest, most readable choice over anything.",
       "It's a per-church preset: set it once and every verse — whether you tap it, or the AI fires it, or you say “next verse” — comes up in the lower third automatically. Switch back to “Full screen” any time.",
       "The editor shows a live, true-to-projector preview as you tune the band, so what you see is exactly what the congregation gets.",
+      { text: "Windows + OBS: the NDI settings now guide you straight to the transparent Browser Source overlay — so your lyrics and lower-third scripture composite over your camera in OBS with no capture card and no extra software. Pair it with a “Lower third” verse set to a transparent band for a clean broadcast caption.", tryItHref: "/operator", tryItLabel: "Open operator" },
     ],
   },
   {
