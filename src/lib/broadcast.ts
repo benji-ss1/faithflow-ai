@@ -28,18 +28,26 @@ export const SLIDE_CANVAS_W = 1920;
 export const SLIDE_CANVAS_H = 1080;
 export const MAX_SLIDE_OBJECTS = 60;
 
-// Lower-third scripture band (Christ Embassy lower-third mode). Describes the
-// coloured band drawn behind a lower-third verse. Present on a text payload ONLY
-// when the church's scripture layout is "lowerThird" AND the band mode isn't
-// "none" (a transparent lower-third sets scriptureLayout but omits the band).
-// Geometry (band position/height + verse text region) is owned by the renderer
-// (SlideRenderer's lower-third branch) so the editor preview is byte-identical
-// to the projector — the wire only carries the paint (colour/gradient/opacity).
+// Scripture "band" mode (upper / mid / lower third). Present on a text payload
+// whenever the church's scripture layout is a third-band (scriptureLayout:
+// "lowerThird"). Carries BOTH the band GEOMETRY (where the third sits + how tall
+// + a verse-size multiplier) — so a church can move it to any third and nudge it
+// to clear their real-projector overscan — AND the optional band PAINT
+// (colour/gradient/opacity; omitted entirely for a transparent "none" band).
+// Geometry defaults live in the renderer so an older wire (paint-only) still
+// positions correctly.
 export type ScriptureBandWire = {
-  color: string;       // solid fill, or gradient start
-  color2?: string;     // gradient end (when set, band is a linear gradient)
-  angle?: number;      // gradient angle in degrees (default 180 = vertical)
-  opacity: number;     // 0..1
+  // Geometry (% of the 1920×1080 canvas). Optional for back-compat: absent →
+  // the renderer's default lower-third geometry.
+  topPct?: number;      // band top, 0..100
+  heightPct?: number;   // band height, 1..100
+  fontScale?: number;   // verse size multiplier, >0 (default 1)
+  // Paint — omit ALL of these for a transparent ("none") band. `opacity` is
+  // required whenever `color` is set.
+  color?: string;       // solid fill, or gradient start
+  color2?: string;      // gradient end (when set, band is a linear gradient)
+  angle?: number;       // gradient angle in degrees (default 180 = vertical)
+  opacity?: number;     // 0..1
 };
 
 export type SlidePayload =
@@ -685,7 +693,7 @@ export function slideDesignSig(s: Extract<SlidePayload, { kind: "text" }>): stri
   // skip). A plain (non-lower-third) slide adds nothing here → identity unchanged.
   if (s.scriptureLayout) {
     const b = s.scriptureBand;
-    sig += `|lt${b ? `${b.color},${b.color2 ?? ""},${b.angle ?? ""},${b.opacity}` : "none"}`;
+    sig += `|lt${b ? `${b.topPct ?? ""},${b.heightPct ?? ""},${b.fontScale ?? ""},${b.color ?? ""},${b.color2 ?? ""},${b.angle ?? ""},${b.opacity ?? ""}` : "none"}`;
   }
   if (s.objects?.length) {
     sig += "|o" + s.objects.length + ":" + s.objects.map((o) => {
@@ -730,10 +738,22 @@ function isValidScriptureBand(b: unknown): boolean {
   if (!b || typeof b !== "object") return false;
   if (hasPollutionKey(b)) return false;
   const p = b as Record<string, unknown>;
-  if (!isValidColor(p.color)) return false;
+  const numInRange = (v: unknown, lo: number, hi: number) =>
+    v === undefined || (typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi);
+  // Geometry (all optional).
+  if (!numInRange(p.topPct, 0, 100)) return false;
+  if (!numInRange(p.heightPct, 1, 100)) return false;
+  if (!numInRange(p.fontScale, 0.1, 4)) return false;
+  // Paint: `color` optional (absent = transparent band); if present, opacity is
+  // required + bounded.
+  if (p.color !== undefined) {
+    if (!isValidColor(p.color)) return false;
+    if (typeof p.opacity !== "number" || !Number.isFinite(p.opacity) || p.opacity < 0 || p.opacity > 1) return false;
+  } else if (p.opacity !== undefined && !numInRange(p.opacity, 0, 1)) {
+    return false;
+  }
   if (p.color2 !== undefined && !isValidColor(p.color2)) return false;
   if (p.angle !== undefined && (typeof p.angle !== "number" || !Number.isFinite(p.angle) || p.angle < 0 || p.angle > 360)) return false;
-  if (typeof p.opacity !== "number" || !Number.isFinite(p.opacity) || p.opacity < 0 || p.opacity > 1) return false;
   return true;
 }
 

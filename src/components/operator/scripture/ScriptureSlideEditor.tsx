@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { X, Lock, Image as ImageIcon, Play, Save, Type, AlignLeft, AlignCenter, AlignRight, BookOpen, Maximize2, PanelBottom } from "lucide-react";
+import { X, Lock, Image as ImageIcon, Play, Save, Type, AlignLeft, AlignCenter, AlignRight, BookOpen, Maximize2, PanelBottom, ArrowUpToLine, ArrowDownToLine, AlignVerticalJustifyCenter } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { SlidePayload, TransitionSpec, ThemeAppearance } from "@/lib/broadcast";
@@ -79,6 +79,28 @@ export function ScriptureSlideEditor({
   const removeObjects = useCallback(() => { /* scripture objects are fixed — no delete */ }, []);
 
   const patchSelected = (patch: Partial<TextObject>) => { if (selText) updateObject(selText.id, patch); };
+
+  // Drag the band vertically in the lower-third preview → nudge offsetY. Uses
+  // pointer capture; the delta is a fraction of the preview box height mapped to
+  // the offsetY range so a full drag spans the whole travel.
+  const dragRef = useRef<{ startY: number; startOffset: number; h: number } | null>(null);
+  const onPreviewPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isLowerThird) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    dragRef.current = { startY: e.clientY, startOffset: band.offsetY, h: rect.height || 1 };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onPreviewPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const deltaPct = ((e.clientY - d.startY) / d.h) * 100; // + = dragged down
+    const next = Math.max(-25, Math.min(25, Math.round(d.startOffset + deltaPct)));
+    setBand((b) => (b.offsetY === next ? b : { ...b, offsetY: next }));
+  };
+  const onPreviewPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    dragRef.current = null;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+  };
 
   function toggleReference() {
     if (!refObj) return;
@@ -182,15 +204,22 @@ export function ScriptureSlideEditor({
           <div className="flex-1 min-w-0 min-h-0 relative" style={{ backgroundColor: "#0d0d10", backgroundImage: CHECKER, backgroundSize: "28px 28px" }}>
             {isLowerThird ? (
               <div className="absolute inset-0 flex items-center justify-center p-5">
-                <div className="relative w-full rounded-lg overflow-hidden shadow-[var(--shadow-lg)]" style={{ aspectRatio: "16 / 9", maxHeight: "100%", background: "#000" }}>
+                <div
+                  className="relative w-full rounded-lg overflow-hidden shadow-[var(--shadow-lg)] cursor-grab active:cursor-grabbing touch-none select-none"
+                  style={{ aspectRatio: "16 / 9", maxHeight: "100%", background: "#000" }}
+                  onPointerDown={onPreviewPointerDown}
+                  onPointerMove={onPreviewPointerMove}
+                  onPointerUp={onPreviewPointerUp}
+                  onPointerCancel={onPreviewPointerUp}
+                >
                   {/* Wrapped in PresentationCanvas + projectorFit so the preview
                      composes against the SAME fixed 1920×1080 canvas the projector
-                     uses — the verse fit AND the reference footer are then pixel-
-                     proportional to the live output (true WYSIWYG). */}
+                     uses — verse fit + reference are pixel-proportional to the live
+                     output (true WYSIWYG). Drag vertically to move the band. */}
                   <PresentationCanvas>
                     <SlideRenderer slide={lowerThirdPreview} appearance={appearance ?? undefined} projectorFit />
                   </PresentationCanvas>
-                  <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md text-[10px] font-semibold tracking-wide pointer-events-none z-10" style={{ background: "rgba(0,0,0,0.55)", color: "rgba(255,255,255,0.85)" }}>Lower-third preview</div>
+                  <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md text-[10px] font-semibold tracking-wide pointer-events-none z-10" style={{ background: "rgba(0,0,0,0.55)", color: "rgba(255,255,255,0.85)" }}>Preview · drag to move</div>
                 </div>
               </div>
             ) : (
@@ -212,13 +241,27 @@ export function ScriptureSlideEditor({
             <Section label="Layout">
               <div className={SEG_WRAP}>
                 <button onClick={() => setLayout("fullscreen")} className={cn(segBase, "flex-1 gap-1.5")} style={seg(!isLowerThird)}><Maximize2 className="w-3.5 h-3.5" /> Full screen</button>
-                <button onClick={() => setLayout("lowerThird")} className={cn(segBase, "flex-1 gap-1.5")} style={seg(isLowerThird)}><PanelBottom className="w-3.5 h-3.5" /> Lower third</button>
+                <button onClick={() => setLayout("lowerThird")} className={cn(segBase, "flex-1 gap-1.5")} style={seg(isLowerThird)}><PanelBottom className="w-3.5 h-3.5" /> Third band</button>
               </div>
               <div className="flex items-start gap-1.5 text-[10px] text-zinc-500 mt-2">
                 <PanelBottom className="w-3 h-3 mt-0.5 shrink-0" />
-                <span>{isLowerThird ? "Big verse in a bottom band — great over your own camera/graphics. Long verses split into readable cards." : "Classic full-screen verse — drag & style each part below."}</span>
+                <span>{isLowerThird ? "Big verse in a band — put it in the upper, mid or lower third, over your own camera/graphics. Drag it in the preview to fine-tune." : "Classic full-screen verse — drag & style each part below."}</span>
               </div>
             </Section>
+
+            {isLowerThird && (
+              <Section label="Position & size">
+                <Row label="Third"><div className={SEG_WRAP}>
+                  {([["upper", ArrowUpToLine, "Upper"], ["mid", AlignVerticalJustifyCenter, "Mid"], ["lower", ArrowDownToLine, "Lower"]] as const).map(([p, Icon, lbl]) => (
+                    <button key={p} onClick={() => setBand((b) => ({ ...b, position: p }))} className={cn(segBase, "flex-1 gap-1")} style={seg(band.position === p)}><Icon className="w-3.5 h-3.5" /> {lbl}</button>
+                  ))}
+                </div></Row>
+                <Row label="Push"><div className="flex items-center gap-2"><span className="text-[10px] text-zinc-500">up</span><input type="range" min={-25} max={25} step={1} value={band.offsetY} onChange={(e) => setBand((b) => ({ ...b, offsetY: Number(e.target.value) }))} className="flex-1" style={emberSlider} /><span className="text-[10px] text-zinc-500">down</span></div></Row>
+                <Row label="Text size"><div className="flex items-center gap-2"><input type="range" min={0.6} max={2} step={0.05} value={band.fontScale} onChange={(e) => setBand((b) => ({ ...b, fontScale: Number(e.target.value) }))} className="flex-1" style={emberSlider} /><span className="text-[10px] font-mono text-zinc-400 w-8 text-right">{Math.round(band.fontScale * 100)}%</span></div></Row>
+                <Row label="Height"><div className="flex items-center gap-2"><input type="range" min={16} max={48} step={1} value={band.heightPct} onChange={(e) => setBand((b) => ({ ...b, heightPct: Number(e.target.value) }))} className="flex-1" style={emberSlider} /><span className="text-[10px] font-mono text-zinc-400 w-8 text-right">{band.heightPct}%</span></div></Row>
+                <div className="flex items-start gap-1.5 text-[10px] text-zinc-500 mt-1"><ArrowUpToLine className="w-3 h-3 mt-0.5 shrink-0" /><span>On a high-mounted screen, use <span className="text-zinc-300">Mid</span> or <span className="text-zinc-300">Upper</span> and <span className="text-zinc-300">Push up</span> so it isn&apos;t cut off at the bottom. Or just drag it in the preview.</span></div>
+              </Section>
+            )}
 
             {isLowerThird && (
               <Section label="Band">

@@ -20,7 +20,7 @@
  */
 import assert from "node:assert/strict";
 import {
-  bandWireFromDesign, scriptureLowerThirdPayload, scriptureSlidePayload, styleScriptureSlide,
+  bandWireFromDesign, bandTopPct, scriptureLowerThirdPayload, scriptureSlidePayload, styleScriptureSlide,
   DEFAULT_SCRIPTURE_DESIGN, BAND_DEFAULT, type ScriptureDesign,
 } from "../src/components/operator/scripture/scriptureStyle";
 import { slideOutputIdentity, type SlidePayload } from "../src/lib/broadcast";
@@ -37,24 +37,50 @@ const lt = (over: Partial<ScriptureDesign["band"]> = {}, layout: ScriptureDesign
   band: { ...BAND_DEFAULT, ...over },
 });
 
-console.log("bandWireFromDesign — paint only, nothing when it shouldn't paint:");
-test("fullscreen layout → undefined (band never paints outside lower-third)", () => {
+console.log("bandWireFromDesign — geometry always, paint only for solid/gradient:");
+test("fullscreen layout → undefined (no band outside a third layout)", () => {
   assert.equal(bandWireFromDesign(lt({}, "fullscreen")), undefined);
 });
-test("lower-third + mode none → undefined (transparent lower-third)", () => {
-  assert.equal(bandWireFromDesign(lt({ mode: "none" })), undefined);
+test("mode none → geometry carried, NO paint (transparent third)", () => {
+  const w = bandWireFromDesign(lt({ mode: "none" }));
+  assert.ok(w, "geometry wire must exist so the verse is positioned");
+  assert.equal(w!.color, undefined);
+  assert.equal(typeof w!.topPct, "number");
+  assert.equal(typeof w!.heightPct, "number");
 });
-test("solid → color + opacity, no color2", () => {
-  const w = bandWireFromDesign(lt({ mode: "solid", color: "#000000", opacity: 0.72 }));
-  assert.deepEqual(w, { color: "#000000", opacity: 0.72 });
+test("solid → geometry + color + opacity, no color2", () => {
+  const w = bandWireFromDesign(lt({ mode: "solid", color: "#000000", opacity: 0.72 }))!;
+  assert.equal(w.color, "#000000");
+  assert.equal(w.opacity, 0.72);
+  assert.equal(w.color2, undefined);
+  assert.equal(typeof w.topPct, "number");
 });
-test("gradient → color, color2, angle, opacity", () => {
-  const w = bandWireFromDesign(lt({ mode: "gradient", color: "#101010", color2: "#303030", angle: 180, opacity: 0.8 }));
-  assert.deepEqual(w, { color: "#101010", color2: "#303030", angle: 180, opacity: 0.8 });
+test("gradient → geometry + color, color2, angle, opacity", () => {
+  const w = bandWireFromDesign(lt({ mode: "gradient", color: "#101010", color2: "#303030", angle: 180, opacity: 0.8 }))!;
+  assert.equal(w.color, "#101010");
+  assert.equal(w.color2, "#303030");
+  assert.equal(w.angle, 180);
+  assert.equal(w.opacity, 0.8);
+});
+
+console.log("bandTopPct — upper/mid/lower position + nudge:");
+test("upper is above mid is above lower", () => {
+  const up = bandTopPct(lt({ position: "upper" }).band);
+  const mid = bandTopPct(lt({ position: "mid" }).band);
+  const low = bandTopPct(lt({ position: "lower" }).band);
+  assert.ok(up < mid && mid < low, `expected upper<mid<lower, got ${up}/${mid}/${low}`);
+});
+test("push (offsetY) moves the band and stays on-screen", () => {
+  const base = bandTopPct(lt({ position: "mid", offsetY: 0 }).band);
+  const down = bandTopPct(lt({ position: "mid", offsetY: 20 }).band);
+  const up = bandTopPct(lt({ position: "mid", offsetY: -20 }).band);
+  assert.ok(down > base && up < base, "offsetY + pushes down, − pushes up");
+  const h = BAND_DEFAULT.heightPct;
+  assert.ok(bandTopPct(lt({ position: "lower", offsetY: 25 }).band) <= 100 - h, "clamped so the band never leaves the screen");
 });
 
 console.log("scriptureLowerThirdPayload — plain payload, no objects:");
-test("marks layout, keeps reference, adds a band, NO objects", () => {
+test("marks layout, keeps reference, adds a band w/ geometry, NO objects", () => {
   const p = scriptureLowerThirdPayload("For God so loved the world", "John 3:16", "KJV", lt());
   assert.equal(p.kind, "text");
   if (p.kind !== "text") return;
@@ -62,13 +88,15 @@ test("marks layout, keeps reference, adds a band, NO objects", () => {
   assert.equal(p.text, "For God so loved the world");
   assert.equal(p.reference, "John 3:16 (KJV)");
   assert.ok(p.scriptureBand && p.scriptureBand.color === "#000000");
-  assert.ok(!p.objects || p.objects.length === 0, "lower-third must NOT carry drag objects");
+  assert.equal(typeof p.scriptureBand!.topPct, "number");
+  assert.ok(!p.objects || p.objects.length === 0, "third band must NOT carry drag objects");
 });
-test("mode none → layout marked but NO band (verse floats)", () => {
+test("mode none → layout marked, band carries geometry but NO colour", () => {
   const p = scriptureLowerThirdPayload("Jesus wept", "John 11:35", "KJV", lt({ mode: "none" }));
   if (p.kind !== "text") return assert.fail();
   assert.equal(p.scriptureLayout, "lowerThird");
-  assert.equal(p.scriptureBand, undefined);
+  assert.ok(p.scriptureBand, "geometry still present so the verse is positioned");
+  assert.equal(p.scriptureBand!.color, undefined);
 });
 test("empty reference → no reference field (Show toggle off)", () => {
   const p = scriptureLowerThirdPayload("Jesus wept", "", "KJV", lt());

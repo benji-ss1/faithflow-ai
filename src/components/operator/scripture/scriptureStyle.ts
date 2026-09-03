@@ -22,17 +22,38 @@ export type TextStyle = {
 // owned by the renderer; the design only carries the band paint + which layout.
 export type ScriptureLayout = "fullscreen" | "lowerThird";
 
-// The lower-third band behind the verse. mode "none" = a transparent lower-third
-// (verse floats with just a text shadow — for compositing over a busy feed);
-// "solid" = flat colour; "gradient" = colour → color2. Default is a BLACK solid
-// band (safest legibility over anything), per the pilot sign-off.
+// Which third of the screen the band sits in. Christ Embassy's real projectors
+// are mounted high and the very bottom is blocked, so a bottom-third caption
+// reads too low — they need to move it up (mid/upper) and nudge it.
+export type ThirdPosition = "upper" | "mid" | "lower";
+
+// The scripture band. mode "none" = transparent (verse floats with a shadow —
+// for compositing over a busy feed); "solid" = flat colour; "gradient" = colour
+// → color2. Default is a BLACK solid band (safest legibility). `position` +
+// `offsetY` place it in/around a third; `heightPct` sets how tall the band is;
+// `fontScale` scales the verse text so it can be made much bigger/readable.
 export type BandStyle = {
   mode: "none" | "solid" | "gradient";
   color: string;
   color2: string;
   angle: number;   // gradient angle in degrees
   opacity: number; // 0..1
+  position: ThirdPosition;
+  offsetY: number;   // fine vertical nudge, % of screen height (−25..25); + = down
+  heightPct: number; // band height, % of screen height (16..48)
+  fontScale: number; // verse size multiplier (0.6..2)
 };
+
+const clampNum = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+// The band's top edge (%), derived from position + nudge, clamped on-screen.
+export function bandTopPct(b: BandStyle): number {
+  const base =
+    b.position === "upper" ? 6 :
+    b.position === "mid" ? 50 - b.heightPct / 2 :
+    100 - b.heightPct - 2; // lower: 2% bottom margin
+  return clampNum(base + b.offsetY, 0, 100 - b.heightPct);
+}
 
 // NOTE: scripture slides deliberately carry NO per-slide background. The
 // background always comes from the active theme / overall picked background
@@ -64,6 +85,7 @@ const REF_DEFAULT: TextStyle & { show: boolean; showTranslation: boolean } = {
 // Black band by default — legible over ANY content the church runs underneath.
 export const BAND_DEFAULT: BandStyle = {
   mode: "solid", color: "#000000", color2: "#000000", angle: 180, opacity: 0.72,
+  position: "lower", offsetY: 0, heightPct: 30, fontScale: 1,
 };
 
 export const DEFAULT_SCRIPTURE_DESIGN: ScriptureDesign = {
@@ -77,11 +99,17 @@ export const DEFAULT_SCRIPTURE_DESIGN: ScriptureDesign = {
 // (fullscreen layout, or a transparent "none" lower-third). Only the paint is
 // carried — the renderer owns geometry so preview == projector.
 export function bandWireFromDesign(d: ScriptureDesign): ScriptureBandWire | undefined {
-  if (d.layout !== "lowerThird" || d.band.mode === "none") return undefined;
+  if (d.layout !== "lowerThird") return undefined;
   const b = d.band;
-  return b.mode === "gradient"
-    ? { color: b.color, color2: b.color2, angle: b.angle, opacity: b.opacity }
-    : { color: b.color, opacity: b.opacity };
+  // Geometry is ALWAYS carried (even for a "none" band) so the verse is placed
+  // in the right third; paint is added only for solid/gradient.
+  const wire: ScriptureBandWire = { topPct: bandTopPct(b), heightPct: b.heightPct, fontScale: b.fontScale };
+  if (b.mode !== "none") {
+    wire.color = b.color;
+    wire.opacity = b.opacity;
+    if (b.mode === "gradient") { wire.color2 = b.color2; wire.angle = b.angle; }
+  }
+  return wire;
 }
 
 // A lower-third scripture payload: a PLAIN text slide (no per-object geometry)

@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.375",
+    date: "2026-09-03",
+    headline: "Scripture band: put it in any third, bigger and higher",
+    highlights: [
+      { text: "The scripture band can now go in the UPPER, MID or lower third — so on a high-mounted screen the verse sits where people can actually read it, not stuck at the very bottom.", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "New controls: Push up/down to nudge it past your screen's edges/overscan, Text size to make the verse much bigger, and Height to size the band. Or just drag the band up and down right in the preview.",
+      "The reference now sits neatly inside the band at any position, and the preview stays exactly true to what hits the projector.",
+    ],
+  },
+  {
     version: "0.1.374",
     date: "2026-09-03",
     headline: "New: Lower-third scripture — big verses in a bottom band",

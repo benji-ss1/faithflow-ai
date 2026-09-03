@@ -211,37 +211,48 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
   }
 
   if (slide.kind === "text") {
-    // ── Lower-third scripture (Christ Embassy mode) ─────────────────────────
+    // ── Scripture "third" band (Christ Embassy mode) ────────────────────────
     // An isolated branch keyed on scriptureLayout — it never touches the
     // fullscreen designed-objects / soleText paths below. The verse is confined
-    // to a bottom band and auto-fit BIG (AutoFitText: fills + paginates long
-    // verses), with an optional coloured band scrim behind it and the always-on
-    // reference footer. Works opaque (projector, theme/black behind) or
-    // transparent (OBS overlay — band + text composite over the church's feed).
+    // to a band placed in the UPPER / MID / LOWER third (geometry carried on the
+    // wire so a church can move it up off a high-mounted screen and nudge it past
+    // overscan), auto-fit BIG within that band, with an optional coloured scrim
+    // and the reference rendered INSIDE the band (so it tracks any position).
+    // Works opaque (projector) or transparent (OBS overlay over the church feed).
     if (slide.scriptureLayout === "lowerThird") {
-      // Renderer-owned geometry (% of the 1920×1080 canvas) so the editor
-      // preview (same component) is byte-identical to the projector.
-      const LT_BAND_TOP = 68, LT_BAND_H = 32;      // band: bottom ~third, to the edge
-      const LT_VERSE_TOP = 70, LT_VERSE_H = 20.5;  // verse fit-box (reserves footer room)
       const band = slide.scriptureBand;
-      const bandBg = band
-        ? (band.color2 ? `linear-gradient(${band.angle ?? 180}deg, ${band.color}, ${band.color2})` : band.color)
+      // Geometry from the wire; fall back to the original lower-third defaults so
+      // an older paint-only wire still positions correctly.
+      const bandTop = band?.topPct ?? 68;
+      const bandH = band?.heightPct ?? 30;
+      const vScale = band?.fontScale && band.fontScale > 0 ? band.fontScale : 1;
+      const hasPaint = !!band?.color;
+      const bandBg = hasPaint
+        ? (band!.color2 ? `linear-gradient(${band!.angle ?? 180}deg, ${band!.color}, ${band!.color2})` : band!.color)
         : undefined;
+      // Layout inside the band: a small pad, the verse fit-box, then the reference
+      // line at the band's bottom. All in % of the canvas height.
+      const pad = bandH * 0.06;
+      const refH = bandH * 0.20;
+      const verseTop = bandTop + pad;
+      const verseH = Math.max(4, bandH - pad * 2 - refH);
       const ltRef = slide.reference?.trim();
+      const refTop = bandTop + bandH - refH - pad * 0.5;
+      // Reference size scales with band height (bigger band → bigger reference),
+      // in canvas px so it scales with the surface via PresentationCanvas.
+      const refPx = Math.round((bandH / 100) * 1080 * 0.11 * (referenceScale ?? 1));
       const themeTxt = (themeTextStyle(appearance)?.color as string | undefined);
       // Verse colour:
-      //  • OBS/transparent overlay → the theme bg is NOT painted, so NEVER borrow
-      //    the theme's (possibly dark) text colour — force white over the unknown
-      //    camera feed (shadow keeps it legible).
-      //  • Over a band → auto-contrast against the OPERATOR'S band colour, so a
-      //    light band (cream/gold lower-thirds) gets dark text instead of illegible
-      //    white. The default black band → white, unchanged.
-      //  • Bare opaque theme → the theme's readable text colour (dark on a light theme).
-      const verseColor = band
-        ? readableTextColor(band.color)      // band present (opaque OR OBS) → contrast vs it
+      //  • Over a band → auto-contrast against the OPERATOR'S band colour (a light
+      //    band gets dark text, the default black band → white).
+      //  • No band + OBS/transparent → force white over the unknown camera feed.
+      //  • No band + opaque theme → the theme's readable text colour.
+      const verseColor = hasPaint
+        ? readableTextColor(band!.color)
         : transparentBg
-          ? "#ffffff"                        // no band, over camera → white
-          : (themeTxt ?? "#ffffff");         // no band, opaque theme → theme readable
+          ? "#ffffff"
+          : (themeTxt ?? "#ffffff");
+      const shadowWhenBandless = (transparentBg || !hasPaint) ? { textShadow: OBS_OVERLAY_TEXT_SHADOW } : {};
       const ltBg: React.CSSProperties = (overVideo || transparentBg)
         ? { background: "transparent" }
         : slide.bgImageUrl
@@ -249,28 +260,24 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
           : themeBackgroundStyle(appearance, "#0b0b0b");
       return (
         <div className={`${base} relative ${className || ""}`} style={ltBg}>
-          {band && (
+          {hasPaint && (
             <div className="absolute inset-x-0 pointer-events-none" aria-hidden
-              style={{ top: `${LT_BAND_TOP}%`, height: `${LT_BAND_H}%`, background: bandBg, opacity: band.opacity }} />
+              style={{ top: `${bandTop}%`, height: `${bandH}%`, background: bandBg, opacity: band!.opacity ?? 1 }} />
           )}
-          <div className="absolute" style={{ top: `${LT_VERSE_TOP}%`, height: `${LT_VERSE_H}%`, left: "5%", width: "90%" }}>
-            {/* projectorFit is deliberately OFF here: the projector-fit path sizes
-               against the FULL 1920×1080 canvas (ignoring this box), which would
-               overflow the band. With it off, AutoFitText measures THIS explicitly-
-               sized box and fits the verse within the band — big for short verses,
-               shrink/paginate for long ones — at every surface (1080p/4K/preview),
-               since the box has real % dimensions (no shrink-wrap collapse). */}
+          <div className="absolute" style={{ top: `${verseTop}%`, height: `${verseH}%`, left: "6%", width: "88%" }}>
+            {/* projectorFit is deliberately OFF: the projector-fit path sizes vs the
+               FULL 1920×1080 canvas (ignoring this box) → would overflow the band.
+               OFF → AutoFitText measures THIS explicitly-sized box and fits the
+               verse within the band (big for short verses, shrink for long ones) at
+               every surface, since the box has real % dims (no shrink-wrap collapse). */}
             <AutoFitText
               text={slide.text}
-              maxPx={110}
-              paddingRatio={0.04}
+              maxPx={Math.round(150 * vScale)}
+              paddingRatio={0.03}
               projectorFit={false}
-              // Pagination OFF: the live projector has NO page-advance control, so
-              // a paginated long verse would strand page 2+ off-screen (and paint a
-              // "1/2" counter inside the caption). Shrink the WHOLE verse to fit the
-              // band instead — a very long single verse (Esther 8:9) lands ~40px,
-              // readable and complete. (Phase 2 chunking makes long verses big again
-              // via operator-advanced cards.)
+              // Pagination OFF: the live projector has no page-advance, so a
+              // paginated verse would strand page 2+. Shrink the WHOLE verse to the
+              // band instead. (The chunker splits genuinely-long verses upstream.)
               disablePagination
               fontScale={fontScale}
               className="font-display font-semibold"
@@ -278,21 +285,18 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
                 ...themeTextStyle(appearance),
                 color: verseColor,
                 textAlign: "center",
-                // Lower-third reads as a broadcast caption — natural case, not the
-                // shouty always-on lyric UPPERCASE.
-                textTransform: "none",
-                // Over a transparent overlay OR a "none" (bandless) lower-third,
-                // a strong shadow keeps white text legible over any feed.
-                ...((transparentBg || !band) ? { textShadow: OBS_OVERLAY_TEXT_SHADOW } : {}),
+                textTransform: "none", // broadcast caption, not shouty lyric UPPERCASE
+                ...shadowWhenBandless,
               }}
             />
           </div>
           {ltRef && (
-            <div className="absolute inset-x-0 bottom-0 flex justify-center pointer-events-none" style={{ paddingBottom: projectorFit ? "3.5%" : "2.5%" }}>
+            <div className="absolute flex items-center justify-center pointer-events-none"
+              style={{ top: `${refTop}%`, height: `${refH}%`, left: "6%", width: "88%" }}>
               <span className="font-display font-semibold uppercase tracking-wide" style={{
-                fontSize: projectorFit ? `${(32 * (referenceScale ?? 1)).toFixed(1)}px` : `calc(clamp(11px, 4%, 20px) * ${referenceScale ?? 1})`,
+                fontSize: `${refPx}px`, lineHeight: 1,
                 opacity: 0.9, color: verseColor, ...(referenceColor ? { color: referenceColor } : {}),
-                ...((transparentBg || !band) ? { textShadow: OBS_OVERLAY_TEXT_SHADOW } : {}),
+                ...shadowWhenBandless,
               }}>{ltRef}</span>
             </div>
           )}
