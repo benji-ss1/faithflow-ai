@@ -92,9 +92,18 @@ export type OutputChannel = {
    * dance below replays the last frame so the projector catches up immediately.
    */
   onRequestSnapshot: (fn: () => OutputState | null) => void;
+  /**
+   * Subscribe to connection-status changes so the UI can show an honest
+   * indicator ("connecting" → "connected" → "reconnecting"). "unavailable" means
+   * cross-device realtime isn't configured at all (missing NEXT_PUBLIC_SUPABASE_*)
+   * — same-machine sync still works but a 2nd-PC OBS overlay can never connect.
+   */
+  onStatus: (fn: (s: RealtimeConnStatus) => void) => void;
   /** Tear down the channel + any pending backoff timers. */
   close: () => void;
 };
+
+export type RealtimeConnStatus = "connecting" | "connected" | "reconnecting" | "unavailable";
 
 /**
  * Open a bi-directional wrapper on channel `ff-out-<pairCode>`.
@@ -112,9 +121,16 @@ export function openOutputChannel(pairCode: string, churchId?: string | null): O
   let backoffMs = 1000;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let subscribed = false;
+  let statusHandler: ((s: RealtimeConnStatus) => void) | null = null;
+  let lastStatus: RealtimeConnStatus | null = null;
+  function reportStatus(s: RealtimeConnStatus) {
+    lastStatus = s;
+    try { statusHandler?.(s); } catch { /* ignore */ }
+  }
 
   function attach() {
     if (!client || closed) return;
+    reportStatus("connecting");
     try {
       channel = client.channel(name, { config: { broadcast: { self: false, ack: false } } });
       channel.on("broadcast", { event: "output" }, (payload) => {
@@ -144,6 +160,7 @@ export function openOutputChannel(pairCode: string, churchId?: string | null): O
         if (status === "SUBSCRIBED") {
           subscribed = true;
           backoffMs = 1000;
+          reportStatus("connected");
           // Ask any publisher on this channel for the current state so we don't
           // stare at black while waiting for the next operator interaction.
           if (currentHandler && channel) {
@@ -152,6 +169,7 @@ export function openOutputChannel(pairCode: string, churchId?: string | null): O
           }
         } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
           subscribed = false;
+          reportStatus("reconnecting");
           scheduleReconnect();
         }
       });
@@ -189,7 +207,14 @@ export function openOutputChannel(pairCode: string, churchId?: string | null): O
     },
     subscribe(onState) {
       currentHandler = onState;
+      if (!client) { reportStatus("unavailable"); return; }
       if (!channel) attach();
+    },
+    onStatus(fn) {
+      statusHandler = fn;
+      // Replay the last known status immediately so a late listener isn't blank.
+      if (!client) { fn("unavailable"); return; }
+      if (lastStatus) fn(lastStatus);
     },
     onRequestSnapshot(fn) {
       snapshotProvider = fn;

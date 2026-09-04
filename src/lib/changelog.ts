@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.377",
+    date: "2026-09-04",
+    headline: "OBS lyrics overlay now connects across two computers",
+    highlights: [
+      { text: "Fixed the OBS Browser Source overlay for two-computer setups (operator on one PC, OBS on another). The cross-device connection was silently disabled — it now works, so your lyrics/scripture composite over the camera in OBS.", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "New: the overlay page shows a clear connection status while you set it up — “Connecting…”, “Connected ✓ — send a slide to test”, or “Reconnecting…” — so you can confirm it's live before the service instead of guessing. It hides itself once a slide is on screen.",
+      "In OBS, remember to UNCHECK “Shutdown source when not active” and “Refresh browser when scene becomes active” on the Browser Source — those two settings drop the live connection.",
+    ],
+  },
+  {
     version: "0.1.375",
     date: "2026-09-03",
     headline: "Scripture band: put it in any third, bigger and higher",

@@ -6,7 +6,7 @@ import { openLiveChannel, type LiveChannelLike, isValidLiveMessage, slideOutputI
 import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
 import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
 import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
-import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
+import { openOutputChannel, isValidPairCode, type RealtimeConnStatus } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
 import { TransitionWrapper } from "@/components/live/TransitionWrapper";
 
@@ -53,6 +53,10 @@ export default function LivestreamPage() {
   const lastMessageMsgAt = useRef<number>(0);
   const [timerOverlay, setTimerOverlay] = useState<{ name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed" } | null>(null);
   const [connected, setConnected] = useState(false);
+  // Cross-device realtime connection status (pair-code overlay). Drives the
+  // setup-phase indicator so an operator can SEE the OBS overlay is connected
+  // before the service, even in transparent mode.
+  const [connStatus, setConnStatus] = useState<RealtimeConnStatus | null>(null);
   const [pairBadge, setPairBadge] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(true);
   const lastMsgAt = useRef<number>(Date.now());
@@ -207,6 +211,7 @@ export default function LivestreamPage() {
         const code = pair.trim().toUpperCase();
         const church = params.get("church") || undefined;
         realtime = openOutputChannel(code, church);
+        realtime.onStatus(setConnStatus);
         let firstMsg = true;
         realtime.subscribe((state) => {
           setFontScale(typeof state.fontScale === "number" ? state.fontScale : 1);
@@ -359,6 +364,25 @@ export default function LivestreamPage() {
           <span>Livestream mode: <span className="font-mono">{mode}</span>{transparent && " · transparent bg"}. F = fullscreen</span>
           <button onClick={(e) => { e.stopPropagation(); setShowHelp(false); }}
             className="text-white/70 hover:text-white ml-2"><X className="w-3 h-3" /></button>
+        </div>
+      )}
+
+      {/* Setup-phase connection status — shows even in transparent mode so the
+          operator can SEE the OBS overlay connected before the service. Auto-hides
+          once a real slide is live (clean on-air); reappears if it disconnects. */}
+      {connStatus && !(connStatus === "connected" && slide.kind !== "empty") && (
+        <div className="absolute top-3 left-3 flex items-center gap-1.5 text-white text-[11px] font-semibold px-2.5 py-1.5 rounded-md shadow-lg"
+          style={{
+            background:
+              connStatus === "connected" ? "rgba(6,95,70,0.92)"
+              : connStatus === "unavailable" ? "rgba(127,29,29,0.92)"
+              : "rgba(120,53,15,0.92)",
+          }}>
+          <span className={"w-2 h-2 rounded-full " + (connStatus === "connected" ? "bg-emerald-300" : connStatus === "unavailable" ? "bg-red-400" : "bg-amber-300 animate-pulse")} />
+          {connStatus === "connected" ? "Connected ✓ — send a slide to test"
+            : connStatus === "connecting" ? "Connecting to PresentFlow…"
+            : connStatus === "reconnecting" ? "Reconnecting…"
+            : "Cross-device sync unavailable — update PresentFlow"}
         </div>
       )}
 
