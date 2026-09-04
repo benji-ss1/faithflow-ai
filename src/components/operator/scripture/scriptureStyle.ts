@@ -220,10 +220,15 @@ export function styleScriptureSlide(slide: SlidePayload, churchId: string): Slid
 // field if present, else the first text object's text (a designed song stores
 // its words in an object). Empty → caller leaves the slide unbanded.
 function bandableTextOf(slide: Extract<SlidePayload, { kind: "text" }>): string {
+  // Prefer the flattened `text` (the full lyrics/verse). Only when it's empty do
+  // we fall back to the objects — and then join ALL text objects (not just the
+  // first) so a multi-text designed slide never silently drops words.
   if (typeof slide.text === "string" && slide.text.trim()) return slide.text;
-  const t = slide.objects?.find((o) => o.kind === "text" && typeof (o as { text?: unknown }).text === "string");
-  const txt = t ? (t as { text?: string }).text : undefined;
-  return typeof txt === "string" ? txt : "";
+  const parts = (slide.objects ?? [])
+    .filter((o) => o.kind === "text" && typeof (o as { text?: unknown }).text === "string")
+    .map((o) => (o as { text?: string }).text as string)
+    .filter((t) => t.trim());
+  return parts.join("\n");
 }
 
 // A lower-third payload for a SONG / plain text slide (no scripture reference):

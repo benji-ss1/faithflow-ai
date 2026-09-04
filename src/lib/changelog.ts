@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.379",
+    date: "2026-09-04",
+    headline: "Lower third for everything — songs, images and video, not just verses",
+    highlights: [
+      { text: "The lower / upper / mid third band now works for SONGS too, not only Bible verses. Set it once and your lyrics come up in the band automatically — same as your verses.", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "New “Layout” tab in the song editor (and in the image editor): pick Full screen or a Lower / Upper / Mid third, set the band height, text size, push and colour. It saves as your default and applies to every slide going forward — verses, songs, images and video.",
+      "Images and videos follow the same setting — when your default is a third, they sit neatly in the band with your theme showing above and below (instead of full screen).",
+      "Careful under the hood: your existing look is untouched unless you choose a third, held slides never flicker, and everything is checked before it reaches the screen.",
+    ],
+  },
+  {
     version: "0.1.378",
     date: "2026-09-04",
     headline: "Your stream now shows your themes — plus a dead-simple OBS setup",

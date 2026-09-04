@@ -40,6 +40,9 @@ export function LayoutDefaultControl({ churchId, compact }: { churchId?: string;
     return () => window.removeEventListener("pf-scripture-style-changed", onChanged);
   }, [churchId]);
 
+  // Flush/clear any pending debounced save on unmount.
+  useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current); }, []);
+
   // Debounced persist — preserves the verse/reference styling in the saved design.
   const persist = useCallback((nextLayout: ScriptureLayout, nextBand: BandStyle | null) => {
     if (!loaded.current) return;
@@ -67,7 +70,7 @@ export function LayoutDefaultControl({ churchId, compact }: { churchId?: string;
     <div className="space-y-3">
       {/* Full vs Third */}
       <div>
-        <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-muted-foreground)] mb-1.5">Projection layout</div>
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-muted-foreground)] mb-1.5">Projection layout · all slides</div>
         <div className="grid grid-cols-2 gap-1.5">
           <button type="button" onClick={() => updateLayout("fullscreen")}
             className={`inline-flex items-center justify-center gap-1.5 text-[11px] font-semibold px-2 py-2 rounded-md border transition ${!isThird ? "border-[var(--color-brand)] bg-[var(--color-brand)]/10 text-[var(--color-foreground)]" : "border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:border-[var(--color-brand)]/40"}`}>

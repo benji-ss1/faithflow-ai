@@ -58,6 +58,17 @@ test("designed song (text in an object) is banded using the object text", () => 
   assert.equal(out.text, "Blessed assurance");
 });
 
+test("designed song with MULTIPLE text objects bands ALL of them (no dropped lyrics)", () => {
+  setChurchLayout("lowerThird");
+  const designed = { kind: "text", text: "", objects: [
+    { kind: "text", x: 0, y: 0, w: 100, h: 50, text: "Verse one line" },
+    { kind: "text", x: 0, y: 50, w: 100, h: 50, text: "Verse two line" },
+  ] } as any;
+  const out = applyChurchLayout(designed, CHURCH) as any;
+  assert.equal(out.scriptureLayout, "lowerThird");
+  assert.ok(out.text.includes("Verse one line") && out.text.includes("Verse two line"), "both text objects preserved");
+});
+
 test("per-slide layout override is left untouched", () => {
   setChurchLayout("fullscreen");
   const overridden = { kind: "text", text: "x", scriptureLayout: "lowerThird", scriptureBand: { topPct: 70, heightPct: 30, fontScale: 1 } } as any;

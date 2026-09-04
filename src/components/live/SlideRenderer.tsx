@@ -537,7 +537,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
           <img src={slide.url} alt="" style={imgStyle} />
         </div>
       );
-      return <ThirdBandMedia base={base} className={className} band={slide.band} mode={slide.bandMode ?? "fit"} caption={slide.caption} media={fitEl} fullMedia={fullEl} />;
+      return <ThirdBandMedia base={base} className={className} band={slide.band} mode={slide.bandMode ?? "fit"} caption={slide.caption} appearance={appearance} media={fitEl} fullMedia={fullEl} />;
     }
     return (
       <div className={`${base} bg-black relative overflow-hidden ${className || ""}`}>
@@ -582,7 +582,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
     if (slide.layout === "third" && slide.url) {
       const boxed = <VideoSlide slide={slide} base="w-full h-full flex items-center justify-center overflow-hidden" videoMuted={videoMuted} onVideoRef={onVideoRef} />;
       const full = <VideoSlide slide={slide} base="absolute inset-0 flex items-center justify-center overflow-hidden" videoMuted={videoMuted} onVideoRef={onVideoRef} />;
-      return <ThirdBandMedia base={base} className={className} band={slide.band} mode={slide.bandMode ?? "fit"} caption={slide.caption} media={boxed} fullMedia={full} />;
+      return <ThirdBandMedia base={base} className={className} band={slide.band} mode={slide.bandMode ?? "fit"} caption={slide.caption} appearance={appearance} media={boxed} fullMedia={full} />;
     }
     return <VideoSlide slide={slide} base={base} className={className} videoMuted={videoMuted} onVideoRef={onVideoRef} />;
   }
@@ -610,10 +610,11 @@ function mediaBandPaint(band?: ScriptureBandWire): React.CSSProperties | undefin
 //    it showing `caption` text.
 // Geometry defaults match the text band (top 68% / height 30%) so a legacy/partial
 // band still lands in a sane lower third.
-function ThirdBandMedia({ base, className, band, mode, caption, media, fullMedia }: {
+function ThirdBandMedia({ base, className, band, mode, caption, media, fullMedia, appearance }: {
   base: string; className?: string; band?: ScriptureBandWire;
   mode: "fit" | "caption"; caption?: string;
   media: React.ReactNode; fullMedia: React.ReactNode;
+  appearance?: ThemeAppearance | null;
 }) {
   const topPct = band?.topPct ?? 68;
   const heightPct = band?.heightPct ?? 30;
@@ -631,9 +632,11 @@ function ThirdBandMedia({ base, className, band, mode, caption, media, fullMedia
       </div>
     );
   }
-  // fit — theme/camera shows above & below (transparent container).
+  // fit — the media sits in the band; ABOVE & BELOW must show the THEME (not the
+  // root black), exactly like the scripture text band, so the projector matches
+  // the church's other slides (and the LayoutDefaultControl preview).
   return (
-    <div className={`${base} relative overflow-hidden ${className || ""}`} style={{ background: "transparent" }}>
+    <div className={`${base} relative overflow-hidden ${className || ""}`} style={themeBackgroundStyle(appearance, "#000000")}>
       <div style={{ position: "absolute", left: 0, right: 0, top: `${topPct}%`, height: `${heightPct}%`, overflow: "hidden" }}>
         {paint ? <div style={{ position: "absolute", inset: 0, ...paint }} /> : null}
         <div style={{ position: "relative", zIndex: 1, width: "100%", height: "100%" }}>{media}</div>

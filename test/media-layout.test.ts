@@ -81,3 +81,9 @@ test("wire validation: bad band / bad bandMode / oversized caption are rejected"
 test("wire validation: a plain image with no band still valid", () => {
   assert.equal(validSlide({ kind: "image", url: IMG, fit: "cover" }), true);
 });
+
+test("wire validation: band heightPct is capped (blocks a full-screen blackout)", () => {
+  assert.equal(validSlide({ kind: "image", url: IMG, layout: "third", band: { heightPct: 48, topPct: 50 } }), true, "48 (editor max) ok");
+  assert.equal(validSlide({ kind: "image", url: IMG, layout: "third", band: { heightPct: 61 } }), false, "over-cap rejected");
+  assert.equal(validSlide({ kind: "image", url: IMG, layout: "third", band: { heightPct: 100 } }), false, "full-screen rejected");
+});

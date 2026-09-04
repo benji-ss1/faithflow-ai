@@ -733,7 +733,12 @@ export function slideDesignSig(s: Extract<SlidePayload, { kind: "text" }>): stri
 function mediaBandSig(s: Extract<SlidePayload, { kind: "image" | "video" }>): string {
   if (s.layout !== "third") return "";
   const b = s.band;
-  const geo = b ? `${b.topPct ?? ""},${b.heightPct ?? ""},${b.color ?? ""},${b.color2 ?? ""},${b.angle ?? ""},${b.opacity ?? ""}` : "d";
+  // INVARIANT: every value here changes ONLY on a deliberate operator edit, never
+  // on a heartbeat re-post — so this can't flap on the 1Hz/3s cadence and re-pulse
+  // a held slide. Do NOT fold in anything volatile (fontScale below is design, set
+  // in the editor). If you add a field, keep it design-only (see the 2026-08-19
+  // fade-pulse fix + slideOutputIdentity's contract).
+  const geo = b ? `${b.topPct ?? ""},${b.heightPct ?? ""},${b.fontScale ?? ""},${b.color ?? ""},${b.color2 ?? ""},${b.angle ?? ""},${b.opacity ?? ""}` : "d";
   return `|3${s.bandMode ?? "fit"}:${geo}:${s.caption ?? ""}`;
 }
 
@@ -757,9 +762,11 @@ function isValidScriptureBand(b: unknown): boolean {
   const p = b as Record<string, unknown>;
   const numInRange = (v: unknown, lo: number, hi: number) =>
     v === undefined || (typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi);
-  // Geometry (all optional).
+  // Geometry (all optional). heightPct is capped at 60 (the editor never exceeds
+  // 48) so a band — text OR media caption — can never structurally cover the whole
+  // screen and black out the projector, even from a spoofed frame.
   if (!numInRange(p.topPct, 0, 100)) return false;
-  if (!numInRange(p.heightPct, 1, 100)) return false;
+  if (!numInRange(p.heightPct, 1, 60)) return false;
   if (!numInRange(p.fontScale, 0.1, 4)) return false;
   // Paint: `color` optional (absent = transparent band); if present, opacity is
   // required + bounded.
