@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.378",
+    date: "2026-09-04",
+    headline: "Your stream now shows your themes — plus a dead-simple OBS setup",
+    highlights: [
+      { text: "Fixed: your live stream now shows the SAME look as the projector — your fonts, colours and theme. Before, the stream could get stuck on the plain black-and-white default even after you'd changed the theme, because the styling frame occasionally dropped and never came back. The stream (and the stage display) now re-check every few seconds and self-heal, exactly like the projector already does.", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "New guided setup: Hardware → Screens now walks you through putting lyrics on your stream in 3 baby steps — pick the look, copy one link, paste it into OBS — with a live status that turns green the moment OBS connects. No OBS knowledge needed.",
+      "Choose the look: “Over your camera” (see-through words on the live camera) or “Full projector look” (your theme background + words, exactly like the screen).",
+      "New: LAN mode for a separate streaming computer on the same WiFi/Ethernet — the most reliable option, with no internet needed for the live words and a live “devices connected” count. An internet link is still there for anywhere else.",
+    ],
+  },
+  {
     version: "0.1.377",
     date: "2026-09-04",
     headline: "OBS lyrics overlay now connects across two computers",

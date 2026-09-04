@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState, type RefCallback } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { openLiveChannel, type LiveChannelLike, isValidLiveMessage, slideOutputIdentity, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, isValidLiveMessage, isValidOutputStateExternal, slideOutputIdentity, type OutputState, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
 import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
 import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
 import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
@@ -38,6 +38,8 @@ export default function LivestreamPage() {
   const [background, setBackground] = useState<import("@/lib/broadcast").BackgroundSpec | null>(null);
   const [appearance, setAppearance] = useState<ThemeAppearance | null>(null); // Themes Phase 1
   const [videoInput, setVideoInput] = useState<VideoInputState | null>(null); // Phase 2a live video
+  const [referenceScale, setReferenceScale] = useState(1); // scripture reference-footer size — match the projector
+  const [referenceColor, setReferenceColor] = useState<string | undefined>(undefined);
   const [lowerThird, setLowerThird] = useState<{ line1: string; line2: string } | null>(null);
   const [announcement, setAnnouncement] = useState<AnnouncementPayload | null>(null);
   const [transition, setTransition] = useState<TransitionSpec | null>(null);
@@ -57,6 +59,9 @@ export default function LivestreamPage() {
   // setup-phase indicator so an operator can SEE the OBS overlay is connected
   // before the service, even in transparent mode.
   const [connStatus, setConnStatus] = useState<RealtimeConnStatus | null>(null);
+  // Once a real slide has been shown, the setup-phase status pill NEVER renders
+  // again — no chrome flashes over the live stream on a mid-service reconnect.
+  const [hasGoneLive, setHasGoneLive] = useState(false);
   const [pairBadge, setPairBadge] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(true);
   const lastMsgAt = useRef<number>(Date.now());
@@ -107,11 +112,34 @@ export default function LivestreamPage() {
     let ch: LiveChannelLike | null = openLiveChannel();
     broadcastChRef.current = ch;
     let reopenCount = 0;
+    let tick = 0;
+    // True while a REMOTE transport (LAN ws open, or cloud realtime connected) is
+    // the live source. On a remote OBS PC there's no operator on BroadcastChannel,
+    // and the operator only publishes on CHANGE — so a long held slide = silence,
+    // which must NOT be read as "operator disconnected" or trigger pointless
+    // BroadcastChannel reopens. The remote socket's own liveness is authoritative.
+    let remoteAlive = false;
+    // Present when OBS opened /livestream?lan=<ip>:<port> — the LAN transport.
+    const lanParam = (() => {
+      try {
+        const raw = new URLSearchParams(window.location.search).get("lan");
+        if (raw && /^[a-zA-Z0-9.\-]{1,253}:\d{2,5}$/.test(raw)) return raw;
+      } catch { /* ignore */ }
+      return null;
+    })();
     // Dedup the slide so the projector's 3s self-heal pong (broadcast to all
     // windows) never re-renders a held static slide on the livestream output.
     let appliedSig = "";
     const slideSig = (s: SlidePayload): string => { try { return JSON.stringify(s); } catch { return String(Date.now()); } };
-    const applySlide = (s: SlidePayload) => { const sig = slideSig(s); if (sig === appliedSig) return; appliedSig = sig; setSlide(s); };
+    const applySlide = (s: SlidePayload) => {
+      if (s.kind !== "empty") setHasGoneLive(true);
+      const sig = slideSig(s); if (sig === appliedSig) return; appliedSig = sig; setSlide(s);
+    };
+    // Non-slide-field dedup — mirrors /live (live/page.tsx). The operator answers
+    // every 3s self-heal ping with a FULL OutputState snapshot; without this the
+    // structured-cloned appearance/background arrive as fresh object refs each
+    // second and force a needless ~1Hz re-render of the whole surface.
+    let lastNonSlideSig = "";
     if (!ch) return;
     const onMessage = (e: MessageEvent) => {
       try {
@@ -125,14 +153,7 @@ export default function LivestreamPage() {
         else if (msg.type === "clear") applySlide({ kind: "empty" });
         else if (msg.type === "pong") applySlide(msg.slide);
         else if (msg.type === "output") {
-          applySlide(msg.state.live);
-          setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);
-          setAppearance(msg.state.appearance ?? null);
-          setBackground(msg.state.background ?? null);
-          setVideoInput(msg.state.videoInput ?? null);
-          setLowerThird(msg.state.lowerThird);
-          setAnnouncement(msg.state.announcement ?? null);
-          setTransition(msg.state.transition ?? null);
+          applyOutputState(msg.state);
         } else if (msg.type === "message") {
           if ("clear" in msg.overlay && msg.overlay.clear) {
             if (messageTimerRef.current) { clearTimeout(messageTimerRef.current); messageTimerRef.current = null; }
@@ -181,7 +202,24 @@ export default function LivestreamPage() {
     ch.postMessage({ type: "ping", join: true } as LiveMessage);
     const timer = setInterval(() => {
       const stale = Date.now() - lastMsgAt.current;
-      if (stale > 3000) setConnected(false);
+      // A live remote transport keeps us "connected" even through a held-slide
+      // silence; only fall back to the BroadcastChannel staleness rule otherwise.
+      if (remoteAlive) setConnected(true);
+      else if (stale > 3000) setConnected(false);
+      // Self-heal ping every ~3s — MIRRORS /live (live/page.tsx:272-273). The
+      // theme (appearance/background) rides ONLY the heavyweight, deduped
+      // "output" message; live slide-fires ride the lighter "set" message which
+      // carries no theme. If that one "output" frame is dropped on the flaky
+      // same-machine BroadcastChannel (the 2026-08-28 "yellow lyrics on a WHITE
+      // projector" field bug) OR this window joined after it was sent,
+      // appearance/background stay null for the WHOLE service → default black bg
+      // + white font on the stream. /live already self-heals by re-pinging; the
+      // constant "set" traffic here kept the channel non-silent so the 5s-silence
+      // recovery below never fired and the theme never re-arrived. The operator
+      // answers every ping with the full OutputState snapshot (OperatorConsole
+      // :1007-1022) which carries the theme, and our "output" handler applies it.
+      tick += 1;
+      if (ch && tick % 3 === 0) { try { ch.postMessage({ type: "ping" } as LiveMessage); } catch { /* ignore */ } }
       // Stale-message sweep: operator heartbeats at 1Hz while showing; 5s of
       // silence means the operator is gone — take the message down.
       if (lastMessageMsgAt.current > 0 && Date.now() - lastMessageMsgAt.current > 5000) {
@@ -190,8 +228,9 @@ export default function LivestreamPage() {
         if (messageTimerRef.current) { clearTimeout(messageTimerRef.current); messageTimerRef.current = null; }
         setMessageOverlay(null);
       }
-      // Y4: silent-channel recovery.
-      if (stale > 5000 && reopenCount < 20) {
+      // Y4: silent-channel recovery — skip entirely when a remote transport is
+      // the source (no operator on BroadcastChannel to recover; reopening churns).
+      if (!remoteAlive && stale > 5000 && reopenCount < 20) {
         try { ch?.close(); } catch { /* ignore */ }
         ch = openLiveChannel();
         if (ch) {
@@ -204,35 +243,100 @@ export default function LivestreamPage() {
     }, 1000);
     let realtime: ReturnType<typeof openOutputChannel> | null = null;
     let badgeTimer: ReturnType<typeof setTimeout> | null = null;
+    // Shared state-apply — used by BOTH the cloud (Realtime) transport and the
+    // LAN (direct WebSocket) transport so the two paths render byte-identically.
+    // Every frame carries the full OutputState (appearance/background included),
+    // so the theme is always current — no dropped-frame gap like the deduped
+    // "output" BroadcastChannel path.
+    const applyOutputState = (state: OutputState) => {
+      lastMsgAt.current = Date.now();
+      setConnected(true);
+      applySlide(state.live); // dedups the slide + tracks hasGoneLive
+      // Apply the non-slide fields only when they actually changed (dedup).
+      let sig: string;
+      try {
+        sig = JSON.stringify([state.fontScale, state.referenceScale, state.referenceColor, state.appearance, state.background, state.videoInput, state.lowerThird, state.announcement, state.transition]);
+      } catch { sig = String(Date.now()); }
+      if (sig === lastNonSlideSig) return;
+      lastNonSlideSig = sig;
+      setFontScale(typeof state.fontScale === "number" ? state.fontScale : 1);
+      setReferenceScale(typeof state.referenceScale === "number" ? state.referenceScale : 1);
+      setReferenceColor(typeof state.referenceColor === "string" ? state.referenceColor : undefined);
+      setAppearance(state.appearance ?? null);
+      setBackground(state.background ?? null);
+      setVideoInput(state.videoInput ?? null);
+      setLowerThird(state.lowerThird);
+      setAnnouncement(state.announcement ?? null);
+      setTransition(state.transition ?? null);
+    };
+    // Cloud (Realtime) pair transport — SKIPPED when a LAN transport is present,
+    // so the two never double-apply / fight over the same surface.
     try {
       const params = new URLSearchParams(window.location.search);
       const pair = params.get("pair");
-      if (pair && isValidPairCode(pair)) {
+      if (!lanParam && pair && isValidPairCode(pair)) {
         const code = pair.trim().toUpperCase();
         const church = params.get("church") || undefined;
         realtime = openOutputChannel(code, church);
-        realtime.onStatus(setConnStatus);
+        realtime.onStatus((s) => { remoteAlive = s === "connected"; setConnStatus(s); });
         let firstMsg = true;
         realtime.subscribe((state) => {
-          setFontScale(typeof state.fontScale === "number" ? state.fontScale : 1);
-          setAppearance(state.appearance ?? null);
-          setBackground(state.background ?? null);
-          setVideoInput(state.videoInput ?? null);
-          lastMsgAt.current = Date.now();
-          setConnected(true);
-          setSlide(state.live);
-          setLowerThird(state.lowerThird);
-          setAnnouncement(state.announcement ?? null);
-          setTransition(state.transition ?? null);
+          applyOutputState(state);
           if (firstMsg) { firstMsg = false; setPairBadge(code); badgeTimer = setTimeout(() => setPairBadge(null), 5000); }
         });
       }
     } catch (e) {
       console.warn("[livestream] pair-code subscribe failed:", e instanceof Error ? e.message : String(e));
     }
+
+    // LAN transport — OBS opens /livestream?lan=<ip>:<port>. We connect DIRECTLY
+    // to the operator PC's local ws server (electron/lan/LanOverlayServer.ts).
+    // No cloud/Supabase dependency; snapshot-on-connect means no blank frame.
+    // Auto-reconnects with capped backoff so a brief network blip self-heals.
+    let lanWs: WebSocket | null = null;
+    let lanRetry: ReturnType<typeof setTimeout> | null = null;
+    let lanBackoff = 1000;
+    let lanClosed = false;
+    const connectLan = () => {
+      if (!lanParam || lanClosed) return;
+      setConnStatus("connecting");
+      try {
+        const sock = new WebSocket(`ws://${lanParam}/ws`);
+        lanWs = sock;
+        sock.onopen = () => {
+          lanBackoff = 1000;
+          remoteAlive = true;
+          setConnStatus("connected");
+          try { sock.send(JSON.stringify({ type: "snapshot_request" })); } catch { /* ignore */ }
+        };
+        sock.onmessage = (ev) => {
+          try {
+            const msg = JSON.parse(typeof ev.data === "string" ? ev.data : "");
+            if (msg && msg.type === "output" && isValidOutputStateExternal(msg.state)) {
+              applyOutputState(msg.state as OutputState);
+            }
+          } catch { /* ignore malformed */ }
+        };
+        sock.onclose = () => { remoteAlive = false; if (!lanClosed) { setConnStatus("reconnecting"); scheduleLan(); } };
+        sock.onerror = () => { try { sock.close(); } catch { /* ignore */ } };
+      } catch (e) {
+        console.warn("[livestream] LAN connect failed:", e instanceof Error ? e.message : String(e));
+        scheduleLan();
+      }
+    };
+    const scheduleLan = () => {
+      if (lanClosed || lanRetry) return;
+      const wait = Math.min(lanBackoff, 15_000);
+      lanRetry = setTimeout(() => { lanRetry = null; lanBackoff = Math.min(lanBackoff * 2, 15_000); connectLan(); }, wait);
+    };
+    if (lanParam) connectLan();
+
     return () => {
       try { ch?.close(); } catch { /* ignore */ }
       try { realtime?.close(); } catch { /* ignore */ }
+      lanClosed = true;
+      if (lanRetry) clearTimeout(lanRetry);
+      try { lanWs?.close(); } catch { /* ignore */ }
       if (badgeTimer) clearTimeout(badgeTimer);
       clearInterval(timer);
     };
@@ -288,13 +392,13 @@ export default function LivestreamPage() {
           {/* Live camera wins over a Background Template here too (mirrors /live). */}
           {!transparent && background && background.type !== "none" && !videoInput && <BackgroundLayer key={background.shaderPreset ?? background.type} background={background} />}
           {!transparent && hasVideoBackground(videoInput, appearance) && !(!transparent && background && background.type !== "none" && !videoInput) ? (
-            <OutputSlide slide={slide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} projectorFit />
+            <OutputSlide slide={slide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} projectorFit />
           ) : transitionsEnabled ? (
             <TransitionWrapper identityKey={slideOutputIdentity(slide)} transition={transition}>
-              <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} overVideo={!!(!transparent && background && background.type !== "none" && !videoInput)} transparentBg={transparent} videoMuted={false} onVideoRef={handleVideoRef} />
+              <SlideRenderer slide={slide} projectorFit fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} overVideo={!!(!transparent && background && background.type !== "none" && !videoInput)} transparentBg={transparent} videoMuted={false} onVideoRef={handleVideoRef} />
             </TransitionWrapper>
           ) : (
-            <SlideRenderer slide={slide} projectorFit fontScale={fontScale} appearance={appearance} overVideo={!!(!transparent && background && background.type !== "none" && !videoInput)} transparentBg={transparent} videoMuted={false} onVideoRef={handleVideoRef} />
+            <SlideRenderer slide={slide} projectorFit fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} overVideo={!!(!transparent && background && background.type !== "none" && !videoInput)} transparentBg={transparent} videoMuted={false} onVideoRef={handleVideoRef} />
           )}
           {/* No theme logo in OBS transparent mode — the overlay is text-only so
               OBS composites just the lyrics/verse over the camera. */}
@@ -368,9 +472,10 @@ export default function LivestreamPage() {
       )}
 
       {/* Setup-phase connection status — shows even in transparent mode so the
-          operator can SEE the OBS overlay connected before the service. Auto-hides
-          once a real slide is live (clean on-air); reappears if it disconnects. */}
-      {connStatus && !(connStatus === "connected" && slide.kind !== "empty") && (
+          operator can SEE the OBS overlay connect BEFORE the service. Once a real
+          slide has ever gone live it NEVER shows again, so a mid-service reconnect
+          can't flash chrome over the live stream (transparent or full-look). */}
+      {connStatus && !hasGoneLive && (
         <div className="absolute top-3 left-3 flex items-center gap-1.5 text-white text-[11px] font-semibold px-2.5 py-1.5 rounded-md shadow-lg"
           style={{
             background:

@@ -81,11 +81,16 @@ export default function StagePage() {
   useEffect(() => {
     let ch: LiveChannelLike | null = openLiveChannel();
     let reopenCount = 0;
+    let tick = 0;
     // Dedup the current slide so the projector's 3s self-heal pong (broadcast to
     // all windows) never re-renders a held static slide on the stage display.
     let appliedCurSig = "";
     const curSig = (s: SlidePayload): string => { try { return JSON.stringify(s); } catch { return String(Date.now()); } };
     const applyCurrent = (s: SlidePayload) => { const sig = curSig(s); if (sig === appliedCurSig) return; appliedCurSig = sig; setCurrent(s); };
+    // Non-slide-field dedup — the operator answers every 3s self-heal ping with a
+    // full OutputState snapshot; without this, structured-cloned appearance/etc
+    // arrive as fresh refs each second and force a needless ~1Hz re-render.
+    let appliedRestSig = "";
     if (!ch) return;
     const onMessage = (e: MessageEvent) => {
       try {
@@ -100,18 +105,26 @@ export default function StagePage() {
         else if (msg.type === "pong") applyCurrent(msg.slide);
         else if (msg.type === "output") {
           applyCurrent(msg.state.live);
-          setNext(msg.state.next);
-          setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);
-          setReferenceScale(typeof msg.state.referenceScale === "number" ? msg.state.referenceScale : 1);
-          setReferenceColor(typeof msg.state.referenceColor === "string" ? msg.state.referenceColor : undefined);
-          setBackground(msg.state.background ?? null);
-          setAppearance(msg.state.appearance ?? null);
-          setZone(msg.state.zone ?? null);
-          setNextItem(msg.state.nextItem ?? null);
-          setOperatorMessage(msg.state.operatorMessage);
-          setCountdownEndsAt(msg.state.countdownEndsAt);
-          setAnnouncement(msg.state.announcement ?? null);
-          setTransition(msg.state.transition ?? null);
+          // Apply the non-slide fields only when they actually changed (dedup).
+          let restSig: string;
+          try {
+            restSig = JSON.stringify([msg.state.next, msg.state.fontScale, msg.state.referenceScale, msg.state.referenceColor, msg.state.background, msg.state.appearance, msg.state.zone, msg.state.nextItem, msg.state.operatorMessage, msg.state.countdownEndsAt, msg.state.announcement, msg.state.transition]);
+          } catch { restSig = String(Date.now()); }
+          if (restSig !== appliedRestSig) {
+            appliedRestSig = restSig;
+            setNext(msg.state.next);
+            setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);
+            setReferenceScale(typeof msg.state.referenceScale === "number" ? msg.state.referenceScale : 1);
+            setReferenceColor(typeof msg.state.referenceColor === "string" ? msg.state.referenceColor : undefined);
+            setBackground(msg.state.background ?? null);
+            setAppearance(msg.state.appearance ?? null);
+            setZone(msg.state.zone ?? null);
+            setNextItem(msg.state.nextItem ?? null);
+            setOperatorMessage(msg.state.operatorMessage);
+            setCountdownEndsAt(msg.state.countdownEndsAt);
+            setAnnouncement(msg.state.announcement ?? null);
+            setTransition(msg.state.transition ?? null);
+          }
         } else if (msg.type === "message") {
           if ("clear" in msg.overlay && msg.overlay.clear) {
             if (messageTimerRef.current) { clearTimeout(messageTimerRef.current); messageTimerRef.current = null; }
@@ -147,6 +160,12 @@ export default function StagePage() {
     const timer = setInterval(() => {
       const stale = Date.now() - lastMsgAt.current;
       if (stale > 3000) setConnected(false);
+      // Self-heal ping every ~3s — MIRRORS /live and /livestream. Theme
+      // (appearance/background) rides only the deduped "output" frame; if it's
+      // dropped or this window joined late, re-pinging pulls a fresh full
+      // snapshot from the operator so the theme re-arrives within seconds.
+      tick += 1;
+      if (ch && tick % 3 === 0) { try { ch.postMessage({ type: "ping" } as LiveMessage); } catch { /* ignore */ } }
       if (lastTimerMsgAt.current > 0 && Date.now() - lastTimerMsgAt.current > 5000) {
         lastTimerMsgAt.current = 0;
         setTimerOverlay(null);

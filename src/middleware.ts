@@ -314,6 +314,21 @@ export async function middleware(req: NextRequest) {
     if (pair && /^[A-HJ-NP-Z2-9]{6}$/.test(pair.trim().toUpperCase())) {
       return NextResponse.next();
     }
+    // LAN overlay (2026-09-04): the desktop app serves /livestream over its own
+    // LAN http origin (electron/lan/LanOverlayServer.ts, reverse-proxied here)
+    // so an OBS Browser Source on a separate PC gets lyrics over the local
+    // network. That URL carries ?lan=<host>:<port> instead of a pair code. Same
+    // safety envelope as the pair path AND stricter in practice:
+    //   • the PAGE itself carries NO church data — live state arrives ONLY over
+    //     the LAN WebSocket (ws://<host>:<port>/ws), reachable only on that LAN;
+    //     an outsider loading this URL gets an empty overlay that can't connect;
+    //   • the surface is READ-ONLY (subscribes to live state, never pushes);
+    //   • the LAN server itself is bound to the private subnet + remote-gated.
+    // So exempting a well-formed lan= param leaks nothing beyond an empty page.
+    const lan = req.nextUrl.searchParams.get("lan");
+    if (lan && /^[a-zA-Z0-9.\-]{1,253}:\d{2,5}$/.test(lan)) {
+      return NextResponse.next();
+    }
   }
 
   // Auth.js v5 renamed the cookie. Must pass salt + cookieName + secureCookie

@@ -165,6 +165,18 @@ const api = {
       return () => ipcRenderer.removeListener("ndiAudio:error", handler);
     },
   },
+  // LAN OVERLAY — run a local http+ws server so an OBS Browser Source on a
+  // SEPARATE broadcast PC receives lyrics over the local network, no cloud
+  // dependency. `publish` is fire-and-forget on the hot output path.
+  lan: {
+    start: (port?: number): Promise<{ running: boolean; ip: string | null; port: number | null; clients: number }> =>
+      ipcRenderer.invoke("lan:start", port),
+    stop: (): Promise<{ running: boolean; ip: string | null; port: number | null; clients: number }> =>
+      ipcRenderer.invoke("lan:stop"),
+    status: (): Promise<{ running: boolean; ip: string | null; port: number | null; clients: number }> =>
+      ipcRenderer.invoke("lan:status"),
+    publish: (state: unknown) => ipcRenderer.send("lan:publish", state),
+  },
   on: (channel: string, handler: Handler) => {
     const wrapped = (_e: IpcRendererEvent, ...args: any[]) => handler(...args);
     listeners.set(handler, wrapped);

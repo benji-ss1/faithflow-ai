@@ -7,6 +7,7 @@ import { registerDialogIpc } from "./ipc/dialog";
 import { registerFsIpc } from "./ipc/fs";
 import { registerNdiIpc } from "./ipc/ndi";
 import { registerNdiReceiveIpc } from "./ipc/ndi-receive";
+import { registerLanIpc } from "./ipc/lan";
 import { autoUpdater } from "electron-updater";
 
 const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
@@ -643,6 +644,10 @@ app.whenReady().then(async () => {
   // pushes 16 kHz mono PCM to the renderer. UNVERIFIED — needs the native addon
   // compiled (Windows primary) + on-site test against the church's NDI source.
   try { registerNdiReceiveIpc(() => mainWindow); } catch (e) { console.warn("[main] NDI receive IPC init failed:", e instanceof Error ? e.message : String(e)); }
+  // LAN OVERLAY — serve the live lyrics/scripture overlay to an OBS Browser
+  // Source on a separate broadcast PC over the LOCAL network (no cloud/Supabase
+  // dependency). Started on demand from the Screens panel.
+  try { registerLanIpc(() => appUrl); } catch (e) { console.warn("[main] LAN IPC init failed:", e instanceof Error ? e.message : String(e)); }
 
   // Utility IPC
   ipcMain.handle("app:version", () => app.getVersion());

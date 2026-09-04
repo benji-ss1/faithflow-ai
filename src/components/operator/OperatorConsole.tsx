@@ -642,6 +642,15 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // this prevents a paired frame from activating a default camera on a public
     // livestream (security).
     if (rtRef.current) { void rtRef.current.publish(state.videoInput ? { ...state, videoInput: null } : state); }
+    // LAN OVERLAY fan-out (desktop only) — mirror the full OutputState to the
+    // local http+ws server so an OBS Browser Source on a SEPARATE broadcast PC
+    // gets lyrics over the LAN with no cloud dependency. Same videoInput scrub as
+    // Realtime (a local camera id is meaningless on another machine). No-op on
+    // web (electronAPI.lan absent) and cheap fire-and-forget over IPC.
+    try {
+      const lan = (typeof window !== "undefined" ? (window as unknown as { electronAPI?: { lan?: { publish: (s: unknown) => void } } }).electronAPI?.lan : undefined);
+      if (lan) lan.publish(state.videoInput ? { ...state, videoInput: null } : state);
+    } catch { /* ignore */ }
     // CUT-THEN-FLOAT FIX (2026-08-20): do NOT clear the marker here. It used to
     // be one-shot, so the NEXT OutputState re-post for the SAME instant slide
     // (1 Hz heartbeat / any dep change) fell through to `transitionSpec` and
