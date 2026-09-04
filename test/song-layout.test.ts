@@ -17,7 +17,7 @@ const store = new Map<string, string>();
   dispatchEvent: () => true,
 };
 
-import { applyChurchLayout, songLowerThirdPayload, saveScriptureStyle, DEFAULT_SCRIPTURE_DESIGN } from "../src/components/operator/scripture/scriptureStyle";
+import { applyChurchLayout, songLowerThirdPayload, sourceForRelayout, saveScriptureStyle, DEFAULT_SCRIPTURE_DESIGN } from "../src/components/operator/scripture/scriptureStyle";
 
 const CHURCH = "church-1";
 function setChurchLayout(layout: "fullscreen" | "lowerThird") {
@@ -97,4 +97,42 @@ test("empty text → not banded (no crash)", () => {
   const blank = { kind: "text", text: "   " } as any;
   const out = applyChurchLayout(blank, CHURCH) as any;
   assert.equal(out.scriptureLayout, undefined);
+});
+
+// ---- LIVE TOGGLE reversal: sourceForRelayout must let applyChurchLayout re-derive
+test("REVERSE a live-banded verse → sourceForRelayout reduces the pre-styled slide so re-apply un-bands it", () => {
+  // A banded scripture slide as it is LIVE (has scriptureLayout + reference).
+  const liveBanded = { kind: "text", text: "For God so loved", reference: "John 3:16", scriptureLayout: "lowerThird", scriptureBand: { topPct: 70, heightPct: 30, fontScale: 1 } } as any;
+  const raw = sourceForRelayout(liveBanded) as any;
+  assert.equal(raw.scriptureLayout, undefined, "band stripped");
+  assert.equal(raw.reference, "John 3:16", "reference kept");
+  // Now the church flips to FULL SCREEN → re-apply → fullscreen scripture (objects, no band)
+  setChurchLayout("fullscreen");
+  const out = applyChurchLayout(raw, CHURCH) as any;
+  assert.equal(out.scriptureLayout, undefined, "re-applied fullscreen — no band (reversed)");
+  assert.ok(out.objects && out.objects.length > 0, "fullscreen scripture rebuilt with styled objects");
+});
+
+test("REVERSE the other way: a styled FULLSCREEN verse → reduce → re-apply lowerThird → banded", () => {
+  const liveFull = { kind: "text", text: "For God so loved", reference: "John 3:16", objects: [{ kind: "text", x: 0, y: 0, w: 100, h: 100, text: "For God so loved" }] } as any;
+  const raw = sourceForRelayout(liveFull) as any;
+  assert.equal(raw.objects, undefined, "objects stripped for scripture (re-derived from design)");
+  setChurchLayout("lowerThird");
+  const out = applyChurchLayout(raw, CHURCH) as any;
+  assert.equal(out.scriptureLayout, "lowerThird", "re-applied as a band");
+});
+
+test("sourceForRelayout keeps a designed SONG's objects (design survives a full-screen toggle)", () => {
+  const designedSong = { kind: "text", text: "chorus", objects: [{ kind: "text", x: 0, y: 0, w: 100, h: 100, text: "chorus" }] } as any;
+  const raw = sourceForRelayout(designedSong) as any;
+  assert.equal(raw, designedSong, "no reference + no band → returned unchanged (design preserved)");
+});
+
+test("sourceForRelayout strips a media third layout so it can re-derive", () => {
+  const bandedImg = { kind: "image", url: "https://x/y.png", fit: "cover", layout: "third", band: { topPct: 68, heightPct: 30 }, bandMode: "fit" } as any;
+  const raw = sourceForRelayout(bandedImg) as any;
+  assert.equal(raw.layout, undefined);
+  assert.equal(raw.band, undefined);
+  assert.equal(raw.url, "https://x/y.png");
+  assert.equal(raw.fit, "cover");
 });

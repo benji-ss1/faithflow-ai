@@ -284,6 +284,52 @@ export function applyChurchLayout(slide: SlidePayload, churchId: string): SlideP
   }
 }
 
+// Reduce a possibly-ALREADY-STYLED slide back to its raw content form so
+// applyChurchLayout can re-derive the CURRENT layout from scratch. This is what
+// makes the live Full⇄Third toggle actually reverse the slide on screen: the
+// manual scripture card path pre-styles the payload (objects for fullscreen /
+// scriptureLayout for the band), and re-sending THAT would no-op in
+// styleScriptureSlide (it skips already-styled slides). We strip:
+//   • scripture (has a reference) → back to a plain { text, reference } verse so
+//     the saved design + current layout are re-applied fresh (both directions).
+//   • songs/plain text carrying a band → drop the band, KEEP any designed objects
+//     (a designed song keeps its design when it goes back to full screen).
+//   • image/video carrying a third layout → drop layout/band/mode/caption.
+// Anything not styled is returned unchanged.
+export function sourceForRelayout(slide: SlidePayload): SlidePayload {
+  if (slide.kind === "text") {
+    if (slide.reference) return { kind: "text", text: slide.text, reference: slide.reference };
+    if (slide.scriptureLayout || slide.scriptureBand) {
+      const p: Extract<SlidePayload, { kind: "text" }> = { kind: "text", text: slide.text };
+      if (slide.bgColor) p.bgColor = slide.bgColor;
+      if (slide.bgImageUrl) p.bgImageUrl = slide.bgImageUrl;
+      if (slide.objects && slide.objects.length) p.objects = slide.objects;
+      return p;
+    }
+    return slide;
+  }
+  if (slide.kind === "image") {
+    if (slide.layout || slide.band) {
+      const p: Extract<SlidePayload, { kind: "image" }> = { kind: "image", url: slide.url };
+      if (slide.fit) p.fit = slide.fit;
+      if (slide.blurFill) p.blurFill = slide.blurFill;
+      return p;
+    }
+    return slide;
+  }
+  if (slide.kind === "video") {
+    if (slide.layout || slide.band) {
+      const p: Extract<SlidePayload, { kind: "video" }> = { kind: "video", url: slide.url };
+      if (slide.fit) p.fit = slide.fit;
+      if (slide.loop !== undefined) p.loop = slide.loop;
+      if (slide.volume !== undefined) p.volume = slide.volume;
+      return p;
+    }
+    return slide;
+  }
+  return slide;
+}
+
 // Extract a reusable design template from an edited slide's objects (positions,
 // sizes, styles) so "Save (all slides)" reproduces the layout for every verse.
 export function designFromSlide(slide: EditableSlide, prev: ScriptureDesign): ScriptureDesign {

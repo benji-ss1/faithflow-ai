@@ -7,7 +7,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, Monitor, Radio, Square, Sun, Pane
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, AI_AUTO_TRANSITION, slideOutputIdentity, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
 import { readFontScale, readReferenceScale, readReferenceColor } from "./pro/operatorConstants";
-import { applyChurchLayout } from "./scripture/scriptureStyle";
+import { applyChurchLayout, loadScriptureStyle, saveScriptureStyle, sourceForRelayout } from "./scripture/scriptureStyle";
 import { useBackgroundState } from "@/backgrounds/hooks/useBackgroundState";
 import { toBackgroundSpec } from "@/backgrounds/models/BackgroundTypes";
 import { openOutputChannel } from "@/lib/realtime";
@@ -220,6 +220,17 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   const [serviceMode, setServiceModeInner] = useState<ServiceMode>("auto");
   const serviceModeRef = useRef<ServiceMode>("auto");
   serviceModeRef.current = serviceMode;
+  // Church projection layout (Full screen ⇄ Third band) — the same church-wide
+  // default the Layout editor writes. Mirrored here so the top-bar toggle can
+  // show + flip it live. Loads post-mount and stays in sync via the shared
+  // "pf-scripture-style-changed" event any editor fires on save.
+  const [projectionLayout, setProjectionLayout] = useState<"fullscreen" | "lowerThird">("fullscreen");
+  useEffect(() => {
+    const sync = () => { try { setProjectionLayout(loadScriptureStyle(churchId).layout); } catch { /* noop */ } };
+    sync();
+    window.addEventListener("pf-scripture-style-changed", sync);
+    return () => window.removeEventListener("pf-scripture-style-changed", sync);
+  }, [churchId]);
   useEffect(() => {
     try {
       const raw = window.sessionStorage.getItem(SERVICE_MODE_KEY);
@@ -664,6 +675,11 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   const chRef = useRef<LiveChannelLike | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;
+  // The PRE-layout source of whatever is currently live — captured at
+  // sendSlideToLive entry (before applyChurchLayout). Re-sending THIS through the
+  // pipeline re-applies the CURRENT church layout, so a full↔third toggle can
+  // update the slide already on screen (not just the next one).
+  const lastSourceRef = useRef<SlidePayload | null>(null);
 
   // Networked projector sync: when a pair code is minted the operator's
   // OutputState is ALSO published on the Supabase Realtime channel scoped by
@@ -922,6 +938,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // church's lower-third band when that's the saved default (else unchanged);
     // a per-slide layout override wins; media is untouched. See applyChurchLayout.
     // Runs BEFORE the identity checks so all downstream guards see the final slide.
+    lastSourceRef.current = slide; // remember the pre-layout source (for a live toggle)
     slide = applyChurchLayout(slide, churchId);
     // ALREADY-LIVE SKIP (2026-08-20): if this EXACT slide is already on the
     // projector, sending it again is a no-op — do nothing. Re-clicking the live
@@ -1122,7 +1139,11 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       sendSlideToLive(prev, undefined, { instant: true, force: true }); // un-blank
       return;
     }
-    if (cur && cur.kind !== "blank" && cur.kind !== "empty") prevBeforeBlankRef.current = cur;
+    // Remember the PRE-layout SOURCE (not the already-styled live slide) so
+    // un-blank re-runs the CURRENT layout — and so a layout toggle after un-blank
+    // can still reverse it (re-sending a styled slide would no-op in
+    // applyChurchLayout). Falls back to the live slide if no source was captured.
+    if (cur && cur.kind !== "blank" && cur.kind !== "empty") prevBeforeBlankRef.current = lastSourceRef.current ?? cur;
     send({ kind: "blank", bgColor: plan.blankBgColor });
   }, [plan.blankBgColor, send, sendSlideToLive]);
   const goLogo = useCallback(() => send({ kind: "logo", url: plan.logoUrl }), [plan.logoUrl, send]);
@@ -1131,6 +1152,44 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   // The fade/dissolve transition is intentional for playlist slides, but when an
   // operator explicitly presses LIVE they want it NOW — no 1-2 s animation delay.
   const sendPreview = useCallback(() => sendSlideToLive(previewSlide, undefined, { instant: true }), [previewSlide, sendSlideToLive]);
+
+  // Re-apply the CURRENT church layout to the slide already on screen: re-send its
+  // pre-layout source through the pipeline (which re-runs applyChurchLayout with
+  // the now-current default). instant:true = a clean hard cut (no fade); force
+  // bypasses the already-live skip so a layout-only change actually re-projects.
+  const reapplyLayoutToLive = useCallback(() => {
+    // Never disturb an intentional blank/logo/empty screen.
+    const cur = liveRef.current;
+    if (!cur || cur.kind === "blank" || cur.kind === "logo" || cur.kind === "empty") return;
+    const src = lastSourceRef.current;
+    // Reduce the source back to raw content so applyChurchLayout re-derives the
+    // CURRENT layout (a pre-styled source would no-op — that's the whole trick).
+    if (src) sendSlideToLive(sourceForRelayout(src), undefined, { instant: true, force: true });
+  }, [sendSlideToLive]);
+
+  // One-tap Full screen ⇄ Third band from the top bar. Saves the church default
+  // (so it sticks going forward) AND re-projects the current slide immediately.
+  const toggleProjectionLayout = useCallback(() => {
+    let next: "fullscreen" | "lowerThird" = "fullscreen";
+    try {
+      const d = loadScriptureStyle(churchId);
+      next = d.layout === "lowerThird" ? "fullscreen" : "lowerThird";
+      saveScriptureStyle(churchId, { ...d, layout: next }); // fires pf-scripture-style-changed → syncs state
+    } catch { /* noop */ }
+    setProjectionLayout(next);
+    reapplyLayoutToLive();
+    toast.success(next === "lowerThird" ? "Lower third — on" : "Full screen — on", {
+      description: next === "lowerThird" ? "Songs, verses & media now project in the band." : "Everything back to full screen.",
+    });
+  }, [churchId, reapplyLayoutToLive]);
+
+  // Any editor's "Apply to current slide" (or another surface) can push the
+  // current layout onto the live slide via this event — "apply it back, anywhere".
+  useEffect(() => {
+    const onReapply = () => reapplyLayoutToLive();
+    window.addEventListener("presentflow:reapply-layout-live", onReapply);
+    return () => window.removeEventListener("presentflow:reapply-layout-live", onReapply);
+  }, [reapplyLayoutToLive]);
 
   const move = useCallback((dir: 1 | -1) => {
     setPreview((cur) => {
@@ -1798,6 +1857,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     onSafeAreaToggle: () => setSafeArea((v) => !v),
     autopilotMode, onAutopilotModeChange: setAutopilotMode,
     serviceMode, onServiceModeChange: setServiceMode,
+    projectionLayout, onToggleProjectionLayout: toggleProjectionLayout,
     autoApproveOn: autoApprove.enabled,
     autoSendToLive: autoApprove.autoSendToLive,
     audio,

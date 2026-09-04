@@ -142,6 +142,13 @@ export function LayoutDefaultControl({ churchId, compact }: { churchId?: string;
         </>
       )}
       <p className="text-[10px] text-emerald-500/90 leading-relaxed">Saved automatically — applies to every slide going forward.</p>
+      <button
+        type="button"
+        onClick={() => { try { window.dispatchEvent(new CustomEvent("presentflow:reapply-layout-live")); toast.success("Applied to the slide on screen"); } catch { /* ignore */ } }}
+        className="w-full text-[11px] font-semibold px-2 py-1.5 rounded-md border border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:border-[var(--color-brand)]/40"
+      >
+        Apply to the slide on screen now
+      </button>
     </div>
   );
 }

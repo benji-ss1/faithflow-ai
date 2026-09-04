@@ -10,7 +10,7 @@ import {
   Search, BookOpen,
   Sparkles, Image as ImageIcon,
   Music, Palette, Undo2, Redo2,
-  Music2, Wand2, Mic2,
+  Music2, Wand2, Mic2, Maximize2, PanelBottom,
 } from "lucide-react";
 import Image from "next/image";
 import type { OperatorShellCtx } from "../shell/types";
@@ -231,6 +231,32 @@ export function TopBar({
           <Redo2 className="w-4 h-4" strokeWidth={2.2} />
         </button>
       </div>
+      <div className="mx-1 h-5 w-px bg-[var(--color-border)]" aria-hidden />
+      {/* Projection layout quick-toggle — Full screen ⇄ Third band. Flips the
+          church default AND re-projects the slide currently on screen, so an
+          operator can drop to / out of the lower third in one tap mid-service. */}
+      {(() => {
+        const inThird = ctx.projectionLayout === "lowerThird";
+        return (
+          <button
+            type="button"
+            onClick={ctx.onToggleProjectionLayout}
+            title={inThird
+              ? "Projecting in the lower third — click to go back to full screen (updates the live slide)"
+              : "Full screen — click to project in the lower third (updates the live slide)"}
+            aria-label={inThird ? "Switch to full screen" : "Switch to lower third"}
+            aria-pressed={inThird}
+            className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-semibold shadow-[var(--edge-top),var(--shadow-sm)] transition-[transform,box-shadow,color,border-color] duration-200 [transition-timing-function:var(--ease-spring)] hover:-translate-y-px active:translate-y-0 active:scale-95 ${
+              inThird
+                ? "border-[var(--color-brand)] bg-[color-mix(in_oklab,var(--color-brand)_16%,transparent)] text-[var(--color-brand-hi)]"
+                : "border-[var(--color-border)] bg-[var(--color-card)] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+            }`}
+          >
+            {inThird ? <PanelBottom className="w-4 h-4" strokeWidth={2.2} /> : <Maximize2 className="w-4 h-4" strokeWidth={2.2} />}
+            <span>{inThird ? "Third" : "Full"}</span>
+          </button>
+        );
+      })()}
       <div className="mx-1 h-5 w-px bg-[var(--color-border)]" aria-hidden />
       {/* "Show current" top-bar Play button removed 2026-08-21 (top-bar declutter,
           user directive) — the CenterHeader already has a context-aware Play for
