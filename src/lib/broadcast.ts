@@ -58,8 +58,13 @@ export type SlidePayload =
   // (scripture reference like "John 3:16 (KJV)") that never gets shrunk or
   // paginated off with the verse body — the body sizes independently above it.
   | { kind: "text"; text: string; bgColor?: string; bgImageUrl?: string; objects?: SlideObjectWire[]; reference?: string; scriptureLayout?: "lowerThird"; scriptureBand?: ScriptureBandWire }
-  | { kind: "image"; url: string; fit?: "contain" | "cover" | "fill"; blurFill?: boolean }
-  | { kind: "video"; url: string; fit?: "contain" | "cover" | "fill"; loop?: boolean; volume?: number }
+  // `layout:"third"` confines the media to the church's band (upper/mid/lower)
+  // instead of full-screen. `bandMode` picks the behaviour: "fit" shrinks the
+  // media INTO the band rectangle (theme/camera shows above & below); "caption"
+  // keeps the media full-bleed and paints the band as a caption strip over it,
+  // showing `caption` text. `band` carries the same geometry/paint as text.
+  | { kind: "image"; url: string; fit?: "contain" | "cover" | "fill"; blurFill?: boolean; layout?: "third"; band?: ScriptureBandWire; bandMode?: "fit" | "caption"; caption?: string }
+  | { kind: "video"; url: string; fit?: "contain" | "cover" | "fill"; loop?: boolean; volume?: number; layout?: "third"; band?: ScriptureBandWire; bandMode?: "fit" | "caption"; caption?: string }
   | { kind: "blank"; bgColor?: string }
   | { kind: "logo"; url?: string }
   | { kind: "empty" };
@@ -720,6 +725,18 @@ export function slideDesignSig(s: Extract<SlidePayload, { kind: "text" }>): stri
  * same identity and therefore never re-animates. Consolidated here (was inlined
  * identically in live/stage/livestream).
  */
+// Band signature for an image/video, folded into its content-identity so a
+// deliberate layout/caption edit re-projects (defeats the already-live skip),
+// while an unbanded media stays BYTE-IDENTICAL to its pre-feature identity (empty
+// string) — so existing live media never re-pulses on deploy. Band values only
+// change on an operator action, so this can't flap on heartbeats.
+function mediaBandSig(s: Extract<SlidePayload, { kind: "image" | "video" }>): string {
+  if (s.layout !== "third") return "";
+  const b = s.band;
+  const geo = b ? `${b.topPct ?? ""},${b.heightPct ?? ""},${b.color ?? ""},${b.color2 ?? ""},${b.angle ?? ""},${b.opacity ?? ""}` : "d";
+  return `|3${s.bandMode ?? "fit"}:${geo}:${s.caption ?? ""}`;
+}
+
 export function slideOutputIdentity(s: SlidePayload): string {
   if (s.kind === "text") return `t:${s.text}|${s.reference ?? ""}|${slideDesignSig(s)}`;
   // fit is part of the identity so an operator changing the size of the
@@ -727,8 +744,8 @@ export function slideOutputIdentity(s: SlidePayload): string {
   // sendSlideToLive compares this string). fit only changes on a deliberate
   // operator action, so it can't cause the identity-flap "pulse" that
   // appearance/transition fields would.
-  if (s.kind === "image") return `i:${s.url}|${s.fit ?? ""}|${s.blurFill ? "b" : ""}`;
-  if (s.kind === "video") return `v:${s.url}|${s.fit ?? ""}`;
+  if (s.kind === "image") return `i:${s.url}|${s.fit ?? ""}|${s.blurFill ? "b" : ""}${mediaBandSig(s)}`;
+  if (s.kind === "video") return `v:${s.url}|${s.fit ?? ""}${mediaBandSig(s)}`;
   if (s.kind === "blank") return `b:${s.bgColor ?? ""}`;
   if (s.kind === "logo") return `l:${s.url ?? ""}`;
   return "e";
@@ -776,7 +793,13 @@ function isValidSlide(s: unknown): s is SlidePayload {
       return true;
     case "image":
     case "video":
-      return isValidMediaUrl(st.url);
+      if (!isValidMediaUrl(st.url)) return false;
+      // Optional third-band layout on media (same envelope as text).
+      if (st.layout !== undefined && st.layout !== "third") return false;
+      if (st.band !== undefined && !isValidScriptureBand(st.band)) return false;
+      if (st.bandMode !== undefined && st.bandMode !== "fit" && st.bandMode !== "caption") return false;
+      if (st.caption !== undefined && (typeof st.caption !== "string" || st.caption.length > 500)) return false;
+      return true;
     case "blank":
       if (st.bgColor !== undefined && !isValidColor(st.bgColor)) return false;
       return true;

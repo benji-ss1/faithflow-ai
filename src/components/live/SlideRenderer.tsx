@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useCallback } from "react";
-import type { SlidePayload, ThemeAppearance } from "@/lib/broadcast";
+import type { SlidePayload, ThemeAppearance, ScriptureBandWire } from "@/lib/broadcast";
 import { themedObjectTextColor } from "@/lib/slide-objects";
 import { AutoFitText } from "./AutoFitText";
 import { AnimatedThemeBg } from "./ThemeLayers";
@@ -528,6 +528,17 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
     // fill already reach the edges). The blurred layer always matches because it
     // IS the same image.
     const showBlurFill = slide.blurFill === true && fitMode === "contain";
+    // THIRD-BAND image (church lower-third default, or a per-slide layout).
+    if (slide.layout === "third" && slide.url) {
+      const objectFit = fitMode === "fill" ? "fill" : fitMode === "cover" ? "cover" : "contain";
+      const fitEl = <img src={slide.url} alt="" style={{ width: "100%", height: "100%", objectFit, objectPosition: "center", display: "block" }} />;
+      const fullEl = (
+        <div className="absolute inset-0 bg-black flex items-center justify-center overflow-hidden">
+          <img src={slide.url} alt="" style={imgStyle} />
+        </div>
+      );
+      return <ThirdBandMedia base={base} className={className} band={slide.band} mode={slide.bandMode ?? "fit"} caption={slide.caption} media={fitEl} fullMedia={fullEl} />;
+    }
     return (
       <div className={`${base} bg-black relative overflow-hidden ${className || ""}`}>
         {slide.url ? (
@@ -566,6 +577,13 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
     // overlay — it would black-box the camera and dump a second audio track into
     // the OBS page. Media video is a separate OBS scene.
     if (transparentBg) return <div className={`${base} ${className || ""}`} style={{ background: "transparent" }} />;
+    // THIRD-BAND video: confine VideoSlide into the band (fit), or full video +
+    // caption strip (caption). The nested VideoSlide fills its positioned box.
+    if (slide.layout === "third" && slide.url) {
+      const boxed = <VideoSlide slide={slide} base="w-full h-full flex items-center justify-center overflow-hidden" videoMuted={videoMuted} onVideoRef={onVideoRef} />;
+      const full = <VideoSlide slide={slide} base="absolute inset-0 flex items-center justify-center overflow-hidden" videoMuted={videoMuted} onVideoRef={onVideoRef} />;
+      return <ThirdBandMedia base={base} className={className} band={slide.band} mode={slide.bandMode ?? "fit"} caption={slide.caption} media={boxed} fullMedia={full} />;
+    }
     return <VideoSlide slide={slide} base={base} className={className} videoMuted={videoMuted} onVideoRef={onVideoRef} />;
   }
 
@@ -575,6 +593,55 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
 /** Extracted so we can use hooks (useRef/useCallback) for stable ref handling.
  *  The inline ref callback in the parent was calling el.play() on every render,
  *  which auto-unpaused the video whenever React re-rendered. */
+// Paint style for a media band (solid or gradient), or undefined for a
+// transparent ("none") band. Mirrors the text band's paint.
+function mediaBandPaint(band?: ScriptureBandWire): React.CSSProperties | undefined {
+  if (!band?.color) return undefined;
+  return {
+    background: band.color2 ? `linear-gradient(${band.angle ?? 180}deg, ${band.color}, ${band.color2})` : band.color,
+    opacity: band.opacity ?? 1,
+  };
+}
+
+// Render an image/video confined to the church's third-band. Two modes:
+//  • "fit": the media is letterboxed INTO the band rectangle (theme/camera shows
+//    above & below); the band paint, if any, is a matte behind the media.
+//  • "caption": the media stays full-bleed and the band is a caption strip over
+//    it showing `caption` text.
+// Geometry defaults match the text band (top 68% / height 30%) so a legacy/partial
+// band still lands in a sane lower third.
+function ThirdBandMedia({ base, className, band, mode, caption, media, fullMedia }: {
+  base: string; className?: string; band?: ScriptureBandWire;
+  mode: "fit" | "caption"; caption?: string;
+  media: React.ReactNode; fullMedia: React.ReactNode;
+}) {
+  const topPct = band?.topPct ?? 68;
+  const heightPct = band?.heightPct ?? 30;
+  const fontScale = band?.fontScale ?? 1;
+  const paint = mediaBandPaint(band);
+  if (mode === "caption") {
+    return (
+      <div className={`${base} relative overflow-hidden ${className || ""}`}>
+        {fullMedia}
+        <div style={{ position: "absolute", left: 0, right: 0, top: `${topPct}%`, height: `${heightPct}%`, display: "flex", alignItems: "center", justifyContent: "center", ...(paint || {}) }}>
+          {caption ? (
+            <span style={{ color: "#ffffff", textAlign: "center", padding: "0 4%", fontWeight: 700, lineHeight: 1.1, fontSize: `${Math.max(1.5, heightPct * 0.26 * fontScale)}vh`, textShadow: "0 2px 8px rgba(0,0,0,0.65)" }}>{caption}</span>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+  // fit — theme/camera shows above & below (transparent container).
+  return (
+    <div className={`${base} relative overflow-hidden ${className || ""}`} style={{ background: "transparent" }}>
+      <div style={{ position: "absolute", left: 0, right: 0, top: `${topPct}%`, height: `${heightPct}%`, overflow: "hidden" }}>
+        {paint ? <div style={{ position: "absolute", inset: 0, ...paint }} /> : null}
+        <div style={{ position: "relative", zIndex: 1, width: "100%", height: "100%" }}>{media}</div>
+      </div>
+    </div>
+  );
+}
+
 function VideoSlide({ slide, base, className, videoMuted, onVideoRef }: {
   slide: Extract<SlidePayload, { kind: "video" }>;
   base: string;

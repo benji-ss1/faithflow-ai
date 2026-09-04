@@ -74,8 +74,8 @@ test("scripture (has reference) still routes through scripture styling, not the 
   assert.ok(typeof out.reference === "string" && out.reference.includes("John 3:16"));
 });
 
-test("media (image) is never touched", () => {
-  setChurchLayout("lowerThird");
+test("media (image) untouched when church default is fullscreen (media banding covered in media-layout.test)", () => {
+  setChurchLayout("fullscreen");
   const img = { kind: "image", url: "https://x/y.png", fit: "contain" } as any;
   const out = applyChurchLayout(img, CHURCH);
   assert.equal(out, img);

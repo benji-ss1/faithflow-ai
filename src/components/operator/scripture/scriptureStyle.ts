@@ -256,10 +256,19 @@ export function applyChurchLayout(slide: SlidePayload, churchId: string): SlideP
   // SAME slide ref for non-scripture / already-styled sends.
   const scriptured = styleScriptureSlide(slide, churchId);
   if (scriptured !== slide) return scriptured;
-  if (slide.kind !== "text") return slide;      // media handled elsewhere
-  if (slide.reference) return slide;            // scripture (already handled)
-  if (slide.scriptureLayout) return slide;      // per-slide override wins
   try {
+    // Media (image/video): when the church default is lower-third, confine the
+    // media into the same band (default "fit" = shrink into the third). A
+    // per-slide layout (set in the media editor, e.g. a caption) wins.
+    if (slide.kind === "image" || slide.kind === "video") {
+      if (slide.layout) return slide;
+      const d = loadScriptureStyle(churchId);
+      if (d.layout !== "lowerThird") return slide;
+      return { ...slide, layout: "third", band: bandWireFromDesign(d), bandMode: slide.bandMode ?? "fit" };
+    }
+    if (slide.kind !== "text") return slide;
+    if (slide.reference) return slide;            // scripture (already handled)
+    if (slide.scriptureLayout) return slide;      // per-slide override wins
     const d = loadScriptureStyle(churchId);
     if (d.layout !== "lowerThird") return slide; // church default is fullscreen → unchanged
     const text = bandableTextOf(slide);
