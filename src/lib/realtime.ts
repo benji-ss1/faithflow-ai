@@ -23,6 +23,11 @@ let _warned = false;
 export function getRealtimeClient(): SupabaseClient | null {
   if (_client) return _client;
   if (typeof window === "undefined") return null;
+  // NOTE (2026-09-04): NEXT_PUBLIC_SUPABASE_URL/ANON_KEY are inlined at BUILD time.
+  // They were added to Vercel Production but the cached build didn't re-inline them
+  // (cross-device OBS overlay sync was silently disabled). Touching this module
+  // busts its build-cache entry so the values inline. Cross-device overlay/projector
+  // sync depends on these being present in the client bundle.
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !key) {
