@@ -7,7 +7,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, Monitor, Radio, Square, Sun, Pane
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, AI_AUTO_TRANSITION, slideOutputIdentity, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
 import { readFontScale, readReferenceScale, readReferenceColor } from "./pro/operatorConstants";
-import { styleScriptureSlide } from "./scripture/scriptureStyle";
+import { applyChurchLayout } from "./scripture/scriptureStyle";
 import { useBackgroundState } from "@/backgrounds/hooks/useBackgroundState";
 import { toBackgroundSpec } from "@/backgrounds/models/BackgroundTypes";
 import { openOutputChannel } from "@/lib/realtime";
@@ -915,12 +915,14 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       console.warn("[live] sendSlideToLive got invalid slide payload — no-op", slide);
       return;
     }
-    // PREVIEW≠LIVE FIX (2026-08-25): apply the church's saved scripture design to
-    // a plain auto-fired/verse-nav scripture slide so the projector matches the
-    // styled operator preview. No-op for songs (no reference) + already-styled
-    // sends (have objects). See styleScriptureSlide. Runs BEFORE the identity
-    // checks so all downstream guards operate on the final styled slide.
-    slide = styleScriptureSlide(slide, churchId);
+    // CENTRAL LAYOUT (2026-08-25 scripture preview≠live fix, generalized 2026-09-04):
+    // apply the church's saved projection layout to EVERY send so the projector
+    // matches the styled preview AND "set the layout once → applies to everything"
+    // holds. Scripture keeps full styling; songs/plain text get confined into the
+    // church's lower-third band when that's the saved default (else unchanged);
+    // a per-slide layout override wins; media is untouched. See applyChurchLayout.
+    // Runs BEFORE the identity checks so all downstream guards see the final slide.
+    slide = applyChurchLayout(slide, churchId);
     // ALREADY-LIVE SKIP (2026-08-20): if this EXACT slide is already on the
     // projector, sending it again is a no-op — do nothing. Re-clicking the live
     // verse card, or the preacher repeating the verse that's on screen, used to
