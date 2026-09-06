@@ -21,6 +21,8 @@ import {
   bandableTextOf,
   overlayBandSlide,
   isValidObsBand,
+  placementToTop,
+  topToPlacement,
 } from "../src/lib/obs-lowerthird";
 import { slideOutputIdentity, type SlidePayload } from "../src/lib/broadcast";
 
@@ -112,6 +114,30 @@ check("clampObsBand pins out-of-range values", () => {
   assert.ok(c.topPct >= 0);
   assert.ok(c.heightPct >= 10 && c.heightPct <= 60);
   assert.ok(c.fontScale >= 0.5 && c.fontScale <= 2);
+});
+
+check("Position placement gives FULL range: 100 = flush bottom for any height", () => {
+  // The operator's core complaint: push the words to the very bottom.
+  for (const h of [10, 24, 40, 60]) {
+    const topAtBottom = placementToTop(100, h);
+    assert.equal(topAtBottom + h, 100, `height ${h}: band bottom not flush (${topAtBottom}+${h})`);
+    assert.equal(placementToTop(0, h), 0, `height ${h}: placement 0 not at top`);
+  }
+});
+
+check("placement round-trips through topToPlacement", () => {
+  assert.equal(topToPlacement(placementToTop(100, 24), 24), 100);
+  assert.equal(topToPlacement(placementToTop(0, 24), 24), 0);
+  assert.equal(topToPlacement(placementToTop(50, 30), 30), 50);
+});
+
+check("lowering height keeps the words at the bottom (placement stable)", () => {
+  // Operator sets position to bottom (100) with a tall band, then slims the band —
+  // the words should STAY at the bottom, not jump up.
+  const tall = clampObsBand({ ...DEFAULT_OBS_BAND, heightPct: 50, topPct: placementToTop(100, 50) });
+  const place = topToPlacement(tall.topPct, tall.heightPct);
+  const slim = clampObsBand({ ...tall, heightPct: 20, topPct: placementToTop(place, 20) });
+  assert.equal(slim.topPct + slim.heightPct, 100, "still flush bottom after slimming");
 });
 
 check("clampObsBand cross-clamps so the band never runs off the bottom", () => {

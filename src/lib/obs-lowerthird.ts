@@ -65,6 +65,20 @@ export function clampObsBand(c: Partial<ObsBandConfig>): ObsBandConfig {
   return { topPct, heightPct, fontScale, opacity, style };
 }
 
+// Position control as a full 0..100 "vertical placement" (0 = top of screen,
+// 100 = flush against the bottom) — independent of band height, so the operator
+// ALWAYS has full range and 100 means "at the very bottom" no matter how tall the
+// band is. The renderer still consumes topPct; these convert between the two.
+export function placementToTop(placement: number, heightPct: number): number {
+  const p = Number.isFinite(placement) ? Math.min(100, Math.max(0, placement)) : 100;
+  return Math.round((p / 100) * Math.max(0, 100 - heightPct));
+}
+export function topToPlacement(topPct: number, heightPct: number): number {
+  const room = Math.max(0, 100 - heightPct);
+  if (room <= 0) return 100;
+  return Math.round((Math.min(topPct, room) / room) * 100);
+}
+
 /** URL query fragment (no leading `&`) encoding the band config for the OBS link. */
 export function obsBandParams(c: ObsBandConfig): string {
   const b = clampObsBand(c);

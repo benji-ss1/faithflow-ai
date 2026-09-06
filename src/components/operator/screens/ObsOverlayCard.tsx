@@ -22,7 +22,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Wifi, Globe, Copy, Check, HelpCircle, Download, ChevronDown, ChevronRight, CircleCheck, CircleDot, Radio } from "lucide-react";
 import { mintPairCode, revokePairCode } from "@/lib/device-pair-actions";
-import { obsBandParams, clampObsBand, DEFAULT_OBS_BAND, OBS_BAND_STYLES, OBS_BAND_STYLE_META, type ObsBandConfig, type ObsBandStyle } from "@/lib/obs-lowerthird";
+import { obsBandParams, clampObsBand, placementToTop, topToPlacement, DEFAULT_OBS_BAND, OBS_BAND_STYLES, OBS_BAND_STYLE_META, type ObsBandConfig, type ObsBandStyle } from "@/lib/obs-lowerthird";
 
 const CODE_KEY = "presentflow.obs.pairCode";
 const CHURCH_KEY = "presentflow.obs.pairChurch";
@@ -331,8 +331,10 @@ export function ObsOverlayCard() {
                 <p className="text-[9.5px] text-[var(--color-muted-foreground)] leading-relaxed">Uses your church&apos;s real theme background &amp; text colour — exactly like the projector.</p>
               )}
             </div>
-            <BandSlider label="Height" value={band.heightPct} min={10} max={60} step={1} suffix="%" onChange={(v) => setBand((b) => clampObsBand({ ...b, heightPct: v }))} />
-            <BandSlider label="Position (raise / lower)" value={band.topPct} min={0} max={Math.max(0, 100 - band.heightPct)} step={1} suffix="%" onChange={(v) => setBand((b) => clampObsBand({ ...b, topPct: v }))} />
+            <BandSlider label="Height" value={band.heightPct} min={10} max={60} step={1} suffix="%" onChange={(v) => setBand((b) => { const place = topToPlacement(b.topPct, b.heightPct); return clampObsBand({ ...b, heightPct: v, topPct: placementToTop(place, v) }); })} />
+            {/* Full 0-100 vertical placement: 0 = top, 100 = flush at the very
+                bottom — always full range, regardless of band height. */}
+            <BandSlider label="Position (0 = top · 100 = bottom)" value={topToPlacement(band.topPct, band.heightPct)} min={0} max={100} step={1} suffix="%" onChange={(v) => setBand((b) => clampObsBand({ ...b, topPct: placementToTop(v, b.heightPct) }))} />
             <BandSlider label="Text size (smaller / bigger)" value={band.fontScale} min={0.5} max={2} step={0.05} onChange={(v) => setBand((b) => ({ ...b, fontScale: v }))} />
             {band.style !== "clear" && (
               <BandSlider label="Background opacity (see-through)" value={Math.round(band.opacity * 100)} min={0} max={100} step={5} suffix="%" onChange={(v) => setBand((b) => ({ ...b, opacity: v / 100 }))} />
