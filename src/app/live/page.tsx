@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
-import { openLiveChannel, type LiveChannelLike, safePost, isValidLiveMessage, slideOutputIdentity, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, safePost, coerceLiveMessage, slideOutputIdentity, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
 import { TransitionWrapper } from "@/components/live/TransitionWrapper";
@@ -150,8 +150,13 @@ export default function LivePage() {
     const onMessage = (e: MessageEvent) => {
       try {
         const raw = e.data;
-        if (!isValidLiveMessage(raw)) return;      // reject malformed / unknown-kind
-        const msg = raw as LiveMessage;
+        // coerceLiveMessage returns any strictly-valid message as-is (fast path),
+        // and SALVAGES a projection-critical set/output/pong that fails strict
+        // validation field-by-field — so one bad neighbour field from a legacy /
+        // cross-device sender can never blank the projector. Returns null for a
+        // malformed non-critical / unknown-kind message → rejected as before.
+        const msg = coerceLiveMessage(raw);
+        if (!msg) return;
         lastMsgAt.current = Date.now();
         setConnected(true);
         reopenCount = 0; // healthy traffic — reset the reopen budget so a long

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ArrowLeft, ChevronLeft, ChevronRight, Monitor, Radio, Square, Sun, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, AI_AUTO_TRANSITION, slideOutputIdentity, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, AI_AUTO_TRANSITION, slideOutputIdentity, sanitizeOutputState, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
 import { readFontScale, readReferenceScale, readReferenceColor } from "./pro/operatorConstants";
 import { styleScriptureSlide } from "./scripture/scriptureStyle";
 import { useBackgroundState } from "@/backgrounds/hooks/useBackgroundState";
@@ -607,7 +607,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // If another slide superseded the AI slide before this effect committed,
     // discard the stale one-shot marker so it cannot affect a later replay.
     if (!useFastTransition && fastMarker) fastTransitionSlideRef.current = null;
-    const state: OutputState = {
+    const rawState: OutputState = {
       live,
       next: nextSlideForStage,
       itemTitle: plan.items[preview.itemIdx]?.title || "",
@@ -629,6 +629,15 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       videoInput,
       zone: activeZone,
     };
+    // PROJECTOR-RELIABILITY GUARANTEE (2026-09-06 field incident). Fail-open
+    // sanitize the state before it goes on ANY wire (BroadcastChannel / Realtime /
+    // LAN) so a single malformed neighbour field — most often the RAW `next` plan
+    // slide (blob:/http: media object, named colour, off-canvas coord) — can never
+    // make isValidOutputState reject the whole snapshot on the projector and leave
+    // a reconnecting screen BLACK. Drops only the bad SUBFIELD; the live slide +
+    // theme + background always project. Never null in practice (live is a real
+    // SlidePayload); fall back to raw if it ever were.
+    const state: OutputState = sanitizeOutputState(rawState) ?? rawState;
     // Shallow signature — good enough for the fields we actually emit.
     let key: string;
     try { key = `${JSON.stringify(state)}:${liveBroadcastRevision}`; } catch { key = String(Math.random()); }
@@ -1639,7 +1648,11 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       videoInput,
       zone: activeZone,
     };
-    const state: OutputState = { ...base, lowerThird: (line1 || line2) ? { line1, line2 } : null };
+    const rawLtState: OutputState = { ...base, lowerThird: (line1 || line2) ? { line1, line2 } : null };
+    // Fail-open sanitize before the wire — the null-fallback `base` above is built
+    // from a RAW `next`/`live` (unlike the main emit effect), so guard this path
+    // too so a malformed neighbour field can never blank the projector.
+    const state: OutputState = sanitizeOutputState(rawLtState) ?? rawLtState;
     safePost(chRef.current, { type: "output", state });
     publishRealtime(state.videoInput ? { ...state, videoInput: null } : state); // local-only camera id
     lastOutputStateRef.current = state;

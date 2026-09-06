@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.379",
+    date: "2026-09-06",
+    headline: "The projector now ALWAYS shows what's live — no matter your theme",
+    highlights: [
+      { text: "Fixed a serious issue where a slide or verse could show correctly on YOUR screen (marked LIVE) but the projector stayed blank/white — including in Auto mode with the AI driving. The cause: one imperfect detail on a NEIGHBOURING slide (for example the “next” item having a picture that was still uploading) could make the projector reject the WHOLE update and go dark. Now that bad detail is simply skipped and your live slide always projects.", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "This applies to every look: whatever your theme, fonts, background, or text size, and whether you click a slide yourself or the AI fires it, it will reach the projector.",
+      "A projector or stage screen that reconnects mid-service now always catches up to whatever is currently live, instead of occasionally coming back to a black screen.",
+    ],
+  },
+  {
     version: "0.1.378",
     date: "2026-09-04",
     headline: "Your stream now shows your themes — plus a dead-simple OBS setup",

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState, type RefCallback } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { openLiveChannel, type LiveChannelLike, isValidLiveMessage, isValidOutputStateExternal, slideOutputIdentity, type OutputState, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, sanitizeOutputState, slideOutputIdentity, type OutputState, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
 import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
 import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
 import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
@@ -143,8 +143,11 @@ export default function LivestreamPage() {
     if (!ch) return;
     const onMessage = (e: MessageEvent) => {
       try {
-        if (!isValidLiveMessage(e.data)) return;
-        const msg = e.data as LiveMessage;
+        // Salvage a projection-critical set/output/pong that fails strict
+        // validation (parity with /live) so a bad neighbour field can't blank the
+        // livestream; non-critical/unknown kinds → null → rejected as before.
+        const msg = coerceLiveMessage(e.data);
+        if (!msg) return;
         lastMsgAt.current = Date.now();
         setConnected(true);
         reopenCount = 0; // healthy traffic resets the recovery budget so a long
@@ -312,8 +315,12 @@ export default function LivestreamPage() {
         sock.onmessage = (ev) => {
           try {
             const msg = JSON.parse(typeof ev.data === "string" ? ev.data : "");
-            if (msg && msg.type === "output" && isValidOutputStateExternal(msg.state)) {
-              applyOutputState(msg.state as OutputState);
+            // LAN overlay snapshot: fail-open sanitize (parity with the
+            // BroadcastChannel path) so a bad neighbour field over the LAN can't
+            // blank the OBS overlay — drops the bad subfield, keeps the live slide.
+            if (msg && msg.type === "output") {
+              const st = sanitizeOutputState(msg.state);
+              if (st) applyOutputState(st);
             }
           } catch { /* ignore malformed */ }
         };

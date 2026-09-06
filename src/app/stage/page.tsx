@@ -5,7 +5,7 @@ import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
-import { openLiveChannel, type LiveChannelLike, isValidLiveMessage, slideOutputIdentity, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, slideOutputIdentity, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance } from "@/lib/broadcast";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
@@ -94,8 +94,11 @@ export default function StagePage() {
     if (!ch) return;
     const onMessage = (e: MessageEvent) => {
       try {
-        if (!isValidLiveMessage(e.data)) return;
-        const msg = e.data as LiveMessage;
+        // Salvage a projection-critical set/output/pong that fails strict
+        // validation (parity with /live) so a bad neighbour field can't blank the
+        // stage display; non-critical/unknown kinds → null → rejected as before.
+        const msg = coerceLiveMessage(e.data);
+        if (!msg) return;
         lastMsgAt.current = Date.now();
         setConnected(true);
         reopenCount = 0; // healthy traffic resets the recovery budget so a long

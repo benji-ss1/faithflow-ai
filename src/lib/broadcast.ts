@@ -877,6 +877,152 @@ export function isValidOutputState(s: unknown): s is OutputState {
 }
 
 /**
+ * FAIL-OPEN slide sanitizer. Returns a GUARANTEED wire-valid SlidePayload (one
+ * that passes isValidSlide), salvaging as much as possible from a
+ * possibly-malformed slide instead of rejecting it wholesale. This is the
+ * projector's "always project something" guarantee: a single bad colour / font /
+ * URL / object / band on a slide must never blank the screen — the offending
+ * SUBFIELD is dropped, the readable text survives.
+ *
+ * Returns null ONLY when there is genuinely nothing to show (a media slide whose
+ * URL is unusable, or an unrecognised kind) — callers treat null as "keep the
+ * previous slide" rather than projecting garbage.
+ *
+ * Mirrors projectableTextSlide's per-object fail-open, extended to the scripture
+ * band + reference + the non-text kinds. Pure + deterministic (test-friendly).
+ */
+export function sanitizeSlide(s: unknown): SlidePayload | null {
+  if (!s || typeof s !== "object" || hasPollutionKey(s)) return null;
+  const st = s as Record<string, unknown>;
+  switch (st.kind) {
+    case "text": {
+      const out: Extract<SlidePayload, { kind: "text" }> = {
+        kind: "text",
+        text: typeof st.text === "string" ? st.text.slice(0, 5000) : "",
+      };
+      if (isValidColor(st.bgColor)) out.bgColor = st.bgColor as string;
+      if (isValidRenderUrl(st.bgImageUrl)) out.bgImageUrl = st.bgImageUrl as string;
+      if (Array.isArray(st.objects)) {
+        const valid = st.objects.filter(isValidSlideObject).slice(0, MAX_SLIDE_OBJECTS);
+        if (valid.length > 0) out.objects = valid;
+      }
+      // reference is a passthrough field (not validated by isValidSlide) — keep a
+      // bounded string so the always-visible footer still shows it.
+      if (typeof st.reference === "string" && st.reference.length <= 500) out.reference = st.reference;
+      // Lower-third: keep the layout so the verse is still confined to the band;
+      // drop only a malformed band (renderer falls back to default geometry).
+      if (st.scriptureLayout === "lowerThird") {
+        out.scriptureLayout = "lowerThird";
+        if (isValidScriptureBand(st.scriptureBand)) out.scriptureBand = st.scriptureBand as typeof out.scriptureBand;
+      }
+      return out;
+    }
+    case "image":
+    case "video":
+      // A media slide with no usable URL is not salvageable — signal "keep prior".
+      return isValidMediaUrl(st.url) ? (st as unknown as SlidePayload) : null;
+    case "blank": {
+      const out: Extract<SlidePayload, { kind: "blank" }> = { kind: "blank" };
+      if (isValidColor(st.bgColor)) out.bgColor = st.bgColor as string;
+      return out;
+    }
+    case "logo": {
+      const out: Extract<SlidePayload, { kind: "logo" }> = { kind: "logo" };
+      if (isValidMediaUrl(st.url)) out.url = st.url as string;
+      return out;
+    }
+    case "empty":
+      return { kind: "empty" };
+    default:
+      return null;
+  }
+}
+
+/**
+ * FAIL-OPEN OutputState sanitizer. Returns an OutputState that is GUARANTEED to
+ * pass isValidOutputState, by DROPPING an invalid AUXILIARY field (next,
+ * appearance, background, videoInput, zone, nextItem, announcement, transition,
+ * …) to null/undefined rather than rejecting the whole state.
+ *
+ * This is the core projector-reliability fix (2026-09-06 field incident, RCCG-JPD
+ * video): a single malformed neighbour field — most commonly `next`, which is fed
+ * a RAW plan slide that may carry a blob:/http: media object, a named colour, or
+ * an off-canvas coord — was making isValidOutputState reject the ENTIRE snapshot.
+ * Because a freshly-joined/reconnected projector gets its current slide ONLY from
+ * the "output" join-snapshot replay, that rejection left the projector fully
+ * BLACK while the operator preview looked perfect. Dropping the bad field is
+ * strictly SAFER than the old reject-whole (the bad field still never reaches the
+ * renderer) and keeps the essential live slide + theme + background flowing.
+ *
+ * Preserves passthrough fields the validator ignores (itemTitle, slideNumber,
+ * fitMode, safeArea, operatorMessage). Returns null only when the LIVE slide is
+ * unsalvageable (nothing to project). Pure + deterministic (test-friendly).
+ */
+export function sanitizeOutputState(s: unknown): OutputState | null {
+  if (!s || typeof s !== "object" || hasPollutionKey(s)) return null;
+  const src = s as Record<string, unknown>;
+  const live = sanitizeSlide(src.live);
+  if (!live) return null; // nothing projectable — caller keeps prior state
+  const out: Record<string, unknown> = { ...src, live };
+  // next: drop an unsalvageable neighbour slide rather than poisoning the snapshot.
+  out.next = src.next == null ? null : (sanitizeSlide(src.next) ?? null);
+  if (typeof out.aspectRatio !== "string" || !ALLOWED_ASPECT.has(out.aspectRatio as string)) out.aspectRatio = "16:9";
+  if (out.announcement != null && !isValidAnnouncement(out.announcement)) out.announcement = null;
+  if (out.lowerThird !== undefined && out.lowerThird !== null && !isValidLowerThird(out.lowerThird)) out.lowerThird = null;
+  if (out.countdownEndsAt !== undefined && out.countdownEndsAt !== null) {
+    const c = out.countdownEndsAt;
+    if (typeof c !== "number" || !Number.isFinite(c) || c <= 0 || c > Date.now() + MAX_COUNTDOWN_FUTURE_MS) out.countdownEndsAt = null;
+  }
+  if (out.nextItem !== undefined && out.nextItem !== null && !isValidNextItem(out.nextItem)) out.nextItem = null;
+  if (out.transition !== undefined && !isValidTransitionSpec(out.transition)) out.transition = undefined;
+  if (out.fontScale !== undefined) {
+    const f = out.fontScale;
+    if (typeof f !== "number" || !Number.isFinite(f) || f <= 0 || f > 4) out.fontScale = 1;
+  }
+  if (out.referenceScale !== undefined) {
+    const r = out.referenceScale;
+    if (typeof r !== "number" || !Number.isFinite(r) || r <= 0 || r > 4) out.referenceScale = 1;
+  }
+  if (out.referenceColor !== undefined && out.referenceColor !== null && !isValidColor(out.referenceColor)) out.referenceColor = undefined;
+  if (out.background !== undefined && out.background !== null && !isValidBackgroundSpec(out.background)) out.background = null;
+  if (out.appearance !== undefined && out.appearance !== null && !isValidThemeAppearance(out.appearance)) out.appearance = null;
+  if (out.videoInput !== undefined && out.videoInput !== null && !isValidVideoInput(out.videoInput)) out.videoInput = null;
+  if (out.zone !== undefined && out.zone !== null && !isValidZone(out.zone)) out.zone = null;
+  return out as unknown as OutputState;
+}
+
+/**
+ * Receiver-side gate for the PROJECTION-CRITICAL message kinds (set / pong /
+ * output). Returns the message as-is when it passes strict validation (the
+ * 99.9% fast path — the operator's own sends are already sanitized at source);
+ * otherwise SALVAGES it field-by-field via the fail-open sanitizers so a single
+ * bad neighbour field from a legacy / out-of-date / third-party sender can never
+ * blank an output surface. Returns null when the message is a non-critical kind
+ * (caller falls back to its own strict handling) or genuinely unsalvageable.
+ *
+ * Shared by /live, /stage, /livestream so all three output surfaces recover
+ * identically. `transition` is intentionally dropped on a salvaged `set` (safe
+ * hard cut — never feed an unvalidated spec into TransitionWrapper).
+ */
+export function coerceLiveMessage(raw: unknown): LiveMessage | null {
+  if (isValidLiveMessage(raw)) return raw as LiveMessage;
+  const r = raw as { type?: unknown; slide?: unknown; state?: unknown };
+  if (r?.type === "set") {
+    const s = sanitizeSlide(r.slide);
+    return s ? ({ type: "set", slide: s } as LiveMessage) : null;
+  }
+  if (r?.type === "pong") {
+    const s = sanitizeSlide(r.slide);
+    return s ? ({ type: "pong", slide: s } as LiveMessage) : null;
+  }
+  if (r?.type === "output") {
+    const st = sanitizeOutputState(r.state);
+    return st ? ({ type: "output", state: st } as LiveMessage) : null;
+  }
+  return null;
+}
+
+/**
  * Build a Livestream output URL with optional OBS-friendly overlay mode.
  * Kept as a pure string helper so it can be exercised in tests without
  * pulling in Electron/`window`.
