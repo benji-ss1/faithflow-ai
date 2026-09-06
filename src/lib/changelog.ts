@@ -17,12 +17,12 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     version: "0.1.380",
     date: "2026-09-06",
-    headline: "OBS stream: a proper Lower Third for your lyrics — your fonts, your look",
+    headline: "OBS stream: a proper Lower Third for your lyrics — your fonts, your look, edit it live",
     highlights: [
       { text: "New: choose a Lower Third look for your OBS stream, so your song words and verses sit in a neat band near the bottom over the camera — instead of filling the whole screen. Pick it under Hardware → Screens → “Put lyrics on your live stream”.", tryItHref: "/operator", tryItLabel: "Open operator" },
-      "It matches your projector: the words use your church's real theme fonts and styling (not a plain default), and long lyrics shrink to fit the band instead of getting cut off.",
-      "5 background styles for the band — Soft grey, Solid black, Clear (words only), Gradient fade, and Frosted light — several see-through so the camera reads through.",
-      "Make it yours: sliders for height, position (raise/lower) and text size (smaller/bigger), with a live preview — then copy the link into OBS. You can still drag the box in OBS to fine-tune.",
+      "Edit it LIVE: every change — style, size, position, opacity — shows on your OBS stream instantly while the app is open. No need to re-copy the link.",
+      "6 background styles — Soft grey, Solid black, Clear (words only), Gradient fade, Frosted light, and Theme colours (your projector's exact background + text colour) — with a see-through/opacity slider.",
+      "Matches your projector: the words use your church's real theme fonts and (with Theme colours) the exact text colour; long lyrics auto-shrink to fit the band instead of getting cut off.",
       "This only changes your OBS stream — your projector and operator screen are never affected. Keep the projector full-screen and the stream lower-third at the same time.",
     ],
   },

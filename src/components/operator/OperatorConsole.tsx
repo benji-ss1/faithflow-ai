@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { ArrowLeft, ChevronLeft, ChevronRight, Monitor, Radio, Square, Sun, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, AI_AUTO_TRANSITION, slideOutputIdentity, sanitizeOutputState, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
+import { clampObsBand, type ObsBandConfig } from "@/lib/obs-lowerthird";
 import { readFontScale, readReferenceScale, readReferenceColor } from "./pro/operatorConstants";
 import { styleScriptureSlide } from "./scripture/scriptureStyle";
 import { useBackgroundState } from "@/backgrounds/hooks/useBackgroundState";
@@ -600,6 +601,28 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     const ni = plan.items[preview.itemIdx + 1];
     return ni ? { title: ni.title, type: (ni as unknown as { type?: string }).type ?? "item" } : null;
   })();
+  // OBS lower-third live config (2026-09-06). Mirrors the OBS setup card's saved
+  // band so an edit in the card reaches the OBS overlay INSTANTLY over the output
+  // channel. Read ONLY by /livestream — the projector/stage never read
+  // `obsLowerThird`, so this can't change what they show. Seeded from the same
+  // localStorage key the card writes; updated live via the card's window event.
+  const [obsLowerThird, setObsLowerThird] = useState<ObsBandConfig | null>(null);
+  useEffect(() => {
+    const read = () => {
+      try {
+        const raw = localStorage.getItem("presentflow.obs.lowerThird.v1");
+        setObsLowerThird(raw ? clampObsBand(JSON.parse(raw)) : null);
+      } catch { /* ignore */ }
+    };
+    read();
+    const onChange = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && typeof detail === "object") { try { setObsLowerThird(clampObsBand(detail)); } catch { /* ignore */ } }
+      else read();
+    };
+    window.addEventListener("presentflow:obs-band-changed", onChange);
+    return () => window.removeEventListener("presentflow:obs-band-changed", onChange);
+  }, []);
   const lastEmittedKeyRef = useRef<string>("");
   useEffect(() => {
     const fastMarker = fastTransitionSlideRef.current;
@@ -628,6 +651,9 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       appearance: effectiveAppearance,
       videoInput,
       zone: activeZone,
+      // OBS lower-third config — inert for the projector/stage (they don't read
+      // it); /livestream applies it live in its lower-third mode.
+      obsLowerThird,
     };
     // PROJECTOR-RELIABILITY GUARANTEE (2026-09-06 field incident). Fail-open
     // sanitize the state before it goes on ANY wire (BroadcastChannel / Realtime /
@@ -669,7 +695,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // marker cleanup at the top of this effect clears it the moment `live`
     // changes to a different slide.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone]);
+  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, obsLowerThird]);
   const chRef = useRef<LiveChannelLike | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;

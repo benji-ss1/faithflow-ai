@@ -6,63 +6,69 @@
  * THIRD instead — as an OPTION set in the OBS setup card, DECOUPLED from the
  * projector (the projector/operator stay full-screen; only OBS goes lower-third).
  *
- * This module is the shared contract between the setup card (which mints the OBS
- * URL) and `/livestream` (which renders it): a compact geometry + STYLE config
- * carried on the URL as query params, plus a pure `overlayBandSlide()` that wraps
- * whatever slide is live into a `scriptureLayout:"lowerThird"` slide so it renders
- * through SlideRenderer's PROVEN band branch — auto-fit, church fonts via
- * themeTextStyle(appearance), no clipping, movable geometry, 5 band looks. Purely
- * overlay-side: it never touches the OutputState the projector receives.
+ * Shared contract between the setup card (mints the OBS URL + live-publishes the
+ * config) and `/livestream` (renders it): a compact geometry + STYLE + OPACITY
+ * config, plus a pure `overlayBandSlide()` that wraps whatever slide is live into
+ * a `scriptureLayout:"lowerThird"` slide so it renders through SlideRenderer's
+ * PROVEN band branch — auto-fit, church fonts via themeTextStyle(appearance), no
+ * clipping, movable geometry, 6 band looks (incl. "theme" = the projector's exact
+ * colours). Purely overlay-side: it never changes the OutputState the projector
+ * renders (the projector never reads the OBS band config).
  *
  * Pure + deterministic (no window/DOM) so it is unit-testable and safe to import
  * on both the card and the render page.
  */
 import type { SlidePayload, ScriptureBandWire } from "./broadcast";
 
-// The 5 band background looks the operator can choose (user request: "one like
-// this and 4 other options … transparent etc"). Each maps to band paint below.
-export type ObsBandStyle = "grey" | "black" | "clear" | "gradient" | "frost";
-export const OBS_BAND_STYLES: ObsBandStyle[] = ["grey", "black", "clear", "gradient", "frost"];
+// The band background looks (user: "one like this and 4 other options … theme
+// colours we use on the projector"). "theme" mirrors the church's real theme.
+export type ObsBandStyle = "grey" | "black" | "clear" | "gradient" | "frost" | "theme";
+export const OBS_BAND_STYLES: ObsBandStyle[] = ["grey", "black", "clear", "gradient", "frost", "theme"];
+
+export const OBS_BAND_STYLE_META: Record<ObsBandStyle, { label: string; hint: string }> = {
+  grey:     { label: "Soft grey",     hint: "Semi-transparent grey bar (broadcast default)" },
+  black:    { label: "Solid black",   hint: "Darker bar for maximum legibility" },
+  clear:    { label: "Clear",         hint: "No bar — just the words (most see-through)" },
+  gradient: { label: "Gradient fade", hint: "Soft dark fade behind the words" },
+  frost:    { label: "Frosted light", hint: "Light bar with dark words" },
+  theme:    { label: "Theme colours", hint: "Your projector's exact background + text colour" },
+};
+
+// The church's real theme colours (mirrored from the OutputState appearance on
+// the render page) — used ONLY by the "theme" style.
+export type ObsThemeColors = { textColor?: string; bgColor?: string; bgColor2?: string; bgAngle?: number };
 
 export type ObsBandConfig = {
   topPct: number;    // band top edge, % of the 1080 canvas
   heightPct: number; // band height, %
   fontScale: number; // verse size multiplier (0.5..2)
+  opacity: number;   // band background transparency, 0 (see-through) .. 1 (solid)
   style: ObsBandStyle;
 };
 
-// Default = the semi-transparent grey bar the church showed us (IMG_5490).
-export const DEFAULT_OBS_BAND: ObsBandConfig = { topPct: 66, heightPct: 30, fontScale: 1, style: "grey" };
-
-// Per-style metadata for the setup card: a human label + CSS the card's live
-// preview uses (kept here so the card and the renderer agree on every look).
-export const OBS_BAND_STYLE_META: Record<ObsBandStyle, { label: string; hint: string; previewBg: string; previewText: string }> = {
-  grey:     { label: "Soft grey",     hint: "Semi-transparent grey bar (broadcast default)", previewBg: "rgba(75,85,99,0.6)",  previewText: "#ffffff" },
-  black:    { label: "Solid black",   hint: "Darker bar for maximum legibility",             previewBg: "rgba(0,0,0,0.7)",     previewText: "#ffffff" },
-  clear:    { label: "Clear",         hint: "No bar — just the words (most see-through)",     previewBg: "transparent",         previewText: "#ffffff" },
-  gradient: { label: "Gradient fade", hint: "Soft dark fade behind the words",                 previewBg: "linear-gradient(180deg, rgba(0,0,0,0.85), rgba(0,0,0,0))", previewText: "#ffffff" },
-  frost:    { label: "Frosted light", hint: "Light bar with dark words",                      previewBg: "rgba(255,255,255,0.82)", previewText: "#111111" },
-};
+// Default = a slim semi-transparent grey lower-third bar near the bottom (the
+// broadcast look the church showed us, IMG_5490).
+export const DEFAULT_OBS_BAND: ObsBandConfig = { topPct: 70, heightPct: 24, fontScale: 1, opacity: 0.6, style: "grey" };
 
 const clamp = (v: number, lo: number, hi: number) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : NaN);
 const dflt = (v: number, d: number) => (Number.isNaN(v) ? d : v);
 
-/** Clamp a raw config to safe ranges (defensive) AND keep the band on-screen. */
+/** Clamp a raw config to safe ranges AND keep the band on-screen. */
 export function clampObsBand(c: Partial<ObsBandConfig>): ObsBandConfig {
   const heightPct = dflt(clamp(c.heightPct ?? DEFAULT_OBS_BAND.heightPct, 10, 60), DEFAULT_OBS_BAND.heightPct);
-  // Cross-clamp: the band bottom (top + height) must not run off the frame, so
-  // cap top at 100 - height (a 30% band tops out at 70%, a 60% band at 40%).
+  // Cross-clamp: the band bottom (top + height) must not run off the frame.
   const topMax = Math.max(0, 100 - heightPct);
   const topPct = dflt(clamp(c.topPct ?? DEFAULT_OBS_BAND.topPct, 0, topMax), Math.min(DEFAULT_OBS_BAND.topPct, topMax));
   const fontScale = dflt(clamp(c.fontScale ?? DEFAULT_OBS_BAND.fontScale, 0.5, 2), DEFAULT_OBS_BAND.fontScale);
+  const opacity = dflt(clamp(c.opacity ?? DEFAULT_OBS_BAND.opacity, 0, 1), DEFAULT_OBS_BAND.opacity);
   const style = (c.style && OBS_BAND_STYLES.includes(c.style)) ? c.style : DEFAULT_OBS_BAND.style;
-  return { topPct, heightPct, fontScale, style };
+  return { topPct, heightPct, fontScale, opacity, style };
 }
 
 /** URL query fragment (no leading `&`) encoding the band config for the OBS link. */
 export function obsBandParams(c: ObsBandConfig): string {
   const b = clampObsBand(c);
-  return `ltTop=${Math.round(b.topPct)}&ltH=${Math.round(b.heightPct)}&ltScale=${b.fontScale.toFixed(2)}&ltStyle=${b.style}`;
+  return `ltTop=${Math.round(b.topPct)}&ltH=${Math.round(b.heightPct)}&ltScale=${b.fontScale.toFixed(2)}&ltOpacity=${Math.round(b.opacity * 100)}&ltStyle=${b.style}`;
 }
 
 /** Parse the band config back out of the overlay URL's query params. */
@@ -73,28 +79,56 @@ export function parseObsBand(get: (k: string) => string | null): ObsBandConfig {
     const n = Number(raw);
     return Number.isFinite(n) ? n : undefined;
   };
+  const opacityRaw = num("ltOpacity"); // 0..100 on the wire
   const rawStyle = get("ltStyle");
   return clampObsBand({
     topPct: num("ltTop"),
     heightPct: num("ltH"),
     fontScale: num("ltScale"),
+    opacity: opacityRaw === undefined ? undefined : opacityRaw / 100,
     style: (rawStyle && OBS_BAND_STYLES.includes(rawStyle as ObsBandStyle)) ? (rawStyle as ObsBandStyle) : undefined,
   });
 }
 
-/** The ScriptureBandWire the renderer consumes for this config's STYLE. */
-export function obsBandWire(c: ObsBandConfig): ScriptureBandWire {
+/**
+ * The ScriptureBandWire the renderer consumes. STYLE picks the colour; the
+ * OPACITY slider controls the band's transparency (except "clear" = always
+ * transparent). "theme" mirrors the church's real theme colours.
+ */
+export function obsBandWire(c: ObsBandConfig, theme?: ObsThemeColors): ScriptureBandWire {
   const b = clampObsBand(c);
   const wire: ScriptureBandWire = { topPct: b.topPct, heightPct: b.heightPct, fontScale: b.fontScale };
   switch (b.style) {
-    case "grey":     wire.color = "#4b5563"; wire.opacity = 0.6; break;
-    case "black":    wire.color = "#000000"; wire.opacity = 0.7; break;
-    // angle 180 = dark at the TOP of the band (behind the verse, which sits near
-    // the band top) fading to transparent at the bottom — keeps the main text on
-    // the darkest part for legibility over a bright camera.
-    case "gradient": wire.color = "#000000"; wire.color2 = "rgba(0,0,0,0)"; wire.angle = 180; wire.opacity = 1; break;
-    case "frost":    wire.color = "#ffffff"; wire.opacity = 0.82; break;
-    case "clear":    /* no paint → transparent band, words + shadow only */ break;
+    case "grey":     wire.color = "#4b5563"; wire.opacity = b.opacity; break;
+    case "black":    wire.color = "#000000"; wire.opacity = b.opacity; break;
+    case "frost":    wire.color = "#ffffff"; wire.opacity = b.opacity; break;
+    // angle 180 = dark at the TOP of the band (behind the verse) fading down.
+    case "gradient": wire.color = "#000000"; wire.color2 = "rgba(0,0,0,0)"; wire.angle = 180; wire.opacity = b.opacity; break;
+    case "clear":    /* no paint → fully transparent, words + shadow only */ break;
+    case "theme": {
+      if (theme?.bgColor) {
+        wire.color = theme.bgColor;
+        if (theme.bgColor2) { wire.color2 = theme.bgColor2; wire.angle = theme.bgAngle ?? 180; }
+        wire.opacity = b.opacity;
+        // Mirror the projector's text colour when the theme sets one explicitly;
+        // when it doesn't, leave textColor unset so the renderer auto-contrasts
+        // against the band colour (= theme bg) exactly like the projector does.
+        if (theme.textColor) wire.textColor = theme.textColor;
+      } else {
+        // Theme has an image/none background — can't mirror a solid colour; use a
+        // neutral scrim (words stay white via the renderer's auto-contrast).
+        wire.color = "#000000"; wire.opacity = b.opacity;
+      }
+      break;
+    }
+  }
+  // At (near-)zero opacity the band is invisible, so any band-derived text colour
+  // (e.g. dark "frost"/theme text) would float unreadable over the camera. Treat
+  // it as fully transparent — drop the paint + textColor so the renderer forces
+  // white shadowed text (identical to the "clear" style). Keeps low-opacity
+  // legible over any feed.
+  if (wire.color !== undefined && (wire.opacity ?? 1) <= 0.05) {
+    delete wire.color; delete wire.color2; delete wire.angle; delete wire.opacity; delete wire.textColor;
   }
   return wire;
 }
@@ -121,14 +155,13 @@ export function bandableTextOf(slide: SlidePayload): string {
  * Wrap the live slide into a lower-third caption for the OBS overlay. Text slides
  * (songs + scripture) become a clean `scriptureLayout:"lowerThird"` slide carrying
  * the OBS band geometry + style, so SlideRenderer's band branch renders them with
- * the church's fonts (themeTextStyle) + auto-fit. NON-text slides (image/video/
- * logo) become `{kind:"empty"}` → the overlay shows nothing but the camera (a
- * lyric caption should never slap a full-frame picture over the broadcast).
+ * the church's fonts (themeTextStyle) + auto-fit. NON-text slides become
+ * `{kind:"empty"}` → the overlay shows nothing but the camera.
  *
- * Overlay-side only: this never changes what the projector/operator receive, and
- * it never mutates the input slide.
+ * Overlay-side only: never changes what the projector/operator receive, never
+ * mutates the input slide.
  */
-export function overlayBandSlide(slide: SlidePayload, c: ObsBandConfig): SlidePayload {
+export function overlayBandSlide(slide: SlidePayload, c: ObsBandConfig, theme?: ObsThemeColors): SlidePayload {
   if (slide.kind !== "text") return { kind: "empty" };
   const text = bandableTextOf(slide);
   if (!text.trim()) return { kind: "empty" };
@@ -136,9 +169,17 @@ export function overlayBandSlide(slide: SlidePayload, c: ObsBandConfig): SlidePa
     kind: "text",
     text,
     scriptureLayout: "lowerThird",
-    scriptureBand: obsBandWire(c),
+    scriptureBand: obsBandWire(c, theme),
   };
-  // Preserve a scripture reference so the band's footer still shows it.
   if (typeof slide.reference === "string" && slide.reference.trim()) out.reference = slide.reference;
   return out;
+}
+
+/** Validate an OBS band config that arrives over the wire (OutputState.obsLowerThird). */
+export function isValidObsBand(v: unknown): v is ObsBandConfig {
+  if (!v || typeof v !== "object") return false;
+  const p = v as Record<string, unknown>;
+  const numOk = (x: unknown, lo: number, hi: number) => typeof x === "number" && Number.isFinite(x) && x >= lo && x <= hi;
+  return numOk(p.topPct, 0, 100) && numOk(p.heightPct, 1, 100) && numOk(p.fontScale, 0.1, 4)
+    && numOk(p.opacity, 0, 1) && typeof p.style === "string" && OBS_BAND_STYLES.includes(p.style as ObsBandStyle);
 }

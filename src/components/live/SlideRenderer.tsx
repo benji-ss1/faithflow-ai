@@ -247,11 +247,16 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
       //    band gets dark text, the default black band → white).
       //  • No band + OBS/transparent → force white over the unknown camera feed.
       //  • No band + opaque theme → the theme's readable text colour.
-      const verseColor = hasPaint
-        ? readableTextColor(band!.color)
-        : transparentBg
-          ? "#ffffff"
-          : (themeTxt ?? "#ffffff");
+      // An explicit band textColor (set only by the OBS "Theme colours" style)
+      // mirrors the projector's theme text colour verbatim; otherwise
+      // auto-contrast as before (white over camera / readable over a band).
+      const verseColor = band?.textColor
+        ? band.textColor
+        : hasPaint
+          ? readableTextColor(band!.color)
+          : transparentBg
+            ? "#ffffff"
+            : (themeTxt ?? "#ffffff");
       const shadowWhenBandless = (transparentBg || !hasPaint) ? { textShadow: OBS_OVERLAY_TEXT_SHADOW } : {};
       const ltBg: React.CSSProperties = (overVideo || transparentBg)
         ? { background: "transparent" }

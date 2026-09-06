@@ -4,7 +4,7 @@ import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, sanitizeOutputState, slideOutputIdentity, type OutputState, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
 import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
-import { overlayBandSlide, parseObsBand, DEFAULT_OBS_BAND, type ObsBandConfig } from "@/lib/obs-lowerthird";
+import { overlayBandSlide, parseObsBand, clampObsBand, DEFAULT_OBS_BAND, type ObsBandConfig, type ObsThemeColors } from "@/lib/obs-lowerthird";
 import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
 import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
 import { openOutputChannel, isValidPairCode, type RealtimeConnStatus } from "@/lib/realtime";
@@ -263,10 +263,14 @@ export default function LivestreamPage() {
       // Apply the non-slide fields only when they actually changed (dedup).
       let sig: string;
       try {
-        sig = JSON.stringify([state.fontScale, state.referenceScale, state.referenceColor, state.appearance, state.background, state.videoInput, state.lowerThird, state.announcement, state.transition]);
+        sig = JSON.stringify([state.fontScale, state.referenceScale, state.referenceColor, state.appearance, state.background, state.videoInput, state.lowerThird, state.announcement, state.transition, state.obsLowerThird]);
       } catch { sig = String(Date.now()); }
       if (sig === lastNonSlideSig) return;
       lastNonSlideSig = sig;
+      // OBS lower-third live config: an edit in the operator's OBS card reaches
+      // us here and updates the band INSTANTLY (overrides the URL-param default).
+      // Only /livestream reads this; the projector/stage ignore it.
+      if (state.obsLowerThird) { try { setObsBand(clampObsBand(state.obsLowerThird as Partial<ObsBandConfig>)); } catch { /* ignore */ } }
       setFontScale(typeof state.fontScale === "number" ? state.fontScale : 1);
       setReferenceScale(typeof state.referenceScale === "number" ? state.referenceScale : 1);
       setReferenceColor(typeof state.referenceColor === "string" ? state.referenceColor : undefined);
@@ -396,7 +400,12 @@ export default function LivestreamPage() {
   // themeTextStyle(appearance), auto-fit, no clipping) instead of the old
   // hard-coded generic band. Purely overlay-side — the projector/operator are
   // untouched. In "full" mode this is a pass-through (byte-identical to before).
-  const renderSlide: SlidePayload = mode === "lower_third" ? overlayBandSlide(slide, obsBand) : slide;
+  // Theme colours mirrored from the live appearance — used ONLY by the "theme"
+  // band style so OBS reproduces the projector's exact background + text colour.
+  // Only pass a solid/gradient bg colour (image/video themes have no solid fill).
+  const solidThemeBg = appearance && (appearance.bgType === "solid" || appearance.bgType === "gradient" || appearance.bgType === undefined) ? appearance.bgColor : undefined;
+  const themeColors: ObsThemeColors = { textColor: appearance?.textColor, bgColor: solidThemeBg, bgColor2: solidThemeBg ? appearance?.bgColor2 : undefined, bgAngle: appearance?.bgAngle };
+  const renderSlide: SlidePayload = mode === "lower_third" ? overlayBandSlide(slide, obsBand, themeColors) : slide;
   return (
     <div
       className="fixed inset-0 overflow-hidden cursor-none"

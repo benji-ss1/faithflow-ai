@@ -20,6 +20,7 @@ import {
   obsBandWire,
   bandableTextOf,
   overlayBandSlide,
+  isValidObsBand,
 } from "../src/lib/obs-lowerthird";
 import { slideOutputIdentity, type SlidePayload } from "../src/lib/broadcast";
 
@@ -43,14 +44,58 @@ function bandInRange(b: { topPct?: number; heightPct?: number; fontScale?: numbe
 console.log("OBS lower-third helpers");
 
 // --- geometry ---------------------------------------------------------------
-check("URL params round-trip through parseObsBand (incl. style)", () => {
-  const cfg = { topPct: 55, heightPct: 26, fontScale: 1.25, style: "gradient" as const };
+check("URL params round-trip through parseObsBand (incl. style + opacity)", () => {
+  const cfg = { topPct: 55, heightPct: 26, fontScale: 1.25, opacity: 0.4, style: "gradient" as const };
   const qs = new URLSearchParams(obsBandParams(cfg));
   const back = parseObsBand((k) => qs.get(k));
   assert.equal(back.topPct, 55);
   assert.equal(back.heightPct, 26);
   assert.equal(back.fontScale, 1.25);
+  assert.equal(Math.round(back.opacity * 100), 40);
   assert.equal(back.style, "gradient");
+});
+
+check("opacity slider controls the band paint transparency", () => {
+  assert.equal(obsBandWire({ ...DEFAULT_OBS_BAND, style: "grey", opacity: 0.3 }).opacity, 0.3);
+  assert.equal(obsBandWire({ ...DEFAULT_OBS_BAND, style: "black", opacity: 0.9 }).opacity, 0.9);
+});
+
+check("near-zero opacity drops the paint (legible white text over camera)", () => {
+  const w = obsBandWire({ ...DEFAULT_OBS_BAND, style: "frost", opacity: 0 });
+  assert.equal(w.color, undefined, "paint dropped at opacity 0");
+  assert.equal(w.textColor, undefined, "dark frost text colour dropped → renderer forces white");
+  assert.equal(w.opacity, undefined);
+  // A normal opacity keeps the paint.
+  assert.equal(obsBandWire({ ...DEFAULT_OBS_BAND, style: "frost", opacity: 0.5 }).color, "#ffffff");
+});
+
+check("theme style mirrors the church theme colours (bg + text)", () => {
+  const w = obsBandWire({ ...DEFAULT_OBS_BAND, style: "theme", opacity: 0.8 }, { bgColor: "#123456", bgColor2: "#654321", bgAngle: 90, textColor: "#ffcc00" });
+  assert.equal(w.color, "#123456");
+  assert.equal(w.color2, "#654321");
+  assert.equal(w.angle, 90);
+  assert.equal(w.opacity, 0.8);
+  assert.equal(w.textColor, "#ffcc00");
+});
+
+check("theme style with no explicit text colour → no textColor (renderer auto-contrasts)", () => {
+  const w = obsBandWire({ ...DEFAULT_OBS_BAND, style: "theme" }, { bgColor: "#ffffff" });
+  assert.equal(w.color, "#ffffff");
+  assert.equal(w.textColor, undefined);
+});
+
+check("theme style with an image/none theme bg → neutral scrim, white text", () => {
+  const w = obsBandWire({ ...DEFAULT_OBS_BAND, style: "theme" }, { textColor: "#333333" }); // no bgColor
+  assert.equal(w.color, "#000000");
+  assert.equal(w.textColor, undefined); // dropped — would be illegible on the scrim
+});
+
+check("isValidObsBand accepts a good config, rejects junk", () => {
+  assert.equal(isValidObsBand(DEFAULT_OBS_BAND), true);
+  assert.equal(isValidObsBand({ topPct: 70, heightPct: 24, fontScale: 1, opacity: 0.6, style: "theme" }), true);
+  assert.equal(isValidObsBand({ topPct: 70, heightPct: 24, fontScale: 1, opacity: 0.6, style: "rainbow" }), false);
+  assert.equal(isValidObsBand({ topPct: "x", heightPct: 24, fontScale: 1, opacity: 0.6, style: "grey" }), false);
+  assert.equal(isValidObsBand(null), false);
 });
 
 check("parseObsBand with no params → defaults", () => {

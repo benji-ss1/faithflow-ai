@@ -154,6 +154,17 @@ check("a fully-valid state is returned unchanged in meaning (idempotent)", () =>
   assert.deepEqual(s2, s);
 });
 
+check("a valid obsLowerThird rides through; an invalid one is dropped (fail-open)", () => {
+  const good = sanitizeOutputState({ ...base, obsLowerThird: { topPct: 70, heightPct: 24, fontScale: 1, opacity: 0.6, style: "theme" } } as unknown as OutputState);
+  assert.ok(good);
+  assert.equal(isValidOutputStateExternal(good), true);
+  assert.equal((good as OutputState & { obsLowerThird?: unknown }).obsLowerThird != null, true, "valid config preserved");
+  const bad = sanitizeOutputState({ ...base, obsLowerThird: { topPct: 70, heightPct: 24, fontScale: 1, opacity: 0.6, style: "rainbow" } } as unknown as OutputState);
+  assert.ok(bad);
+  assert.equal(isValidOutputStateExternal(bad), true, "sanitized state still valid after dropping bad obsLowerThird");
+  assert.equal((bad as OutputState & { obsLowerThird?: unknown }).obsLowerThird, null, "invalid config dropped to null");
+});
+
 check("unsalvageable live slide → null (caller keeps prior)", () => {
   assert.equal(sanitizeOutputState({ ...base, live: { kind: "image", url: "" } } as unknown as OutputState), null);
 });

@@ -84,6 +84,19 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
+/** Card-local band preview colours (the real render uses the church theme for
+ *  "theme"; here we show a representative indigo/violet placeholder). */
+function bandPreview(style: ObsBandStyle, opacity: number): { bg: string; text: string } {
+  switch (style) {
+    case "grey":     return { bg: `rgba(75,85,99,${opacity})`, text: "#ffffff" };
+    case "black":    return { bg: `rgba(0,0,0,${opacity})`, text: "#ffffff" };
+    case "clear":    return { bg: "transparent", text: "#ffffff" };
+    case "gradient": return { bg: `linear-gradient(180deg, rgba(0,0,0,${opacity}), rgba(0,0,0,0))`, text: "#ffffff" };
+    case "frost":    return { bg: `rgba(255,255,255,${opacity})`, text: "#111111" };
+    case "theme":    return { bg: `linear-gradient(135deg, rgba(67,56,202,${opacity}), rgba(124,58,237,${opacity}))`, text: "#ffffff" };
+  }
+}
+
 /** A compact labelled slider for the lower-third band controls. */
 function BandSlider(props: { label: string; value: number; min: number; max: number; step: number; suffix?: string; onChange: (v: number) => void }) {
   return (
@@ -135,7 +148,15 @@ export function ObsOverlayCard() {
   }, []);
 
   useEffect(() => { try { localStorage.setItem(LOOK_KEY, look); } catch { /* ignore */ } }, [look]);
-  useEffect(() => { try { localStorage.setItem(BAND_KEY, JSON.stringify(band)); } catch { /* ignore */ } }, [band]);
+  // Persist the band AND publish it live: OperatorConsole listens for this event
+  // and folds the config into OutputState so the OBS overlay updates INSTANTLY
+  // (projector/stage ignore it). No re-copying the link to change the look.
+  useEffect(() => {
+    try {
+      localStorage.setItem(BAND_KEY, JSON.stringify(band));
+      window.dispatchEvent(new CustomEvent("presentflow:obs-band-changed", { detail: band }));
+    } catch { /* ignore */ }
+  }, [band]);
 
   // Poll LAN status (device count) while the LAN transport is selected.
   useEffect(() => {
@@ -286,11 +307,11 @@ export function ObsOverlayCard() {
             {/* Live 16:9 preview of the band over a mock camera */}
             <div className="relative w-full rounded overflow-hidden border border-[var(--color-border)]" style={{ aspectRatio: "16 / 9", background: "linear-gradient(135deg,#3b4a5a,#6b7c8c)" }}>
               <div className="absolute inset-x-0 flex items-center justify-center"
-                style={{ top: `${band.topPct}%`, height: `${band.heightPct}%`, background: OBS_BAND_STYLE_META[band.style].previewBg }}>
-                <span className="font-semibold leading-none px-2 text-center" style={{ color: OBS_BAND_STYLE_META[band.style].previewText, fontSize: `${Math.max(7, band.fontScale * 11)}px`, textShadow: band.style === "frost" ? "none" : "0 1px 3px rgba(0,0,0,.8)" }}>He reigns forever more</span>
+                style={{ top: `${band.topPct}%`, height: `${band.heightPct}%`, background: bandPreview(band.style, band.opacity).bg }}>
+                <span className="font-semibold leading-none px-2 text-center" style={{ color: bandPreview(band.style, band.opacity).text, fontSize: `${Math.max(7, band.fontScale * 11)}px`, textShadow: band.style === "frost" ? "none" : "0 1px 3px rgba(0,0,0,.8)" }}>He reigns forever more</span>
               </div>
             </div>
-            {/* Background style — the 5 looks */}
+            {/* Background style — the 6 looks */}
             <div className="space-y-1">
               <div className="text-[10px] text-[var(--color-muted-foreground)]">Background</div>
               <div className="grid grid-cols-3 gap-1">
@@ -298,20 +319,26 @@ export function ObsOverlayCard() {
                   <button key={s} type="button" onClick={() => setBand((b) => ({ ...b, style: s }))} title={OBS_BAND_STYLE_META[s].hint}
                     className={`rounded border overflow-hidden transition ${band.style === s ? "border-[var(--color-brand)] ring-1 ring-[var(--color-brand)]" : "border-[var(--color-border)] hover:border-[var(--color-brand)]/50"}`}>
                     <span className="block h-6 relative" style={{ background: "linear-gradient(135deg,#3b4a5a,#6b7c8c)" }}>
-                      <span className="absolute inset-x-0 bottom-0 h-3 flex items-center justify-center" style={{ background: OBS_BAND_STYLE_META[s].previewBg }}>
-                        <span className="text-[6px] font-bold leading-none" style={{ color: OBS_BAND_STYLE_META[s].previewText }}>Aa</span>
+                      <span className="absolute inset-x-0 bottom-0 h-3 flex items-center justify-center" style={{ background: bandPreview(s, band.opacity).bg }}>
+                        <span className="text-[6px] font-bold leading-none" style={{ color: bandPreview(s, band.opacity).text }}>Aa</span>
                       </span>
                     </span>
                     <span className="block text-[8px] text-center py-0.5 text-[var(--color-muted-foreground)] leading-none truncate px-0.5">{OBS_BAND_STYLE_META[s].label}</span>
                   </button>
                 ))}
               </div>
+              {band.style === "theme" && (
+                <p className="text-[9.5px] text-[var(--color-muted-foreground)] leading-relaxed">Uses your church&apos;s real theme background &amp; text colour — exactly like the projector.</p>
+              )}
             </div>
             <BandSlider label="Height" value={band.heightPct} min={10} max={60} step={1} suffix="%" onChange={(v) => setBand((b) => clampObsBand({ ...b, heightPct: v }))} />
             <BandSlider label="Position (raise / lower)" value={band.topPct} min={0} max={Math.max(0, 100 - band.heightPct)} step={1} suffix="%" onChange={(v) => setBand((b) => clampObsBand({ ...b, topPct: v }))} />
             <BandSlider label="Text size (smaller / bigger)" value={band.fontScale} min={0.5} max={2} step={0.05} onChange={(v) => setBand((b) => ({ ...b, fontScale: v }))} />
-            <div className="rounded bg-[var(--color-brand)]/10 border border-[var(--color-brand)]/30 px-2 py-1.5">
-              <p className="text-[10px] text-[var(--color-foreground)] leading-relaxed"><span className="font-semibold">After changing these, copy the link again</span> and paste it back into OBS — the look only updates when you re-add the link. You can also drag the box in OBS to nudge it.</p>
+            {band.style !== "clear" && (
+              <BandSlider label="Background opacity (see-through)" value={Math.round(band.opacity * 100)} min={0} max={100} step={5} suffix="%" onChange={(v) => setBand((b) => ({ ...b, opacity: v / 100 }))} />
+            )}
+            <div className="rounded bg-emerald-500/10 border border-emerald-500/30 px-2 py-1.5">
+              <p className="text-[10px] text-[var(--color-foreground)] leading-relaxed"><span className="font-semibold text-emerald-500">Changes apply to OBS live</span> — as long as the app is open and OBS is connected, every tweak shows on the stream instantly. You only need the link the first time you add it in OBS.</p>
             </div>
           </div>
         )}

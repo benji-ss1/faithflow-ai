@@ -48,6 +48,11 @@ export type ScriptureBandWire = {
   color2?: string;      // gradient end (when set, band is a linear gradient)
   angle?: number;       // gradient angle in degrees (default 180 = vertical)
   opacity?: number;     // 0..1
+  // Explicit verse text colour. Set ONLY by the OBS "Theme colours" overlay
+  // style (to mirror the projector's theme text colour); when present the
+  // renderer uses it verbatim instead of auto-contrasting. Scripture-projector
+  // payloads NEVER set it, so their rendering is unchanged.
+  textColor?: string;
 };
 
 export type SlidePayload =
@@ -294,6 +299,13 @@ export type OutputState = {
   // sizes the composed slide inside this rect; its fontScale is folded into the
   // fontScale field above by the operator, so only the RECT travels here.
   zone?: ProjectionZone | null;
+  // OBS lower-third overlay config (2026-09-06). Rides the output channel so a
+  // live edit reaches the OBS overlay instantly wherever it runs. Read ONLY by
+  // the `/livestream` OBS surface in its lower-third mode — the projector (/live)
+  // and stage NEVER read it, so it can't change what they show. Shape is
+  // ObsBandConfig (src/lib/obs-lowerthird.ts); typed loosely here to avoid a
+  // circular import, validated by isValidObsBand in the sanitizer.
+  obsLowerThird?: { topPct: number; heightPct: number; fontScale: number; opacity: number; style: string } | null;
 };
 
 /**
@@ -693,7 +705,7 @@ export function slideDesignSig(s: Extract<SlidePayload, { kind: "text" }>): stri
   // skip). A plain (non-lower-third) slide adds nothing here → identity unchanged.
   if (s.scriptureLayout) {
     const b = s.scriptureBand;
-    sig += `|lt${b ? `${b.topPct ?? ""},${b.heightPct ?? ""},${b.fontScale ?? ""},${b.color ?? ""},${b.color2 ?? ""},${b.angle ?? ""},${b.opacity ?? ""}` : "none"}`;
+    sig += `|lt${b ? `${b.topPct ?? ""},${b.heightPct ?? ""},${b.fontScale ?? ""},${b.color ?? ""},${b.color2 ?? ""},${b.angle ?? ""},${b.opacity ?? ""},${b.textColor ?? ""}` : "none"}`;
   }
   if (s.objects?.length) {
     sig += "|o" + s.objects.length + ":" + s.objects.map((o) => {
@@ -754,6 +766,7 @@ function isValidScriptureBand(b: unknown): boolean {
   }
   if (p.color2 !== undefined && !isValidColor(p.color2)) return false;
   if (p.angle !== undefined && (typeof p.angle !== "number" || !Number.isFinite(p.angle) || p.angle < 0 || p.angle > 360)) return false;
+  if (p.textColor !== undefined && !isValidColor(p.textColor)) return false;
   return true;
 }
 
@@ -828,6 +841,17 @@ export function isValidOutputStateExternal(s: unknown): s is OutputState {
 // enough out to overflow numeric math in the stage renderer.
 const MAX_COUNTDOWN_FUTURE_MS = 24 * 60 * 60 * 1000;
 
+// OBS lower-third overlay config carried on OutputState (read only by /livestream).
+const OBS_BAND_STYLE_SET = new Set(["grey", "black", "clear", "gradient", "frost", "theme"]);
+function isValidObsLowerThird(v: unknown): boolean {
+  if (v === null) return true;
+  if (!v || typeof v !== "object" || hasPollutionKey(v)) return false;
+  const p = v as Record<string, unknown>;
+  const numOk = (x: unknown, lo: number, hi: number) => typeof x === "number" && Number.isFinite(x) && x >= lo && x <= hi;
+  return numOk(p.topPct, 0, 100) && numOk(p.heightPct, 1, 100) && numOk(p.fontScale, 0.1, 4)
+    && numOk(p.opacity, 0, 1) && typeof p.style === "string" && OBS_BAND_STYLE_SET.has(p.style);
+}
+
 function isValidNextItem(n: unknown): boolean {
   if (n === null) return true;
   if (!n || typeof n !== "object") return false;
@@ -873,6 +897,7 @@ export function isValidOutputState(s: unknown): s is OutputState {
   if (st.appearance !== undefined && !isValidThemeAppearance(st.appearance)) return false;
   if (st.videoInput !== undefined && !isValidVideoInput(st.videoInput)) return false;
   if (st.zone !== undefined && st.zone !== null && !isValidZone(st.zone)) return false;
+  if (st.obsLowerThird !== undefined && !isValidObsLowerThird(st.obsLowerThird)) return false;
   return true;
 }
 
@@ -988,6 +1013,7 @@ export function sanitizeOutputState(s: unknown): OutputState | null {
   if (out.appearance !== undefined && out.appearance !== null && !isValidThemeAppearance(out.appearance)) out.appearance = null;
   if (out.videoInput !== undefined && out.videoInput !== null && !isValidVideoInput(out.videoInput)) out.videoInput = null;
   if (out.zone !== undefined && out.zone !== null && !isValidZone(out.zone)) out.zone = null;
+  if (out.obsLowerThird !== undefined && !isValidObsLowerThird(out.obsLowerThird)) out.obsLowerThird = null;
   return out as unknown as OutputState;
 }
 
