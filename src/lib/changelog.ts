@@ -15,6 +15,18 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.383",
+    date: "2026-09-06",
+    headline: "Smarter songs: no more re-projecting a song you're already on, and new slides keep your font",
+    highlights: [
+      { text: "Fixed: once a song is live, singing the same lines again will NOT jump the projector back to slide 1 or flip to another song. The app now recognises the song that's up — whether YOU put it there (tapped a chip / clicked a slide) or the AI did — and leaves it alone. Nothing to turn on.", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "Won't switch songs mid-song unless it's a clear, strong change: a different song only takes over the projector on its own when it's very confidently being sung. Anything less shows up as a chip you tap to confirm — so a stray matching line during worship won't yank your screen to another song.",
+      "New: “Now singing — Go to slide N”. If the worship leader jumps to a different part of the SAME song, a blue chip appears above the song banner showing the slide they're on. Tap “Go to slide N” to move the projector there. It only appears when the app is sure which slide — the projector never moves on its own, so you're always in control.",
+      "Starts on the right slide: when a song first goes live from detection, it opens on the slide actually being sung (when that's clear), instead of always slide 1.",
+      { text: "Add slide now keeps your song's look: pressing “Add slide” on a song creates the new slide with the SAME font, size, colour, alignment, logo/shapes and background as the rest of that song — no more new slides reverting to the default look. Just add it, then type the words.", tryItHref: "/operator", tryItLabel: "Open operator" },
+    ],
+  },
+  {
     version: "0.1.382",
     date: "2026-09-06",
     headline: "Sharper scripture detection: “Second Corinthians” stays Second, and long Psalm numbers read right",
@@ -25,7 +37,19 @@ export const CHANGELOG: ChangelogEntry[] = [
       "This is automatic — there’s no new button. It just makes the live mic and the reference box hear numbered books and big chapter numbers correctly. Nothing else about how you drive the service changes.",
     ],
   },
-
+  {
+    version: "0.1.381",
+    date: "2026-09-06",
+    headline: "Undo a background you didn't mean to set — and your background now sticks after a restart",
+    highlights: [
+      { text: "Set a picture as your theme background by accident? There's now an Undo. When you right-click a media image and choose “Set as theme background” (or logo), a message pops up with an Undo button to put it straight back the way it was.", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "New: right-click any media image → “Clear theme background” to instantly remove a picture background and go back to a clean look — no digging through settings.",
+      "Fixed: the background you leave the app on now STAYS. Pick Gentle Waves (or any background), close the app, reopen it — it's still there. Before, it could silently reset.",
+      "Your own uploaded image/video backgrounds now persist too, and appear as a background you can keep using.",
+      "New: apply any theme you've made straight from the Backgrounds area — a “Your themes” row lets you make one live in a tap.",
+      "Deleting a theme now uses a proper in-app confirmation instead of a system pop-up that could freeze the desktop app — so adding and removing themes works reliably.",
+    ],
+  },
   {
     version: "0.1.380",
     date: "2026-09-06",

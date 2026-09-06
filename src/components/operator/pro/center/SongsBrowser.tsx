@@ -485,6 +485,9 @@ export function SongsBrowser({
                   setEditingIdx(null);
                   void createSongSlide(selected.id, undefined, { objects: [], lyrics: "" }).then((res) => {
                     if (!res.ok) { toast.error(res.error || "Add slide failed"); return; }
+                    // Invalidate cached slides so live tracking / jump suggestions
+                    // don't use stale (pre-edit) text.
+                    try { window.dispatchEvent(new CustomEvent("presentflow:song-slides-changed", { detail: { songId: selected.id } })); } catch { /* noop */ }
                     refreshSlides(selected.id);
                   });
                 }}

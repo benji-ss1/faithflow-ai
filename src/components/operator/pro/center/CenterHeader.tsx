@@ -44,6 +44,9 @@ export function CenterHeader({
     const res = await createSongSlide(songId, undefined, { lyrics: "New slide", objects: [] });
     if (!res.ok) { toast.error(res.error ?? "Couldn't add slide"); return; }
     toast.success("Slide added");
+    // Invalidate any cached copy of this song's slides so live-song tracking +
+    // "go to slide" suggestions never use stale (pre-edit) text/indices.
+    try { window.dispatchEvent(new CustomEvent("presentflow:song-slides-changed", { detail: { songId } })); } catch { /* noop */ }
     router.refresh();
   };
   // R6/Y4: mode-aware titles. Read-only per the earlier decision — rename

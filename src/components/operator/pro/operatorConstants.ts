@@ -135,6 +135,22 @@ export const SONG_DISAMBIG_MARGIN = 12;
  */
 export const SONG_AUTO_LIVE_MIN_GAP_MS = 800;
 
+/** Min matchBestSlide confidence (0-100) to SUGGEST jumping the live output to
+ *  the slide the singer is actually on (2026-09-06, user directive "go to the
+ *  slide they're singing, not just slide 1"). This is a SUGGESTION only — the
+ *  operator taps to confirm; the projector never auto-moves within a song
+ *  (song auto-advance stays disabled per the 2026-08-16 sign-off). It also
+ *  picks the STARTING slide when a song first auto-projects. Deliberately below
+ *  the auto-live bar because it never fires live on its own. */
+export const SONG_JUMP_SUGGEST_CONFIDENCE = 80;
+
+/** While a DIFFERENT song is already live, a newly-detected song must clear this
+ *  higher bar to auto-switch the projector — "don't change songs mid-song unless
+ *  it's a massive change" (2026-09-06 user directive). Below it, the new song is
+ *  staged as a manual chip instead of auto-switching. Above the normal auto-live
+ *  bar (90) so only a clearly, strongly sung different song takes over live. */
+export const SONG_SWITCH_WHILE_LIVE_CONFIDENCE = 95;
+
 // ── Left panel dimensions ──────────────────────────────────────────────────
 
 /** Minimum left panel width in px. */

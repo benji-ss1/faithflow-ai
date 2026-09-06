@@ -9,6 +9,7 @@ import { deleteObject, getBuffer, putBuffer } from "./s3";
 import { after } from "next/server";
 import { generateImageThumbnail } from "./media-thumbnail";
 import { validateReorderItemSlides } from "./reorder-validator";
+import { newObjectId } from "./slide-objects";
 import { createLimiter } from "./rate-limit";
 import { getSongUsage } from "./song-limits";
 import { getEffectiveSongLimit } from "./server/song-limits-server";
@@ -707,7 +708,43 @@ export async function createSongSlide(songId: string, atIndex?: number, initial?
   for (let i = existing.length - 1; i >= idx; i--) {
     await db.update(songSlides).set({ order: i + 1 }).where(eq(songSlides.id, existing[i].id));
   }
-  const objects = initial?.objects ?? [];
+  let objects = initial?.objects ?? [];
+  let bgColor = initial?.bgColor;
+  let bgImageUrl = initial?.bgImageUrl;
+
+  // STYLE INHERITANCE (2026-09-06): when adding a BLANK slide (no objects
+  // supplied — both "Add slide" buttons do this), copy the styling of a sibling
+  // slide in this SAME song so the new slide matches its fonts, size, colour,
+  // alignment, decorative objects (logos/shapes) and background — instead of
+  // falling back to global defaults and looking different from the rest of the
+  // song. The editor's own save path always passes real objects, so it's
+  // unaffected. Only inherits when a styled sibling actually exists.
+  if (objects.length === 0) {
+    const templateId = existing[idx - 1]?.id ?? existing[existing.length - 1]?.id;
+    if (templateId) {
+      const [tpl] = await db.select({ objectsJson: songSlides.objectsJson })
+        .from(songSlides).where(eq(songSlides.id, templateId)).limit(1);
+      const tplJson = tpl?.objectsJson as { bgColor?: string; bgImageUrl?: string; objects?: Array<Record<string, unknown>> } | null;
+      if (tplJson?.objects?.length) {
+        const newText = (initial?.lyrics ?? "").trim();
+        let usedTextSlot = false;
+        // Keep every object's full style; regenerate ids; put the new lyrics in
+        // the FIRST text object and blank any further text objects. Decorative
+        // (shape/image/video) objects are copied verbatim so the look matches.
+        objects = tplJson.objects.map((o) => {
+          const cloned: Record<string, unknown> = { ...o, id: newObjectId() };
+          if (o.kind === "text") {
+            cloned.text = usedTextSlot ? "" : newText;
+            usedTextSlot = true;
+          }
+          return cloned;
+        });
+        bgColor = bgColor ?? tplJson.bgColor;
+        bgImageUrl = bgImageUrl ?? tplJson.bgImageUrl;
+      }
+    }
+  }
+
   const textObjects = objects.filter((o): o is { kind: string; text?: string } =>
     typeof o === "object" && o !== null && (o as { kind?: unknown }).kind === "text");
   const derivedLyrics = textObjects
@@ -719,8 +756,8 @@ export async function createSongSlide(songId: string, atIndex?: number, initial?
     order: idx,
     lyrics: derivedLyrics,
     objectsJson: objects.length > 0 ? {
-      bgColor: initial?.bgColor,
-      bgImageUrl: initial?.bgImageUrl,
+      bgColor,
+      bgImageUrl,
       objects,
     } : null,
   }).returning({ id: songSlides.id });
