@@ -22,13 +22,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Wifi, Globe, Copy, Check, HelpCircle, Download, ChevronDown, ChevronRight, CircleCheck, CircleDot, Radio } from "lucide-react";
 import { mintPairCode, revokePairCode } from "@/lib/device-pair-actions";
+import { obsBandParams, clampObsBand, DEFAULT_OBS_BAND, OBS_BAND_STYLES, OBS_BAND_STYLE_META, type ObsBandConfig, type ObsBandStyle } from "@/lib/obs-lowerthird";
 
 const CODE_KEY = "presentflow.obs.pairCode";
 const CHURCH_KEY = "presentflow.obs.pairChurch";
 const EXP_KEY = "presentflow.obs.pairExpiresAt";
-const LOOK_KEY = "presentflow.obs.look"; // "camera" | "full"
+const LOOK_KEY = "presentflow.obs.look"; // "camera" | "full" | "lowerthird"
+const BAND_KEY = "presentflow.obs.lowerThird.v1"; // ObsBandConfig JSON (device-local)
 
-type Look = "camera" | "full";
+type Look = "camera" | "full" | "lowerthird";
 type Transport = "lan" | "cloud";
 type LanInfo = { running: boolean; ip: string | null; port: number | null; clients: number };
 type LanApi = {
@@ -48,15 +50,22 @@ function announce(code: string | null) {
 }
 
 /** Build the OBS Browser Source URL for the chosen transport + look. */
-function buildUrl(opts: { transport: Transport; look: Look; code?: string | null; churchId?: string; lan?: LanInfo | null }): string {
+function buildUrl(opts: { transport: Transport; look: Look; code?: string | null; churchId?: string; lan?: LanInfo | null; band?: ObsBandConfig }): string {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const bg = opts.look === "camera" ? "&bg=transparent" : ""; // full look = theme background renders
+  // camera = see-through over the camera; lowerthird = see-through band caption
+  // (obs=lowerthird already forces transparent on the render page + carries the
+  // movable band geometry); full = theme background renders (no transparent).
+  const extra = opts.look === "camera"
+    ? "&bg=transparent"
+    : opts.look === "lowerthird"
+      ? `&obs=lowerthird&${obsBandParams(opts.band ?? DEFAULT_OBS_BAND)}`
+      : "";
   if (opts.transport === "lan" && opts.lan?.ip && opts.lan.port) {
     const base = `http://${opts.lan.ip}:${opts.lan.port}`;
-    return `${base}/livestream?lan=${opts.lan.ip}:${opts.lan.port}${bg}`;
+    return `${base}/livestream?lan=${opts.lan.ip}:${opts.lan.port}${extra}`;
   }
   const churchQ = opts.churchId ? `&church=${encodeURIComponent(opts.churchId)}` : "";
-  return `${origin}/livestream?pair=${opts.code ?? ""}${churchQ}${bg}`;
+  return `${origin}/livestream?pair=${opts.code ?? ""}${churchQ}${extra}`;
 }
 
 async function copyText(text: string): Promise<boolean> {
@@ -75,11 +84,27 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
+/** A compact labelled slider for the lower-third band controls. */
+function BandSlider(props: { label: string; value: number; min: number; max: number; step: number; suffix?: string; onChange: (v: number) => void }) {
+  return (
+    <label className="block">
+      <div className="flex items-center justify-between text-[10px] text-[var(--color-muted-foreground)] mb-0.5">
+        <span>{props.label}</span>
+        <span className="tabular-nums text-[var(--color-foreground)]">{props.step < 1 ? props.value.toFixed(2) : Math.round(props.value)}{props.suffix ?? ""}</span>
+      </div>
+      <input type="range" min={props.min} max={props.max} step={props.step} value={props.value}
+        onChange={(e) => props.onChange(Number(e.target.value))}
+        className="w-full accent-[var(--color-brand)] cursor-pointer" />
+    </label>
+  );
+}
+
 export function ObsOverlayCard() {
   const lanApi = getLanApi();
   const isDesktop = !!lanApi;
 
   const [look, setLook] = useState<Look>("camera");
+  const [band, setBand] = useState<ObsBandConfig>(DEFAULT_OBS_BAND);
   const [transport, setTransport] = useState<Transport>(isDesktop ? "lan" : "cloud");
   const [showWhat, setShowWhat] = useState(false);
   const [showSteps, setShowSteps] = useState(true);
@@ -98,7 +123,9 @@ export function ObsOverlayCard() {
   useEffect(() => {
     try {
       const savedLook = localStorage.getItem(LOOK_KEY);
-      if (savedLook === "camera" || savedLook === "full") setLook(savedLook);
+      if (savedLook === "camera" || savedLook === "full" || savedLook === "lowerthird") setLook(savedLook);
+      const savedBand = localStorage.getItem(BAND_KEY);
+      if (savedBand) { try { setBand(clampObsBand(JSON.parse(savedBand))); } catch { /* ignore */ } }
       const c = localStorage.getItem(CODE_KEY);
       const ch = localStorage.getItem(CHURCH_KEY) || "";
       const exp = localStorage.getItem(EXP_KEY);
@@ -108,6 +135,7 @@ export function ObsOverlayCard() {
   }, []);
 
   useEffect(() => { try { localStorage.setItem(LOOK_KEY, look); } catch { /* ignore */ } }, [look]);
+  useEffect(() => { try { localStorage.setItem(BAND_KEY, JSON.stringify(band)); } catch { /* ignore */ } }, [band]);
 
   // Poll LAN status (device count) while the LAN transport is selected.
   useEffect(() => {
@@ -170,7 +198,7 @@ export function ObsOverlayCard() {
   const lanReady = transport === "lan" && !!lan?.running && !!lan?.ip;
   const cloudReady = transport === "cloud" && !!code;
   const ready = lanReady || cloudReady;
-  const url = ready ? buildUrl({ transport, look, code, churchId, lan }) : "";
+  const url = ready ? buildUrl({ transport, look, code, churchId, lan, band }) : "";
 
   const doCopy = useCallback(async () => {
     if (!url) return;
@@ -229,18 +257,64 @@ export function ObsOverlayCard() {
       {/* Step 1 — the look */}
       <div className="space-y-1.5">
         <div className="eyebrow">1 · How should the words look?</div>
-        <div className="grid grid-cols-2 gap-2">
-          <button type="button" onClick={() => setLook("camera")}
-            className={`text-left rounded-md border p-2 transition ${look === "camera" ? "border-[var(--color-brand)] bg-[var(--color-brand)]/10" : "border-[var(--color-border)] hover:border-[var(--color-brand)]/40"}`}>
-            <div className="text-[11px] font-semibold text-[var(--color-foreground)]">Over your camera</div>
-            <div className="text-[10px] text-[var(--color-muted-foreground)] leading-tight">Words on a see-through layer, over the live camera.</div>
-          </button>
-          <button type="button" onClick={() => setLook("full")}
-            className={`text-left rounded-md border p-2 transition ${look === "full" ? "border-[var(--color-brand)] bg-[var(--color-brand)]/10" : "border-[var(--color-border)] hover:border-[var(--color-brand)]/40"}`}>
-            <div className="text-[11px] font-semibold text-[var(--color-foreground)]">Full projector look</div>
-            <div className="text-[10px] text-[var(--color-muted-foreground)] leading-tight">The theme background + words, exactly like the projector. Best as its own scene (it covers the camera).</div>
-          </button>
+        <div className="space-y-1.5">
+          {([
+            { id: "camera" as const, title: "Over your camera", desc: "Words fill the frame, over the live camera." },
+            { id: "lowerthird" as const, title: "Lower third", desc: "Words in a neat band near the bottom, over the camera. Broadcast style." },
+            { id: "full" as const, title: "Full projector look", desc: "Theme background + words, exactly like the projector. Its own scene." },
+          ]).map((opt) => (
+            <button key={opt.id} type="button" onClick={() => setLook(opt.id)}
+              className={`w-full text-left rounded-md border px-2.5 py-2 transition flex items-baseline gap-2 ${look === opt.id ? "border-[var(--color-brand)] bg-[var(--color-brand)]/10" : "border-[var(--color-border)] hover:border-[var(--color-brand)]/40"}`}>
+              <span className="text-[11px] font-semibold text-[var(--color-foreground)] shrink-0">{opt.title}</span>
+              <span className="text-[10px] text-[var(--color-muted-foreground)] leading-tight">{opt.desc}</span>
+            </button>
+          ))}
         </div>
+        {/* This choice affects the OBS stream ONLY — your projector and operator
+            screen are never changed by it. */}
+        <p className="text-[10px] text-[var(--color-muted-foreground)] leading-relaxed">
+          This only changes your <span className="text-[var(--color-foreground)]">OBS stream</span>. Your projector and operator screen stay exactly as they are.
+        </p>
+
+        {look === "lowerthird" && (
+          <div className="mt-1 rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/30 p-2.5 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="text-[10px] font-semibold text-[var(--color-foreground)]">Fine-tune <span className="font-normal text-[var(--color-muted-foreground)]">— the fonts match your projector automatically</span></div>
+              <button type="button" onClick={() => setBand(DEFAULT_OBS_BAND)}
+                className="text-[10px] text-[var(--color-brand)] hover:underline">Reset</button>
+            </div>
+            {/* Live 16:9 preview of the band over a mock camera */}
+            <div className="relative w-full rounded overflow-hidden border border-[var(--color-border)]" style={{ aspectRatio: "16 / 9", background: "linear-gradient(135deg,#3b4a5a,#6b7c8c)" }}>
+              <div className="absolute inset-x-0 flex items-center justify-center"
+                style={{ top: `${band.topPct}%`, height: `${band.heightPct}%`, background: OBS_BAND_STYLE_META[band.style].previewBg }}>
+                <span className="font-semibold leading-none px-2 text-center" style={{ color: OBS_BAND_STYLE_META[band.style].previewText, fontSize: `${Math.max(7, band.fontScale * 11)}px`, textShadow: band.style === "frost" ? "none" : "0 1px 3px rgba(0,0,0,.8)" }}>He reigns forever more</span>
+              </div>
+            </div>
+            {/* Background style — the 5 looks */}
+            <div className="space-y-1">
+              <div className="text-[10px] text-[var(--color-muted-foreground)]">Background</div>
+              <div className="grid grid-cols-3 gap-1">
+                {OBS_BAND_STYLES.map((s) => (
+                  <button key={s} type="button" onClick={() => setBand((b) => ({ ...b, style: s }))} title={OBS_BAND_STYLE_META[s].hint}
+                    className={`rounded border overflow-hidden transition ${band.style === s ? "border-[var(--color-brand)] ring-1 ring-[var(--color-brand)]" : "border-[var(--color-border)] hover:border-[var(--color-brand)]/50"}`}>
+                    <span className="block h-6 relative" style={{ background: "linear-gradient(135deg,#3b4a5a,#6b7c8c)" }}>
+                      <span className="absolute inset-x-0 bottom-0 h-3 flex items-center justify-center" style={{ background: OBS_BAND_STYLE_META[s].previewBg }}>
+                        <span className="text-[6px] font-bold leading-none" style={{ color: OBS_BAND_STYLE_META[s].previewText }}>Aa</span>
+                      </span>
+                    </span>
+                    <span className="block text-[8px] text-center py-0.5 text-[var(--color-muted-foreground)] leading-none truncate px-0.5">{OBS_BAND_STYLE_META[s].label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <BandSlider label="Height" value={band.heightPct} min={10} max={60} step={1} suffix="%" onChange={(v) => setBand((b) => clampObsBand({ ...b, heightPct: v }))} />
+            <BandSlider label="Position (raise / lower)" value={band.topPct} min={0} max={Math.max(0, 100 - band.heightPct)} step={1} suffix="%" onChange={(v) => setBand((b) => clampObsBand({ ...b, topPct: v }))} />
+            <BandSlider label="Text size (smaller / bigger)" value={band.fontScale} min={0.5} max={2} step={0.05} onChange={(v) => setBand((b) => ({ ...b, fontScale: v }))} />
+            <div className="rounded bg-[var(--color-brand)]/10 border border-[var(--color-brand)]/30 px-2 py-1.5">
+              <p className="text-[10px] text-[var(--color-foreground)] leading-relaxed"><span className="font-semibold">After changing these, copy the link again</span> and paste it back into OBS — the look only updates when you re-add the link. You can also drag the box in OBS to nudge it.</p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Step 2 — the connection + link */}
@@ -344,7 +418,7 @@ export function ObsOverlayCard() {
             </div>
             <ol start={7} className="text-[11px] text-[var(--color-muted-foreground)] leading-relaxed list-decimal pl-4 space-y-1">
               <li>Click OK. Drag the red handles to move or resize the words.</li>
-              {look === "camera" && (
+              {(look === "camera" || look === "lowerthird") && (
                 <li>Make sure <span className="text-[var(--color-foreground)]">Lyrics</span> sits <span className="text-[var(--color-foreground)]">above your camera</span> in the Sources list — if you don&apos;t see the words, drag it to the top.</li>
               )}
               <li>The status above turns <span className="text-emerald-500 font-semibold">green</span> the moment OBS connects — send any slide to test.</li>

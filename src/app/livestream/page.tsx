@@ -4,6 +4,7 @@ import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, sanitizeOutputState, slideOutputIdentity, type OutputState, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
 import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
+import { overlayBandSlide, parseObsBand, DEFAULT_OBS_BAND, type ObsBandConfig } from "@/lib/obs-lowerthird";
 import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
 import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
 import { openOutputChannel, isValidPairCode, type RealtimeConnStatus } from "@/lib/realtime";
@@ -71,6 +72,7 @@ export default function LivestreamPage() {
   // ?bg=transparent → strip our own bg so OBS chroma / alpha keys directly
   const [transparent, setTransparent] = useState(false);
   const [mode, setMode] = useState<"full" | "lower_third">("full");
+  const [obsBand, setObsBand] = useState<ObsBandConfig>(DEFAULT_OBS_BAND);
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
     setTransparent(p.get("bg") === "transparent");
@@ -78,6 +80,9 @@ export default function LivestreamPage() {
     // P5: OBS-friendly `?obs=lowerthird` is an alias for the lower-third
     // capture mode; it also implies a transparent background so OBS can key.
     if (p.get("obs") === "lowerthird") { setMode("lower_third"); setTransparent(true); }
+    // OBS lower-third band geometry (movable, set in the OBS setup card, baked
+    // into the copied link). Purely overlay-side — never affects the projector.
+    setObsBand(parseObsBand((k) => p.get(k)));
     if (p.get("transitions") === "1") setTransitionsEnabled(true);
   }, []);
 
@@ -386,32 +391,40 @@ export default function LivestreamPage() {
     return () => window.removeEventListener("unhandledrejection", onUnhandled);
   }, []);
 
+  // OBS LOWER-THIRD: wrap the live slide into a lower-third caption that renders
+  // through SlideRenderer's PROVEN band branch (church fonts via
+  // themeTextStyle(appearance), auto-fit, no clipping) instead of the old
+  // hard-coded generic band. Purely overlay-side — the projector/operator are
+  // untouched. In "full" mode this is a pass-through (byte-identical to before).
+  const renderSlide: SlidePayload = mode === "lower_third" ? overlayBandSlide(slide, obsBand) : slide;
   return (
     <div
       className="fixed inset-0 overflow-hidden cursor-none"
       style={{ margin: 0, padding: 0, background: transparent ? "transparent" : "#000" }}
       onDoubleClick={goFullscreen}
     >
-      {mode === "full" && (
+      {(
         <>
           {/* Background Templates layer for the broadcast/NDI output. Never in
               transparent (OBS-key) mode. When active the slide goes transparent. */}
           {/* Live camera wins over a Background Template here too (mirrors /live). */}
           {!transparent && background && background.type !== "none" && !videoInput && <BackgroundLayer key={background.shaderPreset ?? background.type} background={background} />}
           {!transparent && hasVideoBackground(videoInput, appearance) && !(!transparent && background && background.type !== "none" && !videoInput) ? (
-            <OutputSlide slide={slide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} projectorFit />
+            <OutputSlide slide={renderSlide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} projectorFit />
           ) : transitionsEnabled ? (
-            <TransitionWrapper identityKey={slideOutputIdentity(slide)} transition={transition}>
-              <SlideRenderer slide={slide} projectorFit fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} overVideo={!!(!transparent && background && background.type !== "none" && !videoInput)} transparentBg={transparent} videoMuted={false} onVideoRef={handleVideoRef} />
+            <TransitionWrapper identityKey={slideOutputIdentity(renderSlide)} transition={transition}>
+              <SlideRenderer slide={renderSlide} projectorFit fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} overVideo={!!(!transparent && background && background.type !== "none" && !videoInput)} transparentBg={transparent} videoMuted={false} onVideoRef={handleVideoRef} />
             </TransitionWrapper>
           ) : (
-            <SlideRenderer slide={slide} projectorFit fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} overVideo={!!(!transparent && background && background.type !== "none" && !videoInput)} transparentBg={transparent} videoMuted={false} onVideoRef={handleVideoRef} />
+            <SlideRenderer slide={renderSlide} projectorFit fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} overVideo={!!(!transparent && background && background.type !== "none" && !videoInput)} transparentBg={transparent} videoMuted={false} onVideoRef={handleVideoRef} />
           )}
           {/* No theme logo in OBS transparent mode — the overlay is text-only so
               OBS composites just the lyrics/verse over the camera. */}
           {!transparent && <ThemeLogoLayer appearance={appearance} />}
-          <AnnouncementLayer ann={announcement} />
-          {lowerThird && (
+          {/* Announcement scrim is a FULL-frame overlay — keep it off the OBS
+              lower-third caption (it would paint over the band). Full mode only. */}
+          {mode === "full" && <AnnouncementLayer ann={announcement} />}
+          {mode === "full" && lowerThird && (
             <div className="absolute bottom-16 left-16 right-16 max-w-[70%]">
               <div className="bg-black/70 backdrop-blur-sm border-l-4 border-[color:var(--color-brand)] p-5">
                 <div className="text-white font-semibold text-2xl leading-tight">{lowerThird.line1}</div>
@@ -421,29 +434,12 @@ export default function LivestreamPage() {
           )}
         </>
       )}
-      {/* 2026-08-16 (user request): the livestream LOWER-THIRD now shows the
-          CURRENT LIVE lyrics/verse as a caption for the stream — not just an
-          explicit operator lower-third. The operator chooses full vs lower-third
-          via Hardware → Screens → Livestream, so this is opt-in per surface; it
-          only renders what's already live on the projector (their own service). */}
-      {mode === "lower_third" && (() => {
-        const liveText = slide.kind === "text" && typeof slide.text === "string" && slide.text.trim() ? slide.text : null;
-        if (!lowerThird && !liveText) return null;
-        return (
-          <div className="absolute bottom-0 left-0 right-0 p-8">
-            <div className="bg-black/80 border-l-4 border-[color:var(--color-brand)] p-6 max-w-4xl">
-              {lowerThird ? (
-                <>
-                  <div className="text-white font-semibold text-3xl leading-tight">{lowerThird.line1}</div>
-                  {lowerThird.line2 && <div className="text-white/70 text-xl mt-2">{lowerThird.line2}</div>}
-                </>
-              ) : (
-                <div className="text-white font-semibold text-3xl leading-snug whitespace-pre-wrap max-h-[42vh] overflow-hidden">{liveText}</div>
-              )}
-            </div>
-          </div>
-        );
-      })()}
+      {/* 2026-09-06: the OBS lower-third caption is now rendered by the SAME
+          SlideRenderer band branch as everything above (via `renderSlide`), so it
+          uses the church's real fonts/style + auto-fit instead of the old
+          hard-coded generic white-on-black div (which had no font parity and
+          clipped long lyrics). The operator's explicit lowerThird MESSAGE overlay
+          still renders above. */}
 
       {/* allowWeb === false → operator said in-building only; never show on
           this public OBS-facing surface. */}
