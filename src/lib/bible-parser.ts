@@ -164,7 +164,15 @@ const NUMBER_WORDS: Record<string, number> = {
 
 /** Convert phrases like "one hundred nineteen" → 119. Returns NaN if uncertain. */
 export function wordsToNumber(phrase: string): number {
-  const words = phrase.toLowerCase().trim().split(/[\s-]+/);
+  const words = phrase
+    .toLowerCase()
+    .trim()
+    .split(/[\s-]+/)
+    // Drop the filler that appears inside natural spoken hundreds ("one hundred
+    // AND five", "A hundred and five") — never a number itself. normalize()
+    // already strips these on the parser path; do it here too so wordsToNumber
+    // is correct when called directly (tests / semantic callers).
+    .filter((w) => w !== "and" && w !== "a");
   if (words.length === 0) return NaN;
 
   // Digit-by-digit reading — "Psalm one oh seven", "one zero seven" — common
@@ -586,6 +594,16 @@ function normalize(text: string): string {
   // tokens; the >=10 third-token guard (see helper) keeps every legit 3-digit Psalm
   // spelling ("one one nine"=119, "one one one"=111) intact.
   s = collapseStutteredNumbers(s);
+
+  // Natural spoken hundreds: "one hundred and five", "a hundred and forty five".
+  // The connective "and" and a leading "a" are filler INSIDE a hundreds compound
+  // (a verse-list "and" follows a NUMBER — "verses one and two" — never the word
+  // "hundred"), so dropping them here can't disturb a range. "a hundred" → "one
+  // hundred", "hundred and <n>" → "hundred <n>". This lets NUM_CHUNK capture the
+  // whole number as one atom and wordsToNumber sum it ("one hundred forty five"
+  // → 145, "a hundred and five" → 105) instead of stranding "and five".
+  s = s.replace(/\ba\s+hundred\b/g, "one hundred");
+  s = s.replace(/\bhundred\s+and\s+/g, "hundred ");
 
   // Fuse compound word numerals with an underscore so "twenty-eight" stays
   // atomic during pattern matching (won't be split by range separators or
@@ -1248,13 +1266,39 @@ function phoneticIndex(): Map<string, Set<string>> {
 // misfire on ordinary speech ("history"→Esther, "auditorium"→Deuteronomy). It
 // is therefore opt-in and used ONLY on the typed manual path (the DYM branch of
 // bible-manual-resolve), where the operator has deliberately typed a book+number.
+// Leading "book number" token: the ordinal that distinguishes 1/2/3 Corinthians,
+// 1/2 Samuel, 1/2/3 John, etc. Used to stop the fuzzy matcher from INVENTING a
+// number the speaker never said (see the guard in fuzzyBookMatch below).
+// Matches a spoken/typed book-number at the START of the input: a bare digit
+// 1/2/3 (no English book name begins with a digit, so no boundary needed), or an
+// ordinal WORD followed by a boundary. The word branch requires \b so it can't
+// flag a real book that merely starts with those letters ("Isaiah" via "i…",
+// "Oneness" via "one…"). "1corinthians" (no-space alias) is caught by the digit
+// branch.
+const LEADING_BOOK_NUMBER =
+  /^(?:[123]|(?:1st|2nd|3rd|i{1,3}|first|second|third|one|two|three)\b)/i;
+function hasLeadingBookNumber(s: string): boolean {
+  return LEADING_BOOK_NUMBER.test(s);
+}
+
 function fuzzyBookMatch(normalized: string, opts: { allowPhonetic?: boolean } = {}): string | undefined {
   if (normalized.length < 4) return undefined; // too short to fuzz safely
   if (FUZZY_BOOK_STOPWORDS.has(normalized)) return undefined; // common word — never fuzz
   const maxDist = normalized.length <= 6 ? 1 : 2;
+  // If the INPUT carries no book-number of its own, a numbered book variant
+  // ("1 corinthians", "second samuel", …) can only match by fuzzily INSERTING
+  // the missing "1 "/"2 " — i.e. inventing an ordinal the speaker never said.
+  // That's the "Corinthians → 1 Corinthians" / "second Corinthians → second 1
+  // Corinthians" bug: a bare or ordinal-prefixed book must NEVER be forced to
+  // the "1 " book. When the input has no leading number, reject any candidate
+  // whose variant starts with one — leave it ambiguous rather than guess.
+  const inputHasBookNumber = hasLeadingBookNumber(normalized);
   let best: { canonical: string; dist: number } | null = null;
   for (const [variant, canonical] of VARIANT_TO_BOOK) {
     if (Math.abs(variant.length - normalized.length) > maxDist) continue;
+    // Keyed on the CANONICAL (always "1 Corinthians"/"2 Samuel"/"3 John") so the
+    // no-space alias spellings ("1corinthians", "2sam") can't slip a number in.
+    if (!inputHasBookNumber && /^[123]\s/.test(canonical)) continue; // never invent a book number
     const dist = levenshtein(normalized, variant);
     if (dist <= maxDist && (!best || dist < best.dist)) best = { canonical, dist };
   }
@@ -1466,7 +1510,11 @@ function leadingBareBookName(text: string): string | null {
   if (typeof text !== "string") return null;
   // Repair ASR mishearings first (so "corintians"/"tree" etc. normalise), then
   // reduce to letters/spaces and strip a small set of leading particles.
-  let s = repairNumberHomophones(text).toLowerCase().replace(/[^a-z\s]/g, " ");
+  // Keep digits: the leading book NUMBER (1/2/3 Corinthians, 2 Samuel …) is part
+  // of the book identity. Stripping it here used to silently collapse every
+  // numbered book to its "1 " form (a "2 Corinthians" stutter became "1
+  // Corinthians") — the exact bug this path must not reintroduce.
+  let s = repairNumberHomophones(text).toLowerCase().replace(/[^a-z0-9\s]/g, " ");
   s = s.replace(/\b(?:u+m+|u+h+|e+r+m*|hm+)\b/g, " ").replace(/\s+/g, " ").trim();
   // Strip anchored leading particles ("in", "book of", "turn to", …) — repeated
   // so "so now in romans" → "romans" — without touching internal words of a
