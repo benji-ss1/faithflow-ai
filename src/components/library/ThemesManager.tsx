@@ -10,6 +10,7 @@ import { createTheme, updateTheme, duplicateTheme, deleteTheme, setDefaultTheme,
 import { BackgroundSelector } from "@/backgrounds/components/BackgroundSelector";
 import { buildColorwayFromPalette } from "@/lib/colorway";
 import { ThemeImportDialog } from "@/components/library/ThemeImportDialog";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { loadContentTypeStyles, saveContentTypeStyles, CONTENT_STYLE_TYPES, type ContentStyleType, type ContentTypeStyles } from "@/lib/content-type-styles";
 
 // Kept minimal + additive — see `type ThemeConfig` in src/lib/actions.ts for
@@ -79,6 +80,8 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState<ThemeRow | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  // Electron-safe confirm (native window.confirm can freeze the desktop shell).
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   function refresh(next: ThemeRow[]) {
     setThemes(next.slice().sort((a, b) => a.name.localeCompare(b.name)));
@@ -126,8 +129,8 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
     });
   }
 
-  function onDelete(id: string, name: string) {
-    if (!confirm(`Delete "${name}"? This can't be undone.`)) return;
+  async function onDelete(id: string, name: string) {
+    if (!(await confirm({ title: `Delete "${name}"?`, description: "This can't be undone.", confirmLabel: "Delete", danger: true }))) return;
     startTransition(async () => {
       const res = await deleteTheme(id);
       if (!res.ok) { toast.error(res.error || "Could not delete"); return; }
@@ -239,6 +242,7 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
 
   return (
     <div className={operatorMode ? "space-y-4" : "space-y-6"}>
+      {confirmDialog}
       {/* Backgrounds — a NEW section that plugs into the Themes area (it does
           NOT modify the theme system). Placed at the top so operators find it
           the moment they open Themes. */}
@@ -737,14 +741,16 @@ function ThemeEditor({
               <BgAssetPicker
                 kind="image"
                 url={get(cfg, "bgImageUrl", "") as string}
-                onUrl={(url) => set({ bgImageUrl: url })}
+                // Removing the image (url === "") clears the background back to a
+                // plain solid colour instead of leaving an empty image bg.
+                onUrl={(url) => set(url ? { bgImageUrl: url } : { bgImageUrl: "", bgType: "solid" })}
               />
             )}
             {get<"solid" | "gradient" | "image" | "video">(cfg, "bgType", "solid") === "video" && (
               <BgAssetPicker
                 kind="video"
                 url={get(cfg, "bgVideoUrl", "") as string}
-                onUrl={(url) => set({ bgVideoUrl: url })}
+                onUrl={(url) => set(url ? { bgVideoUrl: url } : { bgVideoUrl: "", bgType: "solid" })}
               />
             )}
             <Row label={`Opacity — ${Math.round((get(cfg, "bgOpacity", 1) as number) * 100)}%`}>

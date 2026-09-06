@@ -26,7 +26,8 @@ import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import { projectableTextSlide, type SlidePayload } from "@/lib/broadcast";
 import { registerMediaAsset, renameMediaAsset, deleteMediaAsset } from "@/lib/actions";
-import { setMediaOnActiveTheme } from "@/lib/theme-quick-apply";
+import { setMediaOnActiveTheme, clearActiveThemeBackground, type QuickThemeChange } from "@/lib/theme-quick-apply";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { MediaImportWizard } from "./MediaImportWizard";
 import { MediaImageEditor } from "./MediaImageEditor";
 import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide } from "./mediaFrame";
@@ -68,6 +69,8 @@ export function MediaBrowser({
   ctx: OperatorShellCtx;
   onExitToSlides: () => void;
 }) {
+  // Electron-safe confirm (native window.confirm can freeze the desktop shell).
+  const { confirm, dialog: confirmDialog } = useConfirm();
   // Seed from the per-church cache so re-opening the panel paints immediately.
   const [assets, setAssets] = useState<Asset[]>(() => mediaListCache.get(ctx.churchId) ?? []);
   const [loading, setLoading] = useState(false);
@@ -269,16 +272,44 @@ export function MediaBrowser({
     try {
       await ctx.onAddMediaGroup(title, ids);
       setBulkIds(new Set());
-      toast.success(`Added "${title}" to the playlist — double-click to rename`, { icon: "🗂️" });
+      toast.success(`Added "${title}" to the playlist — double-click to rename`);
       onExitToSlides();
     } finally {
       setAddingGroup(false);
     }
   };
 
+  // ── Quick theme actions (right-click) ───────────────────────────────────────
+  // Every quick theme change (set/clear background, set logo) is UNDOABLE: the
+  // helper returns a revert() that restores the prior config and re-pushes it
+  // live, surfaced as an Undo action on the success toast. This is the fix for
+  // "I set a media image as the background and there was no way to undo it".
+  const runThemeChange = async (
+    change: Promise<QuickThemeChange | null>,
+    okMsg: (name: string) => string,
+    emptyMsg: string,
+  ) => {
+    const res = await change;
+    if (!res) { toast.error(emptyMsg); return; }
+    // Stable id: a newer quick theme change REPLACES the previous toast, so the
+    // visible Undo always reverts the most recent change (never an older one).
+    toast.success(okMsg(res.name), {
+      id: "pf-theme-quick-change",
+      action: {
+        label: "Undo",
+        onClick: () => {
+          void res.revert().then((ok) =>
+            ok ? toast.success("Reverted", { id: "pf-theme-quick-change" })
+               : toast.error("Couldn't undo — the theme may have changed", { id: "pf-theme-quick-change" }));
+        },
+      },
+      duration: 8000,
+    });
+  };
+
   // ── Delete ────────────────────────────────────────────────────────────────
   const deleteAsset = async (a: Asset) => {
-    if (!window.confirm(`Permanently delete "${a.fileName}"? This cannot be undone.`)) return;
+    if (!(await confirm({ title: `Delete "${a.fileName}"?`, description: "This cannot be undone.", confirmLabel: "Delete", danger: true }))) return;
     const result = await deleteMediaAsset(a.id);
     if (!result?.ok) {
       toast.error((result as { error?: string } | undefined)?.error ?? "Delete failed");
@@ -301,7 +332,7 @@ export function MediaBrowser({
   const bulkDelete = async () => {
     const rows = assets.filter((a) => bulkIds.has(a.id));
     if (rows.length === 0) return;
-    if (!window.confirm(`Permanently delete ${rows.length} item${rows.length === 1 ? "" : "s"}? This cannot be undone.`)) return;
+    if (!(await confirm({ title: `Delete ${rows.length} item${rows.length === 1 ? "" : "s"}?`, description: "This cannot be undone.", confirmLabel: "Delete", danger: true }))) return;
     setBulkBusy(true);
     const failed = new Set<string>();
     let deleted = 0;
@@ -340,6 +371,7 @@ export function MediaBrowser({
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <>
+      {confirmDialog}
       <MediaImportWizard
         open={wizardOpen}
         onClose={() => setWizardOpen(false)}
@@ -649,21 +681,39 @@ export function MediaBrowser({
                       <>
                         <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
                         <ContextMenu.Item
-                          onSelect={() => void setMediaOnActiveTheme("background", a.url).then((name) =>
-                            name ? toast.success(`Set as background of theme “${name}”`) : toast.error("No theme to update"))}
+                          onSelect={() => void runThemeChange(
+                            setMediaOnActiveTheme("background", a.url),
+                            (name) => `Set as background of theme “${name}”`,
+                            "No theme to update",
+                          )}
                           className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer"
                         >
                           Set as theme background
                         </ContextMenu.Item>
                         <ContextMenu.Item
-                          onSelect={() => void setMediaOnActiveTheme("logo", a.url).then((name) =>
-                            name ? toast.success(`Set as logo of theme “${name}”`) : toast.error("No theme to update"))}
+                          onSelect={() => void runThemeChange(
+                            setMediaOnActiveTheme("logo", a.url),
+                            (name) => `Set as logo of theme “${name}”`,
+                            "No theme to update",
+                          )}
                           className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer"
                         >
                           Set as theme logo
                         </ContextMenu.Item>
                       </>
                     )}
+                    {/* Always available — the one-tap escape hatch for a theme
+                        background that was set and now needs to go. */}
+                    <ContextMenu.Item
+                      onSelect={() => void runThemeChange(
+                        clearActiveThemeBackground(),
+                        (name) => `Cleared background of theme “${name}”`,
+                        "No theme background to clear",
+                      )}
+                      className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer"
+                    >
+                      Clear theme background
+                    </ContextMenu.Item>
                     <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
                     <ContextMenu.Item
                       onSelect={() => startRename(a)}

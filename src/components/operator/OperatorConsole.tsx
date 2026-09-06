@@ -423,8 +423,11 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
         // default theme actually carries its OWN background — a text-only default
         // theme leaves any template alone so the two can still be layered.
         if (!cancelled && appearanceHasBackground(mapped)) {
-          const { readActiveBackgroundId, setActiveBackgroundId } = await import("@/backgrounds/store/backgroundStore");
-          if (readActiveBackgroundId() !== "none") setActiveBackgroundId("none");
+          const { readActiveBackgroundId, setActiveBackgroundId, shouldKeepTemplateOverThemeBg } = await import("@/backgrounds/store/backgroundStore");
+          // Only clear a leftover template if the theme background was the more
+          // recent explicit choice; otherwise the operator's last-picked
+          // template (e.g. Gentle Waves) persists across the app restart.
+          if (readActiveBackgroundId() !== "none" && !shouldKeepTemplateOverThemeBg()) setActiveBackgroundId("none");
         }
       }
     };
@@ -462,7 +465,12 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       // template alone, so the two can still coexist (theme text over template).
       void import("@/lib/theme-appearance").then(({ appearanceHasBackground }) => {
         if (appearanceHasBackground(nextAppearance)) {
-          void import("@/backgrounds/store/backgroundStore").then(({ setActiveBackgroundId }) => setActiveBackgroundId("none"));
+          // Explicit in-session theme apply → this IS the newest pick, so it
+          // wins over any active template AND is stamped so it persists.
+          void import("@/backgrounds/store/backgroundStore").then(({ setActiveBackgroundId, markThemeBackgroundPicked }) => {
+            markThemeBackgroundPicked();
+            setActiveBackgroundId("none");
+          });
         }
       });
       void load(); // refresh the by-id cache (default may have changed)
@@ -547,8 +555,11 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     if (!effectiveAppearance) return;
     void import("@/lib/theme-appearance").then(({ appearanceHasBackground }) => {
       if (!appearanceHasBackground(effectiveAppearance)) return;
-      void import("@/backgrounds/store/backgroundStore").then(({ readActiveBackgroundId, setActiveBackgroundId }) => {
-        if (readActiveBackgroundId() !== "none") setActiveBackgroundId("none");
+      void import("@/backgrounds/store/backgroundStore").then(({ readActiveBackgroundId, setActiveBackgroundId, shouldKeepTemplateOverThemeBg }) => {
+        // Respect the operator's most recent explicit choice: a template picked
+        // more recently than the theme background stays (persists across restart);
+        // otherwise the theme's own background wins and the template is cleared.
+        if (readActiveBackgroundId() !== "none" && !shouldKeepTemplateOverThemeBg()) setActiveBackgroundId("none");
       });
     });
   }, [effectiveAppearance]);
