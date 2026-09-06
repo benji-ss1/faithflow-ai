@@ -15,6 +15,18 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.382",
+    date: "2026-09-06",
+    headline: "Sharper scripture detection: “Second Corinthians” stays Second, and long Psalm numbers read right",
+    highlights: [
+      { text: "Fixed: when the preacher says “Second Corinthians” (or Second Samuel, Second John…) the app now shows 2 Corinthians — not 1. Before, a “1” was being auto-added to any numbered book, so “second” quietly became first. Try it: with the mic live, say “Second Corinthians five seventeen” and watch the correct 2 Corinthians 5:17 come up — or type it in the reference box.", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "A book said without its number (just “Corinthians”) no longer guesses “1 Corinthians” — it waits for you to say the number instead of picking the wrong one. Nothing you do differently: just say the number (“first/second”, “one/two”) as normal and it’s respected.",
+      "Fixed: long spoken chapter numbers now read correctly. Saying “Psalm a hundred and five, verse seven” lands on Psalm 105:7, and “Psalm one hundred and forty five” lands on Psalm 145 — exactly like saying “one-oh-five” or “one-four-five”. Works whether you say the number the natural way or digit-by-digit.",
+      "This is automatic — there’s no new button. It just makes the live mic and the reference box hear numbered books and big chapter numbers correctly. Nothing else about how you drive the service changes.",
+    ],
+  },
+
+  {
     version: "0.1.380",
     date: "2026-09-06",
     headline: "OBS stream: a proper Lower Third for your lyrics — your fonts, your look, edit it live",
