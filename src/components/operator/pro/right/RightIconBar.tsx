@@ -31,7 +31,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { loadSessionState, updateSessionState } from "@/lib/operatorSessionState";
 import * as Popover from "@radix-ui/react-popover";
-import { BookOpen, Music, Link2, Settings as SettingsIcon } from "lucide-react";
+import { BookOpen, Music, Link2, Settings as SettingsIcon, Layers as LayersIcon } from "lucide-react";
+import { LAYERS_V2 } from "@/lib/output-layers";
+import { LayersPanel } from "./LayersPanel";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { TimerApi, MessagesApi } from "../hooks";
@@ -48,7 +50,7 @@ import { ChannelStrip } from "../../ChannelStrip";
 // HardwarePanel still imports ScreensPanel directly; the component is
 // unchanged. Only the right-side entry point is removed.
 
-type PopoverKey = "bible" | "songs" | "xrefs" | "logs" | "settings" | "themes";
+type PopoverKey = "bible" | "songs" | "xrefs" | "logs" | "settings" | "themes" | "layers";
 
 export function RightIconBar({
   ctx, timer, messages,
@@ -140,6 +142,15 @@ export function RightIconBar({
           k="logs" openKey={openKey} setOpen={setOpenKey}
           Icon={ScrollText} label="Logs"
         /> */}
+        {/* Decoupling Phase 3: Layers entry. Rendered ONLY when the global
+            NEXT_PUBLIC_LAYERS_V2 kill-switch is on (zero DOM otherwise). The
+            per-church opt-in is handled inside LayersPanel (disabled note). */}
+        {LAYERS_V2 && (
+          <IconTrigger
+            k="layers" openKey={openKey} setOpen={setOpenKey}
+            Icon={LayersIcon} label={ctx.layersEngineOn ? "Layers" : "Layers (not enabled for this church)"}
+          />
+        )}
         <IconTrigger
           k="settings" openKey={openKey} setOpen={setOpenKey}
           Icon={SettingsIcon} label="Settings"
@@ -167,6 +178,11 @@ export function RightIconBar({
       {/* Logs popover render also disabled — see IconTrigger comment above.
           If openKey somehow ends up "logs" (stale localStorage), no popover
           renders and the icon-bar row is clean. */}
+      {LAYERS_V2 && openKey === "layers" && (
+        <PopoverShell title="Layers" onClose={() => setOpenKey(null)}>
+          <LayersPanel ctx={ctx} />
+        </PopoverShell>
+      )}
       {openKey === "settings" && (
         <PopoverShell title="Settings" onClose={() => setOpenKey(null)}>
           <SettingsPopoverBody key={settingsEpoch} initialTab={settingsInitialTab} timer={timer} messages={messages} />

@@ -15,6 +15,18 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.384",
+    date: "2026-09-08",
+    headline: "New: Layers — control background, camera, slide and logo independently while live (early access)",
+    highlights: [
+      { text: "New Layers panel (when enabled for your church): see everything that's on the projector as a stack — Background, Camera, Slide, Logo — each with a light that's lit when it's live. Hide or clear ONE layer without touching the others: swap the background while the lyrics stay up, clear just the slide and keep the camera, or drop the lyrics into a lower-third band over the camera.", tryItHref: "/operator", tryItLabel: "Open operator" },
+      "Every layer has its own Clear button, so recovering from a mistake means clearing the one thing that's wrong — not blanking the whole screen.",
+      "Clear All is deliberately guarded: press and HOLD it for a moment (a fill animation confirms) before it wipes everything, so you can't wipe the screen with an accidental tap.",
+      "Slide zone control: put the current slide full-screen or in a lower-third band with one tap. Nothing auto-clears — a layer holds what you put there until you clear or replace it.",
+      "Early access: this is off by default and only appears once your church has Layers switched on. Everything you already do keeps working exactly as before until then.",
+    ],
+  },
+  {
     version: "0.1.383",
     date: "2026-09-06",
     headline: "Smarter songs: no more re-projecting a song you're already on, and new slides keep your font",
