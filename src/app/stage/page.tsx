@@ -4,7 +4,7 @@ import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
-import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type LayerWire } from "@/lib/broadcast";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
@@ -60,6 +60,9 @@ export default function StagePage() {
   useEffect(() => { setNow(new Date()); }, []);
   const [showHelp, setShowHelp] = useState(true);
   const lastMsgAt = useRef<number>(Date.now());
+  // Decoupling Phase 2 (DORMANT): per-layer override store for incoming
+  // layer-patch messages. Nothing reads it yet (Phase 3, NEXT_PUBLIC_LAYERS_V2).
+  const layerOverridesRef = useRef<Map<string, LayerWire>>(new Map());
   // Operator heartbeats the timer overlay at 1Hz while shown — sweep it off
   // if the beats stop (operator window closed/crashed).
   const lastTimerMsgAt = useRef<number>(0);
@@ -147,6 +150,10 @@ export default function StagePage() {
         } else if (msg.type === "timer") {
           if ("clear" in msg.overlay && msg.overlay.clear) setTimerOverlay(null);
           else { setTimerOverlay(msg.overlay); lastTimerMsgAt.current = Date.now(); }
+        } else if (msg.type === "layer-patch") {
+          // Decoupling Phase 2 (DORMANT): store the override; nothing renders from
+          // it yet — Phase 3 gates consumption behind NEXT_PUBLIC_LAYERS_V2.
+          layerOverridesRef.current.set(msg.layer.id, msg.layer);
         }
       } catch (err) {
         console.warn("[stage] message handler error:", err instanceof Error ? err.message : String(err));

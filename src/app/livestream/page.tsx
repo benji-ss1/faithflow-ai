@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState, type RefCallback } from "react";
 import { Maximize2, X } from "lucide-react";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
-import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, sanitizeOutputState, type OutputState, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, sanitizeOutputState, type OutputState, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState, type LayerWire } from "@/lib/broadcast";
 import { parseObsBand, clampObsBand, DEFAULT_OBS_BAND, type ObsBandConfig, type ObsThemeColors } from "@/lib/obs-lowerthird";
 import { openOutputChannel, isValidPairCode, type RealtimeConnStatus } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
@@ -62,6 +62,9 @@ export default function LivestreamPage() {
   const [pairBadge, setPairBadge] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(true);
   const lastMsgAt = useRef<number>(Date.now());
+  // Decoupling Phase 2 (DORMANT): per-layer override store for incoming
+  // layer-patch messages. Nothing reads it yet (Phase 3, NEXT_PUBLIC_LAYERS_V2).
+  const layerOverridesRef = useRef<Map<string, LayerWire>>(new Map());
   const videoElRef = useRef<HTMLVideoElement | null>(null);
   const broadcastChRef = useRef<LiveChannelLike | null>(null);
 
@@ -193,6 +196,10 @@ export default function LivestreamPage() {
             case "loop": el.loop = true; break;
             case "unloop": el.loop = false; break;
           }
+        } else if (msg.type === "layer-patch") {
+          // Decoupling Phase 2 (DORMANT): store the override; nothing renders from
+          // it yet — Phase 3 gates consumption behind NEXT_PUBLIC_LAYERS_V2.
+          layerOverridesRef.current.set(msg.layer.id, msg.layer);
         }
       } catch (err) {
         console.warn("[livestream] message handler error:", err instanceof Error ? err.message : String(err));

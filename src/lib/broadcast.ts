@@ -262,6 +262,64 @@ export type BackgroundSpec = {
   overlayOpacity?: number;
 };
 
+// ── Layer model on the wire (Decoupling Phase 2 — ADDITIVE, DORMANT) ────────
+// A per-layer wire contract so a single layer (background, camera, a lyrics
+// band over a feed, …) can be described, swapped or patched independently of the
+// monolithic OutputState snapshot. Purely additive: `OutputState.layers` is
+// OPTIONAL and NOT yet consumed by the compositor (it renders from the legacy
+// fields — see docs/DECOUPLING_PLAN.md Phase 3). `outputStateToLayers()` in
+// src/lib/output-layers.ts derives this list from the legacy fields as the
+// migration seam. Every shape here is fully hardened (see isValidLayerWire):
+// unknown/invalid layers are DROPPED, never passed through.
+export type LayerKind =
+  | "background" | "camera" | "slide" | "band"
+  | "announcement" | "timer" | "message" | "media";
+
+// Where a layer paints on the 1920×1080 canvas. `band` carries explicit
+// geometry (percent of canvas); `full`/`lowerThird` are named presets the
+// renderer resolves to geometry.
+export type LayerZone =
+  | { kind: "full" }
+  | { kind: "lowerThird" }
+  | { kind: "band"; yPct: number; hPct: number };
+
+// Common per-layer fields. `id` is a stable, short, safe string (the seam the
+// operator layer panel + layer-patch key on). `z` orders the stack (ascending).
+// `transportScope` mirrors the videoInput scoping rule: "local" = same-machine
+// only (e.g. a live camera deviceId, meaningless off-box), "all" = fan out.
+type LayerWireBase = {
+  id: string;
+  z: number;
+  enabled: boolean;
+  opacity?: number;                       // 0..1
+  zone?: LayerZone;
+  transportScope?: "local" | "all";
+};
+
+// Discriminated on `kind` so each payload reuses an EXISTING hardened validator
+// (BackgroundSpec / VideoInputState / SlidePayload / ScriptureBandWire /
+// AnnouncementPayload / TimerOverlay / MessageOverlay). Payload is optional so a
+// layer-patch can toggle enable/opacity/zone/z alone without resending content.
+export type LayerWire =
+  | (LayerWireBase & { kind: "background"; payload?: BackgroundSpec | null })
+  | (LayerWireBase & { kind: "camera"; payload?: VideoInputState | null })
+  | (LayerWireBase & { kind: "slide"; payload?: SlidePayload })
+  | (LayerWireBase & { kind: "media"; payload?: SlidePayload })
+  | (LayerWireBase & { kind: "band"; payload?: ScriptureBandWire })
+  | (LayerWireBase & { kind: "announcement"; payload?: AnnouncementPayload })
+  | (LayerWireBase & { kind: "timer"; payload?: TimerOverlay })
+  | (LayerWireBase & { kind: "message"; payload?: MessageOverlay });
+
+// Hardening bounds. A layer id is interpolated into React keys + used as a Map
+// key; keep it a short safe token so it can't smuggle markup / pollution. z is
+// bounded well beyond the legacy 0/10/20 stack. The array is capped so a hostile
+// snapshot can't balloon memory.
+export const MAX_LAYERS = 16;
+const LAYER_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+const LAYER_KINDS = new Set<string>([
+  "background", "camera", "slide", "band", "announcement", "timer", "message", "media",
+]);
+
 export type OutputState = {
   live: SlidePayload;                // audience/projector output
   next: SlidePayload | null;         // for stage display "Next up"
@@ -306,6 +364,12 @@ export type OutputState = {
   // ObsBandConfig (src/lib/obs-lowerthird.ts); typed loosely here to avoid a
   // circular import, validated by isValidObsBand in the sanitizer.
   obsLowerThird?: { topPct: number; heightPct: number; fontScale: number; opacity: number; style: string } | null;
+  // Decoupling Phase 2 (ADDITIVE, DORMANT): the per-layer stack. Optional and
+  // NOT yet consumed by the compositor — it renders from the legacy fields
+  // above. Populated in a later phase (behind NEXT_PUBLIC_LAYERS_V2); today it
+  // rides the wire only so validators/adapters can be locked in first. Invalid
+  // entries are DROPPED by sanitizeOutputState (never passed through).
+  layers?: LayerWire[];
 };
 
 /**
@@ -362,7 +426,12 @@ export type LiveMessage =
   // the master; it broadcasts its position ~1×/sec so the projector can
   // reconcile drift (seek only past a threshold) and match play/pause — keeping
   // the projector frame-aligned with what the operator sees, not free-running.
-  | { type: "media-sync"; currentTime: number; paused: boolean };
+  | { type: "media-sync"; currentTime: number; paused: boolean }
+  // Decoupling Phase 2 (ADDITIVE, DORMANT): a single-layer update — swap/patch
+  // one layer without resending the whole OutputState. Receivers store it into a
+  // per-layer override map; rendering from it is gated behind NEXT_PUBLIC_LAYERS_V2
+  // (default off) so this is provably inert today. See docs/DECOUPLING_PLAN.md.
+  | { type: "layer-patch"; layer: LayerWire };
 
 /**
  * Runtime validator for LiveMessage. Renderer pages should NEVER trust an
@@ -410,6 +479,8 @@ export function isValidLiveMessage(m: unknown): m is LiveMessage {
       return isValidMediaStatus(m);
     case "media-sync":
       return isValidMediaSync(m);
+    case "layer-patch":
+      return isValidLayerWire((m as { layer?: unknown }).layer);
     default:
       return false;
   }
@@ -559,6 +630,67 @@ export function isValidBackgroundSpec(b: unknown): b is BackgroundSpec {
     if (v !== undefined && (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 100)) return false;
   }
   return true;
+}
+
+// ── LayerWire validation (Decoupling Phase 2) ──────────────────────────────
+function isValidLayerZone(zone: unknown): zone is LayerZone {
+  if (!zone || typeof zone !== "object" || hasPollutionKey(zone)) return false;
+  const z = zone as Record<string, unknown>;
+  if (z.kind === "full" || z.kind === "lowerThird") return true;
+  if (z.kind === "band") {
+    // Clamp/bound the band geometry: yPct 0..100, hPct 1..100. Out-of-range
+    // (incl. NaN/Infinity) is rejected → the whole layer is dropped upstream.
+    const numOk = (v: unknown, lo: number, hi: number) => typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi;
+    return numOk(z.yPct, 0, 100) && numOk(z.hPct, 1, 100);
+  }
+  return false;
+}
+
+// Validate a layer's optional payload against the EXISTING hardened validator
+// for its kind (URLs go through the same https/blob validators as everywhere).
+function isValidLayerPayload(kind: string, payload: unknown): boolean {
+  if (payload === undefined) return true; // enable/opacity/zone/z-only patch
+  switch (kind) {
+    case "background": return payload === null || isValidBackgroundSpec(payload);
+    case "camera":     return payload === null || isValidVideoInput(payload);
+    case "slide":
+    case "media":      return isValidSlide(payload);
+    case "band":       return isValidScriptureBand(payload);
+    case "announcement": return isValidAnnouncement(payload);
+    case "timer":      return isValidTimerOverlay(payload);
+    case "message":    return isValidMessageOverlay(payload);
+    default:           return false;
+  }
+}
+
+export function isValidLayerWire(l: unknown): l is LayerWire {
+  if (!l || typeof l !== "object" || hasPollutionKey(l)) return false;
+  const p = l as Record<string, unknown>;
+  // id: short, safe token (no markup / pollution — used as a React key + Map key).
+  if (typeof p.id !== "string" || !LAYER_ID_RE.test(p.id)) return false;
+  if (typeof p.kind !== "string" || !LAYER_KINDS.has(p.kind)) return false;
+  // z: finite, bounded (legacy stack is 0/10/20; allow generous head-room).
+  if (typeof p.z !== "number" || !Number.isFinite(p.z) || p.z < -1000 || p.z > 1000) return false;
+  if (typeof p.enabled !== "boolean") return false;
+  if (p.opacity !== undefined && (typeof p.opacity !== "number" || !Number.isFinite(p.opacity) || p.opacity < 0 || p.opacity > 1)) return false;
+  if (p.zone !== undefined && !isValidLayerZone(p.zone)) return false;
+  if (p.transportScope !== undefined && p.transportScope !== "local" && p.transportScope !== "all") return false;
+  if (!isValidLayerPayload(p.kind, p.payload)) return false;
+  return true;
+}
+
+/** Validate an OutputState.layers array: bounded length, every entry valid. */
+function isValidLayersArray(v: unknown): v is LayerWire[] {
+  if (!Array.isArray(v)) return false;
+  if (v.length > MAX_LAYERS) return false;
+  return v.every(isValidLayerWire);
+}
+
+/** Fail-open salvage for OutputState.layers: DROP invalid entries, cap length. */
+function sanitizeLayers(v: unknown): LayerWire[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const kept = v.filter(isValidLayerWire).slice(0, MAX_LAYERS);
+  return kept as LayerWire[];
 }
 
 export function isValidThemeAppearance(a: unknown): a is ThemeAppearance {
@@ -898,6 +1030,7 @@ export function isValidOutputState(s: unknown): s is OutputState {
   if (st.videoInput !== undefined && !isValidVideoInput(st.videoInput)) return false;
   if (st.zone !== undefined && st.zone !== null && !isValidZone(st.zone)) return false;
   if (st.obsLowerThird !== undefined && !isValidObsLowerThird(st.obsLowerThird)) return false;
+  if (st.layers !== undefined && !isValidLayersArray(st.layers)) return false;
   return true;
 }
 
@@ -1014,6 +1147,12 @@ export function sanitizeOutputState(s: unknown): OutputState | null {
   if (out.videoInput !== undefined && out.videoInput !== null && !isValidVideoInput(out.videoInput)) out.videoInput = null;
   if (out.zone !== undefined && out.zone !== null && !isValidZone(out.zone)) out.zone = null;
   if (out.obsLowerThird !== undefined && !isValidObsLowerThird(out.obsLowerThird)) out.obsLowerThird = null;
+  // Layers (Phase 2, dormant): DROP invalid entries rather than poisoning the
+  // snapshot. undefined stays undefined (never fabricate an empty array).
+  if (out.layers !== undefined) {
+    const layers = sanitizeLayers(out.layers);
+    if (layers === undefined) delete out.layers; else out.layers = layers;
+  }
   return out as unknown as OutputState;
 }
 

@@ -27,8 +27,9 @@ import { useEffect, useRef, useState } from "react";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import {
-  openLiveChannel, type LiveChannelLike, isValidLiveMessage, type SlidePayload,
+  openLiveChannel, type LiveChannelLike, coerceLiveMessage, type SlidePayload,
   type LiveMessage, type TransitionSpec, type ThemeAppearance, type VideoInputState, type BackgroundSpec,
+  type LayerWire,
 } from "@/lib/broadcast";
 
 // Prevent noisy non-Error unhandledrejections from an offscreen renderer.
@@ -51,6 +52,9 @@ export default function NdiOutputPage() {
   const [videoInput, setVideoInput] = useState<VideoInputState | null>(null);
   const [transition, setTransition] = useState<TransitionSpec | null>(null);
   const lastMsgAt = useRef<number>(Date.now());
+  // Decoupling Phase 2 (DORMANT): incoming single-layer patches are stored here
+  // but NOT rendered from — Phase 3 gates consumption behind NEXT_PUBLIC_LAYERS_V2.
+  const layerOverridesRef = useRef<Map<string, LayerWire>>(new Map());
 
   // Params (read once).
   useEffect(() => {
@@ -86,8 +90,13 @@ export default function NdiOutputPage() {
     };
     const onMessage = (e: MessageEvent) => {
       try {
-        if (!isValidLiveMessage(e.data)) return;
-        const msg = e.data as LiveMessage;
+        // FAIL-OPEN salvage (parity with /live and /livestream): coerceLiveMessage
+        // returns a strictly-valid message as-is, else field-by-field sanitizes a
+        // projection-critical set/pong/output via sanitizeOutputState so a single
+        // bad neighbour field from a legacy/out-of-date sender can't blank the NDI
+        // surface (was: strict isValidLiveMessage, which rejected the WHOLE snapshot).
+        const msg = coerceLiveMessage(e.data);
+        if (!msg) return;
         lastMsgAt.current = Date.now();
         if (msg.type === "set") applySlide(msg.slide);
         else if (msg.type === "clear") applySlide({ kind: "empty" }); // §5
@@ -99,6 +108,9 @@ export default function NdiOutputPage() {
           setBackground(msg.state.background ?? null);
           setVideoInput(msg.state.videoInput ?? null);
           setTransition(msg.state.transition ?? null);
+        } else if (msg.type === "layer-patch") {
+          // DORMANT: store the override; nothing reads it yet (Phase 3).
+          layerOverridesRef.current.set(msg.layer.id, msg.layer);
         }
       } catch { /* ignore */ }
     };

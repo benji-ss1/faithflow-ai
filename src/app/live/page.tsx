@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
-import { openLiveChannel, type LiveChannelLike, safePost, coerceLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, safePost, coerceLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState, type LayerWire } from "@/lib/broadcast";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
@@ -80,6 +80,9 @@ export default function LivePage() {
   // zone/etc.) so a full output snapshot re-sent every ~3s (self-heal) doesn't
   // re-render the projector unless something actually changed.
   const lastOutputSigRef = useRef<string>("");
+  // Decoupling Phase 2 (DORMANT): per-layer override store for incoming
+  // layer-patch messages. Nothing reads it yet (Phase 3, NEXT_PUBLIC_LAYERS_V2).
+  const layerOverridesRef = useRef<Map<string, LayerWire>>(new Map());
   // Content key (text|dismissAfterMs) of the currently shown message — the
   // operator heartbeats the same overlay at 1Hz, and we must only (re)arm the
   // client-side dismiss countdown when the CONTENT changes, not per heartbeat.
@@ -250,6 +253,10 @@ export default function LivePage() {
           }
           if (msg.paused && !el.paused) el.pause();
           else if (!msg.paused && el.paused) el.play().catch(() => {});
+        } else if (msg.type === "layer-patch") {
+          // Decoupling Phase 2 (DORMANT): store the single-layer override; nothing
+          // renders from it yet — Phase 3 gates consumption behind NEXT_PUBLIC_LAYERS_V2.
+          layerOverridesRef.current.set(msg.layer.id, msg.layer);
         }
       } catch (err) {
         console.warn("[live] message handler error:", err instanceof Error ? err.message : String(err));
