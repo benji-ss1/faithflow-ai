@@ -116,6 +116,12 @@ export interface PlanInput {
   transparent?: boolean;
   transitionsEnabled?: boolean;
   aspectRatio?: "16:9" | "4:3" | "custom";
+  /**
+   * Decoupling Phase 3: an explicit theme-logo enable override. Undefined ⇒
+   * legacy behaviour (logo on for everything except transparent keying), so a
+   * caller that never sets it gets byte-identical output. Set false by a
+   * `logo` layer-patch (enabled:false) to blank the logo layer alone. */
+  showThemeLogoOverride?: boolean;
 }
 
 export function planOutput(input: PlanInput): OutputPlan {
@@ -165,8 +171,10 @@ export function planOutput(input: PlanInput): OutputPlan {
   // sibling + slide overlay). It only rides the slide layer in that branch.
   const slideVideoInput = renderMode === "over-video" ? videoInput : null;
 
-  // Theme logo: on for everything except transparent keying modes.
-  const showThemeLogo = !transparent;
+  // Theme logo: on for everything except transparent keying modes. A Phase 3
+  // `logo` layer-patch can additionally force it off (undefined ⇒ unchanged, so
+  // legacy callers are byte-identical).
+  const showThemeLogo = !transparent && (input.showThemeLogoOverride ?? true);
 
   // Canvas: livestream renders full-bleed (no PresentationCanvas); the others
   // wrap in a fixed canvas. live uses 1440 for 4:3, else 1920; ndi is 1920×1080;
