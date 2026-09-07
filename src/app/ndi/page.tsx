@@ -31,6 +31,7 @@ import {
   type LiveMessage, type TransitionSpec, type ThemeAppearance, type VideoInputState, type BackgroundSpec,
   MAX_LAYERS, type LayerWire,
 } from "@/lib/broadcast";
+import { LAYERS_V2 } from "@/lib/output-layers";
 
 // Prevent noisy non-Error unhandledrejections from an offscreen renderer.
 if (typeof window !== "undefined" && !(window as unknown as { __ffNdiGuarded?: boolean }).__ffNdiGuarded) {
@@ -55,6 +56,8 @@ export default function NdiOutputPage() {
   // Decoupling Phase 2 (DORMANT): incoming single-layer patches are stored here
   // but NOT rendered from — Phase 3 gates consumption behind NEXT_PUBLIC_LAYERS_V2.
   const layerOverridesRef = useRef<Map<string, LayerWire>>(new Map());
+  // Phase 3: re-render-triggering snapshot of the override map (see /live).
+  const [layerOverridesArr, setLayerOverridesArr] = useState<LayerWire[]>([]);
 
   // Params (read once).
   useEffect(() => {
@@ -108,12 +111,19 @@ export default function NdiOutputPage() {
           setBackground(msg.state.background ?? null);
           setVideoInput(msg.state.videoInput ?? null);
           setTransition(msg.state.transition ?? null);
+          if (LAYERS_V2) {
+            const m = layerOverridesRef.current;
+            m.clear();
+            for (const l of (msg.state.layers ?? [])) { if (m.has(l.id) || m.size < MAX_LAYERS) m.set(l.id, l); }
+            setLayerOverridesArr(Array.from(m.values()));
+          }
         } else if (msg.type === "layer-patch") {
-          // DORMANT: store the override; nothing reads it yet (Phase 3).
+          // Phase 3: store the override + trigger a re-render (gated by LAYERS_V2).
           // Bounded: existing ids update; a new id is dropped once full (MAX_LAYERS).
           {
             const m = layerOverridesRef.current;
             if (m.has(msg.layer.id) || m.size < MAX_LAYERS) m.set(msg.layer.id, msg.layer);
+            if (LAYERS_V2) setLayerOverridesArr(Array.from(m.values()));
           }
         }
       } catch { /* ignore */ }
@@ -148,6 +158,8 @@ export default function NdiOutputPage() {
         fontScale={fontScale}
         transparent={transparent}
         videoMuted
+        layersEnabled={LAYERS_V2}
+        layerOverrides={LAYERS_V2 ? layerOverridesArr : undefined}
       />
     </div>
   );

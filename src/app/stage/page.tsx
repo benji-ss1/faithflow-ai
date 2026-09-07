@@ -5,6 +5,7 @@ import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
 import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, MAX_LAYERS, type LayerWire } from "@/lib/broadcast";
+import { LAYERS_V2 } from "@/lib/output-layers";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
@@ -63,6 +64,8 @@ export default function StagePage() {
   // Decoupling Phase 2 (DORMANT): per-layer override store for incoming
   // layer-patch messages. Nothing reads it yet (Phase 3, NEXT_PUBLIC_LAYERS_V2).
   const layerOverridesRef = useRef<Map<string, LayerWire>>(new Map());
+  // Phase 3: re-render-triggering snapshot of the override map (see /live).
+  const [layerOverridesArr, setLayerOverridesArr] = useState<LayerWire[]>([]);
   // Operator heartbeats the timer overlay at 1Hz while shown — sweep it off
   // if the beats stop (operator window closed/crashed).
   const lastTimerMsgAt = useRef<number>(0);
@@ -112,10 +115,16 @@ export default function StagePage() {
           // Apply the non-slide fields only when they actually changed (dedup).
           let restSig: string;
           try {
-            restSig = JSON.stringify([msg.state.next, msg.state.fontScale, msg.state.referenceScale, msg.state.referenceColor, msg.state.background, msg.state.appearance, msg.state.zone, msg.state.nextItem, msg.state.operatorMessage, msg.state.countdownEndsAt, msg.state.announcement, msg.state.transition]);
+            restSig = JSON.stringify([msg.state.next, msg.state.fontScale, msg.state.referenceScale, msg.state.referenceColor, msg.state.background, msg.state.appearance, msg.state.zone, msg.state.nextItem, msg.state.operatorMessage, msg.state.countdownEndsAt, msg.state.announcement, msg.state.transition, LAYERS_V2 ? (msg.state.layers ?? null) : null]);
           } catch { restSig = String(Date.now()); }
           if (restSig !== appliedRestSig) {
             appliedRestSig = restSig;
+            if (LAYERS_V2) {
+              const m = layerOverridesRef.current;
+              m.clear();
+              for (const l of (msg.state.layers ?? [])) { if (m.has(l.id) || m.size < MAX_LAYERS) m.set(l.id, l); }
+              setLayerOverridesArr(Array.from(m.values()));
+            }
             setNext(msg.state.next);
             setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);
             setReferenceScale(typeof msg.state.referenceScale === "number" ? msg.state.referenceScale : 1);
@@ -157,6 +166,7 @@ export default function StagePage() {
           {
             const m = layerOverridesRef.current;
             if (m.has(msg.layer.id) || m.size < MAX_LAYERS) m.set(msg.layer.id, msg.layer);
+            if (LAYERS_V2) setLayerOverridesArr(Array.from(m.values()));
           }
         }
       } catch (err) {
@@ -336,6 +346,8 @@ export default function StagePage() {
           referenceColor={referenceColor}
           zone={zone}
           videoMuted
+          layersEnabled={LAYERS_V2}
+          layerOverrides={LAYERS_V2 ? layerOverridesArr : undefined}
         />
         <AnnouncementLayer ann={announcement} />
         {/* Operator message — a slim bar over the bottom of the current area, only

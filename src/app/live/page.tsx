@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
 import { openLiveChannel, type LiveChannelLike, safePost, coerceLiveMessage, MAX_LAYERS, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState, type LayerWire } from "@/lib/broadcast";
+import { LAYERS_V2 } from "@/lib/output-layers";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
@@ -83,6 +84,11 @@ export default function LivePage() {
   // Decoupling Phase 2 (DORMANT): per-layer override store for incoming
   // layer-patch messages. Nothing reads it yet (Phase 3, NEXT_PUBLIC_LAYERS_V2).
   const layerOverridesRef = useRef<Map<string, LayerWire>>(new Map());
+  // Phase 3: a re-render-triggering snapshot of the override map. Gated by
+  // NEXT_PUBLIC_LAYERS_V2 — when off, nothing ever populates the map (the
+  // operator only emits layer-patches when its church has opted in), so the
+  // projector output is byte-identical to the legacy path.
+  const [layerOverridesArr, setLayerOverridesArr] = useState<LayerWire[]>([]);
   // Content key (text|dismissAfterMs) of the currently shown message — the
   // operator heartbeats the same overlay at 1Hz, and we must only (re)arm the
   // client-side dismiss countdown when the CONTENT changes, not per heartbeat.
@@ -180,10 +186,23 @@ export default function LivePage() {
               msg.state.appearance ?? null, msg.state.background ?? null, msg.state.videoInput ?? null,
               msg.state.zone ?? null, msg.state.announcement ?? null, msg.state.transition ?? null,
               msg.state.aspectRatio, msg.state.fontScale, msg.state.referenceScale, msg.state.referenceColor ?? null,
+              LAYERS_V2 ? (msg.state.layers ?? null) : null,
             ]);
           } catch { outSig = String(Date.now()); }
           if (outSig !== lastOutputSigRef.current) {
             lastOutputSigRef.current = outSig;
+            // Phase 3 late-join convergence: the operator's active layer patches
+            // ride the full OutputState (state.layers). Rebuild the override map
+            // from them so a projector that joined mid-service converges to the
+            // same layer stack the live layer-patch messages built incrementally.
+            if (LAYERS_V2) {
+              const m = layerOverridesRef.current;
+              m.clear();
+              for (const l of (msg.state.layers ?? [])) {
+                if (m.has(l.id) || m.size < MAX_LAYERS) m.set(l.id, l);
+              }
+              setLayerOverridesArr(Array.from(m.values()));
+            }
             setAnnouncement(msg.state.announcement ?? null);
             setTransition(msg.state.transition ?? null);
             setAspectRatio(msg.state.aspectRatio);
@@ -262,6 +281,7 @@ export default function LivePage() {
           {
             const m = layerOverridesRef.current;
             if (m.has(msg.layer.id) || m.size < MAX_LAYERS) m.set(msg.layer.id, msg.layer);
+            if (LAYERS_V2) setLayerOverridesArr(Array.from(m.values())); // Phase 3: re-render the stack
           }
         }
       } catch (err) {
@@ -505,6 +525,8 @@ export default function LivePage() {
               aspectRatio={aspectRatio}
               videoMuted={false}
               onVideoRef={handleVideoRef}
+              layersEnabled={LAYERS_V2}
+              layerOverrides={LAYERS_V2 ? layerOverridesArr : undefined}
             />
           </div>
           <AnnouncementLayer ann={announcement} />

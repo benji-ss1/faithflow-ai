@@ -43,7 +43,9 @@ import {
 } from "@/lib/broadcast";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { overlayBandSlide, type ObsBandConfig, type ObsThemeColors } from "@/lib/obs-lowerthird";
-import { planOutput, type CompositorMode, type OutputLayerPlan } from "@/lib/output-plan";
+import { planOutput, type CompositorMode, type OutputLayerPlan, type PlanInput } from "@/lib/output-plan";
+import { resolveLayeredInput, layerOpacities } from "@/lib/output-layers-render";
+import type { LayerWire } from "@/lib/broadcast";
 
 export { planOutput, type CompositorMode } from "@/lib/output-plan";
 export type {
@@ -74,6 +76,18 @@ export interface OutputCompositorProps {
   obsThemeColors?: ObsThemeColors;
   videoMuted?: boolean;
   onVideoRef?: (el: HTMLVideoElement | null) => void;
+  /**
+   * Decoupling Phase 3 (flag-gated). When true, the compositor resolves the
+   * render plan from the legacy fields AND the operator's id-keyed layer
+   * overrides (background swap, slide clear, camera clear, zone, logo, opacity).
+   * With NO overrides the output is byte-identical to the legacy path (parity
+   * golden-test locked). The route gates this on NEXT_PUBLIC_LAYERS_V2; the
+   * per-church opt-in is enforced operator-side (a church that never opts in
+   * never emits overrides, so the map stays empty → identical output).
+   */
+  layersEnabled?: boolean;
+  /** Id-keyed layer-patch overrides (from the route's layerOverridesRef). */
+  layerOverrides?: LayerWire[] | Map<string, LayerWire> | null;
 }
 
 /**
@@ -83,11 +97,17 @@ export interface OutputCompositorProps {
  */
 export function OutputCompositor(props: OutputCompositorProps) {
   const {
-    slide, appearance, transition, fontScale, referenceScale,
+    appearance, transition, fontScale, referenceScale,
     referenceColor, zone, obsBand, obsThemeColors, videoMuted = false, onVideoRef,
+    layersEnabled, layerOverrides,
   } = props;
 
-  const plan = planOutput(props);
+  // Phase 3: when layers mode is on, resolve the render input from the operator's
+  // id-keyed overrides (parity: empty overrides ⇒ input === props ⇒ same plan).
+  const resolvedInput: PlanInput = layersEnabled ? resolveLayeredInput(props, layerOverrides) : props;
+  const plan = planOutput(resolvedInput);
+  const slide = resolvedInput.slide;
+  const opacities = layersEnabled ? layerOpacities(layerOverrides) : {};
 
   // OBS lower-third band transform (livestream lower_third capture mode).
   const effectiveSlide: SlidePayload = obsBand ? overlayBandSlide(slide, obsBand, obsThemeColors) : slide;
@@ -97,6 +117,21 @@ export function OutputCompositor(props: OutputCompositorProps) {
   // (Same DOM as the pre-reshape switch — this is a repackaging, not a change.)
   function renderLayer(layer: OutputLayerPlan): ReactNode {
     if (!layer.enabled) return null;
+    const node = renderLayerInner(layer);
+    const op = opacities[layer.id];
+    // Opacity override wrapper — only when < 1, so parity holds (no wrapper, no
+    // DOM difference) whenever the operator hasn't dimmed this layer.
+    if (node && typeof op === "number") {
+      return (
+        <div key={`op-${layer.id}`} className="absolute inset-0" style={{ opacity: op }}>
+          {node}
+        </div>
+      );
+    }
+    return node;
+  }
+
+  function renderLayerInner(layer: OutputLayerPlan): ReactNode {
     switch (layer.id) {
       case "background":
         return layer.props.background ? (

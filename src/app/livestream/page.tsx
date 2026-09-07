@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type RefCallback } from "reac
 import { Maximize2, X } from "lucide-react";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
 import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, sanitizeOutputState, type OutputState, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState, MAX_LAYERS, type LayerWire } from "@/lib/broadcast";
+import { LAYERS_V2 } from "@/lib/output-layers";
 import { parseObsBand, clampObsBand, DEFAULT_OBS_BAND, type ObsBandConfig, type ObsThemeColors } from "@/lib/obs-lowerthird";
 import { openOutputChannel, isValidPairCode, type RealtimeConnStatus } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
@@ -65,6 +66,8 @@ export default function LivestreamPage() {
   // Decoupling Phase 2 (DORMANT): per-layer override store for incoming
   // layer-patch messages. Nothing reads it yet (Phase 3, NEXT_PUBLIC_LAYERS_V2).
   const layerOverridesRef = useRef<Map<string, LayerWire>>(new Map());
+  // Phase 3: re-render-triggering snapshot of the override map (see /live).
+  const [layerOverridesArr, setLayerOverridesArr] = useState<LayerWire[]>([]);
   const videoElRef = useRef<HTMLVideoElement | null>(null);
   const broadcastChRef = useRef<LiveChannelLike | null>(null);
 
@@ -203,6 +206,7 @@ export default function LivestreamPage() {
           {
             const m = layerOverridesRef.current;
             if (m.has(msg.layer.id) || m.size < MAX_LAYERS) m.set(msg.layer.id, msg.layer);
+            if (LAYERS_V2) setLayerOverridesArr(Array.from(m.values()));
           }
         }
       } catch (err) {
@@ -270,10 +274,16 @@ export default function LivestreamPage() {
       // Apply the non-slide fields only when they actually changed (dedup).
       let sig: string;
       try {
-        sig = JSON.stringify([state.fontScale, state.referenceScale, state.referenceColor, state.appearance, state.background, state.videoInput, state.lowerThird, state.announcement, state.transition, state.obsLowerThird]);
+        sig = JSON.stringify([state.fontScale, state.referenceScale, state.referenceColor, state.appearance, state.background, state.videoInput, state.lowerThird, state.announcement, state.transition, state.obsLowerThird, LAYERS_V2 ? (state.layers ?? null) : null]);
       } catch { sig = String(Date.now()); }
       if (sig === lastNonSlideSig) return;
       lastNonSlideSig = sig;
+      if (LAYERS_V2) {
+        const m = layerOverridesRef.current;
+        m.clear();
+        for (const l of (state.layers ?? [])) { if (m.has(l.id) || m.size < MAX_LAYERS) m.set(l.id, l); }
+        setLayerOverridesArr(Array.from(m.values()));
+      }
       // OBS lower-third live config: an edit in the operator's OBS card reaches
       // us here and updates the band INSTANTLY (overrides the URL-param default).
       // Only /livestream reads this; the projector/stage ignore it.
@@ -443,6 +453,8 @@ export default function LivestreamPage() {
             obsThemeColors={themeColors}
             videoMuted={false}
             onVideoRef={handleVideoRef}
+            layersEnabled={LAYERS_V2}
+            layerOverrides={LAYERS_V2 ? layerOverridesArr : undefined}
           />
           {/* Announcement scrim is a FULL-frame overlay — keep it off the OBS
               lower-third caption (it would paint over the band). Full mode only. */}
