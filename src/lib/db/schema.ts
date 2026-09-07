@@ -394,6 +394,12 @@ export const churchPreferences = pgTable("church_preferences", {
   autoApproveEnabled: boolean("auto_approve_enabled").notNull().default(false),
   autoApproveThreshold: integer("auto_approve_threshold").notNull().default(90), // 0-100
   autoSendToLive: boolean("auto_send_to_live").notNull().default(false), // when auto-approve + this = true, skip Preview altogether
+  // Decoupling Phase 3 (2026-09-08): per-church opt-in for the layers/output
+  // engine (operator Layers Panel + render-from-layers). Gated ALSO by the
+  // global NEXT_PUBLIC_LAYERS_V2 kill-switch. Default false: no church path
+  // changes until it is deliberately enabled + projector-verified. Code reads
+  // this tolerantly (defaults false if the column is absent pre-migration).
+  layersV2: boolean("layers_v2").notNull().default(false),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 

@@ -32,6 +32,10 @@ export default async function OperatePage({ params }: { params: Promise<{ id: st
     confidenceFloor: prefs?.autoApproveThreshold ?? 90,
     autoSendToLive: prefs?.autoSendToLive ?? false,
   };
+  // Decoupling Phase 3: per-church opt-in for the layers engine. Read
+  // tolerantly — if the column is absent (migration not yet applied) the
+  // property is simply undefined → false, so nothing changes.
+  const layersV2 = (prefs as { layersV2?: boolean } | undefined)?.layersV2 ?? false;
 
   return (
     <OperatorConsole
@@ -40,6 +44,7 @@ export default async function OperatePage({ params }: { params: Promise<{ id: st
       defaultTranslationCode={translationCode}
       confidenceThreshold={confidenceThreshold}
       autoApprove={autoApprove}
+      layersV2={layersV2}
       initialShell={initialShell}
     />
   );
