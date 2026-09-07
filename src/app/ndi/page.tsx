@@ -23,11 +23,8 @@
  * reaches here. CLEAR (§5) → empty slide → fully transparent frame (camera shows
  * through in OBS); the surface is never torn down, it just goes transparent.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
-import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
-import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
-import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
+import { useEffect, useRef, useState } from "react";
+import { OutputCompositor } from "@/components/live/OutputCompositor";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import {
   openLiveChannel, type LiveChannelLike, isValidLiveMessage, type SlidePayload,
@@ -121,32 +118,21 @@ export default function NdiOutputPage() {
 
   if (test) return <NdiTestPattern transparent={transparent} />;
 
-  const hasBg = !!(background && background.type !== "none");
-  const overVideo = !transparent && hasBg && !videoInput;
-
   return (
     <div className="fixed inset-0 overflow-hidden cursor-none" style={{ background: transparent ? "transparent" : "#000" }}>
-      <PresentationCanvas canvasW={1920} canvasH={1080}>
-        {/* Full Canvas mode: theme Background Template behind the text. Never in
-            Transparent Graphics mode (that keys through to the camera). */}
-        {!transparent && hasBg && !videoInput && (
-          <BackgroundLayer key={background!.shaderPreset ?? background!.type} background={background!} />
-        )}
-        {!transparent && hasVideoBackground(videoInput, appearance) && !(hasBg && !videoInput) ? (
-          <OutputSlide slide={slide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} projectorFit />
-        ) : (
-          <SlideRenderer
-            slide={slide}
-            projectorFit
-            fontScale={fontScale}
-            appearance={appearance}
-            overVideo={overVideo}
-            transparentBg={transparent}
-            videoMuted
-          />
-        )}
-        {!transparent && <ThemeLogoLayer appearance={appearance} />}
-      </PresentationCanvas>
+      {/* Decoupling Phase 1: shared OutputCompositor. mode="ndi" encodes the
+          fixed 1920×1080 canvas, Transparent-Graphics-vs-Full-Canvas keying, no
+          transition wrapper (offscreen paint surface), and muted media. */}
+      <OutputCompositor
+        mode="ndi"
+        slide={slide}
+        appearance={appearance}
+        background={background}
+        videoInput={videoInput}
+        fontScale={fontScale}
+        transparent={transparent}
+        videoMuted
+      />
     </div>
   );
 }

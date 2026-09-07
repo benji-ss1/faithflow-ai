@@ -1,15 +1,11 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type RefCallback } from "react";
 import { Maximize2, X } from "lucide-react";
-import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, sanitizeOutputState, slideOutputIdentity, type OutputState, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
-import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
-import { overlayBandSlide, parseObsBand, clampObsBand, DEFAULT_OBS_BAND, type ObsBandConfig, type ObsThemeColors } from "@/lib/obs-lowerthird";
-import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
-import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
+import { OutputCompositor } from "@/components/live/OutputCompositor";
+import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, sanitizeOutputState, type OutputState, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
+import { parseObsBand, clampObsBand, DEFAULT_OBS_BAND, type ObsBandConfig, type ObsThemeColors } from "@/lib/obs-lowerthird";
 import { openOutputChannel, isValidPairCode, type RealtimeConnStatus } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
-import { TransitionWrapper } from "@/components/live/TransitionWrapper";
 
 if (typeof window !== "undefined" && !(window as unknown as { __ffLivestreamGuarded?: boolean }).__ffLivestreamGuarded) {
   (window as unknown as { __ffLivestreamGuarded: boolean }).__ffLivestreamGuarded = true;
@@ -405,7 +401,6 @@ export default function LivestreamPage() {
   // Only pass a solid/gradient bg colour (image/video themes have no solid fill).
   const solidThemeBg = appearance && (appearance.bgType === "solid" || appearance.bgType === "gradient" || appearance.bgType === undefined) ? appearance.bgColor : undefined;
   const themeColors: ObsThemeColors = { textColor: appearance?.textColor, bgColor: solidThemeBg, bgColor2: solidThemeBg ? appearance?.bgColor2 : undefined, bgAngle: appearance?.bgAngle };
-  const renderSlide: SlidePayload = mode === "lower_third" ? overlayBandSlide(slide, obsBand, themeColors) : slide;
   return (
     <div
       className="fixed inset-0 overflow-hidden cursor-none"
@@ -414,22 +409,30 @@ export default function LivestreamPage() {
     >
       {(
         <>
-          {/* Background Templates layer for the broadcast/NDI output. Never in
-              transparent (OBS-key) mode. When active the slide goes transparent. */}
-          {/* Live camera wins over a Background Template here too (mirrors /live). */}
-          {!transparent && background && background.type !== "none" && !videoInput && <BackgroundLayer key={background.shaderPreset ?? background.type} background={background} />}
-          {!transparent && hasVideoBackground(videoInput, appearance) && !(!transparent && background && background.type !== "none" && !videoInput) ? (
-            <OutputSlide slide={renderSlide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} projectorFit />
-          ) : transitionsEnabled ? (
-            <TransitionWrapper identityKey={slideOutputIdentity(renderSlide)} transition={transition}>
-              <SlideRenderer slide={renderSlide} projectorFit fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} overVideo={!!(!transparent && background && background.type !== "none" && !videoInput)} transparentBg={transparent} videoMuted={false} onVideoRef={handleVideoRef} />
-            </TransitionWrapper>
-          ) : (
-            <SlideRenderer slide={renderSlide} projectorFit fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} overVideo={!!(!transparent && background && background.type !== "none" && !videoInput)} transparentBg={transparent} videoMuted={false} onVideoRef={handleVideoRef} />
-          )}
-          {/* No theme logo in OBS transparent mode — the overlay is text-only so
-              OBS composites just the lyrics/verse over the camera. */}
-          {!transparent && <ThemeLogoLayer appearance={appearance} />}
+          {/* Decoupling Phase 1: shared OutputCompositor renders the full-bleed
+              background / camera / slide / theme-logo stack (no PresentationCanvas
+              wrapper for this route). mode="livestream" encodes the specifics:
+              transparent OBS-key handling, ?transitions=1 gating, the OBS
+              lower-third band (obsBand, applied only in lower_third capture mode),
+              and unmuted media. The announcement / lower-third / message / timer
+              overlays below stay route-owned (bespoke layout, not duplicated). */}
+          <OutputCompositor
+            mode="livestream"
+            slide={slide}
+            appearance={appearance}
+            background={background}
+            videoInput={videoInput}
+            transition={transition}
+            fontScale={fontScale}
+            referenceScale={referenceScale}
+            referenceColor={referenceColor}
+            transparent={transparent}
+            transitionsEnabled={transitionsEnabled}
+            obsBand={mode === "lower_third" ? obsBand : null}
+            obsThemeColors={themeColors}
+            videoMuted={false}
+            onVideoRef={handleVideoRef}
+          />
           {/* Announcement scrim is a FULL-frame overlay — keep it off the OBS
               lower-third caption (it would paint over the band). Full mode only. */}
           {mode === "full" && <AnnouncementLayer ann={announcement} />}

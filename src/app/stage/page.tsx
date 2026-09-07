@@ -2,14 +2,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
-import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
-import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, slideOutputIdentity, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance } from "@/lib/broadcast";
+import { OutputCompositor } from "@/components/live/OutputCompositor";
+import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance } from "@/lib/broadcast";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
-import { TransitionWrapper } from "@/components/live/TransitionWrapper";
 
 if (typeof window !== "undefined" && !(window as unknown as { __ffStageGuarded?: boolean }).__ffStageGuarded) {
   (window as unknown as { __ffStageGuarded: boolean }).__ffStageGuarded = true;
@@ -312,13 +310,22 @@ export default function StagePage() {
             </span>
           </div>
         )}
-        <PresentationCanvas zone={zone}>
-          {background && background.type !== "none" && <BackgroundLayer key={background.shaderPreset ?? background.type} background={background} />}
-          <TransitionWrapper identityKey={slideOutputIdentity(current)} transition={transition}>
-            <SlideRenderer slide={current} projectorFit fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} overVideo={!!(background && background.type !== "none")} />
-          </TransitionWrapper>
-          <ThemeLogoLayer appearance={appearance} />
-        </PresentationCanvas>
+        {/* Decoupling Phase 1: shared OutputCompositor. mode="stage" encodes the
+            confidence-monitor specifics — never a live camera, default canvas
+            dims, always-transition, muted media. The "Next" preview strip below
+            stays route-owned (it is stage-unique, not duplicated). */}
+        <OutputCompositor
+          mode="stage"
+          slide={current}
+          appearance={appearance}
+          background={background}
+          transition={transition}
+          fontScale={fontScale}
+          referenceScale={referenceScale}
+          referenceColor={referenceColor}
+          zone={zone}
+          videoMuted
+        />
         <AnnouncementLayer ann={announcement} />
         {/* Operator message — a slim bar over the bottom of the current area, only
             when the operator actually sends one (no dead placeholder). */}

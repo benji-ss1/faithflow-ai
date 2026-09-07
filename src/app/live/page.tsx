@@ -1,16 +1,11 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
-import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { PresentationCanvas } from "@/components/live/PresentationCanvas";
-import { openLiveChannel, type LiveChannelLike, safePost, coerceLiveMessage, slideOutputIdentity, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
+import { OutputCompositor } from "@/components/live/OutputCompositor";
+import { openLiveChannel, type LiveChannelLike, safePost, coerceLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
 import type { ProjectionZone } from "@/lib/projection-zone";
-import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
-import { TransitionWrapper } from "@/components/live/TransitionWrapper";
-import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
-import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
 
 // Module-scope, capture-phase suppressor. Runs before React/Next dev-overlay
 // listeners so a stray DOM Event rejection (autoplay block, fullscreen deny,
@@ -477,40 +472,27 @@ export default function LivePage() {
                 scale it to the display — identical geometry to the operator
                 preview (which wraps the same SlideRenderer in the same canvas),
                 so what the operator sees is exactly what the projector shows. */}
-            <PresentationCanvas canvasW={aspectRatio === "4:3" ? 1440 : 1920} canvasH={1080} zone={zone}>
-              {/* Background Templates Layer — BETWEEN the theme background and the
-                  text. Active (type != none) ⇒ render it and make the slide
-                  transparent (overVideo) so it shows through. type none ⇒ nothing
-                  renders here and the existing behaviour is byte-identical. */}
-              {/* key on the preset forces a fresh WebGL canvas on a mid-service
-                  theme switch — reusing the canvas loses its context and freezes
-                  the shader. The init gap is white-safe: ShaderBackground always
-                  paints a dark floor. */}
-              {/* A LIVE camera input wins over a Background Template. Turning on
-                  Video Input is an explicit, active choice; a Background Template
-                  is a passive theme setting. Previously the template unconditionally
-                  suppressed the camera here (church saw the shader instead of their
-                  camera). So: skip the template layer whenever a live camera is set,
-                  and let the camera path below take precedence over the template. */}
-              {background && background.type !== "none" && !videoInput && <BackgroundLayer key={background.shaderPreset ?? background.type} background={background} />}
-              {hasVideoBackground(videoInput, appearance) && !(background && background.type !== "none" && !videoInput) ? (
-                // Video behind the slide (camera or theme video bg): no slide-keyed
-                // transition wrapper, so the video stays playing across slide
-                // changes — only the overlay updates.
-                <OutputSlide slide={slide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} projectorFit />
-              ) : (
-                // 2026-08-16: TransitionWrapper RESTORED. It was removed 2026-08-15
-                // because its height:100% collapsed the measured box and under-sized
-                // the projector text — but AutoFitText now sizes against the fixed
-                // PresentationCanvas geometry via context (not the DOM box), so the
-                // wrapper can't affect text size anymore. This brings the projector's
-                // slide transitions (fade/cut/etc.) back, matching /stage.
-                <TransitionWrapper identityKey={slideOutputIdentity(slide)} transition={transition}>
-                  <SlideRenderer slide={slide} projectorFit fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} overVideo={!!(background && background.type !== "none" && !videoInput)} videoMuted={false} onVideoRef={handleVideoRef} />
-                </TransitionWrapper>
-              )}
-              <ThemeLogoLayer appearance={appearance} />
-            </PresentationCanvas>
+            {/* Decoupling Phase 1: the background / camera / slide / theme-logo
+                composite + ALL its precedence rules (camera-wins-over-template,
+                per-slide black bg suppression, transition-vs-over-video) now live
+                in the shared OutputCompositor, consumed identically by all four
+                output routes. mode="live" encodes this route's specifics
+                (aspect-driven canvas, always-transition, unmuted media). */}
+            <OutputCompositor
+              mode="live"
+              slide={slide}
+              appearance={appearance}
+              background={background}
+              videoInput={videoInput}
+              transition={transition}
+              fontScale={fontScale}
+              referenceScale={referenceScale}
+              referenceColor={referenceColor}
+              zone={zone}
+              aspectRatio={aspectRatio}
+              videoMuted={false}
+              onVideoRef={handleVideoRef}
+            />
           </div>
           <AnnouncementLayer ann={announcement} />
           {/* z-order: slide < timer (z-20) < message (z-30). Corner/lower-third
