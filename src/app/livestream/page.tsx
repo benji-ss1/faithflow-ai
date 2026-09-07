@@ -447,11 +447,11 @@ export default function LivestreamPage() {
         </>
       )}
       {/* 2026-09-06: the OBS lower-third caption is now rendered by the SAME
-          SlideRenderer band branch as everything above (via `renderSlide`), so it
-          uses the church's real fonts/style + auto-fit instead of the old
-          hard-coded generic white-on-black div (which had no font parity and
-          clipped long lyrics). The operator's explicit lowerThird MESSAGE overlay
-          still renders above. */}
+          SlideRenderer band branch as everything above (the OutputCompositor
+          `obsBand` transform), so it uses the church's real fonts/style +
+          auto-fit instead of the old hard-coded generic white-on-black div
+          (which had no font parity and clipped long lyrics). The operator's
+          explicit lowerThird MESSAGE overlay still renders above. */}
 
       {/* allowWeb === false → operator said in-building only; never show on
           this public OBS-facing surface. */}

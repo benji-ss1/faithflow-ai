@@ -43,10 +43,13 @@ import {
 } from "@/lib/broadcast";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { overlayBandSlide, type ObsBandConfig, type ObsThemeColors } from "@/lib/obs-lowerthird";
-import { planOutput, type CompositorMode } from "@/lib/output-plan";
+import { planOutput, type CompositorMode, type OutputLayerPlan } from "@/lib/output-plan";
 
 export { planOutput, type CompositorMode } from "@/lib/output-plan";
-export type { OutputPlan, SlideRenderMode } from "@/lib/output-plan";
+export type {
+  OutputPlan, SlideRenderMode, OutputLayerPlan, OutputLayerId,
+  BackgroundLayerPlan, SlideLayerPlan, ThemeLogoLayerPlan, CanvasPlan,
+} from "@/lib/output-plan";
 
 export interface OutputCompositorProps {
   mode: CompositorMode;
@@ -80,68 +83,74 @@ export interface OutputCompositorProps {
  */
 export function OutputCompositor(props: OutputCompositorProps) {
   const {
-    mode, slide, appearance, background, transition, fontScale, referenceScale,
+    slide, appearance, transition, fontScale, referenceScale,
     referenceColor, zone, obsBand, obsThemeColors, videoMuted = false, onVideoRef,
   } = props;
 
   const plan = planOutput(props);
-  // Stage never composites a camera.
-  const videoInput = mode === "stage" ? null : (props.videoInput ?? null);
 
   // OBS lower-third band transform (livestream lower_third capture mode).
   const effectiveSlide: SlidePayload = obsBand ? overlayBandSlide(slide, obsBand, obsThemeColors) : slide;
 
-  const stack: ReactNode = (
-    <>
-      {plan.showBackground && background && (
-        <BackgroundLayer key={background.shaderPreset ?? background.type} background={background} />
-      )}
-      {plan.slideRender === "over-video" ? (
-        <OutputSlide
-          slide={effectiveSlide}
-          videoInput={videoInput}
-          appearance={appearance}
-          fontScale={fontScale}
-          referenceScale={referenceScale}
-          referenceColor={referenceColor}
-          projectorFit
-        />
-      ) : plan.slideRender === "transition" ? (
-        <TransitionWrapper identityKey={slideOutputIdentity(effectiveSlide)} transition={transition ?? null}>
+  // Render one plan layer by its stable id. The z-ordering + enable/disable is
+  // owned by planOutput; the compositor just paints enabled layers in order.
+  // (Same DOM as the pre-reshape switch — this is a repackaging, not a change.)
+  function renderLayer(layer: OutputLayerPlan): ReactNode {
+    if (!layer.enabled) return null;
+    switch (layer.id) {
+      case "background":
+        return layer.props.background ? (
+          <BackgroundLayer key={layer.props.background.shaderPreset ?? layer.props.background.type} background={layer.props.background} />
+        ) : null;
+      case "slide": {
+        const { renderMode, overVideo, transparentBg, videoInput } = layer.props;
+        if (renderMode === "over-video") {
+          return (
+            <OutputSlide
+              key="slide"
+              slide={effectiveSlide}
+              videoInput={videoInput}
+              appearance={appearance}
+              fontScale={fontScale}
+              referenceScale={referenceScale}
+              referenceColor={referenceColor}
+              projectorFit
+            />
+          );
+        }
+        const renderer = (key: string) => (
           <SlideRenderer
+            key={key}
             slide={effectiveSlide}
             projectorFit
             fontScale={fontScale}
             referenceScale={referenceScale}
             referenceColor={referenceColor}
             appearance={appearance}
-            overVideo={plan.overVideo}
-            transparentBg={plan.transparentBg}
+            overVideo={overVideo}
+            transparentBg={transparentBg}
             videoMuted={videoMuted}
             onVideoRef={onVideoRef}
           />
-        </TransitionWrapper>
-      ) : (
-        <SlideRenderer
-          slide={effectiveSlide}
-          projectorFit
-          fontScale={fontScale}
-          referenceScale={referenceScale}
-          referenceColor={referenceColor}
-          appearance={appearance}
-          overVideo={plan.overVideo}
-          transparentBg={plan.transparentBg}
-          videoMuted={videoMuted}
-          onVideoRef={onVideoRef}
-        />
-      )}
-      {plan.showThemeLogo && <ThemeLogoLayer appearance={appearance} />}
-    </>
-  );
+        );
+        return renderMode === "transition" ? (
+          <TransitionWrapper key="slide" identityKey={slideOutputIdentity(effectiveSlide)} transition={transition ?? null}>
+            {renderer("slide-renderer")}
+          </TransitionWrapper>
+        ) : (
+          renderer("slide")
+        );
+      }
+      case "theme-logo":
+        return <ThemeLogoLayer key="theme-logo" appearance={appearance} />;
+    }
+  }
 
-  if (!plan.useCanvas) return stack;
+  const stack: ReactNode = <>{plan.layers.map(renderLayer)}</>;
+
+  if (!plan.canvas.enabled) return stack;
   return (
-    <PresentationCanvas canvasW={plan.canvasW} canvasH={plan.canvasH} zone={zone}>
+    <PresentationCanvas canvasW={plan.canvas.w} canvasH={plan.canvas.h} zone={zone}>
       {stack}
     </PresentationCanvas>
   );

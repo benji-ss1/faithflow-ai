@@ -15,6 +15,15 @@
  * The per-slide "default black bgColor suppresses the theme" rule lives INSIDE
  * SlideRenderer (isDefaultBlack) and is reached via the overVideo/appearance
  * props this plan sets — it is not re-implemented here.
+ *
+ * SHAPE (Phase 1 review reshape): planOutput returns an ORDERED layer list
+ * (`layers`, ascending `z`) plus the `canvas` wrapper spec. The compositor
+ * renders by iterating `layers` in order. Today's mutual exclusivities (camera
+ * fused into the slide's over-video render, template-wins-over-theme-video,
+ * transparent keying suppressing background+logo, stage-never-camera) are
+ * encoded HERE as plan-construction logic — each produces the same DOM as
+ * before. This is deliberately prep for Phase 2's additive LayerWire[] wire
+ * model; it is NOT new runtime flexibility.
  */
 import type { SlidePayload, ThemeAppearance, VideoInputState, BackgroundSpec } from "@/lib/broadcast";
 
@@ -30,23 +39,66 @@ export type CompositorMode = "live" | "stage" | "livestream" | "ndi";
  */
 export type SlideRenderMode = "over-video" | "transition" | "plain";
 
-export interface OutputPlan {
-  /** Render the Background Template layer (behind the slide). */
-  showBackground: boolean;
-  /** How to render the slide layer. */
-  slideRender: SlideRenderMode;
-  /** overVideo flag passed to SlideRenderer (slide bg goes transparent). */
-  overVideo: boolean;
-  /** transparentBg flag passed to SlideRenderer (OBS / NDI alpha key). */
-  transparentBg: boolean;
-  /** Render the theme logo layer on top. */
-  showThemeLogo: boolean;
+/** Stable per-layer identity. Phase 2's LayerWire[] will reuse these ids. */
+export type OutputLayerId = "background" | "slide" | "theme-logo";
+export type OutputLayerKind = "background" | "slide" | "theme-logo";
+
+interface OutputLayerBase {
+  /** Stable id (z-independent) — the seam Phase 2's wire model plugs into. */
+  id: OutputLayerId;
+  kind: OutputLayerKind;
+  /** z-order; the compositor renders ascending. */
+  z: number;
+  /** Whether this layer paints. Disabled layers stay in the list (stable
+   *  identity for Phase 2) but the compositor skips them → same DOM out. */
+  enabled: boolean;
+}
+
+export interface BackgroundLayerPlan extends OutputLayerBase {
+  id: "background";
+  kind: "background";
+  props: { background: BackgroundSpec | null };
+}
+
+export interface SlideLayerPlan extends OutputLayerBase {
+  id: "slide";
+  kind: "slide";
+  props: {
+    /** How the slide layer is composed. */
+    renderMode: SlideRenderMode;
+    /** overVideo flag passed to SlideRenderer (slide bg goes transparent). */
+    overVideo: boolean;
+    /** transparentBg flag passed to SlideRenderer (OBS / NDI alpha key). */
+    transparentBg: boolean;
+    /** The camera fused into the over-video render (stage-nulled here, once).
+     *  null for the transition/plain branches. */
+    videoInput: VideoInputState | null;
+  };
+}
+
+export interface ThemeLogoLayerPlan extends OutputLayerBase {
+  id: "theme-logo";
+  kind: "theme-logo";
+  props: Record<string, never>;
+}
+
+export type OutputLayerPlan = BackgroundLayerPlan | SlideLayerPlan | ThemeLogoLayerPlan;
+
+export interface CanvasPlan {
   /** Wrap the stack in a PresentationCanvas (livestream renders full-bleed). */
-  useCanvas: boolean;
-  /** Canvas width when useCanvas (undefined → PresentationCanvas default). */
-  canvasW?: number;
-  /** Canvas height when useCanvas (undefined → PresentationCanvas default). */
-  canvasH?: number;
+  enabled: boolean;
+  /** Canvas width when enabled (undefined → PresentationCanvas default). */
+  w?: number;
+  /** Canvas height when enabled (undefined → PresentationCanvas default). */
+  h?: number;
+}
+
+export interface OutputPlan {
+  /** The composed layer stack, ordered by ascending z. The compositor iterates
+   *  this list; disabled layers are skipped. */
+  layers: OutputLayerPlan[];
+  /** The PresentationCanvas wrapper spec. */
+  canvas: CanvasPlan;
 }
 
 /** True when a video sits behind the slide — a live camera input, or a theme's
@@ -69,6 +121,8 @@ export interface PlanInput {
 export function planOutput(input: PlanInput): OutputPlan {
   const { mode, appearance } = input;
   // Stage never has a live camera (no video input on the confidence monitor).
+  // This nulling lives ONLY here — the compositor reads the resolved camera off
+  // the slide layer's props, never re-derives it.
   const videoInput = mode === "stage" ? null : (input.videoInput ?? null);
   const background = input.background ?? null;
   // Transparent keying only exists for livestream/ndi; never for live/stage.
@@ -93,19 +147,23 @@ export function planOutput(input: PlanInput): OutputPlan {
   // it to the over-video path — parity with the pre-extraction /stage render.
   const videoBehind = mode !== "stage" && !transparent && hasVideoBehind(videoInput, appearance) && !showBackground;
 
-  let slideRender: SlideRenderMode;
+  let renderMode: SlideRenderMode;
   if (videoBehind) {
-    slideRender = "over-video";
+    renderMode = "over-video";
   } else if (mode === "ndi") {
     // NDI never wraps the slide in a transition (offscreen paint surface).
-    slideRender = "plain";
+    renderMode = "plain";
   } else if (mode === "livestream") {
     // Livestream only transitions when explicitly enabled via ?transitions=1.
-    slideRender = input.transitionsEnabled ? "transition" : "plain";
+    renderMode = input.transitionsEnabled ? "transition" : "plain";
   } else {
     // live + stage always transition.
-    slideRender = "transition";
+    renderMode = "transition";
   }
+
+  // The camera is FUSED into the over-video render (OutputSlide owns the video
+  // sibling + slide overlay). It only rides the slide layer in that branch.
+  const slideVideoInput = renderMode === "over-video" ? videoInput : null;
 
   // Theme logo: on for everything except transparent keying modes.
   const showThemeLogo = !transparent;
@@ -113,7 +171,7 @@ export function planOutput(input: PlanInput): OutputPlan {
   // Canvas: livestream renders full-bleed (no PresentationCanvas); the others
   // wrap in a fixed canvas. live uses 1440 for 4:3, else 1920; ndi is 1920×1080;
   // stage uses the PresentationCanvas default (no explicit dims).
-  const useCanvas = mode !== "livestream";
+  const canvasEnabled = mode !== "livestream";
   let canvasW: number | undefined;
   let canvasH: number | undefined;
   if (mode === "live") {
@@ -124,5 +182,14 @@ export function planOutput(input: PlanInput): OutputPlan {
     canvasH = 1080;
   }
 
-  return { showBackground, slideRender, overVideo, transparentBg: transparent, showThemeLogo, useCanvas, canvasW, canvasH };
+  const layers: OutputLayerPlan[] = [
+    { id: "background", kind: "background", z: 0, enabled: showBackground, props: { background } },
+    {
+      id: "slide", kind: "slide", z: 10, enabled: true,
+      props: { renderMode, overVideo, transparentBg: transparent, videoInput: slideVideoInput },
+    },
+    { id: "theme-logo", kind: "theme-logo", z: 20, enabled: showThemeLogo, props: {} },
+  ];
+
+  return { layers, canvas: { enabled: canvasEnabled, w: canvasW, h: canvasH } };
 }

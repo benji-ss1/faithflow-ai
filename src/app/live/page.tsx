@@ -590,11 +590,6 @@ export default function LivePage() {
   );
 }
 
-// Identity key for the projector transition: change it and TransitionWrapper
-// plays the configured enter animation. Keyed by slide content (+ design sig)
-// so a repeat of the SAME slide doesn't re-trigger a transition.
-// (Identity helper consolidated into broadcast.ts → slideOutputIdentity.)
-
 function formatTimerMMSS(sec: number): string {
   const negative = sec < 0;
   const abs = Math.abs(Math.round(sec));
