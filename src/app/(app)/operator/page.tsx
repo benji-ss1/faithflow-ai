@@ -35,6 +35,7 @@ export default async function OperatorLandingPage() {
     autoApproveEnabled: boolean | null;
     autoApproveThreshold: number | null;
     autoSendToLive: boolean | null;
+    layersV2?: boolean | null;
   } | null = null;
   let translationCode = "KJV";
   let logoUrl: string | undefined;
@@ -118,6 +119,7 @@ export default async function OperatorLandingPage() {
       defaultTranslationCode={translationCode}
       confidenceThreshold={confidenceThreshold}
       autoApprove={autoApprove}
+      layersV2={prefs?.layersV2 ?? false}
       initialShell={initialShell}
     />
   );
