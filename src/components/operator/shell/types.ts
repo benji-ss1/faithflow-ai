@@ -11,6 +11,7 @@ import type { MultiChannelCapture } from "@/lib/audio/multiChannelCapture";
 import type { BankedVerse } from "../useVerseBank";
 import type { InternetMetadataCard } from "../AIAssistantPanel";
 import type { AutopilotMode, ServiceMode } from "../OperatorConsole";
+import type { UseLiveLayers } from "../useLiveLayers";
 
 export type OperatorShellCtx = {
   plan: ExpandedPlan;
@@ -167,6 +168,11 @@ export type OperatorShellCtx = {
   onRedoLive: () => void;
   canUndoLive: boolean;
   canRedoLive: boolean;
+  // Decoupling Phase 3 — operator Layers Panel.
+  // `layersEngineOn` = global NEXT_PUBLIC_LAYERS_V2 kill-switch AND this church's
+  // `layersV2` opt-in. When false the panel shows a disabled affordance.
+  layersEngineOn: boolean;
+  liveLayers: UseLiveLayers;
   onStageSlide: (slide: SlidePayload) => void;
   onBankAddReference: (ref: { book: string; chapter: number; verseStart: number; verseEnd: number }) => Promise<BankedVerse | null>;
   onSendBankedToLive: (idx: number) => void;

@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { ArrowLeft, ChevronLeft, ChevronRight, Monitor, Radio, Square, Sun, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, AI_AUTO_TRANSITION, slideOutputIdentity, sanitizeOutputState, scrubOutputStateForRemote, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
+import { LAYERS_V2 } from "@/lib/output-layers";
+import { useLiveLayers } from "./useLiveLayers";
 import { clampObsBand, type ObsBandConfig } from "@/lib/obs-lowerthird";
 import { readFontScale, readReferenceScale, readReferenceColor } from "./pro/operatorConstants";
 import { styleScriptureSlide } from "./scripture/scriptureStyle";
@@ -92,12 +94,15 @@ const SERVICE_MODE_KEY = "presentflow.pro.serviceMode.v1";
 
 const AUTOPILOT_MODE_KEY = "presentflow.autopilot.mode";
 
-export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCode: initialTranslationCode, confidenceThreshold, autoApprove: autoApproveProp, initialShell }: {
+export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCode: initialTranslationCode, confidenceThreshold, autoApprove: autoApproveProp, layersV2: layersV2Prop = false, initialShell }: {
   plan: ExpandedPlan;
   churchId: string;
   defaultTranslationCode: string;
   confidenceThreshold: number;
   autoApprove: AutoApproveConfig;
+  /** Decoupling Phase 3: per-church opt-in for the layers engine. Combined with
+   *  the global NEXT_PUBLIC_LAYERS_V2 kill-switch to gate the Layers Panel. */
+  layersV2?: boolean;
   initialShell?: "desktop" | "web";
 }) {
   const router = useRouter();
@@ -634,6 +639,29 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     window.addEventListener("presentflow:obs-band-changed", onChange);
     return () => window.removeEventListener("presentflow:obs-band-changed", onChange);
   }, []);
+  // ── Decoupling Phase 3: operator layer store ──────────────────────────────
+  // Gated on the global env kill-switch AND the per-church opt-in. When off,
+  // the hook emits nothing and `overrides` is always [] → OutputState.layers is
+  // never populated → projector output is byte-identical to the legacy path.
+  const layersEngineOn = LAYERS_V2 && layersV2Prop;
+  const emitLayerPatch = useCallback((msg: LiveMessage) => {
+    if (msg.type !== "layer-patch") return;
+    // Same-machine BroadcastChannel is the primary zero-latency path for a
+    // single-layer swap. Remote surfaces (pair Realtime / LAN OBS) converge on
+    // the same stack via the full OutputState.layers snapshot the main broadcast
+    // effect fans out at ~1Hz (already scrubbed of local-scope layers) — so a
+    // layer-patch stays a same-machine optimisation and never needs its own
+    // remote wire shape. Preserves the "BroadcastChannel primary, Realtime
+    // additive" invariant.
+    safePost(chRef.current, msg);
+  }, []);
+  const liveLayers = useLiveLayers(
+    { live, background: backgroundSpec, videoInput, appearance: effectiveAppearance },
+    emitLayerPatch,
+    layersEngineOn,
+  );
+  const layerOverrides = liveLayers.overrides;
+
   const lastEmittedKeyRef = useRef<string>("");
   useEffect(() => {
     const fastMarker = fastTransitionSlideRef.current;
@@ -665,6 +693,11 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       // OBS lower-third config — inert for the projector/stage (they don't read
       // it); /livestream applies it live in its lower-third mode.
       obsLowerThird,
+      // Decoupling Phase 3: the operator's active layer-override patches. Empty
+      // (and thus omitted below) unless the layers engine is on for this church,
+      // so flag-off / no-patch churches emit exactly the legacy snapshot. Rides
+      // the heartbeat so a late-joining projector converges to the same stack.
+      layers: layerOverrides.length > 0 ? layerOverrides : undefined,
     };
     // PROJECTOR-RELIABILITY GUARANTEE (2026-09-06 field incident). Fail-open
     // sanitize the state before it goes on ANY wire (BroadcastChannel / Realtime /
@@ -706,7 +739,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // marker cleanup at the top of this effect clears it the moment `live`
     // changes to a different slide.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, obsLowerThird]);
+  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, obsLowerThird, layerOverrides]);
   const chRef = useRef<LiveChannelLike | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;
@@ -1837,6 +1870,11 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     videoInput,
     appearance: effectiveAppearance,
     zone: activeZone,
+    // Decoupling Phase 3 — the operator Layers Panel reads these. `layersEngineOn`
+    // is env-flag AND per-church opt-in; when false the panel renders a disabled
+    // affordance (or nothing when the env kill-switch is off).
+    layersEngineOn,
+    liveLayers,
     previewItemIdx: preview.itemIdx,
     previewSlideIdx: preview.slideIdx,
     liveItemIdx,
@@ -2049,6 +2087,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // Y6: only re-pack when the values consumers actually read change.
     plan, previewSlide, live, preview.itemIdx, preview.slideIdx, liveItemIdx,
     aspectRatio, fitMode, safeArea, autopilotMode, autoApprove.enabled, activeZone,
+    layersEngineOn, liveLayers,
     autoApprove.autoSendToLive, audio, confidenceThreshold, defaultTranslationCode,
     countdownEndsAt, announcement, transitionSpec,
     effectiveBank, currentBankIdx, internetMatches, historyKey,
