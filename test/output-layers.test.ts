@@ -117,5 +117,61 @@ check("every derived layer passes isValidLayerWire (round-trips through the wire
   }
 });
 
+// ---- 9. theme-logo layer agrees with planOutput's theme-logo decision -------
+check("logo layer present at z=20; enabled agrees with planOutput theme-logo per mode", () => {
+  const modes: Array<["live" | "stage" | "livestream" | "ndi", boolean]> = [
+    ["live", false], ["stage", false], ["livestream", false], ["livestream", true],
+    ["ndi", false], ["ndi", true],
+  ];
+  for (const [mode, transparent] of modes) {
+    const st = state({ background: shaderBg });
+    const logo = layerById(outputStateToLayers(st, { mode, transparent }), "logo")!;
+    assert.ok(logo, `${mode}/${transparent}: logo layer present`);
+    assert.equal(logo.z, 20, "logo z=20");
+    const planLogo = planOutput({ mode, slide: st.live, background: shaderBg, transparent }).layers.find((l) => l.id === "theme-logo")!;
+    assert.equal(logo.enabled, planLogo.enabled, `${mode}/${transparent}: logo.enabled must agree with plan (${planLogo.enabled})`);
+  }
+});
+
+// ---- 10. slide.bgTransparent ⇔ planOutput resolves over-video ---------------
+check("slide.bgTransparent set iff planOutput slide renderMode === over-video", () => {
+  const cases: Array<[string, Partial<OutputState>, "live" | "stage" | "livestream" | "ndi"]> = [
+    ["camera behind (live)", { videoInput: camera }, "live"],
+    ["theme-video behind (live)", { appearance: themeVideo }, "live"],
+    ["template wins over theme-video (live)", { appearance: themeVideo, background: shaderBg }, "live"],
+    ["plain text (live)", {}, "live"],
+    ["camera on stage (nulled)", { videoInput: camera }, "stage"],
+    ["theme-video on livestream", { appearance: themeVideo }, "livestream"],
+    ["theme-video ndi", { appearance: themeVideo }, "ndi"],
+  ];
+  for (const [name, over, mode] of cases) {
+    const st = state(over);
+    const slide = layerById(outputStateToLayers(st, { mode }), "slide")!;
+    const plan = planOutput({ mode, slide: st.live, appearance: st.appearance ?? null, background: st.background ?? null, videoInput: st.videoInput ?? null });
+    const planOverVideo = plan.layers.find((l) => l.id === "slide")!.props.renderMode === "over-video";
+    assert.equal(!!slide.bgTransparent, planOverVideo, `${name}: bgTransparent must equal plan over-video (${planOverVideo})`);
+  }
+});
+
+// ---- 11. stage mode: camera layer disabled (planOutput nulls it) ------------
+check("stage mode disables the camera layer even with a videoInput set", () => {
+  const cam = layerById(outputStateToLayers(state({ videoInput: camera }), { mode: "stage" }), "camera")!;
+  assert.equal(cam.enabled, false, "stage: camera disabled");
+  // plan agrees: stage slide never routes over-video.
+  assert.notEqual(planOutput({ mode: "stage", slide: textSlide, videoInput: camera }).layers.find((l) => l.id === "slide")!.props.renderMode, "over-video");
+});
+
+// ---- 12. transparent keying: background + logo disabled --------------------
+check("transparent livestream/ndi disables background + logo (matches plan)", () => {
+  for (const mode of ["livestream", "ndi"] as const) {
+    const layers = outputStateToLayers(state({ background: shaderBg }), { mode, transparent: true });
+    assert.equal(layerById(layers, "background")!.enabled, false, `${mode}: bg disabled when transparent`);
+    assert.equal(layerById(layers, "logo")!.enabled, false, `${mode}: logo disabled when transparent`);
+    const plan = planOutput({ mode, slide: textSlide, background: shaderBg, transparent: true });
+    assert.equal(plan.layers.find((l) => l.id === "background")!.enabled, false, "plan bg disabled");
+    assert.equal(plan.layers.find((l) => l.id === "theme-logo")!.enabled, false, "plan logo disabled");
+  }
+});
+
 console.log(`\noutputStateToLayers: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

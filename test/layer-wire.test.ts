@@ -17,10 +17,12 @@ import {
   isValidOutputStateExternal,
   sanitizeOutputState,
   coerceLiveMessage,
+  scrubOutputStateForRemote,
   EMPTY_OUTPUT,
   MAX_LAYERS,
   type LayerWire,
   type OutputState,
+  type SlidePayload,
 } from "../src/lib/broadcast";
 
 let pass = 0, fail = 0;
@@ -43,6 +45,9 @@ const validLayers: LayerWire[] = [
   { id: "timer", kind: "timer", z: 20, enabled: true, payload: { remainingSec: 300, running: true, kind: "countdown" } },
   { id: "msg", kind: "message", z: 20, enabled: true, opacity: 0.5, payload: { text: "Prayer now", position: "lower-third" } },
   { id: "toggle-only", kind: "slide", z: 10, enabled: false }, // payload-less patch (enable/z only)
+  { id: "logo", kind: "logo", z: 20, enabled: true }, // theme logo, no payload
+  { id: "logo-url", kind: "logo", z: 20, enabled: true, payload: { url: "https://x/logo.png" } }, // explicit-logo url
+  { id: "slide-tr", kind: "slide", z: 10, enabled: true, bgTransparent: true, payload: { kind: "text", text: "over video" } }, // bgTransparent flag
 ];
 
 check("every valid layer (one per kind) passes", () => {
@@ -159,6 +164,117 @@ check("sanitizeOutputState leaves layers undefined when absent (never fabricates
   const st = sanitizeOutputState({ ...EMPTY_OUTPUT });
   assert.ok(st, "state ok");
   assert.equal("layers" in st!, false, "no layers key fabricated");
+});
+
+// ---- logo payload + bgTransparent hardening --------------------------------
+check("logo payload url goes through the render-url gate; bgTransparent is boolean", () => {
+  assert.ok(isValidLayerWire({ id: "logo", kind: "logo", z: 20, enabled: true }), "no-payload logo ok");
+  assert.ok(isValidLayerWire({ id: "logo", kind: "logo", z: 20, enabled: true, payload: null }), "null-payload logo ok");
+  assert.ok(!isValidLayerWire({ id: "logo", kind: "logo", z: 20, enabled: true, payload: { url: "javascript:alert(1)" } }), "js: logo url rejected");
+  assert.ok(isValidLayerWire({ id: "logo", kind: "logo", z: 20, enabled: true, payload: { url: "https://x/l.png" } }), "https logo url ok");
+  assert.ok(!isValidLayerWire({ id: "s", kind: "slide", z: 10, enabled: true, bgTransparent: "yes" as unknown as boolean }), "non-boolean bgTransparent rejected");
+  assert.ok(isValidLayerWire({ id: "s", kind: "slide", z: 10, enabled: true, bgTransparent: true }), "boolean bgTransparent ok");
+});
+
+// ---- duplicate-id policy ----------------------------------------------------
+check("sanitizeLayers drops subsequent duplicate ids (first wins)", () => {
+  const dupes = [
+    { id: "bg", kind: "background", z: 0, enabled: true, payload: { type: "shader", shaderPreset: "a" } },
+    { id: "bg", kind: "background", z: 0, enabled: false, payload: { type: "shader", shaderPreset: "b" } }, // dup id → dropped
+    { id: "slide", kind: "slide", z: 10, enabled: true, payload: { kind: "text", text: "x" } },
+  ];
+  const st = sanitizeOutputState({ ...EMPTY_OUTPUT, layers: dupes });
+  assert.ok(st, "salvaged");
+  assert.equal(st!.layers?.length, 2, "dup dropped, two survive");
+  assert.deepEqual(st!.layers?.map((l) => l.id), ["bg", "slide"]);
+  // First wins: the SURVIVING bg is the first (enabled:true), not the shadow.
+  assert.equal(st!.layers?.find((l) => l.id === "bg")?.enabled, true, "first-wins on the duplicate id");
+});
+
+check("strict validator REJECTS a layers array with duplicate ids", () => {
+  const dupes = [
+    { id: "x", kind: "slide", z: 10, enabled: true },
+    { id: "x", kind: "slide", z: 11, enabled: true },
+  ];
+  assert.ok(!isValidOutputStateExternal({ ...EMPTY_OUTPUT, layers: dupes }), "duplicate ids rejected by strict validator");
+});
+
+// ---- forward-compat: an unknown FUTURE kind is non-fatal -------------------
+// A newer sender may add a kind an older receiver doesn't know (e.g. "audio",
+// reserved for Phase 5). The contract: it must be DROPPED by the fail-open
+// sanitizer (never crash / poison the snapshot) and REJECTED by the strict
+// array validator (a strict sender must not ship shapes we can't render).
+check("unknown future kind ('audio') is dropped by sanitizeLayers, rejected by strict validator", () => {
+  const future = [
+    { id: "aud", kind: "audio", z: 5, enabled: true, payload: { deviceId: "spk-1" } }, // unknown kind
+    { id: "slide", kind: "slide", z: 10, enabled: true, payload: { kind: "text", text: "keep" } },
+  ];
+  assert.ok(!isValidLayerWire(future[0]), "unknown kind is not a valid layer");
+  assert.ok(!isValidOutputStateExternal({ ...EMPTY_OUTPUT, layers: future }), "strict validator rejects the array");
+  const st = sanitizeOutputState({ ...EMPTY_OUTPUT, layers: future });
+  assert.ok(st, "sanitize is fail-open (state survives)");
+  assert.equal(st!.layers?.length, 1, "the unknown-kind layer is dropped, the good slide kept");
+  assert.equal(st!.layers?.[0].id, "slide");
+});
+
+// ---- /ndi salvage: one bad neighbour field, good parts still render ---------
+// The /ndi handler reads state.live, fontScale, appearance, background,
+// videoInput, transition off a coerced "output" message. A single bad neighbour
+// field (here: a garbage appearance) must be salvaged field-by-field so the NDI
+// surface still gets the live slide + the good fields (was: whole snapshot
+// rejected). Mirrors /live + /livestream fail-open recovery.
+check("coerceLiveMessage salvages an output with one bad field for the ndi handler", () => {
+  const goodSlide: SlidePayload = { kind: "text", text: "In the beginning" };
+  const raw = {
+    type: "output",
+    state: {
+      ...EMPTY_OUTPUT,
+      live: goodSlide,
+      fontScale: 1.5,
+      background: { type: "shader", shaderPreset: "gentle-waves" },
+      appearance: { bgType: "wat", nonsense: true }, // BAD neighbour field
+      transition: { kind: "fade", durationMs: 300 },
+    },
+  };
+  const msg = coerceLiveMessage(raw);
+  assert.ok(msg && msg.type === "output", "salvaged as output (not dropped)");
+  const s = (msg as { state: OutputState }).state;
+  // Exactly what the ndi handler reads:
+  assert.equal(s.live.kind === "text" && s.live.text, "In the beginning", "live slide intact");
+  assert.equal(s.fontScale, 1.5, "good fontScale kept");
+  assert.ok(s.background && s.background.type === "shader", "good background kept");
+  assert.equal(s.appearance, null, "bad appearance salvaged to null (not fatal)");
+});
+
+// ---- scrubOutputStateForRemote: preserves the legacy videoInput scrub -------
+// This helper replaced the inline `state.videoInput ? {...state, videoInput:null}
+// : state` at the Realtime/LAN fan-out. It MUST preserve that behaviour exactly,
+// and additionally drop transportScope:"local" layers for remote transports
+// (inert today — layers is never populated).
+check("scrub returns the SAME reference when there is nothing to strip (no videoInput, no local layers)", () => {
+  const st = { ...EMPTY_OUTPUT } as OutputState;
+  assert.equal(scrubOutputStateForRemote(st), st, "identity when nothing to strip (matches old `: state` branch)");
+  const withAllLayers = { ...EMPTY_OUTPUT, layers: [validLayers[0]] } as OutputState; // scope "all"
+  assert.equal(scrubOutputStateForRemote(withAllLayers), withAllLayers, "all-scope layers left untouched (same ref)");
+});
+
+check("scrub nulls videoInput (exactly the legacy behaviour)", () => {
+  const st = { ...EMPTY_OUTPUT, videoInput: { deviceId: "cam-1", overlay: "full" } } as unknown as OutputState;
+  const out = scrubOutputStateForRemote(st);
+  assert.notEqual(out, st, "new object when videoInput present");
+  assert.equal(out.videoInput, null, "videoInput nulled");
+  // Every OTHER field is preserved (spread), matching the old {...state, videoInput:null}.
+  assert.equal(out.live, st.live);
+  assert.equal(out.aspectRatio, st.aspectRatio);
+});
+
+check("scrub drops transportScope:'local' layers for remote, keeps 'all' layers", () => {
+  const localCam = validLayers.find((l) => l.transportScope === "local")!; // camera
+  const st = { ...EMPTY_OUTPUT, layers: [validLayers[0], localCam, validLayers[3]] } as OutputState;
+  const out = scrubOutputStateForRemote(st);
+  assert.notEqual(out, st, "new object when a local-scope layer is present");
+  assert.ok(out.layers && out.layers.every((l) => l.transportScope !== "local"), "no local layers remain");
+  assert.deepEqual(out.layers?.map((l) => l.id), ["background", "slide"], "all-scope layers preserved in order");
 });
 
 console.log(`\nLayerWire: ${pass} passed, ${fail} failed`);

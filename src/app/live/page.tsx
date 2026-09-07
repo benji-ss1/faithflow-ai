@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
-import { openLiveChannel, type LiveChannelLike, safePost, coerceLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState, type LayerWire } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, safePost, coerceLiveMessage, MAX_LAYERS, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState, type LayerWire } from "@/lib/broadcast";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
@@ -256,7 +256,13 @@ export default function LivePage() {
         } else if (msg.type === "layer-patch") {
           // Decoupling Phase 2 (DORMANT): store the single-layer override; nothing
           // renders from it yet — Phase 3 gates consumption behind NEXT_PUBLIC_LAYERS_V2.
-          layerOverridesRef.current.set(msg.layer.id, msg.layer);
+          // Bound the map: a hostile same-channel sender must not grow it without
+          // limit. Existing ids may always be updated; a NEW id is dropped once the
+          // map is full (mirrors MAX_LAYERS on the OutputState.layers array).
+          {
+            const m = layerOverridesRef.current;
+            if (m.has(msg.layer.id) || m.size < MAX_LAYERS) m.set(msg.layer.id, msg.layer);
+          }
         }
       } catch (err) {
         console.warn("[live] message handler error:", err instanceof Error ? err.message : String(err));

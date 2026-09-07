@@ -273,7 +273,12 @@ export type BackgroundSpec = {
 // unknown/invalid layers are DROPPED, never passed through.
 export type LayerKind =
   | "background" | "camera" | "slide" | "band"
-  | "announcement" | "timer" | "message" | "media";
+  | "announcement" | "timer" | "message" | "media" | "logo";
+// NOTE (forward-compat): "audio" is RESERVED for Phase 5 (audio routing) and is
+// deliberately NOT in this union yet. A wire carrying kind:"audio" today is an
+// UNKNOWN future kind → dropped by sanitizeLayers, rejected by the strict array
+// validator (a newer sender can't force an older receiver to render a shape it
+// doesn't understand). See docs/DECOUPLING_PLAN.md.
 
 // Where a layer paints on the 1920×1080 canvas. `band` carries explicit
 // geometry (percent of canvas); `full`/`lowerThird` are named presets the
@@ -294,6 +299,11 @@ type LayerWireBase = {
   opacity?: number;                       // 0..1
   zone?: LayerZone;
   transportScope?: "local" | "all";
+  // The layer-model expression of the legacy `overVideo` flag: the slide/media
+  // content's own background goes transparent so whatever sits behind it (a live
+  // camera or a theme video) shows through. Set by the adapter exactly when
+  // planOutput resolves the slide to the over-video render mode.
+  bgTransparent?: boolean;
 };
 
 // Discriminated on `kind` so each payload reuses an EXISTING hardened validator
@@ -308,7 +318,12 @@ export type LayerWire =
   | (LayerWireBase & { kind: "band"; payload?: ScriptureBandWire })
   | (LayerWireBase & { kind: "announcement"; payload?: AnnouncementPayload })
   | (LayerWireBase & { kind: "timer"; payload?: TimerOverlay })
-  | (LayerWireBase & { kind: "message"; payload?: MessageOverlay });
+  | (LayerWireBase & { kind: "message"; payload?: MessageOverlay })
+  // Theme logo layer. No content payload today (the legacy theme logo has no
+  // wire-borne url — it is resolved renderer-side); the optional `{ url }` shape
+  // is reserved for a future explicit-logo override, validated via the same
+  // https/blob URL gates as every other media url.
+  | (LayerWireBase & { kind: "logo"; payload?: { url?: string } | null });
 
 // Hardening bounds. A layer id is interpolated into React keys + used as a Map
 // key; keep it a short safe token so it can't smuggle markup / pollution. z is
@@ -317,7 +332,7 @@ export type LayerWire =
 export const MAX_LAYERS = 16;
 const LAYER_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
 const LAYER_KINDS = new Set<string>([
-  "background", "camera", "slide", "band", "announcement", "timer", "message", "media",
+  "background", "camera", "slide", "band", "announcement", "timer", "message", "media", "logo",
 ]);
 
 export type OutputState = {
@@ -659,8 +674,18 @@ function isValidLayerPayload(kind: string, payload: unknown): boolean {
     case "announcement": return isValidAnnouncement(payload);
     case "timer":      return isValidTimerOverlay(payload);
     case "message":    return isValidMessageOverlay(payload);
+    case "logo":       return payload === null || isValidLogoPayload(payload);
     default:           return false;
   }
+}
+
+// Logo payload: no content (undefined/null) or an optional explicit-logo url,
+// validated through the same https/blob render-url gate as all media.
+function isValidLogoPayload(payload: unknown): boolean {
+  if (!payload || typeof payload !== "object" || hasPollutionKey(payload)) return false;
+  const o = payload as Record<string, unknown>;
+  if (o.url !== undefined && !isValidRenderUrl(o.url)) return false;
+  return true;
 }
 
 export function isValidLayerWire(l: unknown): l is LayerWire {
@@ -675,22 +700,43 @@ export function isValidLayerWire(l: unknown): l is LayerWire {
   if (p.opacity !== undefined && (typeof p.opacity !== "number" || !Number.isFinite(p.opacity) || p.opacity < 0 || p.opacity > 1)) return false;
   if (p.zone !== undefined && !isValidLayerZone(p.zone)) return false;
   if (p.transportScope !== undefined && p.transportScope !== "local" && p.transportScope !== "all") return false;
+  if (p.bgTransparent !== undefined && typeof p.bgTransparent !== "boolean") return false;
   if (!isValidLayerPayload(p.kind, p.payload)) return false;
   return true;
 }
 
-/** Validate an OutputState.layers array: bounded length, every entry valid. */
+/** Validate an OutputState.layers array: bounded length, every entry valid, and
+ * ids UNIQUE. Layer ids are the identity the operator panel + layer-patch key on
+ * (and Map/React keys downstream), so a strict sender must never ship two layers
+ * sharing an id — the strict validator rejects the whole array if it does. */
 function isValidLayersArray(v: unknown): v is LayerWire[] {
   if (!Array.isArray(v)) return false;
   if (v.length > MAX_LAYERS) return false;
-  return v.every(isValidLayerWire);
+  if (!v.every(isValidLayerWire)) return false;
+  const ids = new Set<string>();
+  for (const l of v) {
+    const id = (l as LayerWire).id;
+    if (ids.has(id)) return false; // duplicate id
+    ids.add(id);
+  }
+  return true;
 }
 
-/** Fail-open salvage for OutputState.layers: DROP invalid entries, cap length. */
+/** Fail-open salvage for OutputState.layers: DROP invalid entries, DROP
+ * subsequent duplicate ids (first-wins — a hostile/legacy sender can't shadow an
+ * earlier layer by re-using its id), and cap length at MAX_LAYERS. */
 function sanitizeLayers(v: unknown): LayerWire[] | undefined {
   if (!Array.isArray(v)) return undefined;
-  const kept = v.filter(isValidLayerWire).slice(0, MAX_LAYERS);
-  return kept as LayerWire[];
+  const seen = new Set<string>();
+  const kept: LayerWire[] = [];
+  for (const l of v) {
+    if (!isValidLayerWire(l)) continue;
+    if (seen.has(l.id)) continue; // first wins on duplicate id
+    seen.add(l.id);
+    kept.push(l);
+    if (kept.length >= MAX_LAYERS) break;
+  }
+  return kept;
 }
 
 export function isValidThemeAppearance(a: unknown): a is ThemeAppearance {
@@ -1185,6 +1231,30 @@ export function coerceLiveMessage(raw: unknown): LiveMessage | null {
     return st ? ({ type: "output", state: st } as LiveMessage) : null;
   }
   return null;
+}
+
+/**
+ * Scrub an OutputState of everything that only means something on the ORIGIN
+ * machine before it fans out over Realtime / LAN (NOT BroadcastChannel, which is
+ * same-machine and keeps the local fields). This is the single choke point for
+ * the local-vs-remote transport rule:
+ *   1. `videoInput.deviceId` is a physical camera id on THIS box — meaningless
+ *      (and a security risk: could activate a default cam on a public livestream)
+ *      off-machine → nulled. (Behaviour preserved EXACTLY from the old inline
+ *      `state.videoInput ? { ...state, videoInput: null } : state` scrub: same
+ *      reference returned when there's nothing to strip.)
+ *   2. Phase 2 (DORMANT — `layers` is never populated today): any layer marked
+ *      `transportScope === "local"` is dropped for remote transports, mirroring
+ *      the videoInput rule at the same seam. Inert until Phase 3 populates layers.
+ * Pure + allocation-free on the common (nothing-to-strip) path.
+ */
+export function scrubOutputStateForRemote(state: OutputState): OutputState {
+  let out: OutputState = state;
+  if (state.videoInput) out = { ...out, videoInput: null };
+  if (out.layers && out.layers.some((l) => l.transportScope === "local")) {
+    out = { ...out, layers: out.layers.filter((l) => l.transportScope !== "local") };
+  }
+  return out;
 }
 
 /**

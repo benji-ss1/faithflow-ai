@@ -222,7 +222,7 @@ check("transparent livestream/ndi: no bg, no over-video, no logo, transparentBg 
 // compositor), NOT a plan layer — the plan for transparent lower_third capture
 // must still be slide-only, transparentBg, full-bleed. The band lives in the
 // slide layer's rendered content, not a new layer.
-check("livestream lower_third + transparent + obsBand → slide-only transparent full-bleed plan", () => {
+check("livestream lower_third + transparent: obsBand leaves the PLAN unchanged (slide-only transparent full-bleed)", () => {
   const p = planOutput({ mode: "livestream", slide: bandScriptureSlide, transparent: true });
   assert.deepEqual(enabledIds(p), ["slide"], "transparent lower_third: only the slide layer paints");
   assert.equal(slideLayer(p).props.transparentBg, true);

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState, type RefCallback } from "react";
 import { Maximize2, X } from "lucide-react";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
-import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, sanitizeOutputState, type OutputState, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState, type LayerWire } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, sanitizeOutputState, type OutputState, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState, MAX_LAYERS, type LayerWire } from "@/lib/broadcast";
 import { parseObsBand, clampObsBand, DEFAULT_OBS_BAND, type ObsBandConfig, type ObsThemeColors } from "@/lib/obs-lowerthird";
 import { openOutputChannel, isValidPairCode, type RealtimeConnStatus } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
@@ -199,7 +199,11 @@ export default function LivestreamPage() {
         } else if (msg.type === "layer-patch") {
           // Decoupling Phase 2 (DORMANT): store the override; nothing renders from
           // it yet — Phase 3 gates consumption behind NEXT_PUBLIC_LAYERS_V2.
-          layerOverridesRef.current.set(msg.layer.id, msg.layer);
+          // Bounded: existing ids update; a new id is dropped once full (MAX_LAYERS).
+          {
+            const m = layerOverridesRef.current;
+            if (m.has(msg.layer.id) || m.size < MAX_LAYERS) m.set(msg.layer.id, msg.layer);
+          }
         }
       } catch (err) {
         console.warn("[livestream] message handler error:", err instanceof Error ? err.message : String(err));

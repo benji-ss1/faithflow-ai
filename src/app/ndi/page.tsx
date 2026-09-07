@@ -29,7 +29,7 @@ import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import {
   openLiveChannel, type LiveChannelLike, coerceLiveMessage, type SlidePayload,
   type LiveMessage, type TransitionSpec, type ThemeAppearance, type VideoInputState, type BackgroundSpec,
-  type LayerWire,
+  MAX_LAYERS, type LayerWire,
 } from "@/lib/broadcast";
 
 // Prevent noisy non-Error unhandledrejections from an offscreen renderer.
@@ -110,7 +110,11 @@ export default function NdiOutputPage() {
           setTransition(msg.state.transition ?? null);
         } else if (msg.type === "layer-patch") {
           // DORMANT: store the override; nothing reads it yet (Phase 3).
-          layerOverridesRef.current.set(msg.layer.id, msg.layer);
+          // Bounded: existing ids update; a new id is dropped once full (MAX_LAYERS).
+          {
+            const m = layerOverridesRef.current;
+            if (m.has(msg.layer.id) || m.size < MAX_LAYERS) m.set(msg.layer.id, msg.layer);
+          }
         }
       } catch { /* ignore */ }
     };

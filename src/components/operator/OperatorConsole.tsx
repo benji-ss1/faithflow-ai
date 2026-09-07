@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ArrowLeft, ChevronLeft, ChevronRight, Monitor, Radio, Square, Sun, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, AI_AUTO_TRANSITION, slideOutputIdentity, sanitizeOutputState, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, AI_AUTO_TRANSITION, slideOutputIdentity, sanitizeOutputState, scrubOutputStateForRemote, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
 import { clampObsBand, type ObsBandConfig } from "@/lib/obs-lowerthird";
 import { readFontScale, readReferenceScale, readReferenceColor } from "./pro/operatorConstants";
 import { styleScriptureSlide } from "./scripture/scriptureStyle";
@@ -687,7 +687,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // never Realtime. A cross-device surface can't open a local camera id, and
     // this prevents a paired frame from activating a default camera on a public
     // livestream (security).
-    if (rtRef.current) { void rtRef.current.publish(state.videoInput ? { ...state, videoInput: null } : state); }
+    if (rtRef.current) { void rtRef.current.publish(scrubOutputStateForRemote(state)); }
     // LAN OVERLAY fan-out (desktop only) — mirror the full OutputState to the
     // local http+ws server so an OBS Browser Source on a SEPARATE broadcast PC
     // gets lyrics over the LAN with no cloud dependency. Same videoInput scrub as
@@ -695,7 +695,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // web (electronAPI.lan absent) and cheap fire-and-forget over IPC.
     try {
       const lan = (typeof window !== "undefined" ? (window as unknown as { electronAPI?: { lan?: { publish: (s: unknown) => void } } }).electronAPI?.lan : undefined);
-      if (lan) lan.publish(state.videoInput ? { ...state, videoInput: null } : state);
+      if (lan) lan.publish(scrubOutputStateForRemote(state));
     } catch { /* ignore */ }
     // CUT-THEN-FLOAT FIX (2026-08-20): do NOT clear the marker here. It used to
     // be one-shot, so the NEXT OutputState re-post for the SAME instant slide
@@ -1691,7 +1691,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // too so a malformed neighbour field can never blank the projector.
     const state: OutputState = sanitizeOutputState(rawLtState) ?? rawLtState;
     safePost(chRef.current, { type: "output", state });
-    publishRealtime(state.videoInput ? { ...state, videoInput: null } : state); // local-only camera id
+    publishRealtime(scrubOutputStateForRemote(state)); // scrub local-only camera id + local-scope layers
     lastOutputStateRef.current = state;
     toast.success(line1 || line2 ? "Lower third sent" : "Lower third cleared");
   }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, publishRealtime, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone]);

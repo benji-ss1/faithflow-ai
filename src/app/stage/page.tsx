@@ -4,7 +4,7 @@ import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
-import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type LayerWire } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, MAX_LAYERS, type LayerWire } from "@/lib/broadcast";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
@@ -153,7 +153,11 @@ export default function StagePage() {
         } else if (msg.type === "layer-patch") {
           // Decoupling Phase 2 (DORMANT): store the override; nothing renders from
           // it yet — Phase 3 gates consumption behind NEXT_PUBLIC_LAYERS_V2.
-          layerOverridesRef.current.set(msg.layer.id, msg.layer);
+          // Bounded: existing ids update; a new id is dropped once full (MAX_LAYERS).
+          {
+            const m = layerOverridesRef.current;
+            if (m.has(msg.layer.id) || m.size < MAX_LAYERS) m.set(msg.layer.id, msg.layer);
+          }
         }
       } catch (err) {
         console.warn("[stage] message handler error:", err instanceof Error ? err.message : String(err));
