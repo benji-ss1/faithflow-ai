@@ -121,6 +121,17 @@ check("theme video background → over-video, but a template still wins over it"
   const withTemplate = planOutput({ mode: "live", slide: textSlide, appearance: themeVideoAppearance, background: shaderBg });
   assert.equal(withTemplate.showBackground, true, "template renders");
   assert.equal(withTemplate.slideRender, "transition", "template wins over the theme video → no over-video composite");
+
+  // Regression (be6dcc2 follow-up): the OLD /stage route NEVER composited a
+  // theme video — it always used the transition-wrapped SlideRenderer. A theme
+  // video background must NOT flip stage to over-video (that would drop the
+  // transition wrapper and start compositing the looping video on the
+  // confidence monitor — a divergence from the pre-extraction render).
+  const stageThemeVideo = planOutput({ mode: "stage", slide: textSlide, appearance: themeVideoAppearance });
+  assert.equal(stageThemeVideo.slideRender, "transition", "stage ignores theme video — parity with the pre-extraction /stage route");
+  // NDI + livestream DO composite theme video (their old routes had the branch).
+  assert.equal(planOutput({ mode: "ndi", slide: textSlide, appearance: themeVideoAppearance }).slideRender, "over-video", "ndi keeps theme-video composite");
+  assert.equal(planOutput({ mode: "livestream", slide: textSlide, appearance: themeVideoAppearance }).slideRender, "over-video", "livestream keeps theme-video composite");
 });
 
 // ---- 6. transparent modes (livestream / ndi OBS-key) -----------------------

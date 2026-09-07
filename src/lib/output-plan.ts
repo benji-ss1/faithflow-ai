@@ -87,7 +87,11 @@ export function planOutput(input: PlanInput): OutputPlan {
   // camera), the template wins and we do NOT route through the video composite.
   // In transparent OBS/NDI keying mode the camera comes from OBS itself, so we
   // NEVER composite our own video behind the slide.
-  const videoBehind = !transparent && hasVideoBehind(videoInput, appearance) && !showBackground;
+  // Stage (confidence monitor) never composites a video behind the slide: it has
+  // no live camera, and the OLD /stage route ALWAYS used the transition-wrapped
+  // SlideRenderer (never OutputSlide), so a theme video background must NOT flip
+  // it to the over-video path — parity with the pre-extraction /stage render.
+  const videoBehind = mode !== "stage" && !transparent && hasVideoBehind(videoInput, appearance) && !showBackground;
 
   let slideRender: SlideRenderMode;
   if (videoBehind) {
