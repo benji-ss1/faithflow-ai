@@ -84,6 +84,22 @@ export function WhatsNewModal() {
     };
   }, []);
 
+  // Manual open on demand — the announcement bar's "See what's new" button
+  // dispatches this so testers can re-open the patch notes any time, even after
+  // dismissing the auto-pop. Shows the most recent releases.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onOpen = () => {
+      const recent = CHANGELOG.slice(0, 6);
+      if (recent.length === 0) return;
+      setNewEntries(recent);
+      setActiveVersion(recent[0].version);
+      setOpen(true);
+    };
+    window.addEventListener("presentflow:open-whats-new", onOpen);
+    return () => window.removeEventListener("presentflow:open-whats-new", onOpen);
+  }, []);
+
   const dismiss = () => {
     setOpen(false);
     const top = newEntries[0]?.version;

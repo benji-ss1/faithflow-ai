@@ -23,4 +23,10 @@ export type Announcement = {
 //     ctaHref: "/operator",
 //     tone: "brand",
 //   };
-export const ANNOUNCEMENT: Announcement | null = null;
+export const ANNOUNCEMENT: Announcement | null = {
+  id: "2026-09-07-songs-and-backgrounds",
+  message: "New: smarter song handling (no re-projecting the song you're on) + undo for theme backgrounds.",
+  ctaLabel: "See what's new",
+  ctaHref: "#whats-new",
+  tone: "brand",
+};

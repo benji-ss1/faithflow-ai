@@ -44,7 +44,18 @@ export function AnnouncementBar() {
       role="status"
     >
       <span className="truncate">{ann.message}</span>
-      {ann.ctaLabel && ann.ctaHref && (
+      {ann.ctaLabel && ann.ctaHref === "#whats-new" ? (
+        // Sentinel: open the What's New patch-notes modal in place instead of
+        // navigating (testers are already on the operator).
+        <button
+          type="button"
+          onClick={() => { try { window.dispatchEvent(new CustomEvent("presentflow:open-whats-new")); } catch { /* noop */ } }}
+          className="shrink-0 inline-flex items-center gap-1 h-6 px-2.5 rounded-md text-[11.5px] font-bold"
+          style={{ background: "#ffffff", color: "#17130c" }}
+        >
+          {ann.ctaLabel} <ArrowRight className="w-3.5 h-3.5" />
+        </button>
+      ) : ann.ctaLabel && ann.ctaHref ? (
         <Link
           href={ann.ctaHref}
           className="shrink-0 inline-flex items-center gap-1 h-6 px-2.5 rounded-md text-[11.5px] font-bold"
@@ -52,7 +63,7 @@ export function AnnouncementBar() {
         >
           {ann.ctaLabel} <ArrowRight className="w-3.5 h-3.5" />
         </Link>
-      )}
+      ) : null}
       <button
         onClick={dismiss}
         aria-label="Dismiss announcement"
