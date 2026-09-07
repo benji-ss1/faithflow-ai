@@ -32,9 +32,15 @@ export default async function OperatePage({ params }: { params: Promise<{ id: st
     confidenceFloor: prefs?.autoApproveThreshold ?? 90,
     autoSendToLive: prefs?.autoSendToLive ?? false,
   };
-  // Decoupling Phase 3: per-church opt-in for the layers engine. Read
-  // tolerantly — if the column is absent (migration not yet applied) the
-  // property is simply undefined → false, so nothing changes.
+  // Decoupling Phase 3: per-church opt-in for the layers engine.
+  // DEPLOY ORDERING (required): the `db.select()` above lists EVERY schema
+  // column (including `layers_v2`), so the migration
+  // `docs/migrations/2026-09-08-add-church-preferences-layers-v2.sql` MUST be
+  // applied to the DB BEFORE this code deploys — otherwise the query throws
+  // "column layers_v2 does not exist" and (unlike (app)/operator, this route has
+  // no try/catch) the operate page 500s. The `?? false` below only defends the
+  // no-row case, NOT an absent column. Once migrated, existing churches read
+  // false by default → nothing changes until the flag is deliberately enabled.
   const layersV2 = (prefs as { layersV2?: boolean } | undefined)?.layersV2 ?? false;
 
   return (

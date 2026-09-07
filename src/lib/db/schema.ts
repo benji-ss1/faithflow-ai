@@ -397,8 +397,11 @@ export const churchPreferences = pgTable("church_preferences", {
   // Decoupling Phase 3 (2026-09-08): per-church opt-in for the layers/output
   // engine (operator Layers Panel + render-from-layers). Gated ALSO by the
   // global NEXT_PUBLIC_LAYERS_V2 kill-switch. Default false: no church path
-  // changes until it is deliberately enabled + projector-verified. Code reads
-  // this tolerantly (defaults false if the column is absent pre-migration).
+  // changes until it is deliberately enabled + projector-verified.
+  // NOTE: because operate/operator select ALL columns via db.select(), the
+  // matching migration MUST be applied to the DB BEFORE this code deploys, or
+  // those pages error on the missing column. Migration-first is REQUIRED (the
+  // app-code `?? false` only covers the no-row case, not an absent column).
   layersV2: boolean("layers_v2").notNull().default(false),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
