@@ -1866,6 +1866,12 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const [staleUpdate, setStaleUpdate] = useState(false);
   const liveSlideRef = useRef(ctx.liveSlide);
   liveSlideRef.current = ctx.liveSlide;
+  // Track "is a service in progress" the SAME way UpdateBanner does, so the
+  // auto-reload guard never yanks the page mid-service. A momentarily-empty
+  // projector while the AI is actively listening (e.g. between songs) is NOT
+  // "nothing live" — a full reload there drops the audio/WS + AI session.
+  const listeningRef = useRef(ctx.audio?.listening);
+  listeningRef.current = ctx.audio?.listening;
 
   // Global safety net: any promise that rejects without a handler OR any
   // synchronous throw outside a React tree normally shows up as a red dev
@@ -1884,7 +1890,11 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // handled (so the caller skips the red toast).
     const handleStale = (err: unknown): boolean => {
       if (!isStaleServerActionError(err)) return false;
-      const contentIsLive = liveSlideRef.current?.kind !== "empty";
+      // "In service" = anything projected (incl. a "blank"/black-out, which
+      // holds restore state in memory) OR the AI actively listening. Strictly
+      // MORE conservative than a bare kind!=="empty": only a truly idle shell
+      // (nothing projected AND not listening) may auto-reload.
+      const contentIsLive = liveSlideRef.current?.kind !== "empty" || !!listeningRef.current;
       const { autoReload } = staleActionRecovery({ contentIsLive });
       if (autoReload) { window.location.reload(); return true; }
       setStaleUpdate(true); // show the calm banner with a Reload button
