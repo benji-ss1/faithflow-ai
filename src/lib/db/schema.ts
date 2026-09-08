@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, integer, jsonb, boolean, pgEnum, date, vector, index, uniqueIndex, numeric } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, integer, jsonb, boolean, pgEnum, date, vector, index, uniqueIndex, numeric, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
 export const serviceItemTypeEnum = pgEnum("service_item_type", ["song", "scripture", "media", "sermon", "blank", "logo", "header"]);
@@ -204,12 +204,53 @@ export const songSlides = pgTable("song_slides", {
   // When present + non-empty, this is the source of truth; when null,
   // the legacy `lyrics` string renders as a single full-canvas text object.
   objectsJson: jsonb("objects_json"),
+  // ProPresenter parity (§12): group membership. NULL = ungrouped (no-regression
+  // line — a song with no groups projects byte-identically to today). ON DELETE
+  // SET NULL so deleting a group never orphans its slides.
+  groupId: uuid("group_id").references((): AnyPgColumn => songGroups.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   // The FK to songs does NOT auto-index song_id in Postgres, yet every slide
   // read + the re-chunk delete filters on it. Invisible at demo scale, a
   // table-scan storm when re-chunking across a library (A2, Speed fold §3a-5).
   index("idx_song_slides_song").on(t.songId),
+  index("idx_song_slides_group").on(t.groupId),
+]);
+
+// ProPresenter parity (§12 / MVP §9) — named, colour-coded sections of ONE song.
+// See docs/migrations/2026-09-08-add-song-groups-and-arrangements.sql for the
+// data-model rationale (relational, not JSONB, so edit-once-update-everywhere is
+// free). church_id is defence-in-depth; every read still two-hop verifies via
+// songs.church_id.
+export const songGroups = pgTable("song_groups", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id).notNull(),
+  songId: uuid("song_id").references(() => songs.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  kind: text("kind").notNull().default("custom"), // verse|chorus|bridge|intro|blank|tag|custom
+  color: text("color"), // #rrggbb; null = palette default by kind
+  order: integer("order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("idx_song_groups_song").on(t.songId, t.order),
+  index("idx_song_groups_church").on(t.churchId),
+]);
+
+// Named orderings of group references, per song. `order` is a string[] of
+// songGroups.id, repeatable (Chorus x3). Absence of any arrangement == today's
+// natural slide order (the no-regression line).
+export const songArrangements = pgTable("song_arrangements", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id).notNull(),
+  songId: uuid("song_id").references(() => songs.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  isDefault: boolean("is_default").notNull().default(false),
+  order: jsonb("order").notNull().default([]),
+  sort: integer("sort").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("idx_song_arrangements_song").on(t.songId, t.sort),
+  index("idx_song_arrangements_church").on(t.churchId),
 ]);
 
 export const mediaAssets = pgTable("media_assets", {
@@ -664,7 +705,9 @@ export const openFlowConversations = pgTable("openflow_conversations", {
 
 export const servicePlanRelations = relations(servicePlans, ({ many }) => ({ items: many(serviceItems) }));
 export const serviceItemRelations = relations(serviceItems, ({ one }) => ({ plan: one(servicePlans, { fields: [serviceItems.servicePlanId], references: [servicePlans.id] }) }));
-export const songRelations = relations(songs, ({ many }) => ({ slides: many(songSlides) }));
-export const songSlideRelations = relations(songSlides, ({ one }) => ({ song: one(songs, { fields: [songSlides.songId], references: [songs.id] }) }));
+export const songRelations = relations(songs, ({ many }) => ({ slides: many(songSlides), groups: many(songGroups), arrangements: many(songArrangements) }));
+export const songSlideRelations = relations(songSlides, ({ one }) => ({ song: one(songs, { fields: [songSlides.songId], references: [songs.id] }), group: one(songGroups, { fields: [songSlides.groupId], references: [songGroups.id] }) }));
+export const songGroupRelations = relations(songGroups, ({ one, many }) => ({ song: one(songs, { fields: [songGroups.songId], references: [songs.id] }), slides: many(songSlides) }));
+export const songArrangementRelations = relations(songArrangements, ({ one }) => ({ song: one(songs, { fields: [songArrangements.songId], references: [songs.id] }) }));
 export const pptxImportRelations = relations(pptxImports, ({ many }) => ({ slides: many(pptxSlides) }));
 export const pptxSlideRelations = relations(pptxSlides, ({ one }) => ({ import: one(pptxImports, { fields: [pptxSlides.pptxImportId], references: [pptxImports.id] }) }));

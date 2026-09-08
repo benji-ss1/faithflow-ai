@@ -4,7 +4,8 @@ import { eq, and, asc, sql, inArray } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { readableTextColor } from "./colorway";
 import { isHex6Color } from "./hex-color";
-import { servicePlans, serviceItems, songs, songSlides, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries, type ServiceItemType } from "./db/schema";
+import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangements, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries, type ServiceItemType } from "./db/schema";
+import { GROUP_KINDS } from "../engine/arrangements";
 import { requireUser, requireRole, requireCap } from "./session";
 import { deleteObject, getBuffer, putBuffer } from "./s3";
 import { after } from "next/server";
@@ -938,6 +939,66 @@ export async function duplicateSongSlide(slideId: string): Promise<Result<{ id: 
     objectsJson: src.objectsJson,
   }).returning({ id: songSlides.id });
   revalidatePath(`/library/songs/${owned.songId}`);
+  return { ok: true, data: { id: row.id } };
+}
+
+// ── Media-bin drag/drop (field fix wave 6A) ─────────────────────────────────
+// Two dedicated, church-scoped song-slide mutations for the Media Bin → slide
+// grid drag/drop. Kept separate from createSongSlide's style-inheritance path so
+// a full-screen image slide never inherits a sibling's text objects, and so a
+// per-slide background set preserves any existing designed objects.
+
+// Set ONE slide's background image (per-slide bg — behaviour (a): drop a media
+// thumbnail ONTO a slide). Preserves the slide's existing objectsJson (objects +
+// bgColor); only swaps bgImageUrl. Plain-lyric slides gain a minimal objectsJson
+// carrying just the background, so the drop is durable either way.
+export async function setSongSlideBackgroundImage(slideId: string, url: string): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const owned = await assertSlideOwned(db, slideId, user.churchId);
+  if (!owned) return { ok: false, error: "Slide not found" };
+  const clean = typeof url === "string" ? url.trim() : "";
+  if (!clean || clean.length > 2048 || !/^(https?:|blob:|data:image\/|\/)/i.test(clean)) {
+    return { ok: false, error: "That media has no usable image URL" };
+  }
+  const [row] = await db.select({ objectsJson: songSlides.objectsJson }).from(songSlides).where(eq(songSlides.id, slideId)).limit(1);
+  const oj = (row?.objectsJson ?? null) as { bgColor?: string; bgImageUrl?: string; objects?: Array<Record<string, unknown>> } | null;
+  const nextJson = {
+    bgColor: oj?.bgColor,
+    bgImageUrl: clean,
+    objects: Array.isArray(oj?.objects) ? oj!.objects : [],
+  };
+  await db.update(songSlides).set({ objectsJson: nextJson }).where(eq(songSlides.id, slideId));
+  revalidatePath(`/library/songs/${owned.songId}`);
+  return { ok: true };
+}
+
+// Create a NEW full-screen image slide at a position (behaviour (b): drop a
+// media thumbnail into empty grid space). The image fills the slide via
+// bgImageUrl with no text — deliberately NOT routed through createSongSlide so
+// it can't inherit a sibling slide's lyrics/objects.
+export async function createSongImageSlide(songId: string, atIndex: number | undefined, url: string): Promise<Result<{ id: string }>> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const song = await assertSongOwned(db, songId, user.churchId);
+  if (!song) return { ok: false, error: "Song not found" };
+  const clean = typeof url === "string" ? url.trim() : "";
+  if (!clean || clean.length > 2048 || !/^(https?:|blob:|data:image\/|\/)/i.test(clean)) {
+    return { ok: false, error: "That media has no usable image URL" };
+  }
+  const existing = await db.select({ id: songSlides.id, order: songSlides.order })
+    .from(songSlides).where(eq(songSlides.songId, songId)).orderBy(asc(songSlides.order));
+  const idx = typeof atIndex === "number" ? Math.max(0, Math.min(atIndex, existing.length)) : existing.length;
+  for (let i = existing.length - 1; i >= idx; i--) {
+    await db.update(songSlides).set({ order: i + 1 }).where(eq(songSlides.id, existing[i].id));
+  }
+  const [row] = await db.insert(songSlides).values({
+    songId,
+    order: idx,
+    lyrics: "",
+    objectsJson: { bgColor: "#000000", bgImageUrl: clean, objects: [] },
+  }).returning({ id: songSlides.id });
+  revalidatePath(`/library/songs/${songId}`);
   return { ok: true, data: { id: row.id } };
 }
 
@@ -2171,4 +2232,250 @@ export async function addBuiltInHymnsToMyChurch(): Promise<Result<{ added: numbe
   }
   revalidatePath("/library/songs");
   return { ok: true, data: { added, skipped } };
+}
+
+// ── Groups & Arrangements (ProPresenter §12 / MVP §9) ───────────────────────
+// All group/arrangement mutations are church-scoped via assertSongOwned (song
+// editing => `edit_library`). Field whitelists + hard caps below; the arrangement
+// PIN on a playlist item is `operate_services` (running a service, not editing a
+// song). Deleting a group NEVER deletes its slides (group_id ON DELETE SET NULL).
+
+const MAX_GROUPS_PER_SONG = 60;         // generous; a song rarely exceeds ~12 sections
+const MAX_ARRANGEMENTS_PER_SONG = 30;
+const MAX_ARRANGEMENT_LEN = 200;        // group refs in one arrangement order
+
+function normalizeGroupKind(kind: unknown): string {
+  return typeof kind === "string" && (GROUP_KINDS as readonly string[]).includes(kind) ? kind : "custom";
+}
+
+/** Verify a group belongs to a song owned by the caller's church. */
+async function assertGroupOwned(db: ReturnType<typeof getDb>, groupId: string, churchId: string) {
+  const [row] = await db.select({ id: songGroups.id, songId: songGroups.songId })
+    .from(songGroups)
+    .innerJoin(songs, eq(songs.id, songGroups.songId))
+    .where(and(eq(songGroups.id, groupId), eq(songs.churchId, churchId)))
+    .limit(1);
+  return row ?? null;
+}
+
+async function assertArrangementOwned(db: ReturnType<typeof getDb>, arrangementId: string, churchId: string) {
+  const [row] = await db.select({ id: songArrangements.id, songId: songArrangements.songId })
+    .from(songArrangements)
+    .innerJoin(songs, eq(songs.id, songArrangements.songId))
+    .where(and(eq(songArrangements.id, arrangementId), eq(songs.churchId, churchId)))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function createSongGroup(songId: string, name: string, kind?: string, color?: string | null): Promise<Result<{ id: string }>> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const song = await assertSongOwned(db, songId, user.churchId);
+  if (!song) return { ok: false, error: "Song not found" };
+  const trimmed = (name ?? "").trim();
+  if (!trimmed) return { ok: false, error: "Group name required" };
+  if (trimmed.length > 60) return { ok: false, error: "Group name too long (max 60)" };
+  if (color != null && !isHex6Color(color)) return { ok: false, error: "color must be a #rrggbb hex string" };
+  const existing = await db.select({ id: songGroups.id, order: songGroups.order })
+    .from(songGroups).where(eq(songGroups.songId, songId)).orderBy(asc(songGroups.order));
+  if (existing.length >= MAX_GROUPS_PER_SONG) return { ok: false, error: `Cap of ${MAX_GROUPS_PER_SONG} groups per song` };
+  const nextOrder = existing.length ? Math.max(...existing.map((g) => g.order)) + 1 : 0;
+  const [row] = await db.insert(songGroups).values({
+    churchId: user.churchId, songId, name: trimmed, kind: normalizeGroupKind(kind), color: color ?? null, order: nextOrder,
+  }).returning({ id: songGroups.id });
+  revalidatePath(`/library/songs/${songId}`);
+  return { ok: true, data: { id: row.id } };
+}
+
+export async function renameSongGroup(groupId: string, name: string): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const owned = await assertGroupOwned(db, groupId, user.churchId);
+  if (!owned) return { ok: false, error: "Group not found" };
+  const trimmed = (name ?? "").trim();
+  if (!trimmed) return { ok: false, error: "Group name required" };
+  if (trimmed.length > 60) return { ok: false, error: "Group name too long (max 60)" };
+  await db.update(songGroups).set({ name: trimmed }).where(eq(songGroups.id, groupId));
+  revalidatePath(`/library/songs/${owned.songId}`);
+  return { ok: true };
+}
+
+export async function recolorSongGroup(groupId: string, color: string | null, kind?: string): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const owned = await assertGroupOwned(db, groupId, user.churchId);
+  if (!owned) return { ok: false, error: "Group not found" };
+  if (color != null && !isHex6Color(color)) return { ok: false, error: "color must be a #rrggbb hex string" };
+  const patch: { color: string | null; kind?: string } = { color: color ?? null };
+  if (kind !== undefined) patch.kind = normalizeGroupKind(kind);
+  await db.update(songGroups).set(patch).where(eq(songGroups.id, groupId));
+  revalidatePath(`/library/songs/${owned.songId}`);
+  return { ok: true };
+}
+
+export async function deleteSongGroup(groupId: string): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const owned = await assertGroupOwned(db, groupId, user.churchId);
+  if (!owned) return { ok: false, error: "Group not found" };
+  // group_id ON DELETE SET NULL => slides survive, just become ungrouped.
+  // Also strip the id from any of this song's arrangements so their order stays clean.
+  const arrs = await db.select().from(songArrangements).where(eq(songArrangements.songId, owned.songId));
+  await db.transaction(async (tx) => {
+    await tx.delete(songGroups).where(eq(songGroups.id, groupId));
+    for (const a of arrs) {
+      const order = Array.isArray(a.order) ? (a.order as unknown[]).filter((x): x is string => typeof x === "string") : [];
+      if (order.includes(groupId)) {
+        await tx.update(songArrangements).set({ order: order.filter((g) => g !== groupId) }).where(eq(songArrangements.id, a.id));
+      }
+    }
+  });
+  revalidatePath(`/library/songs/${owned.songId}`);
+  return { ok: true };
+}
+
+/** Assign (or clear, groupId=null) a set of slides to a group. All slides + the
+ *  group must belong to ONE song owned by the caller's church. */
+export async function assignSlidesToGroup(songId: string, slideIds: string[], groupId: string | null): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const song = await assertSongOwned(db, songId, user.churchId);
+  if (!song) return { ok: false, error: "Song not found" };
+  const ids = Array.isArray(slideIds) ? slideIds.filter((x): x is string => typeof x === "string") : [];
+  if (ids.length === 0) return { ok: false, error: "No slides given" };
+  if (ids.length > 500) return { ok: false, error: "Too many slides in one assignment (max 500)" };
+  if (groupId !== null) {
+    const g = await assertGroupOwned(db, groupId, user.churchId);
+    if (!g || g.songId !== songId) return { ok: false, error: "Group not found for this song" };
+  }
+  // Scope the update to THIS song's slides only (defence-in-depth: a foreign
+  // slide id can never be reassigned because song_id is pinned in the WHERE).
+  await db.update(songSlides).set({ groupId }).where(and(eq(songSlides.songId, songId), inArray(songSlides.id, ids)));
+  revalidatePath(`/library/songs/${songId}`);
+  return { ok: true };
+}
+
+export async function createArrangement(songId: string, name: string, order?: string[]): Promise<Result<{ id: string }>> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const song = await assertSongOwned(db, songId, user.churchId);
+  if (!song) return { ok: false, error: "Song not found" };
+  const trimmed = (name ?? "").trim();
+  if (!trimmed) return { ok: false, error: "Arrangement name required" };
+  if (trimmed.length > 80) return { ok: false, error: "Arrangement name too long (max 80)" };
+  const existing = await db.select({ id: songArrangements.id, sort: songArrangements.sort })
+    .from(songArrangements).where(eq(songArrangements.songId, songId));
+  if (existing.length >= MAX_ARRANGEMENTS_PER_SONG) return { ok: false, error: `Cap of ${MAX_ARRANGEMENTS_PER_SONG} arrangements per song` };
+  const cleanOrder = await sanitizeArrangementOrder(db, songId, order);
+  if (cleanOrder === null) return { ok: false, error: "Arrangement order too long" };
+  const nextSort = existing.length ? Math.max(...existing.map((a) => a.sort)) + 1 : 0;
+  const [row] = await db.insert(songArrangements).values({
+    churchId: user.churchId, songId, name: trimmed, isDefault: false, order: cleanOrder, sort: nextSort,
+  }).returning({ id: songArrangements.id });
+  revalidatePath(`/library/songs/${songId}`);
+  return { ok: true, data: { id: row.id } };
+}
+
+export async function renameArrangement(arrangementId: string, name: string): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const owned = await assertArrangementOwned(db, arrangementId, user.churchId);
+  if (!owned) return { ok: false, error: "Arrangement not found" };
+  const trimmed = (name ?? "").trim();
+  if (!trimmed) return { ok: false, error: "Arrangement name required" };
+  if (trimmed.length > 80) return { ok: false, error: "Arrangement name too long (max 80)" };
+  await db.update(songArrangements).set({ name: trimmed }).where(eq(songArrangements.id, arrangementId));
+  revalidatePath(`/library/songs/${owned.songId}`);
+  return { ok: true };
+}
+
+export async function deleteArrangement(arrangementId: string): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const owned = await assertArrangementOwned(db, arrangementId, user.churchId);
+  if (!owned) return { ok: false, error: "Arrangement not found" };
+  await db.delete(songArrangements).where(eq(songArrangements.id, arrangementId));
+  revalidatePath(`/library/songs/${owned.songId}`);
+  return { ok: true };
+}
+
+/** Replace an arrangement's group order (the two-row editor's save). Repeatable
+ *  group ids allowed; every id is validated to belong to THIS song. */
+export async function reorderArrangement(arrangementId: string, order: string[]): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const owned = await assertArrangementOwned(db, arrangementId, user.churchId);
+  if (!owned) return { ok: false, error: "Arrangement not found" };
+  const cleanOrder = await sanitizeArrangementOrder(db, owned.songId, order);
+  if (cleanOrder === null) return { ok: false, error: "Arrangement order too long" };
+  await db.update(songArrangements).set({ order: cleanOrder }).where(eq(songArrangements.id, arrangementId));
+  revalidatePath(`/library/songs/${owned.songId}`);
+  return { ok: true };
+}
+
+/** Clean an incoming arrangement order: keep only string group ids that belong
+ *  to this song (repeats preserved), enforce the length cap. Returns null if too
+ *  long. An empty/absent order yields []. */
+async function sanitizeArrangementOrder(db: ReturnType<typeof getDb>, songId: string, order: unknown): Promise<string[] | null> {
+  const arr = Array.isArray(order) ? (order as unknown[]).filter((x): x is string => typeof x === "string") : [];
+  if (arr.length > MAX_ARRANGEMENT_LEN) return null;
+  if (arr.length === 0) return [];
+  const groups = await db.select({ id: songGroups.id }).from(songGroups).where(eq(songGroups.songId, songId));
+  const valid = new Set(groups.map((g) => g.id));
+  return arr.filter((id) => valid.has(id));
+}
+
+/** PIN (or clear, arrangementId=null) which arrangement a playlist item uses.
+ *  `operate_services` — this is running a service, not editing a song. Scoped to
+ *  the item's plan → church. Verifies the arrangement belongs to the item's song. */
+export async function setServiceItemArrangement(itemId: string, arrangementId: string | null): Promise<Result> {
+  const user = await requireCap("operate_services");
+  const db = getDb();
+  // Load the item + its plan (church-scoped) + its songId payload.
+  const [item] = await db.select({ id: serviceItems.id, type: serviceItems.type, payload: serviceItems.payload })
+    .from(serviceItems)
+    .innerJoin(servicePlans, eq(servicePlans.id, serviceItems.servicePlanId))
+    .where(and(eq(serviceItems.id, itemId), eq(servicePlans.churchId, user.churchId)))
+    .limit(1);
+  if (!item) return { ok: false, error: "Item not found" };
+  if (item.type !== "song") return { ok: false, error: "Arrangements apply to song items only" };
+  if (arrangementId !== null) {
+    const owned = await assertArrangementOwned(db, arrangementId, user.churchId);
+    if (!owned) return { ok: false, error: "Arrangement not found" };
+    const payloadSongId = (item.payload as { songId?: unknown })?.songId;
+    if (typeof payloadSongId === "string" && owned.songId !== payloadSongId) {
+      return { ok: false, error: "Arrangement does not belong to this song" };
+    }
+  }
+  if (arrangementId === null) {
+    await db.execute(sql`UPDATE service_items SET payload = (coalesce(payload,'{}'::jsonb) - 'arrangementId') WHERE id = ${itemId}`);
+  } else {
+    await db.execute(sql`UPDATE service_items SET payload = jsonb_set(coalesce(payload,'{}'::jsonb), '{arrangementId}', ${JSON.stringify(arrangementId)}::jsonb, true) WHERE id = ${itemId}`);
+  }
+  return { ok: true };
+}
+
+/** Read a song's full groups + arrangements model (for the editor UI). */
+export async function getSongArrangementModel(songId: string): Promise<Result<{
+  groups: { id: string; name: string; kind: string; color: string | null; order: number }[];
+  arrangements: { id: string; name: string; isDefault: boolean; order: string[]; sort: number }[];
+  slideGroups: { slideId: string; groupId: string | null }[];
+}>> {
+  const user = await requireCap("view_library");
+  const db = getDb();
+  const song = await assertSongOwned(db, songId, user.churchId);
+  if (!song) return { ok: false, error: "Song not found" };
+  const [groups, arrangements, slides] = await Promise.all([
+    db.select().from(songGroups).where(eq(songGroups.songId, songId)).orderBy(asc(songGroups.order)),
+    db.select().from(songArrangements).where(eq(songArrangements.songId, songId)).orderBy(asc(songArrangements.sort)),
+    db.select({ id: songSlides.id, groupId: songSlides.groupId }).from(songSlides).where(eq(songSlides.songId, songId)).orderBy(asc(songSlides.order)),
+  ]);
+  return {
+    ok: true,
+    data: {
+      groups: groups.map((g) => ({ id: g.id, name: g.name, kind: g.kind, color: g.color, order: g.order })),
+      arrangements: arrangements.map((a) => ({ id: a.id, name: a.name, isDefault: a.isDefault, order: Array.isArray(a.order) ? (a.order as unknown[]).filter((x): x is string => typeof x === "string") : [], sort: a.sort })),
+      slideGroups: slides.map((s) => ({ slideId: s.id, groupId: s.groupId })),
+    },
+  };
 }

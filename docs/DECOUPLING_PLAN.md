@@ -575,3 +575,111 @@ engine** (P4), THEN **themed Messages**. **Macros are DEFERRED** until the set o
 dispatchable primitives is rich enough to justify sequencing them (a macro over
 today's action set buys little; it pays off once Groups/Timers/Messages give it
 real primitives to chain — and only behind the `requiresConfirm` guard above).
+
+---
+
+## Wave 6A — Media Bin relocation + drag-to-slide (0.1.391, 2026-09-08)
+
+Field fix correcting the Wave-5B placement (operator video: "the media bin should
+be under the slides, not on the left").
+
+- **Media Bin → CENTER bottom strip (DONE)**: removed the left-rail
+  `MediaBinSection` mount; it now docks the bottom of the center `<main>` column
+  (below the slide grid + stage), pushing the stage strip up. Still driven by the
+  TopBar media toggle via `mediaStripOpen`. The component is unchanged in data
+  behaviour (kept Wave-5 hardening: lazy fetch, 60-cap, `preload="none"`); only
+  its container styling flipped to a `border-top` bottom strip and it gained a
+  **pop-out (v1)** button — `poppedOut` state in `ProOperatorShell`
+  (`mediaBinPoppedOut`) expands the open strip to a taller band (`min(46vh,420px)`
+  vs the slim 148px default). Hidden while OpenFlow owns the center.
+- **Drag-drop from the Bin into the slide area, two behaviours (DONE)**: the Bin
+  thumbnails already emit the single `application/x-pf-library-item` MIME (cross-OS
+  in-app). `SlideGrid` now classifies drops via the pure, unit-tested
+  `src/lib/media-drop.ts` (`parseMediaDropPayload` / `isImageAsset` /
+  `resolveMediaDrop`): (a) drop ONTO a slide card → sets THAT slide's per-slide
+  background (`setSongSlideBackgroundImage` — preserves objectsJson objects/bgColor,
+  swaps `bgImageUrl`; slide stays editable), with a brand ring + "Set as
+  background" badge affordance; (b) drop into empty grid space → creates a new
+  full-screen image slide (`createSongImageSlide` — `bgImageUrl`-only, NO sibling
+  style inheritance), with a dashed grid outline + "Drop to add a full-screen
+  image slide" caret. Both actions are editable-song-only (honest toast otherwise)
+  and images-only (video/unknown rejected). Both new server actions are
+  `requireCap("edit_library")` + church-scoped. Tests: `test/media-drop.test.ts`
+  (8 pass — parse/gate/classify/clamp).
+- **Per-slide vs all-slides background (DONE, clarified)**: the canonical song-slide
+  editor `BackgroundPanel` ALREADY defaults `setBg` to the CURRENT slide only and
+  carries the ember (brand) "Apply background to all slides" button; added an
+  explicit "this slide only" helper line so the default scope is unambiguous. The
+  GLOBAL Background-Template flow (`setMediaAsBackground`, the "Bg" hover pill) is
+  intentionally broad (behind ALL slides by design, Wave 4) and left unchanged —
+  converting it to per-slide would regress the Background-Templates architecture.
+- **SlideGrid changes kept minimal + additive** (drop handlers + affordance only)
+  to coexist with the concurrent Groups & Arrangements work on the same file.
+
+**Field-verify (untested — needs the real console):** drop a media thumbnail onto
+a lyric slide → background lands, lyrics stay on top and editable; drop into empty
+space → a new full-screen image slide appears at the end; pop-out expands the bin;
+non-song items show the honest "songs only" toast.
+
+---
+
+## AS-BUILT — Groups & Arrangements (0.1.390, 2026-09-08)
+
+Delivers the "Arrangements" cue-sheet extension named above (edit-once-update-
+everywhere is the differentiator). Additive + no-regression: a song with no
+groups projects byte-identically to before.
+
+**Data-model choice (relational, not JSONB-on-songs).** Slides already live as
+rows (`song_slides`: order, lyrics, objects_json, stable id). Making groups
+reference the PHYSICAL slide rows and arrangements reference groups means an
+arrangement never copies a slide — it repeats a reference — so editing a slide
+(existing `saveSlideObjects` / `updateSongSlideText`) updates every arrangement
+instance for free. JSONB-on-songs would have forked the source of truth and
+broken edit-once. Migration: `docs/migrations/2026-09-08-add-song-groups-and-arrangements.sql`
+(idempotent, rollback + migrate-first noted; applied to local `faithflow`).
+- `song_groups` (church_id, song_id, name, kind, color, order) — named sections.
+- `song_slides.group_id` — nullable FK, ON DELETE SET NULL (NULL = ungrouped =
+  the no-regression line; deleting a group never deletes its slides).
+- `song_arrangements` (church_id, song_id, name, is_default, order jsonb =
+  string[] of group ids repeatable, sort).
+- Arrangement PIN on a playlist item = `service_items.payload.arrangementId`
+  (JSONB) — matches the established slideOrder / themeId / pptxSlideOrder
+  precedent; no column, purely additive. Same song can appear twice in one
+  playlist with different pins, zero duplication.
+
+**Engine** `src/engine/arrangements/` — pure model: `expandArrangement(song,
+arrangementId?)` (unknown/undefined pin → master natural order; custom → groups
+in order, repeatable, same identities), `masterOrder`, `hasGroups`,
+`slidesInGroup`, `groupColor` + `GROUP_KIND_COLORS` (ProPresenter-style token
+palette). Tests: `test/arrangements.test.ts` (10 pass) — locks no-regression,
+edit-once identity, deleted-group skip, and cue-sheet agreement (an arranged
+expansion drives `buildCueSheet` in order).
+
+**Loader** `getExpandedServicePlan` expands a song item through
+`payload.arrangementId` when present (fast path: zero extra queries when absent);
+a deleted/empty pin falls through to the legacy natural/slideOrder path (never a
+dead-end).
+
+**Server actions** (church-scoped via assertSongOwned/assertGroupOwned/
+assertArrangementOwned, field whitelists + caps): createSongGroup, renameSongGroup,
+recolorSongGroup, deleteSongGroup, assignSlidesToGroup, createArrangement,
+renameArrangement, deleteArrangement, reorderArrangement, setServiceItemArrangement
+(operate_services), getSongArrangementModel. Caps: 60 groups/song, 30
+arrangements/song, 200 refs/arrangement.
+
+**UI** (functional, minimal, ProPresenter-familiar) — `SongArrangements.tsx` on
+the song page: create/rename/recolor/delete groups, tag each slide to a group
+(colour dots), and a two-row arrangement editor (available groups → click to
+append, repeatable; play order with move/remove/save).
+
+**DEFERRED (documented, backend ready):**
+- Playlist item kebab "Arrangement →" picker in the live operator shell
+  (`PlaylistSection.tsx`, 1143 LOC). `setServiceItemArrangement` is built +
+  typechecked; held back from the live shell to respect the no-regression
+  mandate (needs the plan-reload wiring + ExpandedItem to carry arrangementId).
+- Drag-and-drop in the arrangement editor + colour-coded group badges directly
+  on the operator `SlideGrid` thumbnails (current editor uses click/append + a
+  slide-tagging list).
+- KNOWN LIMIT: the simple lyrics autosave editor (`updateSongSlides`) rewrites
+  all slide rows on save (new ids, group cleared) — assign groups after lyrics
+  settle; per-slide rich edits preserve groups. Surfaced in the UI copy.

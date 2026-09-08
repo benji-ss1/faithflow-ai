@@ -15,6 +15,28 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.391",
+    date: "2026-09-08",
+    headline: "The Media Bin now lives under your slides — drag a picture straight onto a slide or drop it in to make a new one",
+    highlights: [
+      "Media Bin moved: it now docks the bottom of the CENTER area, right under your slides and stage, instead of the left rail. Collapse it to a slim bar from its header (or the media toggle up top), and use the pop-out button to expand it to a taller strip when you're picking through a lot of media.",
+      "Drag a media thumbnail ONTO a slide to set it as THAT slide's background — the slide highlights and shows 'Set as background' while you hover, and your words stay on top and editable.",
+      "Drag a media thumbnail into the empty space below your slides to add a brand-new full-screen image slide — you'll see a 'Drop to add a full-screen image slide' prompt so it's clear which action you're about to do.",
+      "Backgrounds in the slide editor are now clearer: changing the colour or image applies to THIS slide only, with a separate orange 'Apply background to all slides' button when you want it on every slide.",
+    ],
+  },
+  {
+    version: "0.1.390",
+    date: "2026-09-08",
+    headline: "Song groups & arrangements — reorder a worship set without duplicating a single slide",
+    highlights: [
+      "New on any song's page: name your sections as Groups (Verse 1, Chorus, Bridge…), colour-code them, and tag each slide with the section it belongs to.",
+      "Build Arrangements: named play orders of those groups (Chorus can repeat as many times as you sing it). A 'Worship Night' long version and a short 'Reprise' live on the same song — no copies, no second entry.",
+      "Edit once, updated everywhere: fix a Chorus lyric in one place and every arrangement that uses it updates instantly, because arrangements point at your slides rather than copying them.",
+      "Nothing changes for songs you don't touch: a song with no groups plays exactly as it does today.",
+    ],
+  },
+  {
     version: "0.1.389",
     date: "2026-09-08",
     headline: "The Layers eye now toggles both ways — hide a layer, then bring it back exactly as it was",

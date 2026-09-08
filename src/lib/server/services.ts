@@ -3,11 +3,12 @@ import { eq, asc, and, sql, inArray } from "drizzle-orm";
 import { getDb } from "../db/client";
 import { sanitizeLyrics } from "../pro6-parser";
 import { desc } from "drizzle-orm";
-import { servicePlans, serviceItems, songs, songSlides, mediaAssets, pptxImports, pptxSlides, settings, aiSuggestions, themes } from "../db/schema";
+import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangements, mediaAssets, pptxImports, pptxSlides, settings, aiSuggestions, themes } from "../db/schema";
 import { presignGet } from "../s3";
 import type { SlidePayload } from "../broadcast";
 import type { ServiceItemType } from "../db/schema";
 import { projectableTextSlide } from "../broadcast";
+import { expandArrangement } from "../../engine/arrangements";
 
 // Build the projectable payload for a song slide. When the slide has a designed
 // object layout (saved via saveSlideObjects → objects_json), carry the objects +
@@ -107,6 +108,38 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
       if (ownedSong) {
         songId = ownedSong.id;
         const rows = await db.select().from(songSlides).where(eq(songSlides.songId, songId)).orderBy(asc(songSlides.order));
+
+        // ── Arrangements (ProPresenter §12) ──────────────────────────────────
+        // A playlist item may PIN an arrangement via payload.arrangementId. When
+        // present, expand the song through that arrangement's group order (groups
+        // repeatable, edit-once). When ABSENT, this whole block is skipped and the
+        // legacy slideOrder path below runs unchanged — the no-regression line: a
+        // song with no pinned arrangement produces byte-identical slides to today.
+        const arrangementId = typeof payload.arrangementId === "string" && payload.arrangementId ? payload.arrangementId : null;
+        if (arrangementId) {
+          const [arrGroups, arrRows] = await Promise.all([
+            db.select().from(songGroups).where(eq(songGroups.songId, songId)).orderBy(asc(songGroups.order)),
+            db.select().from(songArrangements).where(and(eq(songArrangements.songId, songId), eq(songArrangements.id, arrangementId))).limit(1),
+          ]);
+          if (arrRows[0] && arrGroups.length > 0) {
+            const arranged = expandArrangement<{ id: string; lyrics: string; objectsJson: unknown }>(
+              {
+                songId,
+                slides: rows.map((r) => ({ id: r.id, groupId: r.groupId, lyrics: r.lyrics, objectsJson: r.objectsJson })),
+                groups: arrGroups.map((g) => ({ id: g.id, name: g.name, kind: g.kind, color: g.color, order: g.order })),
+                arrangements: [{ id: arrRows[0].id, name: arrRows[0].name, isDefault: arrRows[0].isDefault, sort: arrRows[0].sort, order: Array.isArray(arrRows[0].order) ? (arrRows[0].order as unknown[]).filter((x): x is string => typeof x === "string") : [] }],
+              },
+              arrangementId,
+            );
+            songSlideRows = arranged.map((r) => ({ id: r.id, lyrics: sanitizeLyrics(r.lyrics), objectsJson: r.objectsJson }));
+            slides = arranged.map((r) => projectableSongSlide(sanitizeLyrics(r.lyrics), r.objectsJson));
+            expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides: slides.length ? slides : [{ kind: "blank", bgColor: blankBgColor }], songId, songSlideRows, mediaMeta });
+            continue;
+          }
+          // Pinned arrangement no longer resolves (deleted, or groups removed) →
+          // fall through to the legacy natural/slideOrder path (never a dead-end).
+        }
+
         // Task C: apply per-plan slideOrder override if present. The override
         // is an array of songSlide IDs in the desired order — church-scoped
         // via the containing plan. Rows not present in the override fall to
