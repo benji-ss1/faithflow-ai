@@ -14,7 +14,7 @@ export type EditorSlideRow = {
 
 export type UseSlideEditorArgs = {
   itemId: string | null;
-  itemType: "song" | "scripture" | "media" | "sermon" | "blank" | "logo";
+  itemType: "song" | "scripture" | "media" | "sermon" | "blank" | "logo" | "header";
   songId: string | null;
   // Server-hydrated legacy slides for the current item. For songs these come
   // straight from song_slides; for other item types we still show a

@@ -35,14 +35,131 @@ import { cn } from "@/lib/utils";
 import { loadMediaFrame, buildMediaFrameSlide } from "../center/mediaFrame";
 import { projectableTextSlide } from "@/lib/broadcast";
 import type { OperatorShellCtx } from "../../shell/types";
-import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong, createSongSlide, deleteSongSlide, setServiceItemTheme, renameSong, renameServiceItem, applyThemeToSong, revertSongTheme, renameMediaAsset } from "@/lib/actions";
+import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong, createSongSlide, deleteSongSlide, setServiceItemTheme, renameSong, renameServiceItem, applyThemeToSong, revertSongTheme, renameMediaAsset, addPlaylistHeader, setHeaderColor } from "@/lib/actions";
 import { useSlideClipboard, getSlideClipboard } from "@/lib/slide-clipboard";
+
+// ProPresenter service-section taxonomy (Ch 13). Defaults used for the "+ New
+// header" quick-add and offered in the recolor menu.
+const HEADER_COLORS: { name: string; value: string }[] = [
+  { name: "Pre-Service", value: "#7c3aed" }, // purple
+  { name: "Welcome", value: "#2563eb" },     // blue
+  { name: "Worship", value: "#16a34a" },     // green
+  { name: "Teaching", value: "#ea580c" },    // orange
+  { name: "Response", value: "#ca8a04" },    // yellow
+  { name: "Closing", value: "#dc2626" },     // red
+];
+const DEFAULT_HEADER_COLOR = HEADER_COLORS[2].value; // worship green
 
 function itemIcon(type: string) {
   if (type === "song") return Music;
   if (type === "scripture" || type === "bible") return BookOpen;
   if (type === "media" || type === "video") return ImageIcon;
   return Square;
+}
+
+// ── Sortable header row ──────────────────────────────────────────────────────
+// A coloured, non-content section divider. It participates in the SAME dnd-kit
+// SortableContext as content items (so operators drag it to reorder across
+// sections), but it cannot be sent to output.
+function SortableHeaderRow({
+  item, idx, totalItems, onRename, onRemove, onMove, onRecolor,
+}: {
+  item: OperatorShellCtx["plan"]["items"][number];
+  idx: number;
+  totalItems: number;
+  onRename: (title: string) => void;
+  onRemove: () => void;
+  onMove: (dir: -1 | 1) => void;
+  onRecolor: (color: string) => void;
+}) {
+  const id = item.id ?? `item-${idx}`;
+  const color = (item as { color?: string }).color || DEFAULT_HEADER_COLOR;
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState(item.title);
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const commit = () => {
+    setRenaming(false);
+    const next = draft.trim();
+    if (next && next !== item.title) onRename(next);
+    else setDraft(item.title);
+  };
+  return (
+    <li
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1, position: "relative", zIndex: isDragging ? 10 : undefined }}
+      data-playlist-header-idx={idx}
+    >
+      <ContextMenu.Root>
+        <ContextMenu.Trigger asChild>
+          <div
+            className="flex items-center gap-1 my-0.5 rounded-md overflow-hidden"
+            style={{ background: `color-mix(in oklab, ${color} 22%, transparent)`, borderLeft: `3px solid ${color}` }}
+          >
+            <button
+              type="button"
+              {...attributes}
+              {...listeners}
+              tabIndex={-1}
+              aria-label="Drag to reorder section"
+              className="flex items-center justify-center w-5 h-full py-1 cursor-grab active:cursor-grabbing shrink-0"
+              style={{ color }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <GripVertical className="w-3 h-3" />
+            </button>
+            {renaming ? (
+              <input
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={commit}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); commit(); }
+                  else if (e.key === "Escape") { e.preventDefault(); setRenaming(false); setDraft(item.title); }
+                }}
+                maxLength={120}
+                className="flex-1 mr-2 my-0.5 px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide rounded bg-[var(--color-panel)] border border-[var(--color-brand)] text-[var(--color-foreground)] outline-none"
+              />
+            ) : (
+              <button
+                type="button"
+                onDoubleClick={(e) => { e.stopPropagation(); setDraft(item.title); setRenaming(true); }}
+                title="Section header — double-click to rename, right-click to recolor"
+                className="flex-1 flex items-center gap-2 pr-2 py-1 text-[11px] font-bold uppercase tracking-wide text-left truncate"
+                style={{ color }}
+              >
+                <span className="truncate">{item.title}</span>
+              </button>
+            )}
+          </div>
+        </ContextMenu.Trigger>
+        <ContextMenu.Portal>
+          <ContextMenu.Content className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[150px]">
+            <ContextMenu.Item onSelect={() => { setDraft(item.title); setRenaming(true); }} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">Rename</ContextMenu.Item>
+            <ContextMenu.Sub>
+              <ContextMenu.SubTrigger className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between data-[state=open]:bg-[var(--color-panel)]"><span>Change color</span><span className="opacity-60">▸</span></ContextMenu.SubTrigger>
+              <ContextMenu.Portal>
+                <ContextMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[160px]">
+                  {HEADER_COLORS.map((c) => (
+                    <ContextMenu.Item key={c.value} onSelect={() => onRecolor(c.value)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full shrink-0" style={{ background: c.value }} />
+                      <span>{c.name}</span>
+                      {color.toLowerCase() === c.value.toLowerCase() && <span className="ml-auto text-[var(--color-brand)]">✓</span>}
+                    </ContextMenu.Item>
+                  ))}
+                </ContextMenu.SubContent>
+              </ContextMenu.Portal>
+            </ContextMenu.Sub>
+            <ContextMenu.Separator className="h-px my-1 bg-[var(--color-border)]" />
+            <ContextMenu.Item onSelect={() => onMove(-1)} disabled={idx === 0} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer data-[disabled]:opacity-50">Move Up</ContextMenu.Item>
+            <ContextMenu.Item onSelect={() => onMove(1)} disabled={idx === totalItems - 1} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer data-[disabled]:opacity-50">Move Down</ContextMenu.Item>
+            <ContextMenu.Separator className="h-px my-1 bg-[var(--color-border)]" />
+            <ContextMenu.Item onSelect={onRemove} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer text-[var(--color-destructive)]">Remove header</ContextMenu.Item>
+          </ContextMenu.Content>
+        </ContextMenu.Portal>
+      </ContextMenu.Root>
+    </li>
+  );
 }
 
 // ── Sortable row ────────────────────────────────────────────────────────────
@@ -548,6 +665,19 @@ export function PlaylistSection({
     if (res.data) undoToast("Blank slide added", () => removeServiceItem(res.data!.id));
   };
 
+  const addHeader = async () => {
+    if (blockedIfOffline()) return;
+    const res = await addPlaylistHeader(ctx.planId, "New Section", DEFAULT_HEADER_COLOR);
+    if (!res.ok) { toast.error(res.error ?? "Couldn't add header"); return; }
+    router.refresh();
+    if (res.data) undoToast("Section header added", () => removeServiceItem(res.data!.id));
+  };
+
+  const recolorHeader = async (itemId: string, color: string) => {
+    if (blockedIfOffline()) return;
+    handleResult(await setHeaderColor(itemId, color), "Section recolored");
+  };
+
   const renameItem = async (it: OperatorShellCtx["plan"]["items"][number], newTitle: string) => {
     if (blockedIfOffline()) return;
     // Song items rename the underlying song (keeps library + every plan in
@@ -843,6 +973,7 @@ export function PlaylistSection({
               <button className="w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded-lg font-medium transition-colors hover:bg-[var(--color-brand)]/12 hover:text-[var(--color-brand)]" onClick={() => onCenterMode?.("media")}><ImageIcon className="w-3.5 h-3.5 shrink-0 opacity-70" />From Media</button>
               <div className="my-1 h-px bg-[var(--color-border)]" />
               <button className="w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded-lg font-medium transition-colors hover:bg-[var(--color-brand)]/10" onClick={addBlank}><Square className="w-3.5 h-3.5 shrink-0 opacity-70" />Blank</button>
+              <button className="w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded-lg font-medium transition-colors hover:bg-[var(--color-brand)]/10" onClick={() => void addHeader()}><span className="w-3.5 h-3.5 shrink-0 rounded-sm" style={{ background: DEFAULT_HEADER_COLOR }} />Section header</button>
             </Popover.Content>
           </Popover.Portal>
         </Popover.Root>
@@ -872,6 +1003,18 @@ export function PlaylistSection({
                 </li>
               )}
               {items.map((it, idx) => (
+                it.type === "header" ? (
+                  <SortableHeaderRow
+                    key={it.id ?? idx}
+                    item={it}
+                    idx={idx}
+                    totalItems={items.length}
+                    onRename={(title) => void renameItem(it, title)}
+                    onRemove={() => void remove(it)}
+                    onMove={(dir) => void move(idx, dir)}
+                    onRecolor={(color) => it.id && void recolorHeader(it.id, color)}
+                  />
+                ) : (
                 <SortablePlaylistItem
                   key={it.id ?? idx}
                   item={it}
@@ -896,6 +1039,7 @@ export function PlaylistSection({
                   currentThemeId={(it as { themeId?: string }).themeId ?? null}
                   onSetTheme={it.id ? (themeId) => void setTheme(it.id!, themeId) : undefined}
                 />
+                )
               ))}
             </ol>
           </SortableContext>

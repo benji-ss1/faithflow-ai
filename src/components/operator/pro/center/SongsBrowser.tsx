@@ -20,6 +20,9 @@ import type { SlidePayload } from "@/lib/broadcast";
 import { createSong, createSongSlide, importPro6Files, renameSong, updateSongSlides, deleteSong, reChunkSong } from "@/lib/actions";
 import { isInternalEvent } from "@/lib/internal-events";
 import { ProPresenterImportDialog } from "@/components/library/ProPresenterImportDialog";
+import { useSelectedLibrary, libraryQueryParam } from "../left/libraryFilter";
+import { listLibraries, setSongLibrary, type LibraryRow } from "@/lib/actions";
+import * as ContextMenu from "@radix-ui/react-context-menu";
 
 type SongRow = { id: string; title: string; artist: string | null };
 type SlideRow = { id?: string; lyrics: string };
@@ -93,11 +96,31 @@ export function SongsBrowser({
     return () => window.removeEventListener("presentflow:center-slide-size", handler);
   }, []);
 
+  // ProPresenter parity (Phase 3.6): filter the list by the selected Library
+  // and offer a "Move to library" action per song.
+  const [selectedLibrary] = useSelectedLibrary();
+  const [libs, setLibs] = useState<LibraryRow[]>([]);
+  useEffect(() => {
+    let m = true;
+    void listLibraries().then((r) => { if (m && r.ok) setLibs(r.data!.libraries); });
+    const h = () => { void listLibraries().then((r) => { if (m && r.ok) setLibs(r.data!.libraries); }); };
+    window.addEventListener("presentflow:libraries-changed", h);
+    return () => { m = false; window.removeEventListener("presentflow:libraries-changed", h); };
+  }, []);
+  const moveSong = useCallback(async (songId: string, libraryId: string | null) => {
+    const res = await setSongLibrary(songId, libraryId);
+    if (!res.ok) { toast.error(res.error ?? "Move failed"); return; }
+    toast.success("Song moved");
+    window.dispatchEvent(new CustomEvent("presentflow:libraries-changed"));
+    setReloadKey((k) => k + 1);
+  }, []);
+
   const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetch("/api/songs/list")
+    const q = libraryQueryParam(selectedLibrary);
+    fetch(`/api/songs/list${q ? `?library=${encodeURIComponent(q)}` : ""}`)
       .then(async (r) => {
         const data = await r.json().catch(() => ({}));
         if (cancelled) return;
@@ -107,7 +130,7 @@ export function SongsBrowser({
       .catch((err) => { if (!cancelled) toast.error(err instanceof Error ? err.message : "Failed to load songs"); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [reloadKey]);
+  }, [reloadKey, selectedLibrary]);
 
   // --- ProPresenter import (button + drag-drop) ----------------------------
   // The button now opens the polished 4-step dialog (handles Pro7, .proBundle,
@@ -395,8 +418,9 @@ export function SongsBrowser({
           {filtered.map((s) => {
             const isChecked = selectedIds.has(s.id);
             return (
+            <ContextMenu.Root key={s.id}>
+              <ContextMenu.Trigger asChild>
             <li
-              key={s.id}
               draggable
               onDragStart={(e) => {
                 e.dataTransfer.effectAllowed = "copy";
@@ -424,6 +448,24 @@ export function SongsBrowser({
                 {s.artist && <div className="text-[11px] text-[var(--color-muted-foreground)] truncate">{s.artist}</div>}
               </button>
             </li>
+              </ContextMenu.Trigger>
+              <ContextMenu.Portal>
+                <ContextMenu.Content className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[160px]">
+                  <ContextMenu.Sub>
+                    <ContextMenu.SubTrigger className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between data-[state=open]:bg-[var(--color-panel)]"><span>Move to library</span><span className="opacity-60">▸</span></ContextMenu.SubTrigger>
+                    <ContextMenu.Portal>
+                      <ContextMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[160px] max-h-[300px] overflow-y-auto">
+                        <ContextMenu.Item onSelect={() => void moveSong(s.id, null)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">Default (unfiled)</ContextMenu.Item>
+                        {libs.length > 0 && <ContextMenu.Separator className="h-px my-1 bg-[var(--color-border)]" />}
+                        {libs.map((lib) => (
+                          <ContextMenu.Item key={lib.id} onSelect={() => void moveSong(s.id, lib.id)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer truncate">{lib.name}</ContextMenu.Item>
+                        ))}
+                      </ContextMenu.SubContent>
+                    </ContextMenu.Portal>
+                  </ContextMenu.Sub>
+                </ContextMenu.Content>
+              </ContextMenu.Portal>
+            </ContextMenu.Root>
             );
           })}
         </ul>

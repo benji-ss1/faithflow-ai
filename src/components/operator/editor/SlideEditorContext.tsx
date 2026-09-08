@@ -6,7 +6,7 @@ type SaveState = "idle" | "saving" | "error";
 
 export type SlideEditorContextValue = UseSlideEditorReturn & {
   itemId: string | null;
-  itemType: "song" | "scripture" | "media" | "sermon" | "blank" | "logo" | null;
+  itemType: "song" | "scripture" | "media" | "sermon" | "blank" | "logo" | "header" | null;
   songId: string | null;
   saveState: SaveState;
   onSave: () => void;

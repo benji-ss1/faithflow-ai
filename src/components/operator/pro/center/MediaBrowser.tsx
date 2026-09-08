@@ -25,7 +25,8 @@ import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import { projectableTextSlide, type SlidePayload } from "@/lib/broadcast";
-import { registerMediaAsset, renameMediaAsset, deleteMediaAsset } from "@/lib/actions";
+import { registerMediaAsset, renameMediaAsset, deleteMediaAsset, setMediaLibrary, listLibraries, type LibraryRow } from "@/lib/actions";
+import { useSelectedLibrary, libraryQueryParam } from "../left/libraryFilter";
 import { setMediaOnActiveTheme, clearActiveThemeBackground, type QuickThemeChange } from "@/lib/theme-quick-apply";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { MediaImportWizard } from "./MediaImportWizard";
@@ -105,10 +106,33 @@ export function MediaBrowser({
   useEffect(() => { setOrder(loadMediaOrder(ctx.churchId)); }, [ctx.churchId]);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
+  // ProPresenter parity (Phase 3.6): filter the grid by the selected Library.
+  // The per-church cache is only valid for the unfiltered ("all") view, so a
+  // filtered view bypasses cache read + write-through entirely.
+  const [selectedLibrary] = useSelectedLibrary();
+  const libQ = libraryQueryParam(selectedLibrary);
+  const listUrl = `/api/media/list${libQ ? `?library=${encodeURIComponent(libQ)}` : ""}`;
+  const cacheEligible = selectedLibrary === "all";
+  const [libs, setLibs] = useState<LibraryRow[]>([]);
+  useEffect(() => {
+    let m = true;
+    void listLibraries().then((r) => { if (m && r.ok) setLibs(r.data!.libraries); });
+    const h = () => { void listLibraries().then((r) => { if (m && r.ok) setLibs(r.data!.libraries); }); };
+    window.addEventListener("presentflow:libraries-changed", h);
+    return () => { m = false; window.removeEventListener("presentflow:libraries-changed", h); };
+  }, []);
+  const moveMedia = async (assetId: string, libraryId: string | null) => {
+    const res = await setMediaLibrary(assetId, libraryId);
+    if (!res.ok) { toast.error(res.error ?? "Move failed"); return; }
+    toast.success("Media moved");
+    window.dispatchEvent(new CustomEvent("presentflow:libraries-changed"));
+    loadAssets(true);
+  };
+
   // ── Data loading ─────────────────────────────────────────────────────────
   const loadAssets = (quiet = false) => {
     if (!quiet) setLoading(true);
-    fetch("/api/media/list")
+    fetch(listUrl)
       .then((r) => r.json())
       .then((data: unknown) => setAssets((data as { assets?: Asset[] }).assets ?? []))
       .catch(() => toast.error("Failed to load media"))
@@ -119,10 +143,10 @@ export function MediaBrowser({
     let cancelled = false;
     // If we have a cached list, the grid is already showing it — revalidate
     // quietly (no spinner blanking the grid). Only show the spinner on a genuine
-    // cold open with nothing to show.
-    const hasCache = (mediaListCache.get(ctx.churchId)?.length ?? 0) > 0;
+    // cold open with nothing to show. (Cache applies to the unfiltered view only.)
+    const hasCache = cacheEligible && (mediaListCache.get(ctx.churchId)?.length ?? 0) > 0;
     if (!hasCache) setLoading(true);
-    fetch("/api/media/list")
+    fetch(listUrl)
       .then((r) => r.json())
       .then((data: unknown) => { if (!cancelled) setAssets((data as { assets?: Asset[] }).assets ?? []); })
       // On a revalidation failure, KEEP the cached grid (graceful) — only surface
@@ -131,17 +155,17 @@ export function MediaBrowser({
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ctx.churchId]);
+  }, [ctx.churchId, listUrl]);
 
-  // Write-through: mirror every assets change (revalidation + optimistic
-  // rename/delete/import updates) into the per-church cache so the next re-open
-  // paints the latest state instantly. Guarded so an initial empty state never
-  // clobbers a populated cache before the first load resolves.
+  // Write-through: mirror every assets change into the per-church cache so the
+  // next re-open paints the latest state instantly. ONLY for the unfiltered
+  // view — a filtered list must never poison the full-library cache.
   useEffect(() => {
+    if (!cacheEligible) return;
     if (assets.length > 0 || mediaListCache.has(ctx.churchId)) {
       mediaListCache.set(ctx.churchId, assets);
     }
-  }, [assets, ctx.churchId]);
+  }, [assets, ctx.churchId, cacheEligible]);
 
   // One-time thumbnail backfill for PRE-EXISTING assets (rows that predate the
   // on-upload thumbnail step). Fire-and-forget, bounded per call — loop until
@@ -687,6 +711,18 @@ export function MediaBrowser({
                     >
                       Add to Playlist
                     </ContextMenu.Item>
+                    <ContextMenu.Sub>
+                      <ContextMenu.SubTrigger className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between data-[state=open]:bg-[var(--color-panel)]"><span>Move to library</span><span className="opacity-60">▸</span></ContextMenu.SubTrigger>
+                      <ContextMenu.Portal>
+                        <ContextMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[160px] max-h-[300px] overflow-y-auto">
+                          <ContextMenu.Item onSelect={() => void moveMedia(a.id, null)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">Default (unfiled)</ContextMenu.Item>
+                          {libs.length > 0 && <ContextMenu.Separator className="h-px my-1 bg-[var(--color-border)]" />}
+                          {libs.map((lib) => (
+                            <ContextMenu.Item key={lib.id} onSelect={() => void moveMedia(a.id, lib.id)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer truncate">{lib.name}</ContextMenu.Item>
+                          ))}
+                        </ContextMenu.SubContent>
+                      </ContextMenu.Portal>
+                    </ContextMenu.Sub>
                     {!a.kind.startsWith("video") && (
                       <>
                         <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
