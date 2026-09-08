@@ -11,6 +11,10 @@ export const runtime = "nodejs";
 // downgrade / tier expiry.
 const mediaListLimiter = createLimiter("media-list", 30, 60_000);
 
+// A named library id must be a UUID (Y2) — reject anything else with a 400 so a
+// malformed/hostile ?library= can never reach the query as an opaque string.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function GET(req: Request) {
   const user = await apiUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -19,6 +23,9 @@ export async function GET(req: Request) {
   }
   // ProPresenter parity: ?library=all (default) | default (unfiled) | <uuid>.
   const lib = new URL(req.url).searchParams.get("library");
+  if (lib != null && lib !== "all" && lib !== "default" && !UUID_RE.test(lib)) {
+    return NextResponse.json({ error: "Invalid library id" }, { status: 400 });
+  }
   const filter = lib == null || lib === "all" ? undefined : lib === "default" ? null : lib;
   const media = await listMedia(user.churchId, filter);
   const withUrls = await Promise.all(media.map(async (m) => {
