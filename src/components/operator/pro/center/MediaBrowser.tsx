@@ -26,7 +26,7 @@ import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import { projectableTextSlide, type SlidePayload } from "@/lib/broadcast";
 import { registerMediaAsset, renameMediaAsset, deleteMediaAsset, setMediaLibrary, listLibraries, type LibraryRow } from "@/lib/actions";
-import { useSelectedLibrary, libraryQueryParam } from "../left/libraryFilter";
+import { useSelectedLibrary, libraryQueryParam, getSelectedLibrary, setSelectedLibrary, type LibraryFilter } from "../left/libraryFilter";
 import { setMediaOnActiveTheme, clearActiveThemeBackground, type QuickThemeChange } from "@/lib/theme-quick-apply";
 import { setMediaAsBackground, normalizeMediaKind } from "@/backgrounds/mediaAsBackground";
 import { snapshotBackgroundState, restoreBackgroundState, removeCustomBackground } from "@/backgrounds/store/backgroundStore";
@@ -143,7 +143,22 @@ export function MediaBrowser({
   const moveMedia = async (assetId: string, libraryId: string | null) => {
     const res = await setMediaLibrary(assetId, libraryId);
     if (!res.ok) { toast.error(res.error ?? "Move failed"); return; }
-    toast.success("Media moved");
+    // Field fix (wave 6C): a move filters the asset out of the current library
+    // view, which reads as "it's gone". If viewing a specific library that
+    // isn't the destination, offer a one-tap "View in <dest>" that follows it.
+    const destFilter: LibraryFilter = libraryId ?? "default";
+    const destName = libraryId
+      ? (libs.find((l) => l.id === libraryId)?.name ?? "that library")
+      : "Ungrouped";
+    const current = getSelectedLibrary();
+    if (current !== "all" && current !== destFilter) {
+      toast.success(`Moved to ${destName}`, {
+        action: { label: `View in ${destName}`, onClick: () => setSelectedLibrary(destFilter) },
+        duration: 6000,
+      });
+    } else {
+      toast.success(`Moved to ${destName}`);
+    }
     window.dispatchEvent(new CustomEvent("presentflow:libraries-changed"));
     loadAssets(true);
   };

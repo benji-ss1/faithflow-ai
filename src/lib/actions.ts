@@ -1002,6 +1002,86 @@ export async function createSongImageSlide(songId: string, atIndex: number | und
   return { ok: true, data: { id: row.id } };
 }
 
+// ── Generic per-item slide backgrounds (field fix wave 6C: decoupling) ───────
+// Backgrounds and full-screen image slides are NOT song-only. For a NON-song
+// plan item (scripture / media / sermon) the slides are derived from the item
+// payload on every load, so a dropped background is persisted as an additive
+// override map on the item payload and re-applied by getExpandedServicePlan.
+// Church-scoped two-hop (serviceItems → servicePlans). Songs keep their own
+// durable path (setSongSlideBackgroundImage / createSongImageSlide).
+
+const ITEM_BG_MAX_SLIDES = 500; // guard against an unbounded override map
+
+// Shared validator for a droppable media image URL (mirrors the song path).
+function cleanRenderUrl(url: string): string | null {
+  const clean = typeof url === "string" ? url.trim() : "";
+  if (!clean || clean.length > 2048 || !/^(https?:|blob:|data:image\/|\/)/i.test(clean)) return null;
+  return clean;
+}
+
+async function assertServiceItemOwned(
+  db: ReturnType<typeof getDb>,
+  itemId: string,
+  churchId: string,
+): Promise<{ id: string; planId: string; type: ServiceItemType; payload: Record<string, unknown> } | null> {
+  const [it] = await db
+    .select({ id: serviceItems.id, planId: serviceItems.servicePlanId, type: serviceItems.type, payload: serviceItems.payload })
+    .from(serviceItems)
+    .innerJoin(servicePlans, eq(servicePlans.id, serviceItems.servicePlanId))
+    .where(and(eq(serviceItems.id, itemId), eq(servicePlans.churchId, churchId)))
+    .limit(1);
+  if (!it) return null;
+  return { id: it.id, planId: it.planId, type: it.type, payload: (it.payload || {}) as Record<string, unknown> };
+}
+
+// Set (or clear, with url="") ONE non-song slide's background image. Stored as
+// payload.slideBackgrounds[slideIndex]. Additive — never touches the item's
+// other content. For a SONG item, callers must use setSongSlideBackgroundImage
+// (durable per-slide row) instead; this rejects songs so the two never diverge.
+export async function setServiceItemSlideBackground(itemId: string, slideIndex: number, url: string): Promise<Result> {
+  const user = await requireCap("operate_services");
+  const db = getDb();
+  const it = await assertServiceItemOwned(db, itemId, user.churchId);
+  if (!it) return { ok: false, error: "Item not found" };
+  if (it.type === "song") return { ok: false, error: "Use the song slide background action for songs" };
+  if (!Number.isInteger(slideIndex) || slideIndex < 0 || slideIndex >= ITEM_BG_MAX_SLIDES) {
+    return { ok: false, error: "Invalid slide" };
+  }
+  const raw = it.payload.slideBackgrounds;
+  const map: Record<string, string> = (raw && typeof raw === "object" && !Array.isArray(raw)) ? { ...(raw as Record<string, string>) } : {};
+  if (url === "") {
+    delete map[String(slideIndex)];
+  } else {
+    const clean = cleanRenderUrl(url);
+    if (!clean) return { ok: false, error: "That media has no usable image URL" };
+    map[String(slideIndex)] = clean;
+  }
+  const nextPayload = { ...it.payload, slideBackgrounds: map };
+  await db.update(serviceItems).set({ payload: nextPayload }).where(eq(serviceItems.id, itemId));
+  revalidatePath(`/services/${it.planId}`);
+  return { ok: true };
+}
+
+// Append a full-screen image slide to a NON-song plan item (drop into empty grid
+// space). Stored as payload.extraImageSlides (a url list) so it survives reloads
+// and is re-applied by getExpandedServicePlan. Songs use createSongImageSlide.
+export async function addServiceItemImageSlide(itemId: string, url: string): Promise<Result> {
+  const user = await requireCap("operate_services");
+  const db = getDb();
+  const it = await assertServiceItemOwned(db, itemId, user.churchId);
+  if (!it) return { ok: false, error: "Item not found" };
+  if (it.type === "song") return { ok: false, error: "Use the song image-slide action for songs" };
+  const clean = cleanRenderUrl(url);
+  if (!clean) return { ok: false, error: "That media has no usable image URL" };
+  const raw = it.payload.extraImageSlides;
+  const list: string[] = Array.isArray(raw) ? (raw as unknown[]).filter((u): u is string => typeof u === "string") : [];
+  if (list.length >= ITEM_BG_MAX_SLIDES) return { ok: false, error: "Too many image slides on this item" };
+  const nextPayload = { ...it.payload, extraImageSlides: [...list, clean] };
+  await db.update(serviceItems).set({ payload: nextPayload }).where(eq(serviceItems.id, itemId));
+  revalidatePath(`/services/${it.planId}`);
+  return { ok: true };
+}
+
 export async function reorderSongSlides(songId: string, orderedIds: string[]): Promise<Result> {
   const user = await requireCap("edit_library");
   const db = getDb();

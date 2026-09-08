@@ -451,8 +451,23 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
         </div>
       );
     }
-    const bg = (overVideo || transparentBg) ? { background: "transparent" } : slideBg ? { background: slideBg } : themeBackgroundStyle(appearance, "#0b0b0b");
-    const animated = usesAnimatedBg(appearance, overVideo || transparentBg, slideBg);
+    // Per-slide background precedence mirrors the designed-objects path above so a
+    // plain (object-less) text/lyric slide with a dropped bgImageUrl actually
+    // renders that image: OBS transparent wins first, then an explicit per-slide
+    // image (opaque — covers a camera/template), then a per-slide colour, then the
+    // theme. Previously bgImageUrl was ignored here, so a full-screen image slide
+    // (or a background dropped onto a plain-lyric slide) rendered with no image
+    // (field bug 6C: "background not fully set to the back of the image").
+    const bg = transparentBg
+      ? { background: "transparent" }
+      : slide.bgImageUrl
+        ? { background: `#000 url("${slide.bgImageUrl}") center/cover no-repeat` }
+        : overVideo
+          ? { background: "transparent" }
+          : slideBg
+            ? { background: slideBg }
+            : themeBackgroundStyle(appearance, "#0b0b0b");
+    const animated = usesAnimatedBg(appearance, overVideo || transparentBg, slideBg || slide.bgImageUrl);
     const refText = slide.reference?.trim();
     return (
       <div

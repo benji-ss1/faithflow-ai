@@ -20,7 +20,7 @@ import type { SlidePayload } from "@/lib/broadcast";
 import { createSong, createSongSlide, importPro6Files, renameSong, updateSongSlides, deleteSong, reChunkSong } from "@/lib/actions";
 import { isInternalEvent } from "@/lib/internal-events";
 import { ProPresenterImportDialog } from "@/components/library/ProPresenterImportDialog";
-import { useSelectedLibrary, libraryQueryParam } from "../left/libraryFilter";
+import { useSelectedLibrary, libraryQueryParam, getSelectedLibrary, setSelectedLibrary, type LibraryFilter } from "../left/libraryFilter";
 import { listLibraries, setSongLibrary, type LibraryRow } from "@/lib/actions";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 
@@ -110,10 +110,29 @@ export function SongsBrowser({
   const moveSong = useCallback(async (songId: string, libraryId: string | null) => {
     const res = await setSongLibrary(songId, libraryId);
     if (!res.ok) { toast.error(res.error ?? "Move failed"); return; }
-    toast.success("Song moved");
+    // Field fix (wave 6C): "I moved it into Songs and now it's completely gone."
+    // A move filters the item out of the CURRENT library view — which reads as
+    // the item vanishing. If we're viewing a specific library that ISN'T the
+    // destination, the song legitimately leaves this view, so offer a one-tap
+    // "View in <dest>" that switches the filter to where it now lives. When
+    // viewing "all", it stays on screen (the reload keeps it), so a plain
+    // confirmation is enough.
+    const destFilter: LibraryFilter = libraryId ?? "default";
+    const destName = libraryId
+      ? (libs.find((l) => l.id === libraryId)?.name ?? "that library")
+      : "Ungrouped";
+    const current = getSelectedLibrary();
+    if (current !== "all" && current !== destFilter) {
+      toast.success(`Moved to ${destName}`, {
+        action: { label: `View in ${destName}`, onClick: () => setSelectedLibrary(destFilter) },
+        duration: 6000,
+      });
+    } else {
+      toast.success(`Moved to ${destName}`);
+    }
     window.dispatchEvent(new CustomEvent("presentflow:libraries-changed"));
     setReloadKey((k) => k + 1);
-  }, []);
+  }, [libs]);
 
   const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
