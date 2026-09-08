@@ -111,6 +111,7 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
             onVideoRef={onVideoRef}
             layersEnabled
             layerOverrides={ctx.liveLayers.overrides}
+            previewFrozen
           />
         ) : (
           <PresentationCanvas zone={ctx.zone}>
@@ -118,7 +119,7 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
                 the projector (slide goes transparent via overVideo). */}
             {/* key on the preset forces a fresh WebGL canvas on theme switch —
                 reusing the canvas permanently loses its context (freezes the shader). */}
-            {ctx.background && ctx.background.type !== "none" && <BackgroundLayer key={ctx.background.shaderPreset ?? ctx.background.type} background={ctx.background} />}
+            {ctx.background && ctx.background.type !== "none" && <BackgroundLayer key={ctx.background.shaderPreset ?? ctx.background.type} background={ctx.background} frozen />}
             <SlideRenderer slide={ctx.liveSlide} appearance={ctx.appearance ?? undefined} projectorFit fontScale={ctx.fontScale} referenceScale={ctx.referenceScale} referenceColor={ctx.referenceColor} overVideo={!!(ctx.background && ctx.background.type !== "none")} onVideoRef={onVideoRef} />
           </PresentationCanvas>
         )}

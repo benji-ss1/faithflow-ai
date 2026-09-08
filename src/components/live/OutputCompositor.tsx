@@ -88,6 +88,14 @@ export interface OutputCompositorProps {
   layersEnabled?: boolean;
   /** Id-keyed layer-patch overrides (from the route's layerOverridesRef). */
   layerOverrides?: LayerWire[] | Map<string, LayerWire> | null;
+  /**
+   * Y3: freeze the background layer (WebGL shaders show a static first frame; a
+   * video background shows its first frame, no decode). Used ONLY by the operator
+   * mini-preview so it doesn't spin up a SECOND live RAF WebGL loop / video decode
+   * alongside the real projector. Projector routes leave it undefined ⇒ not frozen
+   * ⇒ byte-identical live output.
+   */
+  previewFrozen?: boolean;
 }
 
 /**
@@ -99,7 +107,7 @@ export function OutputCompositor(props: OutputCompositorProps) {
   const {
     appearance, transition, fontScale, referenceScale,
     referenceColor, zone, obsBand, obsThemeColors, videoMuted = false, onVideoRef,
-    layersEnabled, layerOverrides,
+    layersEnabled, layerOverrides, previewFrozen = false,
   } = props;
 
   // Phase 3: when layers mode is on, resolve the render input from the operator's
@@ -139,7 +147,7 @@ export function OutputCompositor(props: OutputCompositorProps) {
     switch (layer.id) {
       case "background":
         return layer.props.background ? (
-          <BackgroundLayer key={layer.props.background.shaderPreset ?? layer.props.background.type} background={layer.props.background} />
+          <BackgroundLayer key={layer.props.background.shaderPreset ?? layer.props.background.type} background={layer.props.background} frozen={previewFrozen} />
         ) : null;
       case "slide": {
         const { renderMode, overVideo, transparentBg, videoInput } = layer.props;
