@@ -52,6 +52,11 @@ import { ChannelStrip } from "../../ChannelStrip";
 
 type PopoverKey = "bible" | "songs" | "xrefs" | "logs" | "settings" | "themes" | "layers";
 
+// First-run discoverability for the Layers panel: set once the operator opens
+// Layers for the first time. Until then (and only when Layers is enabled for the
+// church) a subtle pulse dot + "New: Layers" tooltip draws attention to the icon.
+const LAYERS_OPENED_KEY = "presentflow.layers.opened.v1";
+
 export function RightIconBar({
   ctx, timer, messages,
 }: {
@@ -68,6 +73,40 @@ export function RightIconBar({
     setOpenKeyInner(k);
     updateSessionState({ sidebarTab: k });
   }, []);
+  // First-run Layers pulse. Default true (no SSR flash / no dot), then flip to
+  // false post-mount iff Layers is enabled for the church AND never opened.
+  const [layersSeen, setLayersSeen] = useState(true);
+  useEffect(() => {
+    if (!LAYERS_V2 || !ctx.layersEngineOn) return;
+    try {
+      if (window.localStorage.getItem(LAYERS_OPENED_KEY) !== "1") setLayersSeen(false);
+    } catch { /* noop */ }
+  }, [ctx.layersEngineOn]);
+  // Mark Layers as opened the first time its popover opens → clears the pulse.
+  useEffect(() => {
+    if (openKey !== "layers" || layersSeen) return;
+    setLayersSeen(true);
+    try { window.localStorage.setItem(LAYERS_OPENED_KEY, "1"); } catch { /* noop */ }
+  }, [openKey, layersSeen]);
+
+  // Deep-link + programmatic panel opening. The What's New "Open Layers →"
+  // button dispatches presentflow:open-panel; a ?panel=layers query (e.g.
+  // navigating in from the dashboard) opens it on mount. Only valid keys open.
+  useEffect(() => {
+    const openPanel = (name: string | null) => {
+      if (name === "layers") { if (LAYERS_V2 && ctx.layersEngineOn) setOpenKey("layers"); return; }
+      if (name === "bible" || name === "songs" || name === "xrefs" || name === "settings") setOpenKey(name);
+    };
+    const onOpenPanel = (e: Event) => openPanel((e as CustomEvent<{ panel?: string }>).detail?.panel ?? null);
+    window.addEventListener("presentflow:open-panel", onOpenPanel);
+    try {
+      const p = new URLSearchParams(window.location.search).get("panel");
+      if (p) openPanel(p);
+    } catch { /* noop */ }
+    return () => window.removeEventListener("presentflow:open-panel", onOpenPanel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx.layersEngineOn]);
+
   useEffect(() => {
     const saved = loadSessionState()?.sidebarTab;
     // Change 5C — "screens" removed from the valid-key list. A stale
@@ -148,7 +187,9 @@ export function RightIconBar({
         {LAYERS_V2 && (
           <IconTrigger
             k="layers" openKey={openKey} setOpen={setOpenKey}
-            Icon={LayersIcon} label={ctx.layersEngineOn ? "Layers" : "Layers (not enabled for this church)"}
+            Icon={LayersIcon}
+            label={!ctx.layersEngineOn ? "Layers (not enabled for this church)" : layersSeen ? "Layers" : "New: Layers"}
+            attention={ctx.layersEngineOn && !layersSeen}
           />
         )}
         <IconTrigger
@@ -198,7 +239,7 @@ export function RightIconBar({
 }
 
 function IconTrigger({
-  k, openKey, setOpen, Icon, label, badge,
+  k, openKey, setOpen, Icon, label, badge, attention,
 }: {
   k: PopoverKey;
   openKey: PopoverKey | null;
@@ -206,6 +247,9 @@ function IconTrigger({
   Icon: React.ComponentType<{ className?: string }>;
   label: string;
   badge?: number;
+  // First-run attention affordance (subtle brand pulse dot). Cleared by the
+  // parent once the panel is opened for the first time.
+  attention?: boolean;
 }) {
   const active = openKey === k;
   return (
@@ -225,6 +269,13 @@ function IconTrigger({
         >
           {/* dock-style magnify bounce on hover */}
           <Icon className="w-4 h-4 transition-transform duration-150 ease-out group-hover:scale-[1.35] group-hover:-translate-y-0.5 group-active:scale-110" />
+          {attention && !(typeof badge === "number" && badge > 0) && (
+            <span
+              aria-hidden
+              className="absolute top-1.5 right-1/2 translate-x-3 w-2 h-2 rounded-full animate-pulse"
+              style={{ background: "var(--color-brand)", boxShadow: "0 0 0 3px color-mix(in oklab, var(--color-brand) 30%, transparent)" }}
+            />
+          )}
           {typeof badge === "number" && badge > 0 && (
             <span
               aria-label={`${badge} new`}

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Sparkles, X, Tag } from "lucide-react";
 import { CHANGELOG, type ChangelogEntry, type Highlight } from "@/lib/changelog";
@@ -34,6 +34,8 @@ export function WhatsNewModal() {
   const [newEntries, setNewEntries] = useState<ChangelogEntry[]>([]);
   const [open, setOpen] = useState(false);
   const [activeVersion, setActiveVersion] = useState<string | null>(null);
+  const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -106,6 +108,26 @@ export function WhatsNewModal() {
     if (top) {
       try { window.localStorage.setItem(LAST_SEEN_KEY, top); } catch { /* noop */ }
     }
+  };
+
+  // "Try it" / "Open operator →" handler. The modal is mounted INSIDE the
+  // operator (ProOperatorShell), so a plain <Link href="/operator"> was a
+  // no-op same-route navigation — the button looked dead (field bug
+  // 2026-09-08). Now: always close the modal, and either (a) if the target is
+  // a DIFFERENT route, navigate there; or (b) if we're already on the target
+  // route, honour any deep-link (?panel=layers) by asking the panel host to
+  // open that panel, so "Open Layers" actually surfaces the Layers panel.
+  const handleTryIt = (href: string) => {
+    dismiss();
+    try {
+      const [path, query] = href.split("?");
+      const panel = query ? new URLSearchParams(query).get("panel") : null;
+      if (path === pathname) {
+        if (panel) window.dispatchEvent(new CustomEvent("presentflow:open-panel", { detail: { panel } }));
+        return;
+      }
+      router.push(href);
+    } catch { /* noop */ }
   };
 
   if (newEntries.length === 0) return null;
@@ -184,9 +206,9 @@ export function WhatsNewModal() {
                             <span className="text-[12.5px] leading-relaxed text-[var(--color-muted-foreground)]">
                               {text}
                               {href && (
-                                <Link href={href} onClick={dismiss} className="ml-2 inline-flex items-center text-[var(--color-brand)] hover:underline font-semibold not-italic">
+                                <button type="button" onClick={() => handleTryIt(href)} className="ml-2 inline-flex items-center text-[var(--color-brand)] hover:underline font-semibold not-italic">
                                   {tryItLabel || "Try it"} →
-                                </Link>
+                                </button>
                               )}
                             </span>
                           </li>

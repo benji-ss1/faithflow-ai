@@ -43,6 +43,7 @@ import { OutputRoutingRow } from "./right/OutputRoutingRow";
 // RightIconBar. AIDetectionsPanel still imported transitively (via
 // RightIconBar's popovers). Old RightTabs.tsx kept in tree, unused.
 import { RightIconBar } from "./right/RightIconBar";
+import { VerticalClearRail } from "./right/VerticalClearRail";
 import { TranscriptDisplay } from "./TranscriptDisplay";
 import { BottomBar } from "./BottomBar";
 import { useTimerSession, useMessagesSession, useBibleSession } from "./hooks";
@@ -4497,6 +4498,22 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
               sidebar rather than floating mid-column. */}
           <div className="flex-1 min-h-0" />
         </aside>
+
+        {/* Decoupling Phase 3b — CLEAR-CUES RAIL. A slim, ALWAYS-visible strip of
+            per-layer clear cues at the far right edge (ProPresenter parity):
+            each cue lights in the layer accent when that layer is live, click
+            clears that layer, the bottom X (guarded hold) clears all. It reuses
+            the same useLiveLayers rows/actions as the LayersPanel popover — no
+            duplicated state. Gated on ctx.layersEngineOn (env kill-switch AND
+            church opt-in): OFF ⇒ VerticalClearRail returns null AND this branch
+            reserves no column ⇒ zero DOM, byte-identical legacy layout. Sits as
+            its own flex column to the right of the sidebar, so it never overlaps
+            or shifts the sidebar's inline popovers. */}
+        {ctx.layersEngineOn && (
+          <OperatorErrorBoundary fallbackLabel="Clear-cues rail error">
+            <VerticalClearRail ctx={ctx} />
+          </OperatorErrorBoundary>
+        )}
       </div>
 
       <SongAutopilotStaging ctx={ctx} />
