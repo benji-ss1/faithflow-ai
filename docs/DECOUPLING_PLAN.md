@@ -125,7 +125,9 @@ column); operate/page.tsx now ALSO wraps the read in try/catch → safe defaults
   (`useState`). A refresh mid-service → `overrides=[]` → the projector heartbeat
   clears its map → both sides converge to the derived base (NO desync), but the
   operator's manual layer edits (a hidden layer, a swapped background) are LOST.
-  Persistence (DB/session) is a follow-up.
+  Persistence (DB/session) is a follow-up. *(Wave 2 hardened the CLEAR itself: a
+  refreshed tab now carries a newer `layersEpoch` so its empty snapshot
+  authoritatively clears the projector map — see Wave 2 below.)*
 - **Two same-church operators clobber each other.** Each operator's OutputState
   heartbeat carries ONLY its own overrides and the projector REBUILDS (clear)
   from the latest snapshot, so two heartbeating operators alternately clobber
@@ -153,3 +155,98 @@ cleanups, always-present opacity wrapper in the layers path, ClearAll double-fir
 guard + GPU fill, zone-toggle disable for non-text slides, per-layer accent
 tokens, larger touch targets). Not yet field-verified on real projector hardware
 — required before merge.
+
+## Wave 2 — as built (2026-09-08)
+
+A consolidated follow-up pass on `feat/decoupling-layers-panel` after a second
+six-agent gate. Renderer-only → Vercel (no Fly, no DMG). Still not field-verified
+on real projector hardware — required before merge.
+
+### Panel + rail extraction / UI
+- **VerticalClearRail + `layerMeta` + `ClearAllButton`** extracted from the
+  monolithic panel into their own modules — the always-on right-edge "what's
+  live" clear cues (one per layer, lit in the layer's accent colour, tap to clear
+  that one layer) and the hold-to-confirm Clear-All are now reusable units.
+- **Black-screen paint-order fix**: in the LAYERS_V2 compositor the per-layer
+  absolute opacity wrapper flipped a cleared (`kind:"empty"`) slide ABOVE the
+  background template, painting an opaque `bg-black` over it. The empty slide now
+  renders transparent so an active Background Template shows through (golden DOM
+  regression: `test/slide-renderer-empty.test.ts`).
+- **Logo visibility-only patches + honest indicator**: a logo toggle/clear
+  carries visibility only (never a url on the wire); the operator's live
+  indicator lights only when a logo actually paints (`appearance.logoUrl` set +
+  position ≠ "none"), read from the DERIVED base layer.
+- **Base-background supersede**: changing the base Background Template while a
+  background OVERRIDE exists emits a fresh-rev swap so the new pick shows and
+  out-ranks the stale clear/hide override ("swap after clear shows nothing" fix).
+- **Slide re-send / jump**: `rearmSlide()` drops a stale disabled slide override
+  on a real new send (preserving a sticky lower-third zone).
+- **LivePreviewPanel preview parity + frozen (Y3)**: the operator mini-preview
+  renders through the SAME `OutputCompositor` path as `/live` (WYSIWYG under an
+  override) AND now freezes its background layer (`previewFrozen` → BackgroundLayer
+  `frozen`) so it no longer spins up a SECOND live RAF WebGL loop / video decode
+  alongside the projector. Projector routes never pass the prop ⇒ unfrozen ⇒
+  byte-identical live output (`test/output-compositor-frozen.test.ts`).
+
+### Rev stamps + epoch (Y1) — corrected convergence contract
+- **Monotonic `rev`** per layer patch (per-tab counter seeded at `Date.now()`):
+  receivers keep the highest rev per id, so a lagging ~1Hz heartbeat or a ghost
+  tab's snapshot can't regress a fresher incremental patch.
+- **Rev sanity clamp + self-heal (Y1a)**: `isValidLayerWire` REJECTS a `rev` more
+  than 24h (`REV_MAX_SKEW_MS`) in the future (a hostile `2^52` pin or a
+  wrong-clock-year sender). Belt-and-suspenders, receivers SELF-HEAL: if a stored
+  rev exceeds an incoming rev by more than that window it is treated as stale and
+  the honest (lower) rev takes over WITHOUT a reload. Honest revs are unaffected.
+- **Origin epoch (Y1b)** — the true fix for the refresh-clears invariant WITHOUT
+  reopening ghost-clobber: each operator tab stamps its OutputState with
+  `layersEpoch` (its immutable `Date.now` seed), present EVEN when overrides are
+  empty. `rebuildOverridesFromSnapshot` compares it to the receiver's last-folded
+  epoch: a NEWER epoch (a fresh operator tab) authoritatively clears+replaces the
+  projector's override map even with empty overrides (restores "operator refresh
+  clears the projector"); an OLDER epoch (a ghost tab) is IGNORED so it can't
+  clobber; the SAME epoch keeps the rev-gated merge; a missing epoch (legacy
+  sender) keeps the pre-epoch merge (tolerant). Threaded through all four output
+  routes via a per-route `layerEpochRef`. Tests: `test/output-layers-convergence.
+  ts` (epoch authority + self-heal), `test/layer-wire.test.ts` (validator clamps).
+- **Corrected convergence contract**: same-machine BroadcastChannel `layer-patch`
+  is instant; remote (pair-Realtime / LAN-OBS) projectors converge within ~1s via
+  the OutputState heartbeat — now WITH the epoch/rev guarantees above, so a fresh
+  tab wins and a ghost tab never clobbers. `useLiveLayers`'s header comment states
+  the true guarantees incl. the fresh-tab-wins precondition.
+
+### Other Wave 2 fixes
+- **Library `?library=` UUID validation (Y2)**: `api/songs/list` + `api/media/list`
+  now 400 on a non-`all`/`default`/UUID library param.
+- **Service item-type union derived from the enum (Y4)**: `ServiceItemType =
+  (typeof serviceItemTypeEnum.enumValues)[number]` in `schema.ts` replaces the 6
+  hand-copied unions (actions/services/editor); header-case `(payload as any)`
+  casts removed (plain `Record` access).
+- **Legacy-shell header tolerance (Y5)**: the OperatorConsole preview nav walk is
+  extracted to a pure `nextPreviewPosition` that SKIPS header items (`slides:[]`)
+  in both directions — no more landing on a divider or a `slideIdx = -1`
+  (`test/operator-nav.test.ts`).
+- **Scripture band re-fit at high vScale (Y6)**: `refitScaledToBox` (pure) clamps
+  the band's manually-scaled text back into the band box so a 200% "Text size"
+  can't overflow; ≤ ~150% (when it fits) is unchanged
+  (`test/scripture-lowerthird.test.ts`).
+- **Delete confirms are Electron-safe (R1)**: `LibrarySection` (delete library) +
+  `PlaylistSection` (delete-from-library) now use the in-app `useConfirm` dialog,
+  not native `window.confirm` (the 0.1.381 desktop-freeze class).
+- **Changelog 0.1.384 (Y7)**: honest clauses added — zone control applies to text
+  slides; remote projectors converge within ~1s (same-machine instant).
+
+### Phase 3.6 — Library / Playlist (as built)
+- `libraries` table + `library_id` FK on songs/media; a `header` service-item type
+  (colour-coded, non-projecting section divider); taxonomy/section accent colours;
+  center Songs/Media browsers filter by the selected library ("All" / "Default" /
+  named). Migration file added AND APPLIED to the local dev DB. **Prod ordering:
+  migrate-first** — the migration must be applied BEFORE this code deploys (list
+  reads select every schema column), same rule as the `layers_v2` column.
+
+### Deferred (logged, not built)
+- Drag content BETWEEN libraries (only right-click "Move to library" today).
+- Per-item source-library badge in the "All" view.
+- Rail undo-toast (undo a single-layer clear).
+- MediaImageEditor file-wide design-token pass.
+- glyph → lucide icon unification.
+- ProPresenter red-slide hue note (match PP's exact section-divider red).
