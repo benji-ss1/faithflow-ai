@@ -138,11 +138,15 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
           db.select().from(songGroups).where(eq(songGroups.songId, songId)).orderBy(asc(songGroups.order)),
           db.select().from(songArrangements).where(eq(songArrangements.songId, songId)).orderBy(asc(songArrangements.sort)),
         ]);
-        const usesGroups = allGroups.length > 0 && rows.some((r) => r.groupId !== null);
-        if (usesGroups) {
-          groupsMeta = allGroups.map((g) => ({ id: g.id, name: g.name, kind: g.kind, color: g.color, order: g.order }));
-          arrangementsMeta = allArrangements.map((a) => ({ id: a.id, name: a.name, isDefault: a.isDefault, sort: a.sort, order: Array.isArray(a.order) ? (a.order as unknown[]).filter((x): x is string => typeof x === "string") : [] }));
-        }
+        // Wave 6G: carry groups + arrangements meta for EVERY song item — even a
+        // groupless one — so the operator shell can render the arrangement strip
+        // (with an honest empty state) and manage sections inline for any song,
+        // not only the one that already had groups seeded. Empty arrays for a
+        // brand-new song. No-regression: the SlideGrid badge chips and the strip
+        // both hide themselves when `groups.length === 0`, so a groupless song is
+        // visually byte-identical to before (only extra, unused meta is carried).
+        groupsMeta = allGroups.map((g) => ({ id: g.id, name: g.name, kind: g.kind, color: g.color, order: g.order }));
+        arrangementsMeta = allArrangements.map((a) => ({ id: a.id, name: a.name, isDefault: a.isDefault, sort: a.sort, order: Array.isArray(a.order) ? (a.order as unknown[]).filter((x): x is string => typeof x === "string") : [] }));
 
         // ── Arrangements (ProPresenter §12) ──────────────────────────────────
         // A playlist item may PIN an arrangement via payload.arrangementId. When
@@ -198,9 +202,10 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
         songSlideRows = orderedRows.map((r) => ({ id: r.id, lyrics: sanitizeLyrics(r.lyrics), objectsJson: r.objectsJson }));
         slides = orderedRows.map((r) => projectableSongSlide(sanitizeLyrics(r.lyrics), r.objectsJson));
         // Master (natural / slideOrder) order — carry per-slide group ids aligned
-        // to the final slide order so the operator still sees badges + strip even
-        // with no pinned arrangement. Only when the song uses groups.
-        if (usesGroups) slideGroupIds = orderedRows.map((r) => r.groupId);
+        // to the final slide order so the operator sees badges + strip and can
+        // assign sections per-slide. Always carried for song items (all-null for a
+        // groupless song); the SlideGrid/strip only render chrome when groups exist.
+        slideGroupIds = orderedRows.map((r) => r.groupId);
       }
     } else if (it.type === "scripture") {
       // 2026-07-25 field bug fix — the client (BibleMode.addVerseToPlaylist)

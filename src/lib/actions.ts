@@ -6,6 +6,7 @@ import { readableTextColor } from "./colorway";
 import { isHex6Color } from "./hex-color";
 import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangements, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries, type ServiceItemType } from "./db/schema";
 import { GROUP_KINDS } from "../engine/arrangements";
+import { preservedGroupIds } from "./song-group-preserve";
 import { requireUser, requireRole, requireCap } from "./session";
 import { deleteObject, getBuffer, putBuffer } from "./s3";
 import { after } from "next/server";
@@ -671,6 +672,19 @@ export async function updateSongSlides(songId: string, slides: { lyrics: string 
     if (typeof s?.lyrics !== "string") return { ok: false, error: "Bad slide payload" };
     if (s.lyrics.length > 5000) return { ok: false, error: "Slide text too long (max 5000)" };
   }
+  // Groups & Arrangements preservation (wave 6G): the rewrite-all path below
+  // deletes every slide row and re-inserts, which historically DROPPED each
+  // slide's group_id (the whole song became ungrouped after a quick-edit /
+  // lyrics autosave). When the NEW slide count EQUALS the old one — the common
+  // case for an in-place text edit that doesn't add or remove lines — carry the
+  // old group_id across by slide ORDER (index), so sections survive. When the
+  // count differs (a line was added/removed), a positional match is ambiguous,
+  // so we DON'T guess — those slides come back ungrouped (surfaced to the
+  // operator as a strip warning). Pure index-match; no cross-song leakage
+  // (song_id is pinned on every row).
+  const priorRows = await db.select({ groupId: songSlides.groupId })
+    .from(songSlides).where(eq(songSlides.songId, songId)).orderBy(asc(songSlides.order));
+  const carriedGroupIds = preservedGroupIds(priorRows.map((r) => r.groupId), slides.length);
   // Delete + insert must be atomic — a concurrent autosave hitting this
   // route mid-delete could otherwise leave the song with zero slides for
   // a few ms, breaking any operator sending live at that instant. Wrap
@@ -679,7 +693,9 @@ export async function updateSongSlides(songId: string, slides: { lyrics: string 
     await db.transaction(async (tx) => {
       await tx.delete(songSlides).where(eq(songSlides.songId, songId));
       if (slides.length > 0) {
-        await tx.insert(songSlides).values(slides.map((s, i) => ({ songId, order: i, lyrics: s.lyrics })));
+        await tx.insert(songSlides).values(slides.map((s, i) => ({
+          songId, order: i, lyrics: s.lyrics, groupId: carriedGroupIds[i] ?? null,
+        })));
       }
     });
   } catch (err) {
