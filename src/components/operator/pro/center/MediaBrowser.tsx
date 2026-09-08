@@ -28,8 +28,8 @@ import { projectableTextSlide, type SlidePayload } from "@/lib/broadcast";
 import { registerMediaAsset, renameMediaAsset, deleteMediaAsset, setMediaLibrary, listLibraries, type LibraryRow } from "@/lib/actions";
 import { useSelectedLibrary, libraryQueryParam } from "../left/libraryFilter";
 import { setMediaOnActiveTheme, clearActiveThemeBackground, type QuickThemeChange } from "@/lib/theme-quick-apply";
-import { setMediaAsBackground } from "@/backgrounds/mediaAsBackground";
-import { snapshotBackgroundState, restoreBackgroundState } from "@/backgrounds/store/backgroundStore";
+import { setMediaAsBackground, normalizeMediaKind } from "@/backgrounds/mediaAsBackground";
+import { snapshotBackgroundState, restoreBackgroundState, removeCustomBackground } from "@/backgrounds/store/backgroundStore";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { MediaImportWizard } from "./MediaImportWizard";
 import { takePendingImport, onOsDropImport, type PendingImport } from "./pendingImport";
@@ -45,6 +45,7 @@ type Asset = {
   createdAt: string;
   url: string;          // full-res original — used for projection + theme apply
   thumbUrl?: string;    // small grid preview — falls back to url server-side
+  mediaKey?: string;    // durable S3 key — re-mint a media background's URL across restarts
 };
 
 type Filter = "all" | "image" | "video";
@@ -286,8 +287,26 @@ export function MediaBrowser({
 
   // ── Actions ───────────────────────────────────────────────────────────────
   const sendLive = (a: Asset) => {
+    // Was something already on the projector? (a blank slide = nothing live).
+    const wasLive = !!ctx.liveSlide && ctx.liveSlide.kind !== "blank";
     setSelectedId(a.id);
     ctx.onSendSlideToLive(toSlide(a));
+    // Post-click hint: a plain click sends an IMAGE as a full slide. When a
+    // service is already live, the operator may have wanted it BEHIND the lyrics
+    // instead. Offer a one-tap switch. Honest + minimal: tapping it sets the
+    // media as the background layer; the image slide it just sent stays up until
+    // the operator advances (no clever auto-restore of the previous slide).
+    if (wasLive && !a.kind.startsWith("video")) {
+      toast.success("Image sent to the screen", {
+        id: "pf-media-sent-hint",
+        description: "Wanted it behind your lyrics instead? Set it as the background — the image stays up until you advance.",
+        action: {
+          label: "Set as background instead",
+          onClick: () => setAsBackground(a),
+        },
+        duration: 8000,
+      });
+    }
   };
 
   const addToPlaylist = async (a: Asset) => {
@@ -359,7 +378,7 @@ export function MediaBrowser({
   // quick-change Undo idiom).
   const setAsBackground = (a: Asset) => {
     const prev = snapshotBackgroundState();
-    const bg = setMediaAsBackground({ id: a.id, url: a.url, fileName: a.fileName, kind: a.kind });
+    const bg = setMediaAsBackground({ id: a.id, url: a.url, fileName: a.fileName, kind: normalizeMediaKind(a.kind), mediaKey: a.mediaKey });
     setSelectedId(a.id);
     toast.success(`“${bg.name}” is now your background — it stays behind every slide`, {
       id: "pf-media-background",
@@ -380,6 +399,11 @@ export function MediaBrowser({
     } else {
       toast.success(`"${a.fileName}" deleted`);
       clearMediaFrame(ctx.churchId, a.id); // don't orphan the saved framing
+      // Honesty: if this asset was set as the active Background Template, drop it
+      // from the custom-background store too (removeCustomBackground resets the
+      // active id to None when it was live) so the projector never points at a
+      // now-deleted asset and the Backgrounds picker doesn't list a dead entry.
+      removeCustomBackground(`media-bg-${a.id}`);
       setAssets((prev) => prev.filter((x) => x.id !== a.id));
       if (selectedId === a.id) setSelectedId(null);
     }
@@ -400,7 +424,7 @@ export function MediaBrowser({
     setBulkBusy(true);
     const failed = new Set<string>();
     let deleted = 0;
-    for (const a of rows) { const res = await deleteMediaAsset(a.id); if (res?.ok) { deleted++; clearMediaFrame(ctx.churchId, a.id); } else failed.add(a.id); }
+    for (const a of rows) { const res = await deleteMediaAsset(a.id); if (res?.ok) { deleted++; clearMediaFrame(ctx.churchId, a.id); removeCustomBackground(`media-bg-${a.id}`); } else failed.add(a.id); }
     setBulkBusy(false);
     setAssets((prev) => prev.filter((a) => !bulkIds.has(a.id) || failed.has(a.id)));
     if (selectedId && bulkIds.has(selectedId) && !failed.has(selectedId)) setSelectedId(null);
@@ -805,22 +829,22 @@ export function MediaBrowser({
                         <ContextMenu.Item
                           onSelect={() => void runThemeChange(
                             setMediaOnActiveTheme("background", a.url),
-                            (name) => `Set as background of theme “${name}”`,
+                            (name) => `Saved into theme “${name}”: Background`,
                             "No theme to update",
                           )}
                           className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer"
                         >
-                          Set as theme background
+                          Save into theme: Background
                         </ContextMenu.Item>
                         <ContextMenu.Item
                           onSelect={() => void runThemeChange(
                             setMediaOnActiveTheme("logo", a.url),
-                            (name) => `Set as logo of theme “${name}”`,
+                            (name) => `Saved into theme “${name}”: Logo`,
                             "No theme to update",
                           )}
                           className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer"
                         >
-                          Set as theme logo
+                          Save into theme: Logo
                         </ContextMenu.Item>
                       </>
                     )}

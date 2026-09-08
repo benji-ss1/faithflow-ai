@@ -46,6 +46,11 @@ export async function GET(req: Request) {
       createdAt: m.createdAt.toISOString(),
       url,
       thumbUrl,
+      // The durable S3 key (NOT a presigned URL) so a media-set Background
+      // Template can re-mint a fresh URL across restarts (useBackgroundState).
+      // Church-scoped keys; the /api/media/url re-mint endpoint re-checks the
+      // caller's churchId against the key's first segment (IDOR guard).
+      mediaKey: m.s3Key,
     };
   }));
   return NextResponse.json({ assets: withUrls });
