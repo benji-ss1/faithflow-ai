@@ -18,7 +18,7 @@
  * `layersV2` opt-in). Disabled ⇒ no patches are ever emitted and `overrides` is
  * always empty ⇒ the projector output is byte-identical to the legacy path.
  */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /** Stable EMPTY singletons for the disabled path. Returning a fresh `[]` per
  *  render made `liveLayers.overrides` (a broadcast-effect dep) and the whole
@@ -296,6 +296,22 @@ export function useLiveLayers(
   const swapBackground = useCallback((spec: BackgroundSpec | null) => {
     patchFromBase("background", (b) => buildBackgroundSwap(b, spec));
   }, [patchFromBase]);
+
+  // Reconcile a STALE background override when the operator changes the base
+  // Background Template (via the reused BackgroundSelector, which drives the base
+  // store — NOT a layer patch). Without this, a prior background CLEAR/hide
+  // override would keep suppressing the freshly-picked template ("swap after
+  // clear shows nothing"). On a base-background change WHILE a background override
+  // exists, emit a fresh-rev swap so the new selection shows AND out-ranks the
+  // old override on every projector. No override present → the derived base layer
+  // already tracks the store, so this is a no-op (common path unchanged).
+  const prevBgRef = useRef<BackgroundSpec | null | undefined>(input.background);
+  useEffect(() => {
+    if (prevBgRef.current === input.background) return;
+    prevBgRef.current = input.background;
+    if (!enabled) return;
+    if (overrideMap.has("background")) swapBackground(input.background ?? null);
+  }, [enabled, input.background, overrideMap, swapBackground]);
 
   const clearAll = useCallback(() => {
     if (!enabled) return;
