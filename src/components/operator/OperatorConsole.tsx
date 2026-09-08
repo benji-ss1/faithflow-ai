@@ -661,6 +661,10 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     layersEngineOn,
   );
   const layerOverrides = liveLayers.overrides;
+  // R1b: a stable ref so sendSlideToLive (deps [churchId]) can re-arm the slide
+  // layer on a successful send without taking liveLayers as a dependency.
+  const liveLayersRef = useRef(liveLayers);
+  liveLayersRef.current = liveLayers;
 
   const lastEmittedKeyRef = useRef<string>("");
   useEffect(() => {
@@ -1024,6 +1028,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       setLive(slide);
       setLiveBroadcastRevision((revision) => revision + 1);
       chRef.current?.postMessage({ type: "set", slide, transition: null } as LiveMessage);
+      liveLayersRef.current.rearmSlide(); // R1b: a real new slide re-arms the slide layer
       return;
     }
     // Transition the "set" message and the follow-up "output" message will
@@ -1048,6 +1053,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       slide,
       ...(setTransition !== undefined ? { transition: setTransition } : {}),
     } as LiveMessage);
+    liveLayersRef.current.rearmSlide(); // R1b: a real new slide re-arms the slide layer
     try { console.log("[live] setLive committed + broadcast posted", { posted: posted !== undefined ? "ok" : "no-channel" }); } catch { /* ignore */ }
   }, [churchId]);
   const stageSlide = useCallback((slide: SlidePayload) => setStagedAISlide(slide), []);

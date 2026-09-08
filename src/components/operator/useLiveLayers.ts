@@ -19,6 +19,14 @@
  * always empty ⇒ the projector output is byte-identical to the legacy path.
  */
 import { useCallback, useMemo, useState } from "react";
+
+/** Stable EMPTY singletons for the disabled path. Returning a fresh `[]` per
+ *  render made `liveLayers.overrides` (a broadcast-effect dep) and the whole
+ *  `liveLayers` object (an OperatorConsole `ctx` memo dep) change identity every
+ *  render — defeating both memoisation guards on the hot path even when the
+ *  layers engine is OFF. These constants keep the disabled path byte-stable. */
+const EMPTY_ROWS: LayerRow[] = [];
+const EMPTY_OVERRIDES: LayerWire[] = [];
 import {
   isValidLiveMessage,
   type BackgroundSpec,
@@ -69,6 +77,9 @@ export interface UseLiveLayers {
   /** Disable every layer (per-layer patches). The caller ALSO fires the legacy
    *  clear so pre-layers projectors blank too. */
   clearAll: () => void;
+  /** Re-arm the slide layer after a new slide is sent live (R1b): drop a stale
+   *  disabled slide override, preserving any lower-third zone. No-op otherwise. */
+  rearmSlide: () => void;
   /** Drop all overrides (return to the pure derived stack). */
   reset: () => void;
 }
@@ -77,7 +88,9 @@ function baseLayerById(base: LayerWire[], id: string): LayerWire | undefined {
   return base.find((l) => l.id === id);
 }
 
-/** Does a derived+patched layer currently paint real content? */
+/** Does a derived+patched layer currently paint real content? Exhaustive over
+ *  every LayerKind — the `never` guard makes adding a kind a compile error until
+ *  its active-rule is spelled out here. */
 function computeActive(kind: LayerWire["kind"], enabled: boolean, payload: unknown): boolean {
   if (!enabled) return false;
   switch (kind) {
@@ -85,7 +98,8 @@ function computeActive(kind: LayerWire["kind"], enabled: boolean, payload: unkno
       return !!payload && (payload as BackgroundSpec).type !== "none";
     case "camera":
       return !!payload;
-    case "slide": {
+    case "slide":
+    case "media": {
       const s = payload as SlidePayload | undefined;
       if (!s) return false;
       if (s.kind === "empty") return false;
@@ -94,9 +108,68 @@ function computeActive(kind: LayerWire["kind"], enabled: boolean, payload: unkno
     }
     case "logo":
       return true; // logo layer is "on" whenever enabled
-    default:
+    case "band":
+    case "announcement":
+    case "timer":
+    case "message":
+      // Overlay-style layers paint whenever enabled (their presence in the stack
+      // already means content was set); no extra payload gate today.
+      return true;
+    default: {
+      const _exhaustive: never = kind;
+      void _exhaustive;
       return enabled;
+    }
   }
+}
+
+/** A well-typed shallow patch of a LayerWire that PRESERVES the discriminated
+ *  union member (switch on kind) — replaces scattered `as LayerWire` casts.
+ *  `clearPayload` nulls the payload for the content-bearing kinds (clear); a
+ *  slide/media patch NEVER carries payload (R1a — the projector always renders
+ *  the CURRENT base slide in the chosen zone, so a stale snapshot can't stick). */
+function buildPatch(
+  base: LayerWire,
+  fields: { enabled?: boolean; zone?: LayerZone; opacity?: number; clearPayload?: boolean },
+): LayerWire {
+  const enabled = fields.enabled ?? base.enabled;
+  const zone = fields.zone ?? base.zone;
+  const opacity = fields.opacity ?? base.opacity;
+  const common = { id: base.id, z: base.z, enabled, zone, opacity, transportScope: base.transportScope };
+  switch (base.kind) {
+    case "slide":
+    case "media":
+      // Payload deliberately OMITTED — zone/visibility only (R1a).
+      return { ...common, kind: base.kind };
+    case "background":
+      return { ...common, kind: "background", payload: fields.clearPayload ? null : base.payload };
+    case "camera":
+      return { ...common, kind: "camera", payload: fields.clearPayload ? null : base.payload };
+    case "logo":
+      return { ...common, kind: "logo", payload: fields.clearPayload ? null : base.payload };
+    case "band":
+      return { ...common, kind: "band", payload: base.payload };
+    case "announcement":
+      return { ...common, kind: "announcement", payload: base.payload };
+    case "timer":
+      return { ...common, kind: "timer", payload: base.payload };
+    case "message":
+      return { ...common, kind: "message", payload: base.payload };
+    default: {
+      const _exhaustive: never = base;
+      return _exhaustive;
+    }
+  }
+}
+
+/** Swap-background patch (carries the new BackgroundSpec payload). */
+function buildBackgroundSwap(base: LayerWire, spec: BackgroundSpec | null): LayerWire {
+  return {
+    id: base.id, z: base.z, kind: "background",
+    enabled: !!spec && spec.type !== "none",
+    zone: base.zone, opacity: base.opacity, transportScope: base.transportScope,
+    payload: spec,
+  };
 }
 
 export function useLiveLayers(
@@ -136,7 +209,7 @@ export function useLiveLayers(
       const payload = o && "payload" in o && o.payload !== undefined ? o.payload : ("payload" in b ? b.payload : undefined);
       const zone: LayerZone = (o?.zone ?? b.zone ?? { kind: "full" });
       const opacity = typeof o?.opacity === "number" ? o.opacity : (typeof b.opacity === "number" ? b.opacity : 1);
-      return {
+      const rowOut: LayerRow = {
         id: b.id,
         kind: b.kind,
         z: b.z,
@@ -145,7 +218,8 @@ export function useLiveLayers(
         zone,
         active: computeActive(b.kind, enabledEff, payload),
         overridden: !!o,
-      } as LayerRow;
+      };
+      return rowOut;
     });
     // Top row first (highest z on top of the stack).
     return merged.sort((a, b) => b.z - a.z);
@@ -166,70 +240,100 @@ export function useLiveLayers(
     emit({ type: "layer-patch", layer: patch });
   }, [enabled, emit]);
 
-  const patchFromBase = useCallback((id: string, mutate: (b: LayerWire) => LayerWire): void => {
+  const patchFromBase = useCallback((id: string, build: (b: LayerWire) => LayerWire): void => {
     const b = baseLayerById(base, id);
     const existing = overrideMap.get(id);
     const seed: LayerWire | undefined = existing ?? b;
     if (!seed) return;
-    applyPatch(mutate({ ...seed }));
+    applyPatch(build(seed));
   }, [base, overrideMap, applyPatch]);
 
   const toggleLayer = useCallback((id: string) => {
-    patchFromBase(id, (b) => ({ ...b, enabled: !b.enabled }));
+    patchFromBase(id, (b) => buildPatch(b, { enabled: !b.enabled }));
   }, [patchFromBase]);
 
   const clearLayer = useCallback((id: string) => {
-    // Clear = disable + null the payload (per-kind). Keeps stable identity so
-    // the layer can be re-enabled/re-populated later.
-    patchFromBase(id, (b) => {
-      const patch = { ...b, enabled: false } as LayerWire;
-      if (patch.kind === "background" || patch.kind === "camera" || patch.kind === "logo") patch.payload = null;
-      return patch;
-    });
+    // Clear = disable + null the payload (content-bearing kinds). Keeps stable
+    // identity so the layer can be re-enabled/re-populated later. For slide/media
+    // buildPatch omits payload entirely (R1a) — a disabled slide override renders
+    // blank, and the base slide flows back through when re-armed.
+    patchFromBase(id, (b) => buildPatch(b, { enabled: false, clearPayload: true }));
   }, [patchFromBase]);
 
   const setZone = useCallback((id: string, zone: LayerZone) => {
-    patchFromBase(id, (b) => ({ ...b, zone }));
+    patchFromBase(id, (b) => buildPatch(b, { zone }));
   }, [patchFromBase]);
 
   const setOpacity = useCallback((id: string, opacity: number) => {
     const clamped = Math.max(0, Math.min(1, opacity));
-    patchFromBase(id, (b) => ({ ...b, opacity: clamped }));
+    patchFromBase(id, (b) => buildPatch(b, { opacity: clamped }));
   }, [patchFromBase]);
 
   const swapBackground = useCallback((spec: BackgroundSpec | null) => {
-    patchFromBase("background", (b) => ({ ...b, kind: "background", enabled: !!spec && spec.type !== "none", payload: spec }));
+    patchFromBase("background", (b) => buildBackgroundSwap(b, spec));
   }, [patchFromBase]);
 
   const clearAll = useCallback(() => {
     if (!enabled) return;
     // Disable every derived layer (per-layer patches so the layers projector
     // clears each). The caller ALSO fires the legacy blank for pre-layers
-    // projectors.
+    // projectors. Y2: build the patches FIRST (pure), commit state in one
+    // updater with NO side effects, THEN emit outside the updater — React may
+    // call a state updater more than once (StrictMode / batching) and emitting
+    // inside would double-fire the wire.
+    const patches = base.map((b) => buildPatch(b, { enabled: false, clearPayload: true }));
     setOverrideMap(() => {
       const next = new Map<string, LayerWire>();
-      for (const b of base) {
-        const patch = { ...b, enabled: false } as LayerWire;
-        if (patch.kind === "background" || patch.kind === "camera" || patch.kind === "logo") patch.payload = null;
-        next.set(b.id, patch);
-        emit({ type: "layer-patch", layer: patch });
-      }
+      for (const p of patches) next.set(p.id, p);
       return next;
     });
+    for (const p of patches) emit({ type: "layer-patch", layer: p });
   }, [enabled, base, emit]);
+
+  // R1b — re-arm the slide layer when a NEW slide is sent live. A prior operator
+  // "hide"/"clear" on the slide layer must not swallow the next real slide: on a
+  // successful send we drop a stale enabled=false slide override (re-enabling the
+  // layer) while PRESERVING any zone override (lower-third mode should stick
+  // across sends). No-op when the engine is off, when there is no slide override,
+  // or when the slide layer is already enabled. Emits the convergence patch.
+  const rearmSlide = useCallback(() => {
+    if (!enabled) return;
+    const o = overrideMap.get("slide");
+    if (!o || o.enabled) return; // nothing to re-arm
+    const zone = o.zone;
+    const sticky = zone && zone.kind !== "full";
+    // The convergence patch (re-enable, preserve any sticky zone, no payload/R1a).
+    const rearmed = buildPatch(o, { enabled: true, zone: sticky ? zone : { kind: "full" } });
+    setOverrideMap((prev) => {
+      const cur = prev.get("slide");
+      if (!cur || cur.enabled) return prev;
+      const next = new Map(prev);
+      // Sticky zone → keep a zone-only override; else drop entirely so the base
+      // (enabled) slide flows and the heartbeat snapshot converges to no override.
+      if (sticky) next.set("slide", rearmed);
+      else next.delete("slide");
+      return next;
+    });
+    emit({ type: "layer-patch", layer: rearmed });
+  }, [enabled, overrideMap, emit]);
 
   const reset = useCallback(() => setOverrideMap(new Map()), []);
 
-  return {
+  // Stable object identity: consumers (OperatorConsole `ctx` memo + broadcast
+  // effect deps) key off `liveLayers` / `liveLayers.overrides`, so this must not
+  // change identity unless a meaningful value did. Callbacks are useCallback-
+  // stable; rows/overrides are memoised; disabled path uses EMPTY singletons.
+  return useMemo<UseLiveLayers>(() => ({
     enabled,
-    rows: enabled ? rows : [],
-    overrides: enabled ? overrides : [],
+    rows: enabled ? rows : EMPTY_ROWS,
+    overrides: enabled ? overrides : EMPTY_OVERRIDES,
     toggleLayer,
     clearLayer,
     setZone,
     setOpacity,
     swapBackground,
     clearAll,
+    rearmSlide,
     reset,
-  };
+  }), [enabled, rows, overrides, toggleLayer, clearLayer, setZone, setOpacity, swapBackground, clearAll, rearmSlide, reset]);
 }
