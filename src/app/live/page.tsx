@@ -102,6 +102,14 @@ export default function LivePage() {
   // Operator heartbeats the timer overlay at 1Hz while shown — if the beats
   // stop (operator window closed/crashed) we sweep the stale timer off screen.
   const lastTimerMsgAt = useRef<number>(0);
+  // Wave 7: named (keyed) timers ride alongside the legacy default slot above.
+  type TimerItem = { id: string; name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed"; position?: OverlayPosition; overrun?: boolean };
+  const [namedTimers, setNamedTimers] = useState<Record<string, TimerItem>>({});
+  const namedTimerAtRef = useRef<Record<string, number>>({});
+  // Wave 7: extra simultaneous messages (keyed) ride alongside the legacy one.
+  type MsgItem = { id: string; text: string; position: OverlayPosition; scroll?: boolean; scrollDir?: "ltr" | "rtl"; scrollSec?: number };
+  const [extraMessages, setExtraMessages] = useState<MsgItem[]>([]);
+  const lastExtraMsgAt = useRef<number>(0);
   const [connected, setConnected] = useState(false);
   const [showHelp, setShowHelp] = useState(true);
   const [warning, setWarning] = useState<string | null>(null);
@@ -230,6 +238,14 @@ export default function LivePage() {
             setZone(msg.state.zone ?? null);
           }
         } else if (msg.type === "message") {
+          // Wave 7: extra simultaneous messages (keyed) ride in `messages[]`.
+          // Always reconcile from the array (empty ⇒ none), heartbeated at 1Hz.
+          if (msg.messages) {
+            lastExtraMsgAt.current = Date.now();
+            setExtraMessages(msg.messages
+              .filter((m): m is Extract<typeof m, { text: string }> => "text" in m && typeof m.text === "string")
+              .map((m) => ({ id: (m as { id?: string }).id ?? m.text, text: m.text, position: m.position ?? "lower-third", scroll: m.scroll, scrollDir: m.scrollDir, scrollSec: m.scrollSec })));
+          }
           // Auto-dismiss timer is client-side, so multiple output windows
           // stay in sync without needing a shared wall-clock deadline.
           if ("clear" in msg.overlay && msg.overlay.clear) {
@@ -255,8 +271,19 @@ export default function LivePage() {
             }
           }
         } else if (msg.type === "timer") {
-          if ("clear" in msg.overlay && msg.overlay.clear) setTimerOverlay(null);
-          else { setTimerOverlay(msg.overlay); lastTimerMsgAt.current = Date.now(); }
+          const ov = msg.overlay;
+          const oid = (ov as { id?: string }).id;
+          if (oid) {
+            // Wave 7: keyed named timer.
+            if ("clear" in ov && ov.clear) {
+              setNamedTimers((m) => { const n = { ...m }; delete n[oid]; return n; });
+              delete namedTimerAtRef.current[oid];
+            } else if ("remainingSec" in ov) {
+              setNamedTimers((m) => ({ ...m, [oid]: { id: oid, name: ov.name, remainingSec: ov.remainingSec, running: ov.running, kind: ov.kind, position: ov.position, overrun: ov.overrun } }));
+              namedTimerAtRef.current[oid] = Date.now();
+            }
+          } else if ("clear" in ov && ov.clear) setTimerOverlay(null);
+          else { setTimerOverlay(ov); lastTimerMsgAt.current = Date.now(); }
         } else if (msg.type === "media-control") {
           const el = videoElRef.current;
           if (!el) return;
@@ -323,6 +350,20 @@ export default function LivePage() {
       if (lastTimerMsgAt.current > 0 && Date.now() - lastTimerMsgAt.current > 5000) {
         lastTimerMsgAt.current = 0;
         setTimerOverlay(null);
+      }
+      // Wave 7: sweep named timers whose per-id heartbeat has stopped for 5s.
+      {
+        const now = Date.now();
+        const staleIds = Object.keys(namedTimerAtRef.current).filter((id) => now - namedTimerAtRef.current[id] > 5000);
+        if (staleIds.length) {
+          for (const id of staleIds) delete namedTimerAtRef.current[id];
+          setNamedTimers((m) => { const n = { ...m }; for (const id of staleIds) delete n[id]; return n; });
+        }
+      }
+      // Wave 7: sweep extra messages if their shared heartbeat stops for 5s.
+      if (lastExtraMsgAt.current > 0 && Date.now() - lastExtraMsgAt.current > 5000) {
+        lastExtraMsgAt.current = 0;
+        setExtraMessages([]);
       }
       // Stale-message sweep: same contract as timers — operator heartbeats at
       // 1Hz while a message is showing; 5s of silence means the operator is
@@ -562,6 +603,40 @@ export default function LivePage() {
                   {formatTimerMMSS(timerOverlay.remainingSec)}
                 </div>
               </div>
+            </div>
+          )}
+          {/* Wave 7: named timers, grouped per position so multiple in one
+              corner stack instead of overlapping. */}
+          {Object.values(namedTimers).length > 0 && (() => {
+            const groups: Record<string, TimerItem[]> = {};
+            for (const t of Object.values(namedTimers)) { const p = t.position ?? "top-right"; (groups[p] ??= []).push(t); }
+            return Object.entries(groups).map(([pos, items]) => (
+              <div key={pos} className={`${overlayPosClass(pos as OverlayPosition)} pointer-events-none z-20 flex flex-col gap-2`}>
+                {items.map((t) => (
+                  <div key={t.id} className="inline-block bg-black/70 backdrop-blur-sm px-6 py-3 rounded-md border"
+                    style={{ borderColor: t.remainingSec < 0 ? "#ef4444" : "var(--color-brand, #06b6d4)" }}>
+                    {t.name && <div className="text-white/70 text-xs uppercase tracking-wider mb-1">{t.name}</div>}
+                    <div className={`text-white text-3xl md:text-5xl font-mono font-bold tabular-nums leading-none ${t.remainingSec < 0 ? "text-red-400" : ""}`}>
+                      {formatTimerMMSS(t.remainingSec)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ));
+          })()}
+          {/* Wave 7: extra simultaneous messages, stacked in the lower-third band. */}
+          {extraMessages.length > 0 && (
+            <div className="absolute left-[6%] right-[6%] bottom-[6%] pointer-events-none z-30 flex flex-col gap-2">
+              {extraMessages.map((m) => (
+                <div key={m.id} className="bg-black/70 backdrop-blur-sm border-l-4 px-6 py-4 rounded-sm overflow-hidden"
+                  style={{ borderColor: "var(--color-brand, #06b6d4)" }}>
+                  {m.scroll ? (
+                    <div className="text-white text-xl md:text-3xl font-semibold whitespace-nowrap" style={{ display: "inline-block", paddingLeft: "100%", animation: `pf-msg-ticker ${Math.max(4, Math.min(120, m.scrollSec ?? 18))}s linear infinite`, animationDirection: m.scrollDir === "ltr" ? "reverse" : "normal" }}>{m.text}</div>
+                  ) : (
+                    <div className="text-white text-xl md:text-3xl font-semibold leading-tight text-left">{m.text}</div>
+                  )}
+                </div>
+              ))}
             </div>
           )}
           {messageOverlay && (

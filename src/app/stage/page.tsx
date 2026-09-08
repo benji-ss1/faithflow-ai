@@ -54,6 +54,11 @@ export default function StagePage() {
   const lastMessageContentRef = useRef<string | null>(null);
   const lastMessageMsgAt = useRef<number>(0);
   const [timerOverlay, setTimerOverlay] = useState<{ name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed" } | null>(null);
+  // Wave 7: named (keyed) timers — the confidence-monitor use case (worship /
+  // sermon countdowns visible to the platform). Ride alongside the legacy slot.
+  type StageTimer = { id: string; name?: string; remainingSec: number; running: boolean; overrun?: boolean };
+  const [namedTimers, setNamedTimers] = useState<Record<string, StageTimer>>({});
+  const namedTimerAtRef = useRef<Record<string, number>>({});
   const [connected, setConnected] = useState(false);
   const [pairBadge, setPairBadge] = useState<string | null>(null);
   // null on server + first client render to avoid hydration mismatch on the clock.
@@ -160,8 +165,18 @@ export default function StagePage() {
             }
           }
         } else if (msg.type === "timer") {
-          if ("clear" in msg.overlay && msg.overlay.clear) setTimerOverlay(null);
-          else { setTimerOverlay(msg.overlay); lastTimerMsgAt.current = Date.now(); }
+          const ov = msg.overlay;
+          const oid = (ov as { id?: string }).id;
+          if (oid) {
+            if ("clear" in ov && ov.clear) {
+              setNamedTimers((m) => { const n = { ...m }; delete n[oid]; return n; });
+              delete namedTimerAtRef.current[oid];
+            } else if ("remainingSec" in ov) {
+              setNamedTimers((m) => ({ ...m, [oid]: { id: oid, name: ov.name, remainingSec: ov.remainingSec, running: ov.running, overrun: ov.overrun } }));
+              namedTimerAtRef.current[oid] = Date.now();
+            }
+          } else if ("clear" in ov && ov.clear) setTimerOverlay(null);
+          else { setTimerOverlay(ov); lastTimerMsgAt.current = Date.now(); }
         } else if (msg.type === "layer-patch") {
           // Decoupling Phase 2 (DORMANT): store the override; nothing renders from
           // it yet — Phase 3 gates consumption behind NEXT_PUBLIC_LAYERS_V2.
@@ -193,6 +208,15 @@ export default function StagePage() {
       if (lastTimerMsgAt.current > 0 && Date.now() - lastTimerMsgAt.current > 5000) {
         lastTimerMsgAt.current = 0;
         setTimerOverlay(null);
+      }
+      // Wave 7: sweep named timers whose per-id heartbeat has stopped for 5s.
+      {
+        const now = Date.now();
+        const staleIds = Object.keys(namedTimerAtRef.current).filter((id) => now - namedTimerAtRef.current[id] > 5000);
+        if (staleIds.length) {
+          for (const id of staleIds) delete namedTimerAtRef.current[id];
+          setNamedTimers((m) => { const n = { ...m }; for (const id of staleIds) delete n[id]; return n; });
+        }
       }
       // Stale-message sweep: 5s without a heartbeat → operator is gone, take
       // the message (incl. dismiss:manual) down.
@@ -323,14 +347,29 @@ export default function StagePage() {
       {/* CURRENT — dominant, full width so text is as large as possible */}
       <div className="relative flex-1 min-h-0">
         <div className="absolute top-3 left-4 text-[11px] font-mono uppercase tracking-widest text-white/45 z-10">Current</div>
-        {(timerOverlay || countdownStr) && (
-          <div className="absolute top-3 right-4 z-10 flex items-center gap-2 bg-white/[0.06] border border-white/10 rounded-xl px-3 py-1.5 backdrop-blur-sm">
-            <span className="text-[9px] font-mono uppercase tracking-widest text-white/40">
-              {timerOverlay ? (timerOverlay.name || "Timer") : "Countdown"}{timerOverlay && !timerOverlay.running ? " (paused)" : ""}
-            </span>
-            <span className={`text-3xl font-mono font-light tabular-nums ${timerOverlay && timerOverlay.remainingSec < 0 ? "text-red-400" : "text-white/85"}`}>
-              {timerOverlay ? formatStageTimer(timerOverlay.remainingSec) : countdownStr}
-            </span>
+        {(timerOverlay || countdownStr || Object.keys(namedTimers).length > 0) && (
+          <div className="absolute top-3 right-4 z-10 flex flex-col items-end gap-1.5">
+            {(timerOverlay || countdownStr) && (
+              <div className="flex items-center gap-2 bg-white/[0.06] border border-white/10 rounded-xl px-3 py-1.5 backdrop-blur-sm">
+                <span className="text-[9px] font-mono uppercase tracking-widest text-white/40">
+                  {timerOverlay ? (timerOverlay.name || "Timer") : "Countdown"}{timerOverlay && !timerOverlay.running ? " (paused)" : ""}
+                </span>
+                <span className={`text-3xl font-mono font-light tabular-nums ${timerOverlay && timerOverlay.remainingSec < 0 ? "text-red-400" : "text-white/85"}`}>
+                  {timerOverlay ? formatStageTimer(timerOverlay.remainingSec) : countdownStr}
+                </span>
+              </div>
+            )}
+            {/* Wave 7: named timers — each its own chip (worship / sermon). */}
+            {Object.values(namedTimers).map((t) => (
+              <div key={t.id} className="flex items-center gap-2 bg-white/[0.06] border border-white/10 rounded-xl px-3 py-1.5 backdrop-blur-sm">
+                <span className="text-[9px] font-mono uppercase tracking-widest text-white/40">
+                  {t.name || "Timer"}{!t.running ? " (paused)" : ""}
+                </span>
+                <span className={`text-3xl font-mono font-light tabular-nums ${t.remainingSec < 0 ? "text-red-400" : "text-white/85"}`}>
+                  {formatStageTimer(t.remainingSec)}
+                </span>
+              </div>
+            ))}
           </div>
         )}
         {/* Decoupling Phase 1: shared OutputCompositor. mode="stage" encodes the

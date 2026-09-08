@@ -51,6 +51,9 @@ export default function LivestreamPage() {
   // the dismiss countdown on content change; sweep stale messages after 5s.
   const lastMessageContentRef = useRef<string | null>(null);
   const lastMessageMsgAt = useRef<number>(0);
+  // Wave 7: extra simultaneous messages (public, allowWeb-gated).
+  const [extraMessages, setExtraMessages] = useState<Array<{ id: string; text: string }>>([]);
+  const lastExtraMsgAt = useRef<number>(0);
   const [timerOverlay, setTimerOverlay] = useState<{ name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed" } | null>(null);
   const [connected, setConnected] = useState(false);
   // Cross-device realtime connection status (pair-code overlay). Drives the
@@ -173,6 +176,14 @@ export default function LivestreamPage() {
           if (LAYERS_V2 && isStaleLayersSnapshot(msg.state.layersEpoch, layerEpochRef.current)) return;
           applyOutputState(msg.state);
         } else if (msg.type === "message") {
+          // Wave 7: extra simultaneous messages — public surface, so only
+          // allowWeb messages render here (default true for old-format).
+          if (msg.messages) {
+            lastExtraMsgAt.current = Date.now();
+            setExtraMessages(msg.messages
+              .filter((m): m is Extract<typeof m, { text: string }> => "text" in m && typeof m.text === "string" && m.allowWeb !== false)
+              .map((m) => ({ id: (m as { id?: string }).id ?? m.text, text: m.text })));
+          }
           if ("clear" in msg.overlay && msg.overlay.clear) {
             if (messageTimerRef.current) { clearTimeout(messageTimerRef.current); messageTimerRef.current = null; }
             lastMessageContentRef.current = null;
@@ -253,6 +264,11 @@ export default function LivestreamPage() {
         lastMessageContentRef.current = null;
         if (messageTimerRef.current) { clearTimeout(messageTimerRef.current); messageTimerRef.current = null; }
         setMessageOverlay(null);
+      }
+      // Wave 7: sweep extra messages if their shared heartbeat stops for 5s.
+      if (lastExtraMsgAt.current > 0 && Date.now() - lastExtraMsgAt.current > 5000) {
+        lastExtraMsgAt.current = 0;
+        setExtraMessages([]);
       }
       // Y4: silent-channel recovery — skip entirely when a remote transport is
       // the source (no operator on BroadcastChannel to recover; reopening churns).
@@ -487,6 +503,16 @@ export default function LivestreamPage() {
           <div className="bg-black/70 backdrop-blur-sm border-l-4 p-6 rounded-sm" style={{ borderColor: "var(--color-brand, #06b6d4)" }}>
             <div className="text-white text-2xl md:text-4xl font-semibold leading-tight text-left">{messageOverlay.text}</div>
           </div>
+        </div>
+      )}
+      {/* Wave 7: extra simultaneous messages, stacked above the legacy one. */}
+      {extraMessages.length > 0 && mode === "full" && (
+        <div className="absolute left-[6%] right-[6%] bottom-[18%] pointer-events-none flex flex-col gap-2">
+          {extraMessages.map((m) => (
+            <div key={m.id} className="bg-black/70 backdrop-blur-sm border-l-4 px-6 py-4 rounded-sm" style={{ borderColor: "var(--color-brand, #06b6d4)" }}>
+              <div className="text-white text-xl md:text-3xl font-semibold leading-tight text-left">{m.text}</div>
+            </div>
+          ))}
         </div>
       )}
       {timerOverlay && mode === "full" && (
