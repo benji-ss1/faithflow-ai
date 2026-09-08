@@ -186,6 +186,32 @@ check("hardening: snapshot REMOVAL is honored only when the snapshot is new enou
   assert.equal(projMap.has("slide"), false, "newer snapshot removes the omitted layer");
 });
 
+// ── (2c) REV IS UNBOUNDED — a hostile / clock-skewed huge rev PINS a layer ────
+// There is NO upper cap on `rev` (isValidLayerWire accepts any finite ≥0). A
+// sender that stamps an absurd rev (malice, or a machine whose clock is set far
+// in the future so its Date.now() seed dwarfs every honest peer) PERMANENTLY
+// pins that layer id on the projector: no legitimate patch (rev ≈ 1.7e12) can
+// ever out-rank it, and no honest heartbeat can remove it by omission. This
+// test DOCUMENTS the current (unbounded) behaviour so the gap is tracked. The
+// blast radius is contained: the layers engine is dormant (LAYERS_V2 default
+// OFF, no per-church opt-in wired), and the channel is church-scoped/auth'd, so
+// this is 🟡 (would be 🔴 with the engine live). If a cap is ever added, flip
+// this test's expectation.
+check("rev-cap 🟡: an absurd huge rev pins a layer — no honest patch/heartbeat can dislodge it (UNBOUNDED, documented)", () => {
+  const projMap = new Map<string, LayerWire>();
+  // Hostile / future-clock sender pins the background with a colossal rev.
+  const HUGE = 1e300; // finite, passes isValidLayerWire; dwarfs any Date.now() seed
+  projectorPatch(projMap, { id: "background", kind: "background", z: 0, enabled: true, payload: bgA, rev: HUGE } as LayerWire);
+  assert.equal(stackShape(projMap).background.payloadKey, JSON.stringify(bgA), "hostile pin adopted");
+  // An honest operator (rev ≈ Date.now()) tries to swap the background.
+  const honestRev = Date.now(); // ~1.7e12 ≪ HUGE
+  projectorPatch(projMap, { id: "background", kind: "background", z: 0, enabled: true, payload: bgB, rev: honestRev } as LayerWire);
+  assert.equal(stackShape(projMap).background.payloadKey, JSON.stringify(bgA), "honest patch DROPPED — layer is pinned (documents the missing cap)");
+  // An honest heartbeat that omits the background cannot remove it either.
+  projectorHeartbeat(projMap, [{ id: "slide", kind: "slide", z: 10, enabled: true, rev: honestRev } as LayerWire]);
+  assert.equal(projMap.has("background"), true, "pinned layer survives an omitting honest heartbeat (unremovable until reload)");
+});
+
 // ── (3) OPERATOR REFRESH mid-service ─────────────────────────────────────────
 // Operator override map is React memory-only (useState). A refresh drops it →
 // overrides=[] → OutputState.layers omitted → projector heartbeat clears its map.

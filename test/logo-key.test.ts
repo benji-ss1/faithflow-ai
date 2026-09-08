@@ -62,6 +62,36 @@ test("alphaForKey: threshold 0 is a no-op (returns original alpha)", () => {
   assert.equal(alphaForKey({ r: 0, g: 0, b: 0 }, 200, key, 0), 200);
 });
 
+test("alphaForKey: threshold 100 (max) keys out a foreground pixel too (extreme)", () => {
+  const key = { r: 0, g: 0, b: 0 };
+  // At threshold 100, maxD = MAX_RGB_DISTANCE; feather = 0.35*max. A mid-grey is
+  // inside (maxD - feather) so it becomes fully transparent — the documented
+  // extreme where almost everything keys out.
+  assert.equal(alphaForKey({ r: 100, g: 100, b: 100 }, 255, key, 100), 0);
+  // Pure white sits exactly AT maxD → original alpha preserved (edge kept).
+  assert.equal(alphaForKey({ r: 255, g: 255, b: 255 }, 255, key, 100), 255);
+});
+
+test("alphaForKey: preserves EXISTING alpha — keying never makes a pixel MORE opaque", () => {
+  const key = { r: 0, g: 0, b: 0 };
+  // A foreground pixel that already carries partial alpha keeps it (opaque path
+  // returns origAlpha, not 255) — an image with real transparency is respected.
+  assert.equal(alphaForKey({ r: 255, g: 255, b: 255 }, 128, key, 40), 128);
+  // A feather-band pixel ramps RELATIVE to its original alpha (never above it).
+  const maxD = 0.4 * MAX_RGB_DISTANCE;
+  const dist = maxD * 0.85;
+  const v = Math.round(dist / Math.sqrt(3));
+  const a = alphaForKey({ r: v, g: v, b: v }, 100, key, 40);
+  assert.ok(a >= 0 && a <= 100, `feathered alpha must not exceed original 100, got ${a}`);
+});
+
+test("pickFlatKeyColor: a single-colour image (all corners identical, e.g. 1x1) is flat", () => {
+  const px = { r: 40, g: 40, b: 40 };
+  const res = pickFlatKeyColor([px, px, px, px]);
+  assert.equal(res.flat, true);
+  assert.deepEqual(res.color, px, "key colour is exactly that colour");
+});
+
 test("alphaForKey: feather band ramps between transparent and opaque", () => {
   const key = { r: 0, g: 0, b: 0 };
   const maxD = 0.4 * MAX_RGB_DISTANCE; // threshold 40
