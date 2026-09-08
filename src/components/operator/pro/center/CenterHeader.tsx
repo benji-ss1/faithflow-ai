@@ -151,7 +151,7 @@ export function CenterHeader({
       {(centerMode === "slides" || centerMode === "bible" || centerMode === "songs") && (
         <CenterSizeSlider centerMode={centerMode} slideSize={slideSize} onSlideSize={onSlideSize} />
       )}
-      <ViewModeToggle />
+      <ViewModeToggle centerMode={centerMode} />
       <button className="w-8 h-8 flex items-center justify-center rounded-lg text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10 transition-colors" title="Preview (open Live in a new window)"
         onClick={() => { try { window.open("/live", "presentflow-live", "width=1280,height=720"); } catch { /* noop */ } }}
       >
@@ -254,8 +254,13 @@ function CenterSizeSlider({
   );
 }
 
-function ViewModeToggle() {
+function ViewModeToggle({ centerMode }: { centerMode: CenterMode }) {
   const [mode, setMode] = useState<ViewMode>("grid");
+  // "Text view" is a text-forward stack of the CURRENT SONG'S slides — only
+  // SlideGrid (slides mode) renders it. In Bible / Songs Library / Media there
+  // is no slide grid to re-flow, so the T button was a silent dead toggle
+  // (field bug 2026-09-08). Disable it outside slides mode with a tooltip.
+  const textApplicable = centerMode === "slides";
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(VIEW_MODE_KEY);
@@ -288,7 +293,13 @@ function ViewModeToggle() {
       <button title="List view" aria-pressed={mode === "list"} onClick={() => set("list")} className={seg("list", mode === "list")}>
         <List className="w-4 h-4" />
       </button>
-      <button title="Text view" aria-pressed={mode === "text"} onClick={() => set("text")} className={seg("text", mode === "text")}>
+      <button
+        title={textApplicable ? "Text view" : "Text view — available for song slides"}
+        aria-pressed={textApplicable && mode === "text"}
+        disabled={!textApplicable}
+        onClick={() => { if (textApplicable) set("text"); }}
+        className={cn(seg("text", textApplicable && mode === "text"), !textApplicable && "opacity-40 cursor-not-allowed hover:bg-transparent hover:text-[var(--color-muted-foreground)]")}
+      >
         <Type className="w-4 h-4" />
       </button>
     </div>
