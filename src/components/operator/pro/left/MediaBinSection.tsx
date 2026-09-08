@@ -1,8 +1,8 @@
 "use client";
 /**
  * Media bin — a compact, collapsible dock of the church's media assets that
- * lives in the BOTTOM HALF of the left rail, directly under PLAYLIST (field fix
- * 5B-3, operator: "the media bin should take over this bottom half").
+ * is docked below the PLAYLIST in the left rail (field fix 5B-3, operator: "the
+ * media bin should take over this bottom half").
  *
  * It is a THIN reuse of the existing media data + drag idiom:
  *   • lists /api/media/list assets as small thumbnails (same source as the full
@@ -47,8 +47,14 @@ export function MediaBinSection({
   onCenterMode?: (m: CenterMode) => void;
 }) {
   const [assets, setAssets] = useState<Asset[] | null>(null);
+  // Lazy: don't hit /api/media/list until the bin is first opened. Once opened,
+  // keep it live (re-pull on library changes) even if collapsed again.
+  const [hasOpened, setHasOpened] = useState(open);
+
+  useEffect(() => { if (open) setHasOpened(true); }, [open]);
 
   useEffect(() => {
+    if (!hasOpened) return;
     let cancelled = false;
     const load = async () => {
       try {
@@ -66,7 +72,7 @@ export function MediaBinSection({
     const h = () => void load();
     window.addEventListener("presentflow:libraries-changed", h);
     return () => { cancelled = true; window.removeEventListener("presentflow:libraries-changed", h); };
-  }, []);
+  }, [hasOpened]);
 
   const setAsBackground = (a: Asset) => {
     if (!a.url) { toast.error("This asset has no file to use as a background"); return; }
@@ -89,6 +95,11 @@ export function MediaBinSection({
   };
 
   const count = assets?.length ?? 0;
+  // Cap the inline grid so a large library never renders hundreds of <img>/<video>
+  // nodes into the rail — an "open full library" row surfaces the rest.
+  const GRID_CAP = 60;
+  const shown = assets ? assets.slice(0, GRID_CAP) : [];
+  const overflow = Math.max(0, count - GRID_CAP);
 
   return (
     <section
@@ -103,7 +114,11 @@ export function MediaBinSection({
         <button type="button" className="flex items-center gap-1 shrink-0 text-left" onClick={onToggle}>
           {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
           <span className="eyebrow">Media Bin</span>
-          <span className="ml-1.5 min-w-[16px] h-[15px] px-1 grid place-items-center rounded-full bg-[var(--color-brand)]/16 text-[var(--color-brand)] text-[9px] font-mono font-bold tabular-nums">{count}</span>
+          {/* Count is honest: only shown once the bin has been opened and the
+              lazy fetch has resolved (before that we don't know the count). */}
+          {assets !== null && (
+            <span className="ml-1.5 min-w-[16px] h-[15px] px-1 grid place-items-center rounded-full bg-[var(--color-brand)]/16 text-[var(--color-brand)] text-[9px] font-mono font-bold tabular-nums">{count}</span>
+          )}
         </button>
         <span className="h-px flex-1 mx-2" style={{ background: "linear-gradient(90deg, var(--color-border), transparent)" }} aria-hidden />
         <button
@@ -131,7 +146,7 @@ export function MediaBinSection({
           )}
           {assets && assets.length > 0 && (
             <div className="grid gap-1.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(84px, 1fr))" }}>
-              {assets.map((a) => {
+              {shown.map((a) => {
                 const isVideo = (a.kind || "").startsWith("video");
                 return (
                   <div
@@ -153,8 +168,11 @@ export function MediaBinSection({
                   >
                     {a.url ? (
                       isVideo ? (
+                        // preload="none" keeps the rail cheap (no video byte fetch
+                        // until played elsewhere); poster shows the thumb when we
+                        // have one, else nothing (honest — no broken frame).
                         // eslint-disable-next-line jsx-a11y/media-has-caption
-                        <video src={a.url} muted preload="metadata" className="w-full h-full object-cover pointer-events-none" />
+                        <video src={a.url} muted preload="none" poster={a.thumbUrl || undefined} className="w-full h-full object-cover pointer-events-none" />
                       ) : (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={a.thumbUrl || a.url} alt={a.fileName || ""} loading="lazy" decoding="async" className="w-full h-full object-cover pointer-events-none" />
@@ -176,6 +194,16 @@ export function MediaBinSection({
                 );
               })}
             </div>
+          )}
+          {overflow > 0 && (
+            <button
+              type="button"
+              onClick={() => onCenterMode?.("media")}
+              className="mt-1.5 w-full text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-brand)] underline underline-offset-2 px-1 py-1.5 text-left"
+              title="Open the full Media library"
+            >
+              Open full library ({overflow} more)
+            </button>
           )}
         </div>
       )}
