@@ -32,6 +32,22 @@ export function classifyDrop(types: readonly string[] | undefined | null): DropK
   return "none";
 }
 
+/**
+ * True iff a `dragleave` genuinely left the target (not just crossed onto a
+ * CHILD of it). HTML5 fires dragleave when the pointer moves from a row onto a
+ * descendant; that pointer wiggle must NOT reset the dwell. We treat the leave
+ * as real only when `relatedTarget` (where the pointer went) is not contained
+ * within `currentTarget` (the row). Pure so it's unit-testable with fake nodes.
+ */
+export function isRealDragLeave(
+  currentTarget: { contains(node: unknown): boolean } | null,
+  relatedTarget: unknown,
+): boolean {
+  if (!currentTarget) return true;
+  if (relatedTarget && currentTarget.contains(relatedTarget)) return false;
+  return true;
+}
+
 // ── Spring-arm state machine ─────────────────────────────────────────────────
 // A tiny pure reducer so the dwell/arm logic is testable without timers or the
 // DOM. The React hook feeds it real timestamps and a scheduled tick.
@@ -88,6 +104,24 @@ export function insertIndexAfterHeader(orderedIds: readonly string[], headerId: 
 }
 
 /**
+ * THE single ordering primitive: place `movingId` at `index` in `orderedIds`.
+ * `movingId` is first removed if already present (relocate); a fresh id is a
+ * plain insert. `index` is clamped into range so an out-of-bounds/`NaN`/negative
+ * index fail-softs to a clamped position instead of dropping the id. Pure +
+ * test-locked; every DnD insertion path (header-drop, section-drop reposition)
+ * routes through this so there's one clamp/insert behaviour.
+ */
+export function insertIdAtIndex(
+  orderedIds: readonly string[],
+  movingId: string,
+  index: number,
+): string[] {
+  const without = orderedIds.filter((x) => x !== movingId);
+  const clamped = Number.isFinite(index) ? Math.max(0, Math.min(Math.trunc(index), without.length)) : without.length;
+  return [...without.slice(0, clamped), movingId, ...without.slice(clamped)];
+}
+
+/**
  * Produce the new id order after moving `movingId` to sit immediately after
  * `headerId`. If `movingId` isn't already present it is inserted (a fresh add);
  * if it is present it is relocated. Pure so the reorder is test-locked.
@@ -100,5 +134,5 @@ export function orderAfterHeaderDrop(
   const without = orderedIds.filter((x) => x !== movingId);
   const at = insertIndexAfterHeader(without, headerId);
   if (at === -1) return [...orderedIds]; // header gone — no-op copy
-  return [...without.slice(0, at), movingId, ...without.slice(at)];
+  return insertIdAtIndex(without, movingId, at);
 }

@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import {
   SPRING_ARM_MS, SPRING_IDLE, classifyDrop, springEnter, springLeave, springTick, isArmed,
-  insertIndexAfterHeader, orderAfterHeaderDrop,
+  insertIndexAfterHeader, orderAfterHeaderDrop, insertIdAtIndex, isRealDragLeave,
   PF_LIBRARY_ITEM_MIME, PF_LIBRARY_ITEMS_MIME,
 } from "../src/lib/spring-load";
 
@@ -117,6 +117,46 @@ check("orderAfterHeaderDrop inserts a fresh id after the header", () => {
 });
 check("orderAfterHeaderDrop no-ops when header gone", () => {
   assert.deepEqual(orderAfterHeaderDrop(["a", "b"], "h1", "a"), ["a", "b"]);
+});
+
+// ── insertIdAtIndex (shared ordering primitive) ──────────────────────────────
+check("insertIdAtIndex inserts a fresh id at the index", () => {
+  assert.deepEqual(insertIdAtIndex(["a", "b", "c"], "new", 1), ["a", "new", "b", "c"]);
+  assert.deepEqual(insertIdAtIndex(["a", "b", "c"], "new", 0), ["new", "a", "b", "c"]);
+});
+check("insertIdAtIndex appends when index at/after end", () => {
+  assert.deepEqual(insertIdAtIndex(["a", "b"], "new", 2), ["a", "b", "new"]);
+  assert.deepEqual(insertIdAtIndex(["a", "b"], "new", 99), ["a", "b", "new"]);
+});
+check("insertIdAtIndex clamps a negative index to the front", () => {
+  assert.deepEqual(insertIdAtIndex(["a", "b"], "new", -5), ["new", "a", "b"]);
+});
+check("insertIdAtIndex fail-softs a non-finite index to append", () => {
+  assert.deepEqual(insertIdAtIndex(["a", "b"], "new", NaN), ["a", "b", "new"]);
+});
+check("insertIdAtIndex relocates an id already present (no duplicate)", () => {
+  assert.deepEqual(insertIdAtIndex(["a", "b", "c"], "c", 0), ["c", "a", "b"]);
+  // clamp is computed against the post-removal length
+  assert.deepEqual(insertIdAtIndex(["a", "b", "c"], "a", 99), ["b", "c", "a"]);
+});
+check("orderAfterHeaderDrop still routes through insertIdAtIndex (parity)", () => {
+  assert.deepEqual(orderAfterHeaderDrop(["h1", "a", "b", "c"], "h1", "c"), ["h1", "c", "a", "b"]);
+  assert.deepEqual(orderAfterHeaderDrop(["a", "h1", "b"], "h1", "new"), ["a", "h1", "new", "b"]);
+});
+
+// ── isRealDragLeave (dwell-restart guard) ────────────────────────────────────
+const rowWithChild = { contains: (n: unknown) => n === "child" };
+check("dragleave onto a CHILD of the row is not a real leave (dwell survives)", () => {
+  assert.equal(isRealDragLeave(rowWithChild, "child"), false);
+});
+check("dragleave onto an outside node IS a real leave", () => {
+  assert.equal(isRealDragLeave(rowWithChild, "outside"), true);
+});
+check("dragleave with no relatedTarget (left the window) IS a real leave", () => {
+  assert.equal(isRealDragLeave(rowWithChild, null), true);
+});
+check("null currentTarget fail-softs to a real leave", () => {
+  assert.equal(isRealDragLeave(null, "child"), true);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);
