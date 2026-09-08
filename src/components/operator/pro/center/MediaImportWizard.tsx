@@ -232,6 +232,14 @@ export function MediaImportWizard({ open, onClose, onImported, initialFiles, ini
         toast.error(`"${file.name}" exceeds ${MAX_FILE_SIZE_MB} MB — skipped.`);
         continue;
       }
+      // Skip empty (0-byte) files with an honest note — an empty upload would
+      // presign + PUT a valid-looking-but-broken asset. (MIME magic-byte
+      // sniffing for content/extension mismatch is a deeper check, deferred —
+      // see DECOUPLING_PLAN deferred log.)
+      if (file.size === 0) {
+        toast.error(`"${file.name}" is empty (0 bytes) — skipped.`);
+        continue;
+      }
       const key = `${file.name}:${file.size}`;
       if (isProFile(file)) {
         valid.push({ tag: "pro", key, file, status: "pending" });
