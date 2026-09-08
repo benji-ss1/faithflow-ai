@@ -18,8 +18,10 @@
 import { useState } from "react";
 import {
   Image as ImageIcon, Eye, EyeOff, Trash2, RectangleHorizontal, Square,
+  RotateCw, ListOrdered,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { slideOutputIdentity } from "@/lib/broadcast";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { LayerRow } from "../../useLiveLayers";
 import { BackgroundSelector } from "@/backgrounds/components/BackgroundSelector";
@@ -29,6 +31,7 @@ import { ClearAllButton } from "./ClearAllButton";
 export function LayersPanel({ ctx }: { ctx: OperatorShellCtx }) {
   const { liveLayers, layersEngineOn } = ctx;
   const [swapOpen, setSwapOpen] = useState(false);
+  const [slideActionsOpen, setSlideActionsOpen] = useState(false);
   const liveSlideIsText = ctx.liveSlide?.kind === "text";
 
   if (!layersEngineOn) {
@@ -60,8 +63,10 @@ export function LayersPanel({ ctx }: { ctx: OperatorShellCtx }) {
             onToggle={() => liveLayers.toggleLayer(row.id)}
             onClear={() => liveLayers.clearLayer(row.id)}
             onZone={(full) => liveLayers.setZone(row.id, full ? { kind: "full" } : { kind: "lowerThird" })}
-            onSwap={row.kind === "background" ? () => setSwapOpen((v) => !v) : undefined}
+            onSwap={row.kind === "background" ? () => { setSwapOpen((v) => !v); setSlideActionsOpen(false); } : undefined}
             swapOpen={row.kind === "background" && swapOpen}
+            onSlideActions={row.kind === "slide" ? () => { setSlideActionsOpen((v) => !v); setSwapOpen(false); } : undefined}
+            slideActionsOpen={row.kind === "slide" && slideActionsOpen}
           />
         ))}
       </div>
@@ -73,6 +78,11 @@ export function LayersPanel({ ctx }: { ctx: OperatorShellCtx }) {
           <BackgroundSelector />
         </div>
       )}
+
+      {/* Slide content actions — mirrors the background "swap" idiom. Re-send the
+          current live slide (a hard, forced re-project) + jump-to-slide chips for
+          the slides in the currently-live item. */}
+      {slideActionsOpen && <SlideActions ctx={ctx} />}
 
       <ClearAllButton
         onClearAll={() => {
@@ -88,6 +98,7 @@ export function LayersPanel({ ctx }: { ctx: OperatorShellCtx }) {
 
 function LayerRowView({
   row, liveDesc, liveSlideIsText, onToggle, onClear, onZone, onSwap, swapOpen,
+  onSlideActions, slideActionsOpen,
 }: {
   row: LayerRow;
   liveDesc: string;
@@ -97,6 +108,8 @@ function LayerRowView({
   onZone: (full: boolean) => void;
   onSwap?: () => void;
   swapOpen?: boolean;
+  onSlideActions?: () => void;
+  slideActionsOpen?: boolean;
 }) {
   const meta = LAYER_META[row.kind];
   const { Icon } = meta;
@@ -137,6 +150,20 @@ function LayerRowView({
         </button>
       )}
 
+      {/* Slide content actions — mirrors the background "swap" affordance. */}
+      {onSlideActions && (
+        <button
+          type="button"
+          onClick={onSlideActions}
+          title="Slide actions"
+          aria-label="Slide actions"
+          aria-expanded={slideActionsOpen}
+          className={cn(HIT, "hover:bg-white/5", slideActionsOpen ? "text-[var(--color-brand)]" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]")}
+        >
+          <ListOrdered className="w-3.5 h-3.5" />
+        </button>
+      )}
+
       {/* Background swap — reuse the Background Templates picker. */}
       {onSwap && (
         <button
@@ -174,6 +201,75 @@ function LayerRowView({
       >
         <Trash2 className="w-3.5 h-3.5" />
       </button>
+    </div>
+  );
+}
+
+/**
+ * Slide-row content actions — the slide-layer analogue of the background "swap"
+ * picker. Small + functional: a hard RE-SEND of the current live slide (forced,
+ * so it re-projects even if identity is unchanged — useful after a hide/clear or
+ * a projector reconnect), plus jump-to-slide chips for the slides in the item
+ * that is currently live. Clicking a chip projects that slide live (instant,
+ * forced). No emojis; --pf/token-driven, matching the panel idiom.
+ */
+function SlideActions({ ctx }: { ctx: OperatorShellCtx }) {
+  const item = ctx.plan.items[ctx.liveItemIdx];
+  const slides = item?.slides ?? [];
+  const liveId = ctx.liveSlide ? slideOutputIdentity(ctx.liveSlide) : null;
+  const canResend = ctx.liveSlide?.kind !== "empty";
+
+  return (
+    <div className="border-t border-[var(--color-border)] p-2 flex flex-col gap-2">
+      <button
+        type="button"
+        disabled={!canResend}
+        onClick={() => ctx.onSendSlideToLive(ctx.liveSlide, null, { instant: true, force: true })}
+        className={cn(
+          "inline-flex items-center justify-center gap-1.5 h-8 rounded text-[12px] font-medium transition-colors",
+          canResend
+            ? "bg-white/5 text-[var(--color-foreground)] hover:bg-white/10"
+            : "bg-white/5 text-[var(--color-muted-foreground)] opacity-40 cursor-not-allowed",
+        )}
+        title={canResend ? "Re-project the current live slide" : "Nothing is live to re-send"}
+      >
+        <RotateCw className="w-3.5 h-3.5" /> Re-send current
+      </button>
+
+      {slides.length > 0 ? (
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)] px-0.5 pb-1 truncate" title={item?.title || "Current item"}>
+            Jump · {item?.title || "Current item"}
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {slides.map((s, i) => {
+              const isLive = liveId != null && slideOutputIdentity(s) === liveId;
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => ctx.onSendSlideToLive(s, null, { instant: true, force: true })}
+                  title={`Project slide ${i + 1} live`}
+                  aria-label={`Project slide ${i + 1} live`}
+                  aria-current={isLive || undefined}
+                  className={cn(
+                    "h-7 min-w-7 px-2 rounded text-[12px] font-mono tabular-nums transition-colors",
+                    isLive
+                      ? "bg-[var(--color-brand)] text-white"
+                      : "bg-white/5 text-[var(--color-muted-foreground)] hover:bg-white/10 hover:text-[var(--color-foreground)]",
+                  )}
+                >
+                  {i + 1}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <div className="text-[11px] text-[var(--color-muted-foreground)] px-0.5">
+          No slides in the current item to jump to.
+        </div>
+      )}
     </div>
   );
 }
