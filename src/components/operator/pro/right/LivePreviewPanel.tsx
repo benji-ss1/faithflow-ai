@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
+import { OutputCompositor } from "@/components/live/OutputCompositor";
 import type { OperatorShellCtx } from "../../shell/types";
 import { CopyConfirm } from "../CopyConfirm";
 
@@ -86,14 +87,41 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
             LIVE
           </div>
         )}
-        <PresentationCanvas zone={ctx.zone}>
-          {/* WYSIWYG: show the active background behind the slide, exactly like
-              the projector (slide goes transparent via overVideo). */}
-          {/* key on the preset forces a fresh WebGL canvas on theme switch —
-              reusing the canvas permanently loses its context (freezes the shader). */}
-          {ctx.background && ctx.background.type !== "none" && <BackgroundLayer key={ctx.background.shaderPreset ?? ctx.background.type} background={ctx.background} />}
-          <SlideRenderer slide={ctx.liveSlide} appearance={ctx.appearance ?? undefined} projectorFit fontScale={ctx.fontScale} referenceScale={ctx.referenceScale} referenceColor={ctx.referenceColor} overVideo={!!(ctx.background && ctx.background.type !== "none")} onVideoRef={onVideoRef} />
-        </PresentationCanvas>
+        {ctx.layersEngineOn ? (
+          /* Layers engine ON: render the preview through the SAME
+             resolveLayeredPlan/override path as /live (OutputCompositor with the
+             operator's own layer overrides) so the operator monitor is WYSIWYG
+             with the projector under a clear/hide/swap/zone override — not just
+             for the un-overridden state. transition is pinned null: the preview
+             is a monitor, not a projector, and a fade on a tiny box adds no
+             information (and avoids any enter-animation churn). Flag OFF keeps
+             the byte-identical legacy render below. */
+          <OutputCompositor
+            mode="live"
+            slide={ctx.liveSlide}
+            appearance={ctx.appearance}
+            background={ctx.background ?? null}
+            videoInput={ctx.videoInput ?? null}
+            transition={null}
+            fontScale={ctx.fontScale}
+            referenceScale={ctx.referenceScale}
+            referenceColor={ctx.referenceColor}
+            zone={ctx.zone}
+            aspectRatio={ctx.aspectRatio}
+            onVideoRef={onVideoRef}
+            layersEnabled
+            layerOverrides={ctx.liveLayers.overrides}
+          />
+        ) : (
+          <PresentationCanvas zone={ctx.zone}>
+            {/* WYSIWYG: show the active background behind the slide, exactly like
+                the projector (slide goes transparent via overVideo). */}
+            {/* key on the preset forces a fresh WebGL canvas on theme switch —
+                reusing the canvas permanently loses its context (freezes the shader). */}
+            {ctx.background && ctx.background.type !== "none" && <BackgroundLayer key={ctx.background.shaderPreset ?? ctx.background.type} background={ctx.background} />}
+            <SlideRenderer slide={ctx.liveSlide} appearance={ctx.appearance ?? undefined} projectorFit fontScale={ctx.fontScale} referenceScale={ctx.referenceScale} referenceColor={ctx.referenceColor} overVideo={!!(ctx.background && ctx.background.type !== "none")} onVideoRef={onVideoRef} />
+          </PresentationCanvas>
+        )}
         {ctx.liveSlide.kind !== "empty" && (
           <button
             onClick={ctx.onKill}
