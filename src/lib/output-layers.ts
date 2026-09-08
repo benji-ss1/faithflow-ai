@@ -86,6 +86,35 @@ export function applyLayerPatchBounded(
  *  epochs. `current` starts undefined (no epoch seen yet). */
 export interface EpochRef { current: number | undefined; }
 
+/**
+ * Ghost-operator guard (field wave 6B). True when an incoming "output" snapshot
+ * comes from a STRICTLY-OLDER operator origin epoch than the one this receiver
+ * has already accepted — i.e. a stale/duplicate operator tab left open on the
+ * same BroadcastChannel. Such a ghost answers the projector's ping heartbeats
+ * with its own full snapshot (typically live:{kind:"empty"} + no overrides),
+ * which — applied blindly — CLOBBERS the projector's base live slide/background/
+ * camera/logo. Because a slide/media layer "show" (eye re-enable) carries no
+ * payload (R1a), that left the operator's eye-toggle with no base to restore and
+ * the projector black. `rebuildOverridesFromSnapshot` already rejects an older
+ * tab's OVERRIDE snapshot by epoch (Y1b); this lets the routes apply the SAME
+ * authority to the WHOLE snapshot (base slide + non-layer fields).
+ *
+ * Provably inert on the legacy path: returns false whenever either epoch is
+ * absent (LAYERS_V2 off ⇒ no epoch on the wire) or equal (single operator), so
+ * gating on it never changes single-operator / engine-off behaviour. A fresh or
+ * higher-epoch operator is never stale, so a real operator refresh still wins.
+ */
+export function isStaleLayersSnapshot(
+  snapEpoch: number | undefined,
+  storedEpoch: number | undefined,
+): boolean {
+  return (
+    typeof snapEpoch === "number" &&
+    typeof storedEpoch === "number" &&
+    snapEpoch < storedEpoch
+  );
+}
+
 export function rebuildOverridesFromSnapshot(
   map: Map<string, LayerWire>,
   layers: LayerWire[] | undefined | null,

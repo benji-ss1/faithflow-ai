@@ -31,7 +31,7 @@ import {
   type LiveMessage, type TransitionSpec, type ThemeAppearance, type VideoInputState, type BackgroundSpec,
   type LayerWire,
 } from "@/lib/broadcast";
-import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot } from "@/lib/output-layers";
+import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStaleLayersSnapshot } from "@/lib/output-layers";
 
 // Prevent noisy non-Error unhandledrejections from an offscreen renderer.
 if (typeof window !== "undefined" && !(window as unknown as { __ffNdiGuarded?: boolean }).__ffNdiGuarded) {
@@ -107,6 +107,10 @@ export default function NdiOutputPage() {
         else if (msg.type === "clear") applySlide({ kind: "empty" }); // §5
         else if (msg.type === "pong") applySlide(msg.slide);
         else if (msg.type === "output") {
+          // Ghost-operator guard (field wave 6B) — ignore a strictly-older
+          // operator tab's snapshot so it can't blank this surface. Inert when
+          // LAYERS_V2 is off or single-operator. See isStaleLayersSnapshot.
+          if (LAYERS_V2 && isStaleLayersSnapshot(msg.state.layersEpoch, layerEpochRef.current)) return;
           applySlide(msg.state.live);
           setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);
           setAppearance(msg.state.appearance ?? null);

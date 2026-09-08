@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { MAX_LAYERS, projectableTextSlide, type BackgroundSpec, type LayerWire, type SlidePayload, type VideoInputState } from "../src/lib/broadcast";
 import { resolveLayeredPlan, resolveLayeredInput, toOverrideMap } from "../src/lib/output-layers-render";
-import { applyLayerPatchBounded, rebuildOverridesFromSnapshot } from "../src/lib/output-layers";
+import { applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStaleLayersSnapshot, type EpochRef } from "../src/lib/output-layers";
 import type { PlanInput } from "../src/lib/output-plan";
 
 let pass = 0, fail = 0;
@@ -435,6 +435,63 @@ check("R1b: lowerThird ZONE PERSISTS across slide sends (sticky zone survives re
   hidden = rearmSlide(hidden);
   assert.equal(hidden.get("slide")!.enabled, true, "hidden slide re-enabled on send");
   assert.equal(hidden.get("slide")!.zone!.kind, "lowerThird", "band preserved through re-arm");
+});
+
+// ── Ghost-operator base-slide clobber (field wave 6B) ───────────────────────
+// The pure eye-toggle logic is correct, but the FIELD failure ("Text off then
+// on = no restore") reproduced only with TWO operator instances on one
+// BroadcastChannel: an older/idle operator answers the projector's ping with a
+// full snapshot carrying live:{kind:"empty"} + no overrides, which clobbered the
+// projector's BASE slide. Because a slide "show" carries no payload (R1a), SHOW
+// then had nothing to restore. These model the projector's output-branch base
+// application exactly as shipped, and prove the origin-epoch guard fixes it.
+
+/** Projector output-branch base-slide + override application, mirroring the
+ *  shipped /live handler: a strictly-older-epoch (ghost) snapshot is IGNORED
+ *  wholesale; otherwise the base live slide is applied and overrides folded. */
+function projectorApplyOutput(
+  proj: { base: SlidePayload; map: Map<string, LayerWire>; epoch: EpochRef },
+  snap: { live: SlidePayload; layers?: LayerWire[]; layersEpoch?: number },
+): void {
+  if (isStaleLayersSnapshot(snap.layersEpoch, proj.epoch.current)) return; // ghost
+  proj.base = snap.live;
+  rebuildOverridesFromSnapshot(proj.map, snap.layers ?? [], { snapEpoch: snap.layersEpoch, epochRef: proj.epoch });
+}
+
+check("wave6B: ghost idle operator does NOT blank the base slide → eye SHOW restores", () => {
+  const realEpoch = 5000, ghostEpoch = 3000; // ghost tab loaded EARLIER
+  const proj = { base: { kind: "empty" } as SlidePayload, map: new Map<string, LayerWire>(), epoch: { current: undefined } as EpochRef };
+  const liveText = projectableTextSlide("Adonai");
+  // Real operator sends the live slide + enabled slide override.
+  projectorApplyOutput(proj, { live: liveText, layers: [{ id: "slide", kind: "slide", z: 10, enabled: true, rev: realEpoch + 1 }], layersEpoch: realEpoch });
+  assert.equal((proj.base as { text?: string }).text, "Adonai", "base slide is live");
+  // Operator HIDES the slide (eye off) — enabled:false, no payload (R1a).
+  projectorApplyOutput(proj, { live: liveText, layers: [{ id: "slide", kind: "slide", z: 10, enabled: false, rev: realEpoch + 2 }], layersEpoch: realEpoch });
+  let resolved = resolveLayeredInput({ mode: "live", slide: proj.base }, Array.from(proj.map.values()));
+  assert.equal(resolved.slide.kind, "empty", "hidden → projector blank");
+  // GHOST idle operator answers a ping with live:empty + no overrides.
+  projectorApplyOutput(proj, { live: { kind: "empty" }, layers: [], layersEpoch: ghostEpoch });
+  assert.equal((proj.base as { text?: string }).text, "Adonai", "ghost snapshot IGNORED — base slide preserved");
+  assert.equal(proj.map.get("slide")?.enabled, false, "ghost did not wipe the slide override either");
+  // Operator SHOWS the slide again (eye on) — enabled:true, no payload.
+  projectorApplyOutput(proj, { live: liveText, layers: [{ id: "slide", kind: "slide", z: 10, enabled: true, rev: realEpoch + 3 }], layersEpoch: realEpoch });
+  resolved = resolveLayeredInput({ mode: "live", slide: proj.base }, Array.from(proj.map.values()));
+  assert.equal((resolved.slide as { text?: string }).text, "Adonai", "SHOW restores the live slide (bug fixed)");
+});
+
+check("wave6B: guard is INERT single-operator and engine-off (no regression)", () => {
+  // Single operator (one epoch): a later same-epoch empty MUST apply (real clear).
+  const proj = { base: projectableTextSlide("X") as SlidePayload, map: new Map<string, LayerWire>(), epoch: { current: undefined } as EpochRef };
+  projectorApplyOutput(proj, { live: projectableTextSlide("X"), layersEpoch: 7000 });
+  projectorApplyOutput(proj, { live: { kind: "empty" }, layersEpoch: 7000 }); // same epoch → applies
+  assert.equal(proj.base.kind, "empty", "same-operator real clear still blanks (not over-guarded)");
+  // Engine-off / legacy sender (no epoch on the wire): never guarded.
+  assert.equal(isStaleLayersSnapshot(undefined, 9000), false, "absent snap epoch ⇒ not stale");
+  assert.equal(isStaleLayersSnapshot(9000, undefined), false, "absent stored epoch ⇒ not stale");
+  assert.equal(isStaleLayersSnapshot(9000, 9000), false, "equal epoch ⇒ not stale");
+  assert.equal(isStaleLayersSnapshot(8999, 9000), true, "older epoch ⇒ stale (ghost)");
+  // A FRESH operator refresh (higher epoch) is authoritative, never guarded.
+  assert.equal(isStaleLayersSnapshot(9001, 9000), false, "newer epoch ⇒ authoritative, applies");
 });
 
 console.log(`\noutput-layers-convergence: ${pass} passed, ${fail} failed`);

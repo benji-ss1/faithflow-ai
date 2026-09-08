@@ -5,7 +5,7 @@ import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
 import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type LayerWire } from "@/lib/broadcast";
-import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot } from "@/lib/output-layers";
+import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStaleLayersSnapshot } from "@/lib/output-layers";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
@@ -113,6 +113,10 @@ export default function StagePage() {
         else if (msg.type === "clear") applyCurrent({ kind: "empty" });
         else if (msg.type === "pong") applyCurrent(msg.slide);
         else if (msg.type === "output") {
+          // Ghost-operator guard (field wave 6B) — ignore a strictly-older
+          // operator tab's snapshot so it can't blank this surface. Inert when
+          // LAYERS_V2 is off or single-operator. See isStaleLayersSnapshot.
+          if (LAYERS_V2 && isStaleLayersSnapshot(msg.state.layersEpoch, layerEpochRef.current)) return;
           applyCurrent(msg.state.live);
           // Apply the non-slide fields only when they actually changed (dedup).
           let restSig: string;

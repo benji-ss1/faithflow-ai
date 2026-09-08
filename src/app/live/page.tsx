@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
 import { openLiveChannel, type LiveChannelLike, safePost, coerceLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState, type LayerWire } from "@/lib/broadcast";
-import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot } from "@/lib/output-layers";
+import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStaleLayersSnapshot } from "@/lib/output-layers";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
@@ -175,6 +175,24 @@ export default function LivePage() {
         else if (msg.type === "clear") applyLive({ kind: "empty" });
         else if (msg.type === "pong") applyLive(msg.slide);
         else if (msg.type === "output") {
+          // GHOST-OPERATOR GUARD (field wave 6B). Two operator instances on the
+          // same BroadcastChannel (a stale/duplicate operator tab left open) BOTH
+          // answer this projector's ping heartbeats with a full "output" snapshot.
+          // An OLDER (ghost) tab that has nothing live emits live:{kind:"empty"} +
+          // no layer overrides, which used to CLOBBER the projector's base live
+          // slide to empty — and because a slide/media layer "show" (eye re-enable)
+          // carries NO payload (R1a), the operator's eye-toggle then had no base to
+          // restore and /live stayed black. rebuildOverridesFromSnapshot already
+          // rejects an older tab's OVERRIDE snapshot by origin epoch (Y1b); apply
+          // that SAME authority to the whole output snapshot so a ghost tab can't
+          // blank the base slide/background/camera/logo either. Strictly-older
+          // epoch ⇒ ignore the entire snapshot. Provably inert when LAYERS_V2 is
+          // off (no epoch on the wire) and single-operator (one epoch, never <),
+          // so the legacy path is byte-identical — a fresh/higher-epoch operator
+          // still wins immediately (authoritative replace in the override rebuild).
+          if (LAYERS_V2 && isStaleLayersSnapshot(msg.state.layersEpoch, layerEpochRef.current)) {
+            return; // ghost (older) operator — do not let it blank this projector
+          }
           applyLive(msg.state.live); // has its own content-signature dedup
           // The operator now answers the ~3s heartbeat with a FULL output snapshot
           // (so a dropped theme/background self-heals on the projector — the

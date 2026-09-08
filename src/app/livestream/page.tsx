@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type RefCallback } from "reac
 import { Maximize2, X } from "lucide-react";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
 import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, sanitizeOutputState, type OutputState, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState, type LayerWire } from "@/lib/broadcast";
-import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot } from "@/lib/output-layers";
+import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStaleLayersSnapshot } from "@/lib/output-layers";
 import { parseObsBand, clampObsBand, DEFAULT_OBS_BAND, type ObsBandConfig, type ObsThemeColors } from "@/lib/obs-lowerthird";
 import { openOutputChannel, isValidPairCode, type RealtimeConnStatus } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
@@ -165,6 +165,12 @@ export default function LivestreamPage() {
         else if (msg.type === "clear") applySlide({ kind: "empty" });
         else if (msg.type === "pong") applySlide(msg.slide);
         else if (msg.type === "output") {
+          // Ghost-operator guard (field wave 6B) — on the SAME-MACHINE
+          // BroadcastChannel, ignore a strictly-older operator tab's snapshot so a
+          // stale/duplicate operator can't blank this overlay. Scoped to this
+          // transport only (the LAN/Realtime applyOutputState below is a DIFFERENT
+          // machine with an unrelated epoch). Inert when LAYERS_V2 off / single-op.
+          if (LAYERS_V2 && isStaleLayersSnapshot(msg.state.layersEpoch, layerEpochRef.current)) return;
           applyOutputState(msg.state);
         } else if (msg.type === "message") {
           if ("clear" in msg.overlay && msg.overlay.clear) {
