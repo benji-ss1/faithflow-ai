@@ -4,8 +4,8 @@ import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
-import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, MAX_LAYERS, type LayerWire } from "@/lib/broadcast";
-import { LAYERS_V2 } from "@/lib/output-layers";
+import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type LayerWire } from "@/lib/broadcast";
+import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot } from "@/lib/output-layers";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
@@ -120,10 +120,7 @@ export default function StagePage() {
           if (restSig !== appliedRestSig) {
             appliedRestSig = restSig;
             if (LAYERS_V2) {
-              const m = layerOverridesRef.current;
-              m.clear();
-              for (const l of (msg.state.layers ?? [])) { if (m.has(l.id) || m.size < MAX_LAYERS) m.set(l.id, l); }
-              setLayerOverridesArr(Array.from(m.values()));
+              setLayerOverridesArr(rebuildOverridesFromSnapshot(layerOverridesRef.current, msg.state.layers));
             }
             setNext(msg.state.next);
             setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);
@@ -164,9 +161,8 @@ export default function StagePage() {
           // it yet — Phase 3 gates consumption behind NEXT_PUBLIC_LAYERS_V2.
           // Bounded: existing ids update; a new id is dropped once full (MAX_LAYERS).
           {
-            const m = layerOverridesRef.current;
-            if (m.has(msg.layer.id) || m.size < MAX_LAYERS) m.set(msg.layer.id, msg.layer);
-            if (LAYERS_V2) setLayerOverridesArr(Array.from(m.values()));
+            applyLayerPatchBounded(layerOverridesRef.current, msg.layer);
+            if (LAYERS_V2) setLayerOverridesArr(Array.from(layerOverridesRef.current.values()));
           }
         }
       } catch (err) {

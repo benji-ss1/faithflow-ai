@@ -2,8 +2,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
-import { openLiveChannel, type LiveChannelLike, safePost, coerceLiveMessage, MAX_LAYERS, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState, type LayerWire } from "@/lib/broadcast";
-import { LAYERS_V2 } from "@/lib/output-layers";
+import { openLiveChannel, type LiveChannelLike, safePost, coerceLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState, type LayerWire } from "@/lib/broadcast";
+import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot } from "@/lib/output-layers";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
@@ -196,12 +196,7 @@ export default function LivePage() {
             // from them so a projector that joined mid-service converges to the
             // same layer stack the live layer-patch messages built incrementally.
             if (LAYERS_V2) {
-              const m = layerOverridesRef.current;
-              m.clear();
-              for (const l of (msg.state.layers ?? [])) {
-                if (m.has(l.id) || m.size < MAX_LAYERS) m.set(l.id, l);
-              }
-              setLayerOverridesArr(Array.from(m.values()));
+              setLayerOverridesArr(rebuildOverridesFromSnapshot(layerOverridesRef.current, msg.state.layers));
             }
             setAnnouncement(msg.state.announcement ?? null);
             setTransition(msg.state.transition ?? null);
@@ -279,9 +274,8 @@ export default function LivePage() {
           // limit. Existing ids may always be updated; a NEW id is dropped once the
           // map is full (mirrors MAX_LAYERS on the OutputState.layers array).
           {
-            const m = layerOverridesRef.current;
-            if (m.has(msg.layer.id) || m.size < MAX_LAYERS) m.set(msg.layer.id, msg.layer);
-            if (LAYERS_V2) setLayerOverridesArr(Array.from(m.values())); // Phase 3: re-render the stack
+            applyLayerPatchBounded(layerOverridesRef.current, msg.layer);
+            if (LAYERS_V2) setLayerOverridesArr(Array.from(layerOverridesRef.current.values())); // Phase 3: re-render the stack
           }
         }
       } catch (err) {

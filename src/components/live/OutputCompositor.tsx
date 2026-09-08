@@ -118,10 +118,14 @@ export function OutputCompositor(props: OutputCompositorProps) {
   function renderLayer(layer: OutputLayerPlan): ReactNode {
     if (!layer.enabled) return null;
     const node = renderLayerInner(layer);
-    const op = opacities[layer.id];
-    // Opacity override wrapper — only when < 1, so parity holds (no wrapper, no
-    // DOM difference) whenever the operator hasn't dimmed this layer.
-    if (node && typeof op === "number") {
+    if (!node) return null;
+    // Y7: in the LAYERS-ENABLED path the opacity wrapper is ALWAYS present with
+    // `opacity: op ?? 1`, so the element identity is stable across a 1↔<1 opacity
+    // change — a future opacity slider can never remount the camera/slide (which
+    // would drop the video element / restart a transition). The flag-OFF legacy
+    // path stays byte-identical (no wrapper at all), preserving 96-fixture parity.
+    if (layersEnabled) {
+      const op = opacities[layer.id] ?? 1;
       return (
         <div key={`op-${layer.id}`} className="absolute inset-0" style={{ opacity: op }}>
           {node}

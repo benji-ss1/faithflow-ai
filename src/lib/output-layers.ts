@@ -42,7 +42,39 @@
  * is the recorded decision, so no church path changes until Phase 3 wires it.
  * See docs/DECOUPLING_PLAN.md "Phase 2 — as built".
  */
-import type { LayerWire, OutputState } from "@/lib/broadcast";
+import { MAX_LAYERS, type LayerWire, type OutputState } from "@/lib/broadcast";
+
+/**
+ * Fold ONE incoming `layer-patch` into a projector's id-keyed override map,
+ * bounded so a hostile same-channel sender cannot grow the map without limit:
+ * an EXISTING id may always be updated; a NEW id is dropped once the map is full
+ * (mirrors MAX_LAYERS on the OutputState.layers array). Extracted so all four
+ * output routes share one implementation (was inlined + duplicated). Mutates
+ * `map` in place; returns it for chaining.
+ */
+export function applyLayerPatchBounded(
+  map: Map<string, LayerWire>,
+  patch: LayerWire,
+): Map<string, LayerWire> {
+  if (map.has(patch.id) || map.size < MAX_LAYERS) map.set(patch.id, patch);
+  return map;
+}
+
+/**
+ * Rebuild a projector's id-keyed override map from a full-OutputState heartbeat
+ * snapshot's `layers` (late-join / self-heal convergence): clear, then re-add
+ * each layer under the same MAX_LAYERS bound. Extracted from the 4× duplicated
+ * inline block in /live, /stage, /livestream, /ndi. Mutates `map` in place and
+ * returns the fresh values array the route stores in React state to re-render.
+ */
+export function rebuildOverridesFromSnapshot(
+  map: Map<string, LayerWire>,
+  layers: LayerWire[] | undefined | null,
+): LayerWire[] {
+  map.clear();
+  for (const l of layers ?? []) applyLayerPatchBounded(map, l);
+  return Array.from(map.values());
+}
 
 /**
  * Phase 3 render-swap flag. Default OFF: today NOTHING renders from the layer

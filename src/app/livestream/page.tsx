@@ -2,8 +2,8 @@
 import { useCallback, useEffect, useRef, useState, type RefCallback } from "react";
 import { Maximize2, X } from "lucide-react";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
-import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, sanitizeOutputState, type OutputState, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState, MAX_LAYERS, type LayerWire } from "@/lib/broadcast";
-import { LAYERS_V2 } from "@/lib/output-layers";
+import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, sanitizeOutputState, type OutputState, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState, type LayerWire } from "@/lib/broadcast";
+import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot } from "@/lib/output-layers";
 import { parseObsBand, clampObsBand, DEFAULT_OBS_BAND, type ObsBandConfig, type ObsThemeColors } from "@/lib/obs-lowerthird";
 import { openOutputChannel, isValidPairCode, type RealtimeConnStatus } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
@@ -204,9 +204,8 @@ export default function LivestreamPage() {
           // it yet — Phase 3 gates consumption behind NEXT_PUBLIC_LAYERS_V2.
           // Bounded: existing ids update; a new id is dropped once full (MAX_LAYERS).
           {
-            const m = layerOverridesRef.current;
-            if (m.has(msg.layer.id) || m.size < MAX_LAYERS) m.set(msg.layer.id, msg.layer);
-            if (LAYERS_V2) setLayerOverridesArr(Array.from(m.values()));
+            applyLayerPatchBounded(layerOverridesRef.current, msg.layer);
+            if (LAYERS_V2) setLayerOverridesArr(Array.from(layerOverridesRef.current.values()));
           }
         }
       } catch (err) {
@@ -279,10 +278,7 @@ export default function LivestreamPage() {
       if (sig === lastNonSlideSig) return;
       lastNonSlideSig = sig;
       if (LAYERS_V2) {
-        const m = layerOverridesRef.current;
-        m.clear();
-        for (const l of (state.layers ?? [])) { if (m.has(l.id) || m.size < MAX_LAYERS) m.set(l.id, l); }
-        setLayerOverridesArr(Array.from(m.values()));
+        setLayerOverridesArr(rebuildOverridesFromSnapshot(layerOverridesRef.current, state.layers));
       }
       // OBS lower-third live config: an edit in the operator's OBS card reaches
       // us here and updates the band INSTANTLY (overrides the URL-param default).

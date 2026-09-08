@@ -29,9 +29,9 @@ import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import {
   openLiveChannel, type LiveChannelLike, coerceLiveMessage, type SlidePayload,
   type LiveMessage, type TransitionSpec, type ThemeAppearance, type VideoInputState, type BackgroundSpec,
-  MAX_LAYERS, type LayerWire,
+  type LayerWire,
 } from "@/lib/broadcast";
-import { LAYERS_V2 } from "@/lib/output-layers";
+import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot } from "@/lib/output-layers";
 
 // Prevent noisy non-Error unhandledrejections from an offscreen renderer.
 if (typeof window !== "undefined" && !(window as unknown as { __ffNdiGuarded?: boolean }).__ffNdiGuarded) {
@@ -112,18 +112,14 @@ export default function NdiOutputPage() {
           setVideoInput(msg.state.videoInput ?? null);
           setTransition(msg.state.transition ?? null);
           if (LAYERS_V2) {
-            const m = layerOverridesRef.current;
-            m.clear();
-            for (const l of (msg.state.layers ?? [])) { if (m.has(l.id) || m.size < MAX_LAYERS) m.set(l.id, l); }
-            setLayerOverridesArr(Array.from(m.values()));
+            setLayerOverridesArr(rebuildOverridesFromSnapshot(layerOverridesRef.current, msg.state.layers));
           }
         } else if (msg.type === "layer-patch") {
           // Phase 3: store the override + trigger a re-render (gated by LAYERS_V2).
           // Bounded: existing ids update; a new id is dropped once full (MAX_LAYERS).
           {
-            const m = layerOverridesRef.current;
-            if (m.has(msg.layer.id) || m.size < MAX_LAYERS) m.set(msg.layer.id, msg.layer);
-            if (LAYERS_V2) setLayerOverridesArr(Array.from(m.values()));
+            applyLayerPatchBounded(layerOverridesRef.current, msg.layer);
+            if (LAYERS_V2) setLayerOverridesArr(Array.from(layerOverridesRef.current.values()));
           }
         }
       } catch { /* ignore */ }
