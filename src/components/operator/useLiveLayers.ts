@@ -36,7 +36,14 @@ const EMPTY_OVERRIDES: LayerWire[] = [];
 // projector keeps the highest rev per layer id (see applyLayerPatchBounded /
 // rebuildOverridesFromSnapshot), so a lagging heartbeat or ghost snapshot can
 // never clobber a fresher patch.
-let __layerRev = Date.now();
+//
+// LAYERS_ORIGIN_EPOCH (Y1b) is the immutable Date.now seed captured ONCE at
+// module load = this tab's identity. It rides every OutputState this operator
+// emits (as `layersEpoch`) so a projector can tell a fresh tab from a ghost tab
+// and let a fresh tab authoritatively clear/replace the override map — even when
+// the fresh tab has no overrides (the operator-refresh-clears invariant).
+const LAYERS_ORIGIN_EPOCH = Date.now();
+let __layerRev = LAYERS_ORIGIN_EPOCH;
 function nextRev(): number { return ++__layerRev; }
 import {
   isValidLiveMessage,
@@ -80,6 +87,9 @@ export interface UseLiveLayers {
   rows: LayerRow[];
   /** The active override patches — folded into OutputState.layers for late join. */
   overrides: LayerWire[];
+  /** This operator tab's origin epoch (Y1b) — folded into OutputState.layersEpoch
+   *  so a projector can tell a fresh tab (authoritative) from a ghost tab. */
+  epoch: number;
   toggleLayer: (id: string) => void;
   clearLayer: (id: string) => void;
   setZone: (id: string, zone: LayerZone) => void;
@@ -367,6 +377,7 @@ export function useLiveLayers(
     enabled,
     rows: enabled ? rows : EMPTY_ROWS,
     overrides: enabled ? overrides : EMPTY_OVERRIDES,
+    epoch: LAYERS_ORIGIN_EPOCH,
     toggleLayer,
     clearLayer,
     setZone,

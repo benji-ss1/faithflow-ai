@@ -64,6 +64,8 @@ export default function StagePage() {
   // Decoupling Phase 2 (DORMANT): per-layer override store for incoming
   // layer-patch messages. Nothing reads it yet (Phase 3, NEXT_PUBLIC_LAYERS_V2).
   const layerOverridesRef = useRef<Map<string, LayerWire>>(new Map());
+  // Y1b: the origin epoch last folded from a snapshot (fresh-tab authority).
+  const layerEpochRef = useRef<number | undefined>(undefined);
   // Phase 3: re-render-triggering snapshot of the override map (see /live).
   const [layerOverridesArr, setLayerOverridesArr] = useState<LayerWire[]>([]);
   // Operator heartbeats the timer overlay at 1Hz while shown — sweep it off
@@ -115,12 +117,12 @@ export default function StagePage() {
           // Apply the non-slide fields only when they actually changed (dedup).
           let restSig: string;
           try {
-            restSig = JSON.stringify([msg.state.next, msg.state.fontScale, msg.state.referenceScale, msg.state.referenceColor, msg.state.background, msg.state.appearance, msg.state.zone, msg.state.nextItem, msg.state.operatorMessage, msg.state.countdownEndsAt, msg.state.announcement, msg.state.transition, LAYERS_V2 ? (msg.state.layers ?? null) : null]);
+            restSig = JSON.stringify([msg.state.next, msg.state.fontScale, msg.state.referenceScale, msg.state.referenceColor, msg.state.background, msg.state.appearance, msg.state.zone, msg.state.nextItem, msg.state.operatorMessage, msg.state.countdownEndsAt, msg.state.announcement, msg.state.transition, LAYERS_V2 ? (msg.state.layers ?? null) : null, LAYERS_V2 ? (msg.state.layersEpoch ?? null) : null]);
           } catch { restSig = String(Date.now()); }
           if (restSig !== appliedRestSig) {
             appliedRestSig = restSig;
             if (LAYERS_V2) {
-              setLayerOverridesArr(rebuildOverridesFromSnapshot(layerOverridesRef.current, msg.state.layers));
+              setLayerOverridesArr(rebuildOverridesFromSnapshot(layerOverridesRef.current, msg.state.layers, { snapEpoch: msg.state.layersEpoch, epochRef: layerEpochRef }));
             }
             setNext(msg.state.next);
             setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);

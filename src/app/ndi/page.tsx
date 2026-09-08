@@ -56,6 +56,8 @@ export default function NdiOutputPage() {
   // Decoupling Phase 2 (DORMANT): incoming single-layer patches are stored here
   // but NOT rendered from — Phase 3 gates consumption behind NEXT_PUBLIC_LAYERS_V2.
   const layerOverridesRef = useRef<Map<string, LayerWire>>(new Map());
+  // Y1b: the origin epoch last folded from a snapshot (fresh-tab authority).
+  const layerEpochRef = useRef<number | undefined>(undefined);
   // Phase 3: re-render-triggering snapshot of the override map (see /live).
   const [layerOverridesArr, setLayerOverridesArr] = useState<LayerWire[]>([]);
 
@@ -112,7 +114,7 @@ export default function NdiOutputPage() {
           setVideoInput(msg.state.videoInput ?? null);
           setTransition(msg.state.transition ?? null);
           if (LAYERS_V2) {
-            setLayerOverridesArr(rebuildOverridesFromSnapshot(layerOverridesRef.current, msg.state.layers));
+            setLayerOverridesArr(rebuildOverridesFromSnapshot(layerOverridesRef.current, msg.state.layers, { snapEpoch: msg.state.layersEpoch, epochRef: layerEpochRef }));
           }
         } else if (msg.type === "layer-patch") {
           // Phase 3: store the override + trigger a re-render (gated by LAYERS_V2).

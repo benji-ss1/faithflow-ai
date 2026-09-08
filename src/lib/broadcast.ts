@@ -339,6 +339,14 @@ export type LayerWire =
 // bounded well beyond the legacy 0/10/20 stack. The array is capped so a hostile
 // snapshot can't balloon memory.
 export const MAX_LAYERS = 16;
+// Sanity window for the monotonic `rev` / `layersEpoch` stamps. Revs are
+// Date.now()-seeded on the origin, so an honest stamp is always within a small
+// clock-skew of "now". A stamp more than this far in the FUTURE is either a
+// hostile pin (e.g. 2^52) or a badly-mis-set clock (wrong year) — rejected at
+// validation, and used receiver-side to self-heal a map that a prior bad stamp
+// pinned (a stored rev exceeding an incoming rev by more than this window is
+// treated as stale, so an honest lower rev can take over without a reload).
+export const REV_MAX_SKEW_MS = 86_400_000; // 24h
 const LAYER_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
 const LAYER_KINDS = new Set<string>([
   "background", "camera", "slide", "band", "announcement", "timer", "message", "media", "logo",
@@ -394,6 +402,16 @@ export type OutputState = {
   // rides the wire only so validators/adapters can be locked in first. Invalid
   // entries are DROPPED by sanitizeOutputState (never passed through).
   layers?: LayerWire[];
+  // Decoupling Phase 3 (Y1b) — the ORIGIN's per-tab epoch (its Date.now seed,
+  // the same seed the rev counter starts from). Present whenever the layers
+  // engine is on for this operator, EVEN when `layers` is empty, so a freshly
+  // opened operator tab authoritatively announces itself. Receivers compare it
+  // to the epoch they last folded: a snapshot from a NEWER epoch (fresh tab)
+  // clears+replaces the projector's override map even if it carries no overrides
+  // (restores the refresh-clears invariant); an OLDER epoch (a ghost tab) is
+  // ignored so it can't clobber; the SAME epoch keeps the rev-gated merge.
+  // Optional + legacy-tolerant: absence ⇒ the pre-epoch rev-gated merge.
+  layersEpoch?: number;
 };
 
 /**
@@ -713,7 +731,10 @@ export function isValidLayerWire(l: unknown): l is LayerWire {
   // rev: optional monotonic stamp. When present it must be a finite, non-negative
   // number (Date.now()-seeded on the origin, so realistically large). Absence is
   // legacy-valid (tolerant).
-  if (p.rev !== undefined && (typeof p.rev !== "number" || !Number.isFinite(p.rev) || p.rev < 0)) return false;
+  // rev must be finite, non-negative, AND not absurdly in the future (a 2^52
+  // pin or a wrong-clock-year sender): a stamp more than REV_MAX_SKEW_MS beyond
+  // "now" cannot be an honest Date.now()-seeded rev, so the layer is rejected.
+  if (p.rev !== undefined && (typeof p.rev !== "number" || !Number.isFinite(p.rev) || p.rev < 0 || p.rev > Date.now() + REV_MAX_SKEW_MS)) return false;
   if (!isValidLayerPayload(p.kind, p.payload)) return false;
   return true;
 }
@@ -1090,6 +1111,9 @@ export function isValidOutputState(s: unknown): s is OutputState {
   if (st.zone !== undefined && st.zone !== null && !isValidZone(st.zone)) return false;
   if (st.obsLowerThird !== undefined && !isValidObsLowerThird(st.obsLowerThird)) return false;
   if (st.layers !== undefined && !isValidLayersArray(st.layers)) return false;
+  // layersEpoch (Y1b): optional origin epoch stamp. Finite, non-negative, and —
+  // like rev — not absurdly in the future (hostile pin / wrong-clock sender).
+  if (st.layersEpoch !== undefined && (typeof st.layersEpoch !== "number" || !Number.isFinite(st.layersEpoch) || st.layersEpoch < 0 || st.layersEpoch > Date.now() + REV_MAX_SKEW_MS)) return false;
   return true;
 }
 
@@ -1211,6 +1235,12 @@ export function sanitizeOutputState(s: unknown): OutputState | null {
   if (out.layers !== undefined) {
     const layers = sanitizeLayers(out.layers);
     if (layers === undefined) delete out.layers; else out.layers = layers;
+  }
+  // layersEpoch (Y1b): drop a malformed / future-pinned epoch rather than
+  // poisoning the whole snapshot (fail-open, mirrors the rev clamp).
+  if (out.layersEpoch !== undefined) {
+    const e = out.layersEpoch;
+    if (typeof e !== "number" || !Number.isFinite(e) || e < 0 || e > Date.now() + REV_MAX_SKEW_MS) delete out.layersEpoch;
   }
   return out as unknown as OutputState;
 }

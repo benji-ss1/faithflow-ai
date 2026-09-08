@@ -186,6 +186,22 @@ check("rev is optional, must be a finite non-negative number when present", () =
   assert.ok(!isValidLayerWire({ id: "s", kind: "slide", z: 10, enabled: true, rev: "5" as unknown as number }), "string rev rejected");
 });
 
+check("rev clamp (Y1a): an absurd-future rev is rejected at the wire (hostile pin / wrong clock)", () => {
+  assert.ok(!isValidLayerWire({ id: "s", kind: "slide", z: 10, enabled: true, rev: 2 ** 52 }), "2^52 rev rejected (far future)");
+  assert.ok(!isValidLayerWire({ id: "s", kind: "slide", z: 10, enabled: true, rev: Date.now() + 200 * 365 * 24 * 3600 * 1000 }), "year-2200 clock rev rejected");
+  assert.ok(isValidLayerWire({ id: "s", kind: "slide", z: 10, enabled: true, rev: Date.now() + 1000 }), "small skew ok (honest clock jitter)");
+});
+
+check("layersEpoch (Y1b): optional, finite non-negative, not absurdly future", () => {
+  assert.ok(isValidOutputStateExternal({ ...EMPTY_OUTPUT, layersEpoch: Date.now() }), "present epoch ok");
+  assert.ok(isValidOutputStateExternal({ ...EMPTY_OUTPUT }), "absent epoch ok (legacy)");
+  assert.ok(!isValidOutputStateExternal({ ...EMPTY_OUTPUT, layersEpoch: 2 ** 52 }), "absurd-future epoch rejected");
+  assert.ok(!isValidOutputStateExternal({ ...EMPTY_OUTPUT, layersEpoch: -1 }), "negative epoch rejected");
+  // Fail-open sanitize drops a bad epoch rather than nuking the snapshot.
+  const salv = sanitizeOutputState({ ...EMPTY_OUTPUT, layersEpoch: 2 ** 52 });
+  assert.ok(salv && salv.layersEpoch === undefined, "sanitize dropped absurd epoch, kept the snapshot");
+});
+
 // ---- duplicate-id policy ----------------------------------------------------
 check("sanitizeLayers drops subsequent duplicate ids (first wins)", () => {
   const dupes = [

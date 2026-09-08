@@ -42,7 +42,7 @@
  * is the recorded decision, so no church path changes until Phase 3 wires it.
  * See docs/DECOUPLING_PLAN.md "Phase 2 — as built".
  */
-import { MAX_LAYERS, type LayerWire, type OutputState } from "@/lib/broadcast";
+import { MAX_LAYERS, REV_MAX_SKEW_MS, type LayerWire, type OutputState } from "@/lib/broadcast";
 
 /**
  * Fold ONE incoming `layer-patch` into a projector's id-keyed override map,
@@ -61,8 +61,14 @@ export function applyLayerPatchBounded(
   // layer carry a monotonic `rev`, DROP the patch if it is older — a lagging
   // heartbeat / ghost-tab snapshot can never regress a fresher incremental
   // patch. Missing rev on either side is tolerant (apply — legacy behaviour).
+  // SELF-HEAL (Y1a): if the STORED rev exceeds the incoming rev by more than the
+  // sanity window, the stored one cannot be an honest Date.now()-seeded rev — it
+  // was pinned by a hostile 2^52 patch or a wrong-clock-year sender. An honest
+  // (lower) rev is then allowed to take over WITHOUT a reload, so a bad stamp can
+  // never permanently pin a layer. Honest revs (within the window) are unaffected.
   if (existing && typeof existing.rev === "number" && typeof patch.rev === "number" && patch.rev < existing.rev) {
-    return map;
+    if (existing.rev - patch.rev <= REV_MAX_SKEW_MS) return map; // normal: older patch loses
+    // else fall through — stored rev is stale/hostile, adopt the honest patch
   }
   if (map.has(patch.id) || map.size < MAX_LAYERS) map.set(patch.id, patch);
   return map;
@@ -75,11 +81,42 @@ export function applyLayerPatchBounded(
  * inline block in /live, /stage, /livestream, /ndi. Mutates `map` in place and
  * returns the fresh values array the route stores in React state to re-render.
  */
+/** A mutable holder for the receiver's last-folded origin epoch (Y1b). Kept in a
+ *  route-level ref alongside the override map so successive snapshots can compare
+ *  epochs. `current` starts undefined (no epoch seen yet). */
+export interface EpochRef { current: number | undefined; }
+
 export function rebuildOverridesFromSnapshot(
   map: Map<string, LayerWire>,
   layers: LayerWire[] | undefined | null,
+  opts?: { snapEpoch?: number; epochRef?: EpochRef },
 ): LayerWire[] {
   const snap = layers ?? [];
+  // ── Origin-epoch authority (Y1b) ─────────────────────────────────────────
+  // The epoch identifies the operator TAB that produced this snapshot. When it
+  // is present we can make a snapshot from a NEWER tab authoritative even if it
+  // carries NO overrides — restoring the "operator refresh clears the projector
+  // map" invariant WITHOUT reopening the ghost-clobber (an OLDER tab's snapshot
+  // is ignored, never merged). A SAME-epoch snapshot keeps the rev-gated merge
+  // below. Absent epoch (legacy sender / engine off) ⇒ merge path (unchanged).
+  const snapEpoch = opts?.snapEpoch;
+  const epochRef = opts?.epochRef;
+  if (typeof snapEpoch === "number" && epochRef) {
+    const storedEpoch = epochRef.current;
+    if (storedEpoch === undefined || snapEpoch > storedEpoch) {
+      // Newer (or first-seen) tab — authoritatively REPLACE. Clear the map and
+      // adopt only this snapshot's entries (empty snapshot ⇒ cleared map).
+      map.clear();
+      for (const l of snap) applyLayerPatchBounded(map, l);
+      epochRef.current = snapEpoch;
+      return Array.from(map.values());
+    }
+    if (snapEpoch < storedEpoch) {
+      // Older tab (ghost) — ignore entirely so it can't clobber the live tab.
+      return Array.from(map.values());
+    }
+    // snapEpoch === storedEpoch → fall through to the rev-gated merge.
+  }
   // Highest rev present in the snapshot. Used to decide whether the snapshot is
   // new enough to honour a REMOVAL (a layer the map has but the snapshot omits).
   // Legacy snapshots (no revs) → -Infinity, so a map entry that carries a rev

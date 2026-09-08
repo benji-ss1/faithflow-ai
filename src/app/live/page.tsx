@@ -84,6 +84,8 @@ export default function LivePage() {
   // Decoupling Phase 2 (DORMANT): per-layer override store for incoming
   // layer-patch messages. Nothing reads it yet (Phase 3, NEXT_PUBLIC_LAYERS_V2).
   const layerOverridesRef = useRef<Map<string, LayerWire>>(new Map());
+  // Y1b: the origin epoch last folded from a snapshot (fresh-tab authority).
+  const layerEpochRef = useRef<number | undefined>(undefined);
   // Phase 3: a re-render-triggering snapshot of the override map. Gated by
   // NEXT_PUBLIC_LAYERS_V2 — when off, nothing ever populates the map (the
   // operator only emits layer-patches when its church has opted in), so the
@@ -186,7 +188,7 @@ export default function LivePage() {
               msg.state.appearance ?? null, msg.state.background ?? null, msg.state.videoInput ?? null,
               msg.state.zone ?? null, msg.state.announcement ?? null, msg.state.transition ?? null,
               msg.state.aspectRatio, msg.state.fontScale, msg.state.referenceScale, msg.state.referenceColor ?? null,
-              LAYERS_V2 ? (msg.state.layers ?? null) : null,
+              LAYERS_V2 ? (msg.state.layers ?? null) : null, LAYERS_V2 ? (msg.state.layersEpoch ?? null) : null,
             ]);
           } catch { outSig = String(Date.now()); }
           if (outSig !== lastOutputSigRef.current) {
@@ -196,7 +198,7 @@ export default function LivePage() {
             // from them so a projector that joined mid-service converges to the
             // same layer stack the live layer-patch messages built incrementally.
             if (LAYERS_V2) {
-              setLayerOverridesArr(rebuildOverridesFromSnapshot(layerOverridesRef.current, msg.state.layers));
+              setLayerOverridesArr(rebuildOverridesFromSnapshot(layerOverridesRef.current, msg.state.layers, { snapEpoch: msg.state.layersEpoch, epochRef: layerEpochRef }));
             }
             setAnnouncement(msg.state.announcement ?? null);
             setTransition(msg.state.transition ?? null);

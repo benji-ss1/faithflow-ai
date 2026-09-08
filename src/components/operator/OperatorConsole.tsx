@@ -7,6 +7,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, Monitor, Radio, Square, Sun, Pane
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, AI_AUTO_TRANSITION, slideOutputIdentity, sanitizeOutputState, scrubOutputStateForRemote, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
 import { LAYERS_V2 } from "@/lib/output-layers";
+import { nextPreviewPosition } from "@/lib/operator-nav";
 import { useLiveLayers } from "./useLiveLayers";
 import { clampObsBand, type ObsBandConfig } from "@/lib/obs-lowerthird";
 import { readFontScale, readReferenceScale, readReferenceColor } from "./pro/operatorConstants";
@@ -702,6 +703,12 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       // so flag-off / no-patch churches emit exactly the legacy snapshot. Rides
       // the heartbeat so a late-joining projector converges to the same stack.
       layers: layerOverrides.length > 0 ? layerOverrides : undefined,
+      // Y1b: announce this operator tab's origin epoch whenever the layers engine
+      // is on — EVEN with no overrides — so a projector treats a fresh tab as
+      // authoritative and clears any stale ghost-tab overrides (refresh-clears
+      // invariant) without reopening the ghost-clobber. Omitted when the engine is
+      // off, so flag-off churches emit exactly the legacy snapshot.
+      layersEpoch: layersEngineOn ? liveLayers.epoch : undefined,
     };
     // PROJECTOR-RELIABILITY GUARANTEE (2026-09-06 field incident). Fail-open
     // sanitize the state before it goes on ANY wire (BroadcastChannel / Realtime /
@@ -1217,20 +1224,11 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
 
   const move = useCallback((dir: 1 | -1) => {
     setPreview((cur) => {
-      const item = plan.items[cur.itemIdx];
-      if (!item) return cur;
-      let itemIdx = cur.itemIdx;
-      let slideIdx = cur.slideIdx + dir;
-      if (slideIdx < 0) {
-        if (itemIdx === 0) return cur;
-        itemIdx -= 1;
-        slideIdx = plan.items[itemIdx].slides.length - 1;
-      } else if (slideIdx >= item.slides.length) {
-        if (itemIdx >= plan.items.length - 1) return cur;
-        itemIdx += 1;
-        slideIdx = 0;
-      }
-      const next = { itemIdx, slideIdx };
+      // Y5: pure boundary-walk that SKIPS header items (slides:[]) in both
+      // directions so navigation never lands on a divider (no-op when nowhere
+      // valid to go). Returns `cur` unchanged at the ends.
+      const next = nextPreviewPosition(plan.items, cur, dir);
+      if (next === cur) return cur;
       if (autoSend) {
         const s = plan.items[next.itemIdx]?.slides[next.slideIdx];
         if (s) { setLive(s); chRef.current?.postMessage({ type: "set", slide: s } as LiveMessage); }

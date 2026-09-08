@@ -66,6 +66,8 @@ export default function LivestreamPage() {
   // Decoupling Phase 2 (DORMANT): per-layer override store for incoming
   // layer-patch messages. Nothing reads it yet (Phase 3, NEXT_PUBLIC_LAYERS_V2).
   const layerOverridesRef = useRef<Map<string, LayerWire>>(new Map());
+  // Y1b: the origin epoch last folded from a snapshot (fresh-tab authority).
+  const layerEpochRef = useRef<number | undefined>(undefined);
   // Phase 3: re-render-triggering snapshot of the override map (see /live).
   const [layerOverridesArr, setLayerOverridesArr] = useState<LayerWire[]>([]);
   const videoElRef = useRef<HTMLVideoElement | null>(null);
@@ -273,12 +275,12 @@ export default function LivestreamPage() {
       // Apply the non-slide fields only when they actually changed (dedup).
       let sig: string;
       try {
-        sig = JSON.stringify([state.fontScale, state.referenceScale, state.referenceColor, state.appearance, state.background, state.videoInput, state.lowerThird, state.announcement, state.transition, state.obsLowerThird, LAYERS_V2 ? (state.layers ?? null) : null]);
+        sig = JSON.stringify([state.fontScale, state.referenceScale, state.referenceColor, state.appearance, state.background, state.videoInput, state.lowerThird, state.announcement, state.transition, state.obsLowerThird, LAYERS_V2 ? (state.layers ?? null) : null, LAYERS_V2 ? (state.layersEpoch ?? null) : null]);
       } catch { sig = String(Date.now()); }
       if (sig === lastNonSlideSig) return;
       lastNonSlideSig = sig;
       if (LAYERS_V2) {
-        setLayerOverridesArr(rebuildOverridesFromSnapshot(layerOverridesRef.current, state.layers));
+        setLayerOverridesArr(rebuildOverridesFromSnapshot(layerOverridesRef.current, state.layers, { snapEpoch: state.layersEpoch, epochRef: layerEpochRef }));
       }
       // OBS lower-third live config: an edit in the operator's OBS card reaches
       // us here and updates the band INSTANTLY (overrides the URL-param default).

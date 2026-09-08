@@ -197,19 +197,39 @@ check("hardening: snapshot REMOVAL is honored only when the snapshot is new enou
 // OFF, no per-church opt-in wired), and the channel is church-scoped/auth'd, so
 // this is 🟡 (would be 🔴 with the engine live). If a cap is ever added, flip
 // this test's expectation.
-check("rev-cap 🟡: an absurd huge rev pins a layer — no honest patch/heartbeat can dislodge it (UNBOUNDED, documented)", () => {
+check("rev-cap (Y1a): a hostile huge rev CANNOT pin a layer — the next honest patch self-heals it", () => {
   const projMap = new Map<string, LayerWire>();
-  // Hostile / future-clock sender pins the background with a colossal rev.
-  const HUGE = 1e300; // finite, passes isValidLayerWire; dwarfs any Date.now() seed
+  // Hostile / future-clock sender pins the background with a colossal rev. (In a
+  // real path isValidLayerWire rejects this at the wire; here we prove the
+  // receiver self-heals even if a bad rev somehow reached the map.)
+  const HUGE = Number.MAX_SAFE_INTEGER; // 2^53-1 ≫ any honest Date.now() seed
   projectorPatch(projMap, { id: "background", kind: "background", z: 0, enabled: true, payload: bgA, rev: HUGE } as LayerWire);
-  assert.equal(stackShape(projMap).background.payloadKey, JSON.stringify(bgA), "hostile pin adopted");
-  // An honest operator (rev ≈ Date.now()) tries to swap the background.
+  assert.equal(stackShape(projMap).background.payloadKey, JSON.stringify(bgA), "hostile pin transiently adopted");
+  // An honest operator (rev ≈ Date.now()) swaps the background — the stored rev is
+  // absurdly further ahead than the skew window, so the honest patch WINS.
   const honestRev = Date.now(); // ~1.7e12 ≪ HUGE
   projectorPatch(projMap, { id: "background", kind: "background", z: 0, enabled: true, payload: bgB, rev: honestRev } as LayerWire);
-  assert.equal(stackShape(projMap).background.payloadKey, JSON.stringify(bgA), "honest patch DROPPED — layer is pinned (documents the missing cap)");
-  // An honest heartbeat that omits the background cannot remove it either.
-  projectorHeartbeat(projMap, [{ id: "slide", kind: "slide", z: 10, enabled: true, rev: honestRev } as LayerWire]);
-  assert.equal(projMap.has("background"), true, "pinned layer survives an omitting honest heartbeat (unremovable until reload)");
+  assert.equal(stackShape(projMap).background.payloadKey, JSON.stringify(bgB), "honest patch adopted — hostile pin self-healed");
+});
+
+check("wrong-clock-year sender (Y1a): a rev seeded from a future clock can't out-rank honest revs after self-heal", () => {
+  const projMap = new Map<string, LayerWire>();
+  // Sender whose OS clock is set to ~year 2200 seeds a rev ~7.2e12 (>> honest,
+  // >> skew ahead of real now).
+  const futureRev = Date.now() + 200 * 365 * 24 * 3600 * 1000;
+  projectorPatch(projMap, { id: "background", kind: "background", z: 0, enabled: true, payload: bgA, rev: futureRev } as LayerWire);
+  const honestRev = Date.now();
+  projectorPatch(projMap, { id: "background", kind: "background", z: 0, enabled: true, payload: bgB, rev: honestRev } as LayerWire);
+  assert.equal(stackShape(projMap).background.payloadKey, JSON.stringify(bgB), "honest patch wins over wrong-clock pin");
+});
+
+check("honest revs unaffected (Y1a): an ordinary older patch still loses to a newer one (no spurious self-heal)", () => {
+  const projMap = new Map<string, LayerWire>();
+  const rev1 = Date.now();
+  projectorPatch(projMap, { id: "background", kind: "background", z: 0, enabled: true, payload: bgB, rev: rev1 + 5 } as LayerWire);
+  // An older honest patch (within the skew window) must still be DROPPED.
+  projectorPatch(projMap, { id: "background", kind: "background", z: 0, enabled: true, payload: bgA, rev: rev1 } as LayerWire);
+  assert.equal(stackShape(projMap).background.payloadKey, JSON.stringify(bgB), "older honest patch still loses");
 });
 
 // ── (3) OPERATOR REFRESH mid-service ─────────────────────────────────────────
@@ -230,6 +250,55 @@ check("refresh: operator override loss converges both sides to the derived base 
   projectorHeartbeat(projMap, operatorSnapshot(afterRefresh)); // layers omitted → []
   assert.equal(projMap.size, 0, "projector converges to no overrides after operator refresh");
   // No DESYNC (both empty), but the override is gone — render falls back to base.
+});
+
+// ── (4) ORIGIN-EPOCH authority (Y1b) ─────────────────────────────────────────
+// A fresh operator tab (higher epoch) authoritatively clears/replaces the
+// projector map even with EMPTY overrides (refresh-clears invariant), while a
+// ghost OLD-epoch tab can never clobber the live tab.
+check("epoch (Y1b): operator refresh with EMPTY overrides clears the projector map", () => {
+  const projMap = new Map<string, LayerWire>();
+  const epochRef: { current: number | undefined } = { current: undefined };
+  const oldEpoch = 1000;
+  // Old tab had hidden the logo + swapped bg.
+  rebuildOverridesFromSnapshot(projMap, [
+    { id: "logo", kind: "logo", z: 20, enabled: false, rev: oldEpoch + 1 } as LayerWire,
+    { id: "background", kind: "background", z: 0, enabled: true, payload: bgB, rev: oldEpoch + 2 } as LayerWire,
+  ], { snapEpoch: oldEpoch, epochRef });
+  assert.equal(projMap.size, 2, "pre-refresh: two overrides on projector");
+  // Fresh tab (higher epoch) with NO overrides → map cleared authoritatively.
+  rebuildOverridesFromSnapshot(projMap, [], { snapEpoch: oldEpoch + 500, epochRef });
+  assert.equal(projMap.size, 0, "fresh-tab empty snapshot cleared the projector map");
+  assert.equal(epochRef.current, oldEpoch + 500, "stored epoch advanced to the fresh tab");
+});
+
+check("epoch (Y1b): a GHOST old-epoch snapshot can't clobber the live tab's overrides", () => {
+  const projMap = new Map<string, LayerWire>();
+  const epochRef: { current: number | undefined } = { current: undefined };
+  const liveEpoch = 5000;
+  // Live tab set a background override.
+  rebuildOverridesFromSnapshot(projMap, [
+    { id: "background", kind: "background", z: 0, enabled: true, payload: bgA, rev: liveEpoch + 1 } as LayerWire,
+  ], { snapEpoch: liveEpoch, epochRef });
+  assert.equal(stackShape(projMap).background.payloadKey, JSON.stringify(bgA), "live override present");
+  // A ghost tab (older epoch) heartbeats an EMPTY snapshot — must be ignored.
+  rebuildOverridesFromSnapshot(projMap, [], { snapEpoch: liveEpoch - 1000, epochRef });
+  assert.equal(stackShape(projMap).background.payloadKey, JSON.stringify(bgA), "ghost snapshot did not clobber");
+  assert.equal(epochRef.current, liveEpoch, "stored epoch unchanged by ghost");
+});
+
+check("epoch (Y1b): mixed legacy (no-epoch) snapshots stay tolerant (rev-gated merge)", () => {
+  const projMap = new Map<string, LayerWire>();
+  const epochRef: { current: number | undefined } = { current: undefined };
+  // Legacy snapshot (no epoch) → merge path, same as before.
+  rebuildOverridesFromSnapshot(projMap, [
+    { id: "background", kind: "background", z: 0, enabled: true, payload: bgA, rev: 10 } as LayerWire,
+  ], { epochRef });
+  assert.equal(projMap.size, 1, "legacy snapshot merged");
+  assert.equal(epochRef.current, undefined, "no epoch stored from a legacy snapshot");
+  // A same-epoch snapshot after an epoch is established keeps the rev-gated merge.
+  rebuildOverridesFromSnapshot(projMap, [], { snapEpoch: 2000, epochRef }); // establishes + clears
+  assert.equal(epochRef.current, 2000);
 });
 
 // ── (5) RAPID camera + slide-clear + background-swap: plan stays consistent ───
