@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.388",
+    date: "2026-09-08",
+    headline: "Drag a song into a library that actually files it, paste slides between songs, and a media bin in the left rail",
+    highlights: [
+      "Fixed: dragging a song (or media item) from the center browser onto a Library row now actually files it there — hover to light the row, drop, and it pops in with a confirmation. (It used to look like nothing happened.)",
+      "Copy a slide, paste it anywhere: right-click a slide → Copy Slide, then paste it into ANY song — including a different one — from the right-click menu or with Cmd/Ctrl+V while the slide grid is focused. The copied slide lands right after the slide you have selected.",
+      "Honest Paste: on a Bible or media item (which can't be edited), Paste Slide now shows as disabled with a short reason instead of silently disappearing — so it's clear WHY, not that the app is broken.",
+      "New Media Bin in the left rail: the bottom half under your Playlist now holds a compact strip of your media. Drag a thumbnail onto the Playlist to add it, onto a Library to file it, or hover and tap 'Bg' to set it as your background. Collapse it from its header or the media toggle up top.",
+    ],
+  },
+  {
     version: "0.1.387",
     date: "2026-09-08",
     headline: "Press any image or video to set it as your background — it stays behind every slide",

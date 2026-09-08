@@ -617,7 +617,11 @@ export function MediaBrowser({
                     type="button"
                     draggable
                     onDragStart={(e) => {
-                      e.dataTransfer.effectAllowed = "copy";
+                      // "copyMove" so a drop onto a left-rail LIBRARY row (which
+                      // sets dropEffect="move") is accepted by Chromium/Electron —
+                      // "copy" alone makes the browser reject the move drop. The
+                      // playlist add path (dropEffect="copy") still works. (5B-1.)
+                      e.dataTransfer.effectAllowed = "copyMove";
                       e.dataTransfer.setData(
                         "application/x-pf-library-item",
                         JSON.stringify({ pfType: "media", id: a.id, title: a.fileName, url: a.url, kind: a.kind }),

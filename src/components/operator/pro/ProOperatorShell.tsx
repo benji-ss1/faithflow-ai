@@ -26,6 +26,7 @@ import { isStaleServerActionError, staleActionRecovery } from "@/lib/stale-actio
 import { LibrarySection } from "./left/LibrarySection";
 import { PlaylistSection } from "./left/PlaylistSection";
 import { MediaSection } from "./left/MediaSection";
+import { MediaBinSection } from "./left/MediaBinSection";
 import { HardwareSection } from "./left/HardwarePanel";
 import { CenterHeader } from "./center/CenterHeader";
 import { SlideGrid } from "./center/SlideGrid";
@@ -4458,6 +4459,14 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         >
           <LibrarySection onCenterMode={setCenterMode} />
           <PlaylistSection ctx={ctx} onCenterMode={setCenterMode} />
+          {/* Media bin — docks the bottom ~40% of the rail under PLAYLIST. Uses
+              the shell's mediaStripOpen state so the TopBar media toggle drives
+              it (the old dead MediaStrip bottom-bar is retired). */}
+          <MediaBinSection
+            open={mediaStripOpen}
+            onToggle={() => setMediaStripOpen((v) => !v)}
+            onCenterMode={setCenterMode}
+          />
           {OPENFLOW_ENABLED ? (
             <OpenFlowSidebar
               active={centerMode === "openflow"}

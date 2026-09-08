@@ -423,7 +423,12 @@ export function SongsBrowser({
             <li
               draggable
               onDragStart={(e) => {
-                e.dataTransfer.effectAllowed = "copy";
+                // "copyMove" — NOT "copy". A library-row drop target sets
+                // dropEffect="move" (filing into a library) and Chromium/Electron
+                // REJECTS the drop when the source only allows "copy" (drop event
+                // never fires → "why doesn't it enter?"). copyMove permits BOTH the
+                // playlist "copy" add and the library "move" file. (Field fix 5B-1.)
+                e.dataTransfer.effectAllowed = "copyMove";
                 e.dataTransfer.setData(
                   "application/x-pf-library-item",
                   JSON.stringify({ pfType: "song", id: s.id, title: s.title }),

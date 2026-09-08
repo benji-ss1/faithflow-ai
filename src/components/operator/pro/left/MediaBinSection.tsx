@@ -1,0 +1,184 @@
+"use client";
+/**
+ * Media bin — a compact, collapsible dock of the church's media assets that
+ * lives in the BOTTOM HALF of the left rail, directly under PLAYLIST (field fix
+ * 5B-3, operator: "the media bin should take over this bottom half").
+ *
+ * It is a THIN reuse of the existing media data + drag idiom:
+ *   • lists /api/media/list assets as small thumbnails (same source as the full
+ *     MediaBrowser / the old MediaStrip)
+ *   • each thumbnail is HTML5-draggable with the SAME `application/x-pf-library-
+ *     item` payload the MediaBrowser emits, so the EXISTING drop targets handle
+ *     it with no new wiring:
+ *       – drop on the PLAYLIST  → adds a media item (PlaylistSection.handleExternalDrop)
+ *       – drop on a LIBRARY row → files it into that library (LibrarySection)
+ *   • a hover "Background" affordance reuses setMediaAsBackground (undoable),
+ *     matching the MediaBrowser card
+ *   • clicking a thumbnail (or the header link) opens the full Media center panel
+ *
+ * It does NOT replace the existing "Media / PRO" upsell section or OpenFlow — it
+ * is inserted above them, keyed off the shell's mediaStripOpen state so the
+ * TopBar media toggle drives it.
+ */
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import { ChevronDown, ChevronRight, Images, ExternalLink } from "lucide-react";
+import { cn } from "@/lib/utils";
+import type { CenterMode } from "../ProOperatorShell";
+import { setMediaAsBackground, normalizeMediaKind } from "@/backgrounds/mediaAsBackground";
+import { snapshotBackgroundState, restoreBackgroundState } from "@/backgrounds/store/backgroundStore";
+
+type Asset = {
+  id: string;
+  fileName?: string | null;
+  kind?: string | null;
+  url?: string | null;
+  thumbUrl?: string | null;
+  mediaKey?: string | null;
+};
+
+export function MediaBinSection({
+  open,
+  onToggle,
+  onCenterMode,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  onCenterMode?: (m: CenterMode) => void;
+}) {
+  const [assets, setAssets] = useState<Asset[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/media/list", { cache: "no-store" });
+        if (!res.ok) { if (!cancelled) setAssets([]); return; }
+        const json = await res.json();
+        if (cancelled) return;
+        setAssets(Array.isArray(json?.assets) ? json.assets : []);
+      } catch {
+        if (!cancelled) setAssets([]);
+      }
+    };
+    void load();
+    // Re-pull when media changes elsewhere (upload / delete / move).
+    const h = () => void load();
+    window.addEventListener("presentflow:libraries-changed", h);
+    return () => { cancelled = true; window.removeEventListener("presentflow:libraries-changed", h); };
+  }, []);
+
+  const setAsBackground = (a: Asset) => {
+    if (!a.url) { toast.error("This asset has no file to use as a background"); return; }
+    const prev = snapshotBackgroundState();
+    const bg = setMediaAsBackground({
+      id: a.id,
+      url: a.url,
+      fileName: a.fileName || "Media",
+      kind: normalizeMediaKind(a.kind || "image"),
+      mediaKey: a.mediaKey || undefined,
+    });
+    toast.success(`“${bg.name}” is now your background — it stays behind every slide`, {
+      id: "pf-media-background",
+      action: {
+        label: "Undo",
+        onClick: () => { restoreBackgroundState(prev); toast.success("Background reverted", { id: "pf-media-background" }); },
+      },
+      duration: 8000,
+    });
+  };
+
+  const count = assets?.length ?? 0;
+
+  return (
+    <section
+      className={cn(
+        "border-b border-[var(--color-border)] flex flex-col min-h-0",
+        // Open: dock the bottom ~40% of the rail (shrink-0 basis so PLAYLIST above
+        // keeps the top ~60% via its flex-1). Collapsed: just the header row.
+        open ? "shrink-0 basis-[40%]" : "shrink-0",
+      )}
+    >
+      <header className="flex items-center h-8 px-2.5 gap-1 bg-[linear-gradient(180deg,var(--color-panel),transparent)] shrink-0">
+        <button type="button" className="flex items-center gap-1 shrink-0 text-left" onClick={onToggle}>
+          {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+          <span className="eyebrow">Media Bin</span>
+          <span className="ml-1.5 min-w-[16px] h-[15px] px-1 grid place-items-center rounded-full bg-[var(--color-brand)]/16 text-[var(--color-brand)] text-[9px] font-mono font-bold tabular-nums">{count}</span>
+        </button>
+        <span className="h-px flex-1 mx-2" style={{ background: "linear-gradient(90deg, var(--color-border), transparent)" }} aria-hidden />
+        <button
+          type="button"
+          onClick={() => onCenterMode?.("media")}
+          title="Open the full Media library"
+          className="w-[22px] h-[22px] grid place-items-center rounded-md border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] text-[var(--color-muted-foreground)] transition-colors hover:text-[var(--color-brand)] hover:border-[color-mix(in_oklab,var(--color-brand)_50%,var(--color-border))]"
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+        </button>
+      </header>
+
+      {open && (
+        <div className="flex-1 min-h-0 overflow-y-auto p-2">
+          {assets === null && (
+            <div className="text-[11px] text-[var(--color-muted-foreground)] opacity-60 px-1 py-2">Loading media…</div>
+          )}
+          {assets !== null && assets.length === 0 && (
+            <button
+              onClick={() => onCenterMode?.("media")}
+              className="text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] underline px-1 py-2 text-left"
+            >
+              No media yet — open the Media library to upload.
+            </button>
+          )}
+          {assets && assets.length > 0 && (
+            <div className="grid gap-1.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(84px, 1fr))" }}>
+              {assets.map((a) => {
+                const isVideo = (a.kind || "").startsWith("video");
+                return (
+                  <div
+                    key={a.id}
+                    draggable
+                    onDragStart={(e) => {
+                      // Same payload + "copyMove" the MediaBrowser uses so BOTH the
+                      // playlist add (dropEffect copy) and library file (dropEffect
+                      // move) drop targets accept it (see 5B-1).
+                      e.dataTransfer.effectAllowed = "copyMove";
+                      e.dataTransfer.setData(
+                        "application/x-pf-library-item",
+                        JSON.stringify({ pfType: "media", id: a.id, title: a.fileName || "Media", url: a.url, kind: a.kind }),
+                      );
+                    }}
+                    onClick={() => onCenterMode?.("media")}
+                    title={`${a.fileName || "Media"} — drag onto the playlist or a library, click to open`}
+                    className="group relative aspect-video rounded-md overflow-hidden bg-black border border-[var(--color-border)] cursor-grab active:cursor-grabbing hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] transition-colors"
+                  >
+                    {a.url ? (
+                      isVideo ? (
+                        // eslint-disable-next-line jsx-a11y/media-has-caption
+                        <video src={a.url} muted preload="metadata" className="w-full h-full object-cover pointer-events-none" />
+                      ) : (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={a.thumbUrl || a.url} alt={a.fileName || ""} loading="lazy" decoding="async" className="w-full h-full object-cover pointer-events-none" />
+                      )
+                    ) : (
+                      <div className="w-full h-full grid place-items-center text-[9px] text-[var(--color-muted-foreground)] px-1 text-center">{a.fileName || a.kind || "Asset"}</div>
+                    )}
+                    {/* Set-as-background affordance — mirrors the MediaBrowser card. */}
+                    <button
+                      type="button"
+                      aria-label="Set as background"
+                      title="Set as background — stays behind your lyrics for every slide"
+                      onClick={(e) => { e.stopPropagation(); setAsBackground(a); }}
+                      className="absolute right-0.5 bottom-0.5 z-10 inline-flex h-5 px-1 items-center gap-0.5 rounded bg-black/65 text-white/85 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/85 hover:text-white text-[9px] font-semibold"
+                    >
+                      <Images className="w-2.5 h-2.5" /> Bg
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}

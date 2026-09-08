@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload, ThemeAppearance } from "@/lib/broadcast";
 import { useSlideClipboard, setSlideClipboard, getSlideClipboard } from "@/lib/slide-clipboard";
+import { pasteInsertIndex, pasteDisabledReason } from "@/lib/slide-paste";
 import { updateSongSlides, deleteSongSlide, updateSongSlideText } from "@/lib/actions";
 import { applyTextToSlide, projectableTextSlide } from "@/lib/broadcast";
 import { loadMediaFrame, buildMediaFrameSlide } from "./mediaFrame";
@@ -152,6 +153,9 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   };
   // App-level clipboard for cut/copy/paste within the grid
   const clipboardSlide = useSlideClipboard();
+  // Grid root — used to scope the Cmd/Ctrl+V paste shortcut to "focus is in the
+  // slide grid" so it never fires while the operator is typing elsewhere.
+  const gridRootRef = useRef<HTMLDivElement | null>(null);
 
   // Data-loss guard: the grid's Quick Edit / Duplicate / Delete / Paste rewrite
   // the WHOLE song from lyrics only (updateSongSlides), which drops every slide's
@@ -173,7 +177,12 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   // Paste the clipboard slide at a chosen position (insertIdx). Shared by the
   // per-slide "Paste after" and the empty-space "Paste at end" menus, so the
   // operator can decide WHERE the copied slide lands.
-  const canPasteHere = !!clipboardSlide && item?.type === "song" && !!(item as { songId?: string }).songId;
+  const isEditableSong = item?.type === "song" && !!(item as { songId?: string }).songId;
+  const canPasteHere = !!clipboardSlide && isEditableSong;
+  // Honest, operator-facing reason paste is unavailable (null when it IS). Drives
+  // a DISABLED "Paste slide" menu item with a tooltip instead of hiding it — the
+  // field complaint was silence reading as "I don't have any editing access".
+  const pasteReason = pasteDisabledReason(!!clipboardSlide, isEditableSong);
   const pasteSlideAt = (insertIdx: number) => {
     if (guardObjectSong()) return;
     const copied = getSlideClipboard();
@@ -181,7 +190,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
     const songId = (item as { songId?: string })?.songId;
     if (item?.type !== "song" || !songId) return;
     void (async () => {
-      const at = Math.max(0, Math.min(insertIdx, slides.length));
+      const at = pasteInsertIndex(insertIdx, slides.length);
       const newSlides = [...slides];
       newSlides.splice(at, 0, copied);
       const updatedSlides = newSlides.map((sl) => ({ lyrics: sl.kind === "text" ? ((sl as { text?: string }).text ?? "") : "" }));
@@ -190,6 +199,28 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
       if (!res.ok) toast.error(res.error ?? "Paste failed"); else toast.success("Slide pasted");
     })();
   };
+
+  // Cmd/Ctrl+V pastes the copied slide when the grid has focus (a slide is
+  // selected / the grid was clicked). Scoped to the grid so it never hijacks
+  // paste in a text field, and it inserts AFTER the currently-selected slide.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "v" && e.key !== "V") return;
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const root = gridRootRef.current;
+      const active = document.activeElement;
+      if (!root || !active || !root.contains(active)) return;
+      // Never steal a genuine text paste (Quick Edit box, rename inputs, etc.).
+      const tag = (active as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (active as HTMLElement).isContentEditable) return;
+      if (!canPasteHere) return;
+      e.preventDefault();
+      pasteSlideAt(ctx.previewSlideIdx + 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canPasteHere, ctx.previewSlideIdx, slides.length, item]);
 
   const handleQuickEditSave = async (newText: string) => {
     if (!quickEdit) return;
@@ -262,7 +293,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   };
 
   return (
-    <div className="p-2 flex flex-col gap-6">
+    <div ref={gridRootRef} className="p-2 flex flex-col gap-6">
       {/* Main slide grid — Task B: 6px gutter. Y10: semantic grid + gridcell roles. */}
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={slideIds} strategy={rectSortingStrategy}>
@@ -446,6 +477,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                   void import("sonner").then(({ toast }) => toast.success("Slide copied"));
                 }}
                 canPaste={canPasteHere}
+                pasteReason={pasteReason}
                 onPasteSlide={() => pasteSlideAt(idx + 1)}
               />
             ))}
@@ -454,9 +486,15 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
           <ContextMenu.Portal>
             <ContextMenu.Content className="min-w-[180px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
               <ContextMenu.Item disabled={!canPasteHere} onSelect={() => pasteSlideAt(slides.length)}
+                title={pasteReason ?? undefined}
                 className={cn("px-3 py-1.5 rounded outline-none cursor-pointer", canPasteHere ? "hover:bg-[var(--color-panel)] text-[var(--color-foreground)]" : "opacity-40 cursor-not-allowed")}>
                 {canPasteHere ? "Paste slide (at end)" : "Paste slide"}
               </ContextMenu.Item>
+              {!canPasteHere && pasteReason && (
+                <div className="px-3 pb-1 pt-0.5 text-[10px] leading-snug text-[var(--color-muted-foreground)] max-w-[220px]">
+                  {pasteReason}
+                </div>
+              )}
             </ContextMenu.Content>
           </ContextMenu.Portal>
           </ContextMenu.Root>
@@ -591,6 +629,7 @@ function SortableSlideCard(props: {
   selected: boolean;
   canQuickEdit: boolean;
   canPaste: boolean;
+  pasteReason: string | null;
   onSelect: () => void;
   onDouble: () => void;
   onDelete: () => void;
@@ -618,6 +657,7 @@ function SortableSlideCard(props: {
         selected={props.selected}
         canQuickEdit={props.canQuickEdit}
         canPaste={props.canPaste}
+        pasteReason={props.pasteReason}
         onSelect={props.onSelect}
         onDouble={props.onDouble}
         onDelete={props.onDelete}
@@ -655,7 +695,7 @@ function SortableSlideCard(props: {
 }
 
 function SlideCard({
-  slide, index, appearance, background, selected, canQuickEdit, canPaste, onSelect, onDouble, onDelete, onQuickEdit, onDuplicate, onCopyText, onCopySlide, onPasteSlide, onSendLive,
+  slide, index, appearance, background, selected, canQuickEdit, canPaste, pasteReason, onSelect, onDouble, onDelete, onQuickEdit, onDuplicate, onCopyText, onCopySlide, onPasteSlide, onSendLive,
 }: {
   slide: SlidePayload;
   index: number;
@@ -664,6 +704,7 @@ function SlideCard({
   selected: boolean;
   canQuickEdit: boolean;
   canPaste: boolean;
+  pasteReason: string | null;
   onSelect: () => void;
   onDouble: () => void;
   onDelete: () => void;
@@ -764,14 +805,22 @@ function SlideCard({
           >
             Copy Slide
           </ContextMenu.Item>
-          {canPaste && (
-            <ContextMenu.Item
-              onSelect={onPasteSlide}
-              className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)] data-[highlighted]:text-[var(--color-foreground)]"
-            >
-              Paste Slide
-            </ContextMenu.Item>
-          )}
+          {/* Paste Slide — always shown. Disabled with an honest tooltip when it
+              can't apply (nothing copied, or a non-editable Bible/media item), so
+              the operator sees WHY rather than a silently missing action. */}
+          <ContextMenu.Item
+            disabled={!canPaste}
+            onSelect={canPaste ? onPasteSlide : undefined}
+            title={pasteReason ?? undefined}
+            className={cn(
+              "flex items-center gap-2 px-3 py-1.5 rounded outline-none",
+              canPaste
+                ? "cursor-pointer data-[highlighted]:bg-[var(--color-panel)] data-[highlighted]:text-[var(--color-foreground)]"
+                : "opacity-40 cursor-not-allowed",
+            )}
+          >
+            Paste Slide
+          </ContextMenu.Item>
           {canQuickEdit && (
             <ContextMenu.Item
               onSelect={onDuplicate}
