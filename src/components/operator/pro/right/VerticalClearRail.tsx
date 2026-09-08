@@ -26,6 +26,7 @@ import type { OperatorShellCtx } from "../../shell/types";
 import type { LayerRow } from "../../useLiveLayers";
 import { LAYER_META, liveDescription } from "./layerMeta";
 import { ClearAllButton } from "./ClearAllButton";
+import { setActiveBackgroundId } from "@/backgrounds/store/backgroundStore";
 
 export function VerticalClearRail({ ctx }: { ctx: OperatorShellCtx }) {
   const { liveLayers, layersEngineOn } = ctx;
@@ -43,7 +44,12 @@ export function VerticalClearRail({ ctx }: { ctx: OperatorShellCtx }) {
           key={row.id}
           row={row}
           desc={liveDescription(row, ctx)}
-          onClear={() => liveLayers.clearLayer(row.id)}
+          onClear={() => {
+            // Background clear also resets the Background Template store to None
+            // (honest single-source clear — see LayersPanel).
+            if (row.kind === "background") setActiveBackgroundId("none");
+            liveLayers.clearLayer(row.id);
+          }}
         />
       ))}
 
@@ -55,7 +61,7 @@ export function VerticalClearRail({ ctx }: { ctx: OperatorShellCtx }) {
           pre-layers projectors clear too — identical semantics to LayersPanel. */}
       <ClearAllButton
         variant="cue"
-        onClearAll={() => { liveLayers.clearAll(); ctx.onKill(); }}
+        onClearAll={() => { setActiveBackgroundId("none"); liveLayers.clearAll(); ctx.onKill(); }}
       />
     </div>
   );

@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.387",
+    date: "2026-09-08",
+    headline: "Press any image to set it as your background — it stays behind every slide",
+    highlights: [
+      "Set as background: right-click any image or video in the Media library (or hover and tap the Background pill) → Set as background. It sits behind your lyrics and stays there for every slide until you clear or replace it — no more the picture taking over the whole slide.",
+      "It behaves like a Background Template: a live camera still wins over it, applying a theme background still replaces it, and it shows as your active background in the Backgrounds picker. Clearing the background (the Layers clear rail, or picking None) removes it and leaves your lyrics on screen.",
+      "Undo is one tap on the toast if you set the wrong one.",
+    ],
+  },
+  {
     version: "0.1.386",
     date: "2026-09-08",
     headline: "Drag files straight into a Library, colour-label your libraries, and a calmer 'update ready' notice",

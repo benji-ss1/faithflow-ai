@@ -394,3 +394,86 @@ on the pilot projector.
   update-depth / DOM-nesting warnings in our surfaces. Ignored (not our code
   defects): the `@sentry/nextjs` "add global-error.js" infra recommendation, and
   the expected `[realtime] NEXT_PUBLIC_SUPABASE_* missing` dummy-app env warning.
+
+
+## Wave 4 — as built (2026-09-08) — "Set as background" (Victor's mandate)
+
+Operator-app-only (MediaBrowser + the Layers panel/rail + a new pure helper).
+Renderer-only → Vercel (no Fly, no DMG). Changelog 0.1.387. Not yet field-
+verified on real projector hardware.
+
+Victor's imperative (from his ProPresenter demo): pressing a media image should
+act as the MEDIA/BACKGROUND layer — persistent under the lyrics, showing across
+EVERY slide advance, cleared independently. Previously a media send REPLACED the
+slide.
+
+### How it rides the existing machinery (no new precedence invented)
+- **New pure helper `src/backgrounds/mediaAsBackground.ts`** (`buildMediaBackground`
+  + `setMediaAsBackground`): maps a media asset → a custom `PFBackground` and
+  routes it through the EXISTING custom-background path — `addCustomBackground()`
+  + `setActiveBackgroundId()` in `backgroundStore.ts`, the SAME machinery
+  `BackgroundUploader` already uses. That fires `BACKGROUND_CHANGED_EVENT` →
+  `useBackgroundState` → `toBackgroundSpec` → `backgroundSpec` on `OutputState`
+  (`OperatorConsole.tsx:399-400`), so it renders BEHIND the text via
+  `BackgroundLayer` on every output surface and PERSISTS across slide advances
+  (the background layer is independent of the slide). Works on ALL churches
+  (rides `OutputState.background`), not only `layersV2` ones.
+- **Invariants respected, unchanged**: an image/video set this way is a
+  Background-Template-class background, so it obeys the existing precedence —
+  **camera-wins** (`outputStateToLayers`: `backgroundEnabled = bgActive &&
+  !transparent && !videoInput`), **theme/template mutual-exclusivity** (applying
+  a theme that carries its own background calls `setActiveBackgroundId("none")`,
+  as before), and **"last explicit pick wins"** persistence (a media pick stamps
+  `PICKED_AT_KEY` like any template). No precedence rule was added or changed.
+- **Video**: enabled too. `BackgroundSpec.type:"video"` + `videoUrl` is already a
+  first-class, validated shape (`isValidBackgroundSpec`), and `BackgroundLayer`
+  renders a background video muted + `loop` + `autoPlay` + `playsInline`
+  (warn-free, PROPRESENTER_MVP_SPEC Ch16 motion-background default); default
+  playback speed 1. No validator change needed.
+
+### UI (MediaBrowser)
+- Context-menu **"Set as background"** (lucide `Images`, tokens, no emoji) on
+  every image AND video card, in its own separator group — distinct from the
+  existing (theme-system) "Set as theme background".
+- A discoverable **"Background" hover pill** (bottom-right, clear of the bulk
+  checkbox / Edit pill / filename bar) as the split affordance alongside the
+  one-click send. Keyboard-activatable.
+- **Undoable**: snapshots the prior background state (`snapshotBackgroundState`)
+  and restores it exactly on the toast's Undo (`restoreBackgroundState`) — mirrors
+  the theme quick-change Undo idiom.
+
+### Clear semantics (honest, no divergence)
+- The **Layers panel background row** + the **VerticalClearRail background cue**
+  already clear the background via the layer override; Wave 4 makes the clear
+  HONEST across the whole app by ALSO calling `setActiveBackgroundId("none")` on
+  the background-row clear (and on Clear All). So the base `BackgroundSpec` goes
+  away on EVERY projector (layersV2 or not) AND the legacy Backgrounds/Themes
+  picker shows None — single source of truth, no store/override divergence.
+  "Clear background → background disappears, lyrics stay" (test-locked).
+
+### Tests
+`test/media-as-background.test.ts` (8): image/video→valid PFBackground+valid
+BackgroundSpec, stable de-dupe id, persists-as-active, derived layer enabled,
+**background persists across a slide advance** (background layer byte-identical
+while the slide layer changes), **clear-background leaves the slide intact**,
+**set-as-background respects camera-wins**. Affected suites re-run green
+(background-persistence 9, output-layers 13, layer-wire 25, output-layers-render
+9, output-compositor 17); tsc clean.
+
+### Deferred / honest gaps
+- **Cross-restart URL re-mint**: the media background stores the current
+  presigned `url` (durable for the service + session — background is independent
+  of slides). `useBackgroundState` only re-mints from a `mediaKey`, which the
+  library-list Asset does not currently expose (the uploader path DOES carry it).
+  So a background set from the library may show a stale URL hours later after a
+  full app restart (BackgroundLayer fails safe → gradient/nothing). Follow-up:
+  thread the media asset's S3 key through `/api/media/list` so this path re-mints
+  too. Set-on-the-day is unaffected.
+- **Remaining ProPresenter clears (roadmap, NOT built)**: the reserved,
+  non-operable layer kinds map to existing PresentFlow features to be folded into
+  per-layer clears in a later increment — **audio** = Phase 5 (audio routing +
+  the reserved `audio` LayerKind, Audio Bin clear semantics); **announcements** =
+  the existing announcement bar (`OutputState.announcement`); **messages** = the
+  operator message overlay (`operatorMessage`); **props** ≈ the theme **logo**
+  (already a layer/clear) and future prop overlays. These stay reserved
+  placeholders until their increment.

@@ -25,6 +25,7 @@ import { slideOutputIdentity } from "@/lib/broadcast";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { LayerRow } from "../../useLiveLayers";
 import { BackgroundSelector } from "@/backgrounds/components/BackgroundSelector";
+import { setActiveBackgroundId } from "@/backgrounds/store/backgroundStore";
 import { LAYER_META, HIT, liveDescription } from "./layerMeta";
 import { ClearAllButton } from "./ClearAllButton";
 
@@ -61,7 +62,14 @@ export function LayersPanel({ ctx }: { ctx: OperatorShellCtx }) {
             liveDesc={liveDescription(row, ctx)}
             liveSlideIsText={liveSlideIsText}
             onToggle={() => liveLayers.toggleLayer(row.id)}
-            onClear={() => liveLayers.clearLayer(row.id)}
+            onClear={() => {
+              // Clearing the background layer ALSO resets the Background Template
+              // store to None so the base BackgroundSpec goes away on every
+              // projector (layersV2 or not) AND the legacy Themes/background UI
+              // shows None — honest single-source-of-truth clear, no divergence.
+              if (row.kind === "background") setActiveBackgroundId("none");
+              liveLayers.clearLayer(row.id);
+            }}
             onZone={(full) => liveLayers.setZone(row.id, full ? { kind: "full" } : { kind: "lowerThird" })}
             onSwap={row.kind === "background" ? () => { setSwapOpen((v) => !v); setSlideActionsOpen(false); } : undefined}
             swapOpen={row.kind === "background" && swapOpen}
@@ -88,6 +96,7 @@ export function LayersPanel({ ctx }: { ctx: OperatorShellCtx }) {
         onClearAll={() => {
           // Layers projectors clear per-layer via the hook; ALSO fire the legacy
           // blank so pre-layers projectors (church not on layers) clear too.
+          setActiveBackgroundId("none"); // reset the Background Template store too
           liveLayers.clearAll();
           ctx.onKill();
         }}

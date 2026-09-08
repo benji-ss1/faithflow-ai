@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import { Upload, Pencil, Trash2, CheckSquare, Square, ListPlus, ArrowUpDown, GripVertical, Check, Crop, X } from "lucide-react";
+import { Upload, Pencil, Trash2, CheckSquare, Square, ListPlus, ArrowUpDown, GripVertical, Check, Crop, X, Images } from "lucide-react";
 import { DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCenter, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, useSortable, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -28,6 +28,8 @@ import { projectableTextSlide, type SlidePayload } from "@/lib/broadcast";
 import { registerMediaAsset, renameMediaAsset, deleteMediaAsset, setMediaLibrary, listLibraries, type LibraryRow } from "@/lib/actions";
 import { useSelectedLibrary, libraryQueryParam } from "../left/libraryFilter";
 import { setMediaOnActiveTheme, clearActiveThemeBackground, type QuickThemeChange } from "@/lib/theme-quick-apply";
+import { setMediaAsBackground } from "@/backgrounds/mediaAsBackground";
+import { snapshotBackgroundState, restoreBackgroundState } from "@/backgrounds/store/backgroundStore";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { MediaImportWizard } from "./MediaImportWizard";
 import { takePendingImport, onOsDropImport, type PendingImport } from "./pendingImport";
@@ -347,6 +349,28 @@ export function MediaBrowser({
     });
   };
 
+  // ── Set as background (Background Template machinery) ───────────────────────
+  // Route the media item through the EXISTING custom-background path so it sits
+  // BEHIND the lyrics and STAYS there across every slide advance until cleared or
+  // replaced — Victor's "press an image → it's the background layer" mandate. It
+  // rides the same BackgroundSpec + precedence (camera-wins, theme/template
+  // mutual-exclusivity) as every Background Template. Undoable: snapshot the
+  // prior background state and restore it exactly on Undo (mirrors the theme
+  // quick-change Undo idiom).
+  const setAsBackground = (a: Asset) => {
+    const prev = snapshotBackgroundState();
+    const bg = setMediaAsBackground({ id: a.id, url: a.url, fileName: a.fileName, kind: a.kind });
+    setSelectedId(a.id);
+    toast.success(`“${bg.name}” is now your background — it stays behind every slide`, {
+      id: "pf-media-background",
+      action: {
+        label: "Undo",
+        onClick: () => { restoreBackgroundState(prev); toast.success("Background reverted", { id: "pf-media-background" }); },
+      },
+      duration: 8000,
+    });
+  };
+
   // ── Delete ────────────────────────────────────────────────────────────────
   const deleteAsset = async (a: Asset) => {
     if (!(await confirm({ title: `Delete "${a.fileName}"?`, description: "This cannot be undone.", confirmLabel: "Delete", danger: true }))) return;
@@ -654,6 +678,30 @@ export function MediaBrowser({
                         <Crop className="w-3 h-3" /> Edit
                       </span>
                     )}
+                    {/* Set-as-background pill — the split affordance alongside the
+                        one-click send. Bottom-right (clear of the checkbox, Edit
+                        pill and filename bar); images AND videos. */}
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label="Set as background"
+                      title="Set as background — stays behind your lyrics for every slide"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (clickTimerRef.current) { window.clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
+                        setAsBackground(a);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault(); e.stopPropagation();
+                          if (clickTimerRef.current) { window.clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
+                          setAsBackground(a);
+                        }
+                      }}
+                      className="absolute right-1 bottom-8 z-10 inline-flex h-6 px-1.5 items-center gap-1 rounded bg-black/60 text-white/85 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80 hover:text-white text-[10px] font-semibold"
+                    >
+                      <Images className="w-3 h-3" /> Background
+                    </span>
                     {a.kind.startsWith("video") ? (
                       // eslint-disable-next-line jsx-a11y/media-has-caption
                       <video
@@ -741,6 +789,16 @@ export function MediaBrowser({
                         </ContextMenu.SubContent>
                       </ContextMenu.Portal>
                     </ContextMenu.Sub>
+                    {/* Set as background — the Background Template path (behind
+                        the lyrics, persists across every slide advance). Distinct
+                        from the theme background below; available for video too. */}
+                    <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
+                    <ContextMenu.Item
+                      onSelect={() => setAsBackground(a)}
+                      className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center gap-2"
+                    >
+                      <Images className="w-3.5 h-3.5 opacity-80" /> Set as background
+                    </ContextMenu.Item>
                     {!a.kind.startsWith("video") && (
                       <>
                         <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
