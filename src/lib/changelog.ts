@@ -15,6 +15,19 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.393",
+    date: "2026-09-09",
+    headline: "Timers and Messages get their own panels — run several named countdowns and show multiple messages at once",
+    highlights: [
+      "Timers and Messages are now their own buttons in the right toolbar (no longer buried under Settings). Tap the stopwatch for Timers, the speech bubble for Messages.",
+      "Build as many named timers as you need — a Sermon countdown, a worship 'countdown to 10:00', a stopwatch — and save them to your church. Each has its own Start / Stop / Reset, and keeps running when you switch tabs.",
+      "Timers on screen now look like a real stage clock: big clean numbers (no box), a Size slider to make them as large as you want, and they turn red and count past zero into overtime.",
+      "Your countdowns show on the Stage display too, so the platform can see the sermon or worship clock.",
+      "Messages: save reusable templates and show several at once. Put {{timer}} in a message and it shows that timer's live value ticking on the projector — e.g. 'Service resumes in {{timer}}'.",
+      "Show, hide or clear each message on its own, and 'Clear Messages' takes them all down at once — without touching whatever slide is live.",
+    ],
+  },
+  {
     version: "0.1.392",
     date: "2026-09-08",
     headline: "The Media Bin lives under your slides — drag onto a slide, drop in to make one, upload straight into it, and right-click for what's next",
