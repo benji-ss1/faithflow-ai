@@ -15,6 +15,18 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.386",
+    date: "2026-09-08",
+    headline: "Drag files straight into a Library, colour-label your libraries, and a calmer 'update ready' notice",
+    highlights: [
+      "Drag & drop onto a Library: drag a song or media item from the center browser onto any library in the left rail — hover for a moment and the row lights up, then drop to file it there. Drag images or videos straight from Finder/Explorer onto a library to import them into it.",
+      "Drag onto a section header: drop a song or media item onto a Playlist section header and it drops straight into that section.",
+      "Colour-label your libraries: right-click a library → Change color to give it a coloured dot, the same palette as your Playlist sections.",
+      "Section headers are easier to reach: a new ⋮ menu on each header offers Rename, Change color and Remove — no right-click needed, so it works on touch and Windows too.",
+      "Calmer updates: when a new PresentFlow version ships while you're mid-service, you now get a quiet 'PresentFlow updated — reload to continue' bar with a Reload button instead of a scary red error. If nothing is on the projector it refreshes itself; if something is live it never touches the screen until you tap Reload.",
+    ],
+  },
+  {
     version: "0.1.385",
     date: "2026-09-08",
     headline: "New: Libraries + colour-coded Playlist sections — organise your content and build a clear service order",

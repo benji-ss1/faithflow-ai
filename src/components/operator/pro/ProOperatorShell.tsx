@@ -22,6 +22,7 @@ import { Quote, X } from "lucide-react";
 import type { OperatorShellCtx } from "../shell/types";
 import { OperatorErrorBoundary } from "../OperatorErrorBoundary";
 import { TopBar } from "./TopBar";
+import { isStaleServerActionError, staleActionRecovery } from "@/lib/stale-action";
 import { LibrarySection } from "./left/LibrarySection";
 import { PlaylistSection } from "./left/PlaylistSection";
 import { MediaSection } from "./left/MediaSection";
@@ -1855,6 +1856,17 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     return () => window.removeEventListener("presentflow:restart-audio", h);
   }, [onRestartAudio]);
 
+  // Stale-action recovery (Wave 3, item 1). A tab open across a Vercel redeploy
+  // holds cached chunks referencing Server Action ids the fresh server no longer
+  // has → Next.js rejects with a recognisable "Failed to find Server Action"
+  // error, which used to surface as an alarming red toast. We detect that ONE
+  // failure class and replace it with a calm "PresentFlow updated" notice: if
+  // nothing is live we auto-reload; if content IS live we NEVER yank the
+  // projector — the operator taps Reload when ready.
+  const [staleUpdate, setStaleUpdate] = useState(false);
+  const liveSlideRef = useRef(ctx.liveSlide);
+  liveSlideRef.current = ctx.liveSlide;
+
   // Global safety net: any promise that rejects without a handler OR any
   // synchronous throw outside a React tree normally shows up as a red dev
   // overlay AND leaves the operator staring at a silent void. Surface both
@@ -1868,13 +1880,25 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       setTimeout(() => { recentToasts = Math.max(0, recentToasts - 1); }, 3000);
       return recentToasts <= 3; // suppress after 3 in 3s so we don't spam
     };
+    // Intercept the stale-action class BEFORE the generic toast. Returns true if
+    // handled (so the caller skips the red toast).
+    const handleStale = (err: unknown): boolean => {
+      if (!isStaleServerActionError(err)) return false;
+      const contentIsLive = liveSlideRef.current?.kind !== "empty";
+      const { autoReload } = staleActionRecovery({ contentIsLive });
+      if (autoReload) { window.location.reload(); return true; }
+      setStaleUpdate(true); // show the calm banner with a Reload button
+      return true;
+    };
     const onRej = (e: PromiseRejectionEvent) => {
       const reason = e.reason;
+      if (handleStale(reason)) return;
       const msg = reason instanceof Error ? reason.message : String(reason ?? "unhandled rejection");
       console.error("[operator-global-error] unhandledrejection:", msg, reason);
       if (bump()) toast.error(`Background task failed: ${msg.slice(0, 120)}`);
     };
     const onErr = (e: ErrorEvent) => {
+      if (handleStale(e.error ?? e.message)) return;
       // React error boundaries catch render errors; this catches
       // event-handler throws and native-callback errors.
       const msg = e.message || String(e.error ?? "unknown error");
@@ -4357,6 +4381,18 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-[var(--color-app-bg)] text-[var(--color-foreground)]">
       <AnnouncementBar />
+      {staleUpdate && (
+        <div role="status" className="flex items-center gap-3 px-4 py-2 text-[12.5px] font-medium bg-[var(--color-brand)]/15 border-b border-[var(--color-brand)]/40 text-[var(--color-foreground)]">
+          <span className="flex-1">PresentFlow updated — reload to continue. Nothing on the projector will change until you do.</span>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="shrink-0 px-3 py-1 rounded-md bg-[var(--color-brand)] text-white font-semibold hover:opacity-90 active:scale-95 transition"
+          >
+            Reload
+          </button>
+        </div>
+      )}
       <UpdateBanner liveSlide={ctx.liveSlide} listening={ctx.audio?.listening} />
       <AICaptionsBanner ctx={ctx} />
       <div data-tour="top" className="relative">

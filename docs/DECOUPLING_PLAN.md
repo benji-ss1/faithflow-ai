@@ -250,3 +250,91 @@ on real projector hardware — required before merge.
 - MediaImageEditor file-wide design-token pass.
 - glyph → lucide icon unification.
 - ProPresenter red-slide hue note (match PP's exact section-divider red).
+
+## Wave 3 — as built (2026-09-08)
+
+Operator-app-only (all changes live in `src/components/operator/pro/*` — the
+desktop Electron shell's hosted operator surface — plus shared server
+actions/pure helpers; NOTHING in the marketing/dashboard/billing web routes).
+Renderer-only → Vercel (no Fly, no DMG). Changelog 0.1.386. Not yet field-
+verified on real projector hardware.
+
+Cross-OS mandate honoured throughout: every new drag/drop path uses in-app
+pointer/HTML5 events only (`dragover`/`dragleave`/`drop`, dnd-kit) — never OS-
+native folder spring-loading — so behaviour is identical on Windows/macOS/Linux.
+Escape cancels any in-flight spring-arm; Ctrl AND Cmd both covered where
+shortcuts apply (the shared color/menu affordances are pointer-driven).
+
+### Item 1 — Stale-action recovery UX
+- **`src/lib/stale-action.ts`** (pure, tested): `isStaleServerActionError` matches
+  ONLY the next-server-action version-mismatch class ("Failed to find Server
+  Action …", "… was not found on the server", "… older or newer deployment"),
+  reading `Error.message` AND `Error.digest`; never swallows generic
+  network/action failures. `staleActionRecovery({contentIsLive})` = auto-reload
+  iff nothing is live.
+- Wired at the operator shell's existing global error net (`ProOperatorShell`
+  `onRej`/`onErr`): a detected stale error is intercepted BEFORE the red toast.
+  If `ctx.liveSlide.kind === "empty"` (nothing live) → `location.reload()`; if
+  content IS live → a calm top banner ("PresentFlow updated — reload to
+  continue") with a Reload button, and the projector is NEVER auto-touched.
+  Confirmed against the real dev-log error strings (item 5). Tests:
+  `test/stale-action.test.ts` (11).
+
+### Item 2 — Section-header recolor discoverability
+- Right-click recolor verified working; ALSO added a `⋮` kebab (Radix
+  DropdownMenu) on every header row exposing Rename / Change color / Move Up-Down
+  / Remove — same actions as right-click, discoverable for touch/Windows. Rename
+  keeps its double-click too.
+
+### Item 3 — Library rows feature parity
+- (a) Rename already had double-click AND a context-menu item — verified, kept.
+- (b) **Library colour label**: new dated migration
+  `docs/migrations/2026-09-08-add-libraries-color.sql` (additive `color text`,
+  idempotent, rollback + migrate-first note), APPLIED to local `faithflow`.
+  Schema `libraries.color`; `setLibraryColor(id, color|null)` action (validated
+  `#rrggbb` via the shared `isHex6Color`, null clears); rendered as a colour dot
+  on the row + a "Change color" submenu (shared `SECTION_COLORS` palette + "No
+  label"). `setHeaderColor` refactored onto the same shared validator (single
+  source of truth, `src/lib/hex-color.ts`).
+- (c) Playlist "+" → Blank confirmed present and working. **Library-side "Blank"
+  DEFERRED** (documented, not bolted on): libraries hold songs/media only; a
+  "blank presentation" is a service-item/playlist concept with no library-content
+  data model, so a library-side Blank would be a fake. Deferred pending a real
+  presentation-in-library model.
+
+### Item 4 — Cross-OS spring-loaded drag & drop
+- **`src/lib/spring-load.ts`** (pure, tested): `SPRING_ARM_MS=600`,
+  `classifyDrop(types)` (library-item vs os-files vs none), a spring-arm reducer
+  (`springEnter/Leave/Tick`, `isArmed` — different target restarts dwell, same
+  target keeps arm, stale leave ignored), and playlist header drop-position
+  resolution (`insertIndexAfterHeader`, `orderAfterHeaderDrop`). Timers wrapped
+  in `useSpringLoad` (`left/useSpringLoad.ts`).
+- (a) **Song/media → library row**: `LibrarySection` rows (incl. Default) are
+  native drop targets; ~600ms hover arms (accent ring + `scale-[1.02]`); drop
+  moves the dragged library item(s) via `setSongLibrary`/`setMediaLibrary`
+  (same as "Move to library"), refreshing counts + center.
+- (b) **Item → section header**: `SortableHeaderRow` is a native drop target;
+  hover arms it; drop inserts the dragged item as the FIRST member of that
+  section via the existing add path with `insertAtIndex = headerIdx+1`
+  (`onAddLibraryItem`/`onAddMediaGroup` already accept an index). Flat-model note:
+  sections don't collapse, so "spring-open" is realised as the arm cue + insert-
+  into-section.
+- (c) **OS file → library row**: an `os-files` drop routes through the EXISTING
+  MediaImportWizard with the target library preselected, via a small in-memory
+  `center/pendingImport.ts` bridge (files can't ride a URL): the rail stashes the
+  files+libraryId, switches the center to media, and `MediaBrowser` consumes it
+  on mount AND on event → opens the wizard pre-queued + pre-filed.
+  `registerMediaAsset` gained an optional `libraryId` (ownership-validated;
+  foreign/bad id falls back to Default rather than failing the upload); threaded
+  through `uploadMediaFile` + the wizard's `initialFiles`/`initialLibraryId`.
+- Tests: `test/spring-load.test.ts` (15), `test/hex-color.test.ts` (3),
+  `test/library-playlist.test.ts` (+2: colour round-trip, media library filing).
+
+### Item 5 — Dev overlay "issues"
+- Read `/tmp/pf-dummy-dev.log` + the running :3005 app. The recurring overlay
+  error class is EXACTLY the stale Server Action errors (a long dev session's
+  recompiles invalidate action ids held by the open tab — same class as a
+  redeploy), now handled by item 1. Grep confirmed ZERO React key / hydration /
+  update-depth / DOM-nesting warnings in our surfaces. Ignored (not our code
+  defects): the `@sentry/nextjs` "add global-error.js" infra recommendation, and
+  the expected `[realtime] NEXT_PUBLIC_SUPABASE_* missing` dummy-app env warning.
