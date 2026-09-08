@@ -5,6 +5,7 @@ import {
   emptyTextObject, emptyShape, emptyImage, emptyVideo, newObjectId, fromLegacyLyrics, normalizeEditableSlide,
   slidePayloadFromEditable, extractLyricsFromEditable,
 } from "@/lib/slide-objects";
+import type { ServiceItemType } from "@/lib/db/schema";
 
 export type EditorSlideRow = {
   id: string;
@@ -14,7 +15,7 @@ export type EditorSlideRow = {
 
 export type UseSlideEditorArgs = {
   itemId: string | null;
-  itemType: "song" | "scripture" | "media" | "sermon" | "blank" | "logo" | "header";
+  itemType: ServiceItemType;
   songId: string | null;
   // Server-hydrated legacy slides for the current item. For songs these come
   // straight from song_slides; for other item types we still show a

@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { eq, and, asc, sql, inArray } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { readableTextColor } from "./colorway";
-import { servicePlans, serviceItems, songs, songSlides, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries } from "./db/schema";
+import { servicePlans, serviceItems, songs, songSlides, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries, type ServiceItemType } from "./db/schema";
 import { requireUser, requireRole, requireCap } from "./session";
 import { deleteObject, getBuffer, putBuffer } from "./s3";
 import { after } from "next/server";
@@ -87,7 +87,7 @@ export async function cleanupAdHocServicePlans(): Promise<Result<{ deleted: numb
 async function validateAddServiceItemPayload(
   db: ReturnType<typeof getDb>,
   churchId: string,
-  type: "song" | "scripture" | "media" | "sermon" | "blank" | "logo" | "header",
+  type: ServiceItemType,
   payload: Record<string, unknown>,
 ): Promise<Result> {
   if (payload == null || typeof payload !== "object" || Array.isArray(payload)) {
@@ -139,10 +139,10 @@ async function validateAddServiceItemPayload(
     case "header": {
       // A header is a non-content section divider. Its only payload is an
       // optional hex colour; reject any library refs that don't belong here.
-      if ((payload as any).songId || (payload as any).mediaAssetId || (payload as any).pptxImportId) {
+      if (payload.songId || payload.mediaAssetId || payload.pptxImportId) {
         return { ok: false, error: "header payload must not include library refs" };
       }
-      const color = (payload as any).color;
+      const color = payload.color;
       if (color !== undefined && (typeof color !== "string" || !/^#[0-9a-fA-F]{6}$/.test(color))) {
         return { ok: false, error: "header color must be a #rrggbb hex string" };
       }
@@ -162,7 +162,7 @@ async function validateAddServiceItemPayload(
   }
 }
 
-export async function addServiceItem(planId: string, type: "song" | "scripture" | "media" | "sermon" | "blank" | "logo" | "header", title: string, payload: Record<string, unknown>): Promise<Result<{ id: string }>> {
+export async function addServiceItem(planId: string, type: ServiceItemType, title: string, payload: Record<string, unknown>): Promise<Result<{ id: string }>> {
   const user = await requireCap("operate_services");
   const db = getDb();
   const [plan] = await db.select().from(servicePlans).where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, user.churchId))).limit(1);

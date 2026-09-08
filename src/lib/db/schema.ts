@@ -2,6 +2,10 @@ import { pgTable, uuid, text, timestamp, integer, jsonb, boolean, pgEnum, date, 
 import { relations, sql } from "drizzle-orm";
 
 export const serviceItemTypeEnum = pgEnum("service_item_type", ["song", "scripture", "media", "sermon", "blank", "logo", "header"]);
+// Single source of truth for the service-item type union (Y4). Derived from the
+// pgEnum so the DB enum and every TS annotation can never drift. type-only import
+// downstream ⇒ zero runtime/bundle cost in client components.
+export type ServiceItemType = (typeof serviceItemTypeEnum.enumValues)[number];
 export const mediaKindEnum = pgEnum("media_kind", ["image", "video"]);
 export const pptxStatusEnum = pgEnum("pptx_status", ["pending", "converting", "ready", "failed"]);
 

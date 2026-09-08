@@ -6,6 +6,7 @@ import { desc } from "drizzle-orm";
 import { servicePlans, serviceItems, songs, songSlides, mediaAssets, pptxImports, pptxSlides, settings, aiSuggestions, themes } from "../db/schema";
 import { presignGet } from "../s3";
 import type { SlidePayload } from "../broadcast";
+import type { ServiceItemType } from "../db/schema";
 import { projectableTextSlide } from "../broadcast";
 
 // Build the projectable payload for a song slide. When the slide has a designed
@@ -23,7 +24,7 @@ function projectableSongSlide(text: string, objectsJson: unknown): SlidePayload 
 export type ExpandedItem = {
   id: string;
   order: number;
-  type: "song" | "scripture" | "media" | "sermon" | "blank" | "logo" | "header";
+  type: ServiceItemType;
   title: string;
   slides: SlidePayload[];
   // For a "header" item: its section colour (#rrggbb) from payload.color.
