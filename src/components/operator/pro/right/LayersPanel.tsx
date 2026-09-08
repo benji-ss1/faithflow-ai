@@ -59,6 +59,10 @@ export function LayersPanel({ ctx }: { ctx: OperatorShellCtx }) {
           <LayerRowView
             key={row.id}
             row={row}
+            // A disabled layer is either HIDDEN (eye-hide, non-destructive,
+            // content preserved) or CLEARED (destructive, payload gone). Only the
+            // former is in the off-wire eyeHidden set.
+            cleared={!row.enabled && !liveLayers.isEyeHidden(row.id)}
             liveDesc={liveDescription(row, ctx)}
             liveSlideIsText={liveSlideIsText}
             onToggle={() => liveLayers.toggleLayer(row.id)}
@@ -106,10 +110,11 @@ export function LayersPanel({ ctx }: { ctx: OperatorShellCtx }) {
 }
 
 function LayerRowView({
-  row, liveDesc, liveSlideIsText, onToggle, onClear, onZone, onSwap, swapOpen,
+  row, cleared, liveDesc, liveSlideIsText, onToggle, onClear, onZone, onSwap, swapOpen,
   onSlideActions, slideActionsOpen,
 }: {
   row: LayerRow;
+  cleared: boolean;
   liveDesc: string;
   liveSlideIsText: boolean;
   onToggle: () => void;
@@ -141,8 +146,26 @@ function LayerRowView({
         }}
       />
       <Icon className="w-3.5 h-3.5 shrink-0" style={{ color: row.active ? meta.accent : "var(--color-muted-foreground)" }} />
-      <span className={cn("text-[12px] flex-1 min-w-0 truncate", row.enabled ? "text-[var(--color-foreground)]" : "text-[var(--color-muted-foreground)] line-through")}>
-        {meta.label}
+      <span className="flex-1 min-w-0 flex items-baseline gap-1.5">
+        <span
+          className={cn(
+            "text-[12px] min-w-0 truncate",
+            row.enabled
+              ? "text-[var(--color-foreground)]"
+              : cleared
+                // CLEARED: no line-through (nothing to "un-strike"); dimmed.
+                ? "text-[var(--color-muted-foreground)] opacity-60"
+                // HIDDEN: struck through — the content is still there, just off.
+                : "text-[var(--color-muted-foreground)] line-through",
+          )}
+        >
+          {meta.label}
+        </span>
+        {cleared && (
+          <span className="shrink-0 text-[9px] uppercase tracking-wider text-[var(--color-muted-foreground)] opacity-60">
+            Cleared
+          </span>
+        )}
       </span>
 
       {/* Slide zone toggle (Full / Lower third). */}
@@ -191,9 +214,14 @@ function LayerRowView({
       <button
         type="button"
         onClick={onToggle}
-        title={row.enabled ? "Hide layer" : "Show layer"}
-        aria-label={row.enabled ? `Hide ${meta.label}` : `Show ${meta.label}`}
-        className={cn(HIT, "hover:bg-white/5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]")}
+        title={row.enabled ? "Hide layer" : cleared ? "Layer cleared — re-enable to show content again" : "Show layer"}
+        aria-label={row.enabled ? `Hide ${meta.label}` : cleared ? `Re-enable ${meta.label}` : `Show ${meta.label}`}
+        className={cn(
+          HIT,
+          "hover:bg-white/5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]",
+          // A cleared layer's eye is dimmed — visibility isn't the reason it's dark.
+          cleared && "opacity-40",
+        )}
       >
         {row.enabled ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
       </button>

@@ -104,6 +104,11 @@ export interface UseLiveLayers {
   rearmSlide: () => void;
   /** Drop all overrides (return to the pure derived stack). */
   reset: () => void;
+  /** True when a DISABLED layer is disabled because of an EYE-hide (non-
+   *  destructive, payload preserved) rather than a CLEAR (destructive, payload
+   *  gone). Store-local (reads the same off-wire eyeHidden set the R1b re-arm
+   *  uses); NEVER emitted. Lets the panel show "hidden" vs "cleared" honestly. */
+  isEyeHidden: (id: string) => boolean;
 }
 
 function baseLayerById(base: LayerWire[], id: string): LayerWire | undefined {
@@ -325,6 +330,11 @@ export function useLiveLayers(
   }, [patchFromBase]);
 
   const swapBackground = useCallback((spec: BackgroundSpec | null) => {
+    // Self-heal hygiene: a swap replaces the background payload/visibility
+    // outright, so any stale "background" eye-hidden mark no longer describes the
+    // layer — drop it so a later slide re-arm / hide↔show reads clean state.
+    // (Inert today: buildBackgroundSwap sets enabled from the spec directly.)
+    eyeHiddenRef.current.delete("background");
     patchFromBase("background", (b) => buildBackgroundSwap(b, spec));
   }, [patchFromBase]);
 
@@ -402,6 +412,10 @@ export function useLiveLayers(
 
   const reset = useCallback(() => { eyeHiddenRef.current = new Set(); setOverrideMap(new Map()); }, []);
 
+  // Read-only view of the off-wire eye-hidden set (see eyeHiddenRef). Depends on
+  // overrideMap so it re-evaluates alongside the rows it annotates.
+  const isEyeHidden = useCallback((id: string) => eyeHiddenRef.current.has(id), [overrideMap]);
+
   // Stable object identity: consumers (OperatorConsole `ctx` memo + broadcast
   // effect deps) key off `liveLayers` / `liveLayers.overrides`, so this must not
   // change identity unless a meaningful value did. Callbacks are useCallback-
@@ -419,5 +433,6 @@ export function useLiveLayers(
     clearAll,
     rearmSlide,
     reset,
-  }), [enabled, rows, overrides, toggleLayer, clearLayer, setZone, setOpacity, swapBackground, clearAll, rearmSlide, reset]);
+    isEyeHidden,
+  }), [enabled, rows, overrides, toggleLayer, clearLayer, setZone, setOpacity, swapBackground, clearAll, rearmSlide, reset, isEyeHidden]);
 }
