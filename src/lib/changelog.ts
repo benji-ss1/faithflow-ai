@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.395",
+    date: "2026-09-08",
+    headline: "Media Bin, fully wired — pull it taller, upload straight into it, and right-click any item for what to do next",
+    highlights: [
+      "Drag the top edge of the Media Bin to make it taller or shorter — the thumbnails grow with it, and it remembers your size next time. Works alongside collapse and pop-out.",
+      "Upload straight from the bin: new Image and Video buttons in its header open the importer already loaded with the files you picked — on import the bin refreshes and they're ready to drag onto a slide.",
+      "Right-click any item in the bin for its options: Send as slide, Set as current slide's background, Set as global background, Move to library, or Delete.",
+      "Double-click any item for a quick full preview (images and videos, with playback controls) — press Esc or click away to close.",
+    ],
+  },
+  {
     version: "0.1.394",
     date: "2026-09-08",
     headline: "One-tap layer cues that hide AND bring back — plus set your church logo and see your real background right from the Layers panel",
