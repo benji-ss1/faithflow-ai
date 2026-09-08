@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { eq, and, asc, sql, inArray } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { readableTextColor } from "./colorway";
+import { isHex6Color } from "./hex-color";
 import { servicePlans, serviceItems, songs, songSlides, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries, type ServiceItemType } from "./db/schema";
 import { requireUser, requireRole, requireCap } from "./session";
 import { deleteObject, getBuffer, putBuffer } from "./s3";
@@ -535,7 +536,7 @@ export async function renameServiceItem(itemId: string, newTitle: string): Promi
 // Named content buckets. Content with a NULL library_id is the implicit
 // "Default" library, which is never a real row (so it can't be deleted/renamed).
 
-export type LibraryRow = { id: string; name: string; order: number; songCount: number; mediaCount: number };
+export type LibraryRow = { id: string; name: string; order: number; color: string | null; songCount: number; mediaCount: number };
 
 export async function listLibraries(): Promise<Result<{ libraries: LibraryRow[]; defaultSongCount: number; defaultMediaCount: number }>> {
   const user = await requireUser();
@@ -551,7 +552,7 @@ export async function listLibraries(): Promise<Result<{ libraries: LibraryRow[];
   return {
     ok: true,
     data: {
-      libraries: rows.map((r) => ({ id: r.id, name: r.name, order: r.order, songCount: sc.get(r.id) ?? 0, mediaCount: mc.get(r.id) ?? 0 })),
+      libraries: rows.map((r) => ({ id: r.id, name: r.name, order: r.order, color: r.color ?? null, songCount: sc.get(r.id) ?? 0, mediaCount: mc.get(r.id) ?? 0 })),
       defaultSongCount: sc.get(null) ?? 0,
       defaultMediaCount: mc.get(null) ?? 0,
     },
@@ -585,6 +586,16 @@ export async function deleteLibrary(id: string): Promise<Result> {
   // ON DELETE SET NULL on songs/media returns their content to the Default
   // bucket — content is never lost, only un-filed.
   const res = await db.delete(libraries).where(and(eq(libraries.id, id), eq(libraries.churchId, user.churchId)));
+  if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Library not found" };
+  return { ok: true };
+}
+
+export async function setLibraryColor(id: string, color: string | null): Promise<Result> {
+  const user = await requireCap("edit_library");
+  // null clears the label; a non-null value must be a #rrggbb hex string.
+  if (color !== null && !isHex6Color(color)) return { ok: false, error: "color must be a #rrggbb hex string" };
+  const db = getDb();
+  const res = await db.update(libraries).set({ color }).where(and(eq(libraries.id, id), eq(libraries.churchId, user.churchId)));
   if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Library not found" };
   return { ok: true };
 }
@@ -628,7 +639,7 @@ export async function addPlaylistHeader(planId: string, title: string, color?: s
 
 export async function setHeaderColor(itemId: string, color: string): Promise<Result> {
   const user = await requireCap("operate_services");
-  if (typeof color !== "string" || !/^#[0-9a-fA-F]{6}$/.test(color)) return { ok: false, error: "color must be a #rrggbb hex string" };
+  if (!isHex6Color(color)) return { ok: false, error: "color must be a #rrggbb hex string" };
   const db = getDb();
   // Church-scope via the parent plan; merge the color into the existing payload.
   const res = await db.execute(sql`
@@ -1082,10 +1093,15 @@ export async function deleteSong(id: string): Promise<Result> {
 }
 
 // Media ----------------------------------------------------------------------
-export async function registerMediaAsset(data: { kind: "image" | "video"; fileName: string; s3Key: string; mimeType: string; sizeBytes: number }): Promise<Result<{ id: string }>> {
+export async function registerMediaAsset(data: { kind: "image" | "video"; fileName: string; s3Key: string; mimeType: string; sizeBytes: number; libraryId?: string | null }): Promise<Result<{ id: string }>> {
   const user = await requireCap("edit_library");
   const db = getDb();
-  const [row] = await db.insert(mediaAssets).values({ ...data, churchId: user.churchId }).returning();
+  // Wave 3 (item 4c): an OS-file drop onto a Library row files the upload into
+  // that library. Validate ownership; a bad/foreign id falls back to Default
+  // (NULL) rather than failing the whole upload.
+  const { libraryId, ...rest } = data;
+  const resolvedLibraryId = libraryId && (await assertOwnLibrary(db, user.churchId, libraryId)) ? libraryId : null;
+  const [row] = await db.insert(mediaAssets).values({ ...rest, libraryId: resolvedLibraryId, churchId: user.churchId }).returning();
   revalidatePath("/library/media");
 
   // Generate a 320x180 grid thumbnail AFTER responding (non-blocking) so the

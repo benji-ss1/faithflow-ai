@@ -95,3 +95,22 @@ test("header insertion + ordering + non-projectable loader output", async () => 
   assert.equal(plan!.items[1].type, "blank");
   assert.equal(plan!.items[1].slides.length, 1, "blank item unchanged");
 });
+
+test("library colour label round-trips (Wave 3 item 3b)", async () => {
+  // Additive `color` column: a #rrggbb label persists and a NULL clears it.
+  const [lib] = await db.insert(libraries).values({ churchId, name: "Live Elements", order: 5, color: "#dc2626" }).returning();
+  const [read1] = await db.select().from(libraries).where(eq(libraries.id, lib.id));
+  assert.equal(read1.color, "#dc2626", "colour persisted");
+  await db.update(libraries).set({ color: null }).where(eq(libraries.id, lib.id));
+  const [read2] = await db.select().from(libraries).where(eq(libraries.id, lib.id));
+  assert.equal(read2.color, null, "colour cleared to NULL");
+});
+
+test("registerMediaAsset library filing round-trips via library_id", async () => {
+  // The upload path files a new asset into a library (item 4c). Exercise the
+  // DB layer directly (the action wraps this with auth + ownership checks).
+  const [lib] = await db.insert(libraries).values({ churchId, name: "Backgrounds", order: 6 }).returning();
+  const [asset] = await db.insert(mediaAssets).values({ churchId, kind: "image", fileName: "bg.jpg", s3Key: "kbg", mimeType: "image/jpeg", sizeBytes: 1, libraryId: lib.id }).returning();
+  assert.equal(asset.libraryId, lib.id, "asset filed into the target library");
+  assert.equal((await listMedia(churchId, lib.id)).length, 1, "filtered list shows the filed asset");
+});

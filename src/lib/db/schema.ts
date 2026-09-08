@@ -139,6 +139,9 @@ export const libraries = pgTable("libraries", {
   churchId: uuid("church_id").references(() => churches.id).notNull(),
   name: text("name").notNull(),
   order: integer("order").notNull().default(0),
+  // Wave 3 (item 3b): optional #rrggbb colour label, rendered as a dot/accent
+  // on the rail row. NULL = no label. Validated on write like header colours.
+  color: text("color"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("idx_libraries_church").on(t.churchId, t.order),
