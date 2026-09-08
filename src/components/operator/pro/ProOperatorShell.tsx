@@ -10,10 +10,15 @@
  *   ├──────┬─────────────────────────────────┬─────────────────┤
  *   │ Left │  Center (slide grid / Bible)    │  Right sidebar  │
  *   │ ~160 │                                 │   ~300px        │
+ *   │ Lib  │                                 │                 │
+ *   │ Play │                                 │                 │
+ *   │ Media│  (Media Bin is docked in the    │                 │
+ *   │ Bin  │   left rail below the Playlist,  │                 │
+ *   │      │   collapsible — NOT a bottom     │                 │
+ *   │      │   strip; the old MediaStrip is   │                 │
+ *   │      │   removed)                       │                 │
  *   ├──────┴─────────────────────────────────┴─────────────────┤
  *   │  BottomBar (40px)                                        │
- *   ├──────────────────────────────────────────────────────────┤
- *   │  MediaStrip (140px, collapsible)                         │
  *   └──────────────────────────────────────────────────────────┘
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

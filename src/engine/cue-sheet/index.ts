@@ -23,7 +23,7 @@
 import type { ExpandedPlan, ExpandedItem } from "@/lib/server/services";
 import type { SlidePayload, TransitionSpec } from "@/lib/broadcast";
 import { nextPreviewPosition, type NavPosition } from "@/lib/operator-nav";
-import type { ItemId, SlideId } from "../types";
+import { asId, type ItemId, type SlideId } from "../types";
 
 /** Actions attached to a cue (Phase 3 macros / Phase 8 slide-actions). */
 export type CueAction = {
@@ -62,8 +62,8 @@ export function buildCueSheet(plan: ExpandedPlan): CueEntry[] {
       entries.push({
         itemIdx,
         slideIdx,
-        itemId: item.id as ItemId,
-        slideId: `${item.id}-${slideIdx}` as SlideId,
+        itemId: asId<ItemId>(item.id),
+        slideId: asId<SlideId>(`${item.id}-${slideIdx}`),
         slide,
         itemTitle: item.title,
         itemType: item.type,
