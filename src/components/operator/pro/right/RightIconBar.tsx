@@ -31,16 +31,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { loadSessionState, updateSessionState } from "@/lib/operatorSessionState";
 import * as Popover from "@radix-ui/react-popover";
-import { BookOpen, Music, Link2, Settings as SettingsIcon, Layers as LayersIcon } from "lucide-react";
+import { BookOpen, Music, Link2, Settings as SettingsIcon, Layers as LayersIcon, Timer as TimerIcon, MessageSquare } from "lucide-react";
 import { LAYERS_V2 } from "@/lib/output-layers";
 import { LayersPanel } from "./LayersPanel";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
-import type { TimerApi, MessagesApi } from "../hooks";
+import type { TimerApi, MessagesApi, TimersApi, MessagesBoardApi } from "../hooks";
 import type { UnifiedSuggestion } from "../../useAudioStream";
 import { AIDetectionsPanel, songRowFromSuggestion } from "./AIDetectionsPanel";
-import { MessagesTab } from "./tabs/MessagesTab";
-import { TimersTab } from "./tabs/TimersTab";
+import { TimersPanel } from "./TimersPanel";
+import { MessagesPanel } from "./MessagesPanel";
 import { MacrosTab } from "./tabs/MacrosTab";
 import { ThemesModal } from "../ThemesModal";
 import { BibleLicensingTab } from "./tabs/BibleLicensingTab";
@@ -50,7 +50,7 @@ import { ChannelStrip } from "../../ChannelStrip";
 // HardwarePanel still imports ScreensPanel directly; the component is
 // unchanged. Only the right-side entry point is removed.
 
-type PopoverKey = "bible" | "songs" | "xrefs" | "logs" | "settings" | "themes" | "layers";
+type PopoverKey = "bible" | "songs" | "xrefs" | "logs" | "settings" | "themes" | "layers" | "timers" | "messages";
 
 // First-run discoverability for the Layers panel: set once the operator opens
 // Layers for the first time. Until then (and only when Layers is enabled for the
@@ -58,11 +58,13 @@ type PopoverKey = "bible" | "songs" | "xrefs" | "logs" | "settings" | "themes" |
 const LAYERS_OPENED_KEY = "presentflow.layers.opened.v1";
 
 export function RightIconBar({
-  ctx, timer, messages,
+  ctx, timer, messages, timers, messagesBoard,
 }: {
   ctx: OperatorShellCtx;
   timer: TimerApi;
   messages: MessagesApi;
+  timers: TimersApi;
+  messagesBoard: MessagesBoardApi;
 }) {
   const [openKey, setOpenKeyInner] = useState<PopoverKey | null>(null);
   // JPD Fix 5 (2026-07-27): restore the last-open sidebar popover on
@@ -122,7 +124,7 @@ export function RightIconBar({
   // guardian-triggered open remounts it on its default sub-tab ("audio")
   // even if the popover was already open on Messages/Timers/etc.
   const [settingsEpoch, setSettingsEpoch] = useState(0);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<"messages" | "timers" | "macros" | "bible">("messages");
+  const [settingsInitialTab] = useState<"macros" | "bible">("macros");
   // Themes now opens as a full-screen operator modal (not a sidebar popover).
   const [themesModalOpen, setThemesModalOpen] = useState(false);
   useEffect(() => {
@@ -193,6 +195,15 @@ export function RightIconBar({
           />
         )}
         <IconTrigger
+          k="timers" openKey={openKey} setOpen={setOpenKey}
+          Icon={TimerIcon} label="Timers" badge={timers.slots.filter((s) => s.shown).length}
+        />
+        <IconTrigger
+          k="messages" openKey={openKey} setOpen={setOpenKey}
+          Icon={MessageSquare} label="Messages"
+          badge={messagesBoard.active.length + (messages.state.showing ? 1 : 0)}
+        />
+        <IconTrigger
           k="settings" openKey={openKey} setOpen={setOpenKey}
           Icon={SettingsIcon} label="Settings"
         />
@@ -224,9 +235,19 @@ export function RightIconBar({
           <LayersPanel ctx={ctx} />
         </PopoverShell>
       )}
+      {openKey === "timers" && (
+        <PopoverShell title="Timers" onClose={() => setOpenKey(null)}>
+          <TimersPanel quick={timer} timers={timers} />
+        </PopoverShell>
+      )}
+      {openKey === "messages" && (
+        <PopoverShell title="Messages" onClose={() => setOpenKey(null)}>
+          <MessagesPanel compose={messages} board={messagesBoard} />
+        </PopoverShell>
+      )}
       {openKey === "settings" && (
         <PopoverShell title="Settings" onClose={() => setOpenKey(null)}>
-          <SettingsPopoverBody key={settingsEpoch} initialTab={settingsInitialTab} timer={timer} messages={messages} />
+          <SettingsPopoverBody key={settingsEpoch} initialTab={settingsInitialTab} />
         </PopoverShell>
       )}
       {/* Change 5C — Screens popover render block removed. */}
@@ -330,16 +351,14 @@ function PopoverShell({
 }
 
 function SettingsPopoverBody({
-  timer, messages, initialTab = "messages",
+  initialTab = "macros",
 }: {
-  timer: TimerApi;
-  messages: MessagesApi;
-  initialTab?: "messages" | "timers" | "macros" | "bible";
+  // Messages + Timers moved to their OWN top-level icons (Wave 7, rec6): "take
+  // out messages and timers from this section and give them their own sections."
+  initialTab?: "macros" | "bible";
 }) {
-  const [subTab, setSubTab] = useState<"messages" | "timers" | "macros" | "bible">(initialTab);
+  const [subTab, setSubTab] = useState<"macros" | "bible">(initialTab);
   const tabs: { k: typeof subTab; label: string }[] = [
-    { k: "messages", label: "Messages" },
-    { k: "timers", label: "Timers" },
     { k: "macros", label: "Macros" },
     { k: "bible", label: "Bible" },
   ];
@@ -369,8 +388,6 @@ function SettingsPopoverBody({
         ))}
       </div>
       <div className="p-2 text-[12px]">
-        {subTab === "messages" && <MessagesTab api={messages} />}
-        {subTab === "timers" && <TimersTab api={timer} />}
         {subTab === "macros" && <MacrosTab />}
         {subTab === "bible" && <BibleLicensingTab />}
       </div>

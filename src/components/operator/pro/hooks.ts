@@ -9,6 +9,22 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { OVERLAY_POSITIONS, type OverlayPosition } from "@/lib/broadcast";
+import {
+  type TimerDefinition,
+  type TimerRuntime,
+  initialRuntime,
+  computeRemainingSec,
+  isOverrun,
+  applyCommand,
+  type TimerCommand,
+} from "@/engine/timers";
+import {
+  listTimerDefinitions,
+  createTimerDefinition,
+  updateTimerDefinition,
+  deleteTimerDefinition,
+  type TimerDefInput,
+} from "@/lib/actions";
 
 function sanitizePosition(p: unknown, fallback: OverlayPosition): OverlayPosition {
   return typeof p === "string" && (OVERLAY_POSITIONS as string[]).includes(p) ? (p as OverlayPosition) : fallback;
@@ -94,6 +110,160 @@ export function useTimerSession(): TimerApi {
   };
 }
 
+// ---------------------------------------------------- Multi-timer (Wave 7 P4)
+// A church-persisted, multi-named-timer session built on the pure engine
+// (@/engine/timers). ADDITIVE alongside the legacy useTimerSession above (which
+// remains the single "quick timer", wire slot "default"). Each named timer here
+// publishes a KEYED TimerOverlay (id = its slot id) so renderers paint them
+// independently. Runtime (running/shown/position) is session-only — never
+// persisted — so a fresh Sunday never resurrects last week's countdown.
+const TIMERS_RUNTIME_KEY = "presentflow.pro.timers.runtime.v1";
+
+/** Resolve a "HH:MM" clock to the NEXT such instant in epoch ms (today, or
+ *  tomorrow if already past). Null-tolerant. */
+export function resolveTargetMs(targetClock: string | null | undefined, nowMs: number): number | null {
+  if (!targetClock || !/^([01]?\d|2[0-3]):[0-5]\d$/.test(targetClock.trim())) return null;
+  const [h, m] = targetClock.trim().split(":").map((x) => parseInt(x, 10));
+  const d = new Date(nowMs);
+  d.setHours(h, m, 0, 0);
+  let t = d.getTime();
+  if (t <= nowMs) t += 24 * 60 * 60 * 1000; // next occurrence
+  return t;
+}
+
+export type TimerSlot = {
+  def: TimerDefinition;
+  /** Raw "HH:MM" for countdown_to (persisted); def.targetMs is the resolved value. */
+  targetClock: string | null;
+  runtime: TimerRuntime;
+  remaining: number; // recomputed each tick for display
+  overrun: boolean;
+  shown: boolean;
+  position: OverlayPosition;
+};
+
+export type TimersApi = {
+  slots: TimerSlot[];
+  loading: boolean;
+  refresh: () => Promise<void>;
+  addTimer: (input: TimerDefInput) => Promise<void>;
+  editTimer: (id: string, input: TimerDefInput) => Promise<void>;
+  removeTimer: (id: string) => Promise<void>;
+  command: (id: string, cmd: TimerCommand) => void;
+  toggleShown: (id: string) => void;
+  setPosition: (id: string, p: OverlayPosition) => void;
+};
+
+type RuntimeMeta = { shown: boolean; position: OverlayPosition };
+
+export function useTimersSession(): TimersApi {
+  const [defs, setDefs] = useState<Array<{ id: string; name: string; type: string; durationSec: number; targetClock: string | null }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [runtimes, setRuntimes] = useState<Record<string, TimerRuntime>>({});
+  const [meta, setMeta] = useState<Record<string, RuntimeMeta>>({});
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  const refresh = useCallback(async () => {
+    try {
+      const res = await listTimerDefinitions();
+      if (res.ok && res.data) {
+        setDefs(res.data.map((d) => ({ id: d.id, name: d.name, type: d.type, durationSec: d.durationSec, targetClock: d.targetClock })));
+      }
+    } catch { /* offline / no session — leave list empty */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  // Restore session-only runtime meta (shown NEVER restored — always starts hidden).
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(TIMERS_RUNTIME_KEY);
+      if (raw) {
+        const p = JSON.parse(raw) as Record<string, { position?: unknown }>;
+        const restored: Record<string, RuntimeMeta> = {};
+        for (const k of Object.keys(p)) restored[k] = { shown: false, position: sanitizePosition(p[k]?.position, "top-right") };
+        setMeta(restored);
+      }
+    } catch { /* noop */ }
+  }, []);
+
+  // Tick clock while any timer is running or a countdown_to exists (cheap 500ms).
+  useEffect(() => {
+    const anyLive = defs.length > 0;
+    if (!anyLive) return;
+    const id = setInterval(() => setNowMs(Date.now()), 500);
+    return () => clearInterval(id);
+  }, [defs.length]);
+
+  const setMetaFor = useCallback((id: string, patch: Partial<RuntimeMeta>) => {
+    setMeta((m) => {
+      const prev = m[id] ?? { shown: false, position: "top-right" as OverlayPosition };
+      const next = { ...m, [id]: { ...prev, ...patch } };
+      try {
+        const persist: Record<string, { position: OverlayPosition }> = {};
+        for (const k of Object.keys(next)) persist[k] = { position: next[k].position };
+        window.localStorage.setItem(TIMERS_RUNTIME_KEY, JSON.stringify(persist));
+      } catch { /* noop */ }
+      return next;
+    });
+  }, []);
+
+  const command = useCallback((id: string, cmd: TimerCommand) => {
+    setRuntimes((rs) => {
+      const def = defToEngine(defs.find((d) => d.id === id), Date.now());
+      if (!def) return rs;
+      const cur = rs[id] ?? initialRuntime(def);
+      return { ...rs, [id]: applyCommand(def, cur, cmd, Date.now()) };
+    });
+  }, [defs]);
+
+  const toggleShown = useCallback((id: string) => setMetaFor(id, { shown: !(meta[id]?.shown ?? false) }), [meta, setMetaFor]);
+  const setPosition = useCallback((id: string, p: OverlayPosition) => setMetaFor(id, { position: p }), [setMetaFor]);
+
+  const addTimer = useCallback(async (input: TimerDefInput) => {
+    const res = await createTimerDefinition(input);
+    if (res.ok) await refresh();
+  }, [refresh]);
+  const editTimer = useCallback(async (id: string, input: TimerDefInput) => {
+    const res = await updateTimerDefinition(id, input);
+    if (res.ok) { await refresh(); command(id, "reset"); }
+  }, [refresh, command]);
+  const removeTimer = useCallback(async (id: string) => {
+    const res = await deleteTimerDefinition(id);
+    if (res.ok) {
+      setRuntimes((rs) => { const n = { ...rs }; delete n[id]; return n; });
+      await refresh();
+    }
+  }, [refresh]);
+
+  const slots = useMemo<TimerSlot[]>(() => defs.map((d) => {
+    const def = defToEngine(d, nowMs)!;
+    const runtime = runtimes[d.id] ?? initialRuntime(def);
+    return {
+      def,
+      targetClock: d.targetClock,
+      runtime,
+      remaining: computeRemainingSec(def, runtime, nowMs),
+      overrun: isOverrun(def, runtime, nowMs),
+      shown: meta[d.id]?.shown ?? false,
+      position: meta[d.id]?.position ?? "top-right",
+    };
+  }), [defs, runtimes, meta, nowMs]);
+
+  return { slots, loading, refresh, addTimer, editTimer, removeTimer, command, toggleShown, setPosition };
+}
+
+/** Map a stored def row to the engine's TimerDefinition (resolving targetClock). */
+function defToEngine(
+  d: { id: string; name: string; type: string; durationSec: number; targetClock: string | null } | undefined,
+  nowMs: number,
+): TimerDefinition | null {
+  if (!d) return null;
+  const type = (d.type === "countdown_to" || d.type === "elapsed" ? d.type : "countdown") as TimerDefinition["type"];
+  return { id: d.id, name: d.name, type, durationSec: d.durationSec, targetMs: type === "countdown_to" ? resolveTargetMs(d.targetClock, nowMs) : null };
+}
+
 // ------------------------------------------------------------- Messages (R4)
 const MSG_KEY = "presentflow.pro.messages.v1";
 export type MessagesState = { text: string; dismiss: string; allowWeb: boolean; showing: boolean; position: OverlayPosition; scroll: boolean; scrollDir: "ltr" | "rtl"; scrollSec: number };
@@ -159,6 +329,118 @@ export function useMessagesSession(): MessagesApi {
     setScrollSec: (v) => setState((s) => ({ ...s, scrollSec: Math.max(4, Math.min(120, Math.round(v) || 18)) })),
     toggleShow: () => setState((s) => ({ ...s, showing: !s.showing })),
   };
+}
+
+// ------------------------------------------- Message templates + board (Wave 7)
+// ADDITIVE alongside useMessagesSession (the legacy single composer, wire slot
+// "default"). Loads church-persisted TEMPLATES and manages a SESSION list of
+// ACTIVE extra messages (each keyed) published via the wire's messages[] array.
+// The {{timer}} / {{timer:ID}} token is expanded at post time (see
+// expandMessageTokens) using the live timers snapshot.
+import {
+  listMessageTemplates,
+  createMessageTemplate,
+  updateMessageTemplate,
+  deleteMessageTemplate,
+  type MessageTemplateInput,
+} from "@/lib/actions";
+import { formatTimerClock } from "@/engine/timers";
+
+export type MessageTemplate = {
+  id: string; name: string; text: string; position: OverlayPosition;
+  config: { scroll?: boolean; scrollDir?: "ltr" | "rtl"; scrollSec?: number; allowWeb?: boolean; dismiss?: string; timerId?: string };
+};
+
+export type ActiveMessage = {
+  id: string; text: string; position: OverlayPosition;
+  scroll: boolean; scrollDir: "ltr" | "rtl"; scrollSec: number; allowWeb: boolean;
+  dismiss: string; timerId?: string;
+};
+
+export type MessagesBoardApi = {
+  templates: MessageTemplate[];
+  loadingTemplates: boolean;
+  refreshTemplates: () => Promise<void>;
+  addTemplate: (input: MessageTemplateInput) => Promise<void>;
+  editTemplate: (id: string, input: MessageTemplateInput) => Promise<void>;
+  removeTemplate: (id: string) => Promise<void>;
+  active: ActiveMessage[];
+  activate: (m: Omit<ActiveMessage, "id">) => void;
+  activateTemplate: (t: MessageTemplate) => void;
+  hide: (id: string) => void;
+  clearAll: () => void;
+};
+
+/** Expand message tokens. `{{time}}`/`{{date}}`/`{{currentSlide}}` mirror the
+ *  legacy composer; `{{timer}}` → the first shown timer's clock, `{{timer:ID}}`
+ *  → that specific timer. `timers` maps a timer id to its live formatted clock;
+ *  `firstTimer` is the fallback for the bare `{{timer}}` token. Pure. */
+export function expandMessageTokens(
+  text: string,
+  opts: { now?: Date; currentSlide?: number; timers?: Record<string, string>; firstTimer?: string },
+): string {
+  const now = opts.now ?? new Date();
+  let out = text
+    .replace(/\{\{time\}\}/g, now.toLocaleTimeString())
+    .replace(/\{\{date\}\}/g, now.toLocaleDateString())
+    .replace(/\{\{currentSlide\}\}/g, String((opts.currentSlide ?? 0) + 1));
+  out = out.replace(/\{\{timer:([a-zA-Z0-9_-]{1,64})\}\}/g, (_m, id) => opts.timers?.[id] ?? "");
+  out = out.replace(/\{\{timer\}\}/g, opts.firstTimer ?? "");
+  return out;
+}
+
+/** Convenience: format a raw seconds value for a {{timer}} token. */
+export function timerTokenValue(sec: number): string { return formatTimerClock(sec); }
+
+const MSG_TEMPLATE_DISMISS_MS: Record<string, number> = MSG_DISMISS_MS;
+let activeMsgSeq = 0;
+
+export function useMessagesBoard(): MessagesBoardApi {
+  const [templates, setTemplates] = useState<MessageTemplate[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(true);
+  const [active, setActive] = useState<ActiveMessage[]>([]);
+
+  const refreshTemplates = useCallback(async () => {
+    try {
+      const res = await listMessageTemplates();
+      if (res.ok && res.data) {
+        setTemplates(res.data.map((r) => ({
+          id: r.id, name: r.name, text: r.text,
+          position: sanitizePosition(r.position, "lower-third"),
+          config: (r.config as MessageTemplate["config"]) ?? {},
+        })));
+      }
+    } catch { /* offline — leave empty */ }
+    finally { setLoadingTemplates(false); }
+  }, []);
+  useEffect(() => { void refreshTemplates(); }, [refreshTemplates]);
+
+  const addTemplate = useCallback(async (input: MessageTemplateInput) => { const r = await createMessageTemplate(input); if (r.ok) await refreshTemplates(); }, [refreshTemplates]);
+  const editTemplate = useCallback(async (id: string, input: MessageTemplateInput) => { const r = await updateMessageTemplate(id, input); if (r.ok) await refreshTemplates(); }, [refreshTemplates]);
+  const removeTemplate = useCallback(async (id: string) => { const r = await deleteMessageTemplate(id); if (r.ok) await refreshTemplates(); }, [refreshTemplates]);
+
+  const hide = useCallback((id: string) => setActive((a) => a.filter((m) => m.id !== id)), []);
+  const clearAll = useCallback(() => setActive([]), []);
+
+  const activate = useCallback((m: Omit<ActiveMessage, "id">) => {
+    const id = `m${Date.now().toString(36)}${(activeMsgSeq++).toString(36)}`;
+    setActive((a) => [...a.filter((x) => x.text !== m.text || x.position !== m.position), { ...m, id }]);
+    // Auto-dismiss (session-side; the wire also carries dismissAfterMs so the
+    // renderer independently hides it).
+    const ms = MSG_TEMPLATE_DISMISS_MS[m.dismiss];
+    if (ms) setTimeout(() => setActive((a) => a.filter((x) => x.id !== id)), ms);
+  }, []);
+
+  const activateTemplate = useCallback((t: MessageTemplate) => {
+    activate({
+      text: t.text, position: t.position,
+      scroll: t.config.scroll ?? false, scrollDir: t.config.scrollDir ?? "rtl",
+      scrollSec: t.config.scrollSec ?? 18, allowWeb: t.config.allowWeb ?? false,
+      dismiss: t.config.dismiss ?? "manual", timerId: t.config.timerId,
+    });
+  }, [activate]);
+
+  return { templates, loadingTemplates, refreshTemplates, addTemplate, editTemplate, removeTemplate, active, activate, activateTemplate, hide, clearAll };
 }
 
 // ---------------------------------------------------------------- Bible (R5)

@@ -54,7 +54,7 @@ import { RightIconBar } from "./right/RightIconBar";
 import { VerticalClearRail } from "./right/VerticalClearRail";
 import { TranscriptDisplay } from "./TranscriptDisplay";
 import { BottomBar } from "./BottomBar";
-import { useTimerSession, useMessagesSession, useBibleSession } from "./hooks";
+import { useTimerSession, useMessagesSession, useBibleSession, useTimersSession, useMessagesBoard, expandMessageTokens, timerTokenValue } from "./hooks";
 import { openLiveChannel, safePost, type LiveChannelLike } from "@/lib/broadcast";
 import { cachedLookup } from "@/lib/bible-client-cache";
 import { setAvailableTranslationCodes, getAvailableTranslationCodes } from "@/lib/translation-commands";
@@ -2305,6 +2305,8 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // R4/R5: session hooks live at the shell so state survives tab/mode swap.
   const timer = useTimerSession();
   const messages = useMessagesSession();
+  const timers = useTimersSession();        // Wave 7 — multi named timers
+  const messagesBoard = useMessagesBoard();  // Wave 7 — templates + active messages
   const bibleSession = useBibleSession(ctx.defaultTranslationCode);
   // Always-current handle to the session so the callback below (captured by
   // effects that don't re-subscribe on every grid change) never reads a stale
@@ -2377,11 +2379,19 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // CONTENT changes (text + dismissAfterMs), so heartbeats never restart it.
   const messagesStateRef = useRef(messages.state);
   useEffect(() => { messagesStateRef.current = messages.state; }, [messages.state]);
+  // Wave 7: current timers + active board messages, read inside the interval so
+  // the {{timer}} token stays live and the extras array is always fresh.
+  const timersSlotsRef = useRef(timers.slots);
+  useEffect(() => { timersSlotsRef.current = timers.slots; }, [timers.slots]);
+  const boardActiveRef = useRef(messagesBoard.active);
+  useEffect(() => { boardActiveRef.current = messagesBoard.active; }, [messagesBoard.active]);
   const messagePostedRef = useRef(false);
+  const legacyActive = messages.state.showing && messages.state.text.trim().length > 0;
+  const boardCount = messagesBoard.active.length;
   useEffect(() => {
     const ch = overlayChRef.current;
     if (!ch) return;
-    if (!(messages.state.showing && messages.state.text.trim().length > 0)) {
+    if (!legacyActive && boardCount === 0) {
       if (messagePostedRef.current) {
         // Only broadcast clear:true after at least one show — otherwise every
         // slide navigation on a fresh operator would spam `{clear:true}`.
@@ -2390,36 +2400,53 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       }
       return;
     }
+    const DISMISS_MS: Record<string, number | null> = {
+      "5s": 5000, "10s": 10000, "30s": 30000, "1min": 60000, "5min": 300000, manual: null,
+    };
+    // Build the {{timer}} token map from the live timers snapshot.
+    const timerTokens = (): { map: Record<string, string>; first?: string } => {
+      const slots = timersSlotsRef.current;
+      const map: Record<string, string> = {};
+      for (const s of slots) map[s.def.id] = timerTokenValue(s.remaining);
+      const firstShown = slots.find((s) => s.shown) ?? slots[0];
+      return { map, first: firstShown ? timerTokenValue(firstShown.remaining) : undefined };
+    };
     const post = () => {
       const s = messagesStateRef.current;
-      // Simple {{time}}/{{date}}/{{currentSlide}} token expansion at post time.
       const now = new Date();
-      const text = s.text
-        .replace(/\{\{time\}\}/g, now.toLocaleTimeString())
-        .replace(/\{\{date\}\}/g, now.toLocaleDateString())
-        .replace(/\{\{currentSlide\}\}/g, String((previewSlideIdxRef.current ?? 0) + 1));
-      const DISMISS_MS: Record<string, number | null> = {
-        "5s": 5000, "10s": 10000, "30s": 30000, "1min": 60000, "5min": 300000, manual: null,
-      };
-      safePost(ch, {
-        type: "message",
-        overlay: {
-          text,
-          dismissAfterMs: DISMISS_MS[s.dismiss] ?? null,
-          position: s.position,
-          allowWeb: s.allowWeb,
-          // Ticker: only send the motion fields when scroll is on, so a static
-          // message stays byte-identical on the wire (and old projectors ignore
-          // the extra fields harmlessly).
-          ...(s.scroll ? { scroll: true, scrollDir: s.scrollDir, scrollSec: s.scrollSec } : {}),
-        },
-      });
+      const { map, first } = timerTokens();
+      // Legacy single message (authoritative slot "default"). Kept EXACTLY as
+      // before (time/date/currentSlide tokens); clear:true when not showing so
+      // the "default" slot is emptied while extras keep painting.
+      const overlay = legacyActive
+        ? {
+            text: s.text
+              .replace(/\{\{time\}\}/g, now.toLocaleTimeString())
+              .replace(/\{\{date\}\}/g, now.toLocaleDateString())
+              .replace(/\{\{currentSlide\}\}/g, String((previewSlideIdxRef.current ?? 0) + 1)),
+            dismissAfterMs: DISMISS_MS[s.dismiss] ?? null,
+            position: s.position,
+            allowWeb: s.allowWeb,
+            ...(s.scroll ? { scroll: true, scrollDir: s.scrollDir, scrollSec: s.scrollSec } : {}),
+          }
+        : { clear: true as const };
+      // Extra simultaneous messages (Wave 7). Each keyed by its own id; the
+      // {{timer}} token renders the bound timer's live clock.
+      const extras = boardActiveRef.current.map((m) => ({
+        id: m.id,
+        text: expandMessageTokens(m.text, { now, currentSlide: previewSlideIdxRef.current, timers: map, firstTimer: first }),
+        dismissAfterMs: DISMISS_MS[m.dismiss] ?? null,
+        position: m.position,
+        allowWeb: m.allowWeb,
+        ...(m.scroll ? { scroll: true, scrollDir: m.scrollDir, scrollSec: m.scrollSec } : {}),
+      })).filter((m) => m.text.trim().length > 0);
+      safePost(ch, { type: "message", overlay, messages: extras });
       messagePostedRef.current = true;
     };
     post();
     const id = setInterval(post, 1000);
     return () => clearInterval(id);
-  }, [messages.state.showing, messages.state.text, messages.state.dismiss, messages.state.position, messages.state.allowWeb, messages.state.scroll, messages.state.scrollDir, messages.state.scrollSec]);
+  }, [legacyActive, boardCount, messages.state.showing, messages.state.text, messages.state.dismiss, messages.state.position, messages.state.allowWeb, messages.state.scroll, messages.state.scrollDir, messages.state.scrollSec]);
 
   // JPD Fix 1: timer overlay is projected ONLY while `shown` (explicit
   // "Show on screen" toggle in the Timers tab). While shown we heartbeat at
@@ -2462,6 +2489,66 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     const id = setInterval(post, 1000);
     return () => clearInterval(id);
   }, [timer.state.shown, timer.state.running, timer.state.name, timer.state.type, timer.state.position]);
+
+  // Wave 7: publish each SHOWN named timer as a KEYED TimerOverlay (id = its
+  // slot id), heartbeating at 1Hz like the legacy timer. When a timer stops
+  // being shown (hidden/deleted) we send a per-id clear so the projector drops
+  // just that one. Reads the live slots via ref inside the interval so ticking
+  // never re-creates the interval. The legacy timer (slot "default") is
+  // untouched by this effect — the two coexist on the wire by id.
+  const shownTimerIdsRef = useRef<Set<string>>(new Set());
+  const shownTimerKey = timers.slots.filter((s) => s.shown).map((s) => `${s.def.id}:${s.position}`).join(",");
+  useEffect(() => {
+    const ch = overlayChRef.current;
+    if (!ch) return;
+    const post = () => {
+      const slots = timersSlotsRef.current;
+      const nowShown = new Set<string>();
+      for (const s of slots) {
+        if (!s.shown) continue;
+        nowShown.add(s.def.id);
+        safePost(ch, {
+          type: "timer",
+          overlay: {
+            id: s.def.id,
+            name: s.def.name,
+            remainingSec: Math.max(-3600, Math.min(24 * 60 * 60, Math.round(s.remaining))),
+            running: s.def.type === "countdown_to" ? true : s.runtime.running,
+            kind: s.def.type === "elapsed" ? "elapsed" : "countdown",
+            position: s.position,
+            overrun: s.overrun,
+          },
+        });
+      }
+      // Clear any timer that WAS shown last tick but isn't now.
+      for (const id of shownTimerIdsRef.current) {
+        if (!nowShown.has(id)) safePost(ch, { type: "timer", overlay: { clear: true, id } });
+      }
+      shownTimerIdsRef.current = nowShown;
+    };
+    post();
+    const id = setInterval(post, 1000);
+    return () => clearInterval(id);
+  }, [shownTimerKey]);
+
+  // Wave 7: engine/macro TIMER_COMMAND entry point (ctx.onTimerCommand emits
+  // this CustomEvent). "default" routes to the legacy quick timer; any other id
+  // routes to the named-timer session.
+  useEffect(() => {
+    const onCmd = (e: Event) => {
+      const d = (e as CustomEvent<{ timerId?: string; command?: "start" | "stop" | "reset" }>).detail;
+      if (!d?.command) return;
+      if (d.timerId === "default" || !d.timerId) {
+        if (d.command === "reset") timer.reset();
+        else if (d.command === "start" && !timer.state.running) timer.toggleRun();
+        else if (d.command === "stop" && timer.state.running) timer.toggleRun();
+        return;
+      }
+      timers.command(d.timerId, d.command);
+    };
+    window.addEventListener("presentflow:timer-command", onCmd);
+    return () => window.removeEventListener("presentflow:timer-command", onCmd);
+  }, [timer, timers]);
 
   // Auto-route AI scripture detections into the Bible session so switching
   // into Bible mode shows the detected passage immediately — even if the
@@ -4594,7 +4681,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
               this change) for easy rollback if this regresses; will
               be deleted in a follow-up ship. */}
           <OperatorErrorBoundary fallbackLabel="Right icon bar error">
-            <RightIconBar ctx={ctx} timer={timer} messages={messages} />
+            <RightIconBar ctx={ctx} timer={timer} messages={messages} timers={timers} messagesBoard={messagesBoard} />
           </OperatorErrorBoundary>
           {/* Placeholder keeps the sidebar flex column filling the
               available height so the icon bar sits at the bottom of the
