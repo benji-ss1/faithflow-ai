@@ -38,7 +38,7 @@ function isProFile(file: File): boolean {
  * normal media path and each rendered deck page (B2), so there is one upload
  * path, not two divergent copies. Throws on any failure.
  */
-async function uploadMediaFile(file: File, signal?: AbortSignal): Promise<void> {
+async function uploadMediaFile(file: File, signal?: AbortSignal, libraryId?: string | null): Promise<void> {
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
   const presignRes = await fetch("/api/media/presign", {
     method: "POST",
@@ -54,7 +54,7 @@ async function uploadMediaFile(file: File, signal?: AbortSignal): Promise<void> 
   const uploadRes = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file, signal });
   if (!uploadRes.ok) throw new Error("Storage upload failed");
   const kind = file.type.startsWith("video") ? ("video" as const) : ("image" as const);
-  const result = await registerMediaAsset({ kind, fileName: file.name, s3Key: key, mimeType: file.type, sizeBytes: file.size });
+  const result = await registerMediaAsset({ kind, fileName: file.name, s3Key: key, mimeType: file.type, sizeBytes: file.size, libraryId });
   if (!result?.ok) throw new Error((result as { error?: string } | undefined)?.error ?? "Registration failed");
 }
 
@@ -180,9 +180,13 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onImported: () => void;
+  // Wave 3 (item 4c): when opened by an OS-file drop onto a Library row, the
+  // dropped files are pre-queued and this library is preselected as the target.
+  initialFiles?: File[];
+  initialLibraryId?: string | null;
 }
 
-export function MediaImportWizard({ open, onClose, onImported }: Props) {
+export function MediaImportWizard({ open, onClose, onImported, initialFiles, initialLibraryId = null }: Props) {
   const [step, setStep] = useState<Step>(1);
   const [queue, setQueue] = useState<QueuedFile[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -253,6 +257,18 @@ export function MediaImportWizard({ open, onClose, onImported }: Props) {
     });
   }, []);
 
+  // Wave 3 (item 4c): when opened by an OS-file drop, pre-queue the dropped
+  // files once per open. Keyed by the array identity so re-renders don't
+  // re-enqueue; a fresh drop passes a fresh array.
+  const seededFilesRef = useRef<File[] | null>(null);
+  useEffect(() => {
+    if (!open) { seededFilesRef.current = null; return; }
+    if (initialFiles && initialFiles.length > 0 && seededFilesRef.current !== initialFiles) {
+      seededFilesRef.current = initialFiles;
+      enqueueFiles(initialFiles);
+    }
+  }, [open, initialFiles, enqueueFiles]);
+
   const removeFromQueue = (key: string) => {
     setQueue((prev) => {
       const q = prev.find((f) => f.key === key);
@@ -317,7 +333,7 @@ export function MediaImportWizard({ open, onClose, onImported }: Props) {
               pending.push((async () => {
                 // ac.signal cancels the presign + PUT so a mid-import cancel
                 // actually stops the upload instead of leaking a media row.
-                try { await uploadMediaFile(pageFile, ac.signal); ok++; }
+                try { await uploadMediaFile(pageFile, ac.signal, initialLibraryId); ok++; }
                 catch { failedPages++; }
                 finally { release(); }
               })());
@@ -360,7 +376,7 @@ export function MediaImportWizard({ open, onClose, onImported }: Props) {
       } else if (item.tag === "media") {
         // ── Media path: presign → S3 PUT → registerMediaAsset ──────────────
         try {
-          await uploadMediaFile(item.file);
+          await uploadMediaFile(item.file, undefined, initialLibraryId);
           setQueue((prev) => prev.map((q) => q.key === item.key ? { ...q, status: "done" } : q));
           media++;
         } catch (err) {

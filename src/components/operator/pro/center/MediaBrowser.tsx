@@ -30,6 +30,7 @@ import { useSelectedLibrary, libraryQueryParam } from "../left/libraryFilter";
 import { setMediaOnActiveTheme, clearActiveThemeBackground, type QuickThemeChange } from "@/lib/theme-quick-apply";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { MediaImportWizard } from "./MediaImportWizard";
+import { takePendingImport, onOsDropImport, type PendingImport } from "./pendingImport";
 import { MediaImageEditor } from "./MediaImageEditor";
 import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide } from "./mediaFrame";
 import { loadMediaOrder, saveMediaOrder, applyMediaOrder } from "./mediaOrder";
@@ -81,6 +82,9 @@ export function MediaBrowser({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [wizardOpen, setWizardOpen] = useState(false);
+  // Wave 3 (item 4c): a pending OS-file-drop import (files + target library),
+  // fed from a Library-row drop in the left rail via the pendingImport bridge.
+  const [dropImport, setDropImport] = useState<PendingImport | null>(null);
   const [editingImage, setEditingImage] = useState<Asset | null>(null);
   // Pending single-click → project timer, so a double-click (to open the framing
   // editor) cancels it instead of first flashing the raw image onto the projector.
@@ -104,6 +108,18 @@ export function MediaBrowser({
   const [order, setOrder] = useState<string[]>([]);
   const [reorderMode, setReorderMode] = useState(false);
   useEffect(() => { setOrder(loadMediaOrder(ctx.churchId)); }, [ctx.churchId]);
+
+  // Wave 3 (item 4c): consume an OS-file-drop import — on mount (covers the
+  // case where the drop switched us to media mode and mounted us) AND on the
+  // event (covers "already mounted"). Opens the wizard pre-queued + pre-filed.
+  useEffect(() => {
+    const consume = () => {
+      const p = takePendingImport();
+      if (p) { setDropImport(p); setWizardOpen(true); }
+    };
+    consume();
+    return onOsDropImport(consume);
+  }, []);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
   // ProPresenter parity (Phase 3.6): filter the grid by the selected Library.
@@ -398,8 +414,10 @@ export function MediaBrowser({
       {confirmDialog}
       <MediaImportWizard
         open={wizardOpen}
-        onClose={() => setWizardOpen(false)}
+        onClose={() => { setWizardOpen(false); setDropImport(null); }}
         onImported={() => loadAssets(true)}
+        initialFiles={dropImport?.files}
+        initialLibraryId={dropImport?.libraryId ?? null}
       />
 
       {editingImage && (

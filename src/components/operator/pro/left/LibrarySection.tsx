@@ -6,9 +6,41 @@ import * as ContextMenu from "@radix-ui/react-context-menu";
 import { ChevronDown, ChevronRight, Plus, BookOpen, Library as LibraryIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CenterMode } from "../ProOperatorShell";
-import { createLibrary, renameLibrary, deleteLibrary, listLibraries, type LibraryRow } from "@/lib/actions";
+import { createLibrary, renameLibrary, deleteLibrary, listLibraries, setLibraryColor, setSongLibrary, setMediaLibrary, type LibraryRow } from "@/lib/actions";
 import { useSelectedLibrary, setSelectedLibrary } from "./libraryFilter";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { SECTION_COLORS } from "./sectionColors";
+import { useSpringLoad } from "./useSpringLoad";
+import { classifyDrop } from "@/lib/spring-load";
+import { requestOsDropImport } from "../center/pendingImport";
+
+// Wave 3 (item 4): move dragged library items into a target library (null =
+// Default), from the center Songs/Media browsers' HTML5 drag payloads.
+async function moveLibraryItemsInto(
+  dt: DataTransfer,
+  libraryId: string | null,
+): Promise<{ moved: number; failed: number }> {
+  let moved = 0, failed = 0;
+  const run = async (r: { ok: boolean } | void) => { if (r && r.ok) moved++; else failed++; };
+  // Multi-select media group first (mirrors PlaylistSection precedence).
+  const rawGroup = dt.getData("application/x-pf-library-items");
+  if (rawGroup) {
+    let g: { pfType?: string; items?: { id?: string }[] } = {};
+    try { g = JSON.parse(rawGroup); } catch { g = {}; }
+    if (g.pfType === "media-group" && Array.isArray(g.items)) {
+      for (const it of g.items) if (typeof it.id === "string") await run(await setMediaLibrary(it.id, libraryId));
+      return { moved, failed };
+    }
+  }
+  const raw = dt.getData("application/x-pf-library-item");
+  if (!raw) return { moved, failed };
+  let data: { pfType?: string; id?: string } = {};
+  try { data = JSON.parse(raw); } catch { return { moved, failed }; }
+  if (!data.id || !data.pfType) return { moved, failed };
+  if (data.pfType === "song") await run(await setSongLibrary(data.id, libraryId));
+  else await run(await setMediaLibrary(data.id, libraryId));
+  return { moved, failed };
+}
 
 // ProPresenter parity (Phase 3.6): multiple named Libraries. "Default" is the
 // implicit bucket (content with no library_id) and is always present — it can't
@@ -83,6 +115,56 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
     router.refresh();
   };
 
+  const recolor = async (id: string, color: string | null) => {
+    const res = await setLibraryColor(id, color);
+    if (!res.ok) { toast.error(res.error ?? "Recolor failed"); return; }
+    await reload();
+  };
+
+  // Wave 3 (item 4a/4c): spring-loaded drop onto a library row. Hovering ~600ms
+  // arms the row (accent ring + expand); a drop either MOVES dragged library
+  // items into it (4a) or routes OS files through the media import wizard with
+  // this library preselected (4c). `libraryId` is null for the Default bucket.
+  const spring = useSpringLoad();
+
+  const handleRowDragOver = (rowKey: string, e: React.DragEvent<HTMLElement>) => {
+    const kind = classifyDrop(e.dataTransfer.types);
+    if (kind === "none") return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = kind === "os-files" ? "copy" : "move";
+    spring.enter(rowKey);
+  };
+
+  const handleRowDrop = async (rowKey: string, libraryId: string | null, e: React.DragEvent<HTMLElement>) => {
+    const kind = classifyDrop(e.dataTransfer.types);
+    if (kind === "none") return;
+    e.preventDefault();
+    spring.reset();
+    if (kind === "os-files") {
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length === 0) return;
+      // Route through the EXISTING media import wizard (center), preselecting
+      // this library. Switch the center to media so the browser mounts + opens.
+      onCenterMode?.("media");
+      requestOsDropImport({ files, libraryId });
+      return;
+    }
+    const { moved, failed } = await moveLibraryItemsInto(e.dataTransfer, libraryId);
+    if (moved > 0) {
+      toast.success(`${moved} item${moved === 1 ? "" : "s"} moved`);
+      window.dispatchEvent(new CustomEvent("presentflow:libraries-changed"));
+      router.refresh();
+    }
+    if (failed > 0) toast.error(`${failed} item${failed === 1 ? "" : "s"} couldn't move`);
+  };
+
+  // Escape cancels an in-flight spring-arm.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") spring.reset(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [spring]);
+
   const rowCls = (active: boolean) => cn(
     "w-full flex items-center gap-2 px-2.5 py-1.5 text-[12.5px] text-left rounded-r-md border-l-[3px] transition-colors",
     active
@@ -123,15 +205,31 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
               All
             </button>
           </li>
-          <li>
-            <button type="button" onClick={() => select("default")} title="Content not filed into a named library" className={rowCls(selected === "default")}>
+          <li
+            onDragOver={(e) => handleRowDragOver("default", e)}
+            onDragLeave={() => spring.leave("default")}
+            onDrop={(e) => void handleRowDrop("default", null, e)}
+            className={cn("transition-transform", spring.armed("default") && "scale-[1.02]")}
+          >
+            <button
+              type="button"
+              onClick={() => select("default")}
+              title="Content not filed into a named library — drop here to un-file, or drop files to import"
+              className={cn(rowCls(selected === "default"), spring.armed("default") && "ring-1 ring-inset ring-[var(--color-brand)] bg-[var(--color-brand)]/15")}
+            >
               <BookOpen className={cn("w-4 h-4 shrink-0", selected === "default" && "text-[var(--color-brand)]")} />
               Default
               {countBadge(defaultCounts.songs + defaultCounts.media, selected === "default")}
             </button>
           </li>
           {libs.map((lib) => (
-            <li key={lib.id}>
+            <li
+              key={lib.id}
+              onDragOver={(e) => handleRowDragOver(lib.id, e)}
+              onDragLeave={() => spring.leave(lib.id)}
+              onDrop={(e) => void handleRowDrop(lib.id, lib.id, e)}
+              className={cn("transition-transform", spring.armed(lib.id) && "scale-[1.02]")}
+            >
               {renamingId === lib.id ? (
                 <input
                   autoFocus
@@ -153,9 +251,13 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
                       onClick={() => select(lib.id)}
                       onDoubleClick={() => { setRenameDraft(lib.name); setRenamingId(lib.id); }}
                       title={`${lib.name} — ${lib.songCount} song${lib.songCount === 1 ? "" : "s"}, ${lib.mediaCount} media (right-click for options)`}
-                      className={rowCls(selected === lib.id)}
+                      className={cn(rowCls(selected === lib.id), spring.armed(lib.id) && "ring-1 ring-inset ring-[var(--color-brand)] bg-[var(--color-brand)]/15")}
                     >
-                      <LibraryIcon className={cn("w-4 h-4 shrink-0", selected === lib.id && "text-[var(--color-brand)]")} />
+                      {lib.color ? (
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-inset ring-black/20" style={{ background: lib.color }} aria-hidden />
+                      ) : (
+                        <LibraryIcon className={cn("w-4 h-4 shrink-0", selected === lib.id && "text-[var(--color-brand)]")} />
+                      )}
                       <span className="truncate">{lib.name}</span>
                       {countBadge(lib.songCount + lib.mediaCount, selected === lib.id)}
                     </button>
@@ -163,6 +265,26 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
                   <ContextMenu.Portal>
                     <ContextMenu.Content className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[140px]">
                       <ContextMenu.Item onSelect={() => { setRenameDraft(lib.name); setRenamingId(lib.id); }} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">Rename</ContextMenu.Item>
+                      <ContextMenu.Sub>
+                        <ContextMenu.SubTrigger className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between data-[state=open]:bg-[var(--color-panel)]"><span>Change color</span><span className="opacity-60">▸</span></ContextMenu.SubTrigger>
+                        <ContextMenu.Portal>
+                          <ContextMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[160px]">
+                            {SECTION_COLORS.map((c) => (
+                              <ContextMenu.Item key={c.value} onSelect={() => void recolor(lib.id, c.value)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center gap-2">
+                                <span className="w-3 h-3 rounded-full shrink-0" style={{ background: c.value }} />
+                                <span>{c.name}</span>
+                                {(lib.color ?? "").toLowerCase() === c.value.toLowerCase() && <span className="ml-auto text-[var(--color-brand)]">✓</span>}
+                              </ContextMenu.Item>
+                            ))}
+                            <ContextMenu.Separator className="h-px my-1 bg-[var(--color-border)]" />
+                            <ContextMenu.Item onSelect={() => void recolor(lib.id, null)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center gap-2">
+                              <span className="w-3 h-3 rounded-full shrink-0 border border-[var(--color-border)]" />
+                              <span>No label</span>
+                              {!lib.color && <span className="ml-auto text-[var(--color-brand)]">✓</span>}
+                            </ContextMenu.Item>
+                          </ContextMenu.SubContent>
+                        </ContextMenu.Portal>
+                      </ContextMenu.Sub>
                       <ContextMenu.Separator className="h-px my-1 bg-[var(--color-border)]" />
                       <ContextMenu.Item onSelect={() => void remove(lib)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer text-[var(--color-destructive)]">Delete</ContextMenu.Item>
                     </ContextMenu.Content>

@@ -4,7 +4,11 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as Popover from "@radix-ui/react-popover";
 import * as ContextMenu from "@radix-ui/react-context-menu";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { SECTION_COLORS, DEFAULT_HEADER_COLOR } from "./sectionColors";
+import { useSpringLoad } from "./useSpringLoad";
+import { classifyDrop } from "@/lib/spring-load";
 import {
   DndContext,
   PointerSensor,
@@ -31,6 +35,7 @@ import {
   Image as ImageIcon,
   Square,
   GripVertical,
+  MoreVertical,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { loadMediaFrame, buildMediaFrameSlide } from "../center/mediaFrame";
@@ -39,17 +44,9 @@ import type { OperatorShellCtx } from "../../shell/types";
 import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong, createSongSlide, deleteSongSlide, setServiceItemTheme, renameSong, renameServiceItem, applyThemeToSong, revertSongTheme, renameMediaAsset, addPlaylistHeader, setHeaderColor } from "@/lib/actions";
 import { useSlideClipboard, getSlideClipboard } from "@/lib/slide-clipboard";
 
-// ProPresenter service-section taxonomy (Ch 13). Defaults used for the "+ New
-// header" quick-add and offered in the recolor menu.
-const HEADER_COLORS: { name: string; value: string }[] = [
-  { name: "Pre-Service", value: "#7c3aed" }, // purple
-  { name: "Welcome", value: "#2563eb" },     // blue
-  { name: "Worship", value: "#16a34a" },     // green
-  { name: "Teaching", value: "#ea580c" },    // orange
-  { name: "Response", value: "#ca8a04" },    // yellow
-  { name: "Closing", value: "#dc2626" },     // red
-];
-const DEFAULT_HEADER_COLOR = HEADER_COLORS[2].value; // worship green
+// ProPresenter service-section taxonomy (Ch 13). Palette + default now live in
+// sectionColors.ts (shared with the Library-label recolor menu, Wave 3).
+const HEADER_COLORS = SECTION_COLORS;
 
 function itemIcon(type: string) {
   if (type === "song") return Music;
@@ -64,6 +61,7 @@ function itemIcon(type: string) {
 // sections), but it cannot be sent to output.
 function SortableHeaderRow({
   item, idx, totalItems, onRename, onRemove, onMove, onRecolor,
+  armed = false, onSectionDragOver, onSectionDragLeave, onSectionDrop,
 }: {
   item: OperatorShellCtx["plan"]["items"][number];
   idx: number;
@@ -72,6 +70,12 @@ function SortableHeaderRow({
   onRemove: () => void;
   onMove: (dir: -1 | 1) => void;
   onRecolor: (color: string) => void;
+  // Wave 3 (item 4b): spring-loaded drop of a center library item INTO this
+  // section (inserts right after the header). `armed` lights the drop cue.
+  armed?: boolean;
+  onSectionDragOver?: (e: React.DragEvent<HTMLElement>) => void;
+  onSectionDragLeave?: (e: React.DragEvent<HTMLElement>) => void;
+  onSectionDrop?: (e: React.DragEvent<HTMLElement>) => void;
 }) {
   const id = item.id ?? `item-${idx}`;
   const color = (item as { color?: string }).color || DEFAULT_HEADER_COLOR;
@@ -93,7 +97,13 @@ function SortableHeaderRow({
       <ContextMenu.Root>
         <ContextMenu.Trigger asChild>
           <div
-            className="flex items-center gap-1 my-0.5 rounded-md overflow-hidden"
+            onDragOver={onSectionDragOver}
+            onDragLeave={onSectionDragLeave}
+            onDrop={onSectionDrop}
+            className={cn(
+              "flex items-center gap-1 my-0.5 rounded-md overflow-hidden transition-transform",
+              armed && "scale-[1.02] ring-1 ring-inset ring-[var(--color-brand)]",
+            )}
             style={{ background: `color-mix(in oklab, ${color} 22%, transparent)`, borderLeft: `3px solid ${color}` }}
           >
             <button
@@ -132,6 +142,46 @@ function SortableHeaderRow({
                 <span className="truncate">{item.title}</span>
               </button>
             )}
+            {/* Kebab affordance — same actions as right-click, discoverable for
+                touch / Windows users (Wave 3, item 2). */}
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <button
+                  type="button"
+                  aria-label="Section options"
+                  title="Section options (rename, recolor, remove)"
+                  className="mr-1 flex items-center justify-center w-5 h-5 shrink-0 rounded opacity-70 hover:opacity-100 hover:bg-black/10"
+                  style={{ color }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <MoreVertical className="w-3.5 h-3.5" />
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content align="end" sideOffset={4} className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[150px]">
+                  <DropdownMenu.Item onSelect={() => { setDraft(item.title); setRenaming(true); }} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">Rename</DropdownMenu.Item>
+                  <DropdownMenu.Sub>
+                    <DropdownMenu.SubTrigger className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between data-[state=open]:bg-[var(--color-panel)]"><span>Change color</span><span className="opacity-60">▸</span></DropdownMenu.SubTrigger>
+                    <DropdownMenu.Portal>
+                      <DropdownMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[160px]">
+                        {HEADER_COLORS.map((c) => (
+                          <DropdownMenu.Item key={c.value} onSelect={() => onRecolor(c.value)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center gap-2">
+                            <span className="w-3 h-3 rounded-full shrink-0" style={{ background: c.value }} />
+                            <span>{c.name}</span>
+                            {color.toLowerCase() === c.value.toLowerCase() && <span className="ml-auto text-[var(--color-brand)]">✓</span>}
+                          </DropdownMenu.Item>
+                        ))}
+                      </DropdownMenu.SubContent>
+                    </DropdownMenu.Portal>
+                  </DropdownMenu.Sub>
+                  <DropdownMenu.Separator className="h-px my-1 bg-[var(--color-border)]" />
+                  <DropdownMenu.Item disabled={idx === 0} onSelect={() => onMove(-1)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer data-[disabled]:opacity-50">Move Up</DropdownMenu.Item>
+                  <DropdownMenu.Item disabled={idx === totalItems - 1} onSelect={() => onMove(1)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer data-[disabled]:opacity-50">Move Down</DropdownMenu.Item>
+                  <DropdownMenu.Separator className="h-px my-1 bg-[var(--color-border)]" />
+                  <DropdownMenu.Item onSelect={onRemove} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer text-[var(--color-destructive)]">Remove header</DropdownMenu.Item>
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
           </div>
         </ContextMenu.Trigger>
         <ContextMenu.Portal>
@@ -903,31 +953,67 @@ export function PlaylistSection({
   // ── Cross-panel drop (native HTML5 drag from SongsBrowser / MediaBrowser) ──
   // dnd-kit handles internal sort reorder via its own events; these native
   // handlers handle drops originating from outside the playlist panel.
-  const handleExternalDrop = async (e: React.DragEvent<HTMLElement>) => {
-    e.preventDefault();
-    setDropOver(false);
+  // Add a center-browser library drag (single item or media-group) to the
+  // playlist. `insertAtIndex` positions it (Wave 3, item 4b: drop onto a section
+  // header inserts right after it); undefined appends. Returns true if handled.
+  const addDroppedLibraryItem = async (dt: DataTransfer, insertAtIndex?: number): Promise<boolean> => {
     // Multi-select media group takes precedence: dropping a selection of images
     // creates ONE collapsible playlist group.
-    const rawGroup = e.dataTransfer.getData("application/x-pf-library-items");
+    const rawGroup = dt.getData("application/x-pf-library-items");
     if (rawGroup) {
       let g: { pfType?: string; items?: { id?: string; title?: string }[] };
       try { g = JSON.parse(rawGroup); } catch { g = {}; }
       const ids = Array.isArray(g.items) ? g.items.map((x) => x.id).filter((x): x is string => typeof x === "string") : [];
       if (g.pfType === "media-group" && ids.length > 0) {
-        if (!ctx.onAddMediaGroup) { toast.info("Open a service plan first to add items"); return; }
-        await ctx.onAddMediaGroup(`Images (${ids.length})`, ids);
-        return;
+        if (!ctx.onAddMediaGroup) { toast.info("Open a service plan first to add items"); return true; }
+        await ctx.onAddMediaGroup(`Images (${ids.length})`, ids, insertAtIndex);
+        return true;
       }
     }
-    const raw = e.dataTransfer.getData("application/x-pf-library-item");
-    if (!raw) return;
+    const raw = dt.getData("application/x-pf-library-item");
+    if (!raw) return false;
     let data: { pfType?: string; id?: string; title?: string };
-    try { data = JSON.parse(raw); } catch { return; }
-    if (!data.id || !data.title || !data.pfType) return;
-    if (!ctx.onAddLibraryItem) { toast.info("Open a service plan first to add items"); return; }
+    try { data = JSON.parse(raw); } catch { return false; }
+    if (!data.id || !data.title || !data.pfType) return false;
+    if (!ctx.onAddLibraryItem) { toast.info("Open a service plan first to add items"); return true; }
     const kind = data.pfType === "song" ? "song" : "media";
-    await ctx.onAddLibraryItem(kind, { id: data.id, title: data.title });
+    await ctx.onAddLibraryItem(kind, { id: data.id, title: data.title }, insertAtIndex);
+    return true;
   };
+
+  const handleExternalDrop = async (e: React.DragEvent<HTMLElement>) => {
+    e.preventDefault();
+    setDropOver(false);
+    await addDroppedLibraryItem(e.dataTransfer);
+  };
+
+  // ── Section-header spring-load drop (Wave 3, item 4b) ──────────────────────
+  // Hovering a center library item over a section header arms it (~600ms) and a
+  // drop inserts the item as the FIRST member of that section (right after the
+  // header). In-app HTML5 drag only, identical on every OS.
+  const headerSpring = useSpringLoad();
+  const handleSectionDragOver = (headerId: string, e: React.DragEvent<HTMLElement>) => {
+    if (classifyDrop(e.dataTransfer.types) !== "library-item") return;
+    e.preventDefault();
+    e.stopPropagation(); // don't also trigger the section-level append overlay
+    e.dataTransfer.dropEffect = "copy";
+    headerSpring.enter(headerId);
+  };
+  const handleSectionDrop = async (headerIdx: number, headerId: string, e: React.DragEvent<HTMLElement>) => {
+    if (classifyDrop(e.dataTransfer.types) !== "library-item") return;
+    e.preventDefault();
+    e.stopPropagation();
+    headerSpring.reset();
+    if (blockedIfOffline()) return;
+    const handled = await addDroppedLibraryItem(e.dataTransfer, headerIdx + 1);
+    if (handled) toast.success("Added to section");
+  };
+  // Escape cancels an in-flight section spring-arm.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") headerSpring.reset(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [headerSpring]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   const itemIds = items.map((it, i) => it.id ?? `item-${i}`);
@@ -1017,6 +1103,10 @@ export function PlaylistSection({
                     onRemove={() => void remove(it)}
                     onMove={(dir) => void move(idx, dir)}
                     onRecolor={(color) => it.id && void recolorHeader(it.id, color)}
+                    armed={headerSpring.armed(it.id ?? `item-${idx}`)}
+                    onSectionDragOver={(e) => handleSectionDragOver(it.id ?? `item-${idx}`, e)}
+                    onSectionDragLeave={() => headerSpring.leave(it.id ?? `item-${idx}`)}
+                    onSectionDrop={(e) => void handleSectionDrop(idx, it.id ?? `item-${idx}`, e)}
                   />
                 ) : (
                 <SortablePlaylistItem
