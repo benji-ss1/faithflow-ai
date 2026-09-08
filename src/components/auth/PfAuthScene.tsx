@@ -82,6 +82,8 @@ const CSS = `
 .pflogin .rc-actions button{background:var(--orange);color:#fff;border:0;border-radius:8px;padding:8px 14px;font-family:"Sora",sans-serif;font-weight:600;font-size:12px;cursor:pointer;transition:filter .2s}
 .pflogin .rc-actions button.ghost{background:transparent;color:var(--paper-dim)}
 .pflogin .help-card a{color:var(--orange);text-decoration:none;border-bottom:1px solid var(--hair-strong)}
+.pflogin.scrollable .aside{overflow-y:auto}
+.pflogin.scrollable .form-wrap{margin:0 auto;max-width:440px;padding:16px 0 56px}
 @media (max-width:1200px){.pflogin .p2,.pflogin .p4{display:none}}
 @media (max-width:900px){.pflogin .page{grid-template-columns:1fr}.pflogin .hero{display:none}.pflogin .aside{border-left:0}.pflogin .projectors{display:none}}
 @media (prefers-reduced-motion:reduce){.pflogin .proj{display:none}}
@@ -99,9 +101,9 @@ const SLIDES = [
  * The shared PresentFlow auth scene. Renders the full-bleed backdrop + hero; the
  * page's aside (form) is passed as children so login and signup share one look.
  */
-export function PfAuthScene({ children }: { children: ReactNode }) {
+export function PfAuthScene({ children, scrollable = false }: { children: ReactNode; scrollable?: boolean }) {
   return (
-    <div className="pflogin">
+    <div className={scrollable ? "pflogin scrollable" : "pflogin"}>
       <style>{CSS}</style>
       <div className="scene"><LoginScene /></div>
       <div className="noise" />
