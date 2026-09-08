@@ -169,12 +169,18 @@ export function outputStateToLayers(state: OutputState, opts?: LayersOpts): Laye
   });
 
   // Theme logo layer (over the slide). Present with stable identity; enabled
-  // agrees with planOutput's theme-logo decision.
+  // agrees with planOutput's theme-logo decision. The payload carries the theme
+  // logo url ONLY when a logo actually paints (ThemeLogoLayer renders nothing
+  // without `logoUrl` / with logoPosition "none") — so the operator's live
+  // indicator lights only when a logo is genuinely on the output, not merely
+  // because the (always-enabled) logo layer exists.
+  const logoPaints = !!appearance?.logoUrl && appearance.logoPosition !== "none";
   layers.push({
     id: "logo",
     kind: "logo",
     z: Z_LOGO,
     enabled: showThemeLogo,
+    payload: logoPaints ? { url: appearance!.logoUrl } : null,
     transportScope: "all",
   });
 

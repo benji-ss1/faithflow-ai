@@ -107,7 +107,11 @@ function computeActive(kind: LayerWire["kind"], enabled: boolean, payload: unkno
       return true; // image/video/etc.
     }
     case "logo":
-      return true; // logo layer is "on" whenever enabled
+      // A theme logo is only genuinely LIVE when it actually paints — the
+      // derived layer carries the logo url in its payload iff ThemeLogoLayer
+      // would render (logoUrl set + position != "none"). No payload → no logo
+      // configured → the indicator stays dark even though the layer is enabled.
+      return !!(payload && (payload as { url?: string }).url);
     case "band":
     case "announcement":
     case "timer":

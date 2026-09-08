@@ -117,6 +117,23 @@ check("every derived layer passes isValidLayerWire (round-trips through the wire
   }
 });
 
+// ---- 8b. logo layer payload reflects a genuinely-paintable theme logo -------
+// The operator's live indicator lights only when a logo actually paints
+// (ThemeLogoLayer renders nothing without logoUrl / with logoPosition "none").
+// The derived layer carries the url in its payload iff it would paint.
+check("logo layer payload carries the url iff a theme logo actually paints", () => {
+  const noLogo = layerById(outputStateToLayers(state({})), "logo")!;
+  assert.equal(noLogo.payload ?? null, null, "no appearance → no logo payload (indicator dark)");
+
+  const posNone = state({ appearance: { logoUrl: "https://x/l.png", logoPosition: "none" } as ThemeAppearance });
+  assert.equal(layerById(outputStateToLayers(posNone), "logo")!.payload ?? null, null, "logoPosition none → no payload");
+
+  const withLogo = state({ appearance: { logoUrl: "https://x/l.png", logoPosition: "bottom-right" } as ThemeAppearance });
+  const logo = layerById(outputStateToLayers(withLogo), "logo")!;
+  assert.ok(logo.payload && (logo.payload as { url?: string }).url === "https://x/l.png", "paintable logo → payload url present (indicator lit)");
+  assert.ok(isValidLayerWire(logo), "logo-with-payload is wire-valid");
+});
+
 // ---- 9. theme-logo layer agrees with planOutput's theme-logo decision -------
 check("logo layer present at z=20; enabled agrees with planOutput theme-logo per mode", () => {
   const modes: Array<["live" | "stage" | "livestream" | "ndi", boolean]> = [
