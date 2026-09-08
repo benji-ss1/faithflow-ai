@@ -72,6 +72,35 @@ check("a stale leave for an old target is ignored", () => {
   assert.equal(after, s);
 });
 
+// ── STRESS 3/6: boundary flapping / A→B→A / drop-at-arm-instant ──────────────
+check("does NOT arm one tick before the boundary (599ms)", () => {
+  let s = springEnter(SPRING_IDLE, "A", 0);
+  s = springTick(s, SPRING_ARM_MS - 1);
+  assert.equal(isArmed(s, "A"), false);
+});
+check("A→B→A flap keeps restarting the dwell (never arms mid-flap)", () => {
+  let s = springEnter(SPRING_IDLE, "A", 0);
+  s = springEnter(s, "B", 300); // switched before arming
+  s = springTick(s, 500);       // 200ms into B — not enough
+  assert.equal(s.armed, false);
+  s = springEnter(s, "A", 500);  // flapped back to A, dwell restarts at 500
+  s = springTick(s, 500 + SPRING_ARM_MS - 1);
+  assert.equal(isArmed(s, "A"), false, "A must not inherit B's or its own earlier dwell");
+  s = springTick(s, 500 + SPRING_ARM_MS);
+  assert.equal(isArmed(s, "A"), true, "arms only after a full fresh dwell on A");
+});
+check("drop at the exact arm instant is armed (>= boundary)", () => {
+  let s = springEnter(SPRING_IDLE, "A", 1000);
+  s = springTick(s, 1000 + SPRING_ARM_MS); // exactly the boundary
+  assert.equal(isArmed(s, "A"), true);
+});
+check("tick on an idle machine is a no-op (no spurious arm)", () => {
+  const s = springTick(SPRING_IDLE, 999999);
+  assert.equal(s, SPRING_IDLE, "identity preserved — unchanged");
+  assert.equal(s.armed, false);
+  assert.equal(s.hoverId, null);
+});
+
 // ── playlist header drop position ────────────────────────────────────────────
 check("insert index is right after the header", () => {
   assert.equal(insertIndexAfterHeader(["h1", "a", "b"], "h1"), 1);
