@@ -15,17 +15,20 @@
  * disabled affordance when the env flag is on but the church has not opted in.
  * No emojis — lucide icon components only.
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   Image as ImageIcon, Eye, EyeOff, Trash2, RectangleHorizontal, Square,
-  RotateCw, ListOrdered,
+  RotateCw, ListOrdered, Check, Upload, Award, Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { slideOutputIdentity } from "@/lib/broadcast";
+import { slideOutputIdentity, type BackgroundSpec } from "@/lib/broadcast";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { LayerRow } from "../../useLiveLayers";
 import { BackgroundSelector } from "@/backgrounds/components/BackgroundSelector";
 import { setActiveBackgroundId } from "@/backgrounds/store/backgroundStore";
+import { setMediaOnActiveTheme } from "@/lib/theme-quick-apply";
+import { uploadImageFile } from "@/lib/media-upload";
 import { LAYER_META, HIT, liveDescription } from "./layerMeta";
 import { ClearAllButton } from "./ClearAllButton";
 
@@ -33,6 +36,7 @@ export function LayersPanel({ ctx }: { ctx: OperatorShellCtx }) {
   const { liveLayers, layersEngineOn } = ctx;
   const [swapOpen, setSwapOpen] = useState(false);
   const [slideActionsOpen, setSlideActionsOpen] = useState(false);
+  const [logoOpen, setLogoOpen] = useState(false);
   const liveSlideIsText = ctx.liveSlide?.kind === "text";
 
   if (!layersEngineOn) {
@@ -77,8 +81,18 @@ export function LayersPanel({ ctx }: { ctx: OperatorShellCtx }) {
             onZone={(full) => liveLayers.setZone(row.id, full ? { kind: "full" } : { kind: "lowerThird" })}
             onSwap={row.kind === "background" ? () => { setSwapOpen((v) => !v); setSlideActionsOpen(false); } : undefined}
             swapOpen={row.kind === "background" && swapOpen}
+            // Wave 6F rec11: the swap button shows a LIVE thumbnail of the
+            // current background (updates on swap / media-set) rather than a
+            // static icon, so the operator always sees what's actually behind
+            // the text.
+            bg={row.kind === "background" ? ctx.background ?? null : undefined}
             onSlideActions={row.kind === "slide" ? () => { setSlideActionsOpen((v) => !v); setSwapOpen(false); } : undefined}
             slideActionsOpen={row.kind === "slide" && slideActionsOpen}
+            // Wave 6F rec5: the Logo row gets a swap/upload affordance mirroring
+            // the background row — pick/upload the church logo, applied live.
+            onLogo={row.kind === "logo" ? () => { setLogoOpen((v) => !v); setSwapOpen(false); setSlideActionsOpen(false); } : undefined}
+            logoOpen={row.kind === "logo" && logoOpen}
+            logoUrl={row.kind === "logo" ? ctx.appearance?.logoUrl ?? null : undefined}
           />
         ))}
       </div>
@@ -88,6 +102,20 @@ export function LayersPanel({ ctx }: { ctx: OperatorShellCtx }) {
       {swapOpen && (
         <div className="border-t border-[var(--color-border)] p-2 max-h-[280px] overflow-y-auto pf-transcript-scroll">
           <BackgroundSelector />
+          {/* Wave 6F rec11 — honest Save affordance. The Background Template is a
+              GLOBAL live layer: picking one applies it to the projector instantly
+              AND persists it automatically (background store → localStorage,
+              "last pick wins" across restart). There is therefore no separate
+              Save/Save-to-all to press here — per-slide background overrides are
+              saved from the slide editor's "Save to all". This line makes that
+              explicit so the operator isn't hunting for a Save button. */}
+          <div
+            className="mt-2 flex items-center gap-1.5 text-[10px] text-[var(--color-muted-foreground)]"
+            role="note"
+          >
+            <Check className="w-3 h-3 text-[var(--pf-layer-background)]" />
+            Applied live · saved automatically
+          </div>
         </div>
       )}
 
@@ -95,6 +123,10 @@ export function LayersPanel({ ctx }: { ctx: OperatorShellCtx }) {
           current live slide (a hard, forced re-project) + jump-to-slide chips for
           the slides in the currently-live item. */}
       {slideActionsOpen && <SlideActions ctx={ctx} />}
+
+      {/* Logo picker — set the church logo shown on every slide (rec5). Reuses
+          the media upload path + the theme "set logo" machinery, applied live. */}
+      {logoOpen && <LogoSwap logoUrl={ctx.appearance?.logoUrl ?? null} />}
 
       <ClearAllButton
         onClearAll={() => {
@@ -111,7 +143,7 @@ export function LayersPanel({ ctx }: { ctx: OperatorShellCtx }) {
 
 function LayerRowView({
   row, cleared, liveDesc, liveSlideIsText, onToggle, onClear, onZone, onSwap, swapOpen,
-  onSlideActions, slideActionsOpen,
+  onSlideActions, slideActionsOpen, bg, onLogo, logoOpen, logoUrl,
 }: {
   row: LayerRow;
   cleared: boolean;
@@ -124,6 +156,12 @@ function LayerRowView({
   swapOpen?: boolean;
   onSlideActions?: () => void;
   slideActionsOpen?: boolean;
+  /** Live background spec for the background row's swap thumbnail (rec11). */
+  bg?: BackgroundSpec | null;
+  /** Logo row: open the logo picker; current logo url for its thumbnail (rec5). */
+  onLogo?: () => void;
+  logoOpen?: boolean;
+  logoUrl?: string | null;
 }) {
   const meta = LAYER_META[row.kind];
   const { Icon } = meta;
@@ -206,7 +244,24 @@ function LayerRowView({
           aria-expanded={swapOpen}
           className={cn(HIT, "hover:bg-white/5", swapOpen ? "text-[var(--color-brand)]" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]")}
         >
-          <ImageIcon className="w-3.5 h-3.5" />
+          <BackgroundThumb bg={bg} />
+        </button>
+      )}
+
+      {/* Logo set/upload — mirrors the background swap affordance (rec5). Shows
+          the current logo thumbnail; opens the picker to change it live. */}
+      {onLogo && (
+        <button
+          type="button"
+          onClick={onLogo}
+          title="Set church logo"
+          aria-label="Set church logo"
+          aria-expanded={logoOpen}
+          className={cn(HIT, "hover:bg-white/5", logoOpen ? "text-[var(--color-brand)]" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]")}
+        >
+          {logoUrl
+            ? <img src={logoUrl} alt="" className="block w-5 h-5 rounded-[3px] object-contain ring-1 ring-white/15" />
+            : <Award className="w-3.5 h-3.5" />}
         </button>
       )}
 
@@ -238,6 +293,122 @@ function LayerRowView({
       >
         <Trash2 className="w-3.5 h-3.5" />
       </button>
+    </div>
+  );
+}
+
+/**
+ * BackgroundThumb — a tiny live preview of the CURRENT background, shown inside
+ * the background row's "swap" button (rec11). Reflects the active background the
+ * instant it changes (swap / media-set / theme apply) because it renders from
+ * the live `ctx.background` spec. Falls back to the neutral image icon when
+ * there's no background (none/undefined) so the affordance still reads clearly.
+ */
+function BackgroundThumb({ bg }: { bg?: BackgroundSpec | null }) {
+  if (!bg || bg.type === "none") {
+    return <ImageIcon className="w-3.5 h-3.5" />;
+  }
+  const box = "block w-5 h-5 rounded-[3px] overflow-hidden ring-1 ring-white/15 object-cover";
+  if (bg.type === "image" && bg.imageUrl) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={bg.imageUrl} alt="" className={box} />;
+  }
+  if (bg.type === "video" && bg.videoUrl) {
+    return <video src={bg.videoUrl} muted playsInline className={box} />;
+  }
+  // Shader (or an image/video missing its url): a gradient swatch from the
+  // spec's own colours so it still tracks the live look.
+  const a = bg.primaryColor || "#0A0A0E";
+  const b = bg.secondaryColor || "#1a1a24";
+  return (
+    <span
+      className="block w-5 h-5 rounded-[3px] ring-1 ring-white/15"
+      style={{ background: `linear-gradient(135deg, ${a}, ${b})` }}
+    />
+  );
+}
+
+/**
+ * LogoSwap — set the church logo shown on every slide (wave 6F rec5). Mirrors
+ * the background "swap" panel: a small surface under the Logo row to upload (or
+ * re-pick) the church logo image. Reuses the SHARED media upload path
+ * (`uploadImageFile` → /api/media presign flow) and the existing theme-logo
+ * machinery (`setMediaOnActiveTheme("logo", url)`), which persists the logo on
+ * the active theme AND pushes it live to the projector — so no new render path
+ * or storage is introduced. Shows the current logo and offers a one-tap Undo on
+ * change. No emojis; tokens/lucide only.
+ */
+function LogoSwap({ logoUrl }: { logoUrl: string | null }) {
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  async function onFile(file: File | undefined) {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const url = await uploadImageFile(file, "logo");
+      const change = await setMediaOnActiveTheme("logo", url);
+      if (!change) {
+        toast.error("Couldn't set the logo — no active theme found.");
+        return;
+      }
+      toast.success("Church logo updated", {
+        action: {
+          label: "Undo",
+          onClick: () => { void change.revert().then((ok) => ok ? toast.success("Logo reverted") : toast.error("Couldn't revert")); },
+        },
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  return (
+    <div className="border-t border-[var(--color-border)] p-2 flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        {/* Current logo preview. */}
+        <span className="shrink-0 w-9 h-9 rounded-md ring-1 ring-white/15 bg-black/30 flex items-center justify-center overflow-hidden">
+          {logoUrl
+            ? <img src={logoUrl} alt="" className="w-full h-full object-contain" />
+            : <Award className="w-4 h-4 text-[var(--color-muted-foreground)]" />}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-[11px] text-[var(--color-foreground)] truncate">
+            {logoUrl ? "Current church logo" : "No logo set"}
+          </div>
+          <div className="text-[10px] text-[var(--color-muted-foreground)]">
+            Shown on every slide · applied live
+          </div>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => fileRef.current?.click()}
+        className={cn(
+          "inline-flex items-center justify-center gap-1.5 h-8 rounded text-[12px] font-medium transition-colors",
+          busy
+            ? "bg-white/5 text-[var(--color-muted-foreground)] opacity-60 cursor-wait"
+            : "bg-white/5 text-[var(--color-foreground)] hover:bg-white/10",
+        )}
+        title="Upload a church logo (transparent PNG works best)"
+      >
+        {busy
+          ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Uploading…</>
+          : <><Upload className="w-3.5 h-3.5" /> {logoUrl ? "Replace logo" : "Upload logo"}</>}
+      </button>
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
+        className="hidden"
+        onChange={(e) => { void onFile(e.target.files?.[0]); }}
+      />
     </div>
   );
 }

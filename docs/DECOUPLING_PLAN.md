@@ -683,3 +683,45 @@ append, repeatable; play order with move/remove/save).
 - KNOWN LIMIT: the simple lyrics autosave editor (`updateSongSlides`) rewrites
   all slide rows on save (new ids, group cleared) — assign groups after lyrics
   settle; per-slide rich edits preserve groups. Surfaced in the UI copy.
+
+## Wave 6F — layer cue toggle + logo set + honest background surface (0.1.394, 2026-09-08)
+
+Field repair from operator recordings (rec10/11/14), all renderer-only → Vercel
+(no Fly, no DMG). No new render path, storage, or wire message introduced.
+
+- **Rail cues are now NON-DESTRUCTIVE toggles (rec10)**: `VerticalClearRail`'s
+  per-layer cues previously fired the destructive `clearLayer` (payload gone).
+  They now call `toggleLayer` — the SAME non-destructive hide/show the panel eye
+  uses (lit=live → click hides → click again restores exactly what was there, via
+  the 5A eye-hidden round-trip). Tooltips are honest ("Hide/Show <layer>"; a
+  CLEARED layer reads "cleared — restore from the Layers panel"). Destructive
+  clear stays on the panel per-row trash + the rail's guarded Clear All. Zero new
+  state — reuses `liveLayers.toggleLayer` / `isEyeHidden`.
+- **Background cue truthfulness (rec14)**: the cue lit-state already derives from
+  the same `row.active` the resolver renders from (`computeActive` background =
+  payload && type !== "none"); the stale-tab base-clobber that made it appear
+  desynced was fixed by 6B (`isStaleLayersSnapshot`). With the toggle semantics
+  the cue now round-trips against /live in both directions, including after a
+  theme apply (the `reconcileBackgroundOnBaseChange` heal already re-emits).
+- **Logo set/upload (rec5)**: the Logo row gained a swap/upload affordance
+  mirroring the background swap. It reuses the SHARED media upload helper
+  (`src/lib/media-upload.ts` — extracted presign→PUT→signed-url flow) and the
+  existing `setMediaOnActiveTheme("logo", url)` machinery, which persists the
+  logo on the active theme AND pushes it live via `presentflow:theme-changed`.
+  One-tap Undo via the returned `revert()`. The logo layer's lit indicator tracks
+  `appearance.logoUrl` as before.
+- **Background thumbnail freshness (rec11)**: the background row's swap button now
+  renders a live `BackgroundThumb` from `ctx.background` (image/video preview or a
+  colour swatch for shaders) instead of a static icon — updates the instant the
+  background swaps or a media background is set.
+- **Honest Save copy (rec11)**: the Layers-panel background swap is the GLOBAL
+  Background Template, which already applies live AND auto-persists (background
+  store → localStorage, "last pick wins"). Rather than add a misleading Save /
+  Save-to-all button there, the surface states "Applied live · saved
+  automatically". Per-slide background overrides keep their "Save to all" in the
+  slide editor (6A/6E), which is the correct surface for that scope.
+
+Tests: layer suites green via tsx (layer-store 13, layer-wire 25, output-layers
+13, output-layers-convergence 26, output-layers-render 13); tsc clean. The rail
+toggle reuses already-tested `toggleLayer`/`isEyeHidden` round-trip logic (5A/6B
+suites), so no new pure-logic branch was added to test.

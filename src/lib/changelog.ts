@@ -15,6 +15,28 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.394",
+    date: "2026-09-08",
+    headline: "One-tap layer cues that hide AND bring back — plus set your church logo and see your real background right from the Layers panel",
+    highlights: [
+      "The quick layer cues on the right now toggle: tap Slide, Background, Camera or Logo to hide it from the screen, tap the same cue again to bring it straight back exactly as it was. One control, two states — no more 'cleared it and now it's gone'. (To fully clear a layer, use the trash in the Layers panel or Hold to clear all.)",
+      "Set your church logo without leaving the service: open the Layers panel, and on the Logo row tap the logo button to upload (or replace) your logo. It goes live on every slide immediately, with a one-tap Undo.",
+      "The Background button in the Layers panel now shows a live thumbnail of whatever background is actually on screen, so a glance tells you what's behind your text — and it updates the moment you swap it.",
+      "The Background picker now says plainly that your choice is applied live and saved automatically, so you're not hunting for a Save button.",
+    ],
+  },
+  {
+    version: "0.1.393",
+    date: "2026-09-08",
+    headline: "Build song sections and arrangements for ANY song, right from the operator — no trip to the song library",
+    highlights: [
+      "Every song now shows a sections strip above its slides. If a song has no sections yet, you'll see a clear 'Add sections' button instead of nothing — start grouping any song without leaving the service.",
+      "Right-click any slide → Section to tag it: pick an existing section, or one tap creates 'Verse 1', 'Chorus', 'Bridge' (and more) and assigns it. The colour badge appears immediately. It's how you 'make this the bridge' in one move.",
+      "Manage sections and arrangements inline: the strip's 'Manage sections' button opens the full editor in a popover — create groups with standard names and colours, build and rename arrangements, and set the play order — all without opening the song library page.",
+      "Your sections now survive a quick text edit: fixing a typo in place keeps every slide's section. (Adding or removing a whole line can still reset sections — the strip shows a small warning so it's never a silent surprise; just re-tag from the slide's right-click menu.)",
+    ],
+  },
+  {
     version: "0.1.392",
     date: "2026-09-08",
     headline: "See and drive song arrangements right from the operator — group badges, a live arrangement strip, and the same song twice with different orders",
