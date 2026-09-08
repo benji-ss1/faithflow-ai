@@ -130,21 +130,21 @@ test("chaos: inconsistent expanded/order (defensive) — non-divisible counts dr
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// (3) GROUP-PRESERVE REORDER — prove the index-match mis-assigns on reorder.
+// (3) GROUP-PRESERVE REORDER — FIXED in the wave-6 fix pass: content (exact
+// prior-lyric text) match now lands the labels on the right slides after a swap.
 // ─────────────────────────────────────────────────────────────────────────────
-test("group-preserve LIMIT: same count but slides REORDERED → prior group ids land on the WRONG slides", () => {
-  // Prior: slide0=verse(gV), slide1=chorus(gC). Operator swaps the two lines in a
-  // quick edit (same count). preservedGroupIds only sees the OLD id list + new count —
-  // it cannot know the lines moved, so it re-applies [gV, gC] positionally.
-  const prior = ["gV", "gC"];
-  const carried = preservedGroupIds(prior, 2);
-  // The NEW slide0 is now the chorus text but gets gV; new slide1 is the verse text but gets gC.
-  assert.deepEqual(carried, ["gV", "gC"], "index-match blindly re-applies old order → mislabels reordered lines");
-  // DOCUMENTED LIMIT: the pure helper has no content to hash. A content-hash match
-  // would need updateSongSlides to also pass prior+new lyrics. Assessed 🟡 (below).
+test("group-preserve FIX: same count but slides REORDERED → labels follow the TEXT", () => {
+  // Prior: verse line "V"→gV, chorus line "C"→gC. Operator swaps the two lines
+  // (same count). The helper now sees prior+new lyrics and matches by exact text,
+  // so the chorus line keeps gC and the verse line keeps gV after the swap.
+  const carried = preservedGroupIds(
+    [{ lyrics: "V", groupId: "gV" }, { lyrics: "C", groupId: "gC" }],
+    ["C", "V"],
+  );
+  assert.deepEqual(carried, ["gC", "gV"], "text-match re-assigns to the moved lines correctly");
 });
 
 test("group-preserve: any count change stays SAFE (all ungrouped) — the conservative branch is intact", () => {
-  assert.deepEqual(preservedGroupIds(["gV", "gC"], 3), [null, null, null]);
-  assert.deepEqual(preservedGroupIds(["gV", "gC", "gB"], 2), [null, null]);
+  assert.deepEqual(preservedGroupIds([{ lyrics: "V", groupId: "gV" }, { lyrics: "C", groupId: "gC" }], ["a", "b", "c"]), [null, null, null]);
+  assert.deepEqual(preservedGroupIds([{ lyrics: "V", groupId: "gV" }, { lyrics: "C", groupId: "gC" }, { lyrics: "B", groupId: "gB" }], ["a", "b"]), [null, null]);
 });

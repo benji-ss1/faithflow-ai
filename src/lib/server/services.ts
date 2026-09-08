@@ -9,6 +9,7 @@ import type { SlidePayload } from "../broadcast";
 import type { ServiceItemType } from "../db/schema";
 import { projectableTextSlide } from "../broadcast";
 import { expandArrangement } from "../../engine/arrangements";
+import { cleanRenderUrl } from "../render-url";
 
 // Build the projectable payload for a song slide. When the slide has a designed
 // object layout (saved via saveSlideObjects → objects_json), carry the objects +
@@ -79,6 +80,32 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
   const logoUrl = chSettings?.logoS3Key ? await presignGet(chSettings.logoS3Key) : undefined;
   const blankBgColor = chSettings?.blankBgColor || "#000000";
 
+  // Speed: batch-load Groups & Arrangements for every song in the plan up front
+  // (two inArray queries) instead of two per-song queries inside the loop — the
+  // former N+1. Keyed by the payload.songId candidates; a rare title-relinked
+  // song that resolves to a DIFFERENT id (candidateSet miss) falls back to a
+  // per-song fetch inside the loop. A candidate with zero groups/arrangements is
+  // still a map miss but a candidateSet HIT, so it reads [] with no extra query.
+  type GroupRow = typeof songGroups.$inferSelect;
+  type ArrRow = typeof songArrangements.$inferSelect;
+  const candidateSongIds = Array.from(new Set(
+    items
+      .filter((it) => it.type === "song")
+      .map((it) => ((it.payload || {}) as Record<string, unknown>).songId)
+      .filter((v): v is string => typeof v === "string" && v.length > 0),
+  ));
+  const candidateSet = new Set(candidateSongIds);
+  const groupsBySong = new Map<string, GroupRow[]>();
+  const arrBySong = new Map<string, ArrRow[]>();
+  if (candidateSongIds.length > 0) {
+    const [gRows, aRows] = await Promise.all([
+      db.select().from(songGroups).where(inArray(songGroups.songId, candidateSongIds)).orderBy(asc(songGroups.order)),
+      db.select().from(songArrangements).where(inArray(songArrangements.songId, candidateSongIds)).orderBy(asc(songArrangements.sort)),
+    ]);
+    for (const g of gRows) { const l = groupsBySong.get(g.songId); if (l) l.push(g); else groupsBySong.set(g.songId, [g]); }
+    for (const a of aRows) { const l = arrBySong.get(a.songId); if (l) l.push(a); else arrBySong.set(a.songId, [a]); }
+  }
+
   const expanded: ExpandedItem[] = [];
   for (const it of items) {
     const payload = (it.payload || {}) as Record<string, unknown>;
@@ -134,10 +161,20 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
         // Load ALL of this song's groups + arrangements ONCE. Only meaningful
         // when the song actually adopted groups; for a groupless song both are
         // empty and every operator-shell surface stays hidden (no-regression).
-        const [allGroups, allArrangements] = await Promise.all([
-          db.select().from(songGroups).where(eq(songGroups.songId, songId)).orderBy(asc(songGroups.order)),
-          db.select().from(songArrangements).where(eq(songArrangements.songId, songId)).orderBy(asc(songArrangements.sort)),
-        ]);
+        let allGroups: GroupRow[];
+        let allArrangements: ArrRow[];
+        if (candidateSet.has(songId)) {
+          // Prefetched above (empty arrays for a groupless song — a valid hit,
+          // NOT a miss, so no extra query fires for the common case).
+          allGroups = groupsBySong.get(songId) ?? [];
+          allArrangements = arrBySong.get(songId) ?? [];
+        } else {
+          // Title-relinked song: resolved id wasn't in the candidate set.
+          [allGroups, allArrangements] = await Promise.all([
+            db.select().from(songGroups).where(eq(songGroups.songId, songId)).orderBy(asc(songGroups.order)),
+            db.select().from(songArrangements).where(eq(songArrangements.songId, songId)).orderBy(asc(songArrangements.sort)),
+          ]);
+        }
         // Wave 6G: carry groups + arrangements meta for EVERY song item — even a
         // groupless one — so the operator shell can render the arrangement strip
         // (with an honest empty state) and manage sections inline for any song,
@@ -313,17 +350,23 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
     // tail (they push earlier via their durable songSlides path), so this only
     // decouples the NON-song item types. Applied BEFORE the empty→blank fallback
     // so an item whose only content is an appended image slide still projects.
+    // Re-validate every stored URL on READ with the SAME scheme/length check
+    // the write path uses (cleanRenderUrl) — a URL that reached the DB via a
+    // legacy row or a direct-DB write can never render an off-scheme/oversized
+    // value into the projector. Invalid entries are dropped, not rendered.
     const extraImgs = Array.isArray(payload.extraImageSlides)
-      ? (payload.extraImageSlides as unknown[]).filter((u): u is string => typeof u === "string" && u.length > 0)
+      ? (payload.extraImageSlides as unknown[])
+          .map((u) => cleanRenderUrl(u))
+          .filter((u): u is string => u !== null)
       : [];
     const bgMap = (payload.slideBackgrounds && typeof payload.slideBackgrounds === "object" && !Array.isArray(payload.slideBackgrounds))
       ? (payload.slideBackgrounds as Record<string, unknown>) : null;
     if (bgMap) {
       slides = slides.map((s, i) => {
-        const u = bgMap[String(i)];
+        const u = cleanRenderUrl(bgMap[String(i)]);
         // Only a TEXT slide has a layer to sit behind; an image/video/blank slide
         // IS its own visual, so a per-slide "background" there is a no-op (honest).
-        if (typeof u !== "string" || !u || s.kind !== "text") return s;
+        if (!u || s.kind !== "text") return s;
         return { ...s, bgImageUrl: u };
       });
     }
