@@ -117,6 +117,7 @@ const OPENFLOW_ENABLED = process.env.NEXT_PUBLIC_OPENFLOW_ENABLED === "1";
 // without reading this entire file. All sign-off history is documented there.
 import {
   MEDIA_STRIP_KEY,
+  MEDIA_BIN_HEIGHT_KEY,
   SLIDE_SIZE_KEY,
   SAFE_MODE_KEY,
   LEFT_PANEL_WIDTH_KEY,
@@ -1714,6 +1715,8 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const [mediaStripOpen, setMediaStripOpen] = useState(true);
   // Media Bin pop-out (field fix 6A): taller strip in the center bottom dock.
   const [mediaBinPoppedOut, setMediaBinPoppedOut] = useState(false);
+  // Media Bin manual height (field wave 6E item 1): persisted pull-up resize.
+  const [mediaBinHeight, setMediaBinHeight] = useState(148);
   const [slideSize, setSlideSize] = useState(160);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
@@ -1840,7 +1843,15 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       if (s === "0") setMediaStripOpen(false);
       const sz = window.localStorage.getItem(SLIDE_SIZE_KEY);
       if (sz) setSlideSize(Math.max(96, Math.min(240, parseInt(sz, 10) || 160)));
+      const bh = window.localStorage.getItem(MEDIA_BIN_HEIGHT_KEY);
+      if (bh) setMediaBinHeight(Math.max(96, Math.min(620, parseInt(bh, 10) || 148)));
     } catch { /* noop */ }
+  }, []);
+
+  const handleMediaBinResize = useCallback((px: number) => {
+    const clamped = Math.max(96, Math.min(620, Math.round(px)));
+    setMediaBinHeight(clamped);
+    try { window.localStorage.setItem(MEDIA_BIN_HEIGHT_KEY, String(clamped)); } catch { /* noop */ }
   }, []);
 
   useEffect(() => {
@@ -4536,6 +4547,9 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
               onCenterMode={setCenterMode}
               poppedOut={mediaBinPoppedOut}
               onTogglePopout={() => setMediaBinPoppedOut((v) => !v)}
+              ctx={ctx}
+              height={mediaBinHeight}
+              onResize={handleMediaBinResize}
             />
           )}
           </div>

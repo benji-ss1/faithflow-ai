@@ -23,6 +23,9 @@ export const MEDIA_STRIP_KEY = "presentflow.pro.mediaStripOpen";
 /** Slide thumbnail size ("sm" | "md" | "lg") */
 export const SLIDE_SIZE_KEY = "presentflow.pro.slideSize";
 
+/** Media Bin manual strip height (px), persisted per machine (field wave 6E) */
+export const MEDIA_BIN_HEIGHT_KEY = "presentflow.pro.mediaBinHeight.v1";
+
 /** Safe-mode toggle (double-click to go live vs single-click) */
 export const SAFE_MODE_KEY = "presentflow.operator.safeMode";
 
