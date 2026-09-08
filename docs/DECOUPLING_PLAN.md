@@ -112,6 +112,28 @@ never swallow the next slide. Slide zone/visibility patches carry NO payload
 snapshot (`{id,kind,z,enabled,zone}` only) — the projector always renders the
 CURRENT base slide in the chosen zone, so a stale slide can never stick.
 
+**Wave 5A refinement (2026-09-08, user-directed field fix — supersedes the R1
+re-arm rule above for the EYE-hide case):** the eye toggle is a NON-DESTRUCTIVE
+visibility control that round-trips (HIDE = `enabled=false`, payload/store
+untouched; SHOW restores exactly what was there); only the trash CLEAR is
+destructive (resets the Background Template store). Two rules were in genuine
+conflict — "hide persists across advances" (operator expectation) vs "a new send
+re-arms a disabled slide" (R1b safety). **Chosen: EYE-hide persists across
+advances; only a CLEAR-style block re-arms on send.** The store tracks which
+layers were eye-hidden (`eyeHiddenRef`, store-local, never on the wire) and
+`shouldRearmSlideOnSend` (pure, `src/lib/layer-store.ts`) skips a re-arm for an
+eye-hidden slide while still re-arming a clear so it can't permanently swallow
+output. Also fixed: the background reconcile effect used to blindly
+`swapBackground(null)` when the base store reset to none (applying a theme with a
+background calls `setActiveBackgroundId("none")`), which overwrote a HIDDEN
+override's payload with null so SHOW restored nothing — the reported one-way
+toggle. `reconcileBackgroundOnBaseChange` (pure) now leaves a hidden override
+intact, follows a clear only while actively showing, and shows a real new pick.
+The render resolver was hardened too: a re-enable carrying a null/undefined
+payload falls back to the base content (`bg.payload != null`) instead of forcing
+null. Tests: `test/layer-store.test.ts` (13), `test/output-layers-render.test.ts`
+(+4 round-trip/clobber-proof). Renderer-only → Vercel. Changelog 0.1.389.
+
 `/ndi` coerce fix (from Phase 2) + migration-first deploy order both still
 apply: the migration
 `docs/migrations/2026-09-08-add-church-preferences-layers-v2.sql` MUST be applied

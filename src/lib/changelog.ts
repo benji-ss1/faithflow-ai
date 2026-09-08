@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.389",
+    date: "2026-09-08",
+    headline: "The Layers eye now toggles both ways — hide a layer, then bring it back exactly as it was",
+    highlights: [
+      "Fixed: in the Layers panel, tapping the eye to HIDE a layer (Slide, Background, Camera or Logo) and tapping it again to SHOW it now brings back exactly what was there. Hiding is non-destructive — only the trash (Clear) wipes a layer for good.",
+      "Hidden stays hidden as you go: if you hide the Slide layer, it now stays hidden while you advance through slides — no more the lyrics popping back on the next slide. (Clearing the slide still lets the next slide come through.)",
+      "Backgrounds no longer 'lose' what you hid: hiding the background, then applying a theme or changing slides, no longer erases it — showing it again restores your background.",
+    ],
+  },
+  {
     version: "0.1.388",
     date: "2026-09-08",
     headline: "Drag a song into a library that actually files it, paste slides between songs, and a media bin in the left rail",

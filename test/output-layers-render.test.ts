@@ -123,5 +123,37 @@ check("patch: unknown override id is a no-op", () => {
   assert.deepEqual(plan, planOutput(input), "unknown id leaves plan identical");
 });
 
+// ── 9. Hide→show round-trip at the resolver level (Wave 5A) ──────────────────
+// A visibility HIDE (enabled=false) then SHOW (enabled=true, payload preserved)
+// must return the plan to the base for every layer. Slide/logo carry no payload
+// (base flows back); background/camera preserve the swap payload.
+check("round-trip: background hide→show restores the base plan", () => {
+  const input: PlanInput = { mode: "live", slide: textSlide, background: shaderBg };
+  const base = planOutput(input);
+  const hide: LayerWire = { id: "background", kind: "background", z: 0, enabled: false, payload: shaderBg };
+  const show: LayerWire = { id: "background", kind: "background", z: 0, enabled: true, payload: shaderBg };
+  assert.equal(resolveLayeredPlan(input, [hide]).layers.find((l) => l.id === "background")!.enabled, false, "hidden");
+  assert.deepEqual(resolveLayeredPlan(input, [show]), base, "show restores base plan");
+});
+check("round-trip: camera hide→show restores the base plan", () => {
+  const input: PlanInput = { mode: "live", slide: textSlide, videoInput: camera };
+  const base = planOutput(input);
+  const show: LayerWire = { id: "camera", kind: "camera", z: 5, enabled: true, payload: camera };
+  assert.deepEqual(resolveLayeredPlan(input, [show]), base, "show restores base plan");
+});
+check("round-trip: slide hide→show restores the base plan (no payload / R1a)", () => {
+  const input: PlanInput = { mode: "live", slide: textSlide, background: shaderBg };
+  const base = planOutput(input);
+  const hide: LayerWire = { id: "slide", kind: "slide", z: 10, enabled: false };
+  const show: LayerWire = { id: "slide", kind: "slide", z: 10, enabled: true };
+  assert.equal(resolveLayeredInput(input, [hide]).slide.kind, "empty", "hidden→empty");
+  assert.deepEqual(resolveLayeredPlan(input, [show]), base, "show restores base plan");
+});
+check("round-trip: SHOW with a null payload falls back to base (clobber-proof)", () => {
+  const input: PlanInput = { mode: "live", slide: textSlide, background: shaderBg };
+  const showNull: LayerWire = { id: "background", kind: "background", z: 0, enabled: true, payload: null };
+  assert.deepEqual(resolveLayeredPlan(input, [showNull]), planOutput(input), "null-payload SHOW keeps base bg");
+});
+
 console.log(`\noutput-layers-render: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

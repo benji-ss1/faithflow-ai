@@ -84,15 +84,20 @@ export function resolveLayeredInput(
   // ── background ────────────────────────────────────────────────────────────
   const bg = map.get("background");
   if (bg && bg.kind === "background") {
-    if (!bg.enabled) background = null;                 // clear/hide the template
-    else if (bg.payload !== undefined) background = bg.payload ?? null; // swap
+    if (!bg.enabled) background = null;                 // hide/clear the template
+    // SHOW/swap: only a REAL payload (non-null) overrides the base. A re-enable
+    // that carries a null/undefined payload means "no swap" — keep the base
+    // background so SHOW after a hide restores exactly what was there, even if a
+    // prior reconcile left the override payload null (Wave 5A non-destructive
+    // hide guarantee). `?? null` USED to force null here and restore nothing.
+    else if (bg.payload != null) background = bg.payload;
   }
 
   // ── camera ────────────────────────────────────────────────────────────────
   const cam = map.get("camera");
   if (cam && cam.kind === "camera") {
     if (!cam.enabled) videoInput = null;                // clear the camera feed
-    else if (cam.payload !== undefined) videoInput = cam.payload ?? null; // swap
+    else if (cam.payload != null) videoInput = cam.payload; // swap only on real payload; else keep base
   }
 
   // ── slide ─────────────────────────────────────────────────────────────────
