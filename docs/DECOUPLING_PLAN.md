@@ -673,10 +673,10 @@ the song page: create/rename/recolor/delete groups, tag each slide to a group
 append, repeatable; play order with move/remove/save).
 
 **DEFERRED (documented, backend ready):**
-- Playlist item kebab "Arrangement →" picker in the live operator shell
-  (`PlaylistSection.tsx`, 1143 LOC). `setServiceItemArrangement` is built +
-  typechecked; held back from the live shell to respect the no-regression
-  mandate (needs the plan-reload wiring + ExpandedItem to carry arrangementId).
+- ~~Playlist item kebab "Arrangement →" picker in the live operator shell~~
+  **SHIPPED in Wave 6D** (see below): `setServiceItemArrangement` is wired into
+  the playlist context menu, `ExpandedItem` now carries `arrangementId` +
+  arrangements/groups meta, and the plan reloads on pin. No longer deferred.
 - Drag-and-drop in the arrangement editor + colour-coded group badges directly
   on the operator `SlideGrid` thumbnails (current editor uses click/append + a
   slide-tagging list).
@@ -725,3 +725,124 @@ Tests: layer suites green via tsx (layer-store 13, layer-wire 25, output-layers
 13, output-layers-convergence 26, output-layers-render 13); tsc clean. The rail
 toggle reuses already-tested `toggleLayer`/`isEyeHidden` round-trip logic (5A/6B
 suites), so no new pure-logic branch was added to test.
+
+---
+
+## Wave 6B — ghost-operator snapshot guard (as built)
+
+Field bug: a stale second tab/operator (an old `layers` snapshot) could re-post
+its base state and blank the projector out from under the live operator.
+
+- **`isStaleLayersSnapshot` / epoch+rev gating (DONE)**: a layers snapshot from a
+  lower epoch (or equal-epoch lower rev) is rejected at the merge, so a ghost tab
+  can no longer clobber the live base. The eye SHOW path restores exactly what was
+  hidden (non-destructive). Consumed by the rail-cue truthfulness fix in 6F.
+- Renderer-only → Vercel. Tests: layer-wire (25) + output-layers-convergence (26)
+  lock the epoch/rev convergence contract (highest epoch wins; equal-epoch ties
+  fall to rev-gated merge).
+
+## Wave 6C — per-slide bgImageUrl render + all-item drops (as built)
+
+- **Per-slide background on plain-text slides (DONE)**: `getExpandedServicePlan`
+  now applies a stored `slideBackgrounds[index]` onto TEXT slides (adds
+  `bgImageUrl` behind the words; image/video/blank slides are their own visual, so
+  a background there is a documented no-op). Appended `extraImageSlides` render as
+  full-screen image slides for NON-song items too (scripture/media/sermon), so a
+  dropped background/image works on all item types, not just songs.
+- **Library-move "View in" toast (DONE)**: moving an asset to a library surfaces a
+  toast linking to where it went.
+- Renderer/loader-only → Vercel. Both stored-URL reads are re-validated on load in
+  the Wave-6 fix pass (see below).
+
+## Wave 6D — Groups & Arrangements in the operator shell (as built)
+
+Lifts the G&A model (0.1.390) out of the song-library page and into the live
+operator, completing the previously-deferred kebab picker.
+
+- **`ExpandedItem` carries the model (DONE)**: `arrangementId`, `arrangements`,
+  `groups`, and per-slide `slideGroupIds` (aligned 1:1 with `slides`) — all
+  optional and absent for groupless songs (no-regression line). The loader batches
+  every song's groups+arrangements up front (see fix pass) to avoid an N+1.
+- **Playlist picker (DONE)**: right-click a song → Arrangement to pin the order
+  (or Master). `setServiceItemArrangement` (operate_services, church-scoped) writes
+  `payload.arrangementId`; the plan reloads and the slides reflow.
+- **Group badges + centre arrangement strip (DONE)**: colour-coded group badges on
+  slide cards; the arrangement strip shows the play order as chips with the current
+  section highlighted, + / × to add/drop a section live (nothing projects until
+  sent).
+- Renderer/loader-only → Vercel. Tests: arrangements (10), stress-wave6-3 (18).
+
+## Wave 6E — Media Bin operator wiring (as built)
+
+Completes the relocated bin (6A) with real operator actions.
+
+- **Pull-up resize (DONE)**: drag the bin's top edge to size it (rAF-gated in the
+  fix pass so a fast drag doesn't queue a setState per pointer move); persists via
+  `onResize`. Coexists with collapse + pop-out.
+- **Uploads from the bin (DONE)**: Image/Video header buttons open the importer
+  pre-loaded with the picked files; the bin refreshes on import.
+- **Right-click menu + double-click preview (DONE)**: Send as slide / Set as
+  current slide's background / Set as global background / Move to library / Delete;
+  double-click opens a full preview (Esc/click-away closes).
+- Renderer-only → Vercel.
+
+---
+
+## Wave-6 fix pass (2026-09-08, six-gate 🟡 remediation)
+
+Six gates ran on this branch, zero 🔴. All 🟡s fixed:
+
+1. **URL re-validation on read (security)**: extracted `cleanRenderUrl` into the
+   shared, dependency-free `src/lib/render-url.ts`. `getExpandedServicePlan` now
+   re-validates stored `slideBackgrounds` / `extraImageSlides` with the SAME
+   scheme/length check on READ (a legacy/direct-DB URL can't render off-scheme into
+   the projector), and `sanitizeThemeConfig` value-validates `logoUrl` /
+   `bgImageUrl` / `bgVideoUrl` (rejects an off-scheme/oversized value rather than
+   persisting it). Verified via cross-church adversarial + layer/playlist suites.
+2. **Loader batching (speed)**: `getExpandedServicePlan` pre-collects the plan's
+   song ids and fetches groups + arrangements with TWO `inArray` queries before the
+   item loop (kills the per-song N+1). A candidate with zero groups reads `[]` (a
+   set HIT, no extra query); a rare title-relinked song falls back to a per-song
+   fetch. Output verified identical via library-playlist + cross-church suites.
+3. **BackgroundThumb video** now `preload="none"` with a gradient poster-style
+   fallback (a 5px thumbnail never pulls the full clip). **Bin resize** setDragH is
+   rAF-gated.
+4. **Group-preserve content-hash (stress/reviewer 🟡, approved)**: `preservedGroupIds`
+   + `updateSongSlides` now match by EXACT prior-lyric text first (a prior lyric →
+   group-id FIFO queue; duplicate lyrics consumed in original order), with the slide
+   index as tiebreak, only when counts are equal; a count change still drops to
+   ungrouped with the strip warning. So swapping two lines keeps the correct labels.
+   Tests: song-group-preserve (9, incl. swap/duplicates/tiebreak/count-change),
+   stress-wave6-3 reorder test flipped from documenting the limit to asserting the fix.
+5. **media-upload.ts honesty**: added `res.ok` checks with readable errors; renamed
+   the helper `uploadMediaFile → uploadFileToMediaStorage` to kill the collision with
+   MediaImportWizard's local `uploadMediaFile`; pointed the Themes `BgAssetPicker`
+   presign flow at the shared helper (one real reuse, correcting the comment's claim).
+   The other legacy presign flows are noted for consolidation below.
+6. **Glyphs**: PlaylistSection's Section-theme + Arrangement submenus now use lucide
+   `ChevronRight` / `Check` instead of literal ▸ / ✓ (finishes the established idiom).
+
+### Media upload consolidation (follow-up, not built)
+
+`uploadFileToMediaStorage` (Layers logo + Themes BgAssetPicker) is the ONE
+consolidated client presign→PUT→signed-URL flow. The remaining ~7 legacy per-surface
+presign flows (e.g. MediaImportWizard's library-import variant, and other pickers
+that inline `/api/media/presign` + `/api/media/url`) still duplicate the pattern.
+They are intentionally left untouched this pass (MediaImportWizard's registers a
+media asset server-side and returns nothing, a genuinely different shape) and tracked
+here for a future consolidation increment.
+
+### Coherence decisions (recorded)
+
+- **Keep the rail cue toggles** (6F) as the quick hide/show; the panel eye + trash
+  remain the fuller control. No divergence — both call `toggleLayer` / `clearLayer`.
+- **Field-verify double-tap** on the rail cues + logo upload on a real console (the
+  hardware-pending checklist items in 6A/6F stand).
+- **F-keys as true clears when Key Mappings land**: the current rail cues are
+  non-destructive toggles; when the Key Mappings feature ships, F-key layer clears
+  should map to the destructive `clearLayer` (true clear), distinct from the toggle.
+
+### NEXT WAVE
+
+**Timers + Messages** (themed, per Phase 3/4 sequencing). The **Audio bin** is
+folded into **Phase 5a** (audio routing = mirror of video I/O), not a separate wave.

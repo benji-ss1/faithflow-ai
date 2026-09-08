@@ -15,18 +15,20 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    version: "0.1.395",
+    version: "0.1.392",
     date: "2026-09-08",
-    headline: "Media Bin, fully wired — pull it taller, upload straight into it, and right-click any item for what to do next",
+    headline: "The Media Bin lives under your slides — drag onto a slide, drop in to make one, upload straight into it, and right-click for what's next",
     highlights: [
-      "Drag the top edge of the Media Bin to make it taller or shorter — the thumbnails grow with it, and it remembers your size next time. Works alongside collapse and pop-out.",
-      "Upload straight from the bin: new Image and Video buttons in its header open the importer already loaded with the files you picked — on import the bin refreshes and they're ready to drag onto a slide.",
-      "Right-click any item in the bin for its options: Send as slide, Set as current slide's background, Set as global background, Move to library, or Delete.",
-      "Double-click any item for a quick full preview (images and videos, with playback controls) — press Esc or click away to close.",
+      "The Media Bin now docks the bottom of the CENTER area, right under your slides and stage. Collapse it to a slim bar from its header (or the media toggle up top), pop it out to a taller strip, or drag its top edge to size it — the thumbnails grow with it and it remembers your size next time.",
+      "Drag a media thumbnail ONTO a slide to set it as THAT slide's background — the slide highlights and shows 'Set as background' while you hover, and your words stay on top and editable.",
+      "Drag a media thumbnail into the empty space below your slides to add a brand-new full-screen image slide — a 'Drop to add a full-screen image slide' prompt makes it clear which action you're about to do.",
+      "Upload straight from the bin: Image and Video buttons in its header open the importer already loaded with the files you picked — on import the bin refreshes and they're ready to drag.",
+      "Right-click any item for its options — Send as slide, Set as current slide's background, Set as global background, Move to library, or Delete — and double-click for a quick full preview (Esc or click away to close).",
+      "Backgrounds in the slide editor are clearer: colour/image changes apply to THIS slide only, with a separate orange 'Apply background to all slides' when you want it everywhere.",
     ],
   },
   {
-    version: "0.1.394",
+    version: "0.1.391",
     date: "2026-09-08",
     headline: "One-tap layer cues that hide AND bring back — plus set your church logo and see your real background right from the Layers panel",
     highlights: [
@@ -37,48 +39,16 @@ export const CHANGELOG: ChangelogEntry[] = [
     ],
   },
   {
-    version: "0.1.393",
-    date: "2026-09-08",
-    headline: "Build song sections and arrangements for ANY song, right from the operator — no trip to the song library",
-    highlights: [
-      "Every song now shows a sections strip above its slides. If a song has no sections yet, you'll see a clear 'Add sections' button instead of nothing — start grouping any song without leaving the service.",
-      "Right-click any slide → Section to tag it: pick an existing section, or one tap creates 'Verse 1', 'Chorus', 'Bridge' (and more) and assigns it. The colour badge appears immediately. It's how you 'make this the bridge' in one move.",
-      "Manage sections and arrangements inline: the strip's 'Manage sections' button opens the full editor in a popover — create groups with standard names and colours, build and rename arrangements, and set the play order — all without opening the song library page.",
-      "Your sections now survive a quick text edit: fixing a typo in place keeps every slide's section. (Adding or removing a whole line can still reset sections — the strip shows a small warning so it's never a silent surprise; just re-tag from the slide's right-click menu.)",
-    ],
-  },
-  {
-    version: "0.1.392",
-    date: "2026-09-08",
-    headline: "See and drive song arrangements right from the operator — group badges, a live arrangement strip, and the same song twice with different orders",
-    highlights: [
-      "Grouped songs now show it in the operator: each slide card carries a small colour-coded group badge (Verse, Chorus, Bridge…) so you can see a song's structure at a glance while you run the service.",
-      "A new arrangement strip sits above your slides: the whole play order as coloured chips, with the section you're on highlighted as you advance. Click any chip to jump straight to that section's first slide.",
-      "Change the order live: when a song is set to an arrangement, tap + on the strip to add a section mid-service, or × on a chip to drop one — your slides reflow instantly and nothing on the projector changes until you send it.",
-      "Right-click a song in the playlist → Arrangement to pin which order it plays (or 'Master' for all sections). Add the same song twice and give each its own arrangement — one long, one reprise — and each plays its own slide order.",
-      "Songs with no groups look and behave exactly as before.",
-    ],
-  },
-  {
-    version: "0.1.391",
-    date: "2026-09-08",
-    headline: "The Media Bin now lives under your slides — drag a picture straight onto a slide or drop it in to make a new one",
-    highlights: [
-      "Media Bin moved: it now docks the bottom of the CENTER area, right under your slides and stage, instead of the left rail. Collapse it to a slim bar from its header (or the media toggle up top), and use the pop-out button to expand it to a taller strip when you're picking through a lot of media.",
-      "Drag a media thumbnail ONTO a slide to set it as THAT slide's background — the slide highlights and shows 'Set as background' while you hover, and your words stay on top and editable.",
-      "Drag a media thumbnail into the empty space below your slides to add a brand-new full-screen image slide — you'll see a 'Drop to add a full-screen image slide' prompt so it's clear which action you're about to do.",
-      "Backgrounds in the slide editor are now clearer: changing the colour or image applies to THIS slide only, with a separate orange 'Apply background to all slides' button when you want it on every slide.",
-    ],
-  },
-  {
     version: "0.1.390",
     date: "2026-09-08",
-    headline: "Song groups & arrangements — reorder a worship set without duplicating a single slide",
+    headline: "Song groups & arrangements — build sections and reorder a worship set without duplicating a single slide, from the library OR the operator",
     highlights: [
-      "New on any song's page: name your sections as Groups (Verse 1, Chorus, Bridge…), colour-code them, and tag each slide with the section it belongs to.",
-      "Build Arrangements: named play orders of those groups (Chorus can repeat as many times as you sing it). A 'Worship Night' long version and a short 'Reprise' live on the same song — no copies, no second entry.",
-      "Edit once, updated everywhere: fix a Chorus lyric in one place and every arrangement that uses it updates instantly, because arrangements point at your slides rather than copying them.",
-      "Nothing changes for songs you don't touch: a song with no groups plays exactly as it does today.",
+      "Name your sections as Groups (Verse 1, Chorus, Bridge…), colour-code them, and tag each slide with the section it belongs to — on the song's page, or right from the operator: right-click any slide → Section to pick an existing one or one-tap create 'Verse 1', 'Chorus', 'Bridge' and assign it.",
+      "Build Arrangements: named play orders of those groups (Chorus can repeat as many times as you sing it). A 'Worship Night' long version and a short 'Reprise' live on the same song — no copies, no second entry. Manage groups and arrangements inline from the sections strip's 'Manage sections' popover, no trip to the library needed.",
+      "See and drive it live: each slide card carries a colour-coded group badge, and an arrangement strip above your slides shows the whole play order as chips with the current section highlighted — click a chip to jump, tap + to add a section mid-service or × to drop one, and your slides reflow instantly (nothing projects until you send it).",
+      "Right-click a song in the playlist → Arrangement to pin which order it plays (or 'Master' for all sections). Add the same song twice and give each its own arrangement — one long, one reprise.",
+      "Edit once, updated everywhere: fix a Chorus lyric in one place and every arrangement updates, because arrangements point at your slides rather than copying them. Your sections also survive a quick text edit — fixing a typo (or even swapping two lines) keeps each slide's section; only adding/removing a whole line resets them, and the strip shows a small warning so it's never a silent surprise.",
+      "Nothing changes for songs you don't touch: a song with no groups looks and plays exactly as it does today.",
     ],
   },
   {
