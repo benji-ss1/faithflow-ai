@@ -56,6 +56,14 @@ export function applyLayerPatchBounded(
   map: Map<string, LayerWire>,
   patch: LayerWire,
 ): Map<string, LayerWire> {
+  const existing = map.get(patch.id);
+  // Rev gate (Phase 3 hardening): when BOTH the incoming patch and the stored
+  // layer carry a monotonic `rev`, DROP the patch if it is older — a lagging
+  // heartbeat / ghost-tab snapshot can never regress a fresher incremental
+  // patch. Missing rev on either side is tolerant (apply — legacy behaviour).
+  if (existing && typeof existing.rev === "number" && typeof patch.rev === "number" && patch.rev < existing.rev) {
+    return map;
+  }
   if (map.has(patch.id) || map.size < MAX_LAYERS) map.set(patch.id, patch);
   return map;
 }
@@ -71,8 +79,29 @@ export function rebuildOverridesFromSnapshot(
   map: Map<string, LayerWire>,
   layers: LayerWire[] | undefined | null,
 ): LayerWire[] {
-  map.clear();
-  for (const l of layers ?? []) applyLayerPatchBounded(map, l);
+  const snap = layers ?? [];
+  // Highest rev present in the snapshot. Used to decide whether the snapshot is
+  // new enough to honour a REMOVAL (a layer the map has but the snapshot omits).
+  // Legacy snapshots (no revs) → -Infinity, so a map entry that carries a rev
+  // (a fresh live patch) is never removed by an un-revved snapshot; a fully
+  // legacy map (no revs) still clears+rebuilds exactly as before.
+  let snapMaxRev = Number.NEGATIVE_INFINITY;
+  const snapIds = new Set<string>();
+  for (const l of snap) {
+    snapIds.add(l.id);
+    if (typeof l.rev === "number" && l.rev > snapMaxRev) snapMaxRev = l.rev;
+  }
+  // 1. Removals: drop map entries the snapshot no longer includes — but ONLY
+  //    when the snapshot is at least as new as that entry. A map entry whose rev
+  //    exceeds the snapshot's max is from a patch the snapshot hasn't folded yet
+  //    → keep it (don't let a stale snapshot un-do a fresh patch).
+  for (const [id, cur] of map) {
+    if (snapIds.has(id)) continue;
+    if (typeof cur.rev !== "number" || snapMaxRev >= cur.rev) map.delete(id);
+  }
+  // 2. Adopt snapshot entries, rev-gated + bounded (a stale snapshot entry can't
+  //    overwrite a fresher stored patch of the same id).
+  for (const l of snap) applyLayerPatchBounded(map, l);
   return Array.from(map.values());
 }
 

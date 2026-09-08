@@ -176,6 +176,16 @@ check("logo payload url goes through the render-url gate; bgTransparent is boole
   assert.ok(isValidLayerWire({ id: "s", kind: "slide", z: 10, enabled: true, bgTransparent: true }), "boolean bgTransparent ok");
 });
 
+// ---- rev (monotonic revision) hardening ------------------------------------
+check("rev is optional, must be a finite non-negative number when present", () => {
+  assert.ok(isValidLayerWire({ id: "s", kind: "slide", z: 10, enabled: true }), "absent rev ok (legacy)");
+  assert.ok(isValidLayerWire({ id: "s", kind: "slide", z: 10, enabled: true, rev: 0 }), "rev 0 ok");
+  assert.ok(isValidLayerWire({ id: "s", kind: "slide", z: 10, enabled: true, rev: 1_759_000_000_123 }), "large Date.now()-seeded rev ok");
+  assert.ok(!isValidLayerWire({ id: "s", kind: "slide", z: 10, enabled: true, rev: -1 }), "negative rev rejected");
+  assert.ok(!isValidLayerWire({ id: "s", kind: "slide", z: 10, enabled: true, rev: Infinity }), "non-finite rev rejected");
+  assert.ok(!isValidLayerWire({ id: "s", kind: "slide", z: 10, enabled: true, rev: "5" as unknown as number }), "string rev rejected");
+});
+
 // ---- duplicate-id policy ----------------------------------------------------
 check("sanitizeLayers drops subsequent duplicate ids (first wins)", () => {
   const dupes = [

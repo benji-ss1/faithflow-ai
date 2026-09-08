@@ -27,6 +27,17 @@ import { useCallback, useMemo, useState } from "react";
  *  layers engine is OFF. These constants keep the disabled path byte-stable. */
 const EMPTY_ROWS: LayerRow[] = [];
 const EMPTY_OVERRIDES: LayerWire[] = [];
+
+// Per-ORIGIN monotonic revision counter (Phase 3 hardening). Module-level so it
+// is one counter per operator tab/realm, SEEDED from Date.now(): a freshly
+// opened operator therefore mints higher revs than a stale ghost tab that
+// started earlier, and every subsequent write increments — so a later write
+// always out-ranks an earlier one, across origins as well as within one. The
+// projector keeps the highest rev per layer id (see applyLayerPatchBounded /
+// rebuildOverridesFromSnapshot), so a lagging heartbeat or ghost snapshot can
+// never clobber a fresher patch.
+let __layerRev = Date.now();
+function nextRev(): number { return ++__layerRev; }
 import {
   isValidLiveMessage,
   type BackgroundSpec,
@@ -237,16 +248,20 @@ export function useLiveLayers(
   // Build + emit + store a patch. No-op (and never touches state) when disabled.
   const applyPatch = useCallback((patch: LayerWire) => {
     if (!enabled) return;
-    if (!isValidLiveMessage({ type: "layer-patch", layer: patch })) {
-      console.warn("[layers] rejected invalid layer-patch:", patch.id);
+    // Stamp a fresh monotonic rev at the single emit choke so both the stored
+    // override AND the wire message carry it (the OutputState.layers heartbeat is
+    // folded from the stored overrides, so it inherits the rev too).
+    const stamped: LayerWire = { ...patch, rev: nextRev() };
+    if (!isValidLiveMessage({ type: "layer-patch", layer: stamped })) {
+      console.warn("[layers] rejected invalid layer-patch:", stamped.id);
       return;
     }
     setOverrideMap((prev) => {
       const next = new Map(prev);
-      next.set(patch.id, patch);
+      next.set(stamped.id, stamped);
       return next;
     });
-    emit({ type: "layer-patch", layer: patch });
+    emit({ type: "layer-patch", layer: stamped });
   }, [enabled, emit]);
 
   const patchFromBase = useCallback((id: string, build: (b: LayerWire) => LayerWire): void => {
@@ -290,7 +305,7 @@ export function useLiveLayers(
     // updater with NO side effects, THEN emit outside the updater — React may
     // call a state updater more than once (StrictMode / batching) and emitting
     // inside would double-fire the wire.
-    const patches = base.map((b) => buildPatch(b, { enabled: false, clearPayload: true }));
+    const patches = base.map((b) => ({ ...buildPatch(b, { enabled: false, clearPayload: true }), rev: nextRev() }));
     setOverrideMap(() => {
       const next = new Map<string, LayerWire>();
       for (const p of patches) next.set(p.id, p);
@@ -312,7 +327,7 @@ export function useLiveLayers(
     const zone = o.zone;
     const sticky = zone && zone.kind !== "full";
     // The convergence patch (re-enable, preserve any sticky zone, no payload/R1a).
-    const rearmed = buildPatch(o, { enabled: true, zone: sticky ? zone : { kind: "full" } });
+    const rearmed: LayerWire = { ...buildPatch(o, { enabled: true, zone: sticky ? zone : { kind: "full" } }), rev: nextRev() };
     setOverrideMap((prev) => {
       const cur = prev.get("slide");
       if (!cur || cur.enabled) return prev;

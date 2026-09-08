@@ -299,6 +299,15 @@ type LayerWireBase = {
   opacity?: number;                       // 0..1
   zone?: LayerZone;
   transportScope?: "local" | "all";
+  // Monotonic revision stamp (Decoupling Phase 3 hardening). Assigned by the
+  // ORIGIN (operator) from a per-session counter seeded at Date.now(), so a
+  // later write ALWAYS carries a higher rev than an earlier one — even across
+  // origins (a freshly-opened operator seeds from a later clock than a stale
+  // ghost tab). Receivers keep the highest rev per layer id and IGNORE anything
+  // older, so a lagging ~1Hz OutputState heartbeat (or a ghost tab's snapshot)
+  // can never clobber a fresher incremental layer-patch. Optional + tolerant of
+  // absence: a legacy sender with no rev behaves exactly as before.
+  rev?: number;
   // The layer-model expression of the legacy `overVideo` flag: the slide/media
   // content's own background goes transparent so whatever sits behind it (a live
   // camera or a theme video) shows through. Set by the adapter exactly when
@@ -701,6 +710,10 @@ export function isValidLayerWire(l: unknown): l is LayerWire {
   if (p.zone !== undefined && !isValidLayerZone(p.zone)) return false;
   if (p.transportScope !== undefined && p.transportScope !== "local" && p.transportScope !== "all") return false;
   if (p.bgTransparent !== undefined && typeof p.bgTransparent !== "boolean") return false;
+  // rev: optional monotonic stamp. When present it must be a finite, non-negative
+  // number (Date.now()-seeded on the origin, so realistically large). Absence is
+  // legacy-valid (tolerant).
+  if (p.rev !== undefined && (typeof p.rev !== "number" || !Number.isFinite(p.rev) || p.rev < 0)) return false;
   if (!isValidLayerPayload(p.kind, p.payload)) return false;
   return true;
 }

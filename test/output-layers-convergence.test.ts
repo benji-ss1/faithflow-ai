@@ -12,6 +12,7 @@
 import assert from "node:assert/strict";
 import { MAX_LAYERS, projectableTextSlide, type BackgroundSpec, type LayerWire, type SlidePayload, type VideoInputState } from "../src/lib/broadcast";
 import { resolveLayeredPlan, resolveLayeredInput, toOverrideMap } from "../src/lib/output-layers-render";
+import { applyLayerPatchBounded, rebuildOverridesFromSnapshot } from "../src/lib/output-layers";
 import type { PlanInput } from "../src/lib/output-plan";
 
 let pass = 0, fail = 0;
@@ -36,12 +37,13 @@ function operatorSnapshot(map: Map<string, LayerWire>): LayerWire[] {
 /** Projector layer-patch handler (live/stage/livestream/ndi are identical):
  *  existing ids always update; a NEW id dropped once map is full. */
 function projectorPatch(map: Map<string, LayerWire>, patch: LayerWire): void {
-  if (map.has(patch.id) || map.size < MAX_LAYERS) map.set(patch.id, patch);
+  // Delegate to the REAL shipped fold so these convergence tests exercise the
+  // actual code (incl. the rev gate), not a drifting copy.
+  applyLayerPatchBounded(map, patch);
 }
-/** Projector heartbeat handler: clear + rebuild from the snapshot's layers. */
+/** Projector heartbeat handler — the REAL shipped rev-aware snapshot merge. */
 function projectorHeartbeat(map: Map<string, LayerWire>, layers: LayerWire[]): void {
-  map.clear();
-  for (const l of layers) if (map.has(l.id) || map.size < MAX_LAYERS) map.set(l.id, l);
+  rebuildOverridesFromSnapshot(map, layers);
 }
 
 /** Normalise a map to a comparable id→enabled/payload snapshot. */
@@ -109,19 +111,79 @@ check("race: patch then NEWER snapshot carrying it → projector holds the patch
   assert.equal(projMap.get("slide")!.enabled, false, "newer snapshot keeps the patch");
 });
 
-check("race: STALE pre-patch snapshot transiently regresses, then next snapshot re-converges (documented flap)", () => {
+check("race: LEGACY (no-rev) STALE snapshot still regresses transiently, then re-converges (tolerant)", () => {
   const projMap = new Map<string, LayerWire>();
-  const patch = { id: "slide", kind: "slide", z: 10, enabled: false } as LayerWire;
-  // 1. patch arrives.
+  const patch = { id: "slide", kind: "slide", z: 10, enabled: false } as LayerWire; // NO rev
   projectorPatch(projMap, patch);
-  // 2. a STALE snapshot generated BEFORE the operator registered the patch
-  //    (layers empty) arrives out-of-order (only possible on the reordering
-  //    cross-device Realtime path; same-machine BroadcastChannel is ordered).
+  // A stale (empty) legacy snapshot: with no revs anywhere the snapshot is
+  // authoritative (clear+rebuild) exactly as before — documents the tolerant
+  // pre-hardening behaviour is preserved for un-revved senders.
   projectorHeartbeat(projMap, []);
-  assert.equal(projMap.has("slide"), false, "stale snapshot regressed the patch (flap window)");
-  // 3. the authoritative newer snapshot (with the patch) re-converges.
+  assert.equal(projMap.has("slide"), false, "legacy: stale snapshot regressed the patch (flap window)");
   projectorHeartbeat(projMap, operatorSnapshot(operatorApply(new Map(), patch)));
-  assert.equal(projMap.get("slide")!.enabled, false, "re-converged to the patch");
+  assert.equal(projMap.get("slide")!.enabled, false, "legacy: re-converged to the patch");
+});
+
+// ── (2b) REV HARDENING — stale heartbeat / ghost can't clobber a fresh patch ──
+check("hardening: a STALE (older-rev) snapshot does NOT regress a fresher revved patch", () => {
+  const projMap = new Map<string, LayerWire>();
+  // Steady state: slide visible at rev 100 (from an earlier heartbeat).
+  projectorHeartbeat(projMap, [{ id: "slide", kind: "slide", z: 10, enabled: true, rev: 100 } as LayerWire]);
+  // Fresh incremental patch hides the slide at a higher rev.
+  projectorPatch(projMap, { id: "slide", kind: "slide", z: 10, enabled: false, rev: 200 } as LayerWire);
+  assert.equal(projMap.get("slide")!.enabled, false, "fresh patch applied");
+  // A lagging ~1Hz heartbeat carrying the OLD (rev 100) slide arrives late.
+  projectorHeartbeat(projMap, [{ id: "slide", kind: "slide", z: 10, enabled: true, rev: 100 } as LayerWire]);
+  assert.equal(projMap.get("slide")!.enabled, false, "stale heartbeat must NOT regress the fresher patch");
+  // The next authoritative heartbeat (folding the patch, rev 200) keeps it.
+  projectorHeartbeat(projMap, [{ id: "slide", kind: "slide", z: 10, enabled: false, rev: 200 } as LayerWire]);
+  assert.equal(projMap.get("slide")!.enabled, false, "converged, still hidden");
+});
+
+check("hardening: a GHOST tab's old-rev snapshot can't clobber a later-origin patch (higher seed)", () => {
+  const projMap = new Map<string, LayerWire>();
+  // Ghost origin seeded earlier → lower revs. It set background bgA at rev 1000
+  // and keeps heartbeating that snapshot.
+  const ghostHeartbeat = [{ id: "background", kind: "background", z: 0, enabled: true, payload: bgA, rev: 1000 } as LayerWire];
+  projectorHeartbeat(projMap, ghostHeartbeat);
+  assert.equal(stackShape(projMap).background.payloadKey, JSON.stringify(bgA), "ghost state adopted first");
+  // A freshly-opened operator (seeded from a LATER Date.now()) swaps to bgB at a
+  // much higher rev via an incremental patch.
+  projectorPatch(projMap, { id: "background", kind: "background", z: 0, enabled: true, payload: bgB, rev: 5_000_000 } as LayerWire);
+  assert.equal(stackShape(projMap).background.payloadKey, JSON.stringify(bgB), "fresh operator patch wins");
+  // The ghost keeps heartbeating its stale snapshot — must NOT win.
+  projectorHeartbeat(projMap, ghostHeartbeat);
+  projectorHeartbeat(projMap, ghostHeartbeat);
+  assert.equal(stackShape(projMap).background.payloadKey, JSON.stringify(bgB), "ghost heartbeats can never regress the fresher patch");
+});
+
+check("hardening: MIXED rev/no-rev is tolerant — no-rev patch applies, revs gate", () => {
+  const projMap = new Map<string, LayerWire>();
+  // No-rev existing, no-rev patch → applies (legacy).
+  projectorPatch(projMap, { id: "logo", kind: "logo", z: 20, enabled: true } as LayerWire);
+  projectorPatch(projMap, { id: "logo", kind: "logo", z: 20, enabled: false } as LayerWire);
+  assert.equal(projMap.get("logo")!.enabled, false, "no-rev patch applied over no-rev existing");
+  // Revved existing, then a no-rev patch → tolerant (applies; can't compare).
+  projectorPatch(projMap, { id: "slide", kind: "slide", z: 10, enabled: false, rev: 300 } as LayerWire);
+  projectorPatch(projMap, { id: "slide", kind: "slide", z: 10, enabled: true } as LayerWire);
+  assert.equal(projMap.get("slide")!.enabled, true, "no-rev patch is tolerant over a revved entry");
+  // Revved existing, older revved patch → dropped.
+  projectorPatch(projMap, { id: "camera", kind: "camera", z: 5, enabled: true, rev: 500 } as LayerWire);
+  projectorPatch(projMap, { id: "camera", kind: "camera", z: 5, enabled: false, rev: 400 } as LayerWire);
+  assert.equal(projMap.get("camera")!.enabled, true, "older revved patch dropped");
+});
+
+check("hardening: snapshot REMOVAL is honored only when the snapshot is new enough", () => {
+  const projMap = new Map<string, LayerWire>();
+  // A fresh patch (rev 900) hides the slide.
+  projectorPatch(projMap, { id: "slide", kind: "slide", z: 10, enabled: false, rev: 900 } as LayerWire);
+  // An OLDER snapshot (max rev 100) that omits the slide must NOT remove it.
+  projectorHeartbeat(projMap, [{ id: "background", kind: "background", z: 0, enabled: true, payload: bgA, rev: 100 } as LayerWire]);
+  assert.equal(projMap.has("slide"), true, "older snapshot must not drop a fresher patch by omission");
+  assert.equal(projMap.get("slide")!.enabled, false, "…and it stays as the patch left it");
+  // A NEWER snapshot (max rev 1000) that omits the slide legitimately removes it.
+  projectorHeartbeat(projMap, [{ id: "background", kind: "background", z: 0, enabled: true, payload: bgA, rev: 1000 } as LayerWire]);
+  assert.equal(projMap.has("slide"), false, "newer snapshot removes the omitted layer");
 });
 
 // ── (3) OPERATOR REFRESH mid-service ─────────────────────────────────────────
