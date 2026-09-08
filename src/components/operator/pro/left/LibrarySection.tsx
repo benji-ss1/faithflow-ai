@@ -3,15 +3,16 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import { ChevronDown, ChevronRight, Plus, BookOpen, Library as LibraryIcon } from "lucide-react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { ChevronDown, ChevronRight, Plus, BookOpen, Library as LibraryIcon, MoreVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CenterMode } from "../ProOperatorShell";
 import { createLibrary, renameLibrary, deleteLibrary, listLibraries, setLibraryColor, setSongLibrary, setMediaLibrary, type LibraryRow } from "@/lib/actions";
 import { useSelectedLibrary, setSelectedLibrary } from "./libraryFilter";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
-import { SECTION_COLORS } from "./sectionColors";
+import { ColorSwatchItems } from "./ColorSwatchMenu";
 import { useSpringLoad } from "./useSpringLoad";
-import { classifyDrop } from "@/lib/spring-load";
+import { classifyDrop, isRealDragLeave } from "@/lib/spring-load";
 import { requestOsDropImport } from "../center/pendingImport";
 
 // Wave 3 (item 4): move dragged library items into a target library (null =
@@ -158,18 +159,24 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
     if (failed > 0) toast.error(`${failed} item${failed === 1 ? "" : "s"} couldn't move`);
   };
 
-  // Escape cancels an in-flight spring-arm.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") spring.reset(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [spring]);
+  // Escape-to-cancel is owned by useSpringLoad (one stable listener); a
+  // dragleave onto a CHILD of the row is guarded so it doesn't reset the dwell.
+  const onRowDragLeave = (rowKey: string, e: React.DragEvent<HTMLElement>) => {
+    if (isRealDragLeave(e.currentTarget, e.relatedTarget)) spring.leave(rowKey);
+  };
 
   const rowCls = (active: boolean) => cn(
     "w-full flex items-center gap-2 px-2.5 py-1.5 text-[12.5px] text-left rounded-r-md border-l-[3px] transition-colors",
     active
       ? "border-[var(--color-brand)] bg-[var(--color-elevated)] text-[var(--color-foreground)] font-semibold shadow-[var(--edge-top)]"
       : "border-transparent text-[var(--color-muted-foreground)] font-medium hover:text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10",
+  );
+  // Mid-drag discoverability: while a row is armed, its trailing affordance
+  // shows a subtle "Esc to cancel" caption (tokens, no emoji).
+  const escHint = (
+    <span className="ml-auto shrink-0 text-[9px] font-semibold uppercase tracking-wide text-[var(--color-brand)]/80" aria-hidden>
+      Esc to cancel
+    </span>
   );
   const countBadge = (n: number, active: boolean) => (
     <span className={cn(
@@ -207,7 +214,7 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
           </li>
           <li
             onDragOver={(e) => handleRowDragOver("default", e)}
-            onDragLeave={() => spring.leave("default")}
+            onDragLeave={(e) => onRowDragLeave("default", e)}
             onDrop={(e) => void handleRowDrop("default", null, e)}
             className={cn("transition-transform", spring.armed("default") && "scale-[1.02]")}
           >
@@ -219,14 +226,14 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
             >
               <BookOpen className={cn("w-4 h-4 shrink-0", selected === "default" && "text-[var(--color-brand)]")} />
               Default
-              {countBadge(defaultCounts.songs + defaultCounts.media, selected === "default")}
+              {spring.armed("default") ? escHint : countBadge(defaultCounts.songs + defaultCounts.media, selected === "default")}
             </button>
           </li>
           {libs.map((lib) => (
             <li
               key={lib.id}
               onDragOver={(e) => handleRowDragOver(lib.id, e)}
-              onDragLeave={() => spring.leave(lib.id)}
+              onDragLeave={(e) => onRowDragLeave(lib.id, e)}
               onDrop={(e) => void handleRowDrop(lib.id, lib.id, e)}
               className={cn("transition-transform", spring.armed(lib.id) && "scale-[1.02]")}
             >
@@ -246,47 +253,66 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
               ) : (
                 <ContextMenu.Root>
                   <ContextMenu.Trigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => select(lib.id)}
-                      onDoubleClick={() => { setRenameDraft(lib.name); setRenamingId(lib.id); }}
-                      title={`${lib.name} — ${lib.songCount} song${lib.songCount === 1 ? "" : "s"}, ${lib.mediaCount} media (right-click for options)`}
-                      className={cn(rowCls(selected === lib.id), spring.armed(lib.id) && "ring-1 ring-inset ring-[var(--color-brand)] bg-[var(--color-brand)]/15")}
-                    >
-                      {lib.color ? (
-                        <span className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-inset ring-black/20" style={{ background: lib.color }} aria-hidden />
-                      ) : (
-                        <LibraryIcon className={cn("w-4 h-4 shrink-0", selected === lib.id && "text-[var(--color-brand)]")} />
-                      )}
-                      <span className="truncate">{lib.name}</span>
-                      {countBadge(lib.songCount + lib.mediaCount, selected === lib.id)}
-                    </button>
+                    <div className={cn("group/librow flex items-center", spring.armed(lib.id) && "rounded-r-md ring-1 ring-inset ring-[var(--color-brand)] bg-[var(--color-brand)]/15")}>
+                      <button
+                        type="button"
+                        onClick={() => select(lib.id)}
+                        onDoubleClick={() => { setRenameDraft(lib.name); setRenamingId(lib.id); }}
+                        title={`${lib.name} — ${lib.songCount} song${lib.songCount === 1 ? "" : "s"}, ${lib.mediaCount} media (right-click or ⋮ for options)`}
+                        className={cn("min-w-0 flex-1", rowCls(selected === lib.id), spring.armed(lib.id) && "border-transparent bg-transparent")}
+                      >
+                        {lib.color ? (
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-inset ring-black/20" style={{ background: lib.color }} aria-hidden />
+                        ) : (
+                          <LibraryIcon className={cn("w-4 h-4 shrink-0", selected === lib.id && "text-[var(--color-brand)]")} />
+                        )}
+                        <span className="truncate">{lib.name}</span>
+                        {spring.armed(lib.id) ? escHint : countBadge(lib.songCount + lib.mediaCount, selected === lib.id)}
+                      </button>
+                      {/* Kebab — same actions as right-click, discoverable for
+                          touch / Windows users (Wave 3, item 4). */}
+                      <DropdownMenu.Root>
+                        <DropdownMenu.Trigger asChild>
+                          <button
+                            type="button"
+                            aria-label={`${lib.name} options`}
+                            title="Library options (rename, change color, delete)"
+                            className="mr-1 flex items-center justify-center w-7 h-7 shrink-0 rounded text-[var(--color-muted-foreground)] opacity-70 hover:opacity-100 hover:bg-[var(--color-brand)]/12 hover:text-[var(--color-foreground)]"
+                          >
+                            <MoreVertical className="w-3.5 h-3.5" />
+                          </button>
+                        </DropdownMenu.Trigger>
+                        <DropdownMenu.Portal>
+                          <DropdownMenu.Content align="end" sideOffset={4} className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[150px]">
+                            <DropdownMenu.Item onSelect={() => { setRenameDraft(lib.name); setRenamingId(lib.id); }} className="px-3 py-1.5 min-h-[28px] flex items-center rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">Rename</DropdownMenu.Item>
+                            <DropdownMenu.Sub>
+                              <DropdownMenu.SubTrigger className="px-3 py-1.5 min-h-[28px] rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between data-[state=open]:bg-[var(--color-panel)]"><span>Change color</span><ChevronRight className="w-3.5 h-3.5 opacity-60" /></DropdownMenu.SubTrigger>
+                              <DropdownMenu.Portal>
+                                <DropdownMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[160px]">
+                                  <ColorSwatchItems menu={DropdownMenu} current={lib.color} onPick={(v) => void recolor(lib.id, v)} includeNoLabel />
+                                </DropdownMenu.SubContent>
+                              </DropdownMenu.Portal>
+                            </DropdownMenu.Sub>
+                            <DropdownMenu.Separator className="h-px my-1 bg-[var(--color-border)]" />
+                            <DropdownMenu.Item onSelect={() => void remove(lib)} className="px-3 py-1.5 min-h-[28px] flex items-center rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer text-[var(--color-destructive)]">Delete</DropdownMenu.Item>
+                          </DropdownMenu.Content>
+                        </DropdownMenu.Portal>
+                      </DropdownMenu.Root>
+                    </div>
                   </ContextMenu.Trigger>
                   <ContextMenu.Portal>
                     <ContextMenu.Content className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[140px]">
-                      <ContextMenu.Item onSelect={() => { setRenameDraft(lib.name); setRenamingId(lib.id); }} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">Rename</ContextMenu.Item>
+                      <ContextMenu.Item onSelect={() => { setRenameDraft(lib.name); setRenamingId(lib.id); }} className="px-3 py-1.5 min-h-[28px] flex items-center rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">Rename</ContextMenu.Item>
                       <ContextMenu.Sub>
-                        <ContextMenu.SubTrigger className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between data-[state=open]:bg-[var(--color-panel)]"><span>Change color</span><span className="opacity-60">▸</span></ContextMenu.SubTrigger>
+                        <ContextMenu.SubTrigger className="px-3 py-1.5 min-h-[28px] rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between data-[state=open]:bg-[var(--color-panel)]"><span>Change color</span><ChevronRight className="w-3.5 h-3.5 opacity-60" /></ContextMenu.SubTrigger>
                         <ContextMenu.Portal>
                           <ContextMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[160px]">
-                            {SECTION_COLORS.map((c) => (
-                              <ContextMenu.Item key={c.value} onSelect={() => void recolor(lib.id, c.value)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center gap-2">
-                                <span className="w-3 h-3 rounded-full shrink-0" style={{ background: c.value }} />
-                                <span>{c.name}</span>
-                                {(lib.color ?? "").toLowerCase() === c.value.toLowerCase() && <span className="ml-auto text-[var(--color-brand)]">✓</span>}
-                              </ContextMenu.Item>
-                            ))}
-                            <ContextMenu.Separator className="h-px my-1 bg-[var(--color-border)]" />
-                            <ContextMenu.Item onSelect={() => void recolor(lib.id, null)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center gap-2">
-                              <span className="w-3 h-3 rounded-full shrink-0 border border-[var(--color-border)]" />
-                              <span>No label</span>
-                              {!lib.color && <span className="ml-auto text-[var(--color-brand)]">✓</span>}
-                            </ContextMenu.Item>
+                            <ColorSwatchItems menu={ContextMenu} current={lib.color} onPick={(v) => void recolor(lib.id, v)} includeNoLabel />
                           </ContextMenu.SubContent>
                         </ContextMenu.Portal>
                       </ContextMenu.Sub>
                       <ContextMenu.Separator className="h-px my-1 bg-[var(--color-border)]" />
-                      <ContextMenu.Item onSelect={() => void remove(lib)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer text-[var(--color-destructive)]">Delete</ContextMenu.Item>
+                      <ContextMenu.Item onSelect={() => void remove(lib)} className="px-3 py-1.5 min-h-[28px] flex items-center rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer text-[var(--color-destructive)]">Delete</ContextMenu.Item>
                     </ContextMenu.Content>
                   </ContextMenu.Portal>
                 </ContextMenu.Root>

@@ -6,9 +6,10 @@ import * as Popover from "@radix-ui/react-popover";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
-import { SECTION_COLORS, DEFAULT_HEADER_COLOR } from "./sectionColors";
+import { DEFAULT_HEADER_COLOR } from "./sectionColors";
+import { ColorSwatchItems } from "./ColorSwatchMenu";
 import { useSpringLoad } from "./useSpringLoad";
-import { classifyDrop } from "@/lib/spring-load";
+import { classifyDrop, isRealDragLeave } from "@/lib/spring-load";
 import {
   DndContext,
   PointerSensor,
@@ -44,9 +45,9 @@ import type { OperatorShellCtx } from "../../shell/types";
 import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong, createSongSlide, deleteSongSlide, setServiceItemTheme, renameSong, renameServiceItem, applyThemeToSong, revertSongTheme, renameMediaAsset, addPlaylistHeader, setHeaderColor } from "@/lib/actions";
 import { useSlideClipboard, getSlideClipboard } from "@/lib/slide-clipboard";
 
-// ProPresenter service-section taxonomy (Ch 13). Palette + default now live in
-// sectionColors.ts (shared with the Library-label recolor menu, Wave 3).
-const HEADER_COLORS = SECTION_COLORS;
+// ProPresenter service-section taxonomy (Ch 13). Palette + default live in
+// sectionColors.ts; the swatch rows themselves are the shared ColorSwatchItems
+// (dedup with the Library-label recolor menu, Wave 3).
 
 function itemIcon(type: string) {
   if (type === "song") return Music;
@@ -142,6 +143,13 @@ function SortableHeaderRow({
                 <span className="truncate">{item.title}</span>
               </button>
             )}
+            {/* Mid-drag discoverability: while this section is armed for a drop,
+                show a subtle "Esc to cancel" caption (tokens, no emoji). */}
+            {armed && (
+              <span className="mr-1 shrink-0 text-[9px] font-semibold uppercase tracking-wide text-[var(--color-brand)]/80" aria-hidden>
+                Esc to cancel
+              </span>
+            )}
             {/* Kebab affordance — same actions as right-click, discoverable for
                 touch / Windows users (Wave 3, item 2). */}
             <DropdownMenu.Root>
@@ -161,16 +169,10 @@ function SortableHeaderRow({
                 <DropdownMenu.Content align="end" sideOffset={4} className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[150px]">
                   <DropdownMenu.Item onSelect={() => { setDraft(item.title); setRenaming(true); }} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">Rename</DropdownMenu.Item>
                   <DropdownMenu.Sub>
-                    <DropdownMenu.SubTrigger className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between data-[state=open]:bg-[var(--color-panel)]"><span>Change color</span><span className="opacity-60">▸</span></DropdownMenu.SubTrigger>
+                    <DropdownMenu.SubTrigger className="px-3 py-1.5 min-h-[28px] rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between data-[state=open]:bg-[var(--color-panel)]"><span>Change color</span><ChevronRight className="w-3.5 h-3.5 opacity-60" /></DropdownMenu.SubTrigger>
                     <DropdownMenu.Portal>
                       <DropdownMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[160px]">
-                        {HEADER_COLORS.map((c) => (
-                          <DropdownMenu.Item key={c.value} onSelect={() => onRecolor(c.value)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center gap-2">
-                            <span className="w-3 h-3 rounded-full shrink-0" style={{ background: c.value }} />
-                            <span>{c.name}</span>
-                            {color.toLowerCase() === c.value.toLowerCase() && <span className="ml-auto text-[var(--color-brand)]">✓</span>}
-                          </DropdownMenu.Item>
-                        ))}
+                        <ColorSwatchItems menu={DropdownMenu} current={color} onPick={(v) => { if (v) onRecolor(v); }} />
                       </DropdownMenu.SubContent>
                     </DropdownMenu.Portal>
                   </DropdownMenu.Sub>
@@ -188,16 +190,10 @@ function SortableHeaderRow({
           <ContextMenu.Content className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[150px]">
             <ContextMenu.Item onSelect={() => { setDraft(item.title); setRenaming(true); }} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">Rename</ContextMenu.Item>
             <ContextMenu.Sub>
-              <ContextMenu.SubTrigger className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between data-[state=open]:bg-[var(--color-panel)]"><span>Change color</span><span className="opacity-60">▸</span></ContextMenu.SubTrigger>
+              <ContextMenu.SubTrigger className="px-3 py-1.5 min-h-[28px] rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between data-[state=open]:bg-[var(--color-panel)]"><span>Change color</span><ChevronRight className="w-3.5 h-3.5 opacity-60" /></ContextMenu.SubTrigger>
               <ContextMenu.Portal>
                 <ContextMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[160px]">
-                  {HEADER_COLORS.map((c) => (
-                    <ContextMenu.Item key={c.value} onSelect={() => onRecolor(c.value)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center gap-2">
-                      <span className="w-3 h-3 rounded-full shrink-0" style={{ background: c.value }} />
-                      <span>{c.name}</span>
-                      {color.toLowerCase() === c.value.toLowerCase() && <span className="ml-auto text-[var(--color-brand)]">✓</span>}
-                    </ContextMenu.Item>
-                  ))}
+                  <ColorSwatchItems menu={ContextMenu} current={color} onPick={(v) => { if (v) onRecolor(v); }} />
                 </ContextMenu.SubContent>
               </ContextMenu.Portal>
             </ContextMenu.Sub>
@@ -1008,12 +1004,11 @@ export function PlaylistSection({
     const handled = await addDroppedLibraryItem(e.dataTransfer, headerIdx + 1);
     if (handled) toast.success("Added to section");
   };
-  // Escape cancels an in-flight section spring-arm.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") headerSpring.reset(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [headerSpring]);
+  // Escape-to-cancel is owned by useSpringLoad (one stable listener). A
+  // dragleave onto a CHILD of the header is guarded so it doesn't reset dwell.
+  const handleSectionDragLeave = (headerId: string, e: React.DragEvent<HTMLElement>) => {
+    if (isRealDragLeave(e.currentTarget, e.relatedTarget)) headerSpring.leave(headerId);
+  };
 
   // ── Render ─────────────────────────────────────────────────────────────────
   const itemIds = items.map((it, i) => it.id ?? `item-${i}`);
@@ -1105,7 +1100,7 @@ export function PlaylistSection({
                     onRecolor={(color) => it.id && void recolorHeader(it.id, color)}
                     armed={headerSpring.armed(it.id ?? `item-${idx}`)}
                     onSectionDragOver={(e) => handleSectionDragOver(it.id ?? `item-${idx}`, e)}
-                    onSectionDragLeave={() => headerSpring.leave(it.id ?? `item-${idx}`)}
+                    onSectionDragLeave={(e) => handleSectionDragLeave(it.id ?? `item-${idx}`, e)}
                     onSectionDrop={(e) => void handleSectionDrop(idx, it.id ?? `item-${idx}`, e)}
                   />
                 ) : (
