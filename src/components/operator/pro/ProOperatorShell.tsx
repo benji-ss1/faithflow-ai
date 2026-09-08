@@ -2497,7 +2497,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // never re-creates the interval. The legacy timer (slot "default") is
   // untouched by this effect — the two coexist on the wire by id.
   const shownTimerIdsRef = useRef<Set<string>>(new Set());
-  const shownTimerKey = timers.slots.filter((s) => s.shown).map((s) => `${s.def.id}:${s.position}`).join(",");
+  const shownTimerKey = timers.slots.filter((s) => s.shown).map((s) => `${s.def.id}:${s.position}:${s.scale}`).join(",");
   useEffect(() => {
     const ch = overlayChRef.current;
     if (!ch) return;
@@ -2517,6 +2517,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
             kind: s.def.type === "elapsed" ? "elapsed" : "countdown",
             position: s.position,
             overrun: s.overrun,
+            scale: s.scale,
           },
         });
       }

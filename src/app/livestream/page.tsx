@@ -515,16 +515,19 @@ export default function LivestreamPage() {
           ))}
         </div>
       )}
-      {timerOverlay && mode === "full" && (
-        <div className="absolute top-[6%] right-[6%] pointer-events-none">
-          <div className="bg-black/70 backdrop-blur-sm px-6 py-3 rounded-md border" style={{ borderColor: timerOverlay.remainingSec < 0 ? "#ef4444" : "var(--color-brand, #06b6d4)" }}>
-            {timerOverlay.name && <div className="text-white/70 text-xs uppercase tracking-wider mb-1">{timerOverlay.name}</div>}
-            <div className={`text-white text-3xl md:text-5xl font-mono font-bold tabular-nums leading-none ${timerOverlay.remainingSec < 0 ? "text-red-400" : ""}`}>
-              {(() => { const n = timerOverlay.remainingSec < 0; const a = Math.abs(Math.round(timerOverlay.remainingSec)); const m = Math.floor(a / 60); const s = a % 60; return `${n ? "-" : ""}${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`; })()}
+      {timerOverlay && mode === "full" && (() => {
+        const over = timerOverlay.remainingSec < 0;
+        const color = over ? "#f87171" : "#ffffff";
+        const n = over; const a = Math.abs(Math.round(timerOverlay.remainingSec)); const m = Math.floor(a / 60); const s = a % 60;
+        return (
+          <div className="absolute top-[6%] right-[6%] pointer-events-none flex flex-col items-end leading-none">
+            {timerOverlay.name && <div className="uppercase tracking-[0.15em] font-semibold" style={{ color, opacity: 0.75, fontSize: "1.4vw", textShadow: "0 2px 10px rgba(0,0,0,0.6)" }}>{timerOverlay.name}</div>}
+            <div className="font-mono font-bold tabular-nums" style={{ color, fontSize: "7vw", textShadow: "0 4px 18px rgba(0,0,0,0.65)", lineHeight: 1 }}>
+              {`${n ? "-" : ""}${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`}
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* NB: hidden in transparent (OBS-key) mode — like the pair/disconnect
           badges below — so this help pill never flashes onto the live stream

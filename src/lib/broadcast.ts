@@ -461,7 +461,10 @@ export type TimerOverlay =
   // slot (rendered under the reserved key "default"), so old operators/projectors
   // behave EXACTLY as before. `overrun` is an optional pre-computed flag; a
   // renderer can also derive it from `remainingSec < 0` (kept for old wires).
-  | { id?: string; name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed"; position?: OverlayPosition; overrun?: boolean; clear?: false }
+  // `scale` (Wave 7) is the operator's size multiplier for the clean numeric
+  // timer (1 = default). `color` overrides the number colour. Renderers draw the
+  // timer as plain big numbers (no box/border) so it reads like a real stage clock.
+  | { id?: string; name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed"; position?: OverlayPosition; overrun?: boolean; scale?: number; color?: string; clear?: false }
   // `{clear:true}` (no id) clears the legacy slot; `{clear:true, id}` clears one
   // named timer without disturbing the others.
   | { clear: true; id?: string };
@@ -568,6 +571,8 @@ export function isValidTimerOverlay(overlay: unknown): overlay is TimerOverlay {
   if (o.kind !== "countdown" && o.kind !== "elapsed") return false;
   if (o.name != null && (typeof o.name !== "string" || o.name.length > 120)) return false;
   if (o.overrun !== undefined && typeof o.overrun !== "boolean") return false;
+  if (o.scale !== undefined && (typeof o.scale !== "number" || !Number.isFinite(o.scale) || o.scale < 0.25 || o.scale > 8)) return false;
+  if (o.color !== undefined && !isValidColor(o.color)) return false;
   if (!isValidOverlayPosition(o.position)) return false;
   return true;
 }

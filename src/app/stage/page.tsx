@@ -56,7 +56,7 @@ export default function StagePage() {
   const [timerOverlay, setTimerOverlay] = useState<{ name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed" } | null>(null);
   // Wave 7: named (keyed) timers — the confidence-monitor use case (worship /
   // sermon countdowns visible to the platform). Ride alongside the legacy slot.
-  type StageTimer = { id: string; name?: string; remainingSec: number; running: boolean; overrun?: boolean };
+  type StageTimer = { id: string; name?: string; remainingSec: number; running: boolean; overrun?: boolean; scale?: number; color?: string };
   const [namedTimers, setNamedTimers] = useState<Record<string, StageTimer>>({});
   const namedTimerAtRef = useRef<Record<string, number>>({});
   const [connected, setConnected] = useState(false);
@@ -172,7 +172,7 @@ export default function StagePage() {
               setNamedTimers((m) => { const n = { ...m }; delete n[oid]; return n; });
               delete namedTimerAtRef.current[oid];
             } else if ("remainingSec" in ov) {
-              setNamedTimers((m) => ({ ...m, [oid]: { id: oid, name: ov.name, remainingSec: ov.remainingSec, running: ov.running, overrun: ov.overrun } }));
+              setNamedTimers((m) => ({ ...m, [oid]: { id: oid, name: ov.name, remainingSec: ov.remainingSec, running: ov.running, overrun: ov.overrun, scale: ov.scale, color: ov.color } }));
               namedTimerAtRef.current[oid] = Date.now();
             }
           } else if ("clear" in ov && ov.clear) setTimerOverlay(null);
@@ -359,17 +359,23 @@ export default function StagePage() {
                 </span>
               </div>
             )}
-            {/* Wave 7: named timers — each its own chip (worship / sermon). */}
-            {Object.values(namedTimers).map((t) => (
-              <div key={t.id} className="flex items-center gap-2 bg-white/[0.06] border border-white/10 rounded-xl px-3 py-1.5 backdrop-blur-sm">
-                <span className="text-[9px] font-mono uppercase tracking-widest text-white/40">
-                  {t.name || "Timer"}{!t.running ? " (paused)" : ""}
-                </span>
-                <span className={`text-3xl font-mono font-light tabular-nums ${t.remainingSec < 0 ? "text-red-400" : "text-white/85"}`}>
-                  {formatStageTimer(t.remainingSec)}
-                </span>
-              </div>
-            ))}
+            {/* Wave 7: named timers — clean big numbers (no box/border), sized by
+                the operator's scale control. */}
+            {Object.values(namedTimers).map((t) => {
+              const scale = t.scale ?? 1;
+              const over = t.remainingSec < 0;
+              const color = t.color ?? (over ? "#f87171" : "rgba(255,255,255,0.9)");
+              return (
+                <div key={t.id} className="flex flex-col items-end leading-none">
+                  <span className="font-mono uppercase tracking-widest" style={{ color, opacity: 0.5, fontSize: `${0.9 * scale}vw` }}>
+                    {t.name || "Timer"}{!t.running ? " (paused)" : ""}
+                  </span>
+                  <span className="font-mono font-light tabular-nums" style={{ color, fontSize: `${4.5 * scale}vw`, lineHeight: 1, textShadow: "0 2px 12px rgba(0,0,0,0.5)" }}>
+                    {formatStageTimer(t.remainingSec)}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         )}
         {/* Decoupling Phase 1: shared OutputCompositor. mode="stage" encodes the

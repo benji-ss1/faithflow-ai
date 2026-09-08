@@ -140,6 +140,7 @@ export type TimerSlot = {
   overrun: boolean;
   shown: boolean;
   position: OverlayPosition;
+  scale: number; // operator size multiplier (1 = default)
 };
 
 export type TimersApi = {
@@ -152,9 +153,10 @@ export type TimersApi = {
   command: (id: string, cmd: TimerCommand) => void;
   toggleShown: (id: string) => void;
   setPosition: (id: string, p: OverlayPosition) => void;
+  setScale: (id: string, scale: number) => void;
 };
 
-type RuntimeMeta = { shown: boolean; position: OverlayPosition };
+type RuntimeMeta = { shown: boolean; position: OverlayPosition; scale: number };
 
 export function useTimersSession(): TimersApi {
   const [defs, setDefs] = useState<Array<{ id: string; name: string; type: string; durationSec: number; targetClock: string | null }>>([]);
@@ -182,7 +184,10 @@ export function useTimersSession(): TimersApi {
       if (raw) {
         const p = JSON.parse(raw) as Record<string, { position?: unknown }>;
         const restored: Record<string, RuntimeMeta> = {};
-        for (const k of Object.keys(p)) restored[k] = { shown: false, position: sanitizePosition(p[k]?.position, "top-right") };
+        for (const k of Object.keys(p)) {
+          const sc = Number((p[k] as { scale?: unknown })?.scale);
+          restored[k] = { shown: false, position: sanitizePosition(p[k]?.position, "top-right"), scale: Number.isFinite(sc) && sc >= 0.25 && sc <= 8 ? sc : 1 };
+        }
         setMeta(restored);
       }
     } catch { /* noop */ }
@@ -198,11 +203,11 @@ export function useTimersSession(): TimersApi {
 
   const setMetaFor = useCallback((id: string, patch: Partial<RuntimeMeta>) => {
     setMeta((m) => {
-      const prev = m[id] ?? { shown: false, position: "top-right" as OverlayPosition };
+      const prev = m[id] ?? { shown: false, position: "top-right" as OverlayPosition, scale: 1 };
       const next = { ...m, [id]: { ...prev, ...patch } };
       try {
-        const persist: Record<string, { position: OverlayPosition }> = {};
-        for (const k of Object.keys(next)) persist[k] = { position: next[k].position };
+        const persist: Record<string, { position: OverlayPosition; scale: number }> = {};
+        for (const k of Object.keys(next)) persist[k] = { position: next[k].position, scale: next[k].scale };
         window.localStorage.setItem(TIMERS_RUNTIME_KEY, JSON.stringify(persist));
       } catch { /* noop */ }
       return next;
@@ -220,6 +225,7 @@ export function useTimersSession(): TimersApi {
 
   const toggleShown = useCallback((id: string) => setMetaFor(id, { shown: !(meta[id]?.shown ?? false) }), [meta, setMetaFor]);
   const setPosition = useCallback((id: string, p: OverlayPosition) => setMetaFor(id, { position: p }), [setMetaFor]);
+  const setScale = useCallback((id: string, scale: number) => setMetaFor(id, { scale: Math.max(0.25, Math.min(8, scale)) }), [setMetaFor]);
 
   const addTimer = useCallback(async (input: TimerDefInput) => {
     const res = await createTimerDefinition(input);
@@ -248,10 +254,11 @@ export function useTimersSession(): TimersApi {
       overrun: isOverrun(def, runtime, nowMs),
       shown: meta[d.id]?.shown ?? false,
       position: meta[d.id]?.position ?? "top-right",
+      scale: meta[d.id]?.scale ?? 1,
     };
   }), [defs, runtimes, meta, nowMs]);
 
-  return { slots, loading, refresh, addTimer, editTimer, removeTimer, command, toggleShown, setPosition };
+  return { slots, loading, refresh, addTimer, editTimer, removeTimer, command, toggleShown, setPosition, setScale };
 }
 
 /** Map a stored def row to the engine's TimerDefinition (resolving targetClock). */

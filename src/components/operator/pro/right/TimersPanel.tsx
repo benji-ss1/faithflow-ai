@@ -189,13 +189,27 @@ function SlotRow({ slot, timers }: { slot: TimerSlot; timers: TimersApi }) {
             </button>
           </div>
           {slot.shown && (
-            <select
-              value={slot.position}
-              onChange={(e) => timers.setPosition(slot.def.id, e.target.value as OverlayPosition)}
-              className="h-7 px-2 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded text-[11px]"
-            >
-              {OVERLAY_POSITIONS.map((p) => <option key={p} value={p}>{POSITION_LABELS[p]}</option>)}
-            </select>
+            <>
+              <select
+                value={slot.position}
+                onChange={(e) => timers.setPosition(slot.def.id, e.target.value as OverlayPosition)}
+                className="h-7 px-2 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded text-[11px]"
+              >
+                {OVERLAY_POSITIONS.map((p) => <option key={p} value={p}>{POSITION_LABELS[p]}</option>)}
+              </select>
+              {/* Size control — the operator's "make it bigger" ask. Slider from
+                  0.5× to 5×; the number renders as clean big digits on outputs. */}
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-[var(--color-muted-foreground)] w-8">Size</span>
+                <input
+                  type="range" min={0.5} max={5} step={0.25}
+                  value={slot.scale}
+                  onChange={(e) => timers.setScale(slot.def.id, Number(e.target.value))}
+                  className="flex-1"
+                />
+                <span className="text-[10px] font-mono tabular-nums w-8 text-right">{slot.scale.toFixed(2)}×</span>
+              </div>
+            </>
           )}
         </>
       )}

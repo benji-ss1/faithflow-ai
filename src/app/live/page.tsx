@@ -103,7 +103,7 @@ export default function LivePage() {
   // stop (operator window closed/crashed) we sweep the stale timer off screen.
   const lastTimerMsgAt = useRef<number>(0);
   // Wave 7: named (keyed) timers ride alongside the legacy default slot above.
-  type TimerItem = { id: string; name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed"; position?: OverlayPosition; overrun?: boolean };
+  type TimerItem = { id: string; name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed"; position?: OverlayPosition; overrun?: boolean; scale?: number; color?: string };
   const [namedTimers, setNamedTimers] = useState<Record<string, TimerItem>>({});
   const namedTimerAtRef = useRef<Record<string, number>>({});
   // Wave 7: extra simultaneous messages (keyed) ride alongside the legacy one.
@@ -279,7 +279,7 @@ export default function LivePage() {
               setNamedTimers((m) => { const n = { ...m }; delete n[oid]; return n; });
               delete namedTimerAtRef.current[oid];
             } else if ("remainingSec" in ov) {
-              setNamedTimers((m) => ({ ...m, [oid]: { id: oid, name: ov.name, remainingSec: ov.remainingSec, running: ov.running, kind: ov.kind, position: ov.position, overrun: ov.overrun } }));
+              setNamedTimers((m) => ({ ...m, [oid]: { id: oid, name: ov.name, remainingSec: ov.remainingSec, running: ov.running, kind: ov.kind, position: ov.position, overrun: ov.overrun, scale: ov.scale, color: ov.color } }));
               namedTimerAtRef.current[oid] = Date.now();
             }
           } else if ("clear" in ov && ov.clear) setTimerOverlay(null);
@@ -588,39 +588,43 @@ export default function LivePage() {
           {/* z-order: slide < timer (z-20) < message (z-30). Corner/lower-third
               placement keeps overlays off the slide text unless the operator
               explicitly picks "center". */}
-          {timerOverlay && (
-            <div className={`${overlayPosClass(timerOverlay.position ?? "top-right")} pointer-events-none z-20`}>
-              <div
-                className="inline-block bg-black/70 backdrop-blur-sm px-6 py-3 rounded-md border"
-                style={{ borderColor: timerOverlay.remainingSec < 0 ? "#ef4444" : "var(--color-brand, #06b6d4)" }}
-              >
+          {timerOverlay && (() => {
+            const pos = timerOverlay.position ?? "top-right";
+            const over = timerOverlay.remainingSec < 0;
+            const color = over ? "#f87171" : "#ffffff";
+            return (
+              <div className={`${overlayPosClass(pos)} pointer-events-none z-20 flex flex-col leading-none`} style={{ alignItems: pos.includes("right") ? "flex-end" : pos === "center" ? "center" : "flex-start" }}>
                 {timerOverlay.name && (
-                  <div className="text-white/70 text-xs uppercase tracking-wider mb-1">{timerOverlay.name}</div>
+                  <div className="uppercase tracking-[0.15em] font-semibold" style={{ color, opacity: 0.75, fontSize: "1.4vw", textShadow: "0 2px 10px rgba(0,0,0,0.6)" }}>{timerOverlay.name}</div>
                 )}
-                <div
-                  className={`text-white text-3xl md:text-5xl font-mono font-bold tabular-nums leading-none ${timerOverlay.remainingSec < 0 ? "text-red-400" : ""}`}
-                >
+                <div className="font-mono font-bold tabular-nums" style={{ color, fontSize: "7vw", textShadow: "0 4px 18px rgba(0,0,0,0.65)", lineHeight: 1 }}>
                   {formatTimerMMSS(timerOverlay.remainingSec)}
                 </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
           {/* Wave 7: named timers, grouped per position so multiple in one
               corner stack instead of overlapping. */}
           {Object.values(namedTimers).length > 0 && (() => {
             const groups: Record<string, TimerItem[]> = {};
             for (const t of Object.values(namedTimers)) { const p = t.position ?? "top-right"; (groups[p] ??= []).push(t); }
             return Object.entries(groups).map(([pos, items]) => (
-              <div key={pos} className={`${overlayPosClass(pos as OverlayPosition)} pointer-events-none z-20 flex flex-col gap-2`}>
-                {items.map((t) => (
-                  <div key={t.id} className="inline-block bg-black/70 backdrop-blur-sm px-6 py-3 rounded-md border"
-                    style={{ borderColor: t.remainingSec < 0 ? "#ef4444" : "var(--color-brand, #06b6d4)" }}>
-                    {t.name && <div className="text-white/70 text-xs uppercase tracking-wider mb-1">{t.name}</div>}
-                    <div className={`text-white text-3xl md:text-5xl font-mono font-bold tabular-nums leading-none ${t.remainingSec < 0 ? "text-red-400" : ""}`}>
-                      {formatTimerMMSS(t.remainingSec)}
+              <div key={pos} className={`${overlayPosClass(pos as OverlayPosition)} pointer-events-none z-20 flex flex-col gap-4`}>
+                {items.map((t) => {
+                  const scale = t.scale ?? 1;
+                  const over = t.remainingSec < 0;
+                  const color = t.color ?? (over ? "#f87171" : "#ffffff");
+                  return (
+                    <div key={t.id} className="flex flex-col leading-none" style={{ alignItems: pos.includes("right") ? "flex-end" : pos === "center" ? "center" : "flex-start" }}>
+                      {t.name && (
+                        <div className="uppercase tracking-[0.15em] font-semibold" style={{ color, opacity: 0.75, fontSize: `${1.4 * scale}vw`, textShadow: "0 2px 10px rgba(0,0,0,0.6)" }}>{t.name}</div>
+                      )}
+                      <div className="font-mono font-bold tabular-nums" style={{ color, fontSize: `${7 * scale}vw`, textShadow: "0 4px 18px rgba(0,0,0,0.65)", lineHeight: 1 }}>
+                        {formatTimerMMSS(t.remainingSec)}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ));
           })()}
