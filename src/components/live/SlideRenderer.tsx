@@ -284,7 +284,13 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
               // paginated verse would strand page 2+. Shrink the WHOLE verse to the
               // band instead. (The chunker splits genuinely-long verses upstream.)
               disablePagination
-              fontScale={fontScale}
+              // The band "Text size" (vScale) must MULTIPLY the fitted verse, not
+              // merely raise maxPx: a normal verse fits its box well below the 150px
+              // cap, so raising the cap alone is a no-op (field bug 2026-09-08). The
+              // real size lever is AutoFitText's fontScale prop (shown = best*scale),
+              // so fold vScale in there (× any incoming projector fontScale). maxPx
+              // stays scaled so a scaled-up verse isn't clamped by the ceiling.
+              fontScale={(fontScale && fontScale > 0 ? fontScale : 1) * vScale}
               className="font-display font-semibold"
               textStyle={{
                 ...themeTextStyle(appearance),

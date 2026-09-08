@@ -141,5 +141,24 @@ test("lower-third vs fullscreen same verse → different identity", () => {
   assert.notEqual(slideOutputIdentity(ltP), slideOutputIdentity(fsP));
 });
 
+console.log("band Text-size (fontScale) — the wire lever the renderer scales the verse by:");
+test("fontScale carried verbatim onto the wire (default = 1)", () => {
+  const w = bandWireFromDesign(lt({ mode: "solid", color: "#000000", fontScale: 1 }))!;
+  assert.equal(w.fontScale, 1);
+});
+test("a bigger Text-size (148%) carries 1.48 through — not swallowed", () => {
+  const w = bandWireFromDesign(lt({ mode: "solid", color: "#000000", fontScale: 1.48 }))!;
+  assert.equal(w.fontScale, 1.48);
+});
+test("fontScale travels even on a transparent 'none' band (geometry always carried)", () => {
+  const w = bandWireFromDesign(lt({ mode: "none", fontScale: 0.6 }))!;
+  assert.equal(w.fontScale, 0.6);
+});
+test("a fontScale edit changes slide identity (Text-size drag transitions)", () => {
+  const a = scriptureLowerThirdPayload("v", "John 3:16", "KJV", lt({ fontScale: 1 }));
+  const b = scriptureLowerThirdPayload("v", "John 3:16", "KJV", lt({ fontScale: 1.48 }));
+  assert.notEqual(slideOutputIdentity(a), slideOutputIdentity(b));
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);
