@@ -30,6 +30,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   ChevronDown,
   ChevronRight,
+  Check,
   Plus,
   Music,
   BookOpen,
@@ -481,7 +482,7 @@ function SortablePlaylistItem({
             {onSetTheme && themes.length > 0 && (
               <ContextMenu.Sub>
                 <ContextMenu.SubTrigger className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between data-[state=open]:bg-[var(--color-panel)]">
-                  <span>Section theme</span><span className="opacity-60">▸</span>
+                  <span>Section theme</span><ChevronRight className="w-3.5 h-3.5 opacity-60" />
                 </ContextMenu.SubTrigger>
                 <ContextMenu.Portal>
                   <ContextMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[160px] max-h-[300px] overflow-y-auto">
@@ -489,7 +490,7 @@ function SortablePlaylistItem({
                       onSelect={() => onSetTheme(null)}
                       className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between"
                     >
-                      <span>Default (church)</span>{!currentThemeId && <span className="text-[var(--color-brand)]">✓</span>}
+                      <span>Default (church)</span>{!currentThemeId && <Check className="w-3.5 h-3.5 text-[var(--color-brand)]" />}
                     </ContextMenu.Item>
                     <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
                     {themes.map((t) => (
@@ -498,7 +499,7 @@ function SortablePlaylistItem({
                         onSelect={() => onSetTheme(t.id)}
                         className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between"
                       >
-                        <span className="truncate">{t.name}</span>{currentThemeId === t.id && <span className="text-[var(--color-brand)]">✓</span>}
+                        <span className="truncate">{t.name}</span>{currentThemeId === t.id && <Check className="w-3.5 h-3.5 shrink-0 text-[var(--color-brand)]" />}
                       </ContextMenu.Item>
                     ))}
                   </ContextMenu.SubContent>
@@ -508,7 +509,7 @@ function SortablePlaylistItem({
             {onSetArrangement && arrangements.length > 0 && (
               <ContextMenu.Sub>
                 <ContextMenu.SubTrigger className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between data-[state=open]:bg-[var(--color-panel)]">
-                  <span>Arrangement</span><span className="opacity-60">▸</span>
+                  <span>Arrangement</span><ChevronRight className="w-3.5 h-3.5 opacity-60" />
                 </ContextMenu.SubTrigger>
                 <ContextMenu.Portal>
                   <ContextMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[180px] max-h-[300px] overflow-y-auto">
@@ -516,7 +517,7 @@ function SortablePlaylistItem({
                       onSelect={() => onSetArrangement(null)}
                       className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between"
                     >
-                      <span>Master (all sections)</span>{!currentArrangementId && <span className="text-[var(--color-brand)]">✓</span>}
+                      <span>Master (all sections)</span>{!currentArrangementId && <Check className="w-3.5 h-3.5 text-[var(--color-brand)]" />}
                     </ContextMenu.Item>
                     <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
                     {arrangements.map((a) => (
@@ -525,7 +526,7 @@ function SortablePlaylistItem({
                         onSelect={() => onSetArrangement(a.id)}
                         className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between"
                       >
-                        <span className="truncate">{a.name}</span>{currentArrangementId === a.id && <span className="text-[var(--color-brand)]">✓</span>}
+                        <span className="truncate">{a.name}</span>{currentArrangementId === a.id && <Check className="w-3.5 h-3.5 shrink-0 text-[var(--color-brand)]" />}
                       </ContextMenu.Item>
                     ))}
                   </ContextMenu.SubContent>

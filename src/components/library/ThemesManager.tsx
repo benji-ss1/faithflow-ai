@@ -12,6 +12,7 @@ import { buildColorwayFromPalette } from "@/lib/colorway";
 import { ThemeImportDialog } from "@/components/library/ThemeImportDialog";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { loadContentTypeStyles, saveContentTypeStyles, CONTENT_STYLE_TYPES, type ContentStyleType, type ContentTypeStyles } from "@/lib/content-type-styles";
+import { uploadFileToMediaStorage } from "@/lib/media-upload";
 
 // Kept minimal + additive — see `type ThemeConfig` in src/lib/actions.ts for
 // the full sanitised shape. Everything below is optional; the preview + the
@@ -1285,23 +1286,10 @@ function BgAssetPicker({
   async function pickFile(file: File) {
     setUploading(true);
     try {
-      const presign = await fetch("/api/media/presign", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileName: file.name, contentType: file.type, size: file.size, purpose: "media" }),
-      }).then((r) => r.json()) as { url?: string; key?: string; error?: string };
-      if (presign.error) throw new Error(presign.error);
-      if (!presign.url || !presign.key) throw new Error("Presign response missing url or key");
-      const put = await fetch(presign.url, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
-      if (!put.ok) throw new Error("Upload failed");
-      const getResult = await fetch("/api/media/url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: presign.key }),
-      }).then((r) => r.json()) as { url?: string; error?: string };
-      if (getResult.error) throw new Error(getResult.error);
-      if (!getResult.url) throw new Error("Could not get download URL");
-      onUrl(getResult.url);
+      // Shared presign → PUT → signed-URL path (wave-6 fix pass): one upload flow
+      // reused across the Layers logo picker and this Themes bg picker.
+      const downloadUrl = await uploadFileToMediaStorage(file, "media");
+      onUrl(downloadUrl);
       toast.success(`${kind === "image" ? "Image" : "Video"} uploaded`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Upload failed");

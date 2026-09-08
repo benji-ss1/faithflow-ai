@@ -219,13 +219,23 @@ export function MediaBinSection({
     const startY = e.clientY;
     const startH = dragH ?? (poppedOut ? POPPED_H : height);
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    // rAF-gate: pointermove fires far faster than we can paint. Stash the latest
+    // height and flush at most once per frame so we don't queue a setState (and
+    // a full strip+thumbnail re-layout) on every raw move event.
+    let rafId: number | null = null;
+    let pendingH: number | null = null;
+    const flush = () => {
+      rafId = null;
+      if (pendingH !== null) setDragH(pendingH);
+    };
     const onMove = (ev: PointerEvent) => {
-      const next = Math.max(MIN_H, Math.min(MAX_H, Math.round(startH + (startY - ev.clientY))));
-      setDragH(next);
+      pendingH = Math.max(MIN_H, Math.min(MAX_H, Math.round(startH + (startY - ev.clientY))));
+      if (rafId === null) rafId = window.requestAnimationFrame(flush);
     };
     const onUp = (ev: PointerEvent) => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      if (rafId !== null) { window.cancelAnimationFrame(rafId); rafId = null; }
       const finalH = Math.max(MIN_H, Math.min(MAX_H, Math.round(startH + (startY - ev.clientY))));
       setDragH(null);
       onResize?.(finalH);

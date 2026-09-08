@@ -313,13 +313,25 @@ function BackgroundThumb({ bg }: { bg?: BackgroundSpec | null }) {
     // eslint-disable-next-line @next/next/no-img-element
     return <img src={bg.imageUrl} alt="" className={box} />;
   }
-  if (bg.type === "video" && bg.videoUrl) {
-    return <video src={bg.videoUrl} muted playsInline className={box} />;
-  }
   // Shader (or an image/video missing its url): a gradient swatch from the
   // spec's own colours so it still tracks the live look.
   const a = bg.primaryColor || "#0A0A0E";
   const b = bg.secondaryColor || "#1a1a24";
+  if (bg.type === "video" && bg.videoUrl) {
+    // preload="none" so a 5px thumbnail never pulls the full clip; the gradient
+    // swatch (from the spec's colours) shows as a poster-style fallback until/if
+    // the browser paints a frame.
+    return (
+      <video
+        src={bg.videoUrl}
+        muted
+        playsInline
+        preload="none"
+        className={box}
+        style={{ background: `linear-gradient(135deg, ${a}, ${b})` }}
+      />
+    );
+  }
   return (
     <span
       className="block w-5 h-5 rounded-[3px] ring-1 ring-white/15"
