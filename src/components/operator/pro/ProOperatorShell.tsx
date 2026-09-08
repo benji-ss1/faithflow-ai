@@ -1895,8 +1895,20 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       // MORE conservative than a bare kind!=="empty": only a truly idle shell
       // (nothing projected AND not listening) may auto-reload.
       const contentIsLive = liveSlideRef.current?.kind !== "empty" || !!listeningRef.current;
-      const { autoReload } = staleActionRecovery({ contentIsLive });
-      if (autoReload) { window.location.reload(); return true; }
+      // Reload-loop guard: if we already spent our one auto-reload very recently
+      // (a stale SW served the same old chunk back and it re-threw), do NOT
+      // reload again — fall through to the manual banner instead of spinning.
+      let recentlyAutoReloaded = false;
+      try {
+        const at = Number(window.sessionStorage.getItem("pf-stale-autoreload-at"));
+        recentlyAutoReloaded = Number.isFinite(at) && at > 0 && Date.now() - at < 30_000;
+      } catch { /* sessionStorage unavailable → treat as not-recent */ }
+      const { autoReload } = staleActionRecovery({ contentIsLive, recentlyAutoReloaded });
+      if (autoReload) {
+        try { window.sessionStorage.setItem("pf-stale-autoreload-at", String(Date.now())); } catch { /* noop */ }
+        window.location.reload();
+        return true;
+      }
       setStaleUpdate(true); // show the calm banner with a Reload button
       return true;
     };

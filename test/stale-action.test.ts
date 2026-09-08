@@ -51,6 +51,17 @@ check("auto-reloads when nothing is live", () => {
 check("never auto-reloads when content is live", () => {
   assert.deepEqual(staleActionRecovery({ contentIsLive: true }), { autoReload: false });
 });
+// Reload-loop guard (STRESS 3/6): a reload that lands back on a stale chunk
+// (stale service worker) must NOT auto-reload a second time.
+check("suppresses a second auto-reload after one already fired", () => {
+  assert.deepEqual(staleActionRecovery({ contentIsLive: false, recentlyAutoReloaded: true }), { autoReload: false });
+});
+check("still auto-reloads the FIRST time (guard not yet armed)", () => {
+  assert.deepEqual(staleActionRecovery({ contentIsLive: false, recentlyAutoReloaded: false }), { autoReload: true });
+});
+check("live content wins over the loop guard (never reloads either way)", () => {
+  assert.deepEqual(staleActionRecovery({ contentIsLive: true, recentlyAutoReloaded: false }), { autoReload: false });
+});
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

@@ -58,10 +58,23 @@ export function staleErrorMessage(err: unknown): string {
  *
  * If nothing is live on the projector we can safely auto-reload to pick up the
  * new deployment. If content IS live we must NEVER yank the projector — offer a
- * manual Reload button only. Pure so the policy is test-locked.
+ * manual Reload button only.
+ *
+ * Reload-loop guard: PresentFlow has a documented history of a stale service
+ * worker serving old chunks even across a reload. If we auto-reloaded once and
+ * the very next action STILL throws the stale-action class (the reload landed
+ * back on a stale chunk), auto-reloading again would spin an infinite loop.
+ * When `recentlyAutoReloaded` is set the caller has already spent its one free
+ * auto-reload, so we fall through to the manual banner instead — the operator
+ * (and their still-served chunk) is never trapped in a reload cycle.
+ *
+ * Pure so the policy is test-locked.
  */
-export function staleActionRecovery(opts: { contentIsLive: boolean }): {
+export function staleActionRecovery(opts: {
+  contentIsLive: boolean;
+  recentlyAutoReloaded?: boolean;
+}): {
   autoReload: boolean;
 } {
-  return { autoReload: !opts.contentIsLive };
+  return { autoReload: !opts.contentIsLive && !opts.recentlyAutoReloaded };
 }
