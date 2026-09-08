@@ -1862,6 +1862,29 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     /* handled inside the item editor */
   }, []);
 
+  // Wave 3 (item 4b): place a freshly-added service item at a specific index
+  // (a section-header spring-drop wants the row right after the header).
+  // addServiceItem always appends, so we follow up with a reorder. Fail-soft:
+  // any error leaves the item appended (never lost); a null/out-of-range index
+  // is a no-op (plain append behaviour preserved).
+  const repositionNewItem = useCallback(async (newId: string, insertAtIndex?: number) => {
+    if (typeof insertAtIndex !== "number" || !Number.isFinite(insertAtIndex)) return;
+    // Pre-add snapshot ids, real UUIDs only (skip any lingering optimistic rows
+    // and the just-added id itself), in current order.
+    const existingIds = plan.items
+      .map((it) => (it as { id?: string }).id)
+      .filter((x): x is string => typeof x === "string" && !x.startsWith("optimistic-") && x !== newId);
+    const clamped = Math.max(0, Math.min(insertAtIndex, existingIds.length));
+    const orderedIds = [...existingIds.slice(0, clamped), newId, ...existingIds.slice(clamped)];
+    try {
+      const { reorderServiceItems } = await import("@/lib/actions");
+      const r = await reorderServiceItems(plan.id, orderedIds);
+      if (!r.ok) console.warn("[section-drop] reposition failed:", r.error);
+    } catch (e) {
+      console.warn("[section-drop] reposition threw:", e);
+    }
+  }, [plan.id, plan.items]);
+
   const shellCtx: OperatorShellCtx = useMemo(() => ({
     plan,
     previewSlide,
@@ -1970,7 +1993,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     onDeleteSlide, // R2
     onReorderSlidesInItem, // Task C
     // Library → Playlist add (drag or click).
-    onAddLibraryItem: async (kind, ref) => {
+    onAddLibraryItem: async (kind, ref, insertAtIndex) => {
       const payload =
         kind === "song" ? { songId: ref.id } :
         kind === "media" ? { mediaAssetId: ref.id } :
@@ -2045,12 +2068,17 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
         });
         // Focus preview on the newly added item.
         setPreview({ itemIdx: plan.items.length, slideIdx: 0 });
+        // Wave 3 (item 4b): a section-header spring-drop asks for the new row to
+        // sit at a specific index (right after the header). addServiceItem always
+        // appends, so reposition here via a follow-up reorder. Fail-soft: if the
+        // reorder errors the item simply stays appended (never lost).
+        if (res.data?.id) await repositionNewItem(res.data.id, insertAtIndex);
         router.refresh();
       } else {
         toast.error(res.error || "Add failed");
       }
     },
-    onAddMediaGroup: async (title, assetIds) => {
+    onAddMediaGroup: async (title, assetIds, insertAtIndex) => {
       const ids = assetIds.filter((x) => typeof x === "string" && x.length > 0);
       if (ids.length === 0) return;
       const safeTitle = (title || "Images").trim().slice(0, 120) || "Images";
@@ -2085,6 +2113,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
         return { ...prev, items: [...prev.items, newItem] };
       });
       setPreview({ itemIdx: plan.items.length, slideIdx: 0 });
+      if (res.data?.id) await repositionNewItem(res.data.id, insertAtIndex);
       router.refresh();
     },
   }), [
@@ -2096,6 +2125,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     countdownEndsAt, announcement, transitionSpec,
     effectiveBank, currentBankIdx, internetMatches, historyKey,
     // callbacks
+    repositionNewItem,
     setAspectRatio, setFitMode, setAutopilotMode, jumpTo, sendPreview,
     goBlank, goLogo, clearLive, clearSlide, clearMedia, clearLowerThird,
     stageMessage, sendLowerThird, sendMessage, clearMessage, startCountdown, openProjector,
