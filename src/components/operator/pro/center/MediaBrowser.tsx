@@ -383,6 +383,16 @@ export function MediaBrowser({
           asset={{ id: editingImage.id, url: editingImage.url, fileName: editingImage.fileName }}
           ctx={ctx}
           onClose={() => setEditingImage(null)}
+          onAssetReplaced={(a) => {
+            // A "remove flat background" commit created a new transparent asset.
+            // Show it in the grid immediately (optimistic) and retarget editing to
+            // it so subsequent Save/framing persists against the durable new asset.
+            const now = new Date().toISOString();
+            setAssets((prev) => (prev.some((x) => x.id === a.id)
+              ? prev
+              : [{ id: a.id, fileName: a.fileName, kind: "image", sizeBytes: 0, createdAt: now, url: a.url, thumbUrl: a.url }, ...prev]));
+            setEditingImage((prev) => (prev ? { ...prev, id: a.id, url: a.url, fileName: a.fileName } : prev));
+          }}
         />
       )}
 
