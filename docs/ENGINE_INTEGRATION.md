@@ -283,6 +283,13 @@ export function dispatchAction(ctx: OperatorShellCtx, action: EngineAction): voi
 
 **Integration**: ProOperatorShell auto-fire logic can optionally dispatch through `dispatchAction(ctx, { type: "SEND_SLIDE_TO_LIVE", slide, transition })` instead of calling `ctx.onSendSlideToLive` directly. Both paths work.
 
+> **As-built (Wave 5) — the live `dispatchAction` diverges from the sketch above and these are load-bearing contracts:**
+> - It returns `{ handled: boolean, reason? }`, NOT `void`. `handled:false` is always explicit (never a silent no-op): `reason` is `"todo-wired"` (`SET_BACKGROUND_MEDIA`), `"engine-only"` (`TRIGGER_MACRO`/`SET_LOOK`/`TOGGLE_PROP`), `"refused-guard"` (a destructive action fired without confirmation), or `"unknown"`.
+> - It takes a third arg `options: { confirmed?: boolean }`.
+> - `ACTION_BINDINGS` carries a `requiresConfirm: true` flag on the **destructive** actions — `KILL`, `CLEAR_ALL_LAYERS`, `BLANK`. `dispatchAction` REFUSES a guarded action (returns `{ handled:false, reason:"refused-guard" }`, calls nothing) unless `options.confirmed === true`.
+>
+> **HARD PHASE-3 PRECONDITION (macros / timeline / remote / Stream Deck / MIDI):** any surface that replays actions through `dispatchAction` MUST pass `confirmed:true` ONLY after an operator-facing guard equivalent to the UI press-and-HOLD (the LayersPanel Clear-All / Kill hold, or a discrete confirm step). A macro/timeline that fires `KILL`/`CLEAR_ALL_LAYERS`/`BLANK` with a blanket `confirmed:true` and no operator-facing guard is a rule violation — the whole point of the flag is that a stored/remote sequence cannot blank the projector mid-service without a human-equivalent confirm at replay time.
+
 ### Phase 3: Macros (P3) — Week 4-5
 
 **Goal**: ProPresenter-style macros. A macro is a named sequence of `EngineAction[]` that fires on demand, from a cue, or via Stream Deck / MIDI.

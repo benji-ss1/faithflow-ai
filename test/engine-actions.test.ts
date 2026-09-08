@@ -101,38 +101,69 @@ test("every EngineAction type has a binding and a sample", () => {
   }
 });
 
-test("ctx-bound actions call their named handler", () => {
+// A guarded (destructive) action needs confirmed:true to fire; pass it so the
+// mapping assertions below exercise the real handler call.
+const confirmOpts = (t: EngineActionType) =>
+  ACTION_BINDINGS[t].requiresConfirm ? { confirmed: true } : undefined;
+
+test("ctx-bound actions call their named handler (returns handled)", () => {
   for (const [t, binding] of Object.entries(ACTION_BINDINGS) as [EngineActionType, typeof ACTION_BINDINGS[EngineActionType]][]) {
     if (binding.mode !== "ctx") continue;
     const { ctx, ctxCalls } = makeCtx();
-    dispatchAction(ctx, SAMPLES[t]);
+    const res = dispatchAction(ctx, SAMPLES[t], confirmOpts(t));
     assert.deepEqual(ctxCalls, [binding.method], `${t} → ctx.${binding.method}`);
+    assert.deepEqual(res, { handled: true }, `${t} returns handled:true`);
   }
 });
 
-test("layer-bound actions call their named liveLayers method", () => {
+test("layer-bound actions call their named liveLayers method (returns handled)", () => {
   for (const [t, binding] of Object.entries(ACTION_BINDINGS) as [EngineActionType, typeof ACTION_BINDINGS[EngineActionType]][]) {
     if (binding.mode !== "layers") continue;
     const { ctx, layerCalls, ctxCalls } = makeCtx();
-    dispatchAction(ctx, SAMPLES[t]);
+    const res = dispatchAction(ctx, SAMPLES[t], confirmOpts(t));
     assert.deepEqual(layerCalls, [binding.method], `${t} → liveLayers.${binding.method}`);
     assert.equal(ctxCalls.length, 0, `${t} must not touch other ctx handlers`);
+    assert.deepEqual(res, { handled: true }, `${t} returns handled:true`);
   }
 });
 
 test("SET_LAYER_VISIBILITY is idempotent (no toggle when already at target)", () => {
   const { ctx, layerCalls } = makeCtx();
   // rows has slide enabled:true; request enabled:true → NO toggle.
-  dispatchAction(ctx, { type: "SET_LAYER_VISIBILITY", id: "slide", enabled: true });
+  const res = dispatchAction(ctx, { type: "SET_LAYER_VISIBILITY", id: "slide", enabled: true });
   assert.deepEqual(layerCalls, [], "no toggle when state already matches");
+  assert.deepEqual(res, { handled: true }, "still reports handled");
 });
 
-test("engine-only + todo-wired actions are no-ops on ctx", () => {
+test("engine-only + todo-wired actions are explicit unhandled no-ops on ctx", () => {
   for (const [t, binding] of Object.entries(ACTION_BINDINGS) as [EngineActionType, typeof ACTION_BINDINGS[EngineActionType]][]) {
     if (binding.mode !== "engine-only" && binding.mode !== "todo-wired") continue;
     const { ctx, ctxCalls, layerCalls } = makeCtx();
-    dispatchAction(ctx, SAMPLES[t]);
+    const res = dispatchAction(ctx, SAMPLES[t]);
     assert.equal(ctxCalls.length, 0, `${t} must not call ctx`);
     assert.equal(layerCalls.length, 0, `${t} must not call liveLayers`);
+    assert.equal(res.handled, false, `${t} is unhandled`);
+    assert.equal(res.reason, binding.mode, `${t} reason matches its mode`);
+  }
+});
+
+test("destructive actions are REFUSED without confirmed:true", () => {
+  const guarded = (Object.keys(ACTION_BINDINGS) as EngineActionType[]).filter(
+    (t) => ACTION_BINDINGS[t].requiresConfirm,
+  );
+  // Sanity: KILL / CLEAR_ALL_LAYERS / BLANK are the guarded set.
+  assert.deepEqual(guarded.sort(), ["BLANK", "CLEAR_ALL_LAYERS", "KILL"]);
+  for (const t of guarded) {
+    // Unconfirmed → refused, nothing fires.
+    const a = makeCtx();
+    const refused = dispatchAction(a.ctx, SAMPLES[t]);
+    assert.deepEqual(refused, { handled: false, reason: "refused-guard" }, `${t} refused unconfirmed`);
+    assert.equal(a.ctxCalls.length, 0, `${t} must not call ctx when refused`);
+    assert.equal(a.layerCalls.length, 0, `${t} must not call liveLayers when refused`);
+    // Confirmed → fires.
+    const b = makeCtx();
+    const ok = dispatchAction(b.ctx, SAMPLES[t], { confirmed: true });
+    assert.deepEqual(ok, { handled: true }, `${t} fires when confirmed`);
+    assert.equal(b.ctxCalls.length + b.layerCalls.length, 1, `${t} fires exactly one handler when confirmed`);
   }
 });
