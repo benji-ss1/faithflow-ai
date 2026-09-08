@@ -11,13 +11,16 @@ export const runtime = "nodejs";
 // downgrade / tier expiry.
 const mediaListLimiter = createLimiter("media-list", 30, 60_000);
 
-export async function GET() {
+export async function GET(req: Request) {
   const user = await apiUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!(await mediaListLimiter(user.id))) {
     return NextResponse.json({ error: "Too many media list requests — slow down" }, { status: 429 });
   }
-  const media = await listMedia(user.churchId);
+  // ProPresenter parity: ?library=all (default) | default (unfiled) | <uuid>.
+  const lib = new URL(req.url).searchParams.get("library");
+  const filter = lib == null || lib === "all" ? undefined : lib === "default" ? null : lib;
+  const media = await listMedia(user.churchId, filter);
   const withUrls = await Promise.all(media.map(async (m) => {
     // `url` is the full-res original — used for PROJECTION (must stay high-res).
     // `thumbUrl` is the small grid preview (falls back to the original when no

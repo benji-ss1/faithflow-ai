@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { eq, and, asc, sql, inArray } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { readableTextColor } from "./colorway";
-import { servicePlans, serviceItems, songs, songSlides, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes } from "./db/schema";
+import { servicePlans, serviceItems, songs, songSlides, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries } from "./db/schema";
 import { requireUser, requireRole, requireCap } from "./session";
 import { deleteObject, getBuffer, putBuffer } from "./s3";
 import { after } from "next/server";
@@ -87,7 +87,7 @@ export async function cleanupAdHocServicePlans(): Promise<Result<{ deleted: numb
 async function validateAddServiceItemPayload(
   db: ReturnType<typeof getDb>,
   churchId: string,
-  type: "song" | "scripture" | "media" | "sermon" | "blank" | "logo",
+  type: "song" | "scripture" | "media" | "sermon" | "blank" | "logo" | "header",
   payload: Record<string, unknown>,
 ): Promise<Result> {
   if (payload == null || typeof payload !== "object" || Array.isArray(payload)) {
@@ -136,6 +136,18 @@ async function validateAddServiceItemPayload(
     // going through the media path above. If a future caller adds "pptx" to
     // the type union, add a real case here (was previously stubbed with an
     // `as any` cast that made it unreachable dead code).
+    case "header": {
+      // A header is a non-content section divider. Its only payload is an
+      // optional hex colour; reject any library refs that don't belong here.
+      if ((payload as any).songId || (payload as any).mediaAssetId || (payload as any).pptxImportId) {
+        return { ok: false, error: "header payload must not include library refs" };
+      }
+      const color = (payload as any).color;
+      if (color !== undefined && (typeof color !== "string" || !/^#[0-9a-fA-F]{6}$/.test(color))) {
+        return { ok: false, error: "header color must be a #rrggbb hex string" };
+      }
+      return { ok: true };
+    }
     case "sermon":
     case "blank":
     case "logo":
@@ -150,7 +162,7 @@ async function validateAddServiceItemPayload(
   }
 }
 
-export async function addServiceItem(planId: string, type: "song" | "scripture" | "media" | "sermon" | "blank" | "logo", title: string, payload: Record<string, unknown>): Promise<Result<{ id: string }>> {
+export async function addServiceItem(planId: string, type: "song" | "scripture" | "media" | "sermon" | "blank" | "logo" | "header", title: string, payload: Record<string, unknown>): Promise<Result<{ id: string }>> {
   const user = await requireCap("operate_services");
   const db = getDb();
   const [plan] = await db.select().from(servicePlans).where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, user.churchId))).limit(1);
@@ -516,6 +528,119 @@ export async function renameServiceItem(itemId: string, newTitle: string): Promi
       AND sp.church_id = ${user.churchId}
   `);
   if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Item not found" };
+  return { ok: true };
+}
+
+// ── Libraries (ProPresenter parity, Phase 3.6) ──────────────────────────────
+// Named content buckets. Content with a NULL library_id is the implicit
+// "Default" library, which is never a real row (so it can't be deleted/renamed).
+
+export type LibraryRow = { id: string; name: string; order: number; songCount: number; mediaCount: number };
+
+export async function listLibraries(): Promise<Result<{ libraries: LibraryRow[]; defaultSongCount: number; defaultMediaCount: number }>> {
+  const user = await requireUser();
+  const db = getDb();
+  const rows = await db.select().from(libraries).where(eq(libraries.churchId, user.churchId)).orderBy(asc(libraries.order), asc(libraries.createdAt));
+  // Counts per library (+ the implicit Default bucket where library_id IS NULL).
+  const songCounts = await db.execute(sql`SELECT library_id, count(*)::int AS n FROM songs WHERE church_id = ${user.churchId} GROUP BY library_id`);
+  const mediaCounts = await db.execute(sql`SELECT library_id, count(*)::int AS n FROM media_assets WHERE church_id = ${user.churchId} GROUP BY library_id`);
+  const sc = new Map<string | null, number>();
+  const mc = new Map<string | null, number>();
+  for (const r of (songCounts as unknown as { rows: { library_id: string | null; n: number }[] }).rows) sc.set(r.library_id, r.n);
+  for (const r of (mediaCounts as unknown as { rows: { library_id: string | null; n: number }[] }).rows) mc.set(r.library_id, r.n);
+  return {
+    ok: true,
+    data: {
+      libraries: rows.map((r) => ({ id: r.id, name: r.name, order: r.order, songCount: sc.get(r.id) ?? 0, mediaCount: mc.get(r.id) ?? 0 })),
+      defaultSongCount: sc.get(null) ?? 0,
+      defaultMediaCount: mc.get(null) ?? 0,
+    },
+  };
+}
+
+export async function createLibrary(name: string): Promise<Result<{ id: string }>> {
+  const user = await requireCap("edit_library");
+  const trimmed = name.trim().slice(0, 100);
+  if (!trimmed) return { ok: false, error: "Library name required" };
+  const db = getDb();
+  const existing = await db.select({ order: libraries.order }).from(libraries).where(eq(libraries.churchId, user.churchId));
+  const nextOrder = existing.length > 0 ? Math.max(...existing.map((e) => e.order)) + 1 : 0;
+  const [row] = await db.insert(libraries).values({ churchId: user.churchId, name: trimmed, order: nextOrder }).returning({ id: libraries.id });
+  return { ok: true, data: { id: row.id } };
+}
+
+export async function renameLibrary(id: string, name: string): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const trimmed = name.trim().slice(0, 100);
+  if (!trimmed) return { ok: false, error: "Library name required" };
+  const db = getDb();
+  const res = await db.update(libraries).set({ name: trimmed }).where(and(eq(libraries.id, id), eq(libraries.churchId, user.churchId)));
+  if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Library not found" };
+  return { ok: true };
+}
+
+export async function deleteLibrary(id: string): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  // ON DELETE SET NULL on songs/media returns their content to the Default
+  // bucket — content is never lost, only un-filed.
+  const res = await db.delete(libraries).where(and(eq(libraries.id, id), eq(libraries.churchId, user.churchId)));
+  if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Library not found" };
+  return { ok: true };
+}
+
+// Move a song / media asset into a library (null → the Default bucket). The
+// target library (when non-null) must belong to the caller's church.
+async function assertOwnLibrary(db: ReturnType<typeof getDb>, churchId: string, libraryId: string | null): Promise<boolean> {
+  if (libraryId === null) return true;
+  const [row] = await db.select({ id: libraries.id }).from(libraries).where(and(eq(libraries.id, libraryId), eq(libraries.churchId, churchId))).limit(1);
+  return !!row;
+}
+
+export async function setSongLibrary(songId: string, libraryId: string | null): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  if (!(await assertOwnLibrary(db, user.churchId, libraryId))) return { ok: false, error: "Library not found in your church" };
+  const res = await db.update(songs).set({ libraryId }).where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId)));
+  if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Song not found" };
+  return { ok: true };
+}
+
+export async function setMediaLibrary(assetId: string, libraryId: string | null): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  if (!(await assertOwnLibrary(db, user.churchId, libraryId))) return { ok: false, error: "Library not found in your church" };
+  const res = await db.update(mediaAssets).set({ libraryId }).where(and(eq(mediaAssets.id, assetId), eq(mediaAssets.churchId, user.churchId)));
+  if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Media asset not found" };
+  return { ok: true };
+}
+
+// ── Playlist section headers (ProPresenter parity, Phase 3.6) ────────────────
+// A header is a non-content service item; it reuses the service_items table
+// (type "header", payload.color) so it reorders/persists exactly like any item.
+
+export async function addPlaylistHeader(planId: string, title: string, color?: string): Promise<Result<{ id: string }>> {
+  const trimmed = (title || "Section").trim().slice(0, 120) || "Section";
+  const payload: Record<string, unknown> = {};
+  if (color) payload.color = color;
+  return addServiceItem(planId, "header", trimmed, payload);
+}
+
+export async function setHeaderColor(itemId: string, color: string): Promise<Result> {
+  const user = await requireCap("operate_services");
+  if (typeof color !== "string" || !/^#[0-9a-fA-F]{6}$/.test(color)) return { ok: false, error: "color must be a #rrggbb hex string" };
+  const db = getDb();
+  // Church-scope via the parent plan; merge the color into the existing payload.
+  const res = await db.execute(sql`
+    UPDATE service_items si
+    SET payload = jsonb_set(coalesce(si.payload, '{}'::jsonb), '{color}', ${JSON.stringify(color)}::jsonb, true)
+    FROM service_plans sp
+    WHERE si.id = ${itemId}
+      AND si.service_plan_id = sp.id
+      AND sp.church_id = ${user.churchId}
+      AND si.type = 'header'
+  `);
+  if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Header not found" };
   return { ok: true };
 }
 

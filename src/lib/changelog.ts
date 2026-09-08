@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.385",
+    date: "2026-09-08",
+    headline: "New: Libraries + colour-coded Playlist sections — organise your content and build a clear service order",
+    highlights: [
+      "Multiple named Libraries: create as many as you like (Songs, Countdowns, Announcements, Live Elements…) from the LIBRARY panel's + button. Click a library to see just its songs and media in the center browser; 'All' shows everything and 'Default' shows anything not yet filed.",
+      "Move content between libraries: right-click any song or media item → Move to library. Deleting a library never deletes its content — everything simply drops back to Default.",
+      "Playlist section headers: add colour-coded dividers (Pre-Service, Worship, Teaching, Response, Closing…) from the Playlist + button → Section header. Double-click to rename, right-click to recolour. Drag them to reorder your service into clear sections at a glance.",
+      "Section headers are labels only — they never send anything to the screen, so they're safe to sit anywhere in your running order.",
+    ],
+  },
+  {
     version: "0.1.384",
     date: "2026-09-08",
     headline: "New: Layers — control background, camera, slide and logo independently while live (early access)",

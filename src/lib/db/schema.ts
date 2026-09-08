@@ -1,7 +1,7 @@
 import { pgTable, uuid, text, timestamp, integer, jsonb, boolean, pgEnum, date, vector, index, uniqueIndex, numeric } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
-export const serviceItemTypeEnum = pgEnum("service_item_type", ["song", "scripture", "media", "sermon", "blank", "logo"]);
+export const serviceItemTypeEnum = pgEnum("service_item_type", ["song", "scripture", "media", "sermon", "blank", "logo", "header"]);
 export const mediaKindEnum = pgEnum("media_kind", ["image", "video"]);
 export const pptxStatusEnum = pgEnum("pptx_status", ["pending", "converting", "ready", "failed"]);
 
@@ -127,6 +127,19 @@ export const migrationJobs = pgTable("migration_jobs", {
   completedAt: timestamp("completed_at"),
 });
 
+// ProPresenter parity (Phase 3.6) — named content libraries per church.
+// Content (songs, media) references a library via a nullable library_id;
+// NULL = unassigned, surfaced as the built-in "Default" library in the UI.
+export const libraries = pgTable("libraries", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id).notNull(),
+  name: text("name").notNull(),
+  order: integer("order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("idx_libraries_church").on(t.churchId, t.order),
+]);
+
 export const servicePlans = pgTable("service_plans", {
   id: uuid("id").primaryKey().defaultRandom(),
   churchId: uuid("church_id").references(() => churches.id).notNull(),
@@ -162,8 +175,13 @@ export const songs = pgTable("songs", {
   // mediaAssets.id; nullable + ON DELETE SET NULL so removing a media asset
   // never orphans a song.
   defaultBackgroundAssetId: uuid("default_background_asset_id"),
+  // ProPresenter parity (Phase 3.6): optional library membership. Nullable +
+  // ON DELETE SET NULL so a deleted library never orphans a song (falls back
+  // to the "Default" bucket). Tolerant reads treat NULL as unassigned.
+  libraryId: uuid("library_id").references(() => libraries.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
+  index("idx_songs_library").on(t.libraryId),
   // Serves every dup-check (WHERE church_id = ? AND title = ?, used by all
   // 4 import paths) and every song-count query (getSongUsage) — previously
   // a full table scan on both. Had no index at all beyond the primary key.
@@ -201,8 +219,11 @@ export const mediaAssets = pgTable("media_assets", {
   widthPx: integer("width_px"),
   heightPx: integer("height_px"),
   durationMs: integer("duration_ms"),
+  // ProPresenter parity (Phase 3.6): optional library membership (see songs).
+  libraryId: uuid("library_id").references(() => libraries.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
+  index("idx_media_assets_library").on(t.libraryId),
   // 2026-08-31 media-library speed: listMedia does
   // where(church_id).orderBy(created_at) on every panel open — this composite
   // index turns the seq-scan + sort into an index range scan (matches the

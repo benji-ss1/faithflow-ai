@@ -23,9 +23,12 @@ function projectableSongSlide(text: string, objectsJson: unknown): SlidePayload 
 export type ExpandedItem = {
   id: string;
   order: number;
-  type: "song" | "scripture" | "media" | "sermon" | "blank" | "logo";
+  type: "song" | "scripture" | "media" | "sermon" | "blank" | "logo" | "header";
   title: string;
   slides: SlidePayload[];
+  // For a "header" item: its section colour (#rrggbb) from payload.color.
+  // Headers are non-content dividers — they always have slides: [].
+  color?: string;
   pptxImportId?: string; // present for sermon items — enables /api/sermon/match
   // Phase 5D: song-editor needs the underlying song ID + raw slide rows
   // (with objectsJson) to enable per-slide object editing. Populated only
@@ -213,8 +216,16 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
       slides = [{ kind: "logo", url: logoUrl }];
     }
 
+    // A "header" is a non-content section divider: never synthesise a blank
+    // slide for it (that would make it projectable). It stays slides: [] and
+    // carries its colour so the playlist can render it as a coloured band.
+    const extra: { pptxImportId?: string; themeId?: string; color?: string } = {};
+    if (it.type === "header") {
+      if (typeof payload.color === "string" && /^#[0-9a-fA-F]{6}$/.test(payload.color)) extra.color = payload.color;
+      expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides: [], ...extra, songId, songSlideRows, mediaMeta });
+      continue;
+    }
     if (slides.length === 0) slides = [{ kind: "blank", bgColor: blankBgColor }];
-    const extra: { pptxImportId?: string; themeId?: string } = {};
     if (it.type === "sermon" && typeof payload.pptxImportId === "string") extra.pptxImportId = payload.pptxImportId;
     if (typeof payload.themeId === "string" && payload.themeId) extra.themeId = payload.themeId;
     expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides, ...extra, songId, songSlideRows, mediaMeta });
@@ -228,14 +239,24 @@ export async function listServicePlans(churchId: string) {
   return db.select().from(servicePlans).where(eq(servicePlans.churchId, churchId)).orderBy(asc(servicePlans.createdAt));
 }
 
-export async function listSongs(churchId: string) {
+// ProPresenter parity (Phase 3.6): an optional `libraryFilter` scopes the list
+// to one library. `undefined` = all content (unchanged legacy behaviour, so
+// every existing caller is a no-op); `null` = the implicit "Default" bucket
+// (library_id IS NULL); a string = that library's content.
+export async function listSongs(churchId: string, libraryFilter?: string | null) {
   const db = getDb();
-  return db.select().from(songs).where(eq(songs.churchId, churchId)).orderBy(asc(songs.title));
+  const where = libraryFilter === undefined
+    ? eq(songs.churchId, churchId)
+    : and(eq(songs.churchId, churchId), libraryFilter === null ? sql`${songs.libraryId} IS NULL` : eq(songs.libraryId, libraryFilter));
+  return db.select().from(songs).where(where).orderBy(asc(songs.title));
 }
 
-export async function listMedia(churchId: string) {
+export async function listMedia(churchId: string, libraryFilter?: string | null) {
   const db = getDb();
-  return db.select().from(mediaAssets).where(eq(mediaAssets.churchId, churchId)).orderBy(asc(mediaAssets.createdAt));
+  const where = libraryFilter === undefined
+    ? eq(mediaAssets.churchId, churchId)
+    : and(eq(mediaAssets.churchId, churchId), libraryFilter === null ? sql`${mediaAssets.libraryId} IS NULL` : eq(mediaAssets.libraryId, libraryFilter));
+  return db.select().from(mediaAssets).where(where).orderBy(asc(mediaAssets.createdAt));
 }
 
 export type SuggestionHistoryRow = {
