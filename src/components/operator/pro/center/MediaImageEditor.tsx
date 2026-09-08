@@ -8,7 +8,67 @@ import { projectableTextSlide } from "@/lib/broadcast";
 import { CANVAS_W, CANVAS_H, newObjectId, type EditableSlide, type SlideObject, type ImageObject, type ShapeObject } from "@/lib/slide-objects";
 import { SlideCanvas } from "@/components/operator/editor/SlideCanvas";
 import { themeBackgroundStyle } from "@/components/live/SlideRenderer";
+import { AnimatedThemeBg, ThemeVideoBackground } from "@/components/live/ThemeLayers";
+import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
+import { registerMediaAsset } from "@/lib/actions";
+import { removeFlatBackground } from "./logoKey";
 import { loadMediaFrame, saveMediaFrame, type MediaFrame } from "./mediaFrame";
+
+/**
+ * Live, WYSIWYG preview of the church's REAL active theme background — mirrors
+ * the projector composition (OutputSlide / LivePreviewPanel): the theme's
+ * solid/gradient/image base + its animation, its looping video background, and
+ * any active Background Template (shader/image/video) layered on top exactly as
+ * it goes live. Rendered inside the clipped editor canvas at preview scale, so
+ * "Theme" background actually shows what will project — not a flat guess.
+ * Templates render `frozen` (poster frame / one shader frame) to stay cheap.
+ */
+function ThemePreviewBackground({
+  appearance, background,
+}: {
+  appearance: OperatorShellCtx["appearance"];
+  background: OperatorShellCtx["background"];
+}) {
+  const themeVideoUrl = appearance?.bgType === "video" && appearance.bgVideoUrl ? appearance.bgVideoUrl : null;
+  return (
+    <div className="absolute inset-0 overflow-hidden">
+      <div className="absolute inset-0" style={themeBackgroundStyle(appearance, "#0b0b0b")} />
+      <AnimatedThemeBg appearance={appearance} />
+      {themeVideoUrl && <ThemeVideoBackground url={themeVideoUrl} dim={appearance?.dim} />}
+      {background && background.type !== "none" && (
+        <BackgroundLayer background={background} frozen />
+      )}
+    </div>
+  );
+}
+
+// Upload a processed image through the EXISTING media path (presign → S3 PUT →
+// registerMediaAsset) and return a persistent (6h) URL + the new asset id — the
+// same pipeline the import wizard uses, no new endpoint. Used to commit a
+// "remove flat background" result as a real, reusable library asset.
+async function uploadProcessedImage(blob: Blob, fileName: string): Promise<{ id: string; url: string }> {
+  const presignRes = await fetch("/api/media/presign", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fileName, contentType: "image/png", size: blob.size, purpose: "media" }),
+  });
+  if (!presignRes.ok) {
+    const err = (await presignRes.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error ?? `Presign failed (${presignRes.status})`);
+  }
+  const { url: uploadUrl, key } = (await presignRes.json()) as { url: string; key: string };
+  const putRes = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "image/png" }, body: blob });
+  if (!putRes.ok) throw new Error("Storage upload failed");
+  const reg = await registerMediaAsset({ kind: "image", fileName, s3Key: key, mimeType: "image/png", sizeBytes: blob.size });
+  if (!reg?.ok || !reg.data) throw new Error((reg as { error?: string } | undefined)?.error ?? "Registration failed");
+  // Persistent GET URL for the just-written key (same as BgAssetPicker).
+  const urlRes = await fetch("/api/media/url", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key }),
+  });
+  if (!urlRes.ok) throw new Error("Could not get media URL");
+  const { url } = (await urlRes.json()) as { url: string };
+  return { id: reg.data.id, url };
+}
 
 /**
  * MediaImageEditor — double-click a Media Library image to crop / pan / zoom /
@@ -31,15 +91,26 @@ const FITS: { value: Fit; label: string; hint: string }[] = [
 ];
 
 export function MediaImageEditor({
-  asset, ctx, onClose,
+  asset: assetProp, ctx, onClose, onAssetReplaced,
 }: {
   asset: { id: string; url: string; fileName: string };
   ctx: OperatorShellCtx;
   onClose: () => void;
+  // Fired when a processed ("remove flat background") copy is committed as a new
+  // library asset — lets the browser show it + retarget editing to it, so the
+  // transparent logo persists durably (its own asset id + fresh presigned URL),
+  // instead of freezing an expiring URL into the original asset's saved frame.
+  onAssetReplaced?: (a: { id: string; url: string; fileName: string }) => void;
 }) {
+  // The asset being edited can be SWAPPED to a processed transparent copy after a
+  // "remove flat background" commit; framing then persists against that asset.
+  const [asset, setAsset] = useState(assetProp);
+  // The ORIGINAL (un-keyed) source URL — always re-key from this, never from an
+  // already-processed copy.
+  const sourceUrlRef = useRef(assetProp.url);
   const [imgId] = useState(() => newObjectId());
   const [shapeId] = useState(() => newObjectId());
-  const saved0 = useMemo(() => loadMediaFrame(ctx.churchId, asset.id), [ctx.churchId, asset.id]);
+  const saved0 = useMemo(() => loadMediaFrame(ctx.churchId, assetProp.id), [ctx.churchId, assetProp.id]);
 
   // Background mode + source. "matte" = full-screen image on black (the default,
   // byte-identical to before). "background" = a smaller logo centred over a
@@ -51,6 +122,24 @@ export function MediaImageEditor({
   const [gradTo, setGradTo] = useState(saved0?.gradTo ?? "#0b1220");
   const [gradAngle, setGradAngle] = useState(saved0?.gradAngle ?? 135);
   const [logoSizePct, setLogoSizePct] = useState(saved0?.logoSizePct ?? 60);
+
+  // "Remove flat background (beta)" — client-side chroma/luma keying of a baked
+  // flat (near-black / near-white) logo background. `removeBg` on ⇒ the preview
+  // shows the keyed image (a blob URL); the keyed PNG is UPLOADED as a new asset
+  // only on Save/Save & Show (blob URLs aren't wire-valid for the projector).
+  const [removeBg, setRemoveBg] = useState(false);
+  const [bgThreshold, setBgThreshold] = useState(38);
+  const [keying, setKeying] = useState(false);
+  // Latest processed blob awaiting upload (null once committed / when off).
+  const pendingBlobRef = useRef<Blob | null>(null);
+  // Persistent URL of the committed processed asset (so we don't re-upload an
+  // unchanged keying on a second Save).
+  const committedRef = useRef<{ id: string; url: string } | null>(null);
+  // Current blob object URL used for the preview (revoked on replace/unmount).
+  const previewObjUrlRef = useRef<string | null>(null);
+  const revokePreview = useCallback(() => {
+    if (previewObjUrlRef.current) { URL.revokeObjectURL(previewObjUrlRef.current); previewObjUrlRef.current = null; }
+  }, []);
 
   // Seed the slide from a saved frame. In background mode the logo is a centred
   // box sized by logoSizePct; in matte mode it fills the canvas.
@@ -85,10 +174,14 @@ export function MediaImageEditor({
 
   const img = slide.objects.find((o): o is ImageObject => o.kind === "image") ?? null;
 
-  // Theme background CSS for the editor canvas (WYSIWYG for the "theme" source).
-  const themeBgStyle = useMemo(
-    () => (bgMode === "background" && bgKind === "theme" ? themeBackgroundStyle(ctx.appearance, "#0b0b0b") : undefined),
-    [bgMode, bgKind, ctx.appearance],
+  // Live theme-background node for the editor canvas — renders the church's REAL
+  // active theme (animated gradient / theme video / active Background Template)
+  // exactly as it will project, so "Theme" is true WYSIWYG BEFORE Save & Show.
+  const backgroundNode = useMemo(
+    () => (bgMode === "background" && bgKind === "theme"
+      ? <ThemePreviewBackground appearance={ctx.appearance} background={ctx.background} />
+      : undefined),
+    [bgMode, bgKind, ctx.appearance, ctx.background],
   );
 
   const updateObject = useCallback((id: string, patch: Partial<SlideObject>) => {
@@ -131,6 +224,15 @@ export function MediaImageEditor({
   function switchMode(mode: "matte" | "background") {
     setBgMode(mode);
     if (mode === "matte") {
+      // "Remove flat background" only makes sense for a logo over a background;
+      // going full-screen reverts to the original source image.
+      if (removeBg) {
+        setRemoveBg(false);
+        pendingBlobRef.current = null;
+        committedRef.current = null;
+        revokePreview();
+        updateObject(imgId, { url: sourceUrlRef.current } as Partial<SlideObject>);
+      }
       patchImg({ fit: "cover", x: 0, y: 0, w: CANVAS_W, h: CANVAS_H, posX: 50, posY: 50, zoom: 1 });
     } else {
       const w = Math.round(CANVAS_W * logoSizePct / 100), h = Math.round(CANVAS_H * logoSizePct / 100);
@@ -163,7 +265,75 @@ export function MediaImageEditor({
   // Guard against setState / toast after the editor is closed mid-measure, and
   // against a hung image load leaving the button stuck on "Measuring…".
   const mounted = useRef(true);
-  useEffect(() => () => { mounted.current = false; }, []);
+  useEffect(() => () => { mounted.current = false; revokePreview(); }, [revokePreview]);
+
+  // Remove-flat-background keying: (re)runs when enabled or the threshold moves.
+  // Debounced so dragging the slider doesn't thrash the canvas. The result is a
+  // blob-URL preview; it's uploaded to a real asset only on Save (blob URLs
+  // aren't valid on the projector wire).
+  useEffect(() => {
+    if (!removeBg || bgMode !== "background") return;
+    let cancelled = false;
+    setKeying(true);
+    const t = window.setTimeout(() => {
+      removeFlatBackground(sourceUrlRef.current, bgThreshold)
+        .then(({ blob, flat }) => {
+          if (cancelled || !mounted.current) return;
+          pendingBlobRef.current = blob;
+          committedRef.current = null; // a fresh keying needs a fresh upload
+          revokePreview();
+          const objUrl = URL.createObjectURL(blob);
+          previewObjUrlRef.current = objUrl;
+          updateObject(imgId, { url: objUrl } as Partial<SlideObject>);
+          if (!flat) toast("No flat background detected — keying may look off. Lower the threshold or turn it off.", { icon: "⚠️" });
+        })
+        .catch(() => {
+          if (cancelled || !mounted.current) return;
+          toast.error("Couldn't remove the background (the image may block cross-origin reads).");
+          setRemoveBg(false);
+        })
+        .finally(() => { if (!cancelled && mounted.current) setKeying(false); });
+    }, 220);
+    return () => { cancelled = true; window.clearTimeout(t); };
+  }, [removeBg, bgThreshold, bgMode, imgId, updateObject, revokePreview]);
+
+  function toggleRemoveBg() {
+    if (removeBg) {
+      setRemoveBg(false);
+      pendingBlobRef.current = null;
+      committedRef.current = null;
+      revokePreview();
+      updateObject(imgId, { url: sourceUrlRef.current } as Partial<SlideObject>);
+    } else {
+      setRemoveBg(true); // the effect runs the keying
+    }
+  }
+
+  // Commit any pending keyed image as a real library asset (existing upload path)
+  // and retarget editing to it. Returns the URL + asset id to persist/project, or
+  // null on failure. A no-op (returns the current asset) when keying isn't active.
+  const [saving, setSaving] = useState(false);
+  async function ensureCommitted(): Promise<{ url: string; assetId: string } | null> {
+    if (!removeBg) return { url: asset.url, assetId: asset.id };
+    if (committedRef.current) return { url: committedRef.current.url, assetId: committedRef.current.id };
+    const blob = pendingBlobRef.current;
+    if (!blob) return { url: asset.url, assetId: asset.id }; // keying not ready → original
+    const base = (assetProp.fileName || "logo").replace(/\.[^.]+$/, "");
+    const fileName = `${base} (bg removed).png`;
+    try {
+      const up = await uploadProcessedImage(blob, fileName);
+      committedRef.current = up;
+      pendingBlobRef.current = null;
+      const newAsset = { id: up.id, url: up.url, fileName };
+      setAsset(newAsset);
+      updateObject(imgId, { url: up.url } as Partial<SlideObject>);
+      onAssetReplaced?.(newAsset);
+      return { url: up.url, assetId: up.id };
+    } catch {
+      toast.error("Couldn't save the background-removed image.");
+      return null;
+    }
+  }
   function autoFill() {
     if (!img || autofitting) return;
     setAutofitting(true);
@@ -240,11 +410,13 @@ export function MediaImageEditor({
     im.src = asset.url;
   }
 
-  const payload = useMemo(() => projectableTextSlide("", slide.bgColor, undefined, slide.objects), [slide.objects, slide.bgColor]);
-  function hasImagePayload() {
-    return payload.kind === "text" && Array.isArray(payload.objects) && payload.objects.some((o) => o.kind === "image");
+  // Build the projectable payload for a given logo URL (used at Save & Show time
+  // so we project the COMMITTED persistent URL, not a transient blob preview URL).
+  function buildPayload(logoUrl: string) {
+    const objects = slide.objects.map((o) => (o.kind === "image" ? { ...o, url: logoUrl } : o));
+    return projectableTextSlide("", slide.bgColor, undefined, objects);
   }
-  function persist() {
+  function persist(assetId: string = asset.id) {
     if (!img) return;
     const frame: MediaFrame = { fit: img.fit ?? "cover", posX: img.posX ?? 50, posY: img.posY ?? 50, zoom: img.zoom ?? 1 };
     if (img.blurFill && bgMode === "matte" && (img.fit ?? "cover") === "contain") frame.blurFill = true;
@@ -265,22 +437,42 @@ export function MediaImageEditor({
     } else {
       frame.bgMode = "matte";
     }
-    saveMediaFrame(ctx.churchId, asset.id, frame);
+    saveMediaFrame(ctx.churchId, assetId, frame);
   }
-  function save() {
-    persist();
-    toast.success("Framing saved — this image will project framed", { icon: "💾" });
+  async function save() {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const c = await ensureCommitted();
+      if (!c) return; // upload failed — ensureCommitted already toasted
+      persist(c.assetId);
+      toast.success("Framing saved — this image will project framed", { icon: "💾" });
+    } finally { setSaving(false); }
   }
-  function saveAndShow() {
-    // If the URL ever fails wire-validation the image object is dropped and the
-    // projector would show a black matte — never toast success in that case (the
-    // editor still shows the image, so a silent black screen would be a lie).
-    if (!hasImagePayload()) { toast.error("Couldn't project this image — try re-uploading it."); return; }
-    persist();
-    // The object payload carries blurFill on its image object, so the projector
-    // (SlideObjectsLayer) paints the blurred backdrop identically to this canvas.
-    ctx.onSendSlideToLive(payload, undefined, { instant: true, force: true });
-    toast.success("Saved & on the projector");
+  async function saveAndShow() {
+    if (saving) return;
+    setSaving(true);
+    try {
+      // Commit any "remove flat background" keying to a real, wire-valid asset
+      // FIRST — the projector can't render a blob: preview URL.
+      const c = await ensureCommitted();
+      if (!c) return;
+      // Build the payload from the committed URL (state updates are async, so we
+      // can't rely on slide.objects having swapped yet in this tick).
+      const payload = buildPayload(c.url);
+      // If the URL ever fails wire-validation the image object is dropped and the
+      // projector would show a black matte — never toast success in that case (the
+      // editor still shows the image, so a silent black screen would be a lie).
+      const hasImage = payload.kind === "text" && Array.isArray(payload.objects) && payload.objects.some((o) => o.kind === "image");
+      if (!hasImage) { toast.error("Couldn't project this image — try re-uploading it."); return; }
+      persist(c.assetId);
+      // Normal media send path (ctx.onSendSlideToLive → the shell's layers
+      // engine) — Save & Show never bypasses it. The object payload carries
+      // blurFill on its image object, so the projector (SlideObjectsLayer)
+      // paints identically to this canvas.
+      ctx.onSendSlideToLive(payload, undefined, { instant: true, force: true });
+      toast.success("Saved & on the projector");
+    } finally { setSaving(false); }
   }
 
   const btn = "h-8 px-2 rounded-md text-xs border inline-flex items-center justify-center gap-1";
@@ -297,8 +489,8 @@ export function MediaImageEditor({
             <div className="text-[13px] font-semibold text-zinc-100 leading-none truncate">Edit image</div>
             <div className="text-[10px] text-zinc-500 leading-none mt-1 truncate">{asset.fileName} — drag to move, handles to crop, pan/zoom on the right</div>
           </div>
-          <button onClick={save} disabled={autofitting} title="Save this framing for the image" className="h-8 px-3 rounded-md text-xs font-semibold inline-flex items-center gap-1.5 border border-[#2a3232] bg-[#1a2020] text-zinc-200 hover:border-teal-500/60 disabled:opacity-50"><Save className="w-3.5 h-3.5" /> Save</button>
-          <button onClick={saveAndShow} disabled={autofitting} className="h-8 px-3 rounded-md text-xs font-bold inline-flex items-center gap-1.5 bg-teal-500 text-[#08110f] hover:bg-teal-400 disabled:opacity-50"><Play className="w-3.5 h-3.5" /> Save & Show</button>
+          <button onClick={() => void save()} disabled={autofitting || keying || saving} title="Save this framing for the image" className="h-8 px-3 rounded-md text-xs font-semibold inline-flex items-center gap-1.5 border border-[#2a3232] bg-[#1a2020] text-zinc-200 hover:border-teal-500/60 disabled:opacity-50"><Save className="w-3.5 h-3.5" /> {saving ? "Saving…" : "Save"}</button>
+          <button onClick={() => void saveAndShow()} disabled={autofitting || keying || saving} className="h-8 px-3 rounded-md text-xs font-bold inline-flex items-center gap-1.5 bg-teal-500 text-[#08110f] hover:bg-teal-400 disabled:opacity-50"><Play className="w-3.5 h-3.5" /> {saving ? "Saving…" : "Save & Show"}</button>
           <button onClick={onClose} title="Close" className="h-8 w-8 flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-white/5"><X className="w-4 h-4" /></button>
         </div>
 
@@ -316,7 +508,7 @@ export function MediaImageEditor({
                 onUpdateObjects={updateObjects}
                 onRemoveObjects={() => { /* single fixed image */ }}
                 readOnly={false}
-                themeBgStyle={themeBgStyle}
+                backgroundNode={backgroundNode}
               />
             </div>
           </div>
@@ -399,6 +591,16 @@ export function MediaImageEditor({
                 <Section label="Logo size">
                   <Row label="Size"><div className="flex items-center gap-2"><input type="range" min={10} max={100} step={1} value={logoSizePct} onChange={(e) => setLogoSize(Number(e.target.value))} className="flex-1" /><span className="text-[10px] font-mono text-zinc-400 w-8 text-right">{logoSizePct}%</span></div></Row>
                   <div className="mt-1 flex items-center gap-1.5 text-[10px] text-zinc-500"><Move className="w-3 h-3" /> Drag the logo on the canvas to position it; handles resize it.</div>
+                </Section>
+
+                <Section label="Logo">
+                  <button onClick={toggleRemoveBg} disabled={keying || saving} className={cn(btn, "w-full")} style={on(removeBg)}>
+                    <Wand2 className="w-3.5 h-3.5" /> {keying ? "Removing…" : removeBg ? "Remove flat background: ON" : "Remove flat background (beta)"}
+                  </button>
+                  {removeBg && (
+                    <Row label="Amount"><div className="flex items-center gap-2"><input type="range" min={5} max={80} step={1} value={bgThreshold} onChange={(e) => setBgThreshold(Number(e.target.value))} className="flex-1" /><span className="text-[10px] font-mono text-zinc-400 w-7 text-right">{bgThreshold}</span></div></Row>
+                  )}
+                  <div className="mt-1 text-[10px] text-zinc-500">Keys out a baked flat (near-black or near-white) background around the logo so it sits cleanly on your background. Detected from the image corners — best on solid-colour logo boxes, not photos. Saved as a new transparent copy in your library.</div>
                 </Section>
               </>
             )}
