@@ -525,3 +525,53 @@ while the slide layer changes), **clear-background leaves the slide intact**,
   operator message overlay (`operatorMessage`); **props** ≈ the theme **logo**
   (already a layer/clear) and future prop overlays. These stay reserved
   placeholders until their increment.
+
+### Wave-5 fix pass (2026-09-08) — as built
+
+- **Engine action guards (DONE)**: `ACTION_BINDINGS` now carries `requiresConfirm:
+  true` on the destructive actions (**KILL / CLEAR_ALL_LAYERS / BLANK**);
+  `dispatchAction(ctx, action, { confirmed? })` REFUSES a guarded action unless
+  `confirmed:true` and returns `{ handled: boolean, reason? }` — every previously
+  silent path is now explicit (`todo-wired` / `engine-only` / `refused-guard` /
+  `unknown`). See the hard Phase-3 precondition in `docs/ENGINE_INTEGRATION.md`
+  (macro/timeline/remote surfaces MUST pass `confirmed:true` only after an
+  operator-facing guard equivalent to the UI press-and-HOLD). Tests:
+  `test/engine-actions.test.ts` (guard refuse/confirm + handled-result coverage).
+- **Hidden vs cleared legibility (DONE)**: `useLiveLayers` exposes `isEyeHidden(id)`
+  (reads the same off-wire `eyeHiddenRef`, NEVER emitted). `LayersPanel` now shows
+  a disabled row honestly: a HIDDEN row keeps the line-through label + `EyeOff` +
+  "Show layer" tooltip; a CLEARED row (destructive, payload gone) shows a dimmed
+  "Cleared" caption and a dimmed eye ("re-enable to show content again").
+- **Media Bin hardening (DONE)**: lazy fetch (no `/api/media/list` hit until the
+  bin is first opened; count badge appears only once resolved, header shows
+  without it before), inline grid capped at 60 with an "Open full library (N
+  more)" row, videos use `preload="none"` + `poster` (thumbUrl when available).
+  Changelog wording corrected to "docked below the Playlist".
+- **Hygiene (DONE)**: deleted the orphaned `pro/MediaStrip.tsx` (zero importers);
+  fixed the stale ProOperatorShell layout diagram (Media Bin is a collapsible
+  left-rail dock, NOT a bottom strip); `swapBackground` self-heals by dropping any
+  stale `background` eye-hidden mark; cue-sheet uses the `asId<T>()` helper for
+  the ItemId/SlideId casts.
+
+**Field-verify (untested — needs real mic + projector, per CLAUDE.md rule 7):**
+an **operator refresh mid-service DROPS all manual layer tweaks (hides / swaps /
+zones) BY DESIGN** — overrides are React state + a fresh `layersEpoch`, so a
+reloaded operator tab authoritatively clears the override map and the projector
+converges back to the derived base stack. This is intentional (a ghost/stale tab
+can never re-impose old overrides) but the operator should know a refresh is a
+clean slate, not a restore.
+
+**Media-Bin vs Media/PRO coexistence (intended-for-now)**: the left-rail Media
+Bin and the existing "Media / PRO" upsell section currently coexist (the Bin is
+inserted above the PRO section, keyed off the same `mediaStripOpen` shell state).
+This is intended for now — they serve different jobs (quick drag-strip vs the
+upsell/entry). CONSOLIDATION FOLLOW-UP: fold the PRO section's entry into the Bin
+header (or drop the separate section once the Bin fully subsumes it) so there is
+one media surface in the rail.
+
+**Coherence roadmap decision (engine phasing):** NEXT ENGINE PHASE = **Groups &
+Arrangements** (a cue-sheet extension — the only unbuilt P0), THEN the **Timer
+engine** (P4), THEN **themed Messages**. **Macros are DEFERRED** until the set of
+dispatchable primitives is rich enough to justify sequencing them (a macro over
+today's action set buys little; it pays off once Groups/Timers/Messages give it
+real primitives to chain — and only behind the `requiresConfirm` guard above).
