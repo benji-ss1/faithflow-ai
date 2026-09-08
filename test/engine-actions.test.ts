@@ -39,6 +39,7 @@ const SAMPLES: Record<EngineActionType, EngineAction> = {
   SET_ANNOUNCEMENT: { type: "SET_ANNOUNCEMENT", announcement: null },
   SET_TRANSITION: { type: "SET_TRANSITION", transition: null },
   START_COUNTDOWN: { type: "START_COUNTDOWN", seconds: 300 },
+  TIMER_COMMAND: { type: "TIMER_COMMAND", timerId: "default", command: "start" },
   OPEN_PROJECTOR: { type: "OPEN_PROJECTOR" },
   OPEN_STAGE: { type: "OPEN_STAGE" },
   OPEN_STREAM: { type: "OPEN_STREAM" },

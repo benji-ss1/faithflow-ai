@@ -433,12 +433,17 @@ export type MessageOverlay =
   /** `allowWeb` gates the PUBLIC /livestream surface only (default true for
    * old-format compat). /live and /stage are in-building operator surfaces
    * and always render. */
-  | { text: string; dismissAfterMs?: number | null; position?: OverlayPosition; allowWeb?: boolean;
+  // `id` (Wave 7) keys a message in the multi-message stack (renderers keep a
+  // per-id map). ABSENT id ⇒ the legacy single-message slot (key "default"), so
+  // old operators/projectors are unchanged. The {{timer:ID}} / {{timer}} token is
+  // expanded to a live clock value by the OPERATOR at post time (like {{time}}),
+  // so the wire always carries the already-rendered text — no renderer coupling.
+  | { id?: string; text: string; dismissAfterMs?: number | null; position?: OverlayPosition; allowWeb?: boolean;
       /** Horizontal ticker: when true the message scrolls across its band
        * (continuous loop). `scrollDir` is the travel direction; `scrollSec` is
        * the seconds for one full pass (lower = faster). Absent/false = static. */
       scroll?: boolean; scrollDir?: "ltr" | "rtl"; scrollSec?: number; clear?: false }
-  | { clear: true };
+  | { clear: true; id?: string };
 
 // Ticker speed bounds (seconds for one pass). Clamped on both the wire and the
 // operator control so a hostile/typo'd value can't freeze or hyper-spin the band.
@@ -451,8 +456,15 @@ export const MSG_SCROLL_DEFAULT_SEC = 18;
  * is authoritative; renderers just format it. Send `{clear:true}` to hide.
  */
 export type TimerOverlay =
-  | { name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed"; position?: OverlayPosition; clear?: false }
-  | { clear: true };
+  // `id` (Wave 7) keys a timer in the multi-timer stack — renderers keep a
+  // per-id map and paint each shown timer. ABSENT id ⇒ the legacy single-timer
+  // slot (rendered under the reserved key "default"), so old operators/projectors
+  // behave EXACTLY as before. `overrun` is an optional pre-computed flag; a
+  // renderer can also derive it from `remainingSec < 0` (kept for old wires).
+  | { id?: string; name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed"; position?: OverlayPosition; overrun?: boolean; clear?: false }
+  // `{clear:true}` (no id) clears the legacy slot; `{clear:true, id}` clears one
+  // named timer without disturbing the others.
+  | { clear: true; id?: string };
 
 export type LiveMessage =
   | { type: "set"; slide: SlidePayload; transition?: TransitionSpec | null } // legacy + optional one-shot override
@@ -460,7 +472,11 @@ export type LiveMessage =
   | { type: "ping"; join?: boolean } // join:true = genuine (re)connect; wants a full OutputState snapshot back, not just a pong
   | { type: "pong"; slide: SlidePayload }
   | { type: "output"; state: OutputState }             // new: full multi-surface state
-  | { type: "message"; overlay: MessageOverlay }       // P2: transient message overlay
+  // P2: transient message overlay. `overlay` is the LEGACY single-message slot
+  // (authoritative — old projectors read only this). `messages` (Wave 7) is the
+  // ADDITIVE multi-message stack: each keyed MessageOverlay is painted
+  // independently by newer renderers; old renderers ignore the extra field.
+  | { type: "message"; overlay: MessageOverlay; messages?: MessageOverlay[] }
   | { type: "timer"; overlay: TimerOverlay }            // F1: timer overlay on outputs
   | { type: "media-control"; command: "play" | "pause" | "seek" | "volume" | "mute" | "unmute" | "restart" | "loop" | "unloop"; value?: number }
   | { type: "media-status"; currentTime: number; duration: number; paused: boolean; volume: number; muted: boolean; loop: boolean }
@@ -511,8 +527,15 @@ export function isValidLiveMessage(m: unknown): m is LiveMessage {
       return isValidSlide((m as { slide?: unknown }).slide);
     case "output":
       return isValidOutputState((m as { state?: unknown }).state);
-    case "message":
-      return isValidMessageOverlay((m as { overlay?: unknown }).overlay);
+    case "message": {
+      const mm = m as { overlay?: unknown; messages?: unknown };
+      if (!isValidMessageOverlay(mm.overlay)) return false;
+      if (mm.messages !== undefined) {
+        if (!Array.isArray(mm.messages) || mm.messages.length > 16) return false;
+        if (!mm.messages.every(isValidMessageOverlay)) return false;
+      }
+      return true;
+    }
     case "timer":
       return isValidTimerOverlay((m as { overlay?: unknown }).overlay);
     case "media-control":
@@ -534,6 +557,9 @@ export function isValidTimerOverlay(overlay: unknown): overlay is TimerOverlay {
   if (!overlay || typeof overlay !== "object") return false;
   if (hasPollutionKey(overlay)) return false;
   const o = overlay as Record<string, unknown>;
+  // `id` (optional): a short safe token — it becomes a React/Map key on the
+  // renderer. Same charset bound as a layer id. Valid on BOTH arms (clear-by-id).
+  if (o.id !== undefined && (typeof o.id !== "string" || !LAYER_ID_RE.test(o.id))) return false;
   if (o.clear === true) return true;
   if (typeof o.remainingSec !== "number" || !Number.isFinite(o.remainingSec)) return false;
   // Allow -3600s (0 mm:ss with negatives for overtime), cap upper at 24h.
@@ -541,6 +567,7 @@ export function isValidTimerOverlay(overlay: unknown): overlay is TimerOverlay {
   if (typeof o.running !== "boolean") return false;
   if (o.kind !== "countdown" && o.kind !== "elapsed") return false;
   if (o.name != null && (typeof o.name !== "string" || o.name.length > 120)) return false;
+  if (o.overrun !== undefined && typeof o.overrun !== "boolean") return false;
   if (!isValidOverlayPosition(o.position)) return false;
   return true;
 }
@@ -579,6 +606,7 @@ export function isValidMessageOverlay(overlay: unknown): overlay is MessageOverl
   if (!overlay || typeof overlay !== "object") return false;
   if (hasPollutionKey(overlay)) return false;
   const o = overlay as Record<string, unknown>;
+  if (o.id !== undefined && (typeof o.id !== "string" || !LAYER_ID_RE.test(o.id))) return false;
   if (o.clear === true) return true;
   if (typeof o.text !== "string") return false;
   if (o.text.length === 0 || o.text.length > 2000) return false;
@@ -1272,6 +1300,18 @@ export function coerceLiveMessage(raw: unknown): LiveMessage | null {
   if (r?.type === "output") {
     const st = sanitizeOutputState(r.state);
     return st ? ({ type: "output", state: st } as LiveMessage) : null;
+  }
+  // Multi-message salvage: if the legacy `overlay` is valid but a stray entry in
+  // `messages[]` isn't, keep the valid ones rather than dropping the whole
+  // message (the legacy slot must never be lost to a bad extra entry).
+  if (r?.type === "message") {
+    const rm = raw as { overlay?: unknown; messages?: unknown };
+    if (!isValidMessageOverlay(rm.overlay)) return null;
+    if (Array.isArray(rm.messages)) {
+      const kept = (rm.messages as unknown[]).filter(isValidMessageOverlay).slice(0, 16) as MessageOverlay[];
+      return { type: "message", overlay: rm.overlay as MessageOverlay, messages: kept } as LiveMessage;
+    }
+    return { type: "message", overlay: rm.overlay as MessageOverlay } as LiveMessage;
   }
   return null;
 }

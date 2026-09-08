@@ -60,6 +60,9 @@ export type EngineAction =
   | { type: "SET_ANNOUNCEMENT"; announcement: AnnouncementPayload | null }
   | { type: "SET_TRANSITION"; transition: TransitionSpec | null }
   | { type: "START_COUNTDOWN"; seconds: number }
+  // Multi-timer engine (P4). `timerId` names the timer slot; the command is
+  // start | stop | reset. Wired to the shell's timers session via ctx.
+  | { type: "TIMER_COMMAND"; timerId: string; command: "start" | "stop" | "reset" }
   // Output windows
   | { type: "OPEN_PROJECTOR" }
   | { type: "OPEN_STAGE" }
@@ -117,6 +120,7 @@ export const ACTION_BINDINGS: Record<EngineActionType, ActionBinding> = {
   SET_ANNOUNCEMENT: { mode: "ctx", method: "onSetAnnouncement" },
   SET_TRANSITION: { mode: "ctx", method: "onSetTransitionSpec" },
   START_COUNTDOWN: { mode: "ctx", method: "onStartCountdown" },
+  TIMER_COMMAND: { mode: "ctx", method: "onTimerCommand" },
   OPEN_PROJECTOR: { mode: "ctx", method: "onOpenProjector" },
   OPEN_STAGE: { mode: "ctx", method: "onOpenStage" },
   OPEN_STREAM: { mode: "ctx", method: "onOpenStream" },
@@ -184,6 +188,7 @@ export function dispatchAction(
     case "SET_ANNOUNCEMENT": ctx.onSetAnnouncement(action.announcement); return { handled: true };
     case "SET_TRANSITION": ctx.onSetTransitionSpec(action.transition); return { handled: true };
     case "START_COUNTDOWN": ctx.onStartCountdown(action.seconds); return { handled: true };
+    case "TIMER_COMMAND": ctx.onTimerCommand(action.timerId, action.command); return { handled: true };
     case "OPEN_PROJECTOR": ctx.onOpenProjector(); return { handled: true };
     case "OPEN_STAGE": ctx.onOpenStage(); return { handled: true };
     case "OPEN_STREAM": ctx.onOpenStream(); return { handled: true };

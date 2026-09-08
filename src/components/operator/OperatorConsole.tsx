@@ -1794,6 +1794,15 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     toast.success(`Countdown started (${seconds}s)`);
   }, []);
 
+  // Wave 7 — engine/macro entry point for the multi-timer session. The session
+  // state lives in ProOperatorShell (useTimersSession); we emit a CustomEvent it
+  // listens for, keeping ctx decoupled from that state (mirrors the existing
+  // event-driven internal command pattern). No-op if no shell is mounted.
+  const timerCommand = useCallback((timerId: string, command: "start" | "stop" | "reset") => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(new CustomEvent("presentflow:timer-command", { detail: { timerId, command } }));
+  }, []);
+
   const currentBankIdx = effectiveBank.findIndex((b) => currentBankRef && b.id === currentBankRef.id);
 
   // R2: right-click delete callback. Slide-level delete has no server
@@ -1944,6 +1953,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     onSendLowerThird: sendLowerThird,
     onSendMessage: sendMessage,
     onClearMessage: clearMessage,
+    onTimerCommand: timerCommand,
     onStartCountdown: startCountdown,
     countdownEndsAt,
     onOpenProjector: openProjector,

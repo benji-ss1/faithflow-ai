@@ -89,6 +89,11 @@ export type OperatorShellCtx = {
   onClearMessage: () => void;
   onStartCountdown: (seconds: number) => void;
   countdownEndsAt: number | null;
+  // Wave 7 — multi-timer engine. Dispatches a start/stop/reset command to a
+  // named timer slot owned by the shell's useTimersSession (via a CustomEvent
+  // so the engine/macro layer can drive timers without holding a ref to the
+  // shell state). Legacy single timer is slot "default".
+  onTimerCommand: (timerId: string, command: "start" | "stop" | "reset") => void;
 
   onOpenProjector: () => void;
   onOpenStage: () => void;
