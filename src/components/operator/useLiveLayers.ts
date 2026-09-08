@@ -150,7 +150,12 @@ function buildPatch(
     case "camera":
       return { ...common, kind: "camera", payload: fields.clearPayload ? null : base.payload };
     case "logo":
-      return { ...common, kind: "logo", payload: fields.clearPayload ? null : base.payload };
+      // Payload deliberately OMITTED — the theme logo renders from `appearance`
+      // (resolveLayeredInput reads only logo.enabled), and the operator's live
+      // indicator reads the url from the DERIVED base layer, not the override.
+      // So a logo toggle/clear carries visibility only and never puts the logo
+      // url on the wire (keeps every logo patch trivially wire-valid).
+      return { ...common, kind: "logo" };
     case "band":
       return { ...common, kind: "band", payload: base.payload };
     case "announcement":
