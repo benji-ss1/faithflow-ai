@@ -160,5 +160,41 @@ test("a fontScale edit changes slide identity (Text-size drag transitions)", () 
   assert.notEqual(slideOutputIdentity(a), slideOutputIdentity(b));
 });
 
+// ── Y6: band "Text size" (vScale) must re-fit into the band box ──────────────
+// refitScaledToBox is the pure clamp used by AutoFitText's non-projector (band)
+// path. We inject a synthetic box that fits up to F px to prove: scale-down and
+// neutral are unchanged; a scale-up that fits keeps the enlargement; a 200%
+// scale-up that would overflow is clamped back to the largest that fits.
+import { refitScaledToBox } from "../src/components/live/AutoFitText";
+{
+  const best = 100, MIN = 14, MAX = 300;
+  // Band box that fits up to F px (simulates the fixed band height).
+  const boxThatFits = (F: number) => (px: number) => px <= F;
+
+  test("Y6 0.6× scale-down is unchanged (fits, ≤ best)", () => {
+    const shown = refitScaledToBox(best, Math.round(best * 0.6), MIN, MAX, boxThatFits(150));
+    assert.equal(shown, 60);
+  });
+  test("Y6 1.0× is exactly best (no re-fit)", () => {
+    const shown = refitScaledToBox(best, Math.round(best * 1.0), MIN, MAX, boxThatFits(150));
+    assert.equal(shown, 100);
+  });
+  test("Y6 ≤150% preserved exactly when it fits the box (headroom above best)", () => {
+    // Box fits up to 200 → best*1.5=150 fits → enlargement kept verbatim.
+    const shown = refitScaledToBox(best, Math.round(best * 1.5), MIN, MAX, boxThatFits(200));
+    assert.equal(shown, 150);
+  });
+  test("Y6 2.0× that would overflow is clamped to the largest that fits (no band overflow)", () => {
+    // Box fits only up to 150 → best*2=200 overflows → clamp to 150.
+    const shown = refitScaledToBox(best, Math.round(best * 2.0), MIN, MAX, boxThatFits(150));
+    assert.equal(shown, 150);
+    assert.ok(shown <= 150, "must not exceed the band box");
+  });
+  test("Y6 2.0× that DOES fit a tall band keeps the enlargement", () => {
+    const shown = refitScaledToBox(best, Math.round(best * 2.0), MIN, MAX, boxThatFits(250));
+    assert.equal(shown, 200);
+  });
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);
