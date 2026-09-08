@@ -30,7 +30,7 @@ type SlideMeta = { id: string; lyrics: string };
  * and clears their group. Assign groups AFTER the lyrics are settled; a full
  * lyric re-save clears assignments. Per-slide rich edits preserve groups.
  */
-export function SongArrangements({ songId, slides }: { songId: string; slides: SlideMeta[] }) {
+export function SongArrangements({ songId, slides, onChanged }: { songId: string; slides: SlideMeta[]; onChanged?: () => void }) {
   const [groups, setGroups] = useState<Group[]>([]);
   const [arrangements, setArrangements] = useState<Arrangement[]>([]);
   const [slideGroups, setSlideGroups] = useState<SlideGroup[]>([]);
@@ -61,6 +61,9 @@ export function SongArrangements({ songId, slides }: { songId: string; slides: S
       if (!res.ok) { toast.error(res.error ?? "Failed"); return; }
       if (okMsg) toast.success(okMsg);
       await reload();
+      // Let an embedding surface (e.g. the operator shell's inline manager)
+      // reflow its own view — the library page ignores this (server-rendered).
+      onChanged?.();
     });
   }
 

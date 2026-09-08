@@ -75,3 +75,58 @@ Seeded Adonai with groups Verse(2)/Chorus(3)/Bridge(2) and arrangements
   `blockAtSlide` range).
 - `test/arrangements.test.ts` — existing engine tests unchanged.
 - `tsc` clean for all files in this change.
+
+---
+
+## Wave 6G — Full section/arrangement management for EVERY song, in the shell
+
+Field rec12: "there should be arrangements for everything… where's Add group?
+how do I make this the bridge?" Operators could only see/drive arrangements on
+the one seeded song, and had to visit the song library page to create groups.
+6G brings the whole workflow into the operator shell for any song.
+
+### What changed
+
+1. **Strip for every song (honest empty state).** The loader
+   (`src/lib/server/services.ts`) now carries `groups` / `arrangements` /
+   `slideGroupIds` meta for EVERY song item, not only ones that already use
+   groups (empty arrays for a fresh song). `ArrangementStrip` renders for any
+   previewed song: with no sections it shows "No sections yet — add sections…"
+   plus an **Add sections** CTA; with sections it shows the chips as before. It
+   still renders nothing for non-song items (no-regression), and the SlideGrid
+   badge chips still hide themselves when `groups.length === 0`, so a groupless
+   song is visually identical to before.
+
+2. **Per-slide Section assignment (SlideGrid right-click).** The slide card
+   context menu gains an additive **Section ▸** submenu: assign to an existing
+   group, one-tap create+assign a standard section (Verse 1/2/3, Chorus,
+   Pre-Chorus, Bridge, Intro, Tag, Ending) via `createSongGroup` +
+   `assignSlidesToGroup`, or clear to Ungrouped. Badge + strip refresh live.
+   Purely additive to the menu (6C/6D also touched this file).
+
+3. **Inline manager popover.** The strip's **Manage sections** / **Add sections**
+   button opens the full `SongArrangements` editor in a Radix popover (compact),
+   reused directly instead of linking to `/library/songs/[id]`. A new optional
+   `onChanged` prop on `SongArrangements` fires after each successful mutation so
+   the shell calls `router.refresh()` and the grid/strip reflow live.
+
+4. **Quick-edit section-wipe mitigation.** `updateSongSlides` used to drop every
+   slide's `group_id` on its delete+reinsert. It now preserves group ids **by
+   index when the slide count is unchanged** (pure helper
+   `src/lib/song-group-preserve.ts`), so an in-place text edit keeps sections.
+   When the count changes (line added/removed) it can't match positionally, so
+   slides come back ungrouped — surfaced as a small ⚠ warning affordance in the
+   strip (no silent data loss).
+
+### Tests
+- `test/song-group-preserve.test.ts` — new, pure index-match preservation (6
+  cases: equal-count carry, grew→null, shrank→null, no-prior-groups no-op,
+  empty, no-mutation).
+- `test/arrangement-strip.test.ts` — converted off the (uninstalled) `vitest`
+  import to the repo's `node:test` runner via a tiny local shim; same 7 cases.
+- `test/arrangements.test.ts` — unchanged, still green. `tsc` clean.
+
+### Concurrency
+- Stayed out of LayersPanel / VerticalClearRail (agent 6F) and
+  MediaBinSection / DesktopSlideEditorModal (agent 6E). SlideGrid edits are
+  additive context-menu entries only.

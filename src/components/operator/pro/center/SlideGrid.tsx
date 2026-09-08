@@ -9,17 +9,40 @@ import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload, ThemeAppearance } from "@/lib/broadcast";
 import { useSlideClipboard, setSlideClipboard, getSlideClipboard } from "@/lib/slide-clipboard";
 import { pasteInsertIndex, pasteDisabledReason } from "@/lib/slide-paste";
-import { updateSongSlides, deleteSongSlide, updateSongSlideText, setSongSlideBackgroundImage, createSongImageSlide, setServiceItemSlideBackground, addServiceItemImageSlide } from "@/lib/actions";
+import { updateSongSlides, deleteSongSlide, updateSongSlideText, setSongSlideBackgroundImage, createSongImageSlide, setServiceItemSlideBackground, addServiceItemImageSlide, assignSlidesToGroup, createSongGroup } from "@/lib/actions";
 import { parseMediaDropPayload, isImageAsset, resolveMediaDrop, MEDIA_DROP_MIME } from "@/lib/media-drop";
 import { applyTextToSlide, projectableTextSlide } from "@/lib/broadcast";
 import { loadMediaFrame, buildMediaFrameSlide } from "./mediaFrame";
 import { useRouter } from "next/navigation";
-import { X, Pencil, LayoutGrid, GripVertical, GripHorizontal } from "lucide-react";
+import { X, Pencil, LayoutGrid, GripVertical, GripHorizontal, ChevronRight, Check, Layers } from "lucide-react";
 import { DotGridBackground } from "../DotGridBackground";
 import { groupColor } from "@/engine/arrangements";
 
 type ViewMode = "grid" | "list" | "text";
 const VIEW_MODE_KEY = "presentflow.operator.slideViewMode";
+
+// Standard song sections offered in the per-slide "Section →" quick menu (wave
+// 6G). Each maps to a group KIND so a freshly-created section gets a sensible
+// colour without the operator touching the colour picker.
+const STANDARD_SECTIONS: { name: string; kind: string }[] = [
+  { name: "Verse 1", kind: "verse" },
+  { name: "Verse 2", kind: "verse" },
+  { name: "Verse 3", kind: "verse" },
+  { name: "Chorus", kind: "chorus" },
+  { name: "Pre-Chorus", kind: "chorus" },
+  { name: "Bridge", kind: "bridge" },
+  { name: "Intro", kind: "intro" },
+  { name: "Tag", kind: "tag" },
+  { name: "Ending", kind: "custom" },
+];
+
+// Section menu wiring passed to each slide card (null for non-editable items).
+type SectionMenu = {
+  groups: { id: string; name: string; kind: string; color: string | null }[];
+  currentGroupId: string | null;
+  onAssign: (groupId: string | null) => void;
+  onQuickCreate: (name: string, kind: string) => void;
+};
 import {
   DndContext,
   closestCenter,
@@ -106,6 +129,43 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item]);
+
+  // ── Per-slide section (group) assignment (wave 6G) ────────────────────────
+  // Right-click a slide → "Section →" to tag it with a group (Verse 1, Chorus,
+  // Bridge…) WITHOUT leaving the shell. Assigns via the existing church-scoped
+  // actions; the badge + strip refresh live. Only armed for editable song items.
+  const sectionSongId = item?.type === "song" ? (item as { songId?: string }).songId : undefined;
+  const songGroups = item?.groups ?? [];
+  const slideGroupIds = item?.slideGroupIds;
+  const assignSlideSection = (idx: number, groupId: string | null) => {
+    const slideId = item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined;
+    if (!sectionSongId || !slideId) return;
+    void (async () => {
+      const { toast } = await import("sonner");
+      const res = await assignSlidesToGroup(sectionSongId, [slideId], groupId);
+      if (!res.ok) { toast.error(res.error ?? "Couldn't set the section"); return; }
+      router.refresh();
+    })();
+  };
+  // Create a standard-named group (if it doesn't exist yet) and assign this slide
+  // to it — the "make this the bridge" one-tap. Matches an existing group by
+  // (case-insensitive) name so repeated taps reuse the same group.
+  const quickCreateSectionAndAssign = (idx: number, name: string, kind: string) => {
+    const slideId = item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined;
+    if (!sectionSongId || !slideId) return;
+    const existing = songGroups.find((g) => g.name.trim().toLowerCase() === name.trim().toLowerCase());
+    if (existing) { assignSlideSection(idx, existing.id); return; }
+    void (async () => {
+      const { toast } = await import("sonner");
+      const created = await createSongGroup(sectionSongId, name, kind);
+      if (!created.ok) { toast.error(created.error ?? "Couldn't create the section"); return; }
+      if (!created.data) { toast.error("Couldn't create the section"); return; }
+      const res = await assignSlidesToGroup(sectionSongId, [slideId], created.data.id);
+      if (!res.ok) { toast.error(res.error ?? "Couldn't set the section"); return; }
+      toast.success(`Added section “${name}”`);
+      router.refresh();
+    })();
+  };
 
   // View mode is toggled by the BottomBar (fires "presentflow:slide-view-mode").
   // Persist per-machine so operators keep their preferred layout across launches.
@@ -446,6 +506,12 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                 slide={displaySlides[idx] ?? s}
                 index={idx + 1}
                 groupChip={groupChips?.[idx] ?? null}
+                sectionMenu={sectionSongId ? {
+                  groups: songGroups,
+                  currentGroupId: slideGroupIds?.[idx] ?? null,
+                  onAssign: (gid) => assignSlideSection(idx, gid),
+                  onQuickCreate: (name, kind) => quickCreateSectionAndAssign(idx, name, kind),
+                } : null}
                 appearance={ctx.appearance ?? undefined}
                 background={ctx.background}
                 selected={idx === ctx.previewSlideIdx}
@@ -749,6 +815,7 @@ function SortableSlideCard(props: {
   slide: SlidePayload;
   index: number;
   groupChip?: { label: string; color: string } | null;
+  sectionMenu?: SectionMenu | null;
   appearance?: ThemeAppearance;
   background?: BackgroundSpec | null;
   selected: boolean;
@@ -798,6 +865,7 @@ function SortableSlideCard(props: {
         slide={props.slide}
         index={props.index}
         groupChip={props.groupChip}
+        sectionMenu={props.sectionMenu}
         appearance={props.appearance}
         background={props.background}
         selected={props.selected}
@@ -841,11 +909,12 @@ function SortableSlideCard(props: {
 }
 
 function SlideCard({
-  slide, index, groupChip, appearance, background, selected, canQuickEdit, canPaste, pasteReason, onSelect, onDouble, onDelete, onQuickEdit, onDuplicate, onCopyText, onCopySlide, onPasteSlide, onSendLive,
+  slide, index, groupChip, sectionMenu, appearance, background, selected, canQuickEdit, canPaste, pasteReason, onSelect, onDouble, onDelete, onQuickEdit, onDuplicate, onCopyText, onCopySlide, onPasteSlide, onSendLive,
 }: {
   slide: SlidePayload;
   index: number;
   groupChip?: { label: string; color: string } | null;
+  sectionMenu?: SectionMenu | null;
   appearance?: ThemeAppearance;
   background?: BackgroundSpec | null;
   selected: boolean;
@@ -948,6 +1017,65 @@ function SlideCard({
               <Pencil className="w-3.5 h-3.5 text-[var(--color-muted-foreground)]" />
               Quick Edit
             </ContextMenu.Item>
+          )}
+
+          {/* Section (Groups & Arrangements, wave 6G) — tag THIS slide with a
+              group so it can be arranged. Lists existing sections + standard names
+              to quick-create, plus "New section…" that opens the full manager. */}
+          {sectionMenu && (
+            <ContextMenu.Sub>
+              <ContextMenu.SubTrigger className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)] data-[state=open]:bg-[var(--color-panel)]">
+                <Layers className="w-3.5 h-3.5 text-[var(--color-muted-foreground)]" />
+                <span className="flex-1">Section</span>
+                <ChevronRight className="w-3.5 h-3.5 opacity-60" />
+              </ContextMenu.SubTrigger>
+              <ContextMenu.Portal>
+                <ContextMenu.SubContent className="min-w-[190px] max-h-[340px] overflow-y-auto rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
+                  {sectionMenu.currentGroupId && (
+                    <>
+                      <ContextMenu.Item
+                        onSelect={() => sectionMenu.onAssign(null)}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]"
+                      >
+                        <X className="w-3.5 h-3.5 text-[var(--color-muted-foreground)]" /> Ungrouped
+                      </ContextMenu.Item>
+                      <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
+                    </>
+                  )}
+                  {/* Existing sections on this song */}
+                  {sectionMenu.groups.length > 0 && (
+                    <>
+                      {[...sectionMenu.groups].map((g) => (
+                        <ContextMenu.Item
+                          key={g.id}
+                          onSelect={() => sectionMenu.onAssign(g.id)}
+                          className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]"
+                        >
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: groupColor({ kind: g.kind, color: g.color }) }} />
+                          <span className="flex-1 truncate">{g.name || g.kind}</span>
+                          {sectionMenu.currentGroupId === g.id && <Check className="w-3.5 h-3.5 text-[var(--color-brand)]" />}
+                        </ContextMenu.Item>
+                      ))}
+                      <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
+                    </>
+                  )}
+                  {/* Standard names not already present — one-tap create + assign */}
+                  <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">New section</div>
+                  {STANDARD_SECTIONS.filter(
+                    (s) => !sectionMenu.groups.some((g) => g.name.trim().toLowerCase() === s.name.toLowerCase()),
+                  ).map((s) => (
+                    <ContextMenu.Item
+                      key={s.name}
+                      onSelect={() => sectionMenu.onQuickCreate(s.name, s.kind)}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]"
+                    >
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0 opacity-70" style={{ background: groupColor({ kind: s.kind, color: null }) }} />
+                      <span className="flex-1 truncate">{s.name}</span>
+                    </ContextMenu.Item>
+                  ))}
+                </ContextMenu.SubContent>
+              </ContextMenu.Portal>
+            </ContextMenu.Sub>
           )}
 
           {/* Clipboard */}

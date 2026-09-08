@@ -1,5 +1,19 @@
-import { describe, it, expect } from "vitest";
+// Run: npx tsx --test test/arrangement-strip.test.ts
+// Uses node:test (the repo's runner — vitest is not installed). A tiny shim maps
+// the describe/it/expect shape the assertions are written in onto node:assert.
+import { test } from "node:test";
+import assert from "node:assert/strict";
 import { computeArrangementBlocks, blockAtSlide } from "../src/lib/arrangement-strip";
+
+function describe(name: string, fn: () => void) { fn(); void name; }
+const it = (name: string, fn: () => void) => test(name, fn);
+function expect(actual: unknown) {
+  return {
+    toEqual: (expected: unknown) => assert.deepEqual(actual, expected),
+    toBe: (expected: unknown) => assert.equal(actual, expected),
+    toBeNull: () => assert.equal(actual, null),
+  };
+}
 
 describe("computeArrangementBlocks — pinned (order given)", () => {
   it("one block per order entry, repeats become separate chips", () => {
