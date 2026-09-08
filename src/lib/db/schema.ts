@@ -562,6 +562,50 @@ export const themes = pgTable("themes", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Wave 7 — multi-timer + message templates -----------------------------------
+// Church-persisted timer DEFINITIONS (the operator's saved timers): a name, a
+// type, and a duration (for countdown) or a target clock (for countdown_to).
+// Runtime state (running/remaining/shown) is NEVER persisted here — it lives in
+// the operator session so a fresh Sunday never resurrects last week's countdown.
+export const timerTypeEnum = pgEnum("timer_type", ["countdown", "countdown_to", "elapsed"]);
+
+export const timerDefinitions = pgTable("timer_definitions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  type: timerTypeEnum("type").notNull().default("countdown"),
+  // Seconds to count down from (countdown). Ignored for elapsed / countdown_to.
+  durationSec: integer("duration_sec").notNull().default(300),
+  // Wall-clock target "HH:MM" (24h) for countdown_to. Null otherwise; resolved
+  // to today's epoch on load.
+  targetClock: text("target_clock"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("idx_timer_definitions_church").on(t.churchId, t.sortOrder),
+]);
+
+// Church-persisted MESSAGE TEMPLATES: a reusable name + text + position preset +
+// style basics + an optional bound timer (config jsonb). The {{timer}} token in
+// the text renders the bound timer's live value.
+export const messageTemplates = pgTable("message_templates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  text: text("text").notNull().default(""),
+  // OverlayPosition string ("lower-third", "top-right", …).
+  position: text("position").notNull().default("lower-third"),
+  // { scroll?, scrollDir?, scrollSec?, allowWeb?, dismiss?, timerId? } — style +
+  // behaviour basics + optional {{timer}} binding. jsonb for additive growth.
+  config: jsonb("config").notNull().default({}),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("idx_message_templates_church").on(t.churchId, t.sortOrder),
+]);
+
 // Networked projector sync — device pairings.
 // Each row is a short-lived pair code that authorises a projector/stage/stream
 // surface to subscribe to a Supabase Realtime channel scoped by that code.

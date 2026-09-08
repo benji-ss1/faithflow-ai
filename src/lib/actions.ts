@@ -4,9 +4,10 @@ import { eq, and, asc, sql, inArray } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { readableTextColor } from "./colorway";
 import { isHex6Color } from "./hex-color";
-import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangements, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries, type ServiceItemType } from "./db/schema";
+import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangements, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries, timerDefinitions, messageTemplates, type ServiceItemType } from "./db/schema";
 import { GROUP_KINDS } from "../engine/arrangements";
 import { preservedGroupIds } from "./song-group-preserve";
+import { cleanRenderUrl } from "./render-url";
 import { requireUser, requireRole, requireCap } from "./session";
 import { deleteObject, getBuffer, putBuffer } from "./s3";
 import { after } from "next/server";
@@ -677,14 +678,18 @@ export async function updateSongSlides(songId: string, slides: { lyrics: string 
   // slide's group_id (the whole song became ungrouped after a quick-edit /
   // lyrics autosave). When the NEW slide count EQUALS the old one — the common
   // case for an in-place text edit that doesn't add or remove lines — carry the
-  // old group_id across by slide ORDER (index), so sections survive. When the
-  // count differs (a line was added/removed), a positional match is ambiguous,
-  // so we DON'T guess — those slides come back ungrouped (surfaced to the
-  // operator as a strip warning). Pure index-match; no cross-song leakage
-  // (song_id is pinned on every row).
-  const priorRows = await db.select({ groupId: songSlides.groupId })
+  // old group_id across matching by EXACT prior-lyric TEXT first (so a swapped
+  // pair of lines keeps its correct labels), with the slide INDEX as tiebreak
+  // for an edited line. When the count differs (a line was added/removed), a
+  // positional match is ambiguous, so we DON'T guess — those slides come back
+  // ungrouped (surfaced to the operator as a strip warning). No cross-song
+  // leakage (song_id is pinned on every row).
+  const priorRows = await db.select({ lyrics: songSlides.lyrics, groupId: songSlides.groupId })
     .from(songSlides).where(eq(songSlides.songId, songId)).orderBy(asc(songSlides.order));
-  const carriedGroupIds = preservedGroupIds(priorRows.map((r) => r.groupId), slides.length);
+  const carriedGroupIds = preservedGroupIds(
+    priorRows.map((r) => ({ lyrics: r.lyrics, groupId: r.groupId })),
+    slides.map((s) => s.lyrics),
+  );
   // Delete + insert must be atomic — a concurrent autosave hitting this
   // route mid-delete could otherwise leave the song with zero slides for
   // a few ms, breaking any operator sending live at that instant. Wrap
@@ -1027,13 +1032,6 @@ export async function createSongImageSlide(songId: string, atIndex: number | und
 // durable path (setSongSlideBackgroundImage / createSongImageSlide).
 
 const ITEM_BG_MAX_SLIDES = 500; // guard against an unbounded override map
-
-// Shared validator for a droppable media image URL (mirrors the song path).
-function cleanRenderUrl(url: string): string | null {
-  const clean = typeof url === "string" ? url.trim() : "";
-  if (!clean || clean.length > 2048 || !/^(https?:|blob:|data:image\/|\/)/i.test(clean)) return null;
-  return clean;
-}
 
 async function assertServiceItemOwned(
   db: ReturnType<typeof getDb>,
@@ -1807,9 +1805,23 @@ function sanitizeThemeConfig(input: unknown): { config: ThemeConfig; rejected: s
   const out: ThemeConfig = {};
   if (!input || typeof input !== "object") return { config: out, rejected };
   const obj = input as Record<string, unknown>;
+  // The three URL-bearing theme fields render straight into an output channel
+  // (logo, slide background image, background video), so value-validate them
+  // with the SAME scheme/length check as a dropped media URL — an off-scheme or
+  // oversized value is rejected rather than persisted onto the theme.
+  const URL_KEYS = new Set(["logoUrl", "bgImageUrl", "bgVideoUrl"]);
   for (const k of Object.keys(obj)) {
     if ((THEME_ALLOWED_KEYS as string[]).includes(k)) {
-      (out as Record<string, unknown>)[k] = obj[k];
+      if (URL_KEYS.has(k) && obj[k] !== undefined && obj[k] !== null && obj[k] !== "") {
+        const clean = cleanRenderUrl(obj[k]);
+        if (clean) {
+          (out as Record<string, unknown>)[k] = clean;
+        } else {
+          rejected.push(k);
+        }
+      } else {
+        (out as Record<string, unknown>)[k] = obj[k];
+      }
     } else {
       rejected.push(k);
     }
@@ -1907,6 +1919,130 @@ export async function setDefaultTheme(id: string): Promise<Result> {
   await db.update(themes).set({ isDefault: true, updatedAt: new Date() })
     .where(and(eq(themes.id, id), eq(themes.churchId, user.churchId)));
   revalidatePath("/library/themes");
+  return { ok: true };
+}
+
+// ── Wave 7: timer definitions (church-scoped) ────────────────────────────────
+export type TimerDefInput = {
+  name?: string;
+  type?: "countdown" | "countdown_to" | "elapsed";
+  durationSec?: number;
+  targetClock?: string | null;
+};
+
+function sanitizeTimerDef(input: TimerDefInput): {
+  name: string; type: "countdown" | "countdown_to" | "elapsed"; durationSec: number; targetClock: string | null;
+} {
+  const type = input.type === "countdown_to" || input.type === "elapsed" ? input.type : "countdown";
+  const durationSec = Math.max(0, Math.min(24 * 60 * 60, Math.round(Number(input.durationSec) || 0)));
+  // targetClock: accept "HH:MM" only (0-23:0-59); anything else → null.
+  const tc = typeof input.targetClock === "string" && /^([01]?\d|2[0-3]):[0-5]\d$/.test(input.targetClock.trim())
+    ? input.targetClock.trim() : null;
+  return { name: (input.name ?? "Timer").trim().slice(0, 120) || "Timer", type, durationSec, targetClock: tc };
+}
+
+export async function listTimerDefinitions(): Promise<Result<Array<{ id: string; name: string; type: string; durationSec: number; targetClock: string | null; sortOrder: number }>>> {
+  const user = await requireUser();
+  const db = getDb();
+  const rows = await db.select().from(timerDefinitions)
+    .where(eq(timerDefinitions.churchId, user.churchId))
+    .orderBy(asc(timerDefinitions.sortOrder), asc(timerDefinitions.createdAt));
+  return { ok: true, data: rows.map((r) => ({ id: r.id, name: r.name, type: r.type, durationSec: r.durationSec, targetClock: r.targetClock, sortOrder: r.sortOrder })) };
+}
+
+export async function createTimerDefinition(input: TimerDefInput): Promise<Result<{ id: string }>> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const clean = sanitizeTimerDef(input);
+  const existing = await db.select({ sortOrder: timerDefinitions.sortOrder }).from(timerDefinitions).where(eq(timerDefinitions.churchId, user.churchId));
+  const nextOrder = existing.length > 0 ? Math.max(...existing.map((e) => e.sortOrder)) + 1 : 0;
+  const [row] = await db.insert(timerDefinitions).values({ churchId: user.churchId, ...clean, sortOrder: nextOrder }).returning({ id: timerDefinitions.id });
+  return { ok: true, data: { id: row.id } };
+}
+
+export async function updateTimerDefinition(id: string, input: TimerDefInput): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const clean = sanitizeTimerDef(input);
+  const res = await db.update(timerDefinitions).set({ ...clean, updatedAt: new Date() })
+    .where(and(eq(timerDefinitions.id, id), eq(timerDefinitions.churchId, user.churchId)));
+  if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Timer not found" };
+  return { ok: true };
+}
+
+export async function deleteTimerDefinition(id: string): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const res = await db.delete(timerDefinitions)
+    .where(and(eq(timerDefinitions.id, id), eq(timerDefinitions.churchId, user.churchId)));
+  if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Timer not found" };
+  return { ok: true };
+}
+
+// ── Wave 7: message templates (church-scoped) ────────────────────────────────
+export type MessageTemplateInput = {
+  name?: string;
+  text?: string;
+  position?: string;
+  config?: Record<string, unknown>;
+};
+
+const MSG_TEMPLATE_CONFIG_KEYS = new Set(["scroll", "scrollDir", "scrollSec", "allowWeb", "dismiss", "timerId"]);
+const OVERLAY_POSITION_STRINGS = new Set(["top-left", "top-right", "bottom-left", "bottom-right", "lower-third", "center"]);
+
+function sanitizeMessageTemplate(input: MessageTemplateInput): { name: string; text: string; position: string; config: Record<string, unknown> } {
+  const name = (input.name ?? "Message").trim().slice(0, 120) || "Message";
+  const text = (input.text ?? "").slice(0, 2000);
+  const position = typeof input.position === "string" && OVERLAY_POSITION_STRINGS.has(input.position) ? input.position : "lower-third";
+  const config: Record<string, unknown> = {};
+  const src = input.config && typeof input.config === "object" ? input.config : {};
+  for (const k of Object.keys(src)) {
+    if (!MSG_TEMPLATE_CONFIG_KEYS.has(k)) continue;
+    const v = (src as Record<string, unknown>)[k];
+    if (k === "scroll" || k === "allowWeb") { if (typeof v === "boolean") config[k] = v; }
+    else if (k === "scrollDir") { if (v === "ltr" || v === "rtl") config[k] = v; }
+    else if (k === "scrollSec") { const n = Number(v); if (Number.isFinite(n)) config[k] = Math.max(4, Math.min(120, Math.round(n))); }
+    else if (k === "dismiss") { if (typeof v === "string" && v.length <= 12) config[k] = v; }
+    else if (k === "timerId") { if (typeof v === "string" && /^[a-zA-Z0-9_-]{1,64}$/.test(v)) config[k] = v; }
+  }
+  return { name, text, position, config };
+}
+
+export async function listMessageTemplates(): Promise<Result<Array<{ id: string; name: string; text: string; position: string; config: Record<string, unknown>; sortOrder: number }>>> {
+  const user = await requireUser();
+  const db = getDb();
+  const rows = await db.select().from(messageTemplates)
+    .where(eq(messageTemplates.churchId, user.churchId))
+    .orderBy(asc(messageTemplates.sortOrder), asc(messageTemplates.createdAt));
+  return { ok: true, data: rows.map((r) => ({ id: r.id, name: r.name, text: r.text, position: r.position, config: (r.config as Record<string, unknown>) ?? {}, sortOrder: r.sortOrder })) };
+}
+
+export async function createMessageTemplate(input: MessageTemplateInput): Promise<Result<{ id: string }>> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const clean = sanitizeMessageTemplate(input);
+  const existing = await db.select({ sortOrder: messageTemplates.sortOrder }).from(messageTemplates).where(eq(messageTemplates.churchId, user.churchId));
+  const nextOrder = existing.length > 0 ? Math.max(...existing.map((e) => e.sortOrder)) + 1 : 0;
+  const [row] = await db.insert(messageTemplates).values({ churchId: user.churchId, ...clean, sortOrder: nextOrder }).returning({ id: messageTemplates.id });
+  return { ok: true, data: { id: row.id } };
+}
+
+export async function updateMessageTemplate(id: string, input: MessageTemplateInput): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const clean = sanitizeMessageTemplate(input);
+  const res = await db.update(messageTemplates).set({ ...clean, updatedAt: new Date() })
+    .where(and(eq(messageTemplates.id, id), eq(messageTemplates.churchId, user.churchId)));
+  if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Template not found" };
+  return { ok: true };
+}
+
+export async function deleteMessageTemplate(id: string): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const res = await db.delete(messageTemplates)
+    .where(and(eq(messageTemplates.id, id), eq(messageTemplates.churchId, user.churchId)));
+  if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Template not found" };
   return { ok: true };
 }
 
