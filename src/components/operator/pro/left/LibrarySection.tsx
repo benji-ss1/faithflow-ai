@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import type { CenterMode } from "../ProOperatorShell";
 import { createLibrary, renameLibrary, deleteLibrary, listLibraries, type LibraryRow } from "@/lib/actions";
 import { useSelectedLibrary, setSelectedLibrary } from "./libraryFilter";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 // ProPresenter parity (Phase 3.6): multiple named Libraries. "Default" is the
 // implicit bucket (content with no library_id) and is always present — it can't
@@ -24,6 +25,8 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
   const [createDraft, setCreateDraft] = useState("");
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  // Electron-safe confirm (native window.confirm can freeze the desktop shell).
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   const reload = useCallback(async () => {
     const res = await listLibraries();
@@ -69,9 +72,9 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
   const remove = async (lib: LibraryRow) => {
     const n = lib.songCount + lib.mediaCount;
     const msg = n > 0
-      ? `Delete library "${lib.name}"? Its ${n} item${n === 1 ? "" : "s"} will move back to Default (nothing is deleted).`
-      : `Delete empty library "${lib.name}"?`;
-    if (!window.confirm(msg)) return;
+      ? `Its ${n} item${n === 1 ? "" : "s"} will move back to Default (nothing is deleted).`
+      : "This library is empty.";
+    if (!(await confirm({ title: `Delete library "${lib.name}"?`, description: msg, confirmLabel: "Delete", danger: true }))) return;
     const res = await deleteLibrary(lib.id);
     if (!res.ok) { toast.error(res.error ?? "Delete failed"); return; }
     if (selected === lib.id) setSelectedLibrary("all");
@@ -95,6 +98,7 @@ export function LibrarySection({ onCenterMode }: { onCenterMode?: (m: CenterMode
 
   return (
     <section className="border-b border-[var(--color-border)]">
+      {confirmDialog}
       <header className="flex items-center h-8 px-2.5 gap-2 bg-[linear-gradient(180deg,var(--color-panel),transparent)]">
         <button type="button" className="flex items-center gap-1 shrink-0 text-left" onClick={() => setOpen((v) => !v)}>
           {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}

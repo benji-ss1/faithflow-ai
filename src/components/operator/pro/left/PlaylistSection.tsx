@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as Popover from "@radix-ui/react-popover";
 import * as ContextMenu from "@radix-ui/react-context-menu";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import {
   DndContext,
   PointerSensor,
@@ -549,6 +550,8 @@ export function PlaylistSection({
 }) {
   const [open, setOpen] = useState(true);
   const [dropOver, setDropOver] = useState(false);
+  // Electron-safe confirm (native window.confirm can freeze the desktop shell).
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const router = useRouter();
   const items = ctx.plan.items;
   const clipboardSlide = useSlideClipboard(); // reactive: enables "Paste slide"
@@ -759,7 +762,7 @@ export function PlaylistSection({
 
   const deleteFromLibrary = async (it: OperatorShellCtx["plan"]["items"][number]) => {
     if (!it.songId) return;
-    if (!window.confirm(`Permanently delete "${it.title}" from your song library? This cannot be undone.`)) return;
+    if (!(await confirm({ title: `Delete "${it.title}" from your song library?`, description: "This permanently removes the song from your library and cannot be undone.", confirmLabel: "Delete", danger: true }))) return;
     // Library-first: if the library delete fails, nothing is removed from the
     // plan either — clean abort. If plan remove fails after library delete,
     // the plan item becomes an orphaned ref (shows 0 slides) that the operator
@@ -939,6 +942,7 @@ export function PlaylistSection({
       }}
       onDrop={handleExternalDrop}
     >
+      {confirmDialog}
       <header className="flex items-center h-8 px-2.5 gap-1 bg-[linear-gradient(180deg,var(--color-panel),transparent)]">
         <button
           type="button"
