@@ -177,9 +177,18 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
   const rawSlideBg = "bgColor" in slide ? slide.bgColor : undefined;
   const slideBg = rawSlideBg && !isDefaultSlideBg(rawSlideBg) ? rawSlideBg : undefined;
 
-  // A cleared slide is transparent in overlay mode (camera shows through in OBS),
-  // otherwise opaque black.
-  if (slide.kind === "empty") return <div className={`${base} ${transparentBg ? "" : "bg-black"} ${className || ""}`} />;
+  // A cleared slide is transparent in overlay mode (camera shows through in OBS)
+  // AND when a Background Template / theme video sits behind it (overVideo) — so a
+  // cleared slide reveals the active template instead of a hard black box. This
+  // matches the `blank` branch below. Without a template/camera behind (overVideo
+  // false, not transparent) an empty slide stays opaque black (nothing behind to
+  // reveal → the projector goes black, the correct "cleared" state). This also
+  // fixes the LAYERS_V2 path: the compositor wraps each layer in an `absolute`
+  // opacity container, which flips the empty slide's paint order ABOVE the
+  // absolute BackgroundLayer (in the legacy/preview path the empty slide is
+  // `position:static`, so the absolute template paints on top of it) — a
+  // transparent empty slide keeps the template visible in BOTH paths.
+  if (slide.kind === "empty") return <div className={`${base} ${(transparentBg || overVideo) ? "" : "bg-black"} ${className || ""}`} />;
 
   if (slide.kind === "blank") {
     // Over video OR in OBS transparent mode, a blank slide is fully transparent
