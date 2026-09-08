@@ -766,6 +766,12 @@ function BackgroundPanel({ editor }: { editor: Editor }) {
         )}
         {bgLib && <MediaLibraryPicker kind="image" onPick={(url) => editor.setBg({ bgImageUrl: url })} onClose={() => setBgLib(false)} />}
       </div>
+      {/* Field fix 6A: make the default scope explicit. Changing the colour or
+          image above affects THIS slide only; the ember button below is the
+          opt-in that copies it to every slide. */}
+      <p className="text-[10px] text-[var(--color-muted-foreground)] leading-snug">
+        Changes here apply to <b className="text-[var(--color-foreground)]">this slide only</b>. Use the button below to copy it to every slide.
+      </p>
       <div className="h-px" style={{ background: HAIR }} />
       <button
         onClick={() => setConfirmBgAll(true)}

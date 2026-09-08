@@ -1711,6 +1711,8 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const [centerMode, setCenterMode] = useState<CenterMode>("slides");
   const [mediaStripOpen, setMediaStripOpen] = useState(true);
+  // Media Bin pop-out (field fix 6A): taller strip in the center bottom dock.
+  const [mediaBinPoppedOut, setMediaBinPoppedOut] = useState(false);
   const [slideSize, setSlideSize] = useState(160);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
@@ -4464,14 +4466,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         >
           <LibrarySection onCenterMode={setCenterMode} />
           <PlaylistSection ctx={ctx} onCenterMode={setCenterMode} />
-          {/* Media bin — docks the bottom ~40% of the rail under PLAYLIST. Uses
-              the shell's mediaStripOpen state so the TopBar media toggle drives
-              it (the old dead MediaStrip bottom-bar is retired). */}
-          <MediaBinSection
-            open={mediaStripOpen}
-            onToggle={() => setMediaStripOpen((v) => !v)}
-            onCenterMode={setCenterMode}
-          />
+          {/* Media Bin relocated (field fix 6A): it now docks the CENTER column's
+              bottom strip (below the slide grid + stage), not the left rail. See
+              the <main> block below. The TopBar media toggle still drives it via
+              mediaStripOpen. */}
           {OPENFLOW_ENABLED ? (
             <OpenFlowSidebar
               active={centerMode === "openflow"}
@@ -4521,6 +4519,19 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
               )}
             </OperatorErrorBoundary>
           </div>
+          {/* Media Bin — CENTER bottom strip (field fix 6A). Sits below the slide
+              grid + stage as a non-scrolling dock, pushing the stage strip up.
+              Collapsible (slim header when closed) + pop-out (taller when open).
+              Hidden while OpenFlow owns the whole center. */}
+          {centerMode !== "openflow" && (
+            <MediaBinSection
+              open={mediaStripOpen}
+              onToggle={() => setMediaStripOpen((v) => !v)}
+              onCenterMode={setCenterMode}
+              poppedOut={mediaBinPoppedOut}
+              onTogglePopout={() => setMediaBinPoppedOut((v) => !v)}
+            />
+          )}
           </div>
         </main>
 

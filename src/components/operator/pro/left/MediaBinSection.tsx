@@ -22,7 +22,7 @@
  */
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ChevronDown, ChevronRight, Images, ExternalLink } from "lucide-react";
+import { ChevronDown, ChevronRight, Images, ExternalLink, Maximize2, Minimize2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CenterMode } from "../ProOperatorShell";
 import { setMediaAsBackground, normalizeMediaKind } from "@/backgrounds/mediaAsBackground";
@@ -41,10 +41,16 @@ export function MediaBinSection({
   open,
   onToggle,
   onCenterMode,
+  poppedOut = false,
+  onTogglePopout,
 }: {
   open: boolean;
   onToggle: () => void;
   onCenterMode?: (m: CenterMode) => void;
+  // Pop-out "v1" (field fix 6A): when open, the operator can expand the strip to
+  // a taller state so more thumbnails are visible without leaving the console.
+  poppedOut?: boolean;
+  onTogglePopout?: () => void;
 }) {
   const [assets, setAssets] = useState<Asset[] | null>(null);
   // Lazy: don't hit /api/media/list until the bin is first opened. Once opened,
@@ -104,10 +110,11 @@ export function MediaBinSection({
   return (
     <section
       className={cn(
-        "border-b border-[var(--color-border)] flex flex-col min-h-0",
-        // Open: dock the bottom ~40% of the rail (shrink-0 basis so PLAYLIST above
-        // keeps the top ~60% via its flex-1). Collapsed: just the header row.
-        open ? "shrink-0 basis-[40%]" : "shrink-0",
+        // Center bottom-strip dock (field fix 6A): a border-TOP strip pinned at
+        // the bottom of the center column. Closed = slim header bar only; open =
+        // a bounded thumbnail strip; popped out = a taller strip. shrink-0 so it
+        // never eats the slide grid above (which keeps flex-1).
+        "border-t border-[var(--color-border)] bg-[var(--color-panel)] flex flex-col min-h-0 shrink-0",
       )}
     >
       <header className="flex items-center h-8 px-2.5 gap-1 bg-[linear-gradient(180deg,var(--color-panel),transparent)] shrink-0">
@@ -121,6 +128,19 @@ export function MediaBinSection({
           )}
         </button>
         <span className="h-px flex-1 mx-2" style={{ background: "linear-gradient(90deg, var(--color-border), transparent)" }} aria-hidden />
+        {/* Pop-out (v1): expand/collapse the strip height. Only meaningful when
+            the bin is open. */}
+        {open && onTogglePopout && (
+          <button
+            type="button"
+            onClick={onTogglePopout}
+            title={poppedOut ? "Shrink the media bin" : "Pop out — show a taller media bin"}
+            aria-label={poppedOut ? "Shrink the media bin" : "Pop out the media bin"}
+            className="w-[22px] h-[22px] grid place-items-center rounded-md border border-[var(--color-border)] bg-[var(--color-card)] shadow-[var(--edge-top),var(--shadow-sm)] text-[var(--color-muted-foreground)] transition-colors hover:text-[var(--color-brand)] hover:border-[color-mix(in_oklab,var(--color-brand)_50%,var(--color-border))]"
+          >
+            {poppedOut ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+          </button>
+        )}
         <button
           type="button"
           onClick={() => onCenterMode?.("media")}
@@ -132,7 +152,12 @@ export function MediaBinSection({
       </header>
 
       {open && (
-        <div className="flex-1 min-h-0 overflow-y-auto p-2">
+        <div
+          className="overflow-y-auto p-2"
+          // Bounded strip so it never crowds out the slide grid. Popped out ⇒ a
+          // taller band; default ⇒ a slim ~1-2 row strip.
+          style={{ height: poppedOut ? "min(46vh, 420px)" : 148 }}
+        >
           {assets === null && (
             <div className="text-[11px] text-[var(--color-muted-foreground)] opacity-60 px-1 py-2">Loading media…</div>
           )}

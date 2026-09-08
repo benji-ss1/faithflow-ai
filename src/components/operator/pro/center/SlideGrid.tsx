@@ -9,7 +9,8 @@ import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload, ThemeAppearance } from "@/lib/broadcast";
 import { useSlideClipboard, setSlideClipboard, getSlideClipboard } from "@/lib/slide-clipboard";
 import { pasteInsertIndex, pasteDisabledReason } from "@/lib/slide-paste";
-import { updateSongSlides, deleteSongSlide, updateSongSlideText } from "@/lib/actions";
+import { updateSongSlides, deleteSongSlide, updateSongSlideText, setSongSlideBackgroundImage, createSongImageSlide } from "@/lib/actions";
+import { parseMediaDropPayload, isImageAsset, resolveMediaDrop, MEDIA_DROP_MIME } from "@/lib/media-drop";
 import { applyTextToSlide, projectableTextSlide } from "@/lib/broadcast";
 import { loadMediaFrame, buildMediaFrameSlide } from "./mediaFrame";
 import { useRouter } from "next/navigation";
@@ -292,6 +293,61 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
     ctx.onReorderSlidesInItem?.(ctx.previewItemIdx, nextOrder);
   };
 
+  // ── Media-bin drag/drop (field fix wave 6A) ──────────────────────────────
+  // A media thumbnail dragged from the Media Bin carries MEDIA_DROP_MIME. Two
+  // behaviours, decided by resolveMediaDrop (pure, unit-tested): drop ONTO a
+  // slide sets that slide's per-slide background; drop into empty grid space
+  // creates a new full-screen image slide. Only editable song items accept it.
+  const editableSongId = item?.type === "song" ? (item as { songId?: string }).songId : undefined;
+  // Which slide index is currently a background drop target (ring highlight),
+  // and whether the empty grid area is an active new-slide target (caret).
+  const [bgDropIdx, setBgDropIdx] = useState<number | null>(null);
+  const [newDropActive, setNewDropActive] = useState(false);
+  // Read the media payload off a drag event (null if it isn't a media drag).
+  const readMediaDrag = (e: React.DragEvent) => parseMediaDropPayload(e.dataTransfer.getData(MEDIA_DROP_MIME));
+  // dragover types don't expose getData on some browsers — presence of the MIME
+  // in types is the cross-OS signal that a media drag is in progress.
+  const isMediaDrag = (e: React.DragEvent) => e.dataTransfer.types.includes(MEDIA_DROP_MIME);
+
+  const dropMediaOnSlide = (idx: number, e: React.DragEvent) => {
+    const payload = readMediaDrag(e);
+    if (!payload) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setBgDropIdx(null);
+    setNewDropActive(false);
+    void (async () => {
+      const { toast } = await import("sonner");
+      if (!editableSongId) { toast.error("Backgrounds can be dropped on song slides only"); return; }
+      if (!isImageAsset(payload)) { toast.error("Only images can be used as a slide background"); return; }
+      const slideId = item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined;
+      if (!slideId) { toast.error("Couldn't find that slide"); return; }
+      const res = await setSongSlideBackgroundImage(slideId, payload.url);
+      if (!res.ok) { toast.error(res.error ?? "Couldn't set background"); return; }
+      toast.success(`Set as slide ${idx + 1} background`);
+      router.refresh();
+    })();
+  };
+
+  const dropMediaOnEmpty = (e: React.DragEvent) => {
+    const payload = readMediaDrag(e);
+    if (!payload) return;
+    e.preventDefault();
+    setBgDropIdx(null);
+    setNewDropActive(false);
+    const decision = resolveMediaDrop({ over: "empty", insertIndex: slides.length });
+    const insertIndex = decision.action === "new-image-slide" ? decision.insertIndex : slides.length;
+    void (async () => {
+      const { toast } = await import("sonner");
+      if (!editableSongId) { toast.error("New image slides can be added to songs only"); return; }
+      if (!isImageAsset(payload)) { toast.error("Only images can be added as a slide"); return; }
+      const res = await createSongImageSlide(editableSongId, insertIndex, payload.url);
+      if (!res.ok) { toast.error(res.error ?? "Couldn't add the slide"); return; }
+      toast.success("Added a full-screen image slide");
+      router.refresh();
+    })();
+  };
+
   return (
     <div ref={gridRootRef} className="p-2 flex flex-col gap-6">
       {/* Main slide grid — Task B: 6px gutter. Y10: semantic grid + gridcell roles. */}
@@ -304,7 +360,14 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
             aria-label="Slides"
             // min-h so the empty area below the cards is part of the grid and can
             // be right-clicked to paste a copied slide at the end.
-            className={cn("relative isolate", viewMode === "text" ? "flex flex-col" : "grid", "min-h-[45vh]")}
+            // Media-bin drop: dragging over empty grid space arms the "add a new
+            // image slide" affordance; a card's own dragover stops propagation so
+            // this only lights when NOT over a slide.
+            onDragOver={(e) => { if (isMediaDrag(e)) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; setBgDropIdx(null); setNewDropActive(true); } }}
+            onDragLeave={(e) => { if (e.currentTarget === e.target) setNewDropActive(false); }}
+            onDrop={(e) => { if (isMediaDrag(e)) dropMediaOnEmpty(e); }}
+            className={cn("relative isolate", viewMode === "text" ? "flex flex-col" : "grid", "min-h-[45vh]",
+              newDropActive && "outline-2 outline-dashed outline-[var(--color-brand)] outline-offset-[-6px] rounded-lg")}
             style={viewMode === "text"
               ? { gap: 4 }
               // alignContent:start packs rows at the top so a wrapped row (e.g.
@@ -316,6 +379,13 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
             }
           >
             <DotGridBackground />
+            {newDropActive && (
+              <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center">
+                <div className="px-3 py-1.5 rounded-full bg-[var(--color-brand)] text-black text-[11px] font-semibold shadow-lg">
+                  Drop to add a full-screen image slide
+                </div>
+              </div>
+            )}
             {slides.length === 0 && (
               <div className="col-span-full relative flex flex-col items-center justify-center gap-3 py-20 text-center">
                 <div className="w-12 h-12 rounded-xl grid place-items-center surface-elev">
@@ -479,6 +549,17 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                 canPaste={canPasteHere}
                 pasteReason={pasteReason}
                 onPasteSlide={() => pasteSlideAt(idx + 1)}
+                bgDropActive={bgDropIdx === idx}
+                onMediaDragOver={(e) => {
+                  if (!isMediaDrag(e)) return;
+                  e.preventDefault();
+                  e.stopPropagation(); // keep the empty-area new-slide affordance off while over a card
+                  e.dataTransfer.dropEffect = "copy";
+                  setNewDropActive(false);
+                  setBgDropIdx(idx);
+                }}
+                onMediaDragLeave={() => setBgDropIdx((cur) => (cur === idx ? null : cur))}
+                onMediaDrop={(e) => dropMediaOnSlide(idx, e)}
               />
             ))}
           </div>
@@ -639,6 +720,10 @@ function SortableSlideCard(props: {
   onCopySlide: () => void;
   onPasteSlide: () => void;
   onSendLive: () => void;
+  bgDropActive: boolean;
+  onMediaDragOver: (e: React.DragEvent) => void;
+  onMediaDragLeave: (e: React.DragEvent) => void;
+  onMediaDrop: (e: React.DragEvent) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: props.id });
@@ -648,7 +733,23 @@ function SortableSlideCard(props: {
     opacity: isDragging ? 0.5 : 1,
   };
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners} className="relative w-full min-w-0 group/slide">
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      onDragOver={props.onMediaDragOver}
+      onDragLeave={props.onMediaDragLeave}
+      onDrop={props.onMediaDrop}
+      className="relative w-full min-w-0 group/slide"
+    >
+      {/* Media-bin background drop affordance: a brand ring + "Set as background"
+          badge over this slide while a media thumbnail hovers it. */}
+      {props.bgDropActive && (
+        <div className="pointer-events-none absolute inset-0 z-20 rounded-lg ring-2 ring-[var(--color-brand)] bg-[var(--color-brand)]/15 grid place-items-center">
+          <span className="px-2 py-0.5 rounded-full bg-[var(--color-brand)] text-black text-[10px] font-semibold shadow">Set as background</span>
+        </div>
+      )}
       <SlideCard
         slide={props.slide}
         index={props.index}
