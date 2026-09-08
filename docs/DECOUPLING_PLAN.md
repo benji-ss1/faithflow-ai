@@ -277,8 +277,11 @@ shortcuts apply (the shared color/menu affordances are pointer-driven).
   If `ctx.liveSlide.kind === "empty"` (nothing live) → `location.reload()`; if
   content IS live → a calm top banner ("PresentFlow updated — reload to
   continue") with a Reload button, and the projector is NEVER auto-touched.
-  Confirmed against the real dev-log error strings (item 5). Tests:
-  `test/stale-action.test.ts` (11).
+  Confirmed against the real dev-log error strings (item 5). **Reload-loop guard
+  (216cdfb):** the auto-reload fires at most ONCE — a sessionStorage sentinel is
+  set before `location.reload()`, so a stale error that survives the reload (e.g.
+  a still-mismatched deployment) does NOT spin the tab in a reload loop; it falls
+  through to the banner instead. Tests: `test/stale-action.test.ts` (14).
 
 ### Item 2 — Section-header recolor discoverability
 - Right-click recolor verified working; ALSO added a `⋮` kebab (Radix
@@ -318,7 +321,16 @@ shortcuts apply (the shared color/menu affordances are pointer-driven).
   section via the existing add path with `insertAtIndex = headerIdx+1`
   (`onAddLibraryItem`/`onAddMediaGroup` already accept an index). Flat-model note:
   sections don't collapse, so "spring-open" is realised as the arm cue + insert-
-  into-section.
+  into-section. **As built (post-1ca043c + Wave-3 fix pass):** `addServiceItem`
+  always APPENDS, so the requested position is realised by an **append-then-
+  reorder**: `repositionNewItem(newId, insertAtIndex)` snapshots the existing
+  real-UUID order, then routes through the single pure ordering primitive
+  `insertIdAtIndex(existingIds, newId, index)` (shared with `orderAfterHeaderDrop`
+  — one clamp/insert behaviour, test-locked) and persists via `reorderServiceItems`
+  (now a STATIC import — no cycle). **Fail-soft:** a non-finite/omitted index is a
+  no-op (plain append preserved); an out-of-range index clamps into place; if the
+  reorder call fails the item simply stays appended (never lost) and a warning is
+  logged.
 - (c) **OS file → library row**: an `os-files` drop routes through the EXISTING
   MediaImportWizard with the target library preselected, via a small in-memory
   `center/pendingImport.ts` bridge (files can't ride a URL): the rail stashes the
@@ -327,8 +339,52 @@ shortcuts apply (the shared color/menu affordances are pointer-driven).
   `registerMediaAsset` gained an optional `libraryId` (ownership-validated;
   foreign/bad id falls back to Default rather than failing the upload); threaded
   through `uploadMediaFile` + the wizard's `initialFiles`/`initialLibraryId`.
-- Tests: `test/spring-load.test.ts` (15), `test/hex-color.test.ts` (3),
-  `test/library-playlist.test.ts` (+2: colour round-trip, media library filing).
+- Tests: `test/spring-load.test.ts` (29 — incl. `insertIdAtIndex` clamp/relocate
+  + `isRealDragLeave` child-boundary guard), `test/hex-color.test.ts` (3),
+  `test/library-playlist.test.ts` (+2: colour round-trip, media library filing;
+  needs a Postgres env).
+
+### Wave-3 fix pass (2026-09-08, six-gate 🟡 remediation)
+Applied after the six review gates (reds already fixed in 6921ef9 / 1ca043c /
+216cdfb). All operator-app-only, renderer → Vercel:
+- **One ordering source of truth**: `repositionNewItem` no longer reimplements
+  clamp/insert — it routes through the pure `insertIdAtIndex` (also backs
+  `orderAfterHeaderDrop`). `reorderServiceItems` + `insertIdAtIndex` made static
+  imports (no cycle; `@/lib/actions` was already statically imported).
+- **Dwell-restart guard**: `dragleave` onto a CHILD of a row/header no longer
+  resets the 600ms dwell — the DOM wrappers call the pure `isRealDragLeave`
+  (relatedTarget-contains check) before `spring.leave(...)`.
+- **Escape owned by the hook**: the duplicated per-consumer window-keydown Escape
+  effects were removed; `useSpringLoad` subscribes ONCE with stable deps (also
+  fixes the re-subscribe-per-render speed 🟡). A subtle "Esc to cancel" caption
+  now shows in the armed row/header affordance (tokens, no emoji).
+- **Library-row kebab parity**: library rows gained the same `⋮` kebab (Rename /
+  Change color / Delete) as header rows, so touch/Windows users aren't right-
+  click-dependent.
+- **Colour-menu dedup**: one shared `ColorSwatchItems` (`left/ColorSwatchMenu.tsx`)
+  now backs all three colour menus (Library context menu + kebab, Playlist header
+  kebab + context menu); literal `✓`/`▸` glyphs replaced with lucide
+  `Check`/`ChevronRight`; kebab/menu hit targets bumped to ~28px.
+- **Shared hex validator**: `addServiceItem`'s header-case inline regex switched
+  to `isHex6Color`; `hex-color.ts` header comment rescoped (not a repo-wide
+  unifier).
+- **`registerMediaAsset` whitelist**: the `...rest` spread into `.values()`
+  replaced with an explicit `{kind, fileName, s3Key, mimeType, sizeBytes}` field
+  object (no behaviour change for legit callers).
+- **0-byte import skip**: `enqueueFiles` skips empty files with an honest
+  per-file toast (MIME magic-byte sniffing stays deferred — see below).
+
+### Deferred (Wave-3 fix pass, logged not built)
+- **MIME magic-byte sniffing** on import (content/extension mismatch): only the
+  cheap 0-byte + size + type-whitelist checks are done client-side; deep sniffing
+  is a server-side follow-up.
+
+### Field-verify checklist (dwell feel — hardware pending)
+Standing UX items that can only be judged on real hardware, moved here from the
+build notes: does the 600ms arm dwell feel right on a slow/touch drag; does the
+child-boundary guard fully eliminate flicker on a real trackpad; are the kebab
+hit targets comfortable on a touch projector-side tablet. Not blockers; confirm
+on the pilot projector.
 
 ### Item 5 — Dev overlay "issues"
 - Read `/tmp/pf-dummy-dev.log` + the running :3005 app. The recurring overlay

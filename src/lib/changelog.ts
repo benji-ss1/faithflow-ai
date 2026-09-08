@@ -21,8 +21,9 @@ export const CHANGELOG: ChangelogEntry[] = [
     highlights: [
       "Drag & drop onto a Library: drag a song or media item from the center browser onto any library in the left rail — hover for a moment and the row lights up, then drop to file it there. Drag images or videos straight from Finder/Explorer onto a library to import them into it.",
       "Drag onto a section header: drop a song or media item onto a Playlist section header and it drops straight into that section.",
-      "Colour-label your libraries: right-click a library → Change color to give it a coloured dot, the same palette as your Playlist sections.",
-      "Section headers are easier to reach: a new ⋮ menu on each header offers Rename, Change color and Remove — no right-click needed, so it works on touch and Windows too.",
+      "Colour-label your libraries: open a library's ⋮ menu (or right-click it) → Change color to give it a coloured dot, the same palette as your Playlist sections.",
+      "Easier to reach on touch and Windows: both Playlist section headers and Library rows now have a ⋮ menu (Rename, Change color, Remove/Delete) — no right-click needed. The menu buttons and rows have bigger tap targets too.",
+      "While you're dragging something onto a library or section, a subtle 'Esc to cancel' hint shows on the highlighted row — press Esc to drop the drag.",
       "Calmer updates: when a new PresentFlow version ships while you're mid-service, you now get a quiet 'PresentFlow updated — reload to continue' bar with a Reload button instead of a scary red error. If nothing is on the projector it refreshes itself; if something is live it never touches the screen until you tap Reload.",
     ],
   },
