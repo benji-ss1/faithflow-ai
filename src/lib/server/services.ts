@@ -44,6 +44,21 @@ export type ExpandedItem = {
   // slide, in the SAME order as `slides`. Lets the playlist rename / reorder /
   // remove individual images inside a group.
   mediaMeta?: { id: string; fileName: string }[];
+  // ── Groups & Arrangements — OPERATOR SHELL surface (wave 6D) ────────────────
+  // Populated only for song items that actually USE groups. All optional and
+  // absent for groupless songs (no-regression: those items render exactly as
+  // today). Present so the operator can SEE the model: per-slide group badges,
+  // the arrangement picker, and the centre arrangement strip.
+  //   arrangementId  — the pinned arrangement (payload.arrangementId) when it
+  //                    RESOLVED to a real arrangement; undefined for master.
+  //   arrangements   — all of this song's arrangements (for the playlist picker).
+  //   groups         — group meta (id/name/kind/color) for badge + chip colours.
+  //   slideGroupIds  — per-slide group id, aligned 1:1 with `slides` (null =
+  //                    ungrouped). Drives badges + strip block boundaries.
+  arrangementId?: string;
+  arrangements?: { id: string; name: string; isDefault: boolean; order: string[]; sort: number }[];
+  groups?: { id: string; name: string; kind: string; color: string | null; order: number }[];
+  slideGroupIds?: (string | null)[];
 };
 
 export type ExpandedPlan = {
@@ -72,6 +87,12 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
 
     let songId: string | undefined;
     let songSlideRows: { id: string; lyrics: string; objectsJson: unknown }[] | undefined;
+    // Groups & Arrangements operator-shell surface (wave 6D). Undefined for every
+    // non-song item and for groupless songs (no-regression line).
+    let slideGroupIds: (string | null)[] | undefined;
+    let groupsMeta: { id: string; name: string; kind: string; color: string | null; order: number }[] | undefined;
+    let arrangementsMeta: { id: string; name: string; isDefault: boolean; order: string[]; sort: number }[] | undefined;
+    let resolvedArrangementId: string | undefined;
     if (it.type === "song" && payload.songId) {
       // C1 defense-in-depth: two-hop verify the song belongs to this
       // church before we dereference its slides. validateAddServiceItemPayload
@@ -109,31 +130,44 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
         songId = ownedSong.id;
         const rows = await db.select().from(songSlides).where(eq(songSlides.songId, songId)).orderBy(asc(songSlides.order));
 
+        // ── Groups & Arrangements model (ProPresenter §12) ───────────────────
+        // Load ALL of this song's groups + arrangements ONCE. Only meaningful
+        // when the song actually adopted groups; for a groupless song both are
+        // empty and every operator-shell surface stays hidden (no-regression).
+        const [allGroups, allArrangements] = await Promise.all([
+          db.select().from(songGroups).where(eq(songGroups.songId, songId)).orderBy(asc(songGroups.order)),
+          db.select().from(songArrangements).where(eq(songArrangements.songId, songId)).orderBy(asc(songArrangements.sort)),
+        ]);
+        const usesGroups = allGroups.length > 0 && rows.some((r) => r.groupId !== null);
+        if (usesGroups) {
+          groupsMeta = allGroups.map((g) => ({ id: g.id, name: g.name, kind: g.kind, color: g.color, order: g.order }));
+          arrangementsMeta = allArrangements.map((a) => ({ id: a.id, name: a.name, isDefault: a.isDefault, sort: a.sort, order: Array.isArray(a.order) ? (a.order as unknown[]).filter((x): x is string => typeof x === "string") : [] }));
+        }
+
         // ── Arrangements (ProPresenter §12) ──────────────────────────────────
         // A playlist item may PIN an arrangement via payload.arrangementId. When
-        // present, expand the song through that arrangement's group order (groups
-        // repeatable, edit-once). When ABSENT, this whole block is skipped and the
-        // legacy slideOrder path below runs unchanged — the no-regression line: a
-        // song with no pinned arrangement produces byte-identical slides to today.
+        // present + resolvable, expand the song through that arrangement's group
+        // order (groups repeatable, edit-once). When ABSENT/unresolvable, fall
+        // through to the legacy slideOrder path — the no-regression line: a song
+        // with no pinned arrangement produces byte-identical slides to today.
         const arrangementId = typeof payload.arrangementId === "string" && payload.arrangementId ? payload.arrangementId : null;
         if (arrangementId) {
-          const [arrGroups, arrRows] = await Promise.all([
-            db.select().from(songGroups).where(eq(songGroups.songId, songId)).orderBy(asc(songGroups.order)),
-            db.select().from(songArrangements).where(and(eq(songArrangements.songId, songId), eq(songArrangements.id, arrangementId))).limit(1),
-          ]);
-          if (arrRows[0] && arrGroups.length > 0) {
+          const arrRow = allArrangements.find((a) => a.id === arrangementId);
+          if (arrRow && allGroups.length > 0) {
             const arranged = expandArrangement<{ id: string; lyrics: string; objectsJson: unknown }>(
               {
                 songId,
                 slides: rows.map((r) => ({ id: r.id, groupId: r.groupId, lyrics: r.lyrics, objectsJson: r.objectsJson })),
-                groups: arrGroups.map((g) => ({ id: g.id, name: g.name, kind: g.kind, color: g.color, order: g.order })),
-                arrangements: [{ id: arrRows[0].id, name: arrRows[0].name, isDefault: arrRows[0].isDefault, sort: arrRows[0].sort, order: Array.isArray(arrRows[0].order) ? (arrRows[0].order as unknown[]).filter((x): x is string => typeof x === "string") : [] }],
+                groups: allGroups.map((g) => ({ id: g.id, name: g.name, kind: g.kind, color: g.color, order: g.order })),
+                arrangements: [{ id: arrRow.id, name: arrRow.name, isDefault: arrRow.isDefault, sort: arrRow.sort, order: Array.isArray(arrRow.order) ? (arrRow.order as unknown[]).filter((x): x is string => typeof x === "string") : [] }],
               },
               arrangementId,
             );
+            resolvedArrangementId = arrangementId;
+            slideGroupIds = arranged.map((r) => r.groupId);
             songSlideRows = arranged.map((r) => ({ id: r.id, lyrics: sanitizeLyrics(r.lyrics), objectsJson: r.objectsJson }));
             slides = arranged.map((r) => projectableSongSlide(sanitizeLyrics(r.lyrics), r.objectsJson));
-            expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides: slides.length ? slides : [{ kind: "blank", bgColor: blankBgColor }], songId, songSlideRows, mediaMeta });
+            expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides: slides.length ? slides : [{ kind: "blank", bgColor: blankBgColor }], songId, songSlideRows, mediaMeta, arrangementId: resolvedArrangementId, arrangements: arrangementsMeta, groups: groupsMeta, slideGroupIds });
             continue;
           }
           // Pinned arrangement no longer resolves (deleted, or groups removed) →
@@ -163,6 +197,10 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
         }
         songSlideRows = orderedRows.map((r) => ({ id: r.id, lyrics: sanitizeLyrics(r.lyrics), objectsJson: r.objectsJson }));
         slides = orderedRows.map((r) => projectableSongSlide(sanitizeLyrics(r.lyrics), r.objectsJson));
+        // Master (natural / slideOrder) order — carry per-slide group ids aligned
+        // to the final slide order so the operator still sees badges + strip even
+        // with no pinned arrangement. Only when the song uses groups.
+        if (usesGroups) slideGroupIds = orderedRows.map((r) => r.groupId);
       }
     } else if (it.type === "scripture") {
       // 2026-07-25 field bug fix — the client (BibleMode.addVerseToPlaylist)
@@ -259,10 +297,38 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
       expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides: [], ...extra, songId, songSlideRows, mediaMeta });
       continue;
     }
+    // ── Generic per-item slide backgrounds + appended image slides (wave 6C
+    // decoupling) ─────────────────────────────────────────────────────────────
+    // Backgrounds and full-screen image slides are NOT song-only. Non-song items
+    // (scripture / media / sermon) build their slides from the payload each load,
+    // so a dropped background is stored as an additive override map
+    // (`slideBackgrounds: { [index]: url }`) and appended image slides as a list
+    // (`extraImageSlides: url[]`) — both re-applied here. Pure-additive: an item
+    // carrying neither key is byte-identical to before. Songs never reach this
+    // tail (they push earlier via their durable songSlides path), so this only
+    // decouples the NON-song item types. Applied BEFORE the empty→blank fallback
+    // so an item whose only content is an appended image slide still projects.
+    const extraImgs = Array.isArray(payload.extraImageSlides)
+      ? (payload.extraImageSlides as unknown[]).filter((u): u is string => typeof u === "string" && u.length > 0)
+      : [];
+    const bgMap = (payload.slideBackgrounds && typeof payload.slideBackgrounds === "object" && !Array.isArray(payload.slideBackgrounds))
+      ? (payload.slideBackgrounds as Record<string, unknown>) : null;
+    if (bgMap) {
+      slides = slides.map((s, i) => {
+        const u = bgMap[String(i)];
+        // Only a TEXT slide has a layer to sit behind; an image/video/blank slide
+        // IS its own visual, so a per-slide "background" there is a no-op (honest).
+        if (typeof u !== "string" || !u || s.kind !== "text") return s;
+        return { ...s, bgImageUrl: u };
+      });
+    }
+    if (extraImgs.length > 0) {
+      slides = [...slides, ...extraImgs.map((u) => projectableSongSlide("", { bgColor: "#000000", bgImageUrl: u, objects: [] }))];
+    }
     if (slides.length === 0) slides = [{ kind: "blank", bgColor: blankBgColor }];
     if (it.type === "sermon" && typeof payload.pptxImportId === "string") extra.pptxImportId = payload.pptxImportId;
     if (typeof payload.themeId === "string" && payload.themeId) extra.themeId = payload.themeId;
-    expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides, ...extra, songId, songSlideRows, mediaMeta });
+    expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides, ...extra, songId, songSlideRows, mediaMeta, arrangementId: resolvedArrangementId, arrangements: arrangementsMeta, groups: groupsMeta, slideGroupIds });
   }
 
   return { id: plan.id, title: plan.title, items: expanded, logoUrl, blankBgColor };

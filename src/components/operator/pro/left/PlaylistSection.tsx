@@ -42,7 +42,7 @@ import { cn } from "@/lib/utils";
 import { loadMediaFrame, buildMediaFrameSlide } from "../center/mediaFrame";
 import { projectableTextSlide } from "@/lib/broadcast";
 import type { OperatorShellCtx } from "../../shell/types";
-import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong, createSongSlide, deleteSongSlide, setServiceItemTheme, renameSong, renameServiceItem, applyThemeToSong, revertSongTheme, renameMediaAsset, addPlaylistHeader, setHeaderColor } from "@/lib/actions";
+import { addServiceItem, removeServiceItem, reorderServiceItems, deleteSong, createSongSlide, deleteSongSlide, setServiceItemTheme, renameSong, renameServiceItem, applyThemeToSong, revertSongTheme, renameMediaAsset, addPlaylistHeader, setHeaderColor, setServiceItemArrangement } from "@/lib/actions";
 import { useSlideClipboard, getSlideClipboard } from "@/lib/slide-clipboard";
 
 // ProPresenter service-section taxonomy (Ch 13). Palette + default live in
@@ -233,6 +233,9 @@ function SortablePlaylistItem({
   themes = [],
   currentThemeId = null,
   onSetTheme,
+  arrangements = [],
+  currentArrangementId = null,
+  onSetArrangement,
 }: {
   item: OperatorShellCtx["plan"]["items"][number];
   idx: number;
@@ -257,6 +260,10 @@ function SortablePlaylistItem({
   themes?: { id: string; name: string }[];
   currentThemeId?: string | null;
   onSetTheme?: (themeId: string | null) => void;
+  // Groups & Arrangements (wave 6D): pin which arrangement this song item uses.
+  arrangements?: { id: string; name: string }[];
+  currentArrangementId?: string | null;
+  onSetArrangement?: (arrangementId: string | null) => void;
 }) {
   const id = item.id ?? `item-${idx}`;
   const [renaming, setRenaming] = useState(false);
@@ -387,6 +394,20 @@ function SortablePlaylistItem({
               >
                 <Icon className={cn("w-4 h-4 shrink-0 transition-colors", isActive && "text-[var(--color-brand)]")} />
                 <span className="truncate">{item.title}</span>
+                {/* Pinned-arrangement tag (wave 6D) — shows when this song item
+                    uses a non-master arrangement. */}
+                {currentArrangementId && arrangements.length > 0 && (() => {
+                  const arr = arrangements.find((a) => a.id === currentArrangementId);
+                  if (!arr) return null;
+                  return (
+                    <span
+                      title={`Arrangement: ${arr.name}`}
+                      className="shrink-0 max-w-[86px] truncate px-1.5 h-[15px] grid place-items-center rounded-full text-[9px] font-semibold bg-[var(--color-brand)]/18 text-[var(--color-brand)] border border-[var(--color-brand)]/30"
+                    >
+                      {arr.name}
+                    </span>
+                  );
+                })()}
                 <span className={cn(
                   "ml-auto shrink-0 min-w-[18px] h-[17px] px-1 grid place-items-center rounded-full text-[10px] font-bold tabular-nums transition-colors",
                   isActive
@@ -478,6 +499,33 @@ function SortablePlaylistItem({
                         className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between"
                       >
                         <span className="truncate">{t.name}</span>{currentThemeId === t.id && <span className="text-[var(--color-brand)]">✓</span>}
+                      </ContextMenu.Item>
+                    ))}
+                  </ContextMenu.SubContent>
+                </ContextMenu.Portal>
+              </ContextMenu.Sub>
+            )}
+            {onSetArrangement && arrangements.length > 0 && (
+              <ContextMenu.Sub>
+                <ContextMenu.SubTrigger className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between data-[state=open]:bg-[var(--color-panel)]">
+                  <span>Arrangement</span><span className="opacity-60">▸</span>
+                </ContextMenu.SubTrigger>
+                <ContextMenu.Portal>
+                  <ContextMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[180px] max-h-[300px] overflow-y-auto">
+                    <ContextMenu.Item
+                      onSelect={() => onSetArrangement(null)}
+                      className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between"
+                    >
+                      <span>Master (all sections)</span>{!currentArrangementId && <span className="text-[var(--color-brand)]">✓</span>}
+                    </ContextMenu.Item>
+                    <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
+                    {arrangements.map((a) => (
+                      <ContextMenu.Item
+                        key={a.id}
+                        onSelect={() => onSetArrangement(a.id)}
+                        className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between"
+                      >
+                        <span className="truncate">{a.name}</span>{currentArrangementId === a.id && <span className="text-[var(--color-brand)]">✓</span>}
                       </ContextMenu.Item>
                     ))}
                   </ContextMenu.SubContent>
@@ -642,6 +690,13 @@ export function PlaylistSection({
   const setTheme = async (itemId: string, themeId: string | null) => {
     if (blockedIfOffline()) return;
     handleResult(await setServiceItemTheme(ctx.planId, itemId, themeId), themeId ? "Section theme set" : "Reset to default theme");
+  };
+
+  // Pin (or clear → master) which arrangement a song item projects. Reloads the
+  // plan so the slides reflow; enables the SAME song twice with different orders.
+  const setArrangement = async (itemId: string, arrangementId: string | null) => {
+    if (blockedIfOffline()) return;
+    handleResult(await setServiceItemArrangement(itemId, arrangementId), arrangementId ? "Arrangement pinned" : "Reset to master order");
   };
 
   // Rename one image inside a media group (renames the underlying media asset;
@@ -1127,6 +1182,9 @@ export function PlaylistSection({
                   themes={themes}
                   currentThemeId={(it as { themeId?: string }).themeId ?? null}
                   onSetTheme={it.id ? (themeId) => void setTheme(it.id!, themeId) : undefined}
+                  arrangements={(it as { arrangements?: { id: string; name: string }[] }).arrangements ?? []}
+                  currentArrangementId={(it as { arrangementId?: string }).arrangementId ?? null}
+                  onSetArrangement={it.type === "song" && it.id && ((it as { arrangements?: unknown[] }).arrangements?.length ?? 0) > 0 ? (arrangementId) => void setArrangement(it.id!, arrangementId) : undefined}
                 />
                 )
               ))}

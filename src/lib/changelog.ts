@@ -15,6 +15,18 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.392",
+    date: "2026-09-08",
+    headline: "See and drive song arrangements right from the operator — group badges, a live arrangement strip, and the same song twice with different orders",
+    highlights: [
+      "Grouped songs now show it in the operator: each slide card carries a small colour-coded group badge (Verse, Chorus, Bridge…) so you can see a song's structure at a glance while you run the service.",
+      "A new arrangement strip sits above your slides: the whole play order as coloured chips, with the section you're on highlighted as you advance. Click any chip to jump straight to that section's first slide.",
+      "Change the order live: when a song is set to an arrangement, tap + on the strip to add a section mid-service, or × on a chip to drop one — your slides reflow instantly and nothing on the projector changes until you send it.",
+      "Right-click a song in the playlist → Arrangement to pin which order it plays (or 'Master' for all sections). Add the same song twice and give each its own arrangement — one long, one reprise — and each plays its own slide order.",
+      "Songs with no groups look and behave exactly as before.",
+    ],
+  },
+  {
     version: "0.1.391",
     date: "2026-09-08",
     headline: "The Media Bin now lives under your slides — drag a picture straight onto a slide or drop it in to make a new one",

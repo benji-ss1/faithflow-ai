@@ -35,6 +35,7 @@ import { MediaBinSection } from "./left/MediaBinSection";
 import { HardwareSection } from "./left/HardwarePanel";
 import { CenterHeader } from "./center/CenterHeader";
 import { SlideGrid } from "./center/SlideGrid";
+import { ArrangementStrip } from "./center/ArrangementStrip";
 import { DesktopSlideEditorModal } from "./DesktopSlideEditorModal";
 import { MediaImageEditor } from "./center/MediaImageEditor";
 import { BibleMode } from "./center/BibleMode";
@@ -4515,7 +4516,12 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
               ) : centerMode === "media" ? (
                 <MediaBrowser ctx={ctx} onExitToSlides={() => setCenterMode("slides")} />
               ) : (
-                <SlideGrid ctx={ctx} slideSize={slideSize} onOpenEditor={() => setSlideEditorOpen(true)} />
+                <>
+                  {/* Groups & Arrangements strip (wave 6D) — renders only for a
+                      previewed song that uses groups; no-op otherwise. */}
+                  <ArrangementStrip ctx={ctx} />
+                  <SlideGrid ctx={ctx} slideSize={slideSize} onOpenEditor={() => setSlideEditorOpen(true)} />
+                </>
               )}
             </OperatorErrorBoundary>
           </div>

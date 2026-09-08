@@ -9,13 +9,14 @@ import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload, ThemeAppearance } from "@/lib/broadcast";
 import { useSlideClipboard, setSlideClipboard, getSlideClipboard } from "@/lib/slide-clipboard";
 import { pasteInsertIndex, pasteDisabledReason } from "@/lib/slide-paste";
-import { updateSongSlides, deleteSongSlide, updateSongSlideText, setSongSlideBackgroundImage, createSongImageSlide } from "@/lib/actions";
+import { updateSongSlides, deleteSongSlide, updateSongSlideText, setSongSlideBackgroundImage, createSongImageSlide, setServiceItemSlideBackground, addServiceItemImageSlide } from "@/lib/actions";
 import { parseMediaDropPayload, isImageAsset, resolveMediaDrop, MEDIA_DROP_MIME } from "@/lib/media-drop";
 import { applyTextToSlide, projectableTextSlide } from "@/lib/broadcast";
 import { loadMediaFrame, buildMediaFrameSlide } from "./mediaFrame";
 import { useRouter } from "next/navigation";
 import { X, Pencil, LayoutGrid, GripVertical, GripHorizontal } from "lucide-react";
 import { DotGridBackground } from "../DotGridBackground";
+import { groupColor } from "@/engine/arrangements";
 
 type ViewMode = "grid" | "list" | "text";
 const VIEW_MODE_KEY = "presentflow.operator.slideViewMode";
@@ -87,6 +88,24 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slides, item, ctx.churchId]);
   const lastDragEndRef = useRef(0);
+
+  // Groups & Arrangements (wave 6D): per-slide group badge chips. Additive chrome
+  // — read from the expanded item's `slideGroupIds` + `groups` meta which the
+  // loader carries ONLY for songs that use groups. Groupless songs → empty map →
+  // no chips render (byte-identical to today).
+  const groupChips = useMemo(() => {
+    const ids = item?.slideGroupIds;
+    const groups = item?.groups;
+    if (!ids || !groups || groups.length === 0) return null;
+    const byId = new Map(groups.map((g) => [g.id, g]));
+    return ids.map((gid) => {
+      if (!gid) return null;
+      const g = byId.get(gid);
+      if (!g) return null;
+      return { label: g.name || g.kind, color: groupColor({ kind: g.kind, color: g.color }) };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item]);
 
   // View mode is toggled by the BottomBar (fires "presentflow:slide-view-mode").
   // Persist per-machine so operators keep their preferred layout across launches.
@@ -297,8 +316,19 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   // A media thumbnail dragged from the Media Bin carries MEDIA_DROP_MIME. Two
   // behaviours, decided by resolveMediaDrop (pure, unit-tested): drop ONTO a
   // slide sets that slide's per-slide background; drop into empty grid space
-  // creates a new full-screen image slide. Only editable song items accept it.
+  // creates a new full-screen image slide.
+  //
+  // DECOUPLING (field fix 6C): backgrounds + image slides are NOT song-only.
+  // Songs use their durable per-slide DB path; scripture / media / sermon items
+  // use the additive per-item payload path (setServiceItemSlideBackground /
+  // addServiceItemImageSlide). Non-content dividers (header / blank / logo) can't
+  // hold slide content, so the affordance stays OFF for them (honest — no silent
+  // gate: the drop targets simply don't arm rather than arming then failing).
   const editableSongId = item?.type === "song" ? (item as { songId?: string }).songId : undefined;
+  const itemId = item?.id;
+  const canAcceptMediaDrop = !!item && (
+    item.type === "song" ? !!editableSongId : (item.type === "scripture" || item.type === "media" || item.type === "sermon")
+  );
   // Which slide index is currently a background drop target (ring highlight),
   // and whether the empty grid area is an active new-slide target (caret).
   const [bgDropIdx, setBgDropIdx] = useState<number | null>(null);
@@ -318,12 +348,18 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
     setNewDropActive(false);
     void (async () => {
       const { toast } = await import("sonner");
-      if (!editableSongId) { toast.error("Backgrounds can be dropped on song slides only"); return; }
+      if (!canAcceptMediaDrop) { toast.error("This item can't take a slide background"); return; }
       if (!isImageAsset(payload)) { toast.error("Only images can be used as a slide background"); return; }
-      const slideId = item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined;
-      if (!slideId) { toast.error("Couldn't find that slide"); return; }
-      const res = await setSongSlideBackgroundImage(slideId, payload.url);
-      if (!res.ok) { toast.error(res.error ?? "Couldn't set background"); return; }
+      if (editableSongId) {
+        const slideId = item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined;
+        if (!slideId) { toast.error("Couldn't find that slide"); return; }
+        const res = await setSongSlideBackgroundImage(slideId, payload.url);
+        if (!res.ok) { toast.error(res.error ?? "Couldn't set background"); return; }
+      } else {
+        if (!itemId) { toast.error("Couldn't find that item"); return; }
+        const res = await setServiceItemSlideBackground(itemId, idx, payload.url);
+        if (!res.ok) { toast.error(res.error ?? "Couldn't set background"); return; }
+      }
       toast.success(`Set as slide ${idx + 1} background`);
       router.refresh();
     })();
@@ -339,10 +375,16 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
     const insertIndex = decision.action === "new-image-slide" ? decision.insertIndex : slides.length;
     void (async () => {
       const { toast } = await import("sonner");
-      if (!editableSongId) { toast.error("New image slides can be added to songs only"); return; }
+      if (!canAcceptMediaDrop) { toast.error("Image slides can't be added to this item"); return; }
       if (!isImageAsset(payload)) { toast.error("Only images can be added as a slide"); return; }
-      const res = await createSongImageSlide(editableSongId, insertIndex, payload.url);
-      if (!res.ok) { toast.error(res.error ?? "Couldn't add the slide"); return; }
+      if (editableSongId) {
+        const res = await createSongImageSlide(editableSongId, insertIndex, payload.url);
+        if (!res.ok) { toast.error(res.error ?? "Couldn't add the slide"); return; }
+      } else {
+        if (!itemId) { toast.error("Couldn't find that item"); return; }
+        const res = await addServiceItemImageSlide(itemId, payload.url);
+        if (!res.ok) { toast.error(res.error ?? "Couldn't add the slide"); return; }
+      }
       toast.success("Added a full-screen image slide");
       router.refresh();
     })();
@@ -363,7 +405,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
             // Media-bin drop: dragging over empty grid space arms the "add a new
             // image slide" affordance; a card's own dragover stops propagation so
             // this only lights when NOT over a slide.
-            onDragOver={(e) => { if (isMediaDrag(e)) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; setBgDropIdx(null); setNewDropActive(true); } }}
+            onDragOver={(e) => { if (isMediaDrag(e) && canAcceptMediaDrop) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; setBgDropIdx(null); setNewDropActive(true); } }}
             onDragLeave={(e) => { if (e.currentTarget === e.target) setNewDropActive(false); }}
             onDrop={(e) => { if (isMediaDrag(e)) dropMediaOnEmpty(e); }}
             className={cn("relative isolate", viewMode === "text" ? "flex flex-col" : "grid", "min-h-[45vh]",
@@ -403,6 +445,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                 id={slideIds[idx]}
                 slide={displaySlides[idx] ?? s}
                 index={idx + 1}
+                groupChip={groupChips?.[idx] ?? null}
                 appearance={ctx.appearance ?? undefined}
                 background={ctx.background}
                 selected={idx === ctx.previewSlideIdx}
@@ -551,7 +594,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                 onPasteSlide={() => pasteSlideAt(idx + 1)}
                 bgDropActive={bgDropIdx === idx}
                 onMediaDragOver={(e) => {
-                  if (!isMediaDrag(e)) return;
+                  if (!isMediaDrag(e) || !canAcceptMediaDrop) return;
                   e.preventDefault();
                   e.stopPropagation(); // keep the empty-area new-slide affordance off while over a card
                   e.dataTransfer.dropEffect = "copy";
@@ -705,6 +748,7 @@ function SortableSlideCard(props: {
   id: string;
   slide: SlidePayload;
   index: number;
+  groupChip?: { label: string; color: string } | null;
   appearance?: ThemeAppearance;
   background?: BackgroundSpec | null;
   selected: boolean;
@@ -753,6 +797,7 @@ function SortableSlideCard(props: {
       <SlideCard
         slide={props.slide}
         index={props.index}
+        groupChip={props.groupChip}
         appearance={props.appearance}
         background={props.background}
         selected={props.selected}
@@ -796,10 +841,11 @@ function SortableSlideCard(props: {
 }
 
 function SlideCard({
-  slide, index, appearance, background, selected, canQuickEdit, canPaste, pasteReason, onSelect, onDouble, onDelete, onQuickEdit, onDuplicate, onCopyText, onCopySlide, onPasteSlide, onSendLive,
+  slide, index, groupChip, appearance, background, selected, canQuickEdit, canPaste, pasteReason, onSelect, onDouble, onDelete, onQuickEdit, onDuplicate, onCopyText, onCopySlide, onPasteSlide, onSendLive,
 }: {
   slide: SlidePayload;
   index: number;
+  groupChip?: { label: string; color: string } | null;
   appearance?: ThemeAppearance;
   background?: BackgroundSpec | null;
   selected: boolean;
@@ -868,6 +914,17 @@ function SlideCard({
           >
             {index}
           </div>
+          {/* Group badge (wave 6D) — colour-coded chip, top-left beside the slide
+              number. Present only for grouped songs; additive chrome. */}
+          {groupChip && (
+            <div
+              className="absolute top-1.5 left-8 max-w-[60%] h-5 px-1.5 flex items-center rounded-md text-[10px] font-semibold truncate shadow-sm"
+              style={{ background: groupChip.color, color: "#fff", border: "1px solid rgba(255,255,255,0.2)" }}
+              title={`Group: ${groupChip.label}`}
+            >
+              <span className="truncate">{groupChip.label}</span>
+            </div>
+          )}
         </button>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
