@@ -1215,11 +1215,29 @@ export async function updatePreferences(data: {
 }): Promise<Result> {
   const user = await requireUser();
   const db = getDb();
+  // Explicit field whitelist BEFORE any .set()/.values() — never spread the raw
+  // `data` object into the DB write. This is the ONLY server action that writes
+  // church_preferences from client input, so a poisoned/extra property (most
+  // importantly `layersV2`, which is admin/SQL-only for now — the layers engine
+  // opt-in must NOT be flippable through this settings action) can never reach a
+  // column. Only keys present in `data` are copied through.
+  const patch: Partial<typeof churchPreferences.$inferInsert> = {};
+  if ("defaultTranslationId" in data) patch.defaultTranslationId = data.defaultTranslationId;
+  if ("aiListeningDefault" in data) patch.aiListeningDefault = data.aiListeningDefault;
+  if ("audioInputDeviceLabel" in data) patch.audioInputDeviceLabel = data.audioInputDeviceLabel;
+  if ("detectionConfidenceThreshold" in data) patch.detectionConfidenceThreshold = data.detectionConfidenceThreshold;
+  if ("productionMode" in data) patch.productionMode = data.productionMode;
+  if ("transcriptRetentionDays" in data) patch.transcriptRetentionDays = data.transcriptRetentionDays;
+  if ("commandPrefix" in data) patch.commandPrefix = data.commandPrefix;
+  if ("autoApproveEnabled" in data) patch.autoApproveEnabled = data.autoApproveEnabled;
+  if ("autoApproveThreshold" in data) patch.autoApproveThreshold = data.autoApproveThreshold;
+  if ("autoSendToLive" in data) patch.autoSendToLive = data.autoSendToLive;
+
   const [existing] = await db.select().from(churchPreferences).where(eq(churchPreferences.churchId, user.churchId)).limit(1);
   if (existing) {
-    await db.update(churchPreferences).set({ ...data, updatedAt: new Date() }).where(eq(churchPreferences.id, existing.id));
+    await db.update(churchPreferences).set({ ...patch, updatedAt: new Date() }).where(eq(churchPreferences.id, existing.id));
   } else {
-    await db.insert(churchPreferences).values({ churchId: user.churchId, ...data });
+    await db.insert(churchPreferences).values({ churchId: user.churchId, ...patch });
   }
   revalidatePath("/settings");
   return { ok: true };

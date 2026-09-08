@@ -11,3 +11,5 @@
 
 ALTER TABLE church_preferences
   ADD COLUMN IF NOT EXISTS layers_v2 boolean NOT NULL DEFAULT false;
+
+-- rollback: ALTER TABLE church_preferences DROP COLUMN layers_v2;

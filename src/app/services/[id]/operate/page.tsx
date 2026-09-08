@@ -20,11 +20,35 @@ export default async function OperatePage({ params }: { params: Promise<{ id: st
   if (!plan) notFound();
 
   const db = getDb();
-  const [prefs] = await db.select().from(churchPreferences).where(eq(churchPreferences.churchId, user.churchId)).limit(1);
+  // MIGRATION-ORDER HARDENING (R2): the `db.select()` below lists EVERY schema
+  // column (including `layers_v2`). The migration
+  // `docs/migrations/2026-09-08-add-church-preferences-layers-v2.sql` MUST still
+  // be applied to the DB BEFORE this code deploys — that is the correct deploy
+  // order and the `?? false` below only defends the no-row case, NOT an absent
+  // column. This try/catch is a DEFENCE-IN-DEPTH net (mirrors (app)/operator's
+  // pattern): if the read throws (missing column mid-deploy, transient DB error)
+  // the operator still lands on a working console with safe defaults instead of
+  // a 500 — layers stays off, translation falls back to KJV.
+  let prefs:
+    | {
+        defaultTranslationId: string | null;
+        detectionConfidenceThreshold: number | null;
+        autoApproveEnabled: boolean | null;
+        autoApproveThreshold: number | null;
+        autoSendToLive: boolean | null;
+        layersV2?: boolean | null;
+      }
+    | null = null;
   let translationCode = "KJV";
-  if (prefs?.defaultTranslationId) {
-    const [t] = await db.select().from(bibleTranslations).where(eq(bibleTranslations.id, prefs.defaultTranslationId)).limit(1);
-    if (t) translationCode = t.code;
+  try {
+    const [p] = await db.select().from(churchPreferences).where(eq(churchPreferences.churchId, user.churchId)).limit(1);
+    prefs = p ?? null;
+    if (prefs?.defaultTranslationId) {
+      const [t] = await db.select().from(bibleTranslations).where(eq(bibleTranslations.id, prefs.defaultTranslationId)).limit(1);
+      if (t) translationCode = t.code;
+    }
+  } catch (e) {
+    console.error("[operate] church-preferences read failed — falling back to safe defaults:", e instanceof Error ? e.message : String(e));
   }
   const confidenceThreshold = prefs?.detectionConfidenceThreshold ?? 60;
   const autoApprove = {
@@ -32,16 +56,10 @@ export default async function OperatePage({ params }: { params: Promise<{ id: st
     confidenceFloor: prefs?.autoApproveThreshold ?? 90,
     autoSendToLive: prefs?.autoSendToLive ?? false,
   };
-  // Decoupling Phase 3: per-church opt-in for the layers engine.
-  // DEPLOY ORDERING (required): the `db.select()` above lists EVERY schema
-  // column (including `layers_v2`), so the migration
-  // `docs/migrations/2026-09-08-add-church-preferences-layers-v2.sql` MUST be
-  // applied to the DB BEFORE this code deploys — otherwise the query throws
-  // "column layers_v2 does not exist" and (unlike (app)/operator, this route has
-  // no try/catch) the operate page 500s. The `?? false` below only defends the
-  // no-row case, NOT an absent column. Once migrated, existing churches read
-  // false by default → nothing changes until the flag is deliberately enabled.
-  const layersV2 = (prefs as { layersV2?: boolean } | undefined)?.layersV2 ?? false;
+  // Decoupling Phase 3: per-church opt-in for the layers engine. Defaults false
+  // (no row, absent column, or read failure) → nothing changes until the flag is
+  // deliberately enabled AND the global NEXT_PUBLIC_LAYERS_V2 kill-switch is on.
+  const layersV2 = prefs?.layersV2 ?? false;
 
   return (
     <OperatorConsole
