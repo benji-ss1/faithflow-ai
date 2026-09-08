@@ -38,6 +38,15 @@ export function useSpringLoad(armMs = SPRING_ARM_MS) {
 
   useEffect(() => () => clearTimer(), []); // clean up on unmount
 
+  // The hook OWNS Escape-to-cancel: one stable subscription (reset has [] deps,
+  // so this effect never re-subscribes on re-render) instead of each consumer
+  // wiring its own window keydown listener.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") reset(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [reset]);
+
   return {
     armedId: state.armed ? state.hoverId : null,
     armed: useCallback((id: string) => isArmed(state, id), [state]),

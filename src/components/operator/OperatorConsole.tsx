@@ -25,7 +25,8 @@ import { useAudioStream, type Detection, type SongSuggestion, type CommandSugges
 import type { IndexedSong } from "@/lib/ai-detection/lyric-fragment";
 import { AIAssistantPanel, ListeningToggle } from "./AIAssistantPanel";
 import { OperatorErrorBoundary } from "./OperatorErrorBoundary";
-import { updateDetectionStatus, updateAiSuggestionStatus } from "@/lib/actions";
+import { updateDetectionStatus, updateAiSuggestionStatus, reorderServiceItems } from "@/lib/actions";
+import { insertIdAtIndex } from "@/lib/spring-load";
 import { SuggestionHistory } from "./SuggestionHistory";
 import { EditSuggestionModal, type EditableSuggestion } from "./EditSuggestionModal";
 import { transition } from "@/lib/autopilot";
@@ -1874,10 +1875,10 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     const existingIds = plan.items
       .map((it) => (it as { id?: string }).id)
       .filter((x): x is string => typeof x === "string" && !x.startsWith("optimistic-") && x !== newId);
-    const clamped = Math.max(0, Math.min(insertAtIndex, existingIds.length));
-    const orderedIds = [...existingIds.slice(0, clamped), newId, ...existingIds.slice(clamped)];
+    // Clamp + insert via the shared pure primitive (one source of truth with the
+    // header-drop reorder) — fail-soft clamp keeps the item rather than losing it.
+    const orderedIds = insertIdAtIndex(existingIds, newId, insertAtIndex);
     try {
-      const { reorderServiceItems } = await import("@/lib/actions");
       const r = await reorderServiceItems(plan.id, orderedIds);
       if (!r.ok) console.warn("[section-drop] reposition failed:", r.error);
     } catch (e) {
