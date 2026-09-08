@@ -144,7 +144,7 @@ async function validateAddServiceItemPayload(
         return { ok: false, error: "header payload must not include library refs" };
       }
       const color = payload.color;
-      if (color !== undefined && (typeof color !== "string" || !/^#[0-9a-fA-F]{6}$/.test(color))) {
+      if (color !== undefined && !isHex6Color(color)) {
         return { ok: false, error: "header color must be a #rrggbb hex string" };
       }
       return { ok: true };
@@ -1099,9 +1099,15 @@ export async function registerMediaAsset(data: { kind: "image" | "video"; fileNa
   // Wave 3 (item 4c): an OS-file drop onto a Library row files the upload into
   // that library. Validate ownership; a bad/foreign id falls back to Default
   // (NULL) rather than failing the whole upload.
-  const { libraryId, ...rest } = data;
+  const { libraryId, kind, fileName, s3Key, mimeType, sizeBytes } = data;
   const resolvedLibraryId = libraryId && (await assertOwnLibrary(db, user.churchId, libraryId)) ? libraryId : null;
-  const [row] = await db.insert(mediaAssets).values({ ...rest, libraryId: resolvedLibraryId, churchId: user.churchId }).returning();
+  // Explicit whitelist of the columns we persist — never spread caller input
+  // into the insert, so a future extra field on `data` can't silently write an
+  // unintended column.
+  const [row] = await db.insert(mediaAssets).values({
+    kind, fileName, s3Key, mimeType, sizeBytes,
+    libraryId: resolvedLibraryId, churchId: user.churchId,
+  }).returning();
   revalidatePath("/library/media");
 
   // Generate a 320x180 grid thumbnail AFTER responding (non-blocking) so the
