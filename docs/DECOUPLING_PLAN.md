@@ -460,15 +460,41 @@ while the slide layer changes), **clear-background leaves the slide intact**,
 (background-persistence 9, output-layers 13, layer-wire 25, output-layers-render
 9, output-compositor 17); tsc clean.
 
+### Wave-4 fix pass (2026-09-08) — as built
+- **Cross-restart URL re-mint (DONE)**: `/api/media/list` now returns `mediaKey`
+  (the durable S3 key), the MediaBrowser `Asset` carries it, and
+  `setMediaAsBackground` threads it onto the `PFBackground` (`buildMediaBackground`
+  sets `mediaKey` when present). So a background set from the library re-mints a
+  fresh presigned URL on the existing `useBackgroundState` path across a full app
+  restart — no more stale-URL fail-safe hours later. The re-mint endpoint
+  (`/api/media/url`) is church-scoped (key's first segment must equal the caller's
+  churchId — IDOR guard), so storing the key (not just a presigned URL) is safe.
+- **Delete honesty (DONE)**: `MediaBrowser.deleteAsset` + `bulkDelete` now call
+  `removeCustomBackground(\`media-bg-\${id}\`)` — deleting an asset that was the
+  ACTIVE background resets the store to None (never points the projector at a
+  deleted asset, never lists a dead entry in the Backgrounds picker).
+- **Theme-menu rename (DONE)**: the theme-system items are now "Save into theme:
+  Background" / "Save into theme: Logo" (toasts aligned: "Saved into theme
+  “name”: Background/Logo") so they read as distinct from the Background-Template
+  "Set as background". The Background-Template "Set as background" is unchanged.
+- **Post-click hint (DONE)**: a plain-click IMAGE send while a service is live
+  shows a success toast with a "Set as background instead" action — one tap sets
+  the media as the background layer. Honest/minimal: the just-sent image slide
+  stays up until the operator advances (no auto-restore of the previous slide);
+  the toast copy says so. No new state machine.
+- **`kind` union normalized at the boundary (DONE)**: `normalizeMediaKind()`
+  collapses loose/MIME kinds to `"image" | "video"` ONCE in MediaBrowser before
+  calling `setMediaAsBackground`; the helper's public surface (`MediaBgAsset.kind`)
+  is now the two-value union — no `startsWith` sniffing inside build/set.
+
 ### Deferred / honest gaps
-- **Cross-restart URL re-mint**: the media background stores the current
-  presigned `url` (durable for the service + session — background is independent
-  of slides). `useBackgroundState` only re-mints from a `mediaKey`, which the
-  library-list Asset does not currently expose (the uploader path DOES carry it).
-  So a background set from the library may show a stale URL hours later after a
-  full app restart (BackgroundLayer fails safe → gradient/nothing). Follow-up:
-  thread the media asset's S3 key through `/api/media/list` so this path re-mints
-  too. Set-on-the-day is unaffected.
+- **localStorage key churchId-scoping (DEFERRED, migration note)**: the background
+  store keys (`presentflow.backgrounds.custom.v1` / `.activeId.v1` / stamps) are
+  global, NOT church-scoped. Scoping them by churchId would ORPHAN every existing
+  stored background/active-id on upgrade (the new key reads empty), so it needs a
+  one-time migration (copy the legacy global key into the church-scoped key on
+  first read) before it can ship safely. Deferred — the practical risk is low on a
+  single-church desktop shell (one operator, one church per install).
 - **Remaining ProPresenter clears (roadmap, NOT built)**: the reserved,
   non-operable layer kinds map to existing PresentFlow features to be folded into
   per-layer clears in a later increment — **audio** = Phase 5 (audio routing +
