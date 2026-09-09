@@ -80,10 +80,17 @@ export function BottomBar({
   }, [isVideoLive, liveVideoUrl, videoRef]);
   const toggleVideoPause = () => {
     const el = videoRef?.current;
-    // Master element is the source of truth; fall back to our state if unavailable.
-    const shouldPlay = el ? el.paused : videoPaused;
-    if (el) { if (shouldPlay) el.play().catch(() => {}); else el.pause(); }
-    setVideoPaused(!shouldPlay);
+    // The master element IS the source of truth. If it isn't mounted yet (the
+    // sub-second cold-start window right after a clip goes live), do NOTHING —
+    // posting a projector pause we can't hold on the master would just get
+    // re-asserted to play by the media-sync heartbeat ~1s later. A no-op click
+    // for that brief window is safe; the button works the instant the video is up.
+    if (!el) return;
+    const shouldPlay = el.paused;
+    if (shouldPlay) el.play().catch(() => {}); else el.pause();
+    // .play()/.pause() flip el.paused synchronously → read the real state (no
+    // optimistic guess that could disagree if play() is later rejected).
+    setVideoPaused(el.paused);
     // Broadcast for INSTANT projector response (the heartbeat would follow within
     // ~1s anyway, but operators expect an immediate freeze).
     safePost(mediaChRef.current, { type: "media-control", command: shouldPlay ? "play" : "pause" } as LiveMessage);
