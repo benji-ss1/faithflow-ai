@@ -7,7 +7,7 @@ import type { BackgroundSpec } from "@/lib/broadcast";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload, ThemeAppearance } from "@/lib/broadcast";
-import { useSlideClipboard, setSlideClipboard, getSlideClipboard } from "@/lib/slide-clipboard";
+import { useSlideClipboard, setSlideClipboard, getSlideClipboard, setTextClipboard, useTextClipboard, getTextClipboard } from "@/lib/slide-clipboard";
 import { pasteInsertIndex, pasteDisabledReason } from "@/lib/slide-paste";
 import { updateSongSlides, deleteSongSlide, updateSongSlideText, setSongSlideBackgroundImage, createSongImageSlide, setServiceItemSlideBackground, addServiceItemImageSlide, assignSlidesToGroup, createSongGroup, setSongSlideActions } from "@/lib/actions";
 import { sanitizeSlideActions } from "@/engine/slide-actions";
@@ -187,7 +187,13 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   const canEditSlideActions = item?.type === "song" && !!sectionSongId;
   // Non-destructive palette offered on a slide — the `slideSafe` subset of the ONE
   // shared palette (guarded actions can never appear here, by construction).
-  const SLIDE_ACTION_PALETTE = SLIDE_SAFE_PALETTE;
+  // A1 (2026-09-09): the per-slide Actions menu is background-focused — timer and
+  // message actions were confusing here and belong in the Automations editor
+  // (which still offers the full palette). Filter them out of the SLIDE menu only.
+  const SLIDE_ACTION_PALETTE = SLIDE_SAFE_PALETTE.filter((e) => {
+    const t = e.make().type;
+    return t !== "timer" && t !== "show_message" && t !== "clear_message";
+  });
   const toggleSlideAction = (idx: number, spec: ActionSpec) => {
     const slideId = item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined;
     if (!sectionSongId || !slideId) return;
@@ -300,6 +306,23 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   // a DISABLED "Paste slide" menu item with a tooltip instead of hiding it — the
   // field complaint was silence reading as "I don't have any editing access".
   const pasteReason = pasteDisabledReason(!!clipboardSlide, isEditableSong);
+  // C1: text clipboard — "Copy Text" fills it; "Paste Text" drops it onto ANOTHER
+  // slide, preserving that slide's design (updateSongSlideText swaps only the text).
+  const textClipboard = useTextClipboard();
+  const canPasteText = !!textClipboard && isEditableSong;
+  const pasteTextOnto = (idx: number) => {
+    const text = getTextClipboard();
+    void (async () => {
+      const { toast } = await import("sonner");
+      if (!text) { toast.error("No copied text to paste"); return; }
+      const slideId = item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined;
+      if (!slideId) { toast.error("Couldn't find that slide"); return; }
+      const res = await updateSongSlideText(slideId, text);
+      if (!res.ok) { toast.error(res.error ?? "Paste failed"); return; }
+      toast.success("Text pasted");
+      router.refresh();
+    })();
+  };
   const pasteSlideAt = (insertIdx: number) => {
     if (guardObjectSong()) return;
     const copied = getSlideClipboard();
@@ -687,13 +710,18 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                 onCopyText={() => {
                   const text = s.kind === "text" ? ((s as { text?: string }).text ?? "") : "";
                   if (text) {
+                    // In-app text clipboard powers "Paste Text" onto another slide;
+                    // also mirror to the OS clipboard for paste outside the app.
+                    setTextClipboard(text);
                     navigator.clipboard.writeText(text).then(() => {
                       void import("sonner").then(({ toast }) => toast.success("Copied to clipboard"));
                     }).catch(() => {
-                      void import("sonner").then(({ toast }) => toast.error("Copy failed"));
+                      void import("sonner").then(({ toast }) => toast.success("Text copied"));
                     });
                   }
                 }}
+                canPasteText={canPasteText}
+                onPasteText={() => pasteTextOnto(idx)}
                 onCopySlide={() => {
                   setSlideClipboard(s);
                   void import("sonner").then(({ toast }) => toast.success("Slide copied"));
@@ -867,6 +895,7 @@ function SortableSlideCard(props: {
   canQuickEdit: boolean;
   canPaste: boolean;
   pasteReason: string | null;
+  canPasteText: boolean;
   onSelect: () => void;
   onDouble: () => void;
   onDelete: () => void;
@@ -875,6 +904,7 @@ function SortableSlideCard(props: {
   onCopyText: () => void;
   onCopySlide: () => void;
   onPasteSlide: () => void;
+  onPasteText: () => void;
   onSendLive: () => void;
   bgDropActive: boolean;
   onMediaDragOver: (e: React.DragEvent) => void;
@@ -919,6 +949,7 @@ function SortableSlideCard(props: {
         canQuickEdit={props.canQuickEdit}
         canPaste={props.canPaste}
         pasteReason={props.pasteReason}
+        canPasteText={props.canPasteText}
         onSelect={props.onSelect}
         onDouble={props.onDouble}
         onDelete={props.onDelete}
@@ -927,6 +958,7 @@ function SortableSlideCard(props: {
         onCopyText={props.onCopyText}
         onCopySlide={props.onCopySlide}
         onPasteSlide={props.onPasteSlide}
+        onPasteText={props.onPasteText}
         onSendLive={props.onSendLive}
       />
       {/* Native drag-to-playlist handle. Kept SEPARATE from the dnd-kit reorder
@@ -956,7 +988,7 @@ function SortableSlideCard(props: {
 }
 
 function SlideCard({
-  slide, index, groupChip, sectionMenu, actionCount, actionsMenu, appearance, background, selected, canQuickEdit, canPaste, pasteReason, onSelect, onDouble, onDelete, onQuickEdit, onDuplicate, onCopyText, onCopySlide, onPasteSlide, onSendLive,
+  slide, index, groupChip, sectionMenu, actionCount, actionsMenu, appearance, background, selected, canQuickEdit, canPaste, pasteReason, canPasteText, onSelect, onDouble, onDelete, onQuickEdit, onDuplicate, onCopyText, onCopySlide, onPasteSlide, onPasteText, onSendLive,
 }: {
   slide: SlidePayload;
   index: number;
@@ -970,6 +1002,7 @@ function SlideCard({
   canQuickEdit: boolean;
   canPaste: boolean;
   pasteReason: string | null;
+  canPasteText: boolean;
   onSelect: () => void;
   onDouble: () => void;
   onDelete: () => void;
@@ -978,6 +1011,7 @@ function SlideCard({
   onCopyText: () => void;
   onCopySlide: () => void;
   onPasteSlide: () => void;
+  onPasteText: () => void;
   onSendLive: () => void;
 }) {
   return (
@@ -1172,6 +1206,21 @@ function SlideCard({
             className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)] data-[highlighted]:text-[var(--color-foreground)]"
           >
             Copy Text
+          </ContextMenu.Item>
+          {/* Paste Text (C1) — drop copied text onto THIS slide, keeping its design.
+              Disabled (with dimmed styling) until text is copied AND this is an
+              editable song slide. */}
+          <ContextMenu.Item
+            disabled={!canPasteText}
+            onSelect={canPasteText ? onPasteText : undefined}
+            className={cn(
+              "flex items-center gap-2 px-3 py-1.5 rounded outline-none",
+              canPasteText
+                ? "cursor-pointer data-[highlighted]:bg-[var(--color-panel)] data-[highlighted]:text-[var(--color-foreground)]"
+                : "opacity-40 cursor-not-allowed",
+            )}
+          >
+            Paste Text
           </ContextMenu.Item>
           <ContextMenu.Item
             onSelect={onCopySlide}
