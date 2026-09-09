@@ -46,6 +46,10 @@ import { EndServiceButton } from "./EndServiceButton";
 import { OperatorShell } from "./OperatorShell";
 import { ProOperatorShell } from "./pro/ProOperatorShell";
 import type { OperatorShellCtx } from "./shell/types";
+import { dispatchAction, type EngineAction, type DispatchResult } from "@/engine/actions";
+import { setMediaAsBackground, normalizeMediaKind } from "@/backgrounds/mediaAsBackground";
+import { sanitizeSlideActions, dispatchSlideActions } from "@/engine/slide-actions";
+import type { MacroDefinition } from "@/engine/macros";
 import { useProjectionZoneStore } from "@/lib/projection-zone-store";
 import { normalizeZone, DEFAULT_ZONE, type ProjectionZone } from "@/lib/projection-zone";
 import { ZoneEditor } from "./zone/ZoneEditor";
@@ -1222,7 +1226,81 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   // Use sendSlideToLive with instant:true so the LIVE button is always zero-latency.
   // The fade/dissolve transition is intentional for playlist slides, but when an
   // operator explicitly presses LIVE they want it NOW — no 1-2 s animation delay.
-  const sendPreview = useCallback(() => sendSlideToLive(previewSlide, undefined, { instant: true }), [previewSlide, sendSlideToLive]);
+  // Phase 4 — the ONE action dispatcher seam. A stable wrapper around the engine
+  // `dispatchAction(ctx, action, opts)` bound to the LIVE ctx via a ref (the ctx
+  // is assembled below and the ref is refreshed each render, so the wrapper
+  // itself is stable — no dep churn — while always dispatching against the
+  // current handlers).
+  const ctxRef = useRef<OperatorShellCtx | null>(null);
+  const dispatchEngineAction = useCallback(
+    (action: EngineAction, opts?: { confirmed?: boolean }): DispatchResult => {
+      const c = ctxRef.current;
+      if (!c) return { handled: false, reason: "unknown" };
+      return dispatchAction(c, action, opts);
+    },
+    [],
+  );
+  // Phase 4 — real handler behind SET_BACKGROUND_MEDIA: route a media asset
+  // through the setMediaAsBackground store machinery (Wave 4). Client-only side
+  // effect; safe here (OperatorConsole is a client component).
+  const setBackgroundMedia = useCallback(
+    (assetRef: { id: string; url: string; fileName: string; kind: string; mediaKey?: string }) => {
+      setMediaAsBackground({
+        id: assetRef.id,
+        url: assetRef.url,
+        fileName: assetRef.fileName,
+        kind: normalizeMediaKind(assetRef.kind),
+        mediaKey: assetRef.mediaKey,
+      });
+    },
+    [],
+  );
+
+  // Phase 4 — church Automations (macros) cache, for resolving a slide action of
+  // type "macro". Loaded once; refreshed by the Automations panel via event.
+  const macrosRef = useRef<MacroDefinition[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const { listMacros } = await import("@/lib/actions");
+        const res = await listMacros();
+        if (!cancelled && res.ok && res.data) {
+          macrosRef.current = res.data.map((m) => ({ id: m.id, churchId, name: m.name, actions: m.actions as MacroDefinition["actions"], enabled: m.enabled }));
+        }
+      } catch { /* macros are optional; a failure just leaves macro slide-actions unresolved */ }
+    };
+    void load();
+    const onChanged = () => { void load(); };
+    window.addEventListener("presentflow:macros-changed", onChanged);
+    return () => { cancelled = true; window.removeEventListener("presentflow:macros-changed", onChanged); };
+  }, [churchId]);
+
+  // Phase 4 — fire a slide's attached actions through the ONE dispatcher when the
+  // operator sends that slide live. Slide actions are validated NON-destructive
+  // (sanitize drops any guarded spec) and dispatched confirmed:false, so this can
+  // never blank/kill the projector. Operator-initiated ONLY (see sendPreview);
+  // AI auto-fire paths deliberately do NOT fire slide actions (strictly-safe,
+  // no-regression — documented in DECOUPLING_PLAN §Phase 4).
+  const fireSlideActions = useCallback((itemIdx: number, slideIdx: number) => {
+    const raw = plan.items[itemIdx]?.slideActions?.[slideIdx];
+    if (!Array.isArray(raw) || raw.length === 0) return;
+    const specs = sanitizeSlideActions(raw);
+    if (specs.length === 0) return;
+    dispatchSlideActions(
+      dispatchEngineAction,
+      specs,
+      (macroId) => {
+        const def = macrosRef.current.find((m) => m.id === macroId);
+        return def && def.enabled ? def : null;
+      },
+    );
+  }, [plan.items, dispatchEngineAction]);
+
+  const sendPreview = useCallback(() => {
+    sendSlideToLive(previewSlide, undefined, { instant: true });
+    fireSlideActions(preview.itemIdx, preview.slideIdx);
+  }, [previewSlide, sendSlideToLive, fireSlideActions, preview.itemIdx, preview.slideIdx]);
 
   const move = useCallback((dir: 1 | -1) => {
     setPreview((cur) => {
@@ -1915,6 +1993,9 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // affordance (or nothing when the env kill-switch is off).
     layersEngineOn,
     liveLayers,
+    onSetBackgroundMedia: setBackgroundMedia,
+    dispatchEngineAction,
+    fireSlideActions,
     previewItemIdx: preview.itemIdx,
     previewSlideIdx: preview.slideIdx,
     liveItemIdx,
@@ -2134,7 +2215,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // Y6: only re-pack when the values consumers actually read change.
     plan, previewSlide, live, preview.itemIdx, preview.slideIdx, liveItemIdx,
     aspectRatio, fitMode, safeArea, autopilotMode, autoApprove.enabled, activeZone,
-    layersEngineOn, liveLayers,
+    layersEngineOn, liveLayers, setBackgroundMedia, dispatchEngineAction, fireSlideActions,
     autoApprove.autoSendToLive, audio, confidenceThreshold, defaultTranslationCode,
     countdownEndsAt, announcement, transitionSpec,
     effectiveBank, currentBankIdx, internetMatches, historyKey,
@@ -2157,6 +2238,10 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // Live undo/redo: liveHistoryVer forces the can-* flags to recompute.
     undoLive, redoLive, liveHistoryVer,
   ]);
+
+  // Keep the dispatcher's live-ctx ref current every render so
+  // dispatchEngineAction always targets the freshest handlers.
+  ctxRef.current = shellCtx;
 
   return (
     <>

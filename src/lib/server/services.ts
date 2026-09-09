@@ -60,6 +60,12 @@ export type ExpandedItem = {
   arrangements?: { id: string; name: string; isDefault: boolean; order: string[]; sort: number }[];
   groups?: { id: string; name: string; kind: string; color: string | null; order: number }[];
   slideGroupIds?: (string | null)[];
+  // Phase 4 (Slide Actions) — per-slide attached ActionSpec[], aligned 1:1 with
+  // `slides` (an empty array = no actions). Song items read `song_slides.actions`;
+  // non-song items read `payload.slideActions` (a sparse { [slideIdx]: [] } map).
+  // Undefined when nothing on the item has actions (no-regression line). Raw
+  // (unknown[]) — consumers sanitize via engine/slide-actions before dispatch.
+  slideActions?: unknown[][];
 };
 
 export type ExpandedPlan = {
@@ -117,6 +123,7 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
     // Groups & Arrangements operator-shell surface (wave 6D). Undefined for every
     // non-song item and for groupless songs (no-regression line).
     let slideGroupIds: (string | null)[] | undefined;
+    let slideActions: unknown[][] | undefined;
     let groupsMeta: { id: string; name: string; kind: string; color: string | null; order: number }[] | undefined;
     let arrangementsMeta: { id: string; name: string; isDefault: boolean; order: string[]; sort: number }[] | undefined;
     let resolvedArrangementId: string | undefined;
@@ -206,9 +213,11 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
             );
             resolvedArrangementId = arrangementId;
             slideGroupIds = arranged.map((r) => r.groupId);
+            const actByRowArr = new Map(rows.map((r) => [r.id, Array.isArray(r.actions) ? (r.actions as unknown[]) : []]));
+            slideActions = arranged.map((r) => actByRowArr.get(r.id) ?? []);
             songSlideRows = arranged.map((r) => ({ id: r.id, lyrics: sanitizeLyrics(r.lyrics), objectsJson: r.objectsJson }));
             slides = arranged.map((r) => projectableSongSlide(sanitizeLyrics(r.lyrics), r.objectsJson));
-            expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides: slides.length ? slides : [{ kind: "blank", bgColor: blankBgColor }], songId, songSlideRows, mediaMeta, arrangementId: resolvedArrangementId, arrangements: arrangementsMeta, groups: groupsMeta, slideGroupIds });
+            expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides: slides.length ? slides : [{ kind: "blank", bgColor: blankBgColor }], songId, songSlideRows, mediaMeta, arrangementId: resolvedArrangementId, arrangements: arrangementsMeta, groups: groupsMeta, slideGroupIds, slideActions });
             continue;
           }
           // Pinned arrangement no longer resolves (deleted, or groups removed) →
@@ -243,6 +252,7 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
         // assign sections per-slide. Always carried for song items (all-null for a
         // groupless song); the SlideGrid/strip only render chrome when groups exist.
         slideGroupIds = orderedRows.map((r) => r.groupId);
+        slideActions = orderedRows.map((r) => (Array.isArray(r.actions) ? (r.actions as unknown[]) : []));
       }
     } else if (it.type === "scripture") {
       // 2026-07-25 field bug fix — the client (BibleMode.addVerseToPlaylist)
@@ -376,7 +386,14 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
     if (slides.length === 0) slides = [{ kind: "blank", bgColor: blankBgColor }];
     if (it.type === "sermon" && typeof payload.pptxImportId === "string") extra.pptxImportId = payload.pptxImportId;
     if (typeof payload.themeId === "string" && payload.themeId) extra.themeId = payload.themeId;
-    expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides, ...extra, songId, songSlideRows, mediaMeta, arrangementId: resolvedArrangementId, arrangements: arrangementsMeta, groups: groupsMeta, slideGroupIds });
+    // Non-song items carry their per-slide actions in payload.slideActions (a
+    // sparse { [slideIdx]: ActionSpec[] } map). Align to the final slides array.
+    if (slideActions === undefined) {
+      const saMap = (payload.slideActions && typeof payload.slideActions === "object" && !Array.isArray(payload.slideActions))
+        ? (payload.slideActions as Record<string, unknown>) : null;
+      if (saMap) slideActions = slides.map((_, i) => (Array.isArray(saMap[String(i)]) ? (saMap[String(i)] as unknown[]) : []));
+    }
+    expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides, ...extra, songId, songSlideRows, mediaMeta, arrangementId: resolvedArrangementId, arrangements: arrangementsMeta, groups: groupsMeta, slideGroupIds, slideActions });
   }
 
   return { id: plan.id, title: plan.title, items: expanded, logoUrl, blankBgColor };

@@ -178,6 +178,21 @@ export type OperatorShellCtx = {
   // `layersV2` opt-in. When false the panel shows a disabled affordance.
   layersEngineOn: boolean;
   liveLayers: UseLiveLayers;
+  // Phase 4 — set a media asset as the (persistent) background layer, routing
+  // through the setMediaAsBackground store machinery (Wave 4). The real handler
+  // behind the SET_BACKGROUND_MEDIA engine action.
+  onSetBackgroundMedia: (assetRef: { id: string; url: string; fileName: string; kind: string; mediaKey?: string }) => void;
+  // Phase 4 — the ONE action dispatcher seam. A stable wrapper around
+  // engine `dispatchAction(ctx, action, opts)` bound to the live ctx. Slide
+  // actions, Automations, and (later) voice/AI emit through this. Parallel path
+  // per the blueprint — existing UI handlers are NOT rewired through it yet.
+  dispatchEngineAction: (
+    action: import("@/engine/actions").EngineAction,
+    opts?: { confirmed?: boolean },
+  ) => import("@/engine/actions").DispatchResult;
+  // Phase 4 — fire a slide's attached actions (if any) through the dispatcher.
+  // Operator-initiated sends call this with the sent slide's (itemIdx, slideIdx).
+  fireSlideActions: (itemIdx: number, slideIdx: number) => void;
   onStageSlide: (slide: SlidePayload) => void;
   onBankAddReference: (ref: { book: string; chapter: number; verseStart: number; verseEnd: number }) => Promise<BankedVerse | null>;
   onSendBankedToLive: (idx: number) => void;
