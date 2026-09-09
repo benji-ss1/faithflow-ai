@@ -41,7 +41,9 @@ import type { UnifiedSuggestion } from "../../useAudioStream";
 import { AIDetectionsPanel, songRowFromSuggestion } from "./AIDetectionsPanel";
 import { TimersPanel } from "./TimersPanel";
 import { MessagesPanel } from "./MessagesPanel";
-import { MacrosTab } from "./tabs/MacrosTab";
+import dynamic from "next/dynamic";
+// Speed: Automations tab loaded on demand (off the operator hot path).
+const MacrosTab = dynamic(() => import("./tabs/MacrosTab").then((m) => m.MacrosTab), { ssr: false });
 import { ThemesModal } from "../ThemesModal";
 import { BibleLicensingTab } from "./tabs/BibleLicensingTab";
 import { ChannelStrip } from "../../ChannelStrip";

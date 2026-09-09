@@ -1287,7 +1287,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     if (!Array.isArray(raw) || raw.length === 0) return;
     const specs = sanitizeSlideActions(raw);
     if (specs.length === 0) return;
-    dispatchSlideActions(
+    const outcomes = dispatchSlideActions(
       dispatchEngineAction,
       specs,
       (macroId) => {
@@ -1295,6 +1295,16 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
         return def && def.enabled ? def : null;
       },
     );
+    // Observability: one compact toast ONLY when something didn't fire (a throw,
+    // an unresolved macro, or a guarded spec refused). All-green stays silent so
+    // the happy path is noise-free.
+    const failed = outcomes.filter((o) => !o.result.handled).length;
+    if (failed > 0) {
+      const ran = outcomes.length - failed;
+      void import("sonner").then(({ toast }) =>
+        toast.warning(`${ran} of ${outcomes.length} slide action${outcomes.length === 1 ? "" : "s"} ran — ${failed} need${failed === 1 ? "s" : ""} attention`),
+      );
+    }
   }, [plan.items, dispatchEngineAction]);
 
   const sendPreview = useCallback(() => {

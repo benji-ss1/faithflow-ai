@@ -8,8 +8,12 @@ import { StageTab } from "./tabs/StageTab";
 import { TimersTab } from "./tabs/TimersTab";
 import { MessagesTab } from "./tabs/MessagesTab";
 import { ThemesTab } from "./tabs/ThemesTab";
-import { MacrosTab } from "./tabs/MacrosTab";
+import dynamic from "next/dynamic";
 import { cn } from "@/lib/utils";
+
+// Speed: the Automations tab (+ its engine palette / confirm dialog) is loaded on
+// demand — it isn't part of the operator's hot path.
+const MacrosTab = dynamic(() => import("./tabs/MacrosTab").then((m) => m.MacrosTab), { ssr: false });
 
 const TABS = [
   { v: "audio", Icon: Music, label: "Audio" },

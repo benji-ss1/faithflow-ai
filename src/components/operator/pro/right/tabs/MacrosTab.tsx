@@ -16,27 +16,17 @@ import { Plus, Play, Trash2, X, ChevronDown } from "lucide-react";
 import type { OperatorShellCtx } from "../../../shell/types";
 import type { ActionSpec } from "@/engine/actions/spec";
 import { isGuardedSpec } from "@/engine/actions/spec";
+import { ACTION_PALETTE } from "@/engine/actions/palette";
 import { executeMacro, macroHasGuardedAction, MAX_ACTIONS_PER_MACRO, type MacroDefinition } from "@/engine/macros";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 type MacroRow = { id: string; name: string; actions: ActionSpec[]; enabled: boolean };
 
-// The palette shown when adding an action to an Automation. Guarded specs are
-// flagged so the UI can label them "needs confirm".
-const PALETTE: { label: string; make: () => ActionSpec }[] = [
-  { label: "Start timer (default)", make: () => ({ type: "timer", timerId: "default", command: "start" }) },
-  { label: "Stop timer (default)", make: () => ({ type: "timer", timerId: "default", command: "stop" }) },
-  { label: "Reset timer (default)", make: () => ({ type: "timer", timerId: "default", command: "reset" }) },
-  { label: "Show message…", make: () => ({ type: "show_message", text: "Message" }) },
-  { label: "Clear message", make: () => ({ type: "clear_message" }) },
-  { label: "Clear background layer", make: () => ({ type: "clear_layer", layerId: "background" }) },
-  { label: "Clear slide layer", make: () => ({ type: "clear_layer", layerId: "slide" }) },
-  { label: "Set background: none", make: () => ({ type: "set_background", spec: null }) },
-  { label: "Show logo", make: () => ({ type: "logo" }) },
-  { label: "Clear lower third", make: () => ({ type: "clear_lower_third" }) },
-  { label: "Blank (guarded)", make: () => ({ type: "blank" }) },
-  { label: "Kill / clear all output (guarded)", make: () => ({ type: "kill" }) },
-  { label: "Clear all layers (guarded)", make: () => ({ type: "clear_all_layers" }) },
-];
+// The palette shown when adding an action to an Automation is the ONE shared
+// palette (src/engine/actions/palette). Automations offer every entry, guarded
+// included (fired behind the in-panel confirm); SlideGrid offers only the
+// `slideSafe` subset. Single source → the two can't drift.
+const PALETTE = ACTION_PALETTE;
 
 function describeSpec(s: ActionSpec): string {
   switch (s.type) {
@@ -64,6 +54,7 @@ export function MacrosTab({ ctx }: { ctx?: OperatorShellCtx }) {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<MacroRow | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -97,18 +88,19 @@ export function MacrosTab({ ctx }: { ctx?: OperatorShellCtx }) {
     toast.success("Automation saved");
   };
 
-  const del = async (id: string) => {
+  const del = async (row: MacroRow) => {
+    if (!(await confirm({ title: `Delete “${row.name}”?`, description: "This automation will be removed for everyone in your church.", confirmLabel: "Delete", danger: true }))) return;
     const { deleteMacro } = await import("@/lib/actions");
-    const res = await deleteMacro(id);
+    const res = await deleteMacro(row.id);
     if (!res.ok) { toast.error(res.error || "Delete failed"); return; }
     await load(); notifyChanged();
   };
 
-  const testRun = (row: MacroRow) => {
+  const testRun = async (row: MacroRow) => {
     if (!ctx) { toast.error("Test-run needs the live operator console"); return; }
     const def: MacroDefinition = { id: row.id, churchId: "", name: row.name, actions: row.actions, enabled: true };
     const confirmed = macroHasGuardedAction(def)
-      ? window.confirm(`“${row.name}” contains a destructive action (blank/kill/clear-all). Run it now?`)
+      ? await confirm({ title: `Run “${row.name}” now?`, description: "This automation contains a destructive action (blank / kill / clear-all output).", confirmLabel: "Run", danger: true })
       : false;
     const outcomes = executeMacro(def, ctx.dispatchEngineAction, { confirmed });
     const fired = outcomes.filter((o) => o.result.handled).length;
@@ -176,15 +168,21 @@ export function MacrosTab({ ctx }: { ctx?: OperatorShellCtx }) {
         <div className="text-[12px] font-semibold">Automations</div>
         <button onClick={createNew} className="flex items-center gap-1 text-[11px] border border-[var(--color-border)] rounded px-2 py-1 hover:bg-[var(--color-panel)]"><Plus className="w-3.5 h-3.5" /> New</button>
       </div>
-      {rows.length === 0 && <div className="text-[11px] text-[var(--color-muted-foreground)] py-4 text-center">No automations yet. Create one to chain actions (start a timer + show a message, clear layers, …) and fire them in one tap.</div>}
+      {confirmDialog}
+      {rows.length === 0 && (
+        <div className="text-[11px] text-[var(--color-muted-foreground)] py-4 text-center">
+          No automations yet. Create one to chain actions (start a timer + show a message, clear layers, …) and fire them in one tap.
+          <div className="mt-1.5 text-[10px] opacity-80">…or right-click a song slide → Actions to attach an action to a single slide.</div>
+        </div>
+      )}
       {rows.map((r) => (
         <div key={r.id} className="flex items-center gap-2 bg-[var(--color-panel)] border border-[var(--color-border)] rounded px-2 py-1.5">
           <button onClick={() => setEditing(r)} className="flex-1 text-left min-w-0">
             <div className="text-[12px] truncate">{r.name}</div>
             <div className="text-[10px] text-[var(--color-muted-foreground)]">{r.actions.length} action(s){macroHasGuardedAction({ id: r.id, churchId: "", name: r.name, actions: r.actions, enabled: true }) ? " · destructive" : ""}</div>
           </button>
-          <button onClick={() => testRun(r)} title="Test run" className="p-1 text-[var(--color-muted-foreground)] hover:text-[var(--color-brand)]"><Play className="w-4 h-4" /></button>
-          <button onClick={() => del(r.id)} title="Delete" className="p-1 text-[var(--color-muted-foreground)] hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+          <button onClick={() => void testRun(r)} title="Test run" className="p-1 text-[var(--color-muted-foreground)] hover:text-[var(--color-brand)]"><Play className="w-4 h-4" /></button>
+          <button onClick={() => void del(r)} title="Delete" className="p-1 text-[var(--color-muted-foreground)] hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
         </div>
       ))}
     </div>

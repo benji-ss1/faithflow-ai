@@ -11,6 +11,7 @@ import { useSlideClipboard, setSlideClipboard, getSlideClipboard } from "@/lib/s
 import { pasteInsertIndex, pasteDisabledReason } from "@/lib/slide-paste";
 import { updateSongSlides, deleteSongSlide, updateSongSlideText, setSongSlideBackgroundImage, createSongImageSlide, setServiceItemSlideBackground, addServiceItemImageSlide, assignSlidesToGroup, createSongGroup, setSongSlideActions } from "@/lib/actions";
 import { sanitizeSlideActions } from "@/engine/slide-actions";
+import { SLIDE_SAFE_PALETTE } from "@/engine/actions/palette";
 import type { ActionSpec } from "@/engine/actions/spec";
 import { parseMediaDropPayload, isImageAsset, resolveMediaDrop, MEDIA_DROP_MIME } from "@/lib/media-drop";
 import { applyTextToSlide, projectableTextSlide } from "@/lib/broadcast";
@@ -184,15 +185,9 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
     return raw.map((arr) => sanitizeSlideActions(arr));
   }, [item?.slideActions]);
   const canEditSlideActions = item?.type === "song" && !!sectionSongId;
-  // Non-destructive palette offered on a slide (guarded actions never appear here).
-  const SLIDE_ACTION_PALETTE: { label: string; make: () => ActionSpec }[] = [
-    { label: "Switch background: none", make: () => ({ type: "set_background", spec: null }) },
-    { label: "Clear background layer", make: () => ({ type: "clear_layer", layerId: "background" }) },
-    { label: "Start timer (default)", make: () => ({ type: "timer", timerId: "default", command: "start" }) },
-    { label: "Stop timer (default)", make: () => ({ type: "timer", timerId: "default", command: "stop" }) },
-    { label: "Show message", make: () => ({ type: "show_message", text: "Message" }) },
-    { label: "Clear message", make: () => ({ type: "clear_message" }) },
-  ];
+  // Non-destructive palette offered on a slide — the `slideSafe` subset of the ONE
+  // shared palette (guarded actions can never appear here, by construction).
+  const SLIDE_ACTION_PALETTE = SLIDE_SAFE_PALETTE;
   const toggleSlideAction = (idx: number, spec: ActionSpec) => {
     const slideId = item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined;
     if (!sectionSongId || !slideId) return;
