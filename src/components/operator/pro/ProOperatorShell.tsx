@@ -4724,6 +4724,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           ctx={ctx}
           onOpenShortcutsHelp={() => setShortcutsHelpOpen(true)}
           centerMode={centerMode}
+          videoRef={previewVideoRef}
         />
       </div>
 

@@ -434,7 +434,8 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
     setSlides((prev) => {
       const blank: EditableSlide = {
         id: `pending_${Date.now()}`,
-        objects: [emptyTextObject(0, 0, 1920, 1080, "New slide")],
+        // B1: seed an EMPTY editable text box (no "New slide" placeholder text).
+        objects: [emptyTextObject(0, 0, 1920, 1080, "")],
       };
       const next = [...prev, blank];
       return next;
@@ -445,7 +446,7 @@ export function useSlideEditor(args: UseSlideEditorArgs): UseSlideEditorReturn {
   }, [isEditable, slides.length]);
 
   // Insert a GENUINELY empty slide (zero objects) — distinct from addSlide,
-  // which seeds a "New slide" text object. Selects the new slide.
+  // which seeds a single EMPTY (blank) editable text object. Selects the new slide.
   const addBlankSlide = useCallback(() => {
     if (!isEditable) return;
     setSlides((prev) => {

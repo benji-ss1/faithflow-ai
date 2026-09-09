@@ -15,6 +15,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.396",
+    date: "2026-09-09",
+    headline: "Pause a live video without blacking the screen, and new slides start truly blank",
+    highlights: [
+      "When a video is live, the pause button in the bottom-left transport now PAUSES the video — it freezes on the current frame and stays on the projector, instead of blanking the screen to black. Tap again to resume. (For everything except video, that button is still your Blank toggle.)",
+      "Adding a new slide now gives you a genuinely blank slide that inherits the look of the song around it — no more placeholder 'New slide' text to delete first.",
+    ],
+  },
+  {
     version: "0.1.395",
     date: "2026-09-09",
     headline: "Slide Actions and Automations — attach things that happen when a slide goes live, and chain actions into one tap",

@@ -41,7 +41,9 @@ export function CenterHeader({
   const onAddSlide = async () => {
     const songId = (item as { songId?: string } | undefined)?.songId;
     if (!songId) return;
-    const res = await createSongSlide(songId, undefined, { lyrics: "New slide", objects: [] });
+    // B1: a freshly-added slide must be BLANK (no placeholder text). Empty lyrics
+    // inherit the sibling slide's styling (see createSongSlide) with no text.
+    const res = await createSongSlide(songId, undefined, { lyrics: "", objects: [] });
     if (!res.ok) { toast.error(res.error ?? "Couldn't add slide"); return; }
     toast.success("Slide added");
     // Invalidate any cached copy of this song's slides so live-song tracking +
