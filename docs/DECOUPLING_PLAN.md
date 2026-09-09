@@ -867,3 +867,117 @@ that would risk the working tree state ahead of the pilot; record it instead):
 - The branch **tip** is internally consistent and green (tsc + suites), so the
   squashed single commit compiles and tests cleanly. Squashing collapses the
   defective intermediate state so `main` never contains a non-building commit.
+
+---
+
+## Phase 4 — Action primitives (as built, 0.1.395, 2026-09-09)
+
+Delivers "every operator operation is a serializable action through ONE
+dispatcher" so Slide Actions and Automations (macros) become thin layers. All
+renderer/loader/server-action — no Fly, no DMG. Additive + no-regression: a slide
+with no actions and a church with no automations project byte-identically.
+
+### 1. Action vocabulary completed
+- **`SET_BACKGROUND_MEDIA` is now REAL-wired** (was `todo-wired`): new
+  `ctx.onSetBackgroundMedia(assetRef)` routes the asset through the Wave-4
+  `setMediaAsBackground` store machinery. `ACTION_BINDINGS` updated to
+  `{ mode:"ctx", method:"onSetBackgroundMedia" }`; the completeness test now
+  exercises it as a ctx-bound action. All other surface actions (send-slide,
+  layer patch/visibility/clear, set-background, timer commands, message
+  show/hide/clear, announcement set/clear, transition set, logo/blank/kill) were
+  already REAL-wired from P2/Wave-5; the `{handled,reason}` + `requiresConfirm`
+  guard contract is unchanged.
+- **`src/engine/actions/spec.ts`** — the PERSISTED, JSON-safe `ActionSpec` union
+  (a flatter subset of `EngineAction`, no live SlidePayload/cursor arms). Pure
+  validators: `validateSpec` (structural), `validateForSlide` (rejects guarded),
+  `validateForMacro` (rejects macro-in-macro), `isGuardedSpec`,
+  `specToEngineAction`. Guarded specs = the three that map to a `requiresConfirm`
+  EngineAction (blank/kill/clear_all_layers).
+
+### 2. The ONE dispatcher, both directions
+- **`ctx.dispatchEngineAction(action, opts?)`** — a stable wrapper (via a live-ctx
+  ref) around `dispatchAction(ctx, …)`, exposed on `OperatorShellCtx`. This is the
+  single seam slide actions + automations fire through.
+- **ADOPTION IS PARALLEL ONLY** — existing UI handlers are NOT rewired through it
+  (no-regression, per the blueprint). It's added as the additive path.
+
+### 3. Slide Actions (P8)
+- **Schema**: additive `song_slides.actions jsonb default '[]'` (song slides);
+  non-song items use `service_items.payload.slideActions` (sparse
+  `{ [slideIdx]: ActionSpec[] }` map — mirrors the arrangementId/slideOrder
+  payload precedent). Migration
+  `docs/migrations/2026-09-09-add-slide-actions-and-macros.sql` (idempotent,
+  rollback, migrate-first), APPLIED to local `faithflow`.
+- **Loader**: `getExpandedServicePlan` surfaces `ExpandedItem.slideActions`
+  (aligned 1:1 with `slides`; raw unknown[][], sanitized at consumption) on the
+  song master + arrangement paths and the non-song payload path. Undefined when
+  nothing carries actions (no-regression). Re-verified cross-church adversarial
+  (13/13 PASS).
+- **Server actions**: `setSongSlideActions` (assertSlideOwned, validate NON-
+  destructive + sanitize) and `setServiceItemSlideActions` (operate_services,
+  payload map). Guarded specs REJECTED at save.
+- **Editor + badges**: SlideGrid right-click → **Actions** submenu (song slides)
+  toggles a small NON-destructive palette (switch/clear background, start/stop
+  timer, show/clear message); a lightning **badge** on the thumbnail shows the
+  attached count.
+- **ON SEND**: operator-initiated sends (the LIVE button, Enter, slide-click)
+  call `ctx.fireSlideActions(itemIdx, slideIdx)` → `dispatchSlideActions` fires
+  each spec `confirmed:false` (guarded specs would be refused by the dispatcher —
+  defence in depth), and a slide action of type `macro` expands its Automation
+  (its guarded contents fire `confirmed:true` since the church opted the macro
+  onto the slide). Guarded actions are barred as slide actions at BOTH save and
+  dispatch.
+
+### 4. Automations / Macros (P3, thin v1)
+- **Table** `macros` (church_id, name, actions jsonb, enabled, sort_order), RLS
+  enabled (owner-bypass), caps ≤50/church + ≤20 actions each, validated payloads
+  (no macro-in-macro).
+- **Engine** `src/engine/macros/index.ts` — `MacroDefinition`, `validateMacroActions`,
+  `sanitizeMacroActions`, `macroToEngineActions`, `macroHasGuardedAction`,
+  `executeMacro(def, dispatch, {confirmed})`.
+- **Server actions**: `listMacros` / `createMacro` / `updateMacro` / `deleteMacro`
+  (operate_services, church-scoped, validated).
+- **Panel**: the placeholder MacrosTab is now a functional **Automations** panel
+  (create/edit with the shared palette incl. guarded actions, test-run showing
+  `{handled}` counts with an in-panel confirm for destructive contents, delete).
+  Labelled "Automations" in the right tab bar.
+- **No recursion**: macros cannot contain macros — enforced at `validateForMacro`
+  (save) and skipped in `macroToEngineActions` (belt + suspenders).
+
+### 5. Safety invariants
+- **AI auto-fire gains NO new powers.** Slide actions fire ONLY on operator-
+  initiated sends (`fireSlideActions` is called from the SlideGrid click/LIVE-
+  button paths and `sendPreview`, never from the AI auto-fire chokepoints in
+  ProOperatorShell). **DECISION (deviates from the plan's "fire on auto-live
+  too"):** we chose the strictly-safe, no-regression default — the AI auto-live
+  song/Bible paths do NOT fire slide actions in this increment. Rationale:
+  CLAUDE.md no-regression priority + rule 7 (never widen AI auto-fire without
+  fresh sign-off). Wiring the auto path to fire opted-in slide actions is a
+  logged follow-up pending sign-off.
+- All dispatches validated; guarded actions never reachable without an operator-
+  facing confirm (`requiresConfirm` + `confirmed:true`).
+
+### Tests
+`test/engine-slide-actions.test.ts` (10), `test/engine-macros.test.ts` (7),
+`test/engine-actions.test.ts` (6, SET_BACKGROUND_MEDIA now ctx-bound) — all green.
+Layer/arrangement/cue-sheet suites re-run green; cross-church adversarial 13/13.
+tsc clean.
+
+### Browser-verified / field-verify-pending
+- Operator console loads cleanly with the new ctx (dispatcher + fireSlideActions),
+  SlideGrid, and Automations panel — zero console errors on the running :3005
+  dummy app. DB round-trip confirmed the `macros` row + `song_slides.actions`
+  shapes persist.
+- **Field-verify-pending (needs a seeded plan on the projector):** attach a
+  "switch background" action to a song slide → send → background changes on /live
+  with lyrics intact; create an Automation (timer start + message show) →
+  test-run → watch /stage + /live. Not yet run end-to-end on real hardware — same
+  bar as every prior wave.
+
+### Deferred (logged, not built)
+- Fire opted-in slide actions on the AI auto-live path (needs sign-off).
+- SET_BACKGROUND_MEDIA as a slide-action palette entry (needs an asset picker in
+  the slide menu; today it's reachable via Automations + the MediaBrowser).
+- Automation triggers (cue/hotkey/MIDI/Stream Deck) — the model has `enabled`
+  only; trigger matching is a later increment.
+- Six-agent ship gate + real-projector sign-off before merge.
