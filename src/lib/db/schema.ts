@@ -208,6 +208,10 @@ export const songSlides = pgTable("song_slides", {
   // line — a song with no groups projects byte-identically to today). ON DELETE
   // SET NULL so deleting a group never orphans its slides.
   groupId: uuid("group_id").references((): AnyPgColumn => songGroups.id, { onDelete: "set null" }),
+  // Phase 4 (Slide Actions / P8) — serializable ActionSpec[] fired when this
+  // slide goes live (validated NON-destructive: no blank/kill/clear_all). NULL/[]
+  // = no attached actions (no-regression line). See src/engine/slide-actions.
+  actions: jsonb("actions").notNull().default([]),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   // The FK to songs does NOT auto-index song_id in Postgres, yet every slide
@@ -604,6 +608,24 @@ export const messageTemplates = pgTable("message_templates", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
   index("idx_message_templates_church").on(t.churchId, t.sortOrder),
+]);
+
+// ProPresenter parity (§21.2 Automation domain) — Automations (macros): a
+// church-persisted, named list of serializable ActionSpec[] fired in sequence.
+// Caps enforced in the server action (≤50/church, ≤20 actions each). Guarded
+// (destructive) actions ARE allowed here but fire behind an in-panel confirm.
+export const macros = pgTable("macros", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  // ActionSpec[] — validated + sanitized on write (no macro-in-macro recursion).
+  actions: jsonb("actions").notNull().default([]),
+  enabled: boolean("enabled").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("idx_macros_church").on(t.churchId, t.sortOrder),
 ]);
 
 // Networked projector sync — device pairings.

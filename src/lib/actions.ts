@@ -4,7 +4,7 @@ import { eq, and, asc, sql, inArray } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { readableTextColor } from "./colorway";
 import { isHex6Color } from "./hex-color";
-import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangements, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries, timerDefinitions, messageTemplates, type ServiceItemType } from "./db/schema";
+import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangements, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries, timerDefinitions, messageTemplates, macros, type ServiceItemType } from "./db/schema";
 import { GROUP_KINDS } from "../engine/arrangements";
 import { preservedGroupIds } from "./song-group-preserve";
 import { cleanRenderUrl } from "./render-url";
@@ -2724,4 +2724,112 @@ export async function getSongArrangementModel(songId: string): Promise<Result<{
       slideGroups: slides.map((s) => ({ slideId: s.id, groupId: s.groupId })),
     },
   };
+}
+
+// ── Phase 4: Slide Actions (per-slide attached ActionSpec[]) ─────────────────
+//
+// Slide actions are validated NON-destructive on write (guarded blank/kill/
+// clear_all rejected) AND on dispatch (src/engine/slide-actions). Song slides
+// store them on `song_slides.actions`; non-song items store them in
+// `service_items.payload.slideActions[slideIdx]` (JSONB, no column).
+
+/** Persist a song slide's attached actions. Church-scoped via assertSlideOwned;
+ *  validated + sanitized (drops guarded/invalid) before write. */
+export async function setSongSlideActions(slideId: string, actions: unknown): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const owned = await assertSlideOwned(db, slideId, user.churchId);
+  if (!owned) return { ok: false, error: "Slide not found" };
+  const { validateSlideActions, sanitizeSlideActions } = await import("@/engine/slide-actions");
+  const v = validateSlideActions(actions);
+  if (!v.ok) return { ok: false, error: `Invalid slide action${v.index != null ? ` #${v.index + 1}` : ""}: ${v.reason}` };
+  const clean = sanitizeSlideActions(actions);
+  await db.update(songSlides).set({ actions: clean }).where(and(eq(songSlides.id, slideId), eq(songSlides.songId, owned.songId)));
+  revalidatePath(`/library/songs/${owned.songId}`);
+  return { ok: true };
+}
+
+/** Persist a NON-song item's per-slide actions into service_items.payload.
+ *  slideActions is a sparse map { [slideIdx]: ActionSpec[] }. Church-scoped. */
+export async function setServiceItemSlideActions(itemId: string, slideIdx: number, actions: unknown): Promise<Result> {
+  const user = await requireCap("operate_services");
+  const db = getDb();
+  const [item] = await db.select({ id: serviceItems.id, payload: serviceItems.payload })
+    .from(serviceItems)
+    .innerJoin(servicePlans, eq(servicePlans.id, serviceItems.servicePlanId))
+    .where(and(eq(serviceItems.id, itemId), eq(servicePlans.churchId, user.churchId)))
+    .limit(1);
+  if (!item) return { ok: false, error: "Item not found" };
+  if (!Number.isInteger(slideIdx) || slideIdx < 0 || slideIdx > 5000) return { ok: false, error: "Bad slide index" };
+  const { validateSlideActions, sanitizeSlideActions } = await import("@/engine/slide-actions");
+  const v = validateSlideActions(actions);
+  if (!v.ok) return { ok: false, error: `Invalid slide action: ${v.reason}` };
+  const clean = sanitizeSlideActions(actions);
+  const cur = (item.payload as { slideActions?: Record<string, unknown> })?.slideActions ?? {};
+  const nextMap: Record<string, unknown> = { ...cur };
+  if (clean.length === 0) delete nextMap[String(slideIdx)];
+  else nextMap[String(slideIdx)] = clean;
+  await db.execute(sql`UPDATE service_items SET payload = jsonb_set(coalesce(payload,'{}'::jsonb), '{slideActions}', ${JSON.stringify(nextMap)}::jsonb, true) WHERE id = ${itemId}`);
+  return { ok: true };
+}
+
+// ── Phase 4: Automations (macros) — church-scoped CRUD ───────────────────────
+
+const MAX_MACROS = 50;
+
+export type MacroInput = { name?: string; actions?: unknown; enabled?: boolean };
+
+async function sanitizeMacroInput(input: MacroInput): Promise<{ name: string; actions: unknown[]; enabled: boolean }> {
+  const { sanitizeMacroActions } = await import("@/engine/macros");
+  const name = (input.name ?? "Automation").trim().slice(0, 120) || "Automation";
+  const actions = sanitizeMacroActions(input.actions);
+  const enabled = input.enabled !== false;
+  return { name, actions, enabled };
+}
+
+export async function listMacros(): Promise<Result<Array<{ id: string; name: string; actions: unknown[]; enabled: boolean; sortOrder: number }>>> {
+  const user = await requireUser();
+  const db = getDb();
+  const rows = await db.select().from(macros)
+    .where(eq(macros.churchId, user.churchId))
+    .orderBy(asc(macros.sortOrder), asc(macros.createdAt));
+  const { sanitizeMacroActions } = await import("@/engine/macros");
+  return { ok: true, data: rows.map((r) => ({ id: r.id, name: r.name, actions: sanitizeMacroActions(r.actions), enabled: r.enabled, sortOrder: r.sortOrder })) };
+}
+
+export async function createMacro(input: MacroInput): Promise<Result<{ id: string }>> {
+  const user = await requireCap("operate_services");
+  const db = getDb();
+  const { validateMacroActions } = await import("@/engine/macros");
+  const v = validateMacroActions(Array.isArray(input.actions) ? input.actions : []);
+  if (!v.ok) return { ok: false, error: `Invalid action${v.index != null ? ` #${v.index + 1}` : ""}: ${v.reason}` };
+  const clean = await sanitizeMacroInput(input);
+  const existing = await db.select({ sortOrder: macros.sortOrder }).from(macros).where(eq(macros.churchId, user.churchId));
+  if (existing.length >= MAX_MACROS) return { ok: false, error: `Automation limit reached (${MAX_MACROS}). Delete one to add another.` };
+  const nextOrder = existing.length > 0 ? Math.max(...existing.map((e) => e.sortOrder)) + 1 : 0;
+  const [row] = await db.insert(macros).values({ churchId: user.churchId, name: clean.name, actions: clean.actions, enabled: clean.enabled, sortOrder: nextOrder }).returning({ id: macros.id });
+  return { ok: true, data: { id: row.id } };
+}
+
+export async function updateMacro(id: string, input: MacroInput): Promise<Result> {
+  const user = await requireCap("operate_services");
+  const db = getDb();
+  if (input.actions !== undefined) {
+    const { validateMacroActions } = await import("@/engine/macros");
+    const v = validateMacroActions(Array.isArray(input.actions) ? input.actions : []);
+    if (!v.ok) return { ok: false, error: `Invalid action${v.index != null ? ` #${v.index + 1}` : ""}: ${v.reason}` };
+  }
+  const clean = await sanitizeMacroInput(input);
+  const res = await db.update(macros).set({ name: clean.name, actions: clean.actions, enabled: clean.enabled, updatedAt: new Date() })
+    .where(and(eq(macros.id, id), eq(macros.churchId, user.churchId)));
+  if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Automation not found" };
+  return { ok: true };
+}
+
+export async function deleteMacro(id: string): Promise<Result> {
+  const user = await requireCap("operate_services");
+  const db = getDb();
+  const res = await db.delete(macros).where(and(eq(macros.id, id), eq(macros.churchId, user.churchId)));
+  if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Automation not found" };
+  return { ok: true };
 }
