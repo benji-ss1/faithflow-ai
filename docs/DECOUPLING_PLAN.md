@@ -964,11 +964,27 @@ with no actions and a church with no automations project byte-identically.
   logged follow-up pending sign-off.
 - All dispatches validated; guarded actions never reachable without an operator-
   facing confirm (`requiresConfirm` + `confirmed:true`).
+- **Send-path consistency (FINAL FIX PASS decision).** Both operator send paths —
+  `sendPreview` (LIVE button / Enter) and the SlideGrid click/context "Send to
+  Live" — call `onSendSlideToLive` then `fireSlideActions`, and BOTH RE-FIRE the
+  slide's actions on every re-send. This is intended: it matches ProPresenter
+  re-trigger semantics (re-sending a cue re-runs its macros). The SlideGrid path's
+  only extra is a 250ms same-slide bounce guard on the send itself (not a re-fire
+  suppressor); after it, a genuine re-send re-fires exactly like `sendPreview`.
+- **Fault isolation + observability (FINAL FIX PASS).** Each dispatch in
+  `dispatchSlideActions` / `executeMacro` is wrapped (`safeDispatch`): a throwing
+  handler becomes an explicit `{handled:false, reason:"threw"}` and never aborts
+  the batch. `fireSlideActions` surfaces any non-fired action as ONE compact toast
+  ("2 of 3 slide actions ran — 1 needs attention"); all-green is silent.
 
-### Tests
-`test/engine-slide-actions.test.ts` (10), `test/engine-macros.test.ts` (7),
-`test/engine-actions.test.ts` (6, SET_BACKGROUND_MEDIA now ctx-bound) — all green.
-Layer/arrangement/cue-sheet suites re-run green; cross-church adversarial 13/13.
+### Tests (as-built, after the Phase-4 FINAL FIX PASS)
+`test/engine-slide-actions.test.ts` (9), `test/engine-macros.test.ts` (7, +1 macro
+fault-isolation), `test/engine-actions.test.ts` (6, SET_BACKGROUND_MEDIA ctx-bound),
+`test/engine-phase4-stress.test.ts` (11, the throw test now asserts fault ISOLATION
+not the old gap), `test/engine-spec-validation.test.ts` (11, NEW — the hardened
+`validateSpec`: assetRef url/id/fileName/kind bounds + background/announcement/
+transition shape). Engine total = **44**; with timers (13) the Phase-4 engine
+suites are **57 green**. Layer/output suites green; cross-church adversarial green.
 tsc clean.
 
 ### Browser-verified / field-verify-pending
@@ -984,8 +1000,21 @@ tsc clean.
 
 ### Deferred (logged, not built)
 - Fire opted-in slide actions on the AI auto-live path (needs sign-off).
-- SET_BACKGROUND_MEDIA as a slide-action palette entry (needs an asset picker in
-  the slide menu; today it's reachable via Automations + the MediaBrowser).
+- SET_BACKGROUND_MEDIA / media-asset as a slide-action palette entry — pending an
+  asset picker in the slide menu; today it's reachable via Automations + the
+  MediaBrowser. (The persisted spec is now hardened — `set_background_media` url/id
+  bounds — so wiring the picker is purely a UI task.)
 - Automation triggers (cue/hotkey/MIDI/Stream Deck) — the model has `enabled`
   only; trigger matching is a later increment.
+- Type-specific slide-action badges (today a single lightning-count chip; a future
+  per-type icon row).
+- Non-song slide-actions UI — the server action (`setServiceItemSlideActions`,
+  now key-count-bounded) + loader exist, but only song slides expose the
+  right-click Actions menu; a non-song editor surface is a later increment.
+- Dry-run mode for Automations (preview the sequence without dispatching).
+- **"Run automation" as a slide-action palette entry** — now SAFE to add as a
+  next-wave candidate: after the 45e5bbb guard fix a macro attached to a slide
+  fires `confirmed:false`, so its guarded contents are refused at dispatch and a
+  slide can never blank/clear the projector via a macro. (Not added yet — it needs
+  a macro picker in the slide menu.)
 - Six-agent ship gate + real-projector sign-off before merge.

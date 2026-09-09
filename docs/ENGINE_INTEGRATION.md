@@ -703,3 +703,34 @@ the code follows REALITY. Divergences found:
 - **`presentflow:timer-command` is nonce-gated (Y1).** The macro/engine entry point
   now dispatches via `dispatchInternal` and the ProOperatorShell listener drops any
   event failing `isInternalEvent` — an XSS/extension can't drive a timer.
+
+### §9 correction note — Phase-4 slide-actions/macros as-built (FINAL FIX PASS, 2026-09-09)
+Several earlier claims in this doc are now STALE and are corrected here (the code
+is the source of truth):
+
+- **`SET_BACKGROUND_MEDIA` is no longer "todo-wired".** Phase 4 gave it a real ctx
+  handler (`ACTION_BINDINGS.SET_BACKGROUND_MEDIA = { mode: "ctx", method:
+  "onSetBackgroundMedia" }`, wired to `OperatorConsole.setBackgroundMedia` →
+  `setMediaAsBackground`). The Wave-5 "As-built" bullet and the P0–P2 binding note
+  that list it as `todo-wired` predate Phase 4. `todo-wired` is now an EMPTY set —
+  no shipping action returns that reason.
+- **`MacrosTab.tsx` EXISTS.** The P0–P2 process note ("`MacrosTab.tsx` … does not
+  exist yet … flagged for the P3 pass") is stale — it lives at
+  `pro/right/tabs/MacrosTab.tsx`, is dynamically imported by both `RightTabs` and
+  `RightIconBar`, and drives Automations CRUD + test-run through the ONE dispatcher.
+- **Persisted-spec hardening (new).** `validateSpec` (engine/actions/spec.ts) now
+  bounds `set_background_media` (`assetRef.url` via the shared `isValidRenderUrl`
+  https/loopback gate, `assetRef.id` via `SAFE_TOKEN`, fileName ≤260 / kind ≤40 /
+  mediaKey ≤512) and validates `set_background` / `set_announcement` /
+  `set_transition` shapes through the shared broadcast validators
+  (`isValidBackgroundSpec` / `isValidAnnouncement` / `isValidTransitionSpec`) plus
+  an 8 KB byte cap. Guarded blank/kill/clear-all specs remain slide-forbidden.
+- **Fault isolation.** `dispatchSlideActions` and `executeMacro` wrap each dispatch
+  (`safeDispatch`): a throwing handler → `{handled:false, reason:"threw"}`, the
+  batch continues. `DispatchResultLike.reason` is an open string at the
+  slide/macro layer, so `"threw"` is additive (the core `DispatchResult.reason`
+  union is unchanged).
+- **As-built test counts.** Phase-4 engine suites: `engine-slide-actions` (9),
+  `engine-macros` (7), `engine-actions` (6), `engine-phase4-stress` (11),
+  `engine-spec-validation` (11, NEW). Timers (13) bring the Phase-4 engine total to
+  **57 green**. (Earlier prose citing 10/7/6 predates this pass.)
