@@ -11,13 +11,25 @@
  * timer's live value on /live and /stage.
  * Tokens/lucide only — no emojis. Honest empty states.
  */
+import { useState } from "react";
 import { MessagesTab } from "./tabs/MessagesTab";
 import type { MessagesApi, MessagesBoardApi } from "../hooks";
-import { Play, Trash2, X, Bookmark } from "lucide-react";
+import { Play, Trash2, X, Bookmark, Check } from "lucide-react";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 export function MessagesPanel({ compose, board }: { compose: MessagesApi; board: MessagesBoardApi }) {
-  const saveAsTemplate = async () => {
-    const name = window.prompt("Template name?", compose.state.text.slice(0, 40) || "Message");
+  const { confirm, dialog: confirmDialog } = useConfirm();
+  // Inline template-naming (replaces native window.prompt, which freezes the
+  // Electron desktop shell — same reason useConfirm exists).
+  const [naming, setNaming] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+
+  const beginSaveAsTemplate = () => {
+    setTemplateName(compose.state.text.slice(0, 40) || "Message");
+    setNaming(true);
+  };
+  const commitSaveAsTemplate = async () => {
+    const name = templateName.trim();
     if (!name) return;
     await board.addTemplate({
       name, text: compose.state.text, position: compose.state.position,
@@ -27,20 +39,40 @@ export function MessagesPanel({ compose, board }: { compose: MessagesApi; board:
         dismiss: compose.state.dismiss,
       },
     });
+    setNaming(false); setTemplateName("");
   };
 
   return (
     <div className="flex flex-col gap-4">
+      {confirmDialog}
       <div>
         <div className="eyebrow mb-1">Compose</div>
         <MessagesTab api={compose} />
-        <button
-          onClick={saveAsTemplate}
-          disabled={!compose.state.text.trim()}
-          className="mt-2 w-full h-8 rounded border border-[var(--color-border)] text-[12px] flex items-center justify-center gap-1 disabled:opacity-40"
-        >
-          <Bookmark className="w-3.5 h-3.5" /> Save as template
-        </button>
+        {naming ? (
+          <div className="mt-2 flex gap-2">
+            <input
+              autoFocus value={templateName}
+              onChange={(e) => setTemplateName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") commitSaveAsTemplate(); if (e.key === "Escape") { setNaming(false); setTemplateName(""); } }}
+              placeholder="Template name"
+              className="flex-1 h-8 px-2 bg-[var(--color-panel)] border border-[var(--color-border)] rounded text-[12px]"
+            />
+            <button onClick={commitSaveAsTemplate} disabled={!templateName.trim()} title="Save template" className="w-8 h-8 rounded bg-[var(--color-brand)] text-black flex items-center justify-center disabled:opacity-40">
+              <Check className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={() => { setNaming(false); setTemplateName(""); }} title="Cancel" className="w-8 h-8 rounded border border-[var(--color-border)] flex items-center justify-center">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={beginSaveAsTemplate}
+            disabled={!compose.state.text.trim()}
+            className="mt-2 w-full h-8 rounded border border-[var(--color-border)] text-[12px] flex items-center justify-center gap-1 disabled:opacity-40"
+          >
+            <Bookmark className="w-3.5 h-3.5" /> Save as template
+          </button>
+        )}
       </div>
 
       <div className="border-t border-[var(--color-border)] pt-3">
@@ -59,7 +91,7 @@ export function MessagesPanel({ compose, board }: { compose: MessagesApi; board:
                 <button onClick={() => board.activateTemplate(t)} title="Show now" className="w-6 h-6 rounded flex items-center justify-center text-[var(--color-brand)]">
                   <Play className="w-3.5 h-3.5" />
                 </button>
-                <button onClick={() => board.removeTemplate(t.id)} title="Delete template" className="w-6 h-6 rounded flex items-center justify-center text-red-400">
+                <button onClick={async () => { if (await confirm({ title: `Delete template "${t.name}"?`, confirmLabel: "Delete", danger: true })) board.removeTemplate(t.id); }} title="Delete template" className="w-6 h-6 rounded flex items-center justify-center text-red-400">
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -82,11 +114,20 @@ export function MessagesPanel({ compose, board }: { compose: MessagesApi; board:
         ) : (
           <div className="flex flex-col gap-1">
             {board.active.map((m) => (
-              <div key={m.id} className="flex items-center gap-1 rounded border border-[var(--color-border)] px-2 h-8 bg-[var(--color-elevated)]">
+              <div key={m.id} className={`flex items-center gap-1 rounded border border-[var(--color-border)] px-2 h-8 bg-[var(--color-elevated)] ${m.hidden ? "opacity-50" : ""}`}>
                 <span className="flex-1 truncate text-[12px]">{m.text}</span>
-                <span className="text-[10px] text-[var(--color-muted-foreground)]">{m.position}</span>
-                <button onClick={() => board.hide(m.id)} title="Hide" className="w-6 h-6 rounded flex items-center justify-center">
-                  <X className="w-3.5 h-3.5" />
+                <span className="text-[10px] text-[var(--color-muted-foreground)]">{m.hidden ? "hidden" : m.position}</span>
+                {m.hidden ? (
+                  <button onClick={() => board.show(m.id)} title="Show" className="w-6 h-6 rounded flex items-center justify-center text-[var(--color-brand)]">
+                    <Play className="w-3.5 h-3.5" />
+                  </button>
+                ) : (
+                  <button onClick={() => board.hide(m.id)} title="Hide" className="w-6 h-6 rounded flex items-center justify-center">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                <button onClick={() => board.remove(m.id)} title="Remove" className="w-6 h-6 rounded flex items-center justify-center text-red-400">
+                  <Trash2 className="w-3.5 h-3.5" />
                 </button>
               </div>
             ))}

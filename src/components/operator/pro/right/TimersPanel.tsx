@@ -12,8 +12,9 @@ import { useState } from "react";
 import { Play, Pause, RotateCcw, Monitor, MonitorOff, Trash2, Plus, Pencil, Check, X } from "lucide-react";
 import { TimersTab } from "./tabs/TimersTab";
 import type { TimerApi, TimersApi, TimerSlot } from "../hooks";
-import { formatTimerClock } from "@/engine/timers";
+import { formatTimerClock, parseDurationToSec } from "@/engine/timers";
 import { OVERLAY_POSITIONS, type OverlayPosition } from "@/lib/broadcast";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 const POSITION_LABELS: Record<OverlayPosition, string> = {
   "top-left": "Top left", "top-right": "Top right",
@@ -24,13 +25,6 @@ const POSITION_LABELS: Record<OverlayPosition, string> = {
 type Draft = { name: string; type: "countdown" | "countdown_to" | "elapsed"; duration: string; targetClock: string };
 const EMPTY_DRAFT: Draft = { name: "", type: "countdown", duration: "05:00", targetClock: "12:00" };
 
-function parseMMSS(v: string): number {
-  const parts = v.trim().split(":").map((p) => parseInt(p, 10) || 0);
-  if (parts.length === 1) return parts[0];
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  return parts[0] * 3600 + parts[1] * 60 + parts[2];
-}
-
 export function TimersPanel({ quick, timers }: { quick: TimerApi; timers: TimersApi }) {
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
@@ -39,7 +33,7 @@ export function TimersPanel({ quick, timers }: { quick: TimerApi; timers: Timers
     if (!draft.name.trim()) return;
     await timers.addTimer({
       name: draft.name, type: draft.type,
-      durationSec: parseMMSS(draft.duration),
+      durationSec: parseDurationToSec(draft.duration),
       targetClock: draft.type === "countdown_to" ? draft.targetClock : null,
     });
     setDraft(EMPTY_DRAFT); setAdding(false);
@@ -119,6 +113,7 @@ export function TimersPanel({ quick, timers }: { quick: TimerApi; timers: Timers
 }
 
 function SlotRow({ slot, timers }: { slot: TimerSlot; timers: TimersApi }) {
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const [editing, setEditing] = useState(false);
   const [d, setD] = useState<Draft>({
     name: slot.def.name,
@@ -131,7 +126,7 @@ function SlotRow({ slot, timers }: { slot: TimerSlot; timers: TimersApi }) {
   const saveEdit = async () => {
     await timers.editTimer(slot.def.id, {
       name: d.name, type: d.type,
-      durationSec: parseMMSS(d.duration),
+      durationSec: parseDurationToSec(d.duration),
       targetClock: d.type === "countdown_to" ? d.targetClock : null,
     });
     setEditing(false);
@@ -139,6 +134,7 @@ function SlotRow({ slot, timers }: { slot: TimerSlot; timers: TimersApi }) {
 
   return (
     <div className="rounded border border-[var(--color-border)] p-2 flex flex-col gap-2">
+      {confirmDialog}
       {editing ? (
         <div className="flex flex-col gap-2">
           <input value={d.name} onChange={(e) => setD({ ...d, name: e.target.value })} className="h-7 px-2 bg-[var(--color-elevated)] border border-[var(--color-border)] rounded text-[12px]" />
@@ -184,7 +180,9 @@ function SlotRow({ slot, timers }: { slot: TimerSlot; timers: TimersApi }) {
             <button onClick={() => setEditing(true)} title="Edit" className="w-7 h-7 rounded border border-[var(--color-border)] flex items-center justify-center">
               <Pencil className="w-3.5 h-3.5" />
             </button>
-            <button onClick={() => timers.removeTimer(slot.def.id)} title="Delete" className="w-7 h-7 rounded border border-[var(--color-border)] flex items-center justify-center text-red-400">
+            <button
+              onClick={async () => { if (await confirm({ title: `Delete timer "${slot.def.name}"?`, confirmLabel: "Delete", danger: true })) timers.removeTimer(slot.def.id); }}
+              title="Delete" className="w-7 h-7 rounded border border-[var(--color-border)] flex items-center justify-center text-red-400">
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           </div>
