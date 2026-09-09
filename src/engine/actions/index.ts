@@ -25,9 +25,9 @@
  *       • CLEAR_LAYER / CLEAR_ALL_LAYERS / SET_BACKGROUND → REAL-wired.
  *       • SET_LAYER_VISIBILITY → REAL-wired via a row lookup + `toggleLayer`
  *         (toggles only when the current enabled state differs from the target).
- *       • SET_BACKGROUND_MEDIA {assetRef} → TODO-WIRED: no ctx handler takes an
- *         assetRef; the media-asset→BackgroundSpec resolution + `setMediaAsBackground`
- *         store side-effect live in the console/MediaBrowser today, not on ctx.
+ *       • SET_BACKGROUND_MEDIA {assetRef} → Phase 4: NOW REAL-wired via the new
+ *         `ctx.onSetBackgroundMedia` handler, which routes the asset through the
+ *         `setMediaAsBackground` store machinery (Wave 4) in OperatorConsole.
  *   - TRIGGER_MACRO / SET_LOOK / TOGGLE_PROP remain engine-only (future phases).
  */
 import type {
@@ -128,7 +128,10 @@ export const ACTION_BINDINGS: Record<EngineActionType, ActionBinding> = {
   CLEAR_ALL_LAYERS: { mode: "layers", method: "clearAll", requiresConfirm: true },
   SET_LAYER_VISIBILITY: { mode: "layers", method: "toggleLayer" },
   SET_BACKGROUND: { mode: "layers", method: "swapBackground" },
-  SET_BACKGROUND_MEDIA: { mode: "todo-wired" },
+  // Phase 4: wired to a real ctx handler (`onSetBackgroundMedia`) that routes the
+  // asset through the setMediaAsBackground store machinery (Wave 4). No longer
+  // todo-wired.
+  SET_BACKGROUND_MEDIA: { mode: "ctx", method: "onSetBackgroundMedia" },
   TRIGGER_MACRO: { mode: "engine-only" },
   SET_LOOK: { mode: "engine-only" },
   TOGGLE_PROP: { mode: "engine-only" },
@@ -204,11 +207,7 @@ export function dispatchAction(
       return { handled: true };
     }
     case "SET_BACKGROUND": ctx.liveLayers.swapBackground(action.spec); return { handled: true };
-
-    // ── Not yet wired to ctx (documented, explicit — NOT a silent no-op) ──
-    case "SET_BACKGROUND_MEDIA":
-      // TODO-wired: needs assetRef→BackgroundSpec + store side-effect.
-      return { handled: false, reason: "todo-wired" };
+    case "SET_BACKGROUND_MEDIA": ctx.onSetBackgroundMedia(action.assetRef); return { handled: true };
 
     // ── Engine-only future phases ──
     case "TRIGGER_MACRO": // Phase 3
