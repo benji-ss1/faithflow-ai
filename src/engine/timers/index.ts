@@ -5,8 +5,11 @@
  * effects at module scope — every function takes an explicit `nowMs` so the
  * whole thing is unit-testable without fake clocks. The React layer
  * (useTimersSession in pro/hooks.ts) owns the ticking + persistence and calls
- * these pure reducers; the existing single-timer `useTimerSession` becomes a
- * thin compatibility wrapper over timer slot 1 (see hooks.ts).
+ * these pure reducers. As built, the legacy single-timer `useTimerSession`
+ * hook is left UNTOUCHED beside this new engine — the two coexist (the legacy
+ * "quick timer" publishes the wire's unkeyed "default" slot; each engine timer
+ * publishes its own KEYED slot). There is no compatibility wrapper; nothing was
+ * rewritten on top of the engine (see hooks.ts).
  *
  * Timer kinds (mirror ProPresenter + the existing TimerType in hooks.ts):
  *   - "countdown"     : counts down from `durationSec`; start/stop/reset apply.
@@ -122,6 +125,21 @@ export function formatTimerClock(sec: number): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   const body = h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
   return neg ? `-${body}` : body;
+}
+
+/** Resolve a "HH:MM" wall-clock string to the NEXT such instant in epoch ms
+ *  (today, or tomorrow if the time already passed). Null-tolerant. Pure — the
+ *  React layer calls this ONCE per countdown_to (at load / reset / re-show), NOT
+ *  on every tick, so once `now` crosses the resolved target the timer runs
+ *  NEGATIVE into overrun instead of silently rolling +24h on the next tick. */
+export function resolveTargetMs(targetClock: string | null | undefined, nowMs: number): number | null {
+  if (!targetClock || !/^([01]?\d|2[0-3]):[0-5]\d$/.test(targetClock.trim())) return null;
+  const [h, m] = targetClock.trim().split(":").map((x) => parseInt(x, 10));
+  const d = new Date(nowMs);
+  d.setHours(h, m, 0, 0);
+  let t = d.getTime();
+  if (t <= nowMs) t += 24 * 60 * 60 * 1000; // next occurrence
+  return t;
 }
 
 /** Parse a "mm:ss" or "h:mm:ss" (or bare seconds) string to seconds. Tolerant;

@@ -23,42 +23,20 @@ import {
   applyCommand,
   formatTimerClock,
   parseDurationToSec,
+  resolveTargetMs,
 } from "../src/engine/timers";
 import { timerToOverlay, timerClearOverlay } from "../src/engine/timers/overlay";
+// expandMessageTokens + resolveTargetMs are PURE and now live in the engine
+// (resolveTargetMs in engine/timers, expandMessageTokens in engine/timers/
+// messages), so the stress suite imports the REAL functions directly — no more
+// byte-copies drifting from source (stress 🟡2 fixed in the Wave-7 fix pass).
+import { expandMessageTokens } from "../src/engine/timers/messages";
 import {
   isValidTimerOverlay,
   isValidMessageOverlay,
   isValidLiveMessage,
   coerceLiveMessage,
 } from "../src/lib/broadcast";
-// NOTE: expandMessageTokens + resolveTargetMs are PURE but live in
-// pro/hooks.ts, which eagerly imports server actions (→ "server-only") at
-// module top, so they cannot be imported into a node:test unit. These are
-// BYTE-FAITHFUL copies of the source (hooks.ts:124-132 and :385-397) so the
-// logic is still stress-exercised. Flagged 🟡 in the report: the pure helpers
-// should move to @/engine/timers to be directly testable.
-function resolveTargetMs(targetClock: string | null | undefined, nowMs: number): number | null {
-  if (!targetClock || !/^([01]?\d|2[0-3]):[0-5]\d$/.test(targetClock.trim())) return null;
-  const [h, m] = targetClock.trim().split(":").map((x) => parseInt(x, 10));
-  const d = new Date(nowMs);
-  d.setHours(h, m, 0, 0);
-  let t = d.getTime();
-  if (t <= nowMs) t += 24 * 60 * 60 * 1000;
-  return t;
-}
-function expandMessageTokens(
-  text: string,
-  opts: { now?: Date; currentSlide?: number; timers?: Record<string, string>; firstTimer?: string },
-): string {
-  const now = opts.now ?? new Date();
-  let out = text
-    .replace(/\{\{time\}\}/g, now.toLocaleTimeString())
-    .replace(/\{\{date\}\}/g, now.toLocaleDateString())
-    .replace(/\{\{currentSlide\}\}/g, String((opts.currentSlide ?? 0) + 1));
-  out = out.replace(/\{\{timer:([a-zA-Z0-9_-]{1,64})\}\}/g, (_m, id) => opts.timers?.[id] ?? "");
-  out = out.replace(/\{\{timer\}\}/g, opts.firstTimer ?? "");
-  return out;
-}
 
 const cd = (durationSec: number): TimerDefinition => ({ id: "t1", name: "T", type: "countdown", durationSec });
 const el = (): TimerDefinition => ({ id: "t2", name: "E", type: "elapsed", durationSec: 0 });

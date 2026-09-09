@@ -16,6 +16,7 @@ import {
   applyCommand,
   formatTimerClock,
   parseDurationToSec,
+  resolveTargetMs,
 } from "../src/engine/timers";
 
 const countdown: TimerDefinition = { id: "t1", name: "Countdown", type: "countdown", durationSec: 300 };
@@ -105,4 +106,36 @@ test("parseDurationToSec: mm:ss, h:mm:ss, bare, clamps negative", () => {
   assert.equal(parseDurationToSec("1:00:00"), 3600);
   assert.equal(parseDurationToSec("90"), 90);
   assert.equal(parseDurationToSec("garbage"), 0);
+});
+
+// ---------------------------------------------------------------- resolve-once
+// The hook resolves a countdown_to target ONCE and then feeds that FIXED target
+// to computeRemainingSec every tick. This locks the invariant the fix relies on:
+// with a fixed target, crossing it goes NEGATIVE into overrun — it must NOT roll
+// +24h the way it would if resolveTargetMs were called with the crossing `now`.
+test("countdown_to resolved ONCE crosses zero into overrun (no +24h re-roll)", () => {
+  const now = 2_000_000;
+  const target = resolveTargetMs("00:00", now); // some concrete future instant
+  assert.ok(target != null && target > now);
+  const def: TimerDefinition = { id: "cto", name: "C", type: "countdown_to", durationSec: 0, targetMs: target };
+  const rt = initialRuntime(def);
+  // Just before the (fixed) target — positive.
+  assert.ok(computeRemainingSec(def, rt, target! - 2000) > 0);
+  // Exactly at / just after — the SAME fixed target yields ~0 then negative,
+  // NOT a fresh ~24h roll (which is what re-resolving per tick would produce).
+  assert.ok(computeRemainingSec(def, rt, target! + 3000) < 0);
+  assert.ok(isOverrun(def, rt, target! + 3000));
+  // Deep past the target stays a small negative overrun, never a huge positive.
+  assert.ok(computeRemainingSec(def, rt, target! + 60_000) < 0);
+});
+
+// Re-resolution (reset / re-show) is what rolls to the NEXT occurrence: a target
+// clock already passed today resolves forward, so the next resolve is > now.
+test("resolveTargetMs rolls a passed clock to the next day; a future clock stays today", () => {
+  const base = new Date(); base.setHours(12, 0, 0, 0);
+  const noon = base.getTime();
+  const past = resolveTargetMs("11:59", noon);   // one minute ago → tomorrow
+  const future = resolveTargetMs("12:01", noon);  // one minute ahead → today
+  assert.ok(past != null && past > noon && past - noon > 23 * 3600 * 1000);
+  assert.ok(future != null && future > noon && future - noon <= 60_000);
 });
