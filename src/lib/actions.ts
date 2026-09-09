@@ -6,6 +6,7 @@ import { readableTextColor } from "./colorway";
 import { isHex6Color } from "./hex-color";
 import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangements, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries, timerDefinitions, messageTemplates, macros, type ServiceItemType } from "./db/schema";
 import { GROUP_KINDS } from "../engine/arrangements";
+import { MAX_MACROS_PER_CHURCH } from "../engine/macros";
 import { preservedGroupIds } from "./song-group-preserve";
 import { cleanRenderUrl } from "./render-url";
 import { OVERLAY_POSITIONS } from "./broadcast";
@@ -2749,6 +2750,9 @@ export async function setSongSlideActions(slideId: string, actions: unknown): Pr
   return { ok: true };
 }
 
+/** Max distinct slide-index keys in one item's sparse slideActions map. */
+const MAX_SLIDE_ACTION_KEYS = 500;
+
 /** Persist a NON-song item's per-slide actions into service_items.payload.
  *  slideActions is a sparse map { [slideIdx]: ActionSpec[] }. Church-scoped. */
 export async function setServiceItemSlideActions(itemId: string, slideIdx: number, actions: unknown): Promise<Result> {
@@ -2766,16 +2770,27 @@ export async function setServiceItemSlideActions(itemId: string, slideIdx: numbe
   if (!v.ok) return { ok: false, error: `Invalid slide action: ${v.reason}` };
   const clean = sanitizeSlideActions(actions);
   const cur = (item.payload as { slideActions?: Record<string, unknown> })?.slideActions ?? {};
-  const nextMap: Record<string, unknown> = { ...cur };
-  if (clean.length === 0) delete nextMap[String(slideIdx)];
-  else nextMap[String(slideIdx)] = clean;
+  const nextMap: Record<string, unknown> = (cur && typeof cur === "object" && !Array.isArray(cur)) ? { ...cur } : {};
+  const key = String(slideIdx);
+  if (clean.length === 0) {
+    delete nextMap[key];
+  } else {
+    // Bound the sparse map so a crafted item can't accumulate an unbounded set of
+    // slide-index keys in the JSONB payload. Adding a NEW key past the cap is
+    // rejected with an honest error (updating an existing key is always allowed).
+    if (!(key in nextMap) && Object.keys(nextMap).length >= MAX_SLIDE_ACTION_KEYS) {
+      return { ok: false, error: `Slide-action limit reached (${MAX_SLIDE_ACTION_KEYS} slides). Clear actions on another slide first.` };
+    }
+    nextMap[key] = clean;
+  }
   await db.execute(sql`UPDATE service_items SET payload = jsonb_set(coalesce(payload,'{}'::jsonb), '{slideActions}', ${JSON.stringify(nextMap)}::jsonb, true) WHERE id = ${itemId}`);
   return { ok: true };
 }
 
 // ── Phase 4: Automations (macros) — church-scoped CRUD ───────────────────────
 
-const MAX_MACROS = 50;
+// Single source of truth: the cap lives in the engine (imported, not re-declared).
+const MAX_MACROS = MAX_MACROS_PER_CHURCH;
 
 export type MacroInput = { name?: string; actions?: unknown; enabled?: boolean };
 
@@ -2814,13 +2829,20 @@ export async function createMacro(input: MacroInput): Promise<Result<{ id: strin
 export async function updateMacro(id: string, input: MacroInput): Promise<Result> {
   const user = await requireCap("operate_services");
   const db = getDb();
+  // PARTIAL update: only touch the fields the caller actually provided. A
+  // `{ enabled: false }` toggle must NOT reset name to "Automation" or wipe the
+  // action list (the old full-row sanitize did exactly that). The panel still
+  // sends the full row, so its behaviour is unchanged.
+  const patch: Partial<{ name: string; actions: unknown[]; enabled: boolean; updatedAt: Date }> = { updatedAt: new Date() };
+  if (input.name !== undefined) patch.name = input.name.trim().slice(0, 120) || "Automation";
+  if (input.enabled !== undefined) patch.enabled = input.enabled !== false;
   if (input.actions !== undefined) {
-    const { validateMacroActions } = await import("@/engine/macros");
+    const { validateMacroActions, sanitizeMacroActions } = await import("@/engine/macros");
     const v = validateMacroActions(Array.isArray(input.actions) ? input.actions : []);
     if (!v.ok) return { ok: false, error: `Invalid action${v.index != null ? ` #${v.index + 1}` : ""}: ${v.reason}` };
+    patch.actions = sanitizeMacroActions(input.actions);
   }
-  const clean = await sanitizeMacroInput(input);
-  const res = await db.update(macros).set({ name: clean.name, actions: clean.actions, enabled: clean.enabled, updatedAt: new Date() })
+  const res = await db.update(macros).set(patch)
     .where(and(eq(macros.id, id), eq(macros.churchId, user.churchId)));
   if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Automation not found" };
   return { ok: true };
