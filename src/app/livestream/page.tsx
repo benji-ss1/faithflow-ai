@@ -55,6 +55,12 @@ export default function LivestreamPage() {
   const [extraMessages, setExtraMessages] = useState<Array<{ id: string; text: string }>>([]);
   const lastExtraMsgAt = useRef<number>(0);
   const [timerOverlay, setTimerOverlay] = useState<{ name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed" } | null>(null);
+  // Wave 7: named (keyed) timers ride alongside the legacy default slot — mirrors
+  // /live and /stage so multiple named timers on the public OBS surface each
+  // render independently instead of one clobbering the others via setTimerOverlay.
+  type TimerItem = { id: string; name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed"; overrun?: boolean; scale?: number; color?: string };
+  const [namedTimers, setNamedTimers] = useState<Record<string, TimerItem>>({});
+  const namedTimerAtRef = useRef<Record<string, number>>({});
   const [connected, setConnected] = useState(false);
   // Cross-device realtime connection status (pair-code overlay). Drives the
   // setup-phase indicator so an operator can SEE the OBS overlay is connected
@@ -202,8 +208,19 @@ export default function LivestreamPage() {
             }
           }
         } else if (msg.type === "timer") {
-          if ("clear" in msg.overlay && msg.overlay.clear) setTimerOverlay(null);
-          else setTimerOverlay(msg.overlay);
+          const ov = msg.overlay;
+          const oid = (ov as { id?: string }).id;
+          if (oid) {
+            // Wave 7: keyed named timer (per-id, mirrors /live).
+            if ("clear" in ov && ov.clear) {
+              setNamedTimers((m) => { const n = { ...m }; delete n[oid]; return n; });
+              delete namedTimerAtRef.current[oid];
+            } else if ("remainingSec" in ov) {
+              setNamedTimers((m) => ({ ...m, [oid]: { id: oid, name: ov.name, remainingSec: ov.remainingSec, running: ov.running, kind: ov.kind, overrun: ov.overrun, scale: ov.scale, color: ov.color } }));
+              namedTimerAtRef.current[oid] = Date.now();
+            }
+          } else if ("clear" in ov && ov.clear) setTimerOverlay(null);
+          else setTimerOverlay(ov);
         } else if (msg.type === "media-control") {
           const el = videoElRef.current;
           if (!el) return;
@@ -269,6 +286,15 @@ export default function LivestreamPage() {
       if (lastExtraMsgAt.current > 0 && Date.now() - lastExtraMsgAt.current > 5000) {
         lastExtraMsgAt.current = 0;
         setExtraMessages([]);
+      }
+      // Wave 7: sweep named timers whose per-id heartbeat has stopped for 5s.
+      {
+        const now = Date.now();
+        const staleIds = Object.keys(namedTimerAtRef.current).filter((id) => now - namedTimerAtRef.current[id] > 5000);
+        if (staleIds.length) {
+          for (const id of staleIds) delete namedTimerAtRef.current[id];
+          setNamedTimers((m) => { const n = { ...m }; for (const id of staleIds) delete n[id]; return n; });
+        }
       }
       // Y4: silent-channel recovery — skip entirely when a remote transport is
       // the source (no operator on BroadcastChannel to recover; reopening churns).
@@ -528,6 +554,26 @@ export default function LivestreamPage() {
           </div>
         );
       })()}
+      {/* Wave 7: named (keyed) timers — stacked top-right, below the legacy one.
+          Sized by the operator's per-timer scale (public OBS surface). */}
+      {Object.values(namedTimers).length > 0 && mode === "full" && (
+        <div className="absolute top-[20%] right-[6%] pointer-events-none flex flex-col items-end gap-[3vh] leading-none">
+          {Object.values(namedTimers).map((t) => {
+            const scale = t.scale ?? 1;
+            const over = t.remainingSec < 0;
+            const color = t.color ?? (over ? "#f87171" : "#ffffff");
+            const a = Math.abs(Math.round(t.remainingSec)); const mm = Math.floor(a / 60); const ss = a % 60;
+            return (
+              <div key={t.id} className="flex flex-col items-end leading-none">
+                {t.name && <div className="uppercase tracking-[0.15em] font-semibold" style={{ color, opacity: 0.75, fontSize: `${1.4 * scale}vw`, textShadow: "0 2px 10px rgba(0,0,0,0.6)" }}>{t.name}</div>}
+                <div className="font-mono font-bold tabular-nums" style={{ color, fontSize: `${7 * scale}vw`, textShadow: "0 4px 18px rgba(0,0,0,0.65)", lineHeight: 1 }}>
+                  {`${over ? "-" : ""}${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* NB: hidden in transparent (OBS-key) mode — like the pair/disconnect
           badges below — so this help pill never flashes onto the live stream
