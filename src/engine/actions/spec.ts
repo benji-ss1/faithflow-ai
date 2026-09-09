@@ -24,6 +24,9 @@
 import type { EngineAction, EngineActionType } from "./index";
 import { ACTION_BINDINGS } from "./index";
 import type { BackgroundSpec, TransitionSpec, AnnouncementPayload } from "@/lib/broadcast";
+// Runtime validators reused from the hardened cross-device wire layer (relative
+// import, not the `@/` alias, so node --test/tsx resolve it without a path plugin).
+import { isValidBackgroundSpec, isValidTransitionSpec, isValidAnnouncement, isValidRenderUrl } from "../../lib/broadcast";
 
 /** JSON-safe media asset reference (mirrors SET_BACKGROUND_MEDIA's assetRef). */
 export interface MediaAssetRef {
@@ -110,6 +113,13 @@ export function specToEngineAction(spec: ActionSpec): EngineAction | null {
 
 const SAFE_TOKEN = /^[A-Za-z0-9_-]{1,64}$/;
 
+/** Byte cap for an embedded BackgroundSpec / AnnouncementPayload / TransitionSpec
+ *  (a stored/replayed spec must not be able to bloat the DB row or the wire). */
+const MAX_EMBEDDED_SPEC_BYTES = 8192;
+function withinByteCap(v: unknown): boolean {
+  try { return JSON.stringify(v).length <= MAX_EMBEDDED_SPEC_BYTES; } catch { return false; }
+}
+
 export interface ValidateResult { ok: boolean; reason?: string }
 
 /**
@@ -125,9 +135,23 @@ export function validateSpec(spec: unknown): ValidateResult {
       const a = s.assetRef as Record<string, unknown> | undefined;
       if (!a || typeof a.id !== "string" || typeof a.url !== "string" || typeof a.fileName !== "string" || typeof a.kind !== "string")
         return { ok: false, reason: "bad-assetRef" };
+      // id: a safe token (used as a React/Map key + persisted). url: MUST pass the
+      // same https/loopback render-url gate as every projector media URL — no
+      // arbitrary/cross-device http host. fileName/kind: bounded length.
+      if (!SAFE_TOKEN.test(a.id)) return { ok: false, reason: "bad-assetRef-id" };
+      if (!isValidRenderUrl(a.url)) return { ok: false, reason: "bad-assetRef-url" };
+      if (a.fileName.length === 0 || a.fileName.length > 260) return { ok: false, reason: "bad-fileName" };
+      if (a.kind.length === 0 || a.kind.length > 40) return { ok: false, reason: "bad-kind" };
+      if (a.mediaKey !== undefined && (typeof a.mediaKey !== "string" || a.mediaKey.length > 512)) return { ok: false, reason: "bad-mediaKey" };
       return { ok: true };
     }
-    case "set_background": return { ok: true }; // spec validated by the background validator at dispatch
+    case "set_background":
+      // A stored background spec is replayed onto the projector — validate its
+      // shape through the SAME hardened validator the wire uses, + a byte cap.
+      if (s.spec === null || s.spec === undefined) return { ok: true };
+      if (!isValidBackgroundSpec(s.spec)) return { ok: false, reason: "bad-background" };
+      if (!withinByteCap(s.spec)) return { ok: false, reason: "background-too-large" };
+      return { ok: true };
     case "timer":
       if (typeof s.timerId !== "string" || !SAFE_TOKEN.test(s.timerId)) return { ok: false, reason: "bad-timerId" };
       if (s.command !== "start" && s.command !== "stop" && s.command !== "reset") return { ok: false, reason: "bad-command" };
@@ -151,8 +175,16 @@ export function validateSpec(spec: unknown): ValidateResult {
       if (typeof s.line1 !== "string" || typeof s.line2 !== "string") return { ok: false, reason: "bad-lines" };
       if (s.line1.length > 500 || s.line2.length > 500) return { ok: false, reason: "line-too-long" };
       return { ok: true };
-    case "set_announcement": return { ok: true };
-    case "set_transition": return { ok: true };
+    case "set_announcement":
+      if (s.announcement === null || s.announcement === undefined) return { ok: true };
+      if (!isValidAnnouncement(s.announcement)) return { ok: false, reason: "bad-announcement" };
+      if (!withinByteCap(s.announcement)) return { ok: false, reason: "announcement-too-large" };
+      return { ok: true };
+    case "set_transition":
+      if (s.transition === null || s.transition === undefined) return { ok: true };
+      if (!isValidTransitionSpec(s.transition)) return { ok: false, reason: "bad-transition" };
+      if (!withinByteCap(s.transition)) return { ok: false, reason: "transition-too-large" };
+      return { ok: true };
     case "macro":
       if (typeof s.macroId !== "string" || !SAFE_TOKEN.test(s.macroId)) return { ok: false, reason: "bad-macroId" };
       return { ok: true };

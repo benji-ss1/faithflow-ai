@@ -52,6 +52,14 @@ export function sanitizeSlideActions(actions: unknown): ActionSpec[] {
 
 export interface SlideActionOutcome { spec: ActionSpec; result: DispatchResultLike }
 
+/** Dispatch one action with FAULT ISOLATION — a handler that throws can never
+ *  abort the rest of a slide's / macro's sequence. A thrown dispatch becomes an
+ *  explicit `{handled:false, reason:"threw"}` outcome the caller can surface. */
+function safeDispatch(dispatch: DispatchEngineAction, action: EngineAction, opts?: { confirmed?: boolean }): DispatchResultLike {
+  try { return dispatch(action, opts); }
+  catch { return { handled: false, reason: "threw" }; }
+}
+
 /**
  * Fire a slide's actions in order through the dispatcher. A `macro` spec is
  * expanded via `resolveMacro` and each of its actions is dispatched with
@@ -83,7 +91,7 @@ export function dispatchSlideActions(
       // confirmed:false — guarded macro contents are refused by dispatchAction
       // (a slide send is NOT an operator-facing confirm). See doc above.
       for (const ea of macroToEngineActions(def)) {
-        outcomes.push({ spec, result: dispatch(ea, { confirmed: false }) });
+        outcomes.push({ spec, result: safeDispatch(dispatch, ea, { confirmed: false }) });
       }
       continue;
     }
@@ -91,7 +99,7 @@ export function dispatchSlideActions(
     if (!ea) { outcomes.push({ spec, result: { handled: false, reason: "unmappable" } }); continue; }
     // Non-destructive slide actions: confirmed:false. If a guarded spec ever
     // slipped past the save gate, dispatchAction REFUSES it here.
-    outcomes.push({ spec, result: dispatch(ea, { confirmed: false }) });
+    outcomes.push({ spec, result: safeDispatch(dispatch, ea, { confirmed: false }) });
   }
   return outcomes;
 }

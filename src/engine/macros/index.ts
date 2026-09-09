@@ -91,7 +91,12 @@ export function executeMacro(
   const confirmed = opts.confirmed === true;
   const outcomes: MacroOutcome[] = [];
   for (const action of macroToEngineActions(def)) {
-    outcomes.push({ action, result: dispatch(action, { confirmed }) });
+    // Fault isolation: a handler that throws becomes an explicit
+    // {handled:false, reason:"threw"} outcome and never aborts the sequence.
+    let result: { handled: boolean; reason?: string };
+    try { result = dispatch(action, { confirmed }); }
+    catch { result = { handled: false, reason: "threw" }; }
+    outcomes.push({ action, result });
   }
   return outcomes;
 }

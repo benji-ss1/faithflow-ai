@@ -66,3 +66,18 @@ test("disabled macro executes nothing", () => {
   const dispatch: DispatchEngineAction = () => ({ handled: true });
   assert.deepEqual(executeMacro(mac([timer], false), dispatch, { confirmed: true }), []);
 });
+
+test("executeMacro isolates a throwing handler — sequence continues", () => {
+  const seen: string[] = [];
+  const dispatch: DispatchEngineAction = (a) => {
+    const label = (a as { text?: string }).text ?? a.type;
+    seen.push(label);
+    if (label === "boom") throw new Error("handler blew up");
+    return { handled: true };
+  };
+  const out = executeMacro(mac([{ type: "show_message", text: "a" }, { type: "show_message", text: "boom" }, { type: "show_message", text: "b" }]), dispatch, { confirmed: false });
+  assert.deepEqual(seen, ["a", "boom", "b"]); // b still fired
+  assert.equal(out[1].result.handled, false);
+  assert.equal(out[1].result.reason, "threw");
+  assert.equal(out[2].result.handled, true);
+});

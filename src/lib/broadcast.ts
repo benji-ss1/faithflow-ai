@@ -668,7 +668,7 @@ const FONT_FAMILY_RE = /^[a-zA-Z0-9 ,._'"-]{1,120}$/;
 // branch never ships to prod validators — closing the cross-device
 // localhost-probe vector. Production media is S3/presigned-https regardless.
 const ALLOW_HTTP_LOOPBACK = process.env.NODE_ENV !== "production";
-function isValidRenderUrl(u: unknown): boolean {
+export function isValidRenderUrl(u: unknown): boolean {
   if (typeof u !== "string" || u.length === 0 || u.length > 2048) return false;
   if (/["'\s<>\\]/.test(u)) return false;
   try {
@@ -1048,7 +1048,7 @@ function isValidSlide(s: unknown): s is SlidePayload {
   }
 }
 
-function isValidAnnouncement(a: unknown): a is AnnouncementPayload {
+export function isValidAnnouncement(a: unknown): a is AnnouncementPayload {
   if (!a || typeof a !== "object") return false;
   if (hasPollutionKey(a)) return false;
   const p = a as Record<string, unknown>;
