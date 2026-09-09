@@ -671,3 +671,35 @@ the code follows REALITY. Divergences found:
   `test/engine-cue-sheet.test.ts` (9), `test/engine-actions.test.ts` (5) — 14 pass.
 - `MacrosTab.tsx` (referenced in Phase 3) does **not** exist yet at
   `pro/right/tabs/`; out of scope for P0–P2, flagged for the P3 pass.
+
+### Timer-engine corrections (P4, appended after the Wave-7 fix pass, 2026-09-09)
+- **No compatibility wrapper (blueprint said otherwise).** The blueprint (and the
+  original `engine/timers/index.ts` header) claimed the legacy single-timer
+  `useTimerSession` would become "a thin compatibility wrapper over timer slot 1".
+  As built it is **not** — the legacy hook is left UNTOUCHED beside the new pure
+  engine + `useTimersSession`. The two coexist on the wire by id: the legacy quick
+  timer publishes the unkeyed `"default"` timer slot; each engine-backed named
+  timer publishes its own KEYED `TimerOverlay` (`id = def.id`). Header corrected.
+- **countdown_to targets resolve ONCE, not per tick.** `resolveTargetMs` rolls a
+  passed clock to the next day. If it were called every 500ms tick, the instant
+  `now` crossed the target the timer would jump back to ~23:59 instead of running
+  NEGATIVE into overrun. The hook (`useTimersSession`) now resolves each
+  countdown_to's target once (at load) and re-resolves ONLY on reset / re-show;
+  the pure engine gets the already-resolved `targetMs`. Locked by
+  `test/engine-timers.test.ts` (resolve-once + roll-forward).
+- **Pure helpers moved into the engine for testability.** `resolveTargetMs`
+  (→ `engine/timers`) and `expandMessageTokens` / `timerTokenValue`
+  (→ `engine/timers/messages`) were inlined in `pro/hooks.ts`, which pulls in
+  `"server-only"` actions and so could never be imported into a `node:test` unit
+  (the stress suite kept byte-copies). They now live in the engine and are imported
+  by both `hooks.ts` (re-exported for existing callers) and the tests directly.
+- **Row caps + dismiss whitelist (defence-in-depth).** `createTimerDefinition` /
+  `createMessageTemplate` cap at 50 rows/church with an honest error; the message
+  `dismiss` field is server-side whitelisted to the known enum. RLS is enabled on
+  both new tables in the migration (owner-bypass model, matches every tenant table).
+- **2Hz tick gate.** `useTimersSession` only spins its 500ms display tick when
+  something needs it (any running timer, any countdown_to, or any shown timer) —
+  not merely because timers exist.
+- **`presentflow:timer-command` is nonce-gated (Y1).** The macro/engine entry point
+  now dispatches via `dispatchInternal` and the ProOperatorShell listener drops any
+  event failing `isInternalEvent` — an XSS/extension can't drive a timer.

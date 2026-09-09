@@ -846,3 +846,24 @@ here for a future consolidation increment.
 
 **Timers + Messages** (themed, per Phase 3/4 sequencing). The **Audio bin** is
 folded into **Phase 5a** (audio routing = mirror of video I/O), not a separate wave.
+
+---
+
+## MERGE REQUIREMENT — squash-merge this branch (standards 🔴, Wave-7 fix pass)
+
+This branch **MUST be squash-merged** to `main`, never rebased/cherry-picked or
+fast-forwarded commit-by-commit. Rationale (do NOT rewrite history to "fix" it —
+that would risk the working tree state ahead of the pilot; record it instead):
+
+- **Commit `ebf37e5`** ("Wave 7 (2/n): church-persisted timer definitions +
+  message templates") **does not compile standalone.** It adds
+  `import { cleanRenderUrl } from "./render-url"` to `src/lib/actions.ts`, but
+  `src/lib/render-url.ts` is only CREATED later on the branch (commit `8ce4ecb`,
+  the Wave-6 fix pass). Any tool that checks out `ebf37e5` in isolation (a bisect,
+  a per-commit CI gate, a partial cherry-pick) will fail to type-check/build.
+- `ebf37e5` also carries **undeclared Wave-6 hunks** interleaved with the Wave-7
+  timer/template work, so it is not a clean, self-contained change even setting the
+  import aside.
+- The branch **tip** is internally consistent and green (tsc + suites), so the
+  squashed single commit compiles and tests cleanly. Squashing collapses the
+  defective intermediate state so `main` never contains a non-building commit.
