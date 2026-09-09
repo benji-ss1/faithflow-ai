@@ -14,6 +14,7 @@ import {
 } from "../src/engine/slide-actions";
 import type { MacroDefinition } from "../src/engine/macros";
 import type { EngineAction } from "../src/engine/actions";
+import { dispatchAction } from "../src/engine/actions";
 
 const bgMedia: ActionSpec = { type: "set_background_media", assetRef: { id: "a", url: "https://x/y.jpg", fileName: "y.jpg", kind: "image" } };
 const timer: ActionSpec = { type: "timer", timerId: "default", command: "start" };
@@ -77,19 +78,30 @@ test("sanitizeSlideActions drops guarded/invalid, keeps valid, caps", () => {
   assert.equal(sanitizeSlideActions(new Array(20).fill(timer)).length, MAX_SLIDE_ACTIONS);
 });
 
-test("dispatchSlideActions fires each spec confirmed:false, expands macros confirmed:true", () => {
+test("dispatchSlideActions fires EVERY spec confirmed:false, incl. macro expansions (slide invariant)", () => {
   const calls: { action: EngineAction; confirmed?: boolean }[] = [];
   const dispatch: DispatchEngineAction = (action, opts) => { calls.push({ action, confirmed: opts?.confirmed }); return { handled: true }; };
   const macro: MacroDefinition = { id: "m1", churchId: "c", name: "M", enabled: true, actions: [kill, timer] };
   const outcomes = dispatchSlideActions(dispatch, [timer, macroRef], () => macro);
-  // timer (confirmed:false) + macro expands to kill + timer (confirmed:true each)
+  // timer (confirmed:false) + macro expands to kill + timer — ALL confirmed:false.
   assert.equal(calls.length, 3);
-  assert.equal(calls[0].confirmed, false);
   assert.deepEqual(calls[0].action, { type: "TIMER_COMMAND", timerId: "default", command: "start" });
-  assert.equal(calls[1].confirmed, true); // kill from macro
+  for (const c of calls) assert.equal(c.confirmed, false, `every slide-action dispatch must be confirmed:false (${c.action.type})`);
   assert.deepEqual(calls[1].action, { type: "KILL" });
-  assert.equal(calls[2].confirmed, true);
   assert.equal(outcomes.length, 3);
+});
+
+test("SAFETY: a guarded action inside a macro attached to a slide is REFUSED at dispatch (projector never yanked)", () => {
+  // Real dispatchAction + a fake ctx: if a guarded action fired, these push.
+  const fired: string[] = [];
+  const ctx = { onKill: () => fired.push("KILL"), onTimerCommand: () => fired.push("TIMER"), liveLayers: { clearAll: () => fired.push("CLEAR_ALL"), rows: [] } } as unknown as Parameters<typeof dispatchAction>[0];
+  const dispatch: DispatchEngineAction = (action, opts) => dispatchAction(ctx, action, opts);
+  const macro: MacroDefinition = { id: "m1", churchId: "c", name: "Danger", enabled: true, actions: [kill, { type: "clear_all_layers" }, timer] };
+  const outcomes = dispatchSlideActions(dispatch, [macroRef], () => macro);
+  // kill + clear_all refused-guard, timer handled — nothing destructive ran.
+  assert.deepEqual(fired, ["TIMER"], "only the non-destructive action fires; no KILL/CLEAR_ALL from a slide send");
+  const reasons = outcomes.map((o) => o.result.reason ?? (o.result.handled ? "handled" : "?"));
+  assert.deepEqual(reasons, ["refused-guard", "refused-guard", "handled"]);
 });
 
 test("dispatchSlideActions reports macro-not-found", () => {

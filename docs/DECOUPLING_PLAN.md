@@ -924,9 +924,17 @@ with no actions and a church with no automations project byte-identically.
   call `ctx.fireSlideActions(itemIdx, slideIdx)` → `dispatchSlideActions` fires
   each spec `confirmed:false` (guarded specs would be refused by the dispatcher —
   defence in depth), and a slide action of type `macro` expands its Automation
-  (its guarded contents fire `confirmed:true` since the church opted the macro
-  onto the slide). Guarded actions are barred as slide actions at BOTH save and
-  dispatch.
+  with `confirmed:false` too. **REVIEWER FIX (six-agent gate 🔴):** an earlier
+  build fired a macro's contents `confirmed:true` from a slide send, so an
+  Automation containing blank/kill/clear-all attached to a slide could yank the
+  projector with NO confirm — contradicting the slide invariant, the
+  ACTION_BINDINGS "operator-facing guard required" contract, AND the 0.1.395
+  changelog promise ("slide actions … can never blank or clear the whole
+  screen"). Now the macro path is `confirmed:false`: a macro's guarded contents
+  are REFUSED at dispatch (its non-destructive actions still fire); guarded
+  Automations remain runnable from the Automations panel behind its in-panel
+  confirm. Guarded actions are barred as slide actions at BOTH save and dispatch,
+  and cannot be laundered through a macro.
 
 ### 4. Automations / Macros (P3, thin v1)
 - **Table** `macros` (church_id, name, actions jsonb, enabled, sort_order), RLS

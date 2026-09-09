@@ -54,11 +54,18 @@ export interface SlideActionOutcome { spec: ActionSpec; result: DispatchResultLi
 
 /**
  * Fire a slide's actions in order through the dispatcher. A `macro` spec is
- * expanded via `resolveMacro` and each of its actions is dispatched — a macro
- * attached to a slide MAY contain guarded actions, so those are dispatched with
- * `confirmed:true` (the church opted the Automation onto the slide; this mirrors
- * the auto-live song path where opted-in automation fires — see plan §5). NON-
- * macro slide actions are always `confirmed:false` (never destructive).
+ * expanded via `resolveMacro` and each of its actions is dispatched with
+ * `confirmed:false` — a slide going live must NEVER blank/kill/clear-all the
+ * projector, and that invariant cannot be laundered through a macro. If a church
+ * built an Automation containing a guarded action and attached it to a slide,
+ * those guarded actions are REFUSED at dispatch (reason "refused-guard"); its
+ * non-destructive actions still fire. This matches the slide invariant in
+ * spec.ts, the ACTION_BINDINGS "operator-facing guard required before
+ * confirmed:true" contract (a plain slide send offers no such guard), and the
+ * user-facing 0.1.395 changelog ("slide actions ... can never blank or clear the
+ * whole screen"). Guarded macros remain runnable from the Automations panel,
+ * which supplies its own in-panel confirm. NON-macro slide actions are likewise
+ * always `confirmed:false`.
  *
  * Returns one outcome per dispatched action (macro expansions included) so the
  * caller / tests can inspect `{handled,reason}`.
@@ -73,8 +80,10 @@ export function dispatchSlideActions(
     if (spec.type === "macro") {
       const def = resolveMacro(spec.macroId);
       if (!def) { outcomes.push({ spec, result: { handled: false, reason: "macro-not-found" } }); continue; }
+      // confirmed:false — guarded macro contents are refused by dispatchAction
+      // (a slide send is NOT an operator-facing confirm). See doc above.
       for (const ea of macroToEngineActions(def)) {
-        outcomes.push({ spec, result: dispatch(ea, { confirmed: true }) });
+        outcomes.push({ spec, result: dispatch(ea, { confirmed: false }) });
       }
       continue;
     }
