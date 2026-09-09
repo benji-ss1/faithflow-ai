@@ -17,7 +17,7 @@ const TABS = [
   { v: "timers", Icon: Timer, label: "Timers" },
   { v: "messages", Icon: Send, label: "Messages" },
   { v: "themes", Icon: Layers, label: "Themes" },
-  { v: "macros", Icon: Zap, label: "Macros" },
+  { v: "macros", Icon: Zap, label: "Automations" },
 ];
 
 export function RightTabs({
@@ -52,7 +52,7 @@ export function RightTabs({
         <Tabs.Content value="timers"><TimersTab api={timer} /></Tabs.Content>
         <Tabs.Content value="messages"><MessagesTab api={messages} /></Tabs.Content>
         <Tabs.Content value="themes"><ThemesTab /></Tabs.Content>
-        <Tabs.Content value="macros"><MacrosTab /></Tabs.Content>
+        <Tabs.Content value="macros"><MacrosTab ctx={ctx} /></Tabs.Content>
       </div>
     </Tabs.Root>
   );

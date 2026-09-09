@@ -9,12 +9,14 @@ import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload, ThemeAppearance } from "@/lib/broadcast";
 import { useSlideClipboard, setSlideClipboard, getSlideClipboard } from "@/lib/slide-clipboard";
 import { pasteInsertIndex, pasteDisabledReason } from "@/lib/slide-paste";
-import { updateSongSlides, deleteSongSlide, updateSongSlideText, setSongSlideBackgroundImage, createSongImageSlide, setServiceItemSlideBackground, addServiceItemImageSlide, assignSlidesToGroup, createSongGroup } from "@/lib/actions";
+import { updateSongSlides, deleteSongSlide, updateSongSlideText, setSongSlideBackgroundImage, createSongImageSlide, setServiceItemSlideBackground, addServiceItemImageSlide, assignSlidesToGroup, createSongGroup, setSongSlideActions } from "@/lib/actions";
+import { sanitizeSlideActions } from "@/engine/slide-actions";
+import type { ActionSpec } from "@/engine/actions/spec";
 import { parseMediaDropPayload, isImageAsset, resolveMediaDrop, MEDIA_DROP_MIME } from "@/lib/media-drop";
 import { applyTextToSlide, projectableTextSlide } from "@/lib/broadcast";
 import { loadMediaFrame, buildMediaFrameSlide } from "./mediaFrame";
 import { useRouter } from "next/navigation";
-import { X, Pencil, LayoutGrid, GripVertical, GripHorizontal, ChevronRight, Check, Layers } from "lucide-react";
+import { X, Pencil, LayoutGrid, GripVertical, GripHorizontal, ChevronRight, Check, Layers, Zap } from "lucide-react";
 import { DotGridBackground } from "../DotGridBackground";
 import { groupColor } from "@/engine/arrangements";
 
@@ -42,6 +44,11 @@ type SectionMenu = {
   currentGroupId: string | null;
   onAssign: (groupId: string | null) => void;
   onQuickCreate: (name: string, kind: string) => void;
+};
+type SlideActionsMenu = {
+  palette: { label: string; make: () => ActionSpec }[];
+  current: ActionSpec[];
+  onToggle: (spec: ActionSpec) => void;
 };
 import {
   DndContext,
@@ -163,6 +170,41 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
       const res = await assignSlidesToGroup(sectionSongId, [slideId], created.data.id);
       if (!res.ok) { toast.error(res.error ?? "Couldn't set the section"); return; }
       toast.success(`Added section “${name}”`);
+      router.refresh();
+    })();
+  };
+
+  // ── Slide Actions (Phase 4) ─────────────────────────────────────────────────
+  // Per-slide attached actions (NON-destructive). Song slides persist to
+  // song_slides.actions via setSongSlideActions. Badges + a right-click palette to
+  // add/remove. Guarded actions are never offered here (enforced at save + dispatch).
+  const slideActionSpecs = useMemo(() => {
+    const raw = item?.slideActions;
+    if (!Array.isArray(raw)) return null;
+    return raw.map((arr) => sanitizeSlideActions(arr));
+  }, [item?.slideActions]);
+  const canEditSlideActions = item?.type === "song" && !!sectionSongId;
+  // Non-destructive palette offered on a slide (guarded actions never appear here).
+  const SLIDE_ACTION_PALETTE: { label: string; make: () => ActionSpec }[] = [
+    { label: "Switch background: none", make: () => ({ type: "set_background", spec: null }) },
+    { label: "Clear background layer", make: () => ({ type: "clear_layer", layerId: "background" }) },
+    { label: "Start timer (default)", make: () => ({ type: "timer", timerId: "default", command: "start" }) },
+    { label: "Stop timer (default)", make: () => ({ type: "timer", timerId: "default", command: "stop" }) },
+    { label: "Show message", make: () => ({ type: "show_message", text: "Message" }) },
+    { label: "Clear message", make: () => ({ type: "clear_message" }) },
+  ];
+  const toggleSlideAction = (idx: number, spec: ActionSpec) => {
+    const slideId = item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined;
+    if (!sectionSongId || !slideId) return;
+    const current = slideActionSpecs?.[idx] ?? [];
+    const key = JSON.stringify(spec);
+    const exists = current.some((s) => JSON.stringify(s) === key);
+    const next = exists ? current.filter((s) => JSON.stringify(s) !== key) : [...current, spec];
+    void (async () => {
+      const { toast } = await import("sonner");
+      const res = await setSongSlideActions(slideId, next);
+      if (!res.ok) { toast.error(res.error ?? "Couldn't set slide action"); return; }
+      toast.success(exists ? "Removed slide action" : "Attached slide action");
       router.refresh();
     })();
   };
@@ -506,6 +548,12 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                 slide={displaySlides[idx] ?? s}
                 index={idx + 1}
                 groupChip={groupChips?.[idx] ?? null}
+                actionCount={slideActionSpecs?.[idx]?.length ?? 0}
+                actionsMenu={canEditSlideActions ? {
+                  palette: SLIDE_ACTION_PALETTE,
+                  current: slideActionSpecs?.[idx] ?? [],
+                  onToggle: (spec: ActionSpec) => toggleSlideAction(idx, spec),
+                } : null}
                 sectionMenu={sectionSongId ? {
                   groups: songGroups,
                   currentGroupId: slideGroupIds?.[idx] ?? null,
@@ -517,7 +565,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                 selected={idx === ctx.previewSlideIdx}
                 canQuickEdit={item?.type === "song" && !!(item as { songId?: string }).songId}
                 onSendLive={() => {
-                  fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => ctx.onSendSlideToLive(displaySlides[idx] ?? s));
+                  fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => { ctx.onSendSlideToLive(displaySlides[idx] ?? s); ctx.fireSlideActions(ctx.previewItemIdx, idx); });
                 }}
                 onSelect={() => {
                   console.log("[click] slide", { id: slideIds[idx], idx, safeMode: safeMode() });
@@ -535,7 +583,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                     // Fix-loop 2026-07-27: dedupe key includes the playlist
                     // item — the `slide-${i}` fallback collides across items
                     // and across reorders.
-                    fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => ctx.onSendSlideToLive(displaySlides[idx] ?? s));
+                    fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => { ctx.onSendSlideToLive(displaySlides[idx] ?? s); ctx.fireSlideActions(ctx.previewItemIdx, idx); });
                   }
                 }}
                 onDouble={() => {
@@ -816,6 +864,8 @@ function SortableSlideCard(props: {
   index: number;
   groupChip?: { label: string; color: string } | null;
   sectionMenu?: SectionMenu | null;
+  actionCount?: number;
+  actionsMenu?: SlideActionsMenu | null;
   appearance?: ThemeAppearance;
   background?: BackgroundSpec | null;
   selected: boolean;
@@ -866,6 +916,8 @@ function SortableSlideCard(props: {
         index={props.index}
         groupChip={props.groupChip}
         sectionMenu={props.sectionMenu}
+        actionCount={props.actionCount}
+        actionsMenu={props.actionsMenu}
         appearance={props.appearance}
         background={props.background}
         selected={props.selected}
@@ -909,12 +961,14 @@ function SortableSlideCard(props: {
 }
 
 function SlideCard({
-  slide, index, groupChip, sectionMenu, appearance, background, selected, canQuickEdit, canPaste, pasteReason, onSelect, onDouble, onDelete, onQuickEdit, onDuplicate, onCopyText, onCopySlide, onPasteSlide, onSendLive,
+  slide, index, groupChip, sectionMenu, actionCount, actionsMenu, appearance, background, selected, canQuickEdit, canPaste, pasteReason, onSelect, onDouble, onDelete, onQuickEdit, onDuplicate, onCopyText, onCopySlide, onPasteSlide, onSendLive,
 }: {
   slide: SlidePayload;
   index: number;
   groupChip?: { label: string; color: string } | null;
   sectionMenu?: SectionMenu | null;
+  actionCount?: number;
+  actionsMenu?: SlideActionsMenu | null;
   appearance?: ThemeAppearance;
   background?: BackgroundSpec | null;
   selected: boolean;
@@ -994,6 +1048,17 @@ function SlideCard({
               <span className="truncate">{groupChip.label}</span>
             </div>
           )}
+          {/* Slide-actions badge (Phase 4) — a tiny lightning row on the top-right
+              when this slide has attached actions (ProPresenter-style). */}
+          {(actionCount ?? 0) > 0 && (
+            <div
+              className="absolute top-1.5 right-1.5 h-5 px-1.5 flex items-center gap-0.5 rounded-md text-[10px] font-bold shadow-sm"
+              style={{ background: "rgba(0,0,0,0.6)", color: "var(--color-brand)", border: "1px solid color-mix(in oklab, var(--color-brand) 40%, transparent)" }}
+              title={`${actionCount} slide action${actionCount === 1 ? "" : "s"} fire when this slide goes live`}
+            >
+              <Zap className="w-3 h-3" />{actionCount}
+            </div>
+          )}
         </button>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
@@ -1006,6 +1071,34 @@ function SlideCard({
             <span className="w-3.5 h-3.5 rounded-full bg-[var(--color-brand)] inline-block shrink-0" />
             Send to Live
           </ContextMenu.Item>
+          {actionsMenu && (
+            <ContextMenu.Sub>
+              <ContextMenu.SubTrigger className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]">
+                <Zap className="w-3.5 h-3.5 text-[var(--color-brand)]" />
+                Actions{actionsMenu.current.length > 0 ? ` (${actionsMenu.current.length})` : ""}
+                <ChevronRight className="w-3.5 h-3.5 ml-auto" />
+              </ContextMenu.SubTrigger>
+              <ContextMenu.Portal>
+                <ContextMenu.SubContent className="min-w-[220px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
+                  <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)]">Fire when this slide goes live</div>
+                  {actionsMenu.palette.map((p, i) => {
+                    const spec = p.make();
+                    const on = actionsMenu.current.some((c) => JSON.stringify(c) === JSON.stringify(spec));
+                    return (
+                      <ContextMenu.Item
+                        key={i}
+                        onSelect={(e) => { e.preventDefault(); actionsMenu.onToggle(spec); }}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]"
+                      >
+                        <span className="w-3.5 h-3.5 shrink-0">{on && <Check className="w-3.5 h-3.5 text-[var(--color-brand)]" />}</span>
+                        {p.label}
+                      </ContextMenu.Item>
+                    );
+                  })}
+                </ContextMenu.SubContent>
+              </ContextMenu.Portal>
+            </ContextMenu.Sub>
+          )}
           <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
 
           {/* Quick Edit — only for song slides (non-song items have no editable text stored in DB) */}
