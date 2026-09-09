@@ -2432,14 +2432,16 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         : { clear: true as const };
       // Extra simultaneous messages (Wave 7). Each keyed by its own id; the
       // {{timer}} token renders the bound timer's live clock.
-      const extras = boardActiveRef.current.map((m) => ({
-        id: m.id,
-        text: expandMessageTokens(m.text, { now, currentSlide: previewSlideIdxRef.current, timers: map, firstTimer: first }),
-        dismissAfterMs: DISMISS_MS[m.dismiss] ?? null,
-        position: m.position,
-        allowWeb: m.allowWeb,
-        ...(m.scroll ? { scroll: true, scrollDir: m.scrollDir, scrollSec: m.scrollSec } : {}),
-      })).filter((m) => m.text.trim().length > 0);
+      const extras = boardActiveRef.current
+        .filter((m) => !m.hidden) // hidden messages stay listed for re-show but leave the wire
+        .map((m) => ({
+          id: m.id,
+          text: expandMessageTokens(m.text, { now, currentSlide: previewSlideIdxRef.current, timers: map, firstTimer: first }),
+          dismissAfterMs: DISMISS_MS[m.dismiss] ?? null,
+          position: m.position,
+          allowWeb: m.allowWeb,
+          ...(m.scroll ? { scroll: true, scrollDir: m.scrollDir, scrollSec: m.scrollSec } : {}),
+        })).filter((m) => m.text.trim().length > 0);
       safePost(ch, { type: "message", overlay, messages: extras });
       messagePostedRef.current = true;
     };
@@ -2537,7 +2539,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // routes to the named-timer session.
   useEffect(() => {
     const onCmd = (e: Event) => {
-      const d = (e as CustomEvent<{ timerId?: string; command?: "start" | "stop" | "reset" }>).detail;
+      // Nonce guard (Y1): drop any timer-command event that didn't come through
+      // dispatchInternal (XSS / browser extension can't forge the module nonce).
+      if (!isInternalEvent(e)) return;
+      const d = internalPayload<{ timerId?: string; command?: "start" | "stop" | "reset" }>(e);
       if (!d?.command) return;
       if (d.timerId === "default" || !d.timerId) {
         if (d.command === "reset") timer.reset();

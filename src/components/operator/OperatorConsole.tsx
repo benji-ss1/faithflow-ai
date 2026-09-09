@@ -8,6 +8,7 @@ import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, AI_AUTO_TRANSITION, slideOutputIdentity, sanitizeOutputState, scrubOutputStateForRemote, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
 import { LAYERS_V2 } from "@/lib/output-layers";
 import { nextPreviewPosition } from "@/lib/operator-nav";
+import { dispatchInternal } from "@/lib/internal-events";
 import { useLiveLayers } from "./useLiveLayers";
 import { clampObsBand, type ObsBandConfig } from "@/lib/obs-lowerthird";
 import { readFontScale, readReferenceScale, readReferenceColor } from "./pro/operatorConstants";
@@ -1800,7 +1801,9 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   // event-driven internal command pattern). No-op if no shell is mounted.
   const timerCommand = useCallback((timerId: string, command: "start" | "stop" | "reset") => {
     if (typeof window === "undefined") return;
-    window.dispatchEvent(new CustomEvent("presentflow:timer-command", { detail: { timerId, command } }));
+    // Nonce-gated (Y1) so only in-app code can drive a timer — an XSS/extension
+    // custom event is dropped by the isInternalEvent guard in ProOperatorShell.
+    dispatchInternal("presentflow:timer-command", { timerId, command });
   }, []);
 
   const currentBankIdx = effectiveBank.findIndex((b) => currentBankRef && b.id === currentBankRef.id);

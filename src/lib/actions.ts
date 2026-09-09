@@ -8,6 +8,7 @@ import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangem
 import { GROUP_KINDS } from "../engine/arrangements";
 import { preservedGroupIds } from "./song-group-preserve";
 import { cleanRenderUrl } from "./render-url";
+import { OVERLAY_POSITIONS } from "./broadcast";
 import { requireUser, requireRole, requireCap } from "./session";
 import { deleteObject, getBuffer, putBuffer } from "./s3";
 import { after } from "next/server";
@@ -1955,6 +1956,7 @@ export async function createTimerDefinition(input: TimerDefInput): Promise<Resul
   const db = getDb();
   const clean = sanitizeTimerDef(input);
   const existing = await db.select({ sortOrder: timerDefinitions.sortOrder }).from(timerDefinitions).where(eq(timerDefinitions.churchId, user.churchId));
+  if (existing.length >= MAX_TIMER_DEFS) return { ok: false, error: `Timer limit reached (${MAX_TIMER_DEFS}). Delete an existing timer to add another.` };
   const nextOrder = existing.length > 0 ? Math.max(...existing.map((e) => e.sortOrder)) + 1 : 0;
   const [row] = await db.insert(timerDefinitions).values({ churchId: user.churchId, ...clean, sortOrder: nextOrder }).returning({ id: timerDefinitions.id });
   return { ok: true, data: { id: row.id } };
@@ -1988,7 +1990,18 @@ export type MessageTemplateInput = {
 };
 
 const MSG_TEMPLATE_CONFIG_KEYS = new Set(["scroll", "scrollDir", "scrollSec", "allowWeb", "dismiss", "timerId"]);
-const OVERLAY_POSITION_STRINGS = new Set(["top-left", "top-right", "bottom-left", "bottom-right", "lower-third", "center"]);
+// Single source of truth for valid overlay positions — the wire contract in
+// broadcast.ts (no local drift-prone copy).
+const OVERLAY_POSITION_STRINGS = new Set<string>(OVERLAY_POSITIONS);
+// Server-side whitelist for the auto-dismiss enum (mirrors MSG_DISMISS_MS keys +
+// "manual" in pro/hooks.ts). A value outside this set is dropped rather than
+// stored, so a hostile/garbage dismiss can never reach a renderer.
+const MSG_DISMISS_VALUES = new Set(["manual", "5s", "10s", "30s", "1min", "5min"]);
+// Per-church row cap for timer definitions + message templates. These are
+// operator convenience lists, not bulk data — a runaway/hostile creator must
+// not be able to grow them without bound (defence-in-depth alongside RLS).
+const MAX_TIMER_DEFS = 50;
+const MAX_MESSAGE_TEMPLATES = 50;
 
 function sanitizeMessageTemplate(input: MessageTemplateInput): { name: string; text: string; position: string; config: Record<string, unknown> } {
   const name = (input.name ?? "Message").trim().slice(0, 120) || "Message";
@@ -2002,7 +2015,7 @@ function sanitizeMessageTemplate(input: MessageTemplateInput): { name: string; t
     if (k === "scroll" || k === "allowWeb") { if (typeof v === "boolean") config[k] = v; }
     else if (k === "scrollDir") { if (v === "ltr" || v === "rtl") config[k] = v; }
     else if (k === "scrollSec") { const n = Number(v); if (Number.isFinite(n)) config[k] = Math.max(4, Math.min(120, Math.round(n))); }
-    else if (k === "dismiss") { if (typeof v === "string" && v.length <= 12) config[k] = v; }
+    else if (k === "dismiss") { if (typeof v === "string" && MSG_DISMISS_VALUES.has(v)) config[k] = v; }
     else if (k === "timerId") { if (typeof v === "string" && /^[a-zA-Z0-9_-]{1,64}$/.test(v)) config[k] = v; }
   }
   return { name, text, position, config };
@@ -2022,6 +2035,7 @@ export async function createMessageTemplate(input: MessageTemplateInput): Promis
   const db = getDb();
   const clean = sanitizeMessageTemplate(input);
   const existing = await db.select({ sortOrder: messageTemplates.sortOrder }).from(messageTemplates).where(eq(messageTemplates.churchId, user.churchId));
+  if (existing.length >= MAX_MESSAGE_TEMPLATES) return { ok: false, error: `Template limit reached (${MAX_MESSAGE_TEMPLATES}). Delete an existing template to add another.` };
   const nextOrder = existing.length > 0 ? Math.max(...existing.map((e) => e.sortOrder)) + 1 : 0;
   const [row] = await db.insert(messageTemplates).values({ churchId: user.churchId, ...clean, sortOrder: nextOrder }).returning({ id: messageTemplates.id });
   return { ok: true, data: { id: row.id } };

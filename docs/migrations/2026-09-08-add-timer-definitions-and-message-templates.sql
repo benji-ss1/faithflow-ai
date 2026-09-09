@@ -36,6 +36,12 @@ CREATE TABLE IF NOT EXISTS message_templates (
 );
 CREATE INDEX IF NOT EXISTS idx_message_templates_church ON message_templates(church_id, sort_order);
 
+-- Row-level security: the app connects as the table OWNER (bypasses RLS), so
+-- enabling it changes nothing for the app but DENIES any future anon/authenticated
+-- client — matching every other tenant table (song_groups, libraries, …). Idempotent.
+ALTER TABLE timer_definitions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE message_templates ENABLE ROW LEVEL SECURITY;
+
 -- rollback:
 --   DROP TABLE IF EXISTS message_templates;
 --   DROP TABLE IF EXISTS timer_definitions;
