@@ -9,6 +9,10 @@ import { dispatchInternal } from "@/lib/internal-events";
 import { openLiveChannel, safePost, type LiveChannelLike, type LiveMessage } from "@/lib/broadcast";
 
 export const TRANSITION_KEY = "presentflow.pro.transition.v1";
+// Centralized so the bottom-bar chooser, the centre Transitions panel, and the
+// live-monitor preview can't silently desync on a mistyped event name.
+export const TRANSITION_UPDATED_EVENT = "presentflow:transition-updated";
+export const TRANSITION_PREVIEW_EVENT = "presentflow:transition-preview";
 
 export type SlideViewMode = "grid" | "list" | "text";
 
@@ -41,7 +45,7 @@ export function BottomBar({
 }: {
   ctx: OperatorShellCtx;
   onOpenShortcutsHelp?: () => void;
-  centerMode?: "slides" | "bible" | "songs" | "media" | "openflow";
+  centerMode?: "slides" | "bible" | "songs" | "media" | "openflow" | "transitions";
   /** The operator's live preview <video> — the master clock element. K1 drives
    *  pause/resume through THIS element so the projector heartbeat can't override it. */
   videoRef?: RefObject<HTMLVideoElement | null>;
@@ -113,12 +117,32 @@ export function BottomBar({
     } catch { /* noop */ }
   }, []);
 
+  // F1: the full-screen Transitions panel (centre) shares this selection. When it
+  // changes the transition, mirror it here so the bottom-bar picker matches AND
+  // the persist/apply effect below re-fires (pushing it to the live output).
+  useEffect(() => {
+    const onUpdate = (e: Event) => {
+      const d = (e as CustomEvent<{ name?: string; durationMs?: number; off?: boolean }>).detail;
+      if (!d) return;
+      if (typeof d.name === "string") setTransitionName(d.name);
+      if (typeof d.durationMs === "number") setTransitionDuration(d.durationMs / 1000);
+      if (typeof d.off === "boolean") setTransitionsOff(d.off);
+    };
+    window.addEventListener(TRANSITION_UPDATED_EVENT, onUpdate);
+    return () => window.removeEventListener(TRANSITION_UPDATED_EVENT, onUpdate);
+  }, []);
+
   const ctxRef = useRef(ctx);
   ctxRef.current = ctx;
   useEffect(() => {
     const durationMs = Math.max(0, Math.min(5000, Math.round(transitionDuration * 1000)));
     try {
       window.localStorage.setItem(TRANSITION_KEY, JSON.stringify({ name: transitionName, durationMs, off: transitionsOff }));
+      // F1 reverse-sync: notify an open centre Transitions panel so it mirrors a
+      // change made HERE (same-tab localStorage writes don't fire `storage`).
+      // Safe from loops: the panel's listener only setState(readState()) and never
+      // re-dispatches, and our own listener re-setting identical values is a no-op.
+      window.dispatchEvent(new CustomEvent(TRANSITION_UPDATED_EVENT, { detail: { name: transitionName, durationMs, off: transitionsOff } }));
     } catch { /* noop */ }
     // Push into the live TransitionSpec so the OutputState effect picks it up.
     // ctxRef avoids re-running this on every OperatorConsole re-render (would cause infinite loop).
@@ -256,7 +280,13 @@ export function BottomBar({
           transitionDuration={transitionDuration}
           transitionsOff={transitionsOff}
           onToggleOff={setTransitionsOff}
-          onSelect={(name) => { setTransitionName(name); setTransitionsOff(false); }}
+          onSelect={(name) => {
+            setTransitionName(name);
+            setTransitionsOff(false);
+            // Demo it in the live monitor too, so picking from the bottom bar behaves
+            // exactly like picking from the centre Transitions panel (coherence).
+            try { window.dispatchEvent(new CustomEvent(TRANSITION_PREVIEW_EVENT, { detail: { name, durationMs: Math.round(transitionDuration * 1000) } })); } catch { /* noop */ }
+          }}
           onDurationChange={(d) => setTransitionDuration(d)}
         />
         <input

@@ -488,7 +488,11 @@ function ObjectView({
             position: "relative", zIndex: 1,
             width: "100%", height: "100%", objectFit: obj.fit ?? "contain", display: "block", opacity: obj.opacity ?? 1,
             objectPosition: `${obj.posX ?? 50}% ${obj.posY ?? 50}%`,
-            transform: obj.zoom && obj.zoom !== 1 ? `scale(${obj.zoom})` : undefined,
+            // Mirror SlideObjectsLayer: a full-screen blurred BACKGROUND layer
+            // (obj.blur) so the editor canvas matches the projector 1:1.
+            ...(obj.blur
+              ? { filter: "blur(34px) brightness(0.62) saturate(1.08)", transform: "scale(1.15)" }
+              : { transform: obj.zoom && obj.zoom !== 1 ? `scale(${obj.zoom})` : undefined }),
             transformOrigin: `${obj.posX ?? 50}% ${obj.posY ?? 50}%`,
           }}
           draggable={false}

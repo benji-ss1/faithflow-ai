@@ -129,6 +129,31 @@ test("groupColor: explicit override wins, else palette-by-kind, else custom", ()
   assert.equal(groupColor({ kind: "chorus", color: "not-a-hex" }), GROUP_KIND_COLORS.chorus);
 });
 
+test("groupColor: name-aware disambiguation of same-kind sections", () => {
+  // Regression: omitting name == the old palette-by-kind result (unchanged).
+  assert.equal(groupColor({ kind: "verse", color: null }), GROUP_KIND_COLORS.verse);
+  assert.equal(groupColor({ kind: "verse", color: null, name: "Verse 1" }), GROUP_KIND_COLORS.verse);
+
+  // Verse 1/2/3 (all kind:"verse") must render DISTINCT colours now.
+  const v1 = groupColor({ kind: "verse", color: null, name: "Verse 1" });
+  const v2 = groupColor({ kind: "verse", color: null, name: "Verse 2" });
+  const v3 = groupColor({ kind: "verse", color: null, name: "Verse 3" });
+  assert.notEqual(v1, v2);
+  assert.notEqual(v2, v3);
+  assert.notEqual(v1, v3);
+
+  // Pre-Chorus (stored kind:"chorus") must NOT be the same red as Chorus.
+  const chorus = groupColor({ kind: "chorus", color: null, name: "Chorus" });
+  const pre = groupColor({ kind: "chorus", color: null, name: "Pre-Chorus" });
+  assert.equal(chorus, GROUP_KIND_COLORS.chorus);
+  assert.notEqual(pre, chorus);
+  assert.equal(pre, groupColor({ kind: "chorus", color: null, name: "Pre Chorus" })); // spacing variant
+  assert.equal(pre, groupColor({ kind: "chorus", color: null, name: "prechorus" }));  // no-hyphen variant
+
+  // Explicit override still wins even when a name is present.
+  assert.equal(groupColor({ kind: "verse", color: "#abcdef", name: "Verse 2" }), "#abcdef");
+});
+
 test("cue-sheet agreement: an arranged expansion drives buildCueSheet in order", () => {
   const s = makeSong();
   const arrangedSlides = expandArrangement(s, "arrLong").map((r) => ({ kind: "text" as const, text: (r as Body).lyrics }));

@@ -1,21 +1,12 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { LayoutGrid, List, Eye, Play, Music, BookOpen, Image as ImageIcon, Type, Pencil, Plus, Sparkles } from "lucide-react";
+import { LayoutGrid, List, Music, BookOpen, Image as ImageIcon, AlignLeft, Pencil, Plus, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { createSongSlide, reChunkSong } from "@/lib/actions";
 import { cn } from "@/lib/utils";
-import { dispatchInternal } from "@/lib/internal-events";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { CenterMode } from "../ProOperatorShell";
-
-// Y5: mirror SlideGrid's Safe Mode source of truth.
-const SAFE_MODE_KEY = "presentflow.operator.safeMode";
-function safeMode() {
-  if (typeof window === "undefined") return false;
-  const raw = window.localStorage.getItem(SAFE_MODE_KEY);
-  return raw === "1"; // default OFF per user directive
-}
 
 const VIEW_MODE_KEY = "presentflow.operator.slideViewMode";
 type ViewMode = "grid" | "list" | "text";
@@ -153,49 +144,10 @@ export function CenterHeader({
       {(centerMode === "slides" || centerMode === "bible" || centerMode === "songs") && (
         <CenterSizeSlider centerMode={centerMode} slideSize={slideSize} onSlideSize={onSlideSize} />
       )}
+      {/* I2 (2026-09-10): the Eye ("open Live in a window") and Play ("fire current
+          slide") buttons were removed here per operator request — Send-to-live lives
+          in the bottom transport bar, and the projector opens from Settings. */}
       <ViewModeToggle centerMode={centerMode} />
-      <button className="w-8 h-8 flex items-center justify-center rounded-lg text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:bg-[var(--color-brand)]/10 transition-colors" title="Preview (open Live in a new window)"
-        onClick={() => { try { window.open("/live", "presentflow-live", "width=1280,height=720"); } catch { /* noop */ } }}
-      >
-        <Eye className="w-4 h-4" />
-      </button>
-        <button
-          onClick={() => {
-            // 2026-07-25 field bug fix — the Play button silently no-op'd
-            // in Bible/Songs modes because it only read `plan.items`. Now
-            // context-aware:
-            //   - Bible mode → dispatch bible-play-current so BibleMode
-            //     fires the selected verse card
-            //   - Songs mode → dispatch songs-play-current so SongsBrowser
-            //     fires the selected song's first slide
-            //   - Slides mode → existing behavior (first slide of preview
-            //     playlist item)
-            try { console.log("[center-play] clicked", { centerMode, hasItem: !!ctx.plan.items[ctx.previewItemIdx], slideCount: ctx.plan.items[ctx.previewItemIdx]?.slides?.length ?? 0 }); } catch { /* ignore */ }
-            if (centerMode === "bible") {
-              dispatchInternal("presentflow:bible-play-current");
-              return;
-            }
-            if (centerMode === "songs") {
-              dispatchInternal("presentflow:songs-play-current");
-              return;
-            }
-            const s = ctx.plan.items[ctx.previewItemIdx]?.slides?.[0];
-            if (!s) {
-              toast.info("Nothing to play — pick a playlist item first, or load a Bible reference.");
-              return;
-            }
-            if (safeMode()) {
-              ctx.onJumpSlide(ctx.previewItemIdx, 0);
-            } else {
-              ctx.onSendSlideToLive(s);
-              toast.success(`Playing ${ctx.plan.items[ctx.previewItemIdx]?.title ?? "slide 1"}`, { duration: 1500 });
-            }
-          }}
-          className="w-8 h-8 flex items-center justify-center rounded-lg text-black bg-[linear-gradient(180deg,#F2712E_0%,#E8501A_100%)] shadow-[var(--edge-top),var(--shadow-ember)] transition-[transform,box-shadow] duration-200 [transition-timing-function:var(--ease-spring)] hover:-translate-y-px hover:shadow-[var(--edge-top),var(--shadow-ember-lg)] active:translate-y-0 active:scale-95"
-          title={centerMode === "bible" ? "Play the currently selected Bible verse" : centerMode === "songs" ? "Play the currently selected song's first slide" : "Play first slide of this playlist item"}
-        >
-          <Play className="w-4 h-4 fill-current" />
-        </button>
     </div>
   );
 }
@@ -302,7 +254,7 @@ function ViewModeToggle({ centerMode }: { centerMode: CenterMode }) {
         onClick={() => { if (textApplicable) set("text"); }}
         className={cn(seg("text", textApplicable && mode === "text"), !textApplicable && "opacity-40 cursor-not-allowed hover:bg-transparent hover:text-[var(--color-muted-foreground)]")}
       >
-        <Type className="w-4 h-4" />
+        <AlignLeft className="w-4 h-4" />
       </button>
     </div>
   );

@@ -70,7 +70,7 @@ export function BibleOptionsPopover() {
           side="bottom"
           align="end"
           sideOffset={6}
-          className="w-[300px] rounded-xl bg-[var(--color-panel)] border border-[var(--color-border)] p-1.5 text-[12px] text-[var(--color-foreground)] shadow-[var(--edge-top),var(--shadow-lg)]"
+          className="z-50 w-[300px] rounded-xl bg-[var(--color-panel)] border border-[var(--color-border)] p-1.5 text-[12px] text-[var(--color-foreground)] shadow-[var(--edge-top),var(--shadow-lg)]"
         >
           <div className="px-2 pt-1.5 pb-1 text-[10px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)]">
             Slide Options

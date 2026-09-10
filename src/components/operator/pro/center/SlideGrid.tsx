@@ -9,7 +9,7 @@ import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload, ThemeAppearance } from "@/lib/broadcast";
 import { useSlideClipboard, setSlideClipboard, getSlideClipboard, setTextClipboard, useTextClipboard, getTextClipboard } from "@/lib/slide-clipboard";
 import { pasteInsertIndex, pasteDisabledReason } from "@/lib/slide-paste";
-import { updateSongSlides, deleteSongSlide, updateSongSlideText, setSongSlideBackgroundImage, createSongImageSlide, setServiceItemSlideBackground, addServiceItemImageSlide, assignSlidesToGroup, createSongGroup, setSongSlideActions, clearSongSlideBackgroundImage, clearAllSongSlideBackgrounds, setAllSongSlidesBackgroundImage, applyThemeToSong, revertSongTheme } from "@/lib/actions";
+import { updateSongSlides, deleteSongSlide, updateSongSlideText, setSongSlideBackgroundImage, createSongImageSlide, setServiceItemSlideBackground, addServiceItemImageSlide, assignSlidesToGroup, createSongGroup, setSongSlideActions, clearSongSlideBackgroundImage, clearAllSongSlideBackgrounds, setAllSongSlidesBackgroundImage, applyThemeToSong, revertSongTheme, applyThemeToSongSlide, removeThemeFromSongSlide } from "@/lib/actions";
 import { BUILT_IN_BACKGROUNDS } from "@/backgrounds/presets/defaultTemplates";
 import { setActiveBackgroundId } from "@/backgrounds/store/backgroundStore";
 import { useBackgroundState } from "@/backgrounds/hooks/useBackgroundState";
@@ -88,6 +88,9 @@ type ThemeMenu = {
   dbThemes: { id: string; name: string }[];
   onApplyDb: (themeId: string) => void;
   onRemoveDb: () => void;
+  // Per-slide theme override (apply/remove a theme on THIS slide only).
+  onApplyDbThisSlide: (themeId: string) => void;
+  onRemoveDbThisSlide: () => void;
   canApplyDb: boolean;
 };
 import {
@@ -223,7 +226,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
       if (!gid) return null;
       const g = byId.get(gid);
       if (!g) return null;
-      return { label: g.name || g.kind, color: groupColor({ kind: g.kind, color: g.color }) };
+      return { label: g.name || g.kind, color: groupColor({ kind: g.kind, color: g.color, name: g.name }) };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item]);
@@ -512,6 +515,29 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
       router.refresh();
     })();
   };
+  // Per-slide theme override (Victor: "individually select the theme for each slide").
+  const applyThemeThisSlide = (themeId: string, slideId: string | undefined) => {
+    void (async () => {
+      const { toast } = await import("sonner");
+      const songId = item?.type === "song" ? (item as { songId?: string }).songId : undefined;
+      if (!songId || !slideId) { toast.error("Only a song slide can take a theme"); return; }
+      const res = await applyThemeToSongSlide(themeId, songId, slideId);
+      if (!res.ok) { toast.error(res.error ?? "Couldn't theme this slide"); return; }
+      toast.success("Theme applied to this slide — re-send it to update the screen");
+      router.refresh();
+    })();
+  };
+  const removeThemeThisSlide = (slideId: string | undefined) => {
+    void (async () => {
+      const { toast } = await import("sonner");
+      const songId = item?.type === "song" ? (item as { songId?: string }).songId : undefined;
+      if (!songId || !slideId) { toast.error("Only a song slide can do this"); return; }
+      const res = await removeThemeFromSongSlide(songId, slideId);
+      if (!res.ok) { toast.error(res.error ?? "Couldn't remove this slide's theme"); return; }
+      toast.success("This slide's theme removed");
+      router.refresh();
+    })();
+  };
 
   const pasteSlideAt = (insertIdx: number) => {
     if (guardObjectSong()) return;
@@ -795,6 +821,8 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                   dbThemes: themes,
                   onApplyDb: applyThemeAll,
                   onRemoveDb: removeThemeAll,
+                  onApplyDbThisSlide: (themeId) => applyThemeThisSlide(themeId, item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined),
+                  onRemoveDbThisSlide: () => removeThemeThisSlide(item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined),
                   canApplyDb: item?.type === "song" && !!(item as { songId?: string }).songId,
                 }}
                 appearance={ctx.appearance ?? undefined}
@@ -1293,13 +1321,14 @@ function SlideCard({
           >
             {index}
           </div>
-          {/* Group badge (wave 6D) — colour-coded chip, top-left beside the slide
-              number. Present only for grouped songs; additive chrome. */}
+          {/* Group badge (wave 6D) — colour-coded chip. Moved to the BOTTOM-left
+              corner (was top-left, over the lyrics) so the section label never
+              obscures the words. Slightly smaller + translucent for the same reason. */}
           {groupChip && (
             <div
-              className="absolute top-1.5 left-8 max-w-[60%] h-5 px-1.5 flex items-center rounded-md text-[10px] font-semibold truncate shadow-sm"
-              style={{ background: groupChip.color, color: "#fff", border: "1px solid rgba(255,255,255,0.2)" }}
-              title={`Group: ${groupChip.label}`}
+              className="absolute bottom-1.5 left-1.5 max-w-[55%] h-[18px] px-1.5 flex items-center rounded-md text-[9px] font-semibold uppercase tracking-wide truncate shadow-sm z-10 pointer-events-none"
+              style={{ background: `color-mix(in oklab, ${groupChip.color} 85%, transparent)`, color: "#fff", border: "1px solid rgba(255,255,255,0.18)" }}
+              title={`Section: ${groupChip.label}`}
             >
               <span className="truncate">{groupChip.label}</span>
             </div>
@@ -1388,7 +1417,7 @@ function SlideCard({
                           onSelect={() => sectionMenu.onAssign(g.id)}
                           className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]"
                         >
-                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: groupColor({ kind: g.kind, color: g.color }) }} />
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: groupColor({ kind: g.kind, color: g.color, name: g.name }) }} />
                           <span className="flex-1 truncate">{g.name || g.kind}</span>
                           {sectionMenu.currentGroupId === g.id && <Check className="w-3.5 h-3.5 text-[var(--color-brand)]" />}
                         </ContextMenu.Item>
@@ -1406,7 +1435,7 @@ function SlideCard({
                       onSelect={() => sectionMenu.onQuickCreate(s.name, s.kind)}
                       className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]"
                     >
-                      <span className="w-2.5 h-2.5 rounded-full shrink-0 opacity-70" style={{ background: groupColor({ kind: s.kind, color: null }) }} />
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0 opacity-70" style={{ background: groupColor({ kind: s.kind, color: null, name: s.name }) }} />
                       <span className="flex-1 truncate">{s.name}</span>
                     </ContextMenu.Item>
                   ))}
@@ -1446,29 +1475,43 @@ function SlideCard({
                   {themeMenu.dbThemes.length > 0 && (
                     <>
                       <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
-                      <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">Saved themes · all slides</div>
+                      <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">Saved themes</div>
+                      {/* Per theme: choose THIS slide (per-slide override) or ALL slides. */}
                       {themeMenu.dbThemes.map((t) => (
-                        <ContextMenu.Item
-                          key={t.id}
-                          disabled={!themeMenu.canApplyDb}
-                          onSelect={() => themeMenu.canApplyDb && themeMenu.onApplyDb(t.id)}
-                          className={cn(
-                            "flex items-center gap-2 px-3 py-1.5 rounded outline-none",
-                            themeMenu.canApplyDb
-                              ? "cursor-pointer data-[highlighted]:bg-[var(--color-panel)]"
-                              : "opacity-40 cursor-not-allowed",
-                          )}
-                        >
-                          <span className="flex-1 truncate">{t.name}</span>
-                        </ContextMenu.Item>
+                        <ContextMenu.Sub key={t.id}>
+                          <ContextMenu.SubTrigger
+                            disabled={!themeMenu.canApplyDb}
+                            className={cn(
+                              "flex items-center justify-between gap-2 px-3 py-1.5 rounded outline-none data-[state=open]:bg-[var(--color-panel)]",
+                              themeMenu.canApplyDb ? "cursor-pointer data-[highlighted]:bg-[var(--color-panel)]" : "opacity-40 cursor-not-allowed",
+                            )}
+                          >
+                            <span className="flex-1 truncate">{t.name}</span><span className="opacity-60">▸</span>
+                          </ContextMenu.SubTrigger>
+                          <ContextMenu.Portal>
+                            <ContextMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-[60] min-w-[150px]">
+                              <ContextMenu.Item onSelect={() => themeMenu.canApplyDb && themeMenu.onApplyDbThisSlide(t.id)} className="px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]">This slide</ContextMenu.Item>
+                              <ContextMenu.Item onSelect={() => themeMenu.canApplyDb && themeMenu.onApplyDb(t.id)} className="px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]">All slides</ContextMenu.Item>
+                            </ContextMenu.SubContent>
+                          </ContextMenu.Portal>
+                        </ContextMenu.Sub>
                       ))}
                       {themeMenu.canApplyDb && (
-                        <ContextMenu.Item
-                          onSelect={() => themeMenu.onRemoveDb()}
-                          className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer text-[var(--color-destructive)] data-[highlighted]:bg-[var(--color-panel)]"
-                        >
-                          Remove saved theme (all slides)
-                        </ContextMenu.Item>
+                        <>
+                          <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
+                          <ContextMenu.Item
+                            onSelect={() => themeMenu.onRemoveDbThisSlide()}
+                            className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer text-[var(--color-destructive)] data-[highlighted]:bg-[var(--color-panel)]"
+                          >
+                            Remove theme (this slide)
+                          </ContextMenu.Item>
+                          <ContextMenu.Item
+                            onSelect={() => themeMenu.onRemoveDb()}
+                            className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer text-[var(--color-destructive)] data-[highlighted]:bg-[var(--color-panel)]"
+                          >
+                            Remove theme (all slides)
+                          </ContextMenu.Item>
+                        </>
                       )}
                     </>
                   )}

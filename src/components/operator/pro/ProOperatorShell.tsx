@@ -31,6 +31,7 @@ import { isStaleServerActionError, staleActionRecovery } from "@/lib/stale-actio
 import { LibrarySection } from "./left/LibrarySection";
 import { PlaylistSection } from "./left/PlaylistSection";
 import { MediaSection } from "./left/MediaSection";
+import { TransitionsPanel } from "./center/TransitionsPanel";
 import { MediaBinSection } from "./left/MediaBinSection";
 import { HardwareSection } from "./left/HardwarePanel";
 import { CenterHeader } from "./center/CenterHeader";
@@ -40,6 +41,7 @@ import { DesktopSlideEditorModal } from "./DesktopSlideEditorModal";
 import { MediaImageEditor } from "./center/MediaImageEditor";
 import { BibleMode } from "./center/BibleMode";
 import { SongsBrowser } from "./center/SongsBrowser";
+import { SONG_OPEN_EVENT, type SongSelection } from "@/lib/song-selection";
 import { MediaBrowser } from "./center/MediaBrowser";
 import { OpenFlowPanel } from "@/components/operator/openflow/OpenFlowPanel";
 import { OpenFlowSidebar } from "@/components/operator/openflow/OpenFlowSidebar";
@@ -106,7 +108,7 @@ function pfTraceOn(): boolean {
  * Legacy value "playlist" is aliased to "slides" so older stored state /
  * external callers keep working.
  */
-export type CenterMode = "slides" | "bible" | "songs" | "media" | "openflow";
+export type CenterMode = "slides" | "bible" | "songs" | "media" | "openflow" | "transitions";
 
 // OpenFlow ships behind a public flag so the entry only appears where it's
 // actually enabled (both this flag AND the server-side OPENFLOW_GROQ_API_KEY).
@@ -1712,6 +1714,13 @@ function stripRefCode(s: string | null | undefined): string {
 export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const [centerMode, setCenterMode] = useState<CenterMode>("slides");
+  // A song the Cmd+K search asked to open. Held HERE (always-mounted shell) and
+  // passed to SongsBrowser as a prop, so the pick survives that panel's mount —
+  // mirrors the bible-goto pattern (the in-panel listener lost the race).
+  const [openSong, setOpenSong] = useState<SongSelection | null>(null);
+  // Stable identity so SongsBrowser's [openSong, onSongOpened] effect can't re-run
+  // on unrelated shell re-renders (avoids re-applying a stale pick over a manual one).
+  const clearOpenSong = useCallback(() => setOpenSong(null), []);
   const [mediaStripOpen, setMediaStripOpen] = useState(true);
   // Media Bin pop-out (field fix 6A): taller strip in the center bottom dock.
   const [mediaBinPoppedOut, setMediaBinPoppedOut] = useState(false);
@@ -3801,6 +3810,20 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bibleSession, ctx]);
 
+  // ── Cmd+K search → open a song in the Songs library ───────────────────────
+  // Always-mounted here so the synchronous event fired while switching INTO songs
+  // mode is never missed (the conditionally-mounted SongsBrowser can't catch it).
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent<SongSelection>).detail;
+      if (!d || !d.id) return;
+      setOpenSong({ id: d.id, title: d.title, artist: d.artist ?? null });
+      setCenterMode("songs");
+    };
+    window.addEventListener(SONG_OPEN_EVENT, handler);
+    return () => window.removeEventListener(SONG_OPEN_EVENT, handler);
+  }, []);
+
   // ── Song chip → switch center to slides so operator sees it land ──────────
   // AIDetectionsPanel dispatches this after a song-chip click goes live.
   // Without this the projector updates but the operator's center panel stays
@@ -4616,9 +4639,11 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
               ) : centerMode === "bible" ? (
                 <BibleMode ctx={ctx} session={bibleSession} />
               ) : centerMode === "songs" ? (
-                <SongsBrowser ctx={ctx} onExitToSlides={() => setCenterMode("slides")} />
+                <SongsBrowser ctx={ctx} onExitToSlides={() => setCenterMode("slides")} openSong={openSong} onSongOpened={clearOpenSong} />
               ) : centerMode === "media" ? (
                 <MediaBrowser ctx={ctx} onExitToSlides={() => setCenterMode("slides")} />
+              ) : centerMode === "transitions" ? (
+                <TransitionsPanel />
               ) : (
                 <>
                   {/* Groups & Arrangements strip (wave 6D) — renders only for a

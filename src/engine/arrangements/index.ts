@@ -32,11 +32,39 @@ export const GROUP_KIND_COLORS: Record<GroupKind, string> = {
   custom: "#64748b",  // neutral slate
 };
 
-/** Resolve a group's display colour: explicit override wins, else palette-by-kind. */
-export function groupColor(g: Pick<SongGroup, "kind" | "color">): string {
+// Mix a hex colour toward white by `amt` (0..1). Pure, no deps.
+function lighten(hex: string, amt: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const mix = (c: number) => Math.round(c + (255 - c) * amt).toString(16).padStart(2, "0");
+  return `#${mix((n >> 16) & 255)}${mix((n >> 8) & 255)}${mix(n & 255)}`;
+}
+
+// A trailing number in a section name ("Verse 2", "Chorus 3") → its index. 0 if none.
+function sectionIndex(name: string): number {
+  const m = name.match(/(\d+)\s*$/);
+  return m ? parseInt(m[1]!, 10) : 0;
+}
+
+/**
+ * Resolve a group's display colour. Precedence: explicit override → name-aware
+ * disambiguation → palette-by-kind. The name pass stops same-KIND sections from
+ * all looking identical (the field complaint that "Verse 1/2/3 are all one blue"
+ * and "Chorus/Pre-Chorus are both red"):
+ *   - Pre-Chorus → its own violet, distinct from Chorus red (both are kind:"chorus").
+ *   - Numbered sections (Verse 1/2/3…) shade progressively lighter by index.
+ * `name` is OPTIONAL — a caller that omits it gets the exact old palette-by-kind
+ * result, so no existing colour changes unless the name is supplied.
+ */
+export function groupColor(g: Pick<SongGroup, "kind" | "color"> & { name?: string }): string {
   if (g.color && /^#[0-9a-fA-F]{6}$/.test(g.color)) return g.color;
+  const name = (g.name ?? "").toLowerCase().trim();
+  if (/pre[-\s]?chorus/.test(name)) return "#7c3aed"; // violet — related to but ≠ Chorus
   const kind = (GROUP_KINDS as readonly string[]).includes(g.kind) ? (g.kind as GroupKind) : "custom";
-  return GROUP_KIND_COLORS[kind];
+  const base = GROUP_KIND_COLORS[kind];
+  const idx = sectionIndex(name);
+  // Verse 1 = base; each higher index lightens (capped so it stays legible on dark).
+  if (idx > 1) return lighten(base, Math.min(0.5, (idx - 1) * 0.16));
+  return base;
 }
 
 // ── Model ──────────────────────────────────────────────────────────────────

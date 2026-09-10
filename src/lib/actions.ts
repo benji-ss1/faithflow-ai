@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { eq, and, asc, sql, inArray } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { readableTextColor } from "./colorway";
+import { bakeThemeIntoObjectsJson } from "./theme-bake";
 import { isHex6Color } from "./hex-color";
 import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangements, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries, timerDefinitions, messageTemplates, macros, type ServiceItemType } from "./db/schema";
 import { GROUP_KINDS } from "../engine/arrangements";
@@ -1306,6 +1307,38 @@ export async function importSongsCsv(text: string): Promise<Result<{ added: numb
   return { ok: true, data: { added, skipped } };
 }
 
+// Persist songs already parsed on the client (e.g. VideoPsalm .vpagd). Reuses the
+// SAME church-scoped sink as ProPresenter/paste import: dedupe-by-title, song-limit
+// headroom, invalid-row skipping. Client-side parsing keeps the server contract a
+// plain {title, artist, slides[]} list, format-agnostic.
+export async function importParsedSongs(
+  candidates: { title: string; artist?: string | null; slides: string[] }[],
+): Promise<Result<{ added: number; skipped: number; duplicateSkipped: number; limitSkipped: number }>> {
+  const user = await requireCap("edit_library");
+  // Bound the payload like importPro6Files does — client-side parsing means we can't
+  // trust sizes: cap songs/file, slides/song, and per-slide length.
+  const MAX_SONGS = 2000, MAX_SLIDES = 500, MAX_SLIDE_LEN = 5000;
+  const clean = (Array.isArray(candidates) ? candidates : [])
+    .slice(0, MAX_SONGS)
+    .filter((c) => c && typeof c.title === "string")
+    .map((c) => ({
+      title: c.title.trim().slice(0, 200),
+      artist: typeof c.artist === "string" ? c.artist.trim().slice(0, 120) || null : null,
+      slides: (Array.isArray(c.slides) ? c.slides : [])
+        .slice(0, MAX_SLIDES)
+        .map((s) => String(s).slice(0, MAX_SLIDE_LEN))
+        .filter((s) => s.trim().length > 0),
+      source: "imported" as const,
+    }))
+    .filter((c) => c.title && c.slides.length > 0);
+  if (clean.length === 0) return { ok: false, error: "No songs with lyrics were found in that file." };
+  const [limit, usage] = await Promise.all([getEffectiveSongLimit(user.churchId), getSongUsage(user.churchId)]);
+  const headroom = Math.max(0, limit - usage);
+  const { added, skipped, duplicateSkipped, limitSkipped } = await bulkInsertSongs(user.churchId, clean, headroom);
+  revalidatePath("/library/songs");
+  return { ok: true, data: { added, skipped, duplicateSkipped, limitSkipped } };
+}
+
 export async function deleteSong(id: string): Promise<Result> {
   const user = await requireCap("edit_library");
   const db = getDb();
@@ -2237,14 +2270,72 @@ export async function applyThemeToSong(themeId: string, songId: string): Promise
     await db.update(songSlides).set({ objectsJson: merged }).where(eq(songSlides.id, s.id));
     updated += 1;
   }
-  // Track applied theme id + the revert snapshot on the song.
+  // Track applied theme id + the revert snapshot on the song. A whole-song apply
+  // re-bakes EVERY slide, so any per-slide theme overrides are now superseded —
+  // clear their (now-stale) backups so a later per-slide "remove" can't restore
+  // an outdated look.
   const prevSettings = (song.settings as Record<string, unknown>) ?? {};
   await db.update(songs).set({
-    settings: { ...prevSettings, appliedThemeId: themeId, themeBackup: { slides: backup, themeId } },
+    settings: { ...prevSettings, appliedThemeId: themeId, themeBackup: { slides: backup, themeId }, slideThemeBackups: {} },
   }).where(eq(songs.id, songId));
   revalidatePath("/library/songs");
   revalidatePath(`/library/songs/${songId}`);
   return { ok: true, data: { slidesUpdated: updated } };
+}
+
+/**
+ * Per-slide theme override (Victor's ProPresenter parity ask 2026-09-10:
+ * "individually select the theme for each slide"). Bakes ONE theme into ONE
+ * slide's objectsJson via the same helper the whole-song bake uses — the look
+ * lives in the slide, so preview and live render it identically and the other
+ * slides are untouched. The pre-bake objectsJson is snapshotted per-slide in
+ * song.settings.slideThemeBackups so removeThemeFromSongSlide can restore it.
+ */
+export async function applyThemeToSongSlide(themeId: string, songId: string, slideId: string): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const [theme] = await db.select().from(themes)
+    .where(and(eq(themes.id, themeId), eq(themes.churchId, user.churchId))).limit(1);
+  if (!theme) return { ok: false, error: "Theme not found" };
+  const [song] = await db.select().from(songs)
+    .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId))).limit(1);
+  if (!song) return { ok: false, error: "Song not found" };
+  const [slide] = await db.select().from(songSlides)
+    .where(and(eq(songSlides.id, slideId), eq(songSlides.songId, songId))).limit(1);
+  if (!slide) return { ok: false, error: "Slide not found" };
+  const cfg = (theme.config as ThemeConfig) ?? {};
+  const prevSettings = (song.settings as Record<string, unknown>) ?? {};
+  const backups = { ...((prevSettings.slideThemeBackups as Record<string, unknown>) ?? {}) };
+  // Only snapshot the ORIGINAL look once, so re-applying different themes to the
+  // same slide still reverts to the pre-override state.
+  if (!(slideId in backups)) backups[slideId] = { objectsJson: slide.objectsJson ?? null };
+  const merged = bakeThemeIntoObjectsJson(cfg, slide.objectsJson);
+  await db.update(songSlides).set({ objectsJson: merged }).where(eq(songSlides.id, slideId));
+  await db.update(songs).set({ settings: { ...prevSettings, slideThemeBackups: backups } }).where(eq(songs.id, songId));
+  revalidatePath("/library/songs");
+  revalidatePath(`/library/songs/${songId}`);
+  return { ok: true };
+}
+
+/** Undo a per-slide theme override — restore that slide's snapshotted objectsJson. */
+export async function removeThemeFromSongSlide(songId: string, slideId: string): Promise<Result> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const [song] = await db.select().from(songs)
+    .where(and(eq(songs.id, songId), eq(songs.churchId, user.churchId))).limit(1);
+  if (!song) return { ok: false, error: "Song not found" };
+  const prevSettings = (song.settings as Record<string, unknown>) ?? {};
+  const backups = { ...((prevSettings.slideThemeBackups as Record<string, unknown>) ?? {}) };
+  const snap = backups[slideId] as { objectsJson?: unknown } | undefined;
+  if (!snap) return { ok: false, error: "No per-slide theme to remove" };
+  await db.update(songSlides)
+    .set({ objectsJson: (snap.objectsJson ?? null) as typeof songSlides.$inferInsert.objectsJson })
+    .where(and(eq(songSlides.id, slideId), eq(songSlides.songId, songId)));
+  delete backups[slideId];
+  await db.update(songs).set({ settings: { ...prevSettings, slideThemeBackups: backups } }).where(eq(songs.id, songId));
+  revalidatePath("/library/songs");
+  revalidatePath(`/library/songs/${songId}`);
+  return { ok: true };
 }
 
 /**
@@ -2271,6 +2362,9 @@ export async function revertSongTheme(songId: string): Promise<Result<{ slidesRe
   const nextSettings = { ...settings };
   delete (nextSettings as Record<string, unknown>).themeBackup;
   delete (nextSettings as Record<string, unknown>).appliedThemeId;
+  // Reverting the whole song restores every slide's pre-theme look, so any
+  // per-slide override snapshots are now meaningless — drop them.
+  delete (nextSettings as Record<string, unknown>).slideThemeBackups;
   await db.update(songs).set({ settings: nextSettings }).where(eq(songs.id, songId));
   revalidatePath("/library/songs");
   revalidatePath(`/library/songs/${songId}`);

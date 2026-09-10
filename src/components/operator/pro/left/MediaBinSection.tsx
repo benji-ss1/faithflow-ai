@@ -42,6 +42,8 @@ import { isImageAsset } from "@/lib/media-drop";
 import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide } from "../center/mediaFrame";
 import { projectableTextSlide, type SlidePayload } from "@/lib/broadcast";
 import { MediaImportWizard } from "../center/MediaImportWizard";
+import { MediaImageEditor } from "../center/MediaImageEditor";
+import { Pencil } from "lucide-react";
 
 type Asset = {
   id: string;
@@ -88,6 +90,8 @@ export function MediaBinSection({
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardFiles, setWizardFiles] = useState<File[] | undefined>(undefined);
   const [preview, setPreview] = useState<Asset | null>(null);
+  // E2: the image being edited in the crop/frame editor (opened from the menu).
+  const [editAsset, setEditAsset] = useState<{ id: string; url: string; fileName: string } | null>(null);
   // Live drag height override while the operator is pulling the handle.
   const [dragH, setDragH] = useState<number | null>(null);
   const { confirm, dialog: confirmDialog } = useConfirm();
@@ -96,6 +100,10 @@ export function MediaBinSection({
   // Defer a single-click (open full library) so a double-click (quick preview)
   // cancels it — otherwise the first click of a dblclick navigates away first.
   const clickTimerRef = useRef<number | null>(null);
+  // Where the pointer went down, so a click that was really an ABORTED drag-grab
+  // (press → small move → release on a draggable tile) doesn't accidentally
+  // project to the congregation. A genuine click (no movement) still goes live.
+  const pointerDownRef = useRef<{ x: number; y: number } | null>(null);
   useEffect(() => () => { if (clickTimerRef.current) window.clearTimeout(clickTimerRef.current); }, []);
 
   useEffect(() => { if (open) setHasOpened(true); }, [open]);
@@ -180,6 +188,16 @@ export function MediaBinSection({
     }
     ctx.onSendSlideToLive({ ...live, bgImageUrl: a.url }, null, { instant: true });
     toast.success("Background set on the live slide");
+  };
+
+  // E2: open the crop/frame editor for an image asset (menu action).
+  const editImage = (a: Asset) => {
+    if (!ctx) return;
+    if (!a.url || !isImageAsset({ kind: a.kind ?? undefined, url: a.url })) {
+      toast.error("Only images can be edited");
+      return;
+    }
+    setEditAsset({ id: a.id, url: a.url, fileName: a.fileName || "Media" });
   };
 
   const moveToLibrary = async (a: Asset, libraryId: string | null) => {
@@ -364,16 +382,30 @@ export function MediaBinSection({
                             JSON.stringify({ pfType: "media", id: a.id, title: a.fileName || "Media", url: a.url, kind: a.kind }),
                           );
                         }}
-                        onClick={() => {
+                        onPointerDown={(e) => { pointerDownRef.current = { x: e.clientX, y: e.clientY }; }}
+                        onClick={(e) => {
+                          // Ignore a click that was actually an aborted drag-grab (pointer
+                          // moved >6px between down and up) — that must NOT project.
+                          const dn = pointerDownRef.current; pointerDownRef.current = null;
+                          if (dn) {
+                            const dx = e.clientX - dn.x, dy = e.clientY - dn.y;
+                            if (dx * dx + dy * dy > 36) return;
+                          }
+                          // E1: single-click sends this media LIVE as a slide (deferred so a
+                          // double-click can cancel it and preview instead). Falls back to
+                          // opening the full library if there's no live pipeline (ctx).
                           if (clickTimerRef.current) window.clearTimeout(clickTimerRef.current);
-                          clickTimerRef.current = window.setTimeout(() => { clickTimerRef.current = null; onCenterMode?.("media"); }, 300);
+                          clickTimerRef.current = window.setTimeout(() => {
+                            clickTimerRef.current = null;
+                            if (ctx) sendAsSlide(a); else onCenterMode?.("media");
+                          }, 250);
                         }}
                         onDoubleClick={(e) => {
                           e.stopPropagation();
                           if (clickTimerRef.current) { window.clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
                           setPreview(a);
                         }}
-                        title={`${a.fileName || "Media"} — drag onto a slide or the playlist · double-click to preview · right-click for options`}
+                        title={`${a.fileName || "Media"} — click to send live · double-click to preview · drag onto a slide · right-click for options`}
                         className="group relative aspect-video rounded-md overflow-hidden bg-black border border-[var(--color-border)] cursor-grab active:cursor-grabbing hover:border-[color-mix(in_oklab,var(--color-brand)_45%,var(--color-border))] transition-colors"
                       >
                         {a.url ? (
@@ -410,6 +442,11 @@ export function MediaBinSection({
                         <ContextMenu.Item onSelect={() => setAsBackground(a)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center gap-2">
                           <Images className="w-3.5 h-3.5 opacity-80" /> Set as global background
                         </ContextMenu.Item>
+                        {!isVideo && (
+                          <ContextMenu.Item onSelect={() => editImage(a)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center gap-2">
+                            <Pencil className="w-3.5 h-3.5 opacity-80" /> Edit image (crop &amp; frame)
+                          </ContextMenu.Item>
+                        )}
                         <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
                         <ContextMenu.Sub>
                           <ContextMenu.SubTrigger className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between gap-2 data-[state=open]:bg-[var(--color-panel)]">
@@ -459,6 +496,16 @@ export function MediaBinSection({
 
       {/* Double-click quick preview (item 4) */}
       {preview && <MediaPreviewModal asset={preview} onClose={() => setPreview(null)} />}
+
+      {/* E2: crop/frame image editor — same modal the full Media browser uses. */}
+      {editAsset && ctx && (
+        <MediaImageEditor
+          asset={editAsset}
+          ctx={ctx}
+          onClose={() => setEditAsset(null)}
+          onAssetReplaced={(a) => { setEditAsset(a); void load(); }}
+        />
+      )}
     </section>
   );
 }

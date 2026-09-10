@@ -15,6 +15,25 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.400",
+    date: "2026-09-10",
+    headline: "A cleaner slide + Bible view — readable section labels, search that opens the verse, tidier toolbar",
+    highlights: [
+      "Section labels (Chorus, Verse…) moved to the slide's bottom corner so they no longer sit over the lyrics.",
+      "Search now works properly: click a reference like 'John 3:16' and it opens that verse in the preview — and clicking a SONG in search now opens that exact song ready to preview, instead of dumping you on the library to hunt for it.",
+      "The Bible 'Options' popup now opens on top of everything instead of hiding behind other panels.",
+      "The centre toolbar is tidier — the confusing eye and play buttons were removed (Send-to-live is in the bottom bar), and the text-view toggle has a clearer icon.",
+      "The REF −/+ control now actually resizes the scripture reference on the projector (it was only affecting a hidden footer before) — it updates live as you press it.",
+      "The full-screen Transitions section now shows the same animated preview cards as the little bottom-bar picker, and the two stay perfectly in sync (pick or set the speed in either — they match, and the projector follows).",
+      "Click any transition and it now plays a quick preview in the live monitor (top-right) so you can see how it'll look before it hits the projector.",
+      "Import your songs from VideoPsalm (.vpagd) OR plain-text exports (.txt): drop them in the Songs library and each song comes in with its verses split into slides. EasyWorship users: File → Export → Text, then drop those .txt files here.",
+      "Section tags are easier to tell apart: Verse 1, 2 and 3 now use distinct shades, and Pre-Chorus has its own colour instead of matching Chorus.",
+      "Media bin is faster to use: click a picture or video to send it straight to the screen (double-click still previews it), and right-click an image for a new 'Edit image' option to crop and frame it.",
+      "Logo on background now has a 'Blur fill the bars' option: put your logo or flyer on a screen-filling blurred copy of itself instead of a flat colour — the same blur-fill Full screen mode offers, now for the background.",
+      "You can now apply a saved theme to just ONE slide (right-click a slide → Theme → pick a theme → 'This slide') as well as the whole song, and remove a slide's theme again — the rest of the song stays as it was, and the preview always matches the projector.",
+    ],
+  },
+  {
     version: "0.1.399",
     date: "2026-09-10",
     headline: "Backgrounds now work instantly — drag onto one slide, or set them for all",

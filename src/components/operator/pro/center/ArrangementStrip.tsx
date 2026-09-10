@@ -162,7 +162,7 @@ export function ArrangementStrip({ ctx }: { ctx: OperatorShellCtx }) {
       {blocks.map((b, i) => {
         const g = groupById.get(b.groupId);
         if (!g) return null;
-        const color = groupColor({ kind: g.kind, color: g.color });
+        const color = groupColor({ kind: g.kind, color: g.color, name: g.name });
         const isActive = i === activeBlock;
         return (
           <span key={`${b.groupId}-${i}`} className="shrink-0 inline-flex items-center">
@@ -218,7 +218,7 @@ export function ArrangementStrip({ ctx }: { ctx: OperatorShellCtx }) {
                   onClick={() => appendGroup(g.id)}
                   className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-left hover:bg-[var(--color-panel)]"
                 >
-                  <span className="w-3 h-3 rounded-sm shrink-0" style={{ background: groupColor({ kind: g.kind, color: g.color }) }} />
+                  <span className="w-3 h-3 rounded-sm shrink-0" style={{ background: groupColor({ kind: g.kind, color: g.color, name: g.name }) }} />
                   <span className="truncate">{g.name || g.kind}</span>
                 </button>
               ))}

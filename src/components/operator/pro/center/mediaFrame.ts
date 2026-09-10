@@ -23,7 +23,7 @@ export type MediaFrame = {
   // Logo-over-background mode (all optional — absent = the default black matte,
   // so every previously-saved frame keeps working unchanged).
   bgMode?: "matte" | "background";       // "matte" = full-screen image on black (default)
-  bgKind?: "solid" | "theme" | "gradient"; // background source when bgMode==="background"
+  bgKind?: "solid" | "theme" | "gradient" | "blur"; // background source when bgMode==="background" ("blur" = a screen-filling blurred copy of the image)
   bgSolid?: string;                       // solid colour (hex/rgb)
   gradFrom?: string;                      // gradient start
   gradTo?: string;                        // gradient end
@@ -61,7 +61,7 @@ export function loadMediaFrame(churchId: string | undefined, assetId: string): M
     // saved value exists so absence cleanly defaults to matte.
     if (p.bgMode === "background") out.bgMode = "background";
     else if (p.bgMode === "matte") out.bgMode = "matte";
-    if (p.bgKind === "solid" || p.bgKind === "theme" || p.bgKind === "gradient") out.bgKind = p.bgKind;
+    if (p.bgKind === "solid" || p.bgKind === "theme" || p.bgKind === "gradient" || p.bgKind === "blur") out.bgKind = p.bgKind;
     const solid = colorOr(p.bgSolid, undefined); if (solid) out.bgSolid = solid;
     const gFrom = colorOr(p.gradFrom, undefined); if (gFrom) out.gradFrom = gFrom;
     const gTo = colorOr(p.gradTo, undefined); if (gTo) out.gradTo = gTo;
@@ -113,6 +113,11 @@ export function buildMediaFrameSlide(frame: MediaFrame, url: string): { bgColor?
       const from = frame.gradFrom ?? "#1e293b";
       const shape: ShapeObject = { id: newObjectId(), kind: "shape", x: 0, y: 0, w: CANVAS_W, h: CANVAS_H, shape: "rect", fill: from, fill2: frame.gradTo ?? "#0b1220", fillAngle: frame.gradAngle ?? 135 };
       return { bgColor: from, objects: [shape, logo] }; // gradFrom as opaque backstop under the shape
+    }
+    if (kind === "blur") {
+      // A full-screen blurred copy of the image behind the sharp logo (Spotify-style).
+      const blurBg: ImageObject = { id: newObjectId(), kind: "image", x: 0, y: 0, w: CANVAS_W, h: CANVAS_H, url, fit: "cover", posX: 50, posY: 50, zoom: 1, blur: true };
+      return { bgColor: "#000000", objects: [blurBg, logo] };
     }
     if (kind === "theme") return { bgColor: undefined, objects: [logo] }; // theme shows through
     return { bgColor: frame.bgSolid ?? "#0b1220", objects: [logo] };

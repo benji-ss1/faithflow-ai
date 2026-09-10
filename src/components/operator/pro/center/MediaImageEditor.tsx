@@ -110,13 +110,14 @@ export function MediaImageEditor({
   const sourceUrlRef = useRef(assetProp.url);
   const [imgId] = useState(() => newObjectId());
   const [shapeId] = useState(() => newObjectId());
+  const [blurId] = useState(() => newObjectId()); // full-screen blurred bg layer (Blur fill)
   const saved0 = useMemo(() => loadMediaFrame(ctx.churchId, assetProp.id), [ctx.churchId, assetProp.id]);
 
   // Background mode + source. "matte" = full-screen image on black (the default,
   // byte-identical to before). "background" = a smaller logo centred over a
   // solid colour / the live theme / a gradient.
   const [bgMode, setBgMode] = useState<"matte" | "background">(saved0?.bgMode ?? "matte");
-  const [bgKind, setBgKind] = useState<"solid" | "theme" | "gradient">(saved0?.bgKind ?? "solid");
+  const [bgKind, setBgKind] = useState<"solid" | "theme" | "gradient" | "blur">(saved0?.bgKind ?? "solid");
   const [bgSolid, setBgSolid] = useState(saved0?.bgSolid ?? "#0b1220");
   const [gradFrom, setGradFrom] = useState(saved0?.gradFrom ?? "#1e293b");
   const [gradTo, setGradTo] = useState(saved0?.gradTo ?? "#0b1220");
@@ -161,8 +162,12 @@ export function MediaImageEditor({
       // Seed blur-fill from the saved frame so the canvas shows it on open (1:1).
       ...(!inBg && saved0?.blurFill ? { blurFill: true } : {}),
     };
-    const objects: SlideObject[] = inBg && saved0?.bgKind === "gradient"
+    const objects: SlideObject[] = !inBg
+      ? [logo]
+      : saved0?.bgKind === "gradient"
       ? [{ id: shapeId, kind: "shape", x: 0, y: 0, w: CANVAS_W, h: CANVAS_H, shape: "rect", fill: saved0.gradFrom ?? "#1e293b", fill2: saved0.gradTo ?? "#0b1220", fillAngle: saved0.gradAngle ?? 135 } as ShapeObject, logo]
+      : saved0?.bgKind === "blur"
+      ? [{ id: blurId, kind: "image", x: 0, y: 0, w: CANVAS_W, h: CANVAS_H, url: sourceUrlRef.current, fit: "cover", posX: 50, posY: 50, zoom: 1, blur: true, locked: true } as ImageObject, logo]
       : [logo];
     return {
       id: "media-edit",
@@ -172,7 +177,9 @@ export function MediaImageEditor({
   });
   const [selectedIds, setSelectedIds] = useState<string[]>([imgId]);
 
-  const img = slide.objects.find((o): o is ImageObject => o.kind === "image") ?? null;
+  // Find the LOGO by its id — a "Blur fill" background adds a SECOND image object
+  // (the blurred backdrop), so a plain kind==="image" find would grab the wrong one.
+  const img = slide.objects.find((o): o is ImageObject => o.kind === "image" && o.id === imgId) ?? null;
 
   // Live theme-background node for the editor canvas — renders the church's REAL
   // active theme (animated gradient / theme video / active Background Template)
@@ -200,6 +207,7 @@ export function MediaImageEditor({
     if (bgMode === "matte") return "#000000";
     if (bgKind === "theme") return undefined;
     if (bgKind === "gradient") return gradFrom;
+    if (bgKind === "blur") return "#000000"; // black backstop under the blurred image
     return bgSolid;
   }, [bgMode, bgKind, bgSolid, gradFrom]);
 
@@ -209,15 +217,18 @@ export function MediaImageEditor({
   // changes. In matte mode there is never a shape.
   useEffect(() => {
     setSlide((s) => {
-      const logo = s.objects.find((o) => o.kind === "image");
+      const logo = s.objects.find((o) => o.kind === "image" && o.id === imgId);
       if (!logo) return s;
       const wantShape = bgMode === "background" && bgKind === "gradient";
-      const shape: ShapeObject | null = wantShape
-        ? { id: shapeId, kind: "shape", x: 0, y: 0, w: CANVAS_W, h: CANVAS_H, shape: "rect", fill: gradFrom, fill2: gradTo, fillAngle: gradAngle }
+      const wantBlur = bgMode === "background" && bgKind === "blur";
+      const bg: SlideObject | null = wantShape
+        ? { id: shapeId, kind: "shape", x: 0, y: 0, w: CANVAS_W, h: CANVAS_H, shape: "rect", fill: gradFrom, fill2: gradTo, fillAngle: gradAngle } as ShapeObject
+        : wantBlur
+        ? { id: blurId, kind: "image", x: 0, y: 0, w: CANVAS_W, h: CANVAS_H, url: sourceUrlRef.current, fit: "cover", posX: 50, posY: 50, zoom: 1, blur: true, locked: true } as ImageObject
         : null;
-      return { ...s, bgColor: bgColorFor(), objects: shape ? [shape, logo] : [logo] };
+      return { ...s, bgColor: bgColorFor(), objects: bg ? [bg, logo] : [logo] };
     });
-  }, [bgMode, bgKind, bgSolid, gradFrom, gradTo, gradAngle, shapeId, bgColorFor]);
+  }, [bgMode, bgKind, bgSolid, gradFrom, gradTo, gradAngle, shapeId, blurId, imgId, asset.url, bgColorFor]);
 
   // Switch mode: matte → full-canvas image; background → centred logo box sized
   // by logoSizePct. Preserve nothing fancy — a clean, predictable reset per mode.
@@ -413,7 +424,9 @@ export function MediaImageEditor({
   // Build the projectable payload for a given logo URL (used at Save & Show time
   // so we project the COMMITTED persistent URL, not a transient blob preview URL).
   function buildPayload(logoUrl: string) {
-    const objects = slide.objects.map((o) => (o.kind === "image" ? { ...o, url: logoUrl } : o));
+    // Only the LOGO's url is swapped to the committed/keyed url — the blur-bg image
+    // object (blurId) keeps the original image so the backdrop isn't keyed transparent.
+    const objects = slide.objects.map((o) => (o.kind === "image" && o.id === imgId ? { ...o, url: logoUrl } : o));
     return projectableTextSlide("", slide.bgColor, undefined, objects);
   }
   function persist(assetId: string = asset.id) {
@@ -586,6 +599,13 @@ export function MediaImageEditor({
                       <Row label="Angle"><div className="flex items-center gap-2"><input type="range" min={0} max={360} step={5} value={gradAngle} onChange={(e) => setGradAngle(Number(e.target.value))} className="flex-1" /><span className="text-[10px] font-mono text-zinc-400 w-8 text-right">{gradAngle}°</span></div></Row>
                     </>
                   )}
+                  {/* Blur fill — the same effect Full-screen mode offers, but as the
+                      BACKGROUND behind the logo: a screen-filling blurred copy of the
+                      image so nothing sits on a flat colour (Spotify-style backdrop). */}
+                  <button onClick={() => setBgKind(bgKind === "blur" ? "solid" : "blur")} className={cn(btn, "w-full mt-1.5")} style={on(bgKind === "blur")}>
+                    <Maximize2 className="w-3.5 h-3.5" /> {bgKind === "blur" ? "Blur fill: ON" : "Blur fill the bars"}
+                  </button>
+                  <div className="mt-1 text-[10px] text-zinc-500">Fills the background with a blurred copy of this image behind the logo — great for wide/odd logos and flyers. Saves so it shows everywhere.</div>
                 </Section>
 
                 <Section label="Logo size">

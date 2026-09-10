@@ -97,6 +97,11 @@ export type ImageObject = {
   // Blur-fill: when fit is "contain" (letterboxed), paint a blurred cover copy of
   // this image behind it so portrait flyers fill the frame instead of black bars.
   blurFill?: boolean;
+  // Blur: render THIS image itself blurred+cover — used as the full-screen blurred
+  // BACKGROUND layer behind a centred logo ("Logo on background" → Blur fill). Unlike
+  // blurFill (a backdrop inside a contained image's own box), this blurs the whole
+  // object so a small logo can sit sharp on a screen-filling blurred copy.
+  blur?: boolean;
 };
 
 export type VideoObject = {

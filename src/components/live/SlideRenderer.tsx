@@ -438,7 +438,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
       if (transparentBg) designedContainerStyle.filter = OBS_OVERLAY_DROP_SHADOW;
       return (
         <div className={`${base} relative ${className || ""}`} style={designedContainerStyle}>
-          <SlideObjectsLayer objects={objects} fontScale={fontScale} themedTextColor={themedTextColor} />
+          <SlideObjectsLayer objects={objects} fontScale={fontScale} themedTextColor={themedTextColor} referenceScale={referenceScale} referenceText={dRefText} />
           {showDesignedFooter && (
             <div className="absolute inset-x-0 bottom-0 flex justify-center pointer-events-none" style={{ paddingBottom: projectorFit ? "3.5%" : "2.5%" }}>
               <span className="font-display font-semibold uppercase tracking-wide" style={{
