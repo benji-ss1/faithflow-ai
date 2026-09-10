@@ -14,6 +14,10 @@ const DISMISS_PREFIX = "presentflow.announcement.dismissed.";
  */
 export function AnnouncementBar() {
   const [show, setShow] = useState(false);
+  // An app UPDATE always takes priority over the What's-New bar — when the update
+  // banner is active the announcement yields (no stacked/duplicate banners). The
+  // update banner emits this event; default false so the web build is unaffected.
+  const [updateActive, setUpdateActive] = useState(false);
 
   useEffect(() => {
     if (!ANNOUNCEMENT) return;
@@ -25,7 +29,13 @@ export function AnnouncementBar() {
     }
   }, []);
 
-  if (!ANNOUNCEMENT || !show) return null;
+  useEffect(() => {
+    const onUpdate = (e: Event) => setUpdateActive(!!(e as CustomEvent<{ active?: boolean }>).detail?.active);
+    window.addEventListener("presentflow:update-banner-active", onUpdate);
+    return () => window.removeEventListener("presentflow:update-banner-active", onUpdate);
+  }, []);
+
+  if (!ANNOUNCEMENT || !show || updateActive) return null;
   const ann = ANNOUNCEMENT;
 
   const info = ann.tone === "info";

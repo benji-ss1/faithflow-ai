@@ -996,6 +996,71 @@ export async function setSongSlideBackgroundImage(slideId: string, url: string):
   return { ok: true };
 }
 
+// A4 (2026-09-09): remove the per-slide background IMAGE from one slide. The
+// inverse of setSongSlideBackgroundImage — clears bgImageUrl while preserving the
+// slide's text objects and bgColor. Church-scoped via assertSlideOwned.
+export async function clearSongSlideBackgroundImage(slideId: string): Promise<Result<{ cleared: boolean }>> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const owned = await assertSlideOwned(db, slideId, user.churchId);
+  if (!owned) return { ok: false, error: "Slide not found" };
+  const [row] = await db.select({ objectsJson: songSlides.objectsJson }).from(songSlides).where(eq(songSlides.id, slideId)).limit(1);
+  const oj = (row?.objectsJson ?? null) as Record<string, unknown> | null;
+  if (!oj || !oj.bgImageUrl) return { ok: true, data: { cleared: false } }; // nothing to clear
+  // Spread the existing objectsJson and ONLY drop the image — preserve bgColor,
+  // bgType, bgColor2, transition and any other persisted background fields.
+  const nextJson = { ...oj, bgImageUrl: undefined };
+  await db.update(songSlides).set({ objectsJson: nextJson }).where(eq(songSlides.id, slideId));
+  revalidatePath(`/library/songs/${owned.songId}`);
+  return { ok: true, data: { cleared: true } };
+}
+
+
+// A4 (2026-09-09): set the SAME background image on EVERY slide of a song
+// ("use this image for all slides"). Preserves each slide's other fields.
+export async function setAllSongSlidesBackgroundImage(songId: string, url: string): Promise<Result<{ count: number }>> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const song = await assertSongOwned(db, songId, user.churchId);
+  if (!song) return { ok: false, error: "Song not found" };
+  const clean = typeof url === "string" ? url.trim() : "";
+  if (!clean || clean.length > 2048 || !/^(https?:|blob:|data:image\/|\/)/i.test(clean)) {
+    return { ok: false, error: "That media has no usable image URL" };
+  }
+  const rows = await db.select({ id: songSlides.id, objectsJson: songSlides.objectsJson })
+    .from(songSlides).where(eq(songSlides.songId, songId));
+  let count = 0;
+  for (const r of rows) {
+    const oj = (r.objectsJson ?? null) as Record<string, unknown> | null;
+    const nextJson = oj ? { ...oj, bgImageUrl: clean } : { bgColor: undefined, bgImageUrl: clean, objects: [] };
+    await db.update(songSlides).set({ objectsJson: nextJson }).where(eq(songSlides.id, r.id));
+    count++;
+  }
+  if (count > 0) revalidatePath(`/library/songs/${songId}`);
+  return { ok: true, data: { count } };
+}
+
+// A4 (2026-09-09): remove the per-slide background IMAGE from EVERY slide of a
+// song ("Remove all backgrounds"). Idempotent — slides with no image are skipped.
+export async function clearAllSongSlideBackgrounds(songId: string): Promise<Result<{ count: number }>> {
+  const user = await requireCap("edit_library");
+  const db = getDb();
+  const song = await assertSongOwned(db, songId, user.churchId);
+  if (!song) return { ok: false, error: "Song not found" };
+  const rows = await db.select({ id: songSlides.id, objectsJson: songSlides.objectsJson })
+    .from(songSlides).where(eq(songSlides.songId, songId));
+  let count = 0;
+  for (const r of rows) {
+    const oj = (r.objectsJson ?? null) as Record<string, unknown> | null;
+    if (!oj || !oj.bgImageUrl) continue;
+    // Spread + drop only the image (preserve gradient/transition/etc).
+    await db.update(songSlides).set({ objectsJson: { ...oj, bgImageUrl: undefined } }).where(eq(songSlides.id, r.id));
+    count++;
+  }
+  if (count > 0) revalidatePath(`/library/songs/${songId}`);
+  return { ok: true, data: { count } };
+}
+
 // Create a NEW full-screen image slide at a position (behaviour (b): drop a
 // media thumbnail into empty grid space). The image fills the slide via
 // bgImageUrl with no text — deliberately NOT routed through createSongSlide so

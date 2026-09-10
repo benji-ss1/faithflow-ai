@@ -15,6 +15,26 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.399",
+    date: "2026-09-10",
+    headline: "Backgrounds now work instantly — drag onto one slide, or set them for all",
+    highlights: [
+      "Drag an image from the Media bin onto ONE slide and it appears on that slide instantly — the slide preview now matches the projector exactly (this was the big fix). Use the 'BG' button on a media item to set it behind every slide.",
+      "New 'Theme' menu shows your Looks (Gentle Waves, Holy Fire, Stained Light…) each with a colour preview — pick one and the projector switches instantly.",
+      "New 'Background' menu: use this slide's image on every slide, remove it from this slide or all slides, or clear the projector background — all instant, on the preview and the projector together.",
+      "The old background/clear actions that quietly did nothing have been replaced with these working controls, grouped next to Actions and Section.",
+    ],
+  },
+  {
+    version: "0.1.397",
+    date: "2026-09-09",
+    headline: "A tidier slide menu — Copy & Paste Text between slides, and Actions focused on backgrounds",
+    highlights: [
+      "New 'Paste Text' in a slide's right-click menu: copy the words off one slide and paste them onto another — it drops in the text while keeping the target slide's own design and fonts.",
+      "The slide right-click 'Actions' submenu is now focused on backgrounds — timer and message actions moved out (they still live in the Automations panel where they belong).",
+    ],
+  },
+  {
     version: "0.1.396",
     date: "2026-09-09",
     headline: "Pause a live video without blacking the screen, and new slides start truly blank",

@@ -181,6 +181,16 @@ export function UpdateBanner({ liveSlide, listening }: { liveSlide?: SlidePayloa
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
   }, []);
 
+  // Let the What's-New announcement bar know when an app update is on screen, so
+  // it yields (the update supersedes the patch-notes bar). Fires on state change;
+  // clears on unmount. Web build never leaves "idle", so this stays a no-op there.
+  useEffect(() => {
+    try { window.dispatchEvent(new CustomEvent("presentflow:update-banner-active", { detail: { active: state.kind !== "idle" } })); } catch { /* noop */ }
+  }, [state]);
+  useEffect(() => () => {
+    try { window.dispatchEvent(new CustomEvent("presentflow:update-banner-active", { detail: { active: false } })); } catch { /* noop */ }
+  }, []);
+
   if (state.kind === "idle") return null;
 
   if (state.kind === "manual-available") {
