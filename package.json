@@ -159,6 +159,7 @@
       "node_modules/universalify/**/*",
       "node_modules/jsonfile/**/*",
       "node_modules/tiny-typed-emitter/**/*",
+      "node_modules/ws/**/*",
       "node_modules/debug/**/*",
       "node_modules/ms/**/*",
       "node_modules/ffmpeg-static/**/*"
