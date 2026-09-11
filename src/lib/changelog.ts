@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.1.383",
+    date: "2026-09-11",
+    headline: "NDI network audio now finds your sources (Windows) — no more empty “scanning…” list",
+    highlights: [
+      "Fixed (Windows): the “NDI network audio” list stayed on “scanning… / no sources” even when your NDI source (e.g. Christ Embassy, MBC) was live on the network. The app was restarting its NDI finder every couple of seconds, so it never had time to actually discover anything. It now keeps one finder running, so your named NDI sources appear on their own — just like they do in OBS/NDI Tools.",
+      "How to use it: Operator → Audio → under “NDI network audio”, wait a few seconds and your source name appears in the list — click it to receive that feed straight into the AI, one-to-one with what your streaming PC is sending. Requires your streaming PC to be outputting NDI (OBS → DistroAV Main Output ON, with audio in the OBS mixer) and both PCs on the same network.",
+      "This requires the latest Windows build — reinstall the newest version to get it. Your projector, operator screen, and everything else are unchanged.",
+    ],
+  },
+  {
     version: "0.1.382",
     date: "2026-09-06",
     headline: "Sharper scripture detection: “Second Corinthians” stays Second, and long Psalm numbers read right",
