@@ -96,6 +96,12 @@ export class NDIReceiveService {
   private getMainWindow: () => BrowserWindow | null;
   private mod: NativeMod | null = null;
   private receiver: NativeReceiver | null = null;
+  // A PERSISTENT discovery-only receiver whose NDI finder stays alive across polls.
+  // NDIlib_find needs ~1-3s of continuous dwell to discover sources over mDNS; the
+  // old code made a throwaway NdiReceiver per 2s poll, so its finder never dwelled
+  // and almost always returned 0 sources (even when NDI Tools on the same PC saw
+  // them). Keeping one finder alive lets the list populate like OBS/DistroAV do.
+  private discovery: NativeReceiver | null = null;
   private error: string | null = null;
   private sourceName: string | null = null;
   private resampler: MonoResampler | null = null;
@@ -155,13 +161,14 @@ export class NDIReceiveService {
   listSources(): NdiSourceInfo[] {
     if (!this.ensureLoaded() || !this.mod?.NdiReceiver) return [];
     try {
-      // A short-lived receiver instance is fine for a discovery snapshot, but we
-      // keep the persistent one when connected. Reuse it if present.
+      // When connected, the live receiver's finder is already alive — reuse it.
       if (this.receiver) return this.receiver.listSources();
-      const tmp = new this.mod.NdiReceiver();
-      const list = tmp.listSources();
-      try { tmp.disconnect(); } catch { /* ignore */ }
-      return list;
+      // Otherwise use ONE persistent discovery finder, created lazily and kept
+      // alive across polls, so NDI's mDNS discovery has time to dwell and populate
+      // (a throwaway instance per poll — the old behaviour — never discovered
+      // anything because its finder was destroyed before it could see the network).
+      if (!this.discovery) this.discovery = new this.mod.NdiReceiver();
+      return this.discovery.listSources();
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
       return [];
@@ -208,7 +215,15 @@ export class NDIReceiveService {
     this.stalled = false;
   }
 
-  shutdown() { this.stop(); }
+  shutdown() {
+    this.stop();
+    // Tear down the persistent discovery finder only on full service teardown —
+    // NOT in stop() (per-source), so deselecting a source keeps the list live.
+    if (this.discovery) {
+      try { this.discovery.disconnect(); } catch { /* ignore */ }
+      this.discovery = null;
+    }
+  }
 
   // Called on the NDI capture thread (marshalled to the main thread by the addon
   // TSFN). `pcm` is interleaved int16 at `sampleRate` × `channels`.
