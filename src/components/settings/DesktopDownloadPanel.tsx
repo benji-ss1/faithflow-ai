@@ -1,9 +1,24 @@
 "use client";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { DESKTOP_DOWNLOAD_ARM64_URL, DESKTOP_DOWNLOAD_X64_URL, DESKTOP_DOWNLOAD_WIN_URL } from "@/lib/desktop-download";
+import {
+  DESKTOP_DOWNLOAD_ARM64_URL,
+  DESKTOP_DOWNLOAD_X64_URL,
+  DESKTOP_DOWNLOAD_WIN_URL,
+  resolveDesktopDownloadUrls,
+  type DesktopDownloadUrls,
+} from "@/lib/desktop-download";
 
 type OS = "windows" | "mac" | "other";
+
+const INITIAL_URLS: DesktopDownloadUrls = {
+  arm64Url: DESKTOP_DOWNLOAD_ARM64_URL,
+  x64Url: DESKTOP_DOWNLOAD_X64_URL,
+  winUrl: DESKTOP_DOWNLOAD_WIN_URL,
+  macVersion: "",
+  winVersion: "",
+  source: "fallback",
+};
 
 /**
  * Shared desktop-download UI — used by the onboarding download step and the
@@ -11,15 +26,31 @@ type OS = "windows" | "mac" | "other";
  * (Windows .exe or macOS .dmg) is the big primary button; the rest are tucked
  * under "Other computers". `deepLinkHref` is a fresh 5-min single-use token
  * minted server-side; the deep-link auto-sign-in works on Windows AND macOS.
+ *
+ * Download links auto-track whatever was most recently published to GitHub
+ * Releases (`resolveDesktopDownloadUrls`) — cutting + publishing a new
+ * DMG/exe is enough, no code change needed for this page to pick it up.
+ * Renders the hardcoded fallback constants first (correct as of the last
+ * manual bump) so there's never a blank/broken link while the live lookup
+ * runs, then swaps in the live URLs once resolved.
  */
 export function DesktopDownloadPanel({ deepLinkHref, showSkipLink = true }: { deepLinkHref: string | null; showSkipLink?: boolean }) {
   const [os, setOs] = useState<OS | null>(null);
+  const [urls, setUrls] = useState<DesktopDownloadUrls>(INITIAL_URLS);
 
   useEffect(() => {
     const ua = (navigator.userAgent || "").toLowerCase();
     if (ua.includes("win")) setOs("windows");
     else if (ua.includes("mac")) setOs("mac");
     else setOs("other");
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    resolveDesktopDownloadUrls().then((resolved) => {
+      if (!cancelled) setUrls(resolved);
+    });
+    return () => { cancelled = true; };
   }, []);
 
   const copyXattr = () => {
@@ -32,9 +63,9 @@ export function DesktopDownloadPanel({ deepLinkHref, showSkipLink = true }: { de
   // Windows AND macOS are both shown prominently, side by side — churches run
   // both and Windows was previously buried behind a link. The detected OS gets
   // a "Recommended for this computer" ribbon; nothing is hidden.
-  const winCard = <DownloadCard key="win" platform="Windows" href={DESKTOP_DOWNLOAD_WIN_URL} hint="Windows 10 / 11 · .exe installer" primary detected={os === "windows"} />;
-  const macArm = <DownloadCard key="marm" platform="macOS (Apple Silicon)" href={DESKTOP_DOWNLOAD_ARM64_URL} hint="M1 / M2 / M3 / M4 Macs" primary detected={os === "mac"} />;
-  const macInt = <DownloadCard key="mint" platform="macOS (Intel)" href={DESKTOP_DOWNLOAD_X64_URL} hint="Older Intel Macs" primary={false} detected={false} />;
+  const winCard = <DownloadCard key="win" platform="Windows" href={urls.winUrl} hint="Windows 10 / 11 · .exe installer" primary detected={os === "windows"} />;
+  const macArm = <DownloadCard key="marm" platform="macOS (Apple Silicon)" href={urls.arm64Url} hint="M1 / M2 / M3 / M4 Macs" primary detected={os === "mac"} />;
+  const macInt = <DownloadCard key="mint" platform="macOS (Intel)" href={urls.x64Url} hint="Older Intel Macs" primary={false} detected={false} />;
 
   // Detected OS leads; both top platforms (Windows + Apple Silicon Mac) stay
   // prominent side by side; Intel Mac is a clearly-visible secondary card.
