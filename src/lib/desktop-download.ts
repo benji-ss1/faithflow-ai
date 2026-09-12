@@ -4,7 +4,7 @@
 // versa); a build cut for both bumps both. Each OS's URL always points at a
 // real artifact on ITS release tag, so a user can only download the build for
 // the OS they're on and never lands on a 404 for the other platform's version.
-export const DESKTOP_DOWNLOAD_MAC_VERSION = "0.1.230"; // last macOS DMG cut
+export const DESKTOP_DOWNLOAD_MAC_VERSION = "0.1.380"; // current dual-architecture macOS DMGs
 export const DESKTOP_DOWNLOAD_WIN_VERSION = "0.1.373"; // last Windows .exe cut
 
 // Back-comat: some callers still import DESKTOP_DOWNLOAD_VERSION. Point it at
