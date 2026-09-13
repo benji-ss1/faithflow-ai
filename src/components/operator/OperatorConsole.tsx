@@ -8,7 +8,7 @@ import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, AI_AUTO_TRANSITION, slideOutputIdentity, sanitizeOutputState, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
 import { clampObsBand, type ObsBandConfig } from "@/lib/obs-lowerthird";
 import { readFontScale, readReferenceScale, readReferenceColor } from "./pro/operatorConstants";
-import { applyChurchLayout, loadScriptureStyle, saveScriptureStyle, sourceForRelayout } from "./scripture/scriptureStyle";
+import { applyChurchLayout, sourceForRelayout } from "./scripture/scriptureStyle";
 import { useBackgroundState } from "@/backgrounds/hooks/useBackgroundState";
 import { toBackgroundSpec } from "@/backgrounds/models/BackgroundTypes";
 import { openOutputChannel } from "@/lib/realtime";
@@ -221,17 +221,6 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   const [serviceMode, setServiceModeInner] = useState<ServiceMode>("auto");
   const serviceModeRef = useRef<ServiceMode>("auto");
   serviceModeRef.current = serviceMode;
-  // Church projection layout (Full screen ⇄ Third band) — the same church-wide
-  // default the Layout editor writes. Mirrored here so the top-bar toggle can
-  // show + flip it live. Loads post-mount and stays in sync via the shared
-  // "pf-scripture-style-changed" event any editor fires on save.
-  const [projectionLayout, setProjectionLayout] = useState<"fullscreen" | "lowerThird">("fullscreen");
-  useEffect(() => {
-    const sync = () => { try { setProjectionLayout(loadScriptureStyle(churchId).layout); } catch { /* noop */ } };
-    sync();
-    window.addEventListener("pf-scripture-style-changed", sync);
-    return () => window.removeEventListener("pf-scripture-style-changed", sync);
-  }, [churchId]);
   useEffect(() => {
     try {
       const raw = window.sessionStorage.getItem(SERVICE_MODE_KEY);
@@ -1202,22 +1191,6 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     if (src) sendSlideToLive(sourceForRelayout(src), undefined, { instant: true, force: true });
   }, [sendSlideToLive]);
 
-  // One-tap Full screen ⇄ Third band from the top bar. Saves the church default
-  // (so it sticks going forward) AND re-projects the current slide immediately.
-  const toggleProjectionLayout = useCallback(() => {
-    let next: "fullscreen" | "lowerThird" = "fullscreen";
-    try {
-      const d = loadScriptureStyle(churchId);
-      next = d.layout === "lowerThird" ? "fullscreen" : "lowerThird";
-      saveScriptureStyle(churchId, { ...d, layout: next }); // fires pf-scripture-style-changed → syncs state
-    } catch { /* noop */ }
-    setProjectionLayout(next);
-    reapplyLayoutToLive();
-    toast.success(next === "lowerThird" ? "Lower third — on" : "Full screen — on", {
-      description: next === "lowerThird" ? "Songs, verses & media now project in the band." : "Everything back to full screen.",
-    });
-  }, [churchId, reapplyLayoutToLive]);
-
   // Any editor's "Apply to current slide" (or another surface) can push the
   // current layout onto the live slide via this event — "apply it back, anywhere".
   useEffect(() => {
@@ -1896,7 +1869,6 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     onSafeAreaToggle: () => setSafeArea((v) => !v),
     autopilotMode, onAutopilotModeChange: setAutopilotMode,
     serviceMode, onServiceModeChange: setServiceMode,
-    projectionLayout, onToggleProjectionLayout: toggleProjectionLayout,
     autoApproveOn: autoApprove.enabled,
     autoSendToLive: autoApprove.autoSendToLive,
     audio,
