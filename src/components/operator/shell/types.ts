@@ -55,6 +55,10 @@ export type OperatorShellCtx = {
   // Service mode (Worship / Preacher / Auto) — detection bias, not capture.
   serviceMode: ServiceMode;
   onServiceModeChange: (m: ServiceMode) => void;
+  // Church projection layout (Full screen ⇄ Third band). The top-bar toggle
+  // flips it AND re-projects the current live slide.
+  projectionLayout: "fullscreen" | "lowerThird";
+  onToggleProjectionLayout: () => void;
   autoApproveOn: boolean;
   autoSendToLive: boolean;
 

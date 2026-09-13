@@ -1,8 +1,9 @@
 name: Release desktop app
 
 # Fires when a version tag is pushed (e.g. `git tag v0.1.4 && git push --tags`).
-# Builds the Electron shell on a macOS arm64 runner and publishes an unsigned
-# .zip + latest-mac.yml to the GitHub Release for auto-updater delivery.
+# Builds the Electron shell for BOTH Apple Silicon and Intel Macs. The signed
+# arm64 zip remains the auto-update artifact; both DMGs are attached so the
+# website can offer a direct installer for either architecture.
 #
 # Manual trigger also supported via workflow_dispatch — enter the version
 # without the v prefix.
@@ -53,10 +54,10 @@ jobs:
       - name: Compile Electron main
         run: npm run electron:build:tsc
 
-      - name: Build (no publish yet — need to ad-hoc sign first)
+      - name: Build both Mac installers (no publish yet — need to ad-hoc sign first)
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: npx electron-builder --mac zip --arm64 --publish never
+        run: npx electron-builder --mac dmg zip --arm64 --x64 --publish never
 
       - name: Ad-hoc codesign the .app + repack zip
         # macOS Squirrel (electron-updater's mac install path) refuses to swap
@@ -92,13 +93,15 @@ jobs:
           cd -
           ls -lh "$ZIP"
 
-      - name: Upload zip + generate + upload latest-mac.yml
+      - name: Upload installers + generate latest-mac.yml
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           VERSION=$(node -p "require('./package.json').version")
           ZIP="release/Present-Flow-${VERSION}-arm64-mac.zip"
+          ARM_DMG="release/Present-Flow-${VERSION}-arm64-mac.dmg"
+          INTEL_DMG="release/Present-Flow-${VERSION}-x64-mac.dmg"
           TAG="v${VERSION}"
 
           # Create GH Release if it doesn't exist (workflow_dispatch path).
@@ -106,6 +109,13 @@ jobs:
 
           # Upload the freshly-signed zip.
           gh release upload "$TAG" "$ZIP" --clobber
+
+          # Direct-download installers. Intel Macs must receive x64; Apple
+          # Silicon Macs receive arm64. They are intentionally separate,
+          # never a misleading single generic "Mac" download.
+          test -f "$ARM_DMG"
+          test -f "$INTEL_DMG"
+          gh release upload "$TAG" "$ARM_DMG" "$INTEL_DMG" --clobber
 
           # Reconstruct latest-mac.yml from the SIGNED zip (sha512 changed).
           SHA=$(shasum -a 512 "$ZIP" | awk '{print $1}' | xxd -r -p | base64)
@@ -122,4 +132,3 @@ jobs:
           releaseDate: '${DATE}'
           EOF
           gh release upload "$TAG" release/latest-mac.yml --clobber
-

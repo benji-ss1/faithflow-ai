@@ -13,6 +13,18 @@
       ],
       "defines": [ "NAPI_DISABLE_CPP_EXCEPTIONS" ],
       "conditions": [
+        [ "OS==\"win\"", {
+          "libraries": [
+            "<(module_root_dir)/ndi-sdk/lib/Processing.NDI.Lib.x64.lib"
+          ],
+          "defines": [ "NOMINMAX", "WIN32_LEAN_AND_MEAN" ],
+          "msvs_settings": {
+            "VCCLCompilerTool": {
+              "ExceptionHandling": 1,
+              "AdditionalOptions": [ "/std:c++17", "/EHsc" ]
+            }
+          }
+        } ],
         [ "OS==\"mac\"", {
           "libraries": [
             "<(module_root_dir)/ndi-sdk/lib/libndi.dylib"

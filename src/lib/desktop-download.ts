@@ -7,7 +7,7 @@
 // whenever you cut+publish a new tagged DMG/exe release (see
 // docs/DMG_RELEASE_SOP.md) — this is what keeps the fallback from silently
 // going stale if the live GitHub lookup below ever fails.
-export const DESKTOP_DOWNLOAD_MAC_VERSION = "0.1.322"; // last macOS DMG cut (NDI multi-channel isolation fix)
+export const DESKTOP_DOWNLOAD_MAC_VERSION = "0.1.380"; // current dual-architecture macOS DMGs (arm64 + x64)
 export const DESKTOP_DOWNLOAD_WIN_VERSION = "0.1.373"; // last Windows .exe cut
 
 // Back-compat: some callers still import DESKTOP_DOWNLOAD_VERSION. Point it at

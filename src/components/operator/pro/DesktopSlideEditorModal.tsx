@@ -3,7 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Plus, Square, Circle, Type, Image as ImageIcon, Film, Trash2, Copy, ClipboardCopy, ClipboardPaste, ChevronsUp, ChevronsDown, ArrowUp, ArrowDown, Undo2, Redo2, Eye, EyeOff, Lock, Unlock, Save, Play, Loader2, SlidersHorizontal, PlusSquare, LayoutTemplate, Layers as LayersIcon, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { X, Plus, Square, Circle, Type, Image as ImageIcon, Film, Trash2, Copy, ClipboardCopy, ClipboardPaste, ChevronsUp, ChevronsDown, ArrowUp, ArrowDown, Undo2, Redo2, Eye, EyeOff, Lock, Unlock, Save, Play, Loader2, SlidersHorizontal, PlusSquare, LayoutTemplate, Layers as LayersIcon, PanelLeftClose, PanelLeftOpen, PanelBottom } from "lucide-react";
+import { LayoutDefaultControl } from "@/components/operator/layout/LayoutDefaultControl";
 import type { OperatorShellCtx } from "../shell/types";
 import { useSlideEditor, type EditableSlide } from "../editor/useSlideEditor";
 import { SlideCanvas, SlideThumb } from "../editor/SlideCanvas";
@@ -41,7 +42,7 @@ const ELEV = "var(--color-elevated)";
 const HAIR = "var(--color-border)"; // hairline divider
 const CHECKER = "repeating-conic-gradient(#141418 0% 25%, #0d0d10 0% 50%)";
 
-type DrawerTab = "design" | "add" | "templates" | "background" | "layers";
+type DrawerTab = "design" | "add" | "templates" | "background" | "layers" | "layout";
 
 export type SlideEditorTargetSong = {
   songId: string;
@@ -459,6 +460,7 @@ const TABS: { id: DrawerTab; label: string; icon: typeof Type }[] = [
   { id: "add", label: "Add", icon: PlusSquare },
   { id: "templates", label: "Templates", icon: LayoutTemplate },
   { id: "background", label: "Background", icon: ImageIcon },
+  { id: "layout", label: "Layout", icon: PanelBottom },
   { id: "layers", label: "Layers", icon: LayersIcon },
 ];
 
@@ -469,7 +471,7 @@ function RightDrawer({ editor, churchId, tab, setTab, addFocus }: { editor: Edit
   return (
     <aside className="w-[320px] shrink-0 border-l flex flex-col min-h-0" style={{ borderColor: HAIR, background: PANEL }}>
       {/* Tab rail */}
-      <div className="shrink-0 p-2 grid grid-cols-5 gap-1 border-b" style={{ borderColor: HAIR }}>
+      <div className="shrink-0 p-2 grid grid-cols-6 gap-1 border-b" style={{ borderColor: HAIR }}>
         {TABS.map((t) => {
           const on = tab === t.id;
           return (
@@ -488,6 +490,7 @@ function RightDrawer({ editor, churchId, tab, setTab, addFocus }: { editor: Edit
         {tab === "add" && <AddPanel editor={editor} churchId={churchId} addFocus={addFocus} />}
         {tab === "templates" && <TemplatesPanel editor={editor} churchId={churchId} />}
         {tab === "background" && <BackgroundPanel editor={editor} />}
+        {tab === "layout" && <div className="p-3"><LayoutDefaultControl churchId={churchId} /></div>}
         {tab === "layers" && <LayersPanel editor={editor} />}
       </div>
     </aside>

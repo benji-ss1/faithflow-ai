@@ -10,7 +10,7 @@ const LoginScene = dynamic(() => import("./LoginScene"), { ssr: false });
 const CSS = `
 .pflogin{--ink:#0a0908;--paper:#ECE7E0;--paper-2:#c9c2b8;--paper-dim:#8a847b;--paper-faint:#4a4640;
   --orange:#ff7a2c;--orange-glow:#ffb861;--hair:rgba(236,231,224,0.12);--hair-strong:rgba(236,231,224,0.28);
-  position:fixed;inset:0;overflow:hidden;background:var(--ink);color:var(--paper);
+  position:fixed;inset:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;background:var(--ink);color:var(--paper);
   font-family:"Plus Jakarta Sans",system-ui,sans-serif;font-weight:400;letter-spacing:-0.005em;-webkit-font-smoothing:antialiased}
 .pflogin *{box-sizing:border-box}
 .pflogin .scene{position:absolute;inset:0;z-index:0}
@@ -32,8 +32,9 @@ const CSS = `
 .pflogin .p1{--delay:0s;width:220px;animation-name:pflane1}.pflogin .p2{--delay:9.6s;width:190px;animation-name:pflane2}
 .pflogin .p3{--delay:19.2s;width:240px;animation-name:pflane3}.pflogin .p4{--delay:28.8s;width:205px;animation-name:pflane4}.pflogin .p5{--delay:38.4s;width:215px;animation-name:pflane5}
 
-.pflogin .page{position:relative;z-index:3;height:100%;display:grid;grid-template-columns:1.15fr 0.85fr}
-.pflogin .hero{padding:44px 56px 44px 64px;display:flex;flex-direction:column;justify-content:space-between;position:relative}
+.pflogin .page{position:relative;z-index:3;min-height:100%;display:grid;grid-template-columns:1.15fr 0.85fr}
+.pflogin::-webkit-scrollbar{width:10px}.pflogin::-webkit-scrollbar-track{background:#0a0908}.pflogin::-webkit-scrollbar-thumb{background:rgba(255,144,72,0.55);border-radius:999px;border:3px solid #0a0908}.pflogin{scrollbar-color:rgba(255,144,72,0.55) #0a0908;scrollbar-width:thin}
+.pflogin .hero{min-height:100vh;padding:44px 56px 44px 64px;display:flex;flex-direction:column;justify-content:space-between;position:relative}
 .pflogin .brand{display:flex;align-items:center;gap:14px}
 .pflogin .brand img{height:34px;width:auto;display:block}
 .pflogin .wordmark{font-family:"Sora",sans-serif;font-weight:700;font-size:24px;letter-spacing:-0.03em;color:var(--paper)}
@@ -46,7 +47,7 @@ const CSS = `
 .pflogin .lede{margin-top:28px;font-size:16px;line-height:1.55;color:var(--paper-dim);max-width:52ch}
 .pflogin .heroFoot{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:10px;letter-spacing:0.24em;text-transform:uppercase;color:var(--orange)}
 
-.pflogin .aside{padding:44px 64px 44px 40px;display:flex;flex-direction:column;border-left:1px solid var(--hair);background:linear-gradient(180deg,rgba(0,0,0,0) 0%,rgba(0,0,0,0.35) 100%);backdrop-filter:blur(2px)}
+.pflogin .aside{min-height:100vh;padding:44px 64px 44px 40px;display:flex;flex-direction:column;border-left:1px solid var(--hair);background:linear-gradient(180deg,rgba(0,0,0,0) 0%,rgba(0,0,0,0.35) 100%);backdrop-filter:blur(2px)}
 .pflogin .aside-top{display:flex;justify-content:space-between;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:10px;letter-spacing:0.28em;text-transform:uppercase;color:var(--paper-faint)}
 .pflogin .aside-top .o{color:var(--orange)}
 .pflogin .form-wrap{margin:auto 0;max-width:400px;width:100%}

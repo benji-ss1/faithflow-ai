@@ -216,6 +216,120 @@ export function styleScriptureSlide(slide: SlidePayload, churchId: string): Slid
   }
 }
 
+// The lyrics/text to band for a plain or designed text slide: the raw `text`
+// field if present, else the first text object's text (a designed song stores
+// its words in an object). Empty → caller leaves the slide unbanded.
+function bandableTextOf(slide: Extract<SlidePayload, { kind: "text" }>): string {
+  // Prefer the flattened `text` (the full lyrics/verse). Only when it's empty do
+  // we fall back to the objects — and then join ALL text objects (not just the
+  // first) so a multi-text designed slide never silently drops words.
+  if (typeof slide.text === "string" && slide.text.trim()) return slide.text;
+  const parts = (slide.objects ?? [])
+    .filter((o) => o.kind === "text" && typeof (o as { text?: unknown }).text === "string")
+    .map((o) => (o as { text?: string }).text as string)
+    .filter((t) => t.trim());
+  return parts.join("\n");
+}
+
+// A lower-third payload for a SONG / plain text slide (no scripture reference):
+// the exact same band mechanism verses use, minus the reference footer. Reuses
+// the renderer's lower-third branch (confine + auto-fit + paginate) verbatim.
+export function songLowerThirdPayload(text: string, d: ScriptureDesign): SlidePayload {
+  const p: Extract<SlidePayload, { kind: "text" }> = { kind: "text", text, scriptureLayout: "lowerThird" };
+  const band = bandWireFromDesign(d);
+  if (band) p.scriptureBand = band;
+  return p;
+}
+
+// CENTRAL layout application — called once in OperatorConsole.sendSlideToLive for
+// EVERY send (AI auto-fire, verse-nav, manual, songs, media). It applies the
+// church's saved projection layout to ANY content so "set it once, applies to
+// everything going forward" holds:
+//   • scripture (has a reference) → full scripture styling via styleScriptureSlide
+//     (fullscreen designed OR lower-third band, per the saved design) — unchanged.
+//   • songs / plain text (no reference) → when the church default layout is
+//     lower-third, confine the lyrics into the same band; when fullscreen, leave
+//     the slide exactly as-is (existing behaviour, zero regression).
+//   • a slide that already carries a per-slide `scriptureLayout` is an explicit
+//     override and is left untouched (per-slide wins over the church default).
+//   • media (image/video) is left to its own path (handled elsewhere).
+// Deterministic + never throws (a failure falls back to the original slide) so a
+// live send is never broken, and the identity guarding the already-live skip /
+// fade-pulse stays stable across heartbeats.
+export function applyChurchLayout(slide: SlidePayload, churchId: string): SlidePayload {
+  // Scripture first — returns a NEW styled payload for an unstyled verse, or the
+  // SAME slide ref for non-scripture / already-styled sends.
+  const scriptured = styleScriptureSlide(slide, churchId);
+  if (scriptured !== slide) return scriptured;
+  try {
+    // Media (image/video): when the church default is lower-third, confine the
+    // media into the same band (default "fit" = shrink into the third). A
+    // per-slide layout (set in the media editor, e.g. a caption) wins.
+    if (slide.kind === "image" || slide.kind === "video") {
+      if (slide.layout) return slide;
+      const d = loadScriptureStyle(churchId);
+      if (d.layout !== "lowerThird") return slide;
+      return { ...slide, layout: "third", band: bandWireFromDesign(d), bandMode: slide.bandMode ?? "fit" };
+    }
+    if (slide.kind !== "text") return slide;
+    if (slide.reference) return slide;            // scripture (already handled)
+    if (slide.scriptureLayout) return slide;      // per-slide override wins
+    const d = loadScriptureStyle(churchId);
+    if (d.layout !== "lowerThird") return slide; // church default is fullscreen → unchanged
+    const text = bandableTextOf(slide);
+    if (!text.trim()) return slide;
+    return songLowerThirdPayload(text, d);
+  } catch {
+    return slide;
+  }
+}
+
+// Reduce a possibly-ALREADY-STYLED slide back to its raw content form so
+// applyChurchLayout can re-derive the CURRENT layout from scratch. This is what
+// makes the live Full⇄Third toggle actually reverse the slide on screen: the
+// manual scripture card path pre-styles the payload (objects for fullscreen /
+// scriptureLayout for the band), and re-sending THAT would no-op in
+// styleScriptureSlide (it skips already-styled slides). We strip:
+//   • scripture (has a reference) → back to a plain { text, reference } verse so
+//     the saved design + current layout are re-applied fresh (both directions).
+//   • songs/plain text carrying a band → drop the band, KEEP any designed objects
+//     (a designed song keeps its design when it goes back to full screen).
+//   • image/video carrying a third layout → drop layout/band/mode/caption.
+// Anything not styled is returned unchanged.
+export function sourceForRelayout(slide: SlidePayload): SlidePayload {
+  if (slide.kind === "text") {
+    if (slide.reference) return { kind: "text", text: slide.text, reference: slide.reference };
+    if (slide.scriptureLayout || slide.scriptureBand) {
+      const p: Extract<SlidePayload, { kind: "text" }> = { kind: "text", text: slide.text };
+      if (slide.bgColor) p.bgColor = slide.bgColor;
+      if (slide.bgImageUrl) p.bgImageUrl = slide.bgImageUrl;
+      if (slide.objects && slide.objects.length) p.objects = slide.objects;
+      return p;
+    }
+    return slide;
+  }
+  if (slide.kind === "image") {
+    if (slide.layout || slide.band) {
+      const p: Extract<SlidePayload, { kind: "image" }> = { kind: "image", url: slide.url };
+      if (slide.fit) p.fit = slide.fit;
+      if (slide.blurFill) p.blurFill = slide.blurFill;
+      return p;
+    }
+    return slide;
+  }
+  if (slide.kind === "video") {
+    if (slide.layout || slide.band) {
+      const p: Extract<SlidePayload, { kind: "video" }> = { kind: "video", url: slide.url };
+      if (slide.fit) p.fit = slide.fit;
+      if (slide.loop !== undefined) p.loop = slide.loop;
+      if (slide.volume !== undefined) p.volume = slide.volume;
+      return p;
+    }
+    return slide;
+  }
+  return slide;
+}
+
 // Extract a reusable design template from an edited slide's objects (positions,
 // sizes, styles) so "Save (all slides)" reproduces the layout for every verse.
 export function designFromSlide(slide: EditableSlide, prev: ScriptureDesign): ScriptureDesign {
