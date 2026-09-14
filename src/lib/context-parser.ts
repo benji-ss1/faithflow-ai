@@ -280,9 +280,39 @@ export function repairNavVerseHomophones(text: string): string {
 // strip leading/trailing politeness + filler, THEN apply the terseness gate.
 // Genuine narration ("we're gonna see this in the next verse" = 8, no filler to
 // strip) still exceeds the limit and stays blocked.
-const NAV_FILLER_RE = /\b(?:please|thanks|thank\s+you|okay|ok|alright|all\s+right|so|now|well|yeah|yep|can\s+you|could\s+you|would\s+you|can\s+we|shall\s+we|let's|kindly|just|then|and|hey|oh|erm|um|uh)\b/gi;
+const NAV_FILLER_RE = /\b(?:please|thanks|thank\s+you|okay|ok|alright|all\s+right|so|now|well|yeah|yep|can\s+you|could\s+you|would\s+you|can\s+we|could\s+we|would\s+we|shall\s+we|let's|kindly|just|then|and|hey|oh|erm|um|uh)\b/gi;
 export function terseCommandWordCount(text: string): number {
   return text.replace(NAV_FILLER_RE, " ").replace(/[,.?!;:]/g, " ").split(/\s+/).filter(Boolean).length;
+}
+
+// 2026-09-14 field fix: the guard counted the WHOLE transcript, so a command
+// with a lead-in ("Amen church can we go to next verse please" = 6; "John
+// chapter 3 verse 16 can we go to next verse please" = 9) was dropped. Count
+// only the TAIL from the nav match onward, and ONLY when (a) the match is an
+// ANCHORED nav command (next/previous verse at conf ≥85, "back a/one verse",
+// "continue reading") — bare "go back"/"go on"/"continue" keep the whole count —
+// and (b) it is immediately preceded by a request lead-in ("can we", "please")
+// or a spoken scripture reference. A bare comma/full stop does NOT unlock it.
+// Narration ("we're gonna see this in the next verse") stays blocked.
+const NAV_ANCHORED_TEXT_RE = /\bback\s+(?:one|a)\s+verse\b|\bcontinue\s+reading\b/i;
+const NAV_TAIL_BREAK_RE = /(?:\b(?:can\s+we|could\s+we|would\s+we|shall\s+we|can\s+you|could\s+you|would\s+you|let\s+us|let's|please|kindly|okay|ok|alright)|\d+\s*:\s*\d+|\b(?:verse|chapter)\s+\d+)\s*[,.]?\s*$/i;
+export function navCommandWordCount(
+  text: string,
+  cmd: { verb: string; confidence: number; matchedText?: string } | null | undefined,
+): number {
+  const whole = terseCommandWordCount(text);
+  const matchedText = cmd?.matchedText;
+  if (!cmd || !matchedText) return whole;
+  const anchored =
+    ((cmd.verb === "next_verse" || cmd.verb === "prev_verse") && cmd.confidence >= 85) ||
+    NAV_ANCHORED_TEXT_RE.test(matchedText);
+  if (!anchored) return whole;
+  const repaired = repairNavVerseHomophones(text);
+  const idx = repaired.toLowerCase().indexOf(matchedText.toLowerCase());
+  if (idx <= 0) return whole;
+  const prefix = repaired.slice(0, idx);
+  if (!NAV_TAIL_BREAK_RE.test(prefix)) return whole;
+  return Math.min(whole, terseCommandWordCount(repaired.slice(idx)));
 }
 
 export function parseContextCommand(text: string, available: ContextAvailability): ContextCommand | null {

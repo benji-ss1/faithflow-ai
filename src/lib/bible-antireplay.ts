@@ -123,6 +123,8 @@ export type BibleAntiReplayInput = {
   voiceCommand?: boolean;
   /** override for tests. */
   cooldownMs?: number;
+  /** last voice-nav hop that actually projected (see navOriginSuppressed). */
+  navOrigin?: NavOrigin | null;
 };
 
 export type BibleAntiReplayDecision = {
@@ -131,7 +133,10 @@ export type BibleAntiReplayDecision = {
   reason:
     | "fire:different-ref-live"
     | "fire:voice-command-bypass"
-    | "suppress:already-live";
+    | "suppress:already-live"
+    | "suppress:nav-origin";
+  /** true iff the suggestion must be marked handled (never re-evaluated). */
+  markHandled?: boolean;
 };
 
 /**
@@ -156,6 +161,13 @@ export type BibleAntiReplayDecision = {
 export function decideBibleAutoFire(input: BibleAntiReplayInput): BibleAntiReplayDecision {
   // Voice commands are explicit navigation — always project.
   if (input.voiceCommand) return { suppress: false, reason: "fire:voice-command-bypass" };
+  // VERSE-BOUNCE FIX (2026-09-14): a late/echoed detection of the verse voice
+  // nav just moved AWAY from must not yank the projector back to it.
+  if (navOriginSuppressed(input.navOrigin, input.target, input.liveText, input.now)) {
+    // markHandled (#6): the caller must mark this suggestion handled so the
+    // held origin can't fire later when the window lapses / liveSlide changes.
+    return { suppress: true, reason: "suppress:nav-origin", markHandled: true };
+  }
   // A DIFFERENT reference (or non-scripture) is live → this is a genuine content
   // change / swap-back. Fire IMMEDIATELY — no cooldown gate, so a fast bounce
   // (Matt → Gen → Matt within seconds) still projects each hop.
@@ -171,4 +183,81 @@ export function decideBibleAutoFire(input: BibleAntiReplayInput): BibleAntiRepla
   // the same rule, which is why the old firedMap / micro-cooldown / forceLive
   // gating (only ever reached in this same-ref-live branch) is no longer needed.
   return { suppress: true, reason: "suppress:already-live" };
+}
+
+type Ref = { book: string; chapter: number; verseStart: number; verseEnd: number };
+/**
+ * A voice-nav CHAIN that actually projected: every ref left behind (fromRefs)
+ * in consecutive hops, the ref now live (toRef), and the last hop's ts (the
+ * window extends on each hop). 16→17→18 holds a late 16 AND 17.
+ */
+export type NavOrigin = {
+  fromRefs: Ref[];
+  toRef: Ref;
+  ts: number;
+};
+
+/**
+ * Pure: record a projected voice-nav hop from → to. Continues the chain when
+ * the previous hop is still in-window and `from` is where it landed; otherwise
+ * starts fresh. The ref now live is never in the held set (going back to it).
+ */
+export function extendNavOrigin(
+  prev: NavOrigin | null | undefined,
+  from: Ref,
+  to: Ref,
+  now: number,
+  windowMs: number = NAV_ORIGIN_WINDOW_MS,
+): NavOrigin {
+  const chained = !!prev && now - prev.ts >= 0 && now - prev.ts < windowMs && sameRef(prev.toRef, from);
+  const base = chained ? prev!.fromRefs : [];
+  const fromRefs = [...base.filter((r) => !sameRef(r, from)), from].filter((r) => !sameRef(r, to));
+  return { fromRefs, toRef: to, ts: now };
+}
+export const NAV_ORIGIN_WINDOW_MS = 8_000;
+
+const normBook = (b: string) => b.toLowerCase().replace(/\s+/g, " ").trim();
+const sameRef = (
+  a: { book: string; chapter: number; verseStart: number; verseEnd: number },
+  b: { book: string; chapter: number; verseStart: number; verseEnd: number },
+) => normBook(a.book) === normBook(b.book) && a.chapter === b.chapter
+  && a.verseStart === b.verseStart && a.verseEnd === b.verseEnd;
+
+/**
+ * VERSE-BOUNCE FIX (2026-09-14, field: "John 3:16" → "next verse" → 17 → back
+ * to 16). A growing interim ("John 3:16 next verse") / late final / whisper /
+ * slow chapter lookup re-detects the ORIGIN verse just after voice nav moved
+ * off it, and the different-ref swap-back path re-projects it. Suppress an AI
+ * scripture fire iff: target === nav.fromRef AND nav.toRef is STILL live AND
+ * within windowMs. A third ref live, the window elapsed, or a different target
+ * all fall through to the normal rules (genuine swap-back still works).
+ * Callers must let voiceCommand bypass this.
+ */
+export function navOriginSuppressed(
+  nav: NavOrigin | null | undefined,
+  target: { book: string; chapter: number; verseStart: number; verseEnd: number },
+  liveText: string | null | undefined,
+  now: number,
+  windowMs: number = NAV_ORIGIN_WINDOW_MS,
+): boolean {
+  if (!nav) return false;
+  if (now - nav.ts >= windowMs || now < nav.ts) return false;
+  if (!nav.fromRefs.some((r) => sameRef(r, target))) return false;
+  const live = parseLiveScriptureRef(liveText);
+  return !!live && sameRef(live, nav.toRef);
+}
+
+/**
+ * Pure (#8): should a detection's forceLive (restatement) flag be ignored?
+ * Only when its ref is ALREADY live or is held by the voice-nav chain — so
+ * "go back to Matthew 5:5" (a different, non-origin ref) still restates and
+ * swaps back.
+ */
+export function shouldDropForceLive(
+  target: Ref,
+  liveText: string | null | undefined,
+  nav: NavOrigin | null | undefined,
+  now: number,
+): boolean {
+  return !isDifferentRefLive(liveText, target) || navOriginSuppressed(nav, target, liveText, now);
 }
