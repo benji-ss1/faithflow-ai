@@ -16,6 +16,8 @@ const allow = [
   "data:image/webp;base64,UklGR",
   "data:image/gif;base64,R0lGOD",
   "  /api/media/trim.png  ",
+  "/api/media/95f5dd86-dc58-4674-9bd1-ca8af7d8abbc",
+  "http://127.0.0.1:9000/x.png",
 ];
 const reject = [
   "",
@@ -32,6 +34,10 @@ const reject = [
   "javascript:alert(1)",
   "file:///etc/passwd",
   "ftp://x.com/a.png",
+  "http://evil.com/x.png",           // http only for loopback (and never in prod)
+  "http://localhost.evil.com/x.png",
+  "blob",
+  "/api/media/a\u0000b",
   "https:evil.com",
   "x".repeat(2049),
   42,
@@ -45,5 +51,22 @@ for (const u of reject) {
   if (cleanRenderUrl(u) !== null) { fail++; console.error("FAIL should reject:", String(u).slice(0, 80)); }
 }
 assert.equal(cleanRenderUrl("  /api/media/trim.png  "), "/api/media/trim.png");
+// ONE URL POLICY: the output-side validators agree with save/read.
+import("../src/lib/broadcast").then(({ isValidRenderUrl, sanitizeSlide }) => {
+  for (const u of allow.map((x) => x.trim()).filter((x) => !x.startsWith("blob:"))) assert.equal(isValidRenderUrl(u), true, `output should accept ${u}`);
+  // blob: is the one deliberate output narrowing (tab-local preview): rejected for
+  // objects/backgrounds, still accepted on media slides as before.
+  assert.equal(isValidRenderUrl("blob:http://localhost:3000/4b1c-uuid"), false);
+  assert.notEqual(sanitizeSlide({ kind: "image", url: "blob:http://localhost:3000/4b1c-uuid" }), null);
+  for (const u of reject) assert.equal(isValidRenderUrl(u), false, `output should reject ${String(u).slice(0, 60)}`);
+  assert.equal(isValidRenderUrl("  /api/media/x.png"), false, "wire values are not trimmed");
+  // media slides no longer accept arbitrary http hosts / raw quotes; DO accept same-origin relative.
+  assert.notEqual(sanitizeSlide({ kind: "image", url: "/api/media/95f5dd86-dc58-4674-9bd1-ca8af7d8abbc" }), null);
+  assert.equal(sanitizeSlide({ kind: "image", url: "http://evil.com/x.png" }), null);
+  assert.equal(sanitizeSlide({ kind: "image", url: 'https://x.com/a".png' }), null);
+  const long = sanitizeSlide({ kind: "image", url: "/api/media/x", layout: "third", bandMode: "caption", caption: "c".repeat(900) }) as { caption?: string } | null;
+  assert.equal(long?.caption?.length, 500, "over-long caption truncated, not dropped");
+  console.log("output-side policy parity OK");
+});
 console.log(`${allow.length + reject.length - fail} passed, ${fail} failed`);
 assert.equal(fail, 0);

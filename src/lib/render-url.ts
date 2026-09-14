@@ -1,33 +1,65 @@
-// Shared, dependency-free validator for a droppable / rendered media URL.
+// ONE URL POLICY (2026-09-14 release gate) — the single, dependency-free
+// validator for any media URL that is SAVED, READ back, or RENDERED on an output.
 //
-// Used both at WRITE time (actions.ts: setServiceItemSlideBackground,
-// addServiceItemImageSlide, setSongSlideBackgroundImage, createSongImageSlide)
-// AND at READ time (server/services.ts: re-validating stored `slideBackgrounds` /
-// `extraImageSlides` / song-slide `objectsJson.bgImageUrl` before they reach the
-// projector, and sanitizeThemeConfig value-validating logoUrl/bgImageUrl/bgVideoUrl).
-// Re-checking on read means a URL that slipped in via a legacy row or a
-// direct-DB write can never render an off-scheme / oversized value into an
-// output channel.
+// Used at WRITE time (actions.ts: slide backgrounds, image slides, song-slide
+// objects), at READ time (server/services.ts re-validates stored values) AND at
+// OUTPUT time (broadcast.ts isValidRenderUrl / isValidMediaUrl / sanitizeSlide,
+// theme-appearance.ts). Previously those layers disagreed: output accepted
+// http:// on ANY host and unescaped quotes/whitespace on media slides, while the
+// save/read layer accepted same-origin relative "/api/media/…" paths that the
+// output validators (new URL() on a relative string throws) then silently
+// dropped — so a saved relative background vanished on /live /stage /livestream
+// /ndi. Projector pages are same-origin with the app, so a relative path resolves.
 //
-// Accepted shapes (the URLs the app really produces):
-//   • same-origin absolute paths  — "/api/media/…", "/marketing/x.jpg"
-//   • http(s) URLs                — presigned S3/MinIO/Supabase storage URLs
-//   • blob: URLs                  — local in-editor previews
-//   • data:image/(png|jpeg|jpg|gif|webp) — uploaded/cropped images from editors
-// Rejected (2026-09-14 security pass): protocol-relative "//host" (loads an
-// arbitrary host), any backslash (browsers normalise "\" to "/" → "/\host"),
-// quotes / whitespace / angle brackets (CSS url() / attribute breakout), and any
-// data: that isn't one of the raster image types above (svg+xml can carry script).
+// Accepted:
+//   • same-origin absolute paths starting with a SINGLE "/" — "/api/media/<id>",
+//     "/marketing/x.jpg"
+//   • https:// URLs (presigned S3 / Supabase storage)
+//   • http:// ONLY for localhost / 127.0.0.1 / [::1] AND only outside production
+//     (dev MinIO). Statically false in prod builds.
+//   • blob: URLs (local in-editor previews)
+//   • data:image/(png|jpeg|jpg|gif|webp) (raster only — svg+xml can carry script)
+// Rejected: protocol-relative "//host", any backslash, quotes / whitespace /
+// angle brackets / control chars (CSS url() / attribute breakout), and anything
+// else (javascript:, file:, ftp:, "https:evil.com" without "//", non-raster data:).
 //
 // Pure: no DB, no React, no server-only deps. Directly unit-testable.
+const ALLOW_HTTP_LOOPBACK = process.env.NODE_ENV !== "production";
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+// eslint-disable-next-line no-control-regex
+const UNSAFE_CHARS = /["'\s<>\\\u0000-\u001f\u007f]/;
+
 export function cleanRenderUrl(url: unknown): string | null {
   const clean = typeof url === "string" ? url.trim() : "";
   if (!clean || clean.length > 2048) return null;
-  if (/["'\s<>\\]/.test(clean)) return null;
+  if (UNSAFE_CHARS.test(clean)) return null;
   if (clean.startsWith("//")) return null;
+  if (clean.startsWith("/")) return clean; // same-origin relative (single slash)
   if (/^data:/i.test(clean)) {
     return /^data:image\/(png|jpe?g|gif|webp)[;,]/i.test(clean) ? clean : null;
   }
-  if (!/^(https?:\/\/|blob:|\/)/i.test(clean)) return null;
-  return clean;
+  if (/^blob:/i.test(clean)) return clean;
+  if (/^https:\/\//i.test(clean)) {
+    try { return new URL(clean).protocol === "https:" ? clean : null; } catch { return null; }
+  }
+  if (ALLOW_HTTP_LOOPBACK && /^http:\/\//i.test(clean)) {
+    try {
+      const p = new URL(clean);
+      return p.protocol === "http:" && LOOPBACK_HOSTS.has(p.hostname) ? clean : null;
+    } catch { return null; }
+  }
+  return null;
+}
+
+/** Output-side predicate: the value must ALREADY be clean (no trimming on the
+ *  wire — a padded value is rejected rather than silently rewritten).
+ *  `allowBlob:false` is the ONE deliberate output narrowing (unchanged from the
+ *  pre-unification behaviour): slide-object / background / theme URLs never
+ *  carried blob: on the wire — a blob: is a tab-local in-editor preview, and a
+ *  stale one in a snapshot must be dropped by the sanitizer, not rendered as a
+ *  broken image. Media slides keep accepting blob: as they always did. */
+export function isRenderableUrl(u: unknown, opts?: { allowBlob?: boolean }): u is string {
+  if (typeof u !== "string" || cleanRenderUrl(u) !== u) return false;
+  if (opts?.allowBlob === false && /^blob:/i.test(u)) return false;
+  return true;
 }

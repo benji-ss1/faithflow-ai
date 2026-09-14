@@ -10,6 +10,7 @@
 // projection-zone is a pure module (types + math, no browser APIs / no
 // "use client"), so importing it here keeps this file server-safe.
 import { isValidZone, type ProjectionZone } from "./projection-zone";
+import { isRenderableUrl } from "./render-url";
 
 // Rich slide objects for the projector (Phase 5D-2 → live). Coordinates are in
 // the 1920×1080 virtual canvas the editor uses; renderers scale by percentage.
@@ -638,9 +639,6 @@ export function isValidMessageOverlay(overlay: unknown): overlay is MessageOverl
   return true;
 }
 
-// Y11: allowed URL protocols for image/video slides. `javascript:` /
-// `data:` / `file:` are explicitly rejected — no XSS, no local-file leak.
-const ALLOWED_URL_PROTOCOLS = new Set(["https:", "http:", "blob:"]);
 // Basic CSS color: hex or rgb()/rgba(). No `red;--x:url(...)` shenanigans.
 const COLOR_RE = /^(?:#[0-9a-fA-F]{3,8}|rgba?\(\s*\d+(?:\s*,\s*\d+){2}\s*(?:,\s*(?:0|1|0?\.\d+))?\s*\))$/;
 function isValidColor(c: unknown): boolean {
@@ -648,14 +646,11 @@ function isValidColor(c: unknown): boolean {
   if (c.length > 32) return false;
   return COLOR_RE.test(c.trim());
 }
+// ONE URL POLICY (2026-09-14): media slide / logo URLs now share the exact
+// save/read/output rule in render-url.ts (was: http on ANY host + raw quotes /
+// whitespace accepted, same-origin relative paths rejected).
 function isValidMediaUrl(u: unknown): boolean {
-  if (typeof u !== "string" || u.length === 0 || u.length > 2048) return false;
-  try {
-    const parsed = new URL(u);
-    return ALLOWED_URL_PROTOCOLS.has(parsed.protocol);
-  } catch {
-    return false;
-  }
+  return isRenderableUrl(u);
 }
 
 // Font-family is interpolated into a CSS value, so bound it to a safe charset
@@ -663,29 +658,11 @@ function isValidMediaUrl(u: unknown): boolean {
 // not be able to inject CSS through it.
 const FONT_FAMILY_RE = /^[a-zA-Z0-9 ,._'"-]{1,120}$/;
 
-// A media URL interpolated into a CSS url("...") or an <img>/<video> src on the
-// projector. Requires https (media must load on the https output page — and it
-// matches the mapper, so a mapped appearance always passes) AND rejects the raw
-// quote/whitespace chars that could break out of url("...") (legit https/S3
-// URLs percent-encode those).
-// Dev-only http-loopback allowance. In production this is `false` (statically
-// inlined + dead-code-eliminated by the Next/webpack build), so the loopback
-// branch never ships to prod validators — closing the cross-device
-// localhost-probe vector. Production media is S3/presigned-https regardless.
-const ALLOW_HTTP_LOOPBACK = process.env.NODE_ENV !== "production";
+// ONE URL POLICY (2026-09-14): delegates to render-url.ts so save, read and
+// output agree. Same-origin relative "/api/media/…" paths are now accepted
+// (projector pages are same-origin, so they resolve) instead of silently dropped.
 export function isValidRenderUrl(u: unknown): boolean {
-  if (typeof u !== "string" || u.length === 0 || u.length > 2048) return false;
-  if (/["'\s<>\\]/.test(u)) return false;
-  try {
-    const p = new URL(u);
-    if (p.protocol === "https:") return true;
-    // Local dev only: the dummy app serves media from MinIO over
-    // http://localhost:9000. Allow http ONLY for loopback hosts, and ONLY in
-    // dev; every other host stays https-only, so a cross-device payload can
-    // never point at an arbitrary http:// host.
-    if (ALLOW_HTTP_LOOPBACK && p.protocol === "http:" && (p.hostname === "localhost" || p.hostname === "127.0.0.1" || p.hostname === "[::1]")) return true;
-    return false;
-  } catch { return false; }
+  return isRenderableUrl(u, { allowBlob: false });
 }
 const LOGO_POSITIONS = new Set([
   "top-left", "top-center", "top-right",
@@ -1263,7 +1240,8 @@ export function sanitizeSlide(s: unknown): SlidePayload | null {
         extras.layout = "third";
         if (band) extras.band = band;
         if (st.bandMode === "fit" || st.bandMode === "caption") extras.bandMode = st.bandMode;
-        if (typeof st.caption === "string" && st.caption.length <= 500) extras.caption = st.caption;
+        // Over-long caption: truncate to the 500 wire cap instead of dropping it.
+        if (typeof st.caption === "string") extras.caption = st.caption.slice(0, 500);
       }
       if (st.kind === "image") {
         const out: Extract<SlidePayload, { kind: "image" }> = { kind: "image", url: st.url as string, ...extras };
