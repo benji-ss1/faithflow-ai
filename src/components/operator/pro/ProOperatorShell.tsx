@@ -79,6 +79,7 @@ import { parseContextCommand, terseCommandWordCount } from "@/lib/context-parser
 // machine itself lives in src/lib/audio/audioGuardian.ts, fed by
 // useAudioStream's native branch.
 import { GUARDIAN_STATE_EVENT, type GuardianStatus } from "@/lib/audio/audioGuardian";
+import { shouldHoldSongAutoSwitch } from "@/lib/song-switch-guard";
 
 // PF trace gate (R2). Mirrors useAudioStream.isDevOrTraceOn — cheap re-impl
 // here so the shell doesn't have to receive it via ctx.
@@ -784,6 +785,18 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
 
   const autoApprove = !!ctx.autoApproveOn;
 
+  // Ref mirror of stagedSong for async callbacks (autoLiveSong isn't keyed on it).
+  const stagedSongRef = useRef(stagedSong);
+  stagedSongRef.current = stagedSong;
+  // Song auto-switch hold (rule 7, 2026-09-14). Conservative "a song is live by
+  // ANY evidence" decision — see src/lib/song-switch-guard.ts for the signal choice.
+  const holdSongSwitch = useCallback((songId: string) => shouldHoldSongAutoSwitch({
+    targetSongId: songId,
+    trackedLiveSongId: liveSongRef.current?.songId,
+    liveSlide: ctx.liveSlide,
+    liveItemType: ctx.liveItemIdx >= 0 ? (ctx.plan.items[ctx.liveItemIdx] as { type?: string } | undefined)?.type : undefined,
+  }), [ctx.liveSlide, ctx.liveItemIdx, ctx.plan.items]);
+
   // ---- Part 6: auto-stage on ≥85% confidence, AUTO on ---------------------
   const stageSong = useCallback(async (songId: string, title: string, confidence: number, source: "detection" | "progression") => {
     if (stagingInFlightRef.current.has(songId)) return;
@@ -814,6 +827,14 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   const autoLiveSong = useCallback(async (songId: string, title: string, confidence: number) => {
     if (stagingInFlightRef.current.has(songId)) return;
     if (liveSongRef.current?.songId === songId) return; // already live
+    // 2026-09-14 rule-7 sign-off — THE chokepoint: while a DIFFERENT song is live
+    // (by ANY evidence, see song-switch-guard.ts) the AI never auto-switches the
+    // projector. Keep/stage the song as a chip for the operator instead.
+    if (holdSongSwitch(songId)) {
+      console.log(`[song-autolive] SWITCH HELD — "${title}" ${Math.round(confidence)}% while a different song is live → staged for operator confirm (never auto-switch)`);
+      if (!stagedSongRef.current) void stageSong(songId, title, confidence, "detection");
+      return;
+    }
     // 2026-07-26 hard debounce — the field-report "glitching, repeatedly
     // firing GTF → LIVE toast" that survived v0.1.68's outer-effect guards.
     // Even after id + freshness dedup at the effect layer, Deepgram's
@@ -873,6 +894,12 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       const best = matchBestSlide(recentWordsRef.current, slides);
       const startIdx = best.index >= 0 && best.confidence >= SONG_JUMP_SUGGEST_CONFIDENCE ? best.index : 0;
       const text = slides[startIdx];
+      // Re-check after the async fetch — a song may have gone live meanwhile.
+      if (holdSongSwitch(songId)) {
+        console.log(`[song-autolive] SWITCH HELD (post-fetch) — "${title}" while a different song is live → staged`);
+        if (!stagedSongRef.current) setStagedSong({ songId, title, slides, currentIdx: startIdx, confidence, source: "detection" });
+        return;
+      }
       lastSongAutoLiveAtRef.current = now;
       ctx.onSendSlideToLive({ kind: "text", text });
       liveSongRef.current = { songId, title, slides, currentIdx: startIdx, confirmedAt: now };
@@ -925,7 +952,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     } finally {
       stagingInFlightRef.current.delete(songId);
     }
-  }, [ctx, stageSong]);
+  }, [ctx, stageSong, holdSongSwitch]);
 
   useEffect(() => {
     // 2026-07-26 policy change (user sign-off): song auto-fire is NO
@@ -987,7 +1014,13 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       // so a second transcript update landing in the same tick could
       // otherwise still see `stagedSong` non-null and re-enter this branch
       // before autoLiveSong's own guards kick in.
-      if (risen && !promotionInFlightRef.current.has(risen.songId)) {
+      // Rule 7 (2026-09-14): a risen staged song must NOT auto-switch while a
+      // different song is live — keep it staged (don't drop it) and fall through.
+      // autoLiveSong enforces the same hold; checking here too avoids clearing
+      // the staged banner before autoLiveSong would refuse.
+      if (risen && holdSongSwitch(risen.songId)) {
+        console.log(`[song-autolive] SWITCH HELD — risen staged "${risen.title}" ${risen.confidence}% while a different song is live → stays staged`);
+      } else if (risen && !promotionInFlightRef.current.has(risen.songId)) {
         promotionInFlightRef.current.add(risen.songId);
         setStagedSong(null);
         void autoLiveSong(risen.songId, risen.title, risen.confidence).finally(() => {
@@ -1090,7 +1123,8 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       // DIFFERENT song is live the AI NEVER switches the projector on its own —
       // even at ≥SONG_SWITCH_WHILE_LIVE_CONFIDENCE it only stages the new song
       // as a manual chip ("give them the option in case you are wrong").
-      const differentSongLive = liveSongRef.current !== null && liveSongRef.current.songId !== c.songId;
+      // Conservative ANY-evidence check (covers library-sent / untracked songs).
+      const differentSongLive = holdSongSwitch(c.songId);
       if (differentSongLive && c.confidence >= SONG_SWITCH_WHILE_LIVE_CONFIDENCE) {
         console.log(`[song-autolive] SWITCH HELD — "${c.title}" ${c.confidence}% while a different song is live → staging for operator confirm (never auto-switch)`);
       }
@@ -1119,7 +1153,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     }
     // autoApprove intentionally NOT in deps — see 2026-07-26 policy note
     // above (song auto-fire no longer gated on the AUTO/MANUAL toggle).
-  }, [ctx.audio.suggestions, ctx.audio.songSuggestions, stagedSong, stageSong, autoLiveSong]);
+  }, [ctx.audio.suggestions, ctx.audio.songSuggestions, stagedSong, stageSong, autoLiveSong, holdSongSwitch]);
 
   // ---- Part 6: THE ONE confirm path that may touch ctx.onSendSlideToLive --
   const confirmStagedSongLive = useCallback(() => {
