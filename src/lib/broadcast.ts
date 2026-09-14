@@ -56,6 +56,21 @@ export type ScriptureBandWire = {
   textColor?: string;
 };
 
+// OBS editor wire (see src/lib/obs-look.ts). Colour: named mode or #rgb/#rrggbb.
+export type ObsTextColorWire = "auto" | "white" | "black" | "theme" | `#${string}`;
+export type ObsLookWire = {
+  look?: "camera" | "lowerthird" | "full";
+  ltText?: ObsTextColorWire;
+  ltRef?: boolean;
+  camScale?: number;
+  camPos?: "top" | "middle" | "bottom";
+  camText?: ObsTextColorWire;
+  camEffect?: "shadow" | "outline" | "none";
+  camScrim?: number;
+  fullScale?: number;
+  fullDim?: number;
+};
+
 export type SlidePayload =
   // `objects`, when present, drives a positioned multi-object render on every
   // output surface; `text` is kept as the flattened fallback (AI/lyric matching,
@@ -402,6 +417,10 @@ export type OutputState = {
   // ObsBandConfig (src/lib/obs-lowerthird.ts); typed loosely here to avoid a
   // circular import, validated by isValidObsBand in the sanitizer.
   obsLowerThird?: { topPct: number; heightPct: number; fontScale: number; opacity: number; style: string } | null;
+  // OBS EDITOR live look + per-look settings (2026-09-14, src/lib/obs-look.ts).
+  // Read ONLY by /livestream. `look` is present only once the operator explicitly
+  // picked a look in the editor (absent → the OBS link's URL decides the look).
+  obsLook?: ObsLookWire | null;
   // Decoupling Phase 2 (ADDITIVE, DORMANT): the per-layer stack. Optional and
   // NOT yet consumed by the compositor — it renders from the legacy fields
   // above. Populated in a later phase (behind NEXT_PUBLIC_LAYERS_V2); today it
@@ -1132,6 +1151,44 @@ function isValidObsLowerThird(v: unknown): boolean {
     && numOk(p.opacity, 0, 1) && typeof p.style === "string" && OBS_BAND_STYLE_SET.has(p.style);
 }
 
+// OBS editor live look (read only by /livestream). Strict: every present field
+// must be well-typed + in range; unknown keys are ignored (forward-compat).
+const OBS_HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+function isObsTextColorWire(x: unknown): boolean {
+  return x === "auto" || x === "white" || x === "black" || x === "theme" || (typeof x === "string" && OBS_HEX_RE.test(x));
+}
+const OBS_LOOK_FIELDS: Record<string, (x: unknown) => boolean> = {
+  look: (x) => x === "camera" || x === "lowerthird" || x === "full",
+  ltText: isObsTextColorWire,
+  ltRef: (x) => typeof x === "boolean",
+  camScale: (x) => typeof x === "number" && Number.isFinite(x) && x >= 0.5 && x <= 2,
+  camPos: (x) => x === "top" || x === "middle" || x === "bottom",
+  camText: isObsTextColorWire,
+  camEffect: (x) => x === "shadow" || x === "outline" || x === "none",
+  camScrim: (x) => typeof x === "number" && Number.isFinite(x) && x >= 0 && x <= 0.9,
+  fullScale: (x) => typeof x === "number" && Number.isFinite(x) && x >= 0.5 && x <= 2,
+  fullDim: (x) => typeof x === "number" && Number.isFinite(x) && x >= 0 && x <= 0.9,
+};
+function isValidObsLook(v: unknown): boolean {
+  if (v === null) return true;
+  if (!v || typeof v !== "object" || Array.isArray(v) || hasPollutionKey(v)) return false;
+  const p = v as Record<string, unknown>;
+  for (const k of Object.keys(OBS_LOOK_FIELDS)) {
+    if (p[k] !== undefined && !OBS_LOOK_FIELDS[k](p[k])) return false;
+  }
+  return true;
+}
+/** Fail-open: keep only known, valid fields (drops bad ones); null when not a plain object. */
+export function sanitizeObsLook(v: unknown): ObsLookWire | null {
+  if (!v || typeof v !== "object" || Array.isArray(v) || hasPollutionKey(v)) return null;
+  const p = v as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(OBS_LOOK_FIELDS)) {
+    if (p[k] !== undefined && OBS_LOOK_FIELDS[k](p[k])) out[k] = p[k];
+  }
+  return out as ObsLookWire;
+}
+
 function isValidNextItem(n: unknown): boolean {
   if (n === null) return true;
   if (!n || typeof n !== "object") return false;
@@ -1178,6 +1235,7 @@ export function isValidOutputState(s: unknown): s is OutputState {
   if (st.videoInput !== undefined && !isValidVideoInput(st.videoInput)) return false;
   if (st.zone !== undefined && st.zone !== null && !isValidZone(st.zone)) return false;
   if (st.obsLowerThird !== undefined && !isValidObsLowerThird(st.obsLowerThird)) return false;
+  if (st.obsLook !== undefined && !isValidObsLook(st.obsLook)) return false;
   if (st.layers !== undefined && !isValidLayersArray(st.layers)) return false;
   // layersEpoch (Y1b): optional origin epoch stamp. Finite, non-negative, and —
   // like rev — not absurdly in the future (hostile pin / wrong-clock sender).
@@ -1323,6 +1381,7 @@ export function sanitizeOutputState(s: unknown): OutputState | null {
   if (out.videoInput !== undefined && out.videoInput !== null && !isValidVideoInput(out.videoInput)) out.videoInput = null;
   if (out.zone !== undefined && out.zone !== null && !isValidZone(out.zone)) out.zone = null;
   if (out.obsLowerThird !== undefined && !isValidObsLowerThird(out.obsLowerThird)) out.obsLowerThird = null;
+  if (out.obsLook !== undefined && out.obsLook !== null && !isValidObsLook(out.obsLook)) out.obsLook = sanitizeObsLook(out.obsLook);
   // Layers (Phase 2, dormant): DROP invalid entries rather than poisoning the
   // snapshot. undefined stays undefined (never fabricate an empty array).
   if (out.layers !== undefined) {

@@ -175,12 +175,28 @@ export function bandableTextOf(slide: SlidePayload): string {
  * Overlay-side only: never changes what the projector/operator receive, never
  * mutates the input slide.
  */
-export function overlayBandSlide(slide: SlidePayload, c: ObsBandConfig, theme?: ObsThemeColors): SlidePayload {
+export function overlayBandSlide(slide: SlidePayload, c: ObsBandConfig, theme?: ObsThemeColors, extras?: ObsBandExtras): SlidePayload {
+  const wire = (): ScriptureBandWire => {
+    const w = obsBandWire(c, theme);
+    // Explicit editor text colour wins (operator choice), even at low opacity.
+    if (extras?.textColor) w.textColor = extras.textColor;
+    return w;
+  };
+  // Operator's own lower third (line1/line2) WINS over lyrics in the band —
+  // production a0f53c8 parity. line2 rides the band's secondary (reference) line.
+  const lt = extras?.lowerThird;
+  if (lt && (lt.line1?.trim() || lt.line2?.trim())) {
+    const l1 = lt.line1?.trim() ?? "";
+    const l2 = lt.line2?.trim() ?? "";
+    const out: Extract<SlidePayload, { kind: "text" }> = { kind: "text", text: l1 || l2, scriptureLayout: "lowerThird", scriptureBand: wire() };
+    if (l1 && l2) out.reference = l2;
+    return out;
+  }
   // Banded media carrying a caption → show the caption text in the OBS band
   // (never the picture itself). No caption → empty, as before.
   if ((slide.kind === "image" || slide.kind === "video") && slide.layout === "third"
     && typeof slide.caption === "string" && slide.caption.trim()) {
-    return { kind: "text", text: slide.caption.trim(), scriptureLayout: "lowerThird", scriptureBand: obsBandWire(c, theme) };
+    return { kind: "text", text: slide.caption.trim(), scriptureLayout: "lowerThird", scriptureBand: wire() };
   }
   if (slide.kind !== "text") return { kind: "empty" };
   const text = bandableTextOf(slide);
@@ -189,11 +205,18 @@ export function overlayBandSlide(slide: SlidePayload, c: ObsBandConfig, theme?: 
     kind: "text",
     text,
     scriptureLayout: "lowerThird",
-    scriptureBand: obsBandWire(c, theme),
+    scriptureBand: wire(),
   };
-  if (typeof slide.reference === "string" && slide.reference.trim()) out.reference = slide.reference;
+  if (!extras?.hideReference && typeof slide.reference === "string" && slide.reference.trim()) out.reference = slide.reference;
   return out;
 }
+
+/** Optional OBS-editor extras for the band caption (undefined ⇒ legacy output). */
+export type ObsBandExtras = {
+  textColor?: string;
+  hideReference?: boolean;
+  lowerThird?: { line1: string; line2: string } | null;
+};
 
 /** Validate an OBS band config that arrives over the wire (OutputState.obsLowerThird). */
 export function isValidObsBand(v: unknown): v is ObsBandConfig {
