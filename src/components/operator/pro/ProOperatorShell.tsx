@@ -60,7 +60,7 @@ import { useTimerSession, useMessagesSession, useBibleSession, useTimersSession,
 import { openLiveChannel, safePost, type LiveChannelLike } from "@/lib/broadcast";
 import { cachedLookup } from "@/lib/bible-client-cache";
 import { setAvailableTranslationCodes, getAvailableTranslationCodes } from "@/lib/translation-commands";
-import { BIBLE_MICRO_COOLDOWN_MS, decideBibleAutoFire, parseLiveScriptureRef, isDifferentRefLive, resolvedDetectionAction } from "@/lib/bible-antireplay";
+import { BIBLE_MICRO_COOLDOWN_MS, decideBibleAutoFire, parseLiveScriptureRef, isDifferentRefLive, resolvedDetectionAction, navOriginSuppressed, extendNavOrigin, shouldDropForceLive, type NavOrigin } from "@/lib/bible-antireplay";
 import { fetchChapterCached, getCachedChapter, chapterKey, prefetchChapter } from "@/lib/bible-chapter-cache";
 import { cn } from "@/lib/utils";
 import { useOperatorHotkeys } from "@/hooks/useOperatorHotkeys";
@@ -73,7 +73,7 @@ import { OperatorTour, hasSeenTour } from "@/components/tutorial/OperatorTour";
 import { WhatsNewModal } from "../WhatsNewModal";
 import { dispatchInternal, isInternalEvent, internalPayload } from "@/lib/internal-events";
 import { matchNextSlide, isLikelyEndOfSong, scoreCoverage, slideWords, matchBestSlide } from "@/lib/ai-detection/lyric-position";
-import { parseContextCommand, terseCommandWordCount } from "@/lib/context-parser";
+import { parseContextCommand, navCommandWordCount } from "@/lib/context-parser";
 // Audio Guardian (2026-07-27) — native-capture self-healing watchdog.
 // The shell only CONSUMES its state events (toasts + red chip); the state
 // machine itself lives in src/lib/audio/audioGuardian.ts, fed by
@@ -1929,6 +1929,16 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // overlapping async advanceRef calls that could read bibleSession state
   // before an earlier call's setCards/setSelectedIdx commits.
   const advanceInFlightRef = useRef(false);
+  // 2026-09-14 verse-bounce fix: the last voice-nav hop that actually PROJECTED
+  // ({fromRef -> toRef}). AI scripture fires targeting fromRef are suppressed
+  // while toRef is still live (navOriginSuppressed, 8s window).
+  const navOriginRef = useRef<NavOrigin | null>(null);
+  // Voice-nav delivery tracking (2026-09-14): whether the in-flight advance is a
+  // voice (live) one, whether it projected, and a preview-only record so a
+  // retried final can't double-step the preview when nothing is live.
+  const advanceInFlightLiveRef = useRef(false);
+  const voiceNavProjectedRef = useRef(false);
+  const voiceNavPreviewOnlyRef = useRef<{ dir: 1 | -1; ts: number } | null>(null);
 
   useEffect(() => {
     try {
@@ -2775,7 +2785,12 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       ? `${liveGuardSlide.text}${liveGuardSlide.reference ? `\n\n${liveGuardSlide.reference}` : ""}`
       : null;
     const refAlreadyLive = !isDifferentRefLive(liveTextForGuard, scripture.ref);
-    if (autoOn && isHighConf && !refAlreadyLive) {
+    // Verse-bounce fix: never re-project the verse voice nav just moved away from.
+    const navOriginHold = !scripture.voiceCommand && navOriginSuppressed(navOriginRef.current, scripture.ref, liveTextForGuard, Date.now());
+    // Mark a held origin HANDLED so auto-approve can't fire it later when the
+    // window lapses or liveSlide changes.
+    if (navOriginHold) lastHandledAutoFireSuggestionIdRef.current = scripture.id;
+    if (autoOn && isHighConf && !refAlreadyLive && !navOriginHold) {
       const fireKey = `ai-instant-${key}`;
       // Anti-replay check before instant-fire (same 3s cooldown as the full path).
       const nowInstant = Date.now();
@@ -2906,7 +2921,13 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           const liveNowFull = currentLiveSlideRef.current;
           // SEND uses the post-fire live state (don't re-pulse an identical live
           // verse); the PREVIEW sync below uses the PRE-fire refAlreadyLive.
-          const shouldSend = resolvedDetectionAction(liveNowFull, scripture.ref).send;
+          // Verse-bounce fix (Cause B): a slow lookup for the ORIGIN verse that
+          // resolves after voice nav moved on must neither re-send nor re-sync.
+          const liveNowGuardText = liveNowFull?.kind === "text"
+            ? `${liveNowFull.text}${liveNowFull.reference ? `\n\n${liveNowFull.reference}` : ""}`
+            : null;
+          const navOriginHoldNow = !scripture.voiceCommand && navOriginSuppressed(navOriginRef.current, scripture.ref, liveNowGuardText, Date.now());
+          const shouldSend = resolvedDetectionAction(liveNowFull, scripture.ref).send && !navOriginHoldNow;
           try {
             // Transition-replay guard: fade only on the first projection of
             // this reference family; cascade re-fires hard-cut (see aiShouldFade).
@@ -2922,7 +2943,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           // the preview was stuck on Matthew 5:7). `refAlreadyLive` is true ONLY
           // for a genuine re-hearing of an already-live verse → we skip the sync
           // only then, preserving the anti-churn behaviour.
-          if (!refAlreadyLive) syncBibleCenterToDetection(scripture.ref, refText, cards);
+          if (!refAlreadyLive && !navOriginHoldNow) syncBibleCenterToDetection(scripture.ref, refText, cards);
           console.log(`[latency] verse-text-update ref="${refText}" (full text now on projector)`);
         }
         // Bump tick so the auto-approve effect re-runs for non-instant-fire cases
@@ -3353,8 +3374,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       forceLive: !!scripture.forceLive,
       voiceCommand: !!scripture.voiceCommand,
       cooldownMs: BIBLE_MICRO_COOLDOWN_MS,
+      navOrigin: navOriginRef.current,
     });
     if (decision.suppress) {
+      if (decision.markHandled) lastHandledAutoFireSuggestionIdRef.current = scripture.id;
       if (pfTraceOn()) console.log(`[auto-approve] suppressed same-ref within ${BIBLE_MICRO_COOLDOWN_MS}ms:`, key);
       return;
     }
@@ -3380,7 +3403,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       (slide as unknown as { __detToFireMs: number }).__detToFireMs = detToFireMs;
     }
     lastHandledAutoFireSuggestionIdRef.current = scripture.id;
-    doAutoFire(slide, key, ref, scripture.confidence, !!(scripture.forceLive || scripture.voiceCommand));
+    // #8: a restatement (forceLive) only loses its bypass when its ref is already
+    // live or held by the voice-nav chain — "go back to Matthew 5:5" still swaps back.
+    const effectiveForceLive = !!scripture.forceLive && !shouldDropForceLive(scripture.ref, currentLiveText, navOriginRef.current, Date.now());
+    doAutoFire(slide, key, ref, scripture.confidence, effectiveForceLive || !!scripture.voiceCommand);
     // Update the center Bible panel so the operator sees the auto-projected
     // verse in the preview — keeps preview and LIVE in sync. If the verse is
     // already a tile in the loaded grid (Load Chapter), keep the whole grid and
@@ -3653,7 +3679,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     const matched = (cmd.matchedText ?? "").toLowerCase().trim();
     const liveText = (ctx.liveSlide?.kind === "text" ? ctx.liveSlide.text : "").toLowerCase();
     if (matched && liveText.includes(matched)) return; // reading guard
-    if (terseCommandWordCount(interimText) > 5) return; // standalone guard (politeness-stripped)
+    if (navCommandWordCount(interimText, cmd) > 5) return; // standalone guard (politeness-stripped, command tail)
     if (isNavEcho(cmd.verb)) return; // already fired this command (prior interim tick or final)
     if (navDir(cmd.verb) === "prev") {
       dispatchInternal("presentflow:bible-prev", { live: true });
@@ -3714,7 +3740,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     //      "go to the next verse"), not buried in a sentence ("we're gonna see
     //      this in the next verse", "go back to what I said earlier"). Require a
     //      short utterance so a phrase embedded in narration never fires.
-    const wordCount = terseCommandWordCount(utterance);
+    const wordCount = navCommandWordCount(utterance, cmd);
     if (wordCount > 5) return;
     const navFireFloor = 70;
     // CONFIDENCE-GATED CONFIRMATION (2026-08-20 field directive): when the
@@ -4024,10 +4050,25 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       const scriptureIsLive = liveRefText != null && parseLiveScriptureRef(liveRefText) != null;
       if (live && scriptureIsLive) {
         try {
+          const fromLive = parseLiveScriptureRef(liveRefText);
           sendLiveRef.current({ kind: "text", text, reference: label }, undefined, { instant: true });
+          voiceNavProjectedRef.current = true;
+          // Verse-bounce fix: remember the hop so a late re-detection of the
+          // origin verse can't swap the projector back (navOriginSuppressed).
+          if (fromLive) {
+            // Chain-aware (16→17→18 holds a late 16 and 17); window extends per hop.
+            navOriginRef.current = extendNavOrigin(
+              navOriginRef.current,
+              { book: fromLive.book, chapter: fromLive.chapter, verseStart: fromLive.verseStart, verseEnd: fromLive.verseEnd },
+              { book, chapter, verseStart: verse, verseEnd: verse },
+              Date.now(),
+            );
+          }
         } catch (e) {
           console.error("[verse-nav] live send failed:", e);
         }
+      } else if (live) {
+        voiceNavPreviewOnlyRef.current = { dir, ts: Date.now() };
       }
     };
 
@@ -4083,13 +4124,27 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       // ref lives as a dedicated field OR the last "\n\n" line of text.
       const cards = bibleSession.state.cards;
       const curIdx = bibleSession.state.selectedIdx ?? (cards.length - 1);
-      const liveRefRaw = ctx.liveSlide?.kind === "text"
-        ? (ctx.liveSlide.reference ?? ctx.liveSlide.text.split("\n\n").pop() ?? "")
+      // #7: read the FRESH live slide — this listener is keyed on [bibleSession],
+      // so a captured ctx.liveSlide can be stale.
+      const liveSlideNow = currentLiveSlideRef.current;
+      const liveRefRaw = liveSlideNow?.kind === "text"
+        ? (liveSlideNow.reference ?? liveSlideNow.text.split("\n\n").pop() ?? "")
         : "";
       const liveAnchor = liveRefRaw.trim().replace(/\s*\([^)]+\)\s*$/, ""); // strip "(KJV)"
-      const anchorRef = cards[curIdx]?.label
-        ? cards[curIdx].label.replace(/\s*\([^)]+\)\s*$/, "") // strip "(KJV)"
-        : (liveAnchor || bibleSession.state.ref);
+      // 2026-09-14: a VOICE (live) advance anchors on the verse ACTUALLY on the
+      // projector first -- the selected preview card can lag/lead the live verse.
+      const liveAnchorParses = live && !!liveAnchor && !!parser.parseReference(liveAnchor);
+      if (live && !liveAnchorParses) {
+        // Nothing (parseable) live: a retried voice final must not double-step
+        // the preview the interim already advanced.
+        const po = voiceNavPreviewOnlyRef.current;
+        if (po && po.dir === dir && Date.now() - po.ts < 1500) return;
+      }
+      const anchorRef = liveAnchorParses
+        ? liveAnchor
+        : cards[curIdx]?.label
+          ? cards[curIdx].label.replace(/\s*\([^)]+\)\s*$/, "") // strip "(KJV)"
+          : (liveAnchor || bibleSession.state.ref);
       try { console.log("[verse-nav] advanceRef", { dir, anchorRef, cardCount: cards.length, curIdx }); } catch { /* ignore */ }
       const parsed = parser.parseReference(anchorRef);
       if (!parsed) {
@@ -4182,9 +4237,26 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       // wins, skipping or duplicating a verse.
       // `live` is false for the manual buttons (preview-only) and true for
       // voice commands (project immediately) — see applyAdvancedVerse.
-      if (advanceInFlightRef.current) return;
+      if (advanceInFlightRef.current) {
+        // 2026-09-14: a voice command dropped behind a NON-voice advance must not
+        // leave an echo record behind, or the final is suppressed and the
+        // command silently does nothing. (Behind a voice advance it IS the echo.)
+        if (live && !advanceInFlightLiveRef.current) voiceNavEchoRef.current = null;
+        return;
+      }
       advanceInFlightRef.current = true;
-      void advanceRef(dir, live).finally(() => { advanceInFlightRef.current = false; });
+      advanceInFlightLiveRef.current = live;
+      voiceNavProjectedRef.current = false;
+      void advanceRef(dir, live).finally(() => {
+        advanceInFlightRef.current = false;
+        advanceInFlightLiveRef.current = false;
+        // Record-on-project: the echo guard only suppresses the final when the
+        // voice advance actually projected (or moved the preview with nothing
+        // live). Otherwise clear it so the final retries.
+        const po = voiceNavPreviewOnlyRef.current;
+        const previewMoved = !!po && po.dir === dir && Date.now() - po.ts < 1500;
+        if (live && !voiceNavProjectedRef.current && !previewMoved) voiceNavEchoRef.current = null;
+      });
     };
     // Y1: nonce-gated. Ignore any external dispatchEvent from page scripts.
     // Voice commands attach { live: true } in the payload; manual buttons don't.

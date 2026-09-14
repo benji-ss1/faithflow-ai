@@ -23,6 +23,9 @@ import {
   decideBibleAutoFire,
   isDifferentRefLive,
   liveGuardText,
+  navOriginSuppressed,
+  extendNavOrigin,
+  shouldDropForceLive,
   parseLiveScriptureRef,
   resolvedDetectionAction,
 } from "../src/lib/bible-antireplay";
@@ -255,6 +258,78 @@ async function main() {
     const noRef: SlidePayload = { kind: "text", text: "16 For God so loved the world" };
     const a = resolvedDetectionAction(noRef, johnRef);
     assert.strictEqual(a.send, true, "unlabelled slide isn't ref-identifiable → allow (safe default)");
+  });
+
+  // ── 2026-09-14 verse-bounce: nav-origin suppression ─────────────────────
+  const john16 = { book: "John", chapter: 3, verseStart: 16, verseEnd: 16 };
+  const john17 = { book: "John", chapter: 3, verseStart: 17, verseEnd: 17 };
+  const nav = { fromRefs: [john16], toRef: john17, ts: 1_000_000 };
+  const live17 = liveScripture("John", 3, 17);
+  await check("navOriginSuppressed: origin re-detected within 8s while 17 live → suppressed", () => {
+    assert.strictEqual(navOriginSuppressed(nav, john16, live17, nav.ts + 2_000), true);
+    const d = decideBibleAutoFire({ key: "j16", firedMap: {}, now: nav.ts + 2_000, liveText: live17, target: john16, forceLive: true, navOrigin: nav });
+    assert.strictEqual(d.suppress, true);
+    assert.strictEqual(d.reason, "suppress:nav-origin");
+  });
+  await check("navOriginSuppressed: after 8s → fires (swap-back)", () => {
+    assert.strictEqual(navOriginSuppressed(nav, john16, live17, nav.ts + 8_000), false);
+    const d = decideBibleAutoFire({ key: "j16", firedMap: {}, now: nav.ts + 8_001, liveText: live17, target: john16, navOrigin: nav });
+    assert.strictEqual(d.reason, "fire:different-ref-live");
+  });
+  await check("navOriginSuppressed: a THIRD ref live → fires", () => {
+    const liveGen = liveScripture("Genesis", 4, 4);
+    assert.strictEqual(navOriginSuppressed(nav, john16, liveGen, nav.ts + 1_000), false);
+    const d = decideBibleAutoFire({ key: "j16", firedMap: {}, now: nav.ts + 1_000, liveText: liveGen, target: john16, navOrigin: nav });
+    assert.strictEqual(d.suppress, false);
+  });
+  await check("navOriginSuppressed: different target (not origin) → fires", () => {
+    assert.strictEqual(navOriginSuppressed(nav, gen4_4, live17, nav.ts + 1_000), false);
+  });
+  await check("decideBibleAutoFire: voiceCommand bypasses nav-origin", () => {
+    const d = decideBibleAutoFire({ key: "j16", firedMap: {}, now: nav.ts + 1_000, liveText: live17, target: john16, voiceCommand: true, navOrigin: nav });
+    assert.strictEqual(d.suppress, false);
+    assert.strictEqual(d.reason, "fire:voice-command-bypass");
+  });
+
+  // ── #5 chain: 16→17→18 still holds a late 16 (and 17) ───────────────────
+  const john18 = { book: "John", chapter: 3, verseStart: 18, verseEnd: 18 };
+  const live18 = liveScripture("John", 3, 18);
+  await check("extendNavOrigin: 16→17→18 chain holds late 16 AND 17; window extends per hop", () => {
+    const h1 = extendNavOrigin(null, john16, john17, 1_000);
+    const h2 = extendNavOrigin(h1, john17, john18, 7_000);
+    assert.strictEqual(h2.fromRefs.length, 2);
+    assert.strictEqual(navOriginSuppressed(h2, john16, live18, 14_000), true, "16 held 7s after the 2nd hop (13s after the 1st)");
+    assert.strictEqual(navOriginSuppressed(h2, john17, live18, 14_000), true);
+    assert.strictEqual(navOriginSuppressed(h2, john16, live18, 15_000), false, "window expires 8s after the LAST hop");
+  });
+  await check("extendNavOrigin: going BACK 18→17 un-holds 17 (it is now live)", () => {
+    const h = extendNavOrigin(extendNavOrigin(extendNavOrigin(null, john16, john17, 0), john17, john18, 1_000), john18, john17, 2_000);
+    assert.ok(!h.fromRefs.some((r) => r.verseStart === 17));
+    assert.strictEqual(navOriginSuppressed(h, john18, live17, 3_000), true);
+  });
+  await check("extendNavOrigin: out-of-window or non-contiguous hop starts a FRESH chain", () => {
+    const h1 = extendNavOrigin(null, john16, john17, 0);
+    assert.strictEqual(extendNavOrigin(h1, john17, john18, 9_000).fromRefs.length, 1);
+    assert.strictEqual(extendNavOrigin(h1, gen4_4, { ...gen4_4, verseStart: 5, verseEnd: 5 }, 1_000).fromRefs.length, 1);
+  });
+  // ── #6 held suggestion must be marked handled ───────────────────────────
+  await check("decideBibleAutoFire: nav-origin suppression sets markHandled (other suppressions don't)", () => {
+    const d = decideBibleAutoFire({ key: "j16", firedMap: {}, now: nav.ts + 1_000, liveText: live17, target: john16, navOrigin: nav });
+    assert.strictEqual(d.markHandled, true);
+    const same = decideBibleAutoFire({ key: "j17", firedMap: {}, now: nav.ts + 1_000, liveText: live17, target: john17, navOrigin: nav });
+    assert.strictEqual(same.reason, "suppress:already-live");
+    assert.ok(!same.markHandled);
+  });
+  // ── #8 forceLive only dropped for live / held refs ──────────────────────
+  await check("shouldDropForceLive: already-live ref → drop", () => {
+    assert.strictEqual(shouldDropForceLive(john17, live17, nav, nav.ts + 1_000), true);
+  });
+  await check("shouldDropForceLive: held nav-origin ref → drop", () => {
+    assert.strictEqual(shouldDropForceLive(john16, live17, nav, nav.ts + 1_000), true);
+  });
+  await check("shouldDropForceLive: 'go back to Matthew 5:5' (different, non-origin ref) → KEEP", () => {
+    assert.strictEqual(shouldDropForceLive(matt5_5, live17, nav, nav.ts + 1_000), false);
+    assert.strictEqual(shouldDropForceLive(john16, live17, nav, nav.ts + 9_000), false, "origin after window → keep");
   });
 
   console.log(`\n${pass} passed, ${fail} failed`);
