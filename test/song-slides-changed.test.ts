@@ -2,7 +2,7 @@
  * Run: npx tsx test/song-slides-changed.test.ts
  */
 import assert from "node:assert/strict";
-import { songSlidesChangedPlan, refreshTrackedSong } from "../src/lib/song-slides-changed";
+import { songSlidesChangedPlan, refreshTrackedSong, relocateLyricIndex } from "../src/lib/song-slides-changed";
 
 const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").replace(/\s+/g, " ").trim();
 const track = (slides: string[], currentIdx: number) => ({ songId: "a", title: "T", slides, currentIdx, confirmedAt: 1 });
@@ -58,8 +58,38 @@ check("(c2) repeated chorus: old index still holds the live text → it is kept 
   assert.equal(r.currentIdx, 2);
   assert.equal(r.slides[r.currentIdx + 1], "tag");
 });
-// Known limit (same tie-break as resolveLyricIndex): if an insert moves BOTH
-// chorus copies equidistant from the old index, the earlier copy wins.
+check("Example A: insert intro at top, 2nd chorus live → stays the 2nd chorus (4)", () => {
+  const r = refreshTrackedSong(track(["v1", "ch", "v2", "ch", "end"], 3), ["intro", "v1", "ch", "v2", "ch", "end"], norm("ch"), norm)!;
+  assert.equal(r.currentIdx, 4);
+  assert.equal(r.slides[r.currentIdx + 1], "end");
+});
+check("Example B: [ch,v,ch,v,ch] idx 2, insert x,y at top → 4 (not the stale old index)", () => {
+  const r = refreshTrackedSong(track(["ch", "v", "ch", "v", "ch"], 2), ["x", "y", "ch", "v", "ch", "v", "ch"], norm("ch"), norm)!;
+  assert.equal(r.currentIdx, 4);
+});
+check("delete v1 before the chorus: idx 3 → 2, next is end", () => {
+  const r = refreshTrackedSong(track(["v1", "ch", "v2", "ch", "end"], 3), ["ch", "v2", "ch", "end"], norm("ch"), norm)!;
+  assert.equal(r.currentIdx, 2);
+  assert.equal(r.slides[r.currentIdx + 1], "end");
+});
+check("insert after the live copy: idx 1 stays 1", () => {
+  const r = refreshTrackedSong(track(["v1", "ch", "v2", "ch", "end"], 1), ["v1", "ch", "new", "v2", "ch", "end"], norm("ch"), norm)!;
+  assert.equal(r.currentIdx, 1);
+});
+check("new chorus copy appended (counts differ) → 3 via neighbours", () => {
+  const r = refreshTrackedSong(track(["v1", "ch", "v2", "ch", "end"], 3), ["v1", "ch", "v2", "ch", "end", "ch"], norm("ch"), norm)!;
+  assert.equal(r.currentIdx, 3);
+});
+check("neighbours edited + insert at top (counts differ) → 4 via offset", () => {
+  const r = refreshTrackedSong(track(["v1", "ch", "v2", "ch", "end"], 3), ["ch", "v1x", "ch", "v2x", "ch", "endx"], norm("ch"), norm)!;
+  assert.equal(r.currentIdx, 4);
+});
+check("structural-edit hint (tracking cleared): 2nd chorus stays the 2nd after Add slide", () => {
+  const hint = { slides: ["v1", "ch", "v2", "ch", "end"], currentIdx: 3 };
+  assert.equal(relocateLyricIndex(hint.slides, hint.currentIdx, ["v1", "ch", "v2", "ch", "new", "end"], norm("ch"), norm), 3);
+  assert.equal(relocateLyricIndex(hint.slides, hint.currentIdx, ["added", "v1", "ch", "v2", "ch", "end"], norm("ch"), norm), 4);
+  assert.equal(relocateLyricIndex(hint.slides, hint.currentIdx, ["v1", "v2", "end"], norm("ch"), norm), -1);
+});
 check("live text edited away → null (caller re-searches, same as main's rebuild)", () => {
   assert.equal(refreshTrackedSong(track(["x", "y"], 1), ["x", "z"], norm("y"), norm), null);
 });

@@ -8,6 +8,51 @@
  * of the same live song can't re-project slide 1 during the fetch round-trip.
  */
 /**
+ * Relocate a tracked lyric slide after the song's slides changed (edit/insert/
+ * delete). Repeated choruses make text alone ambiguous, so:
+ *  (1) same copy count of the live text in old and fresh → keep the ordinal
+ *      (the k-th chorus stays the k-th chorus);
+ *  (2) otherwise score each fresh copy +1 per prev/next neighbour matching the
+ *      old neighbours;
+ *  (3) tie → nearest the expected index (shifted by the length delta when the
+ *      edit happened at/before the old index, via shared-prefix length); still
+ *      tied → the later copy.
+ * Returns -1 when the live text is no longer in the fresh slides.
+ */
+export function relocateLyricIndex(
+  oldSlides: string[],
+  oldIdx: number,
+  freshSlides: string[],
+  liveNorm: string,
+  normalize: (s: string) => string,
+): number {
+  const oldN = oldSlides.map(normalize);
+  const freshN = freshSlides.map(normalize);
+  const freshCopies: number[] = [];
+  freshN.forEach((t, i) => { if (t === liveNorm) freshCopies.push(i); });
+  if (freshCopies.length === 0) return -1;
+  const oldCopies: number[] = [];
+  oldN.forEach((t, i) => { if (t === liveNorm) oldCopies.push(i); });
+  const ordinal = oldCopies.indexOf(oldIdx);
+  if (ordinal >= 0 && oldCopies.length === freshCopies.length) return freshCopies[ordinal];
+  const oldPrev = oldN[oldIdx - 1];
+  const oldNext = oldN[oldIdx + 1];
+  let p = 0;
+  while (p < oldN.length && p < freshN.length && oldN[p] === freshN[p]) p++;
+  const expected = oldIdx >= p ? oldIdx + (freshN.length - oldN.length) : oldIdx;
+  let best = -1, bestScore = -1, bestDist = Infinity;
+  for (const c of freshCopies) {
+    const score = (freshN[c - 1] === oldPrev ? 1 : 0) + (freshN[c + 1] === oldNext ? 1 : 0);
+    const dist = Math.abs(c - expected);
+    // Iterating ascending, `<=` on distance ties lets the later copy win.
+    if (score > bestScore || (score === bestScore && dist <= bestDist)) {
+      best = c; bestScore = score; bestDist = dist;
+    }
+  }
+  return best;
+}
+
+/**
  * Refresh a kept live-song track against its (re)loaded cache entry. When the
  * cache holds a different slides list than the track (an edit re-fetched it),
  * swap in the NEW slides and recompute currentIdx for the live text nearest the
@@ -23,15 +68,7 @@ export function refreshTrackedSong<T extends { slides: string[]; currentIdx: num
   normalize: (s: string) => string,
 ): T | null {
   if (!freshSlides || freshSlides === live.slides) return live;
-  const norms = freshSlides.map(normalize);
-  const prev = live.currentIdx;
-  let idx = prev >= 0 && prev < norms.length && norms[prev] === liveNorm ? prev : -1;
-  if (idx < 0) {
-    for (let k = 0; k < norms.length; k++) {
-      if (norms[k] !== liveNorm) continue;
-      if (idx < 0 || Math.abs(k - prev) < Math.abs(idx - prev)) idx = k;
-    }
-  }
+  const idx = relocateLyricIndex(live.slides, live.currentIdx, freshSlides, liveNorm, normalize);
   if (idx < 0) return null;
   return { ...live, slides: freshSlides, currentIdx: idx };
 }
