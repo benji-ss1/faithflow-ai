@@ -66,7 +66,7 @@ export const users = pgTable("users", {
 export const authTokens = pgTable("auth_tokens", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
-  kind: text("kind").notNull(), // "verify_email" | "password_reset"
+  kind: text("kind").notNull(), // "verify_email" | "password_reset" | "device_link" | "device_pair"
   tokenHash: text("token_hash").notNull(),
   expiresAt: timestamp("expires_at").notNull(),
   usedAt: timestamp("used_at"),

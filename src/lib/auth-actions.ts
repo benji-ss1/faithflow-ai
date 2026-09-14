@@ -5,7 +5,7 @@ import { timingSafeEqual } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { getDb } from "./db/client";
 import { users } from "./db/schema";
-import { issueAuthToken, consumeAuthToken } from "./auth-tokens";
+import { issueAuthToken, consumeAuthToken, invalidateUserTokens } from "./auth-tokens";
 import { sendVerificationEmail, sendPasswordResetEmail } from "./email";
 import { createLimiter } from "./rate-limit";
 
@@ -144,6 +144,9 @@ export async function resetPassword(token: string, newPassword: string): Promise
   const db = getDb();
   const passwordHash = await bcrypt.hash(newPassword, 12);
   await db.update(users).set({ passwordHash }).where(eq(users.id, userId));
+  // A password reset revokes any outstanding desktop sign-in links / pairing
+  // approvals so a link minted before the reset can't open a session after it.
+  await invalidateUserTokens(userId, ["device_link", "device_pair"]).catch(() => { /* best-effort */ });
   return { ok: true };
 }
 
