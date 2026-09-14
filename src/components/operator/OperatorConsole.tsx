@@ -58,6 +58,7 @@ import { useProjectionZoneStore } from "@/lib/projection-zone-store";
 import { normalizeZone, DEFAULT_ZONE, type ProjectionZone } from "@/lib/projection-zone";
 import { ZoneEditor } from "./zone/ZoneEditor";
 import { useShell } from "@/hooks/useShell";
+import { publishSongLibrary } from "@/lib/song-lyric-search-store";
 
 type Cursor = { itemIdx: number; slideIdx: number };
 
@@ -1030,6 +1031,9 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
         if (nextSig === songLibSigRef.current) return; // unchanged — skip rebuild
         songLibSigRef.current = nextSig;
         setSongLibrary(next);
+        // Share with the Songs search bar + Cmd+K lyric search (no second fetch;
+        // index is built lazily on first keystroke). Read-only for detection.
+        publishSongLibrary(next);
       }).catch(() => { /* non-fatal */ });
     };
     load();

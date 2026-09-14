@@ -3942,7 +3942,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     const handler = (e: Event) => {
       const d = (e as CustomEvent<SongSelection>).detail;
       if (!d || !d.id) return;
-      setOpenSong({ id: d.id, title: d.title, artist: d.artist ?? null });
+      setOpenSong({
+        id: d.id, title: d.title, artist: d.artist ?? null,
+        ...(typeof d.slideOrder === "number" ? { slideOrder: d.slideOrder } : {}),
+      });
       setCenterMode("songs");
     };
     window.addEventListener(SONG_OPEN_EVENT, handler);
