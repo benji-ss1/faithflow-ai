@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { users } from "./db/schema";
 import { consumeAuthToken } from "./auth-tokens";
-import { InvalidCredentialsError, RateLimitedError, chargeLoginAttempt, refundLoginSuccess } from "./login-guard";
+import { InvalidCredentialsError, RateLimitedError, chargeLoginAttempt, clientIpFromHeaders, refundLoginSuccess } from "./login-guard";
 
 // H1 brute-force protection lives in login-guard.ts (per-IP 30, per-email 5,
 // per-IP+email 5, charge-first, success refunds/clears).
@@ -17,9 +17,8 @@ import { InvalidCredentialsError, RateLimitedError, chargeLoginAttempt, refundLo
 const DUMMY_BCRYPT = "$2a$12$335D5UVYbxdTi0LCoKd1IuRaLuMq1vlTRH76Bzn/r2n6/LgEVSIgW";
 
 function extractIp(request: Request | undefined): string {
-  const h = request?.headers;
-  if (!h) return "unknown";
-  return h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "unknown";
+  // x-vercel-forwarded-for → x-real-ip → first x-forwarded-for → "unknown".
+  return clientIpFromHeaders(request?.headers);
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -32,6 +31,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!creds?.email || !creds?.password) return null;
         const email = String(creds.email).toLowerCase().trim();
         const ip = extractIp(request);
+        // Oversized input: reject BEFORE charging so junk can't grow the map
+        // (RFC 5321 max address 254; bcrypt only reads 72 bytes anyway).
+        if (email.length > 254 || String(creds.password).length > 1024) throw new InvalidCredentialsError();
 
         // CHARGE-FIRST: synchronous check-and-increment of all three buckets
         // BEFORE any await (DB/bcrypt), so parallel requests can't all pass

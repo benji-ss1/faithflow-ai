@@ -30,8 +30,44 @@ export const LOGIN_IP_EMAIL_LIMIT = 5;
 
 type Hit = { count: number; resetAt: number };
 const hits = new Map<string, Hit>();
+// Hard memory bound: oldest-first eviction via Map insertion order. Touched
+// keys (charged or hit-while-locked) are re-inserted at the tail, so an
+// actively-attacked account stays in the map during a random-key flood.
+export const LOGIN_MAX_KEYS = 20_000;
+const SWEEP_EVERY_MS = 30_000;
+let lastSweep = 0;
 
-const keysFor = (ip: string, email: string) =>
+/** Pure: pick the client IP from proxy headers (Vercel first). */
+export function clientIpFromHeaders(h: { get(name: string): string | null } | undefined): string {
+  if (!h) return "unknown";
+  return (
+    h.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() ||
+    h.get("x-real-ip")?.trim() ||
+    h.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    "unknown"
+  );
+}
+
+/** IPv4 unchanged; IPv4-mapped IPv6 → IPv4; other IPv6 → its /64 prefix. */
+export function normalizeIp(raw: string): string {
+  let ip = raw.trim().toLowerCase().replace(/^\[|\]$/g, "").split("%")[0];
+  if (!ip.includes(":")) return ip;
+  const mapped = /^(?:0*:)*:?(?:0*:)*ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(ip);
+  if (mapped) return mapped[1];
+  const v4tail = /(\d{1,3}(?:\.\d{1,3}){3})$/.exec(ip);
+  if (v4tail) { // embedded dotted quad → two hex groups
+    const [a, b, c, d] = v4tail[1].split(".").map(Number);
+    ip = ip.slice(0, -v4tail[1].length) + ((a << 8) | b).toString(16) + ":" + ((c << 8) | d).toString(16);
+  }
+  const [head, tail] = ip.split("::");
+  const hg = head ? head.split(":") : [];
+  const tg = tail !== undefined && tail ? tail.split(":") : [];
+  const groups = ip.includes("::") ? [...hg, ...Array(Math.max(0, 8 - hg.length - tg.length)).fill("0"), ...tg] : hg;
+  if (groups.length !== 8 || groups.some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return ip; // not valid v6: keep as-is
+  return groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":") + "::/64";
+}
+
+const keysFor = (rawIp: string, email: string, ip = normalizeIp(rawIp)) =>
   [
     [`ip:${ip}`, LOGIN_IP_LIMIT],
     [`email:${email}`, LOGIN_EMAIL_LIMIT],
@@ -41,6 +77,7 @@ const keysFor = (ip: string, email: string) =>
 function live(key: string, now: number): Hit | undefined {
   const h = hits.get(key);
   if (h && h.resetAt < now) { hits.delete(key); return undefined; }
+  if (h) { hits.delete(key); hits.set(key, h); } // touch → tail (O(1))
   return h;
 }
 
@@ -61,11 +98,22 @@ export function chargeLoginAttempt(ip: string, email: string): number | null {
   const now = Date.now();
   const locked = lockedMinutes(ip, email, now);
   if (locked !== null) return locked;
-  if (hits.size > 50_000) for (const [k, h] of hits) if (h.resetAt < now) hits.delete(k);
+  if (now - lastSweep >= SWEEP_EVERY_MS) { // expired sweep ≤ once per 30s (amortised O(1))
+    lastSweep = now;
+    for (const [k, h] of hits) if (h.resetAt < now) hits.delete(k);
+  }
   for (const [key] of keysFor(ip, email)) {
     const h = live(key, now);
     if (h) h.count++;
-    else hits.set(key, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+    else {
+      // Batch-evict the oldest 10% with ONE iterator: repeated keys().next()
+      // after head deletes re-walks V8's tombstones (O(n) per call).
+      if (hits.size >= LOGIN_MAX_KEYS) {
+        let n = LOGIN_MAX_KEYS / 10;
+        for (const k of hits.keys()) { hits.delete(k); if (--n <= 0) break; }
+      }
+      hits.set(key, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+    }
   }
   return null;
 }
@@ -74,6 +122,9 @@ export function chargeLoginAttempt(ip: string, email: string): number | null {
 export function loginLockedFor(ip: string, email: string): number | null {
   return lockedMinutes(ip, email, Date.now());
 }
+
+/** Test/diagnostic: current number of tracked keys. */
+export function loginGuardSize(): number { return hits.size; }
 
 /** Successful sign-in: clear email + IP+email; refund this attempt's IP charge only. */
 export function refundLoginSuccess(ip: string, email: string): void {

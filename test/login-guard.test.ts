@@ -7,6 +7,7 @@ import {
   LOGIN_IP_LIMIT, LOGIN_EMAIL_LIMIT, LOGIN_IP_EMAIL_LIMIT,
   chargeLoginAttempt, loginLockedFor, refundLoginSuccess,
   InvalidCredentialsError, RateLimitedError,
+  LOGIN_MAX_KEYS, loginGuardSize, normalizeIp, clientIpFromHeaders,
 } from "../src/lib/login-guard";
 import { signInErrorMessage, normalizeEmail } from "../src/lib/auth-error-message";
 import { CredentialsSignin } from "next-auth";
@@ -124,6 +125,54 @@ async function attempt(ip: string, email: string, correct: boolean) {
 
   await check("normalizeEmail trims + lowercases", () => {
     assert.equal(normalizeEmail("  Pastor@Church.ORG \n"), "pastor@church.org");
+  });
+
+  await check("IPv6 → /64, IPv4-mapped → IPv4, IPv4 unchanged", async () => {
+    assert.equal(normalizeIp("1.2.3.4"), "1.2.3.4");
+    assert.equal(normalizeIp("::ffff:1.2.3.4"), "1.2.3.4");
+    assert.equal(normalizeIp("[::FFFF:10.0.0.9]"), "10.0.0.9");
+    assert.equal(normalizeIp("2001:db8:1:2:aaaa:bbbb:cccc:dddd"), "2001:db8:1:2::/64");
+    assert.equal(normalizeIp("2001:0db8:0001:0002::1"), "2001:db8:1:2::/64");
+    assert.equal(normalizeIp("2001:db8::1"), "2001:db8:0:0::/64");
+    assert.equal(normalizeIp("fe80::1%eth0"), "fe80:0:0:0::/64");
+    assert.equal(normalizeIp("unknown"), "unknown");
+    // rotating the interface id within one /64 shares the per-IP+email bucket
+    for (let i = 0; i < 5; i++) await attempt(`2001:db8:9:9::${i + 1}`, "v6@x.org", false);
+    assert.notEqual(loginLockedFor("2001:db8:9:9::abcd", "v6@x.org"), null);
+    for (let i = 0; i < 30; i++) await attempt(`2001:db8:7:7::${i + 1}`, `v6i${i}@x.org`, false);
+    assert.notEqual(loginLockedFor("2001:db8:7:7::beef", "fresh@x.org"), null, "per-IP bucket is /64-wide");
+    assert.equal(loginLockedFor("2001:db8:7:8::1", "fresh@x.org"), null, "other /64 unaffected");
+  });
+
+  await check("client IP header precedence: vercel → real-ip → first xff → unknown", () => {
+    const H = (o: Record<string, string>) => new Headers(o);
+    assert.equal(clientIpFromHeaders(H({ "x-vercel-forwarded-for": "1.1.1.1", "x-real-ip": "2.2.2.2", "x-forwarded-for": "3.3.3.3, 4.4.4.4" })), "1.1.1.1");
+    assert.equal(clientIpFromHeaders(H({ "x-real-ip": "2.2.2.2", "x-forwarded-for": "3.3.3.3" })), "2.2.2.2");
+    assert.equal(clientIpFromHeaders(H({ "x-forwarded-for": " 3.3.3.3 , 4.4.4.4" })), "3.3.3.3");
+    assert.equal(clientIpFromHeaders(H({})), "unknown");
+    assert.equal(clientIpFromHeaders(undefined), "unknown");
+  });
+
+  await check("oversized email/password rejected before charging", () => {
+    const src = readFileSync(new URL("../src/lib/auth.ts", import.meta.url), "utf8");
+    const g = src.indexOf("email.length > 254 || String(creds.password).length > 1024) throw new InvalidCredentialsError()");
+    const k = src.indexOf("chargeLoginAttempt(ip, email)");
+    assert.ok(g > 0 && k > g, "length guard must precede the charge");
+  });
+
+  await check("100k random-key flood: map capped, O(1) per attempt, targeted account still limited", async () => {
+    let checked = 0;
+    for (let i = 0; i < 100_000; i++) {
+      chargeLoginAttempt(`f${i}.${(Math.random() * 1e9) | 0}`, `r${(Math.random() * 1e9) | 0}@x`);
+      if (i % 5000 === 0 && chargeLoginAttempt(`t${i}`, "target@x.org") === null) checked++;
+      assert.ok(loginGuardSize() <= LOGIN_MAX_KEYS);
+    }
+    assert.equal(checked, 5, `targeted account checked ${checked}x`);
+    assert.ok(loginGuardSize() <= LOGIN_MAX_KEYS);
+    const t = performance.now();
+    for (let i = 0; i < 1000; i++) chargeLoginAttempt(`z${i}`, `zz${i}@x`);
+    const ms = performance.now() - t;
+    assert.ok(ms < 50, `1000 attempts took ${ms.toFixed(1)}ms`);
   });
 
   console.log(`\n${pass} pass, ${fail} fail`);
