@@ -1,5 +1,5 @@
 "use client";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
@@ -7,6 +7,8 @@ import { toast } from "sonner";
 import { requestPasswordReset, signUp } from "@/lib/auth-actions";
 import { normalizeEmail, signInErrorMessage } from "@/lib/auth-error-message";
 import { PfAuthScene } from "@/components/auth/PfAuthScene";
+import { DesktopPairPanel, isDesktopShellClient } from "@/components/auth/DesktopPairPanel";
+import { logAuthEvent } from "@/lib/auth-telemetry";
 
 /**
  * Unified auth screen — one place for a church to either SIGN IN (returning) or
@@ -38,11 +40,17 @@ function segBtnStyle(active: boolean): React.CSSProperties {
   };
 }
 
-function AuthInner({ initialMode }: { initialMode: Mode }) {
+function AuthInner({ initialMode, isDesktop = false }: { initialMode: Mode; isDesktop?: boolean }) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const nextParam = searchParams.get("next");
   const reason = searchParams.get("reason");
+  const [desktop, setDesktop] = useState(isDesktop);
+  useEffect(() => { if (!isDesktop && isDesktopShellClient()) setDesktop(true); }, [isDesktop]);
+  // Make real sign-out causes measurable (session_expired, device_link_invalid…).
+  useEffect(() => {
+    if (reason) logAuthEvent(`signed_out:${reason.slice(0, 40)}`, { next: nextParam?.slice(0, 120) ?? null, desktop: isDesktop });
+  }, [reason, nextParam, isDesktop]);
 
   const [mode, setMode] = useState<Mode>(initialMode);
   // shared
@@ -146,8 +154,10 @@ function AuthInner({ initialMode }: { initialMode: Mode }) {
               <div className="banner" role="status">You were signed out. Sign back in to return to your live plan.</div>
             )}
             {reason === "device_link_invalid" && (
-              <div className="banner" role="status">That desktop sign-in link expired or was already used. Open PresentFlow again from the desktop app for a fresh one.</div>
+              <div className="banner" role="status">That desktop sign-in link expired or was already used. Use &ldquo;Continue with the account you signed into on the web&rdquo; below, or sign in with your email and password.</div>
             )}
+
+            {desktop && <DesktopPairPanel />}
 
             <form onSubmit={onSignIn}>
               <div className="field">
@@ -239,10 +249,10 @@ function AuthInner({ initialMode }: { initialMode: Mode }) {
   );
 }
 
-export function UnifiedAuth({ initialMode }: { initialMode: Mode }) {
+export function UnifiedAuth({ initialMode, isDesktop = false }: { initialMode: Mode; isDesktop?: boolean }) {
   return (
     <Suspense fallback={null}>
-      <AuthInner initialMode={initialMode} />
+      <AuthInner initialMode={initialMode} isDesktop={isDesktop} />
     </Suspense>
   );
 }

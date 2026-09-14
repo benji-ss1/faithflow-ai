@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { mintDeviceLinkToken } from "@/lib/device-link-actions";
 import {
   DESKTOP_DOWNLOAD_ARM64_URL,
   DESKTOP_DOWNLOAD_X64_URL,
@@ -24,8 +25,9 @@ const INITIAL_URLS: DesktopDownloadUrls = {
  * Shared desktop-download UI — used by the onboarding download step and the
  * Settings download page. Auto-detects the operator's OS so the right installer
  * (Windows .exe or macOS .dmg) is the big primary button; the rest are tucked
- * under "Other computers". `deepLinkHref` is a fresh 5-min single-use token
- * minted server-side; the deep-link auto-sign-in works on Windows AND macOS.
+ * under "Other computers". "Open PresentFlow" mints a fresh single-use 20-min
+ * device-link token ON CLICK (server action) — never embedded in page HTML;
+ * the deep-link auto-sign-in works on Windows AND macOS.
  *
  * Download links auto-track whatever was most recently published to GitHub
  * Releases (`resolveDesktopDownloadUrls`) — cutting + publishing a new
@@ -34,7 +36,7 @@ const INITIAL_URLS: DesktopDownloadUrls = {
  * manual bump) so there's never a blank/broken link while the live lookup
  * runs, then swaps in the live URLs once resolved.
  */
-export function DesktopDownloadPanel({ deepLinkHref, showSkipLink = true }: { deepLinkHref: string | null; showSkipLink?: boolean }) {
+export function DesktopDownloadPanel({ showSkipLink = true }: { showSkipLink?: boolean }) {
   const [os, setOs] = useState<OS | null>(null);
   const [urls, setUrls] = useState<DesktopDownloadUrls>(INITIAL_URLS);
 
@@ -118,23 +120,7 @@ export function DesktopDownloadPanel({ deepLinkHref, showSkipLink = true }: { de
         )
       ))}
 
-      {deepLinkHref ? (
-        <>
-          <a href={deepLinkHref} style={{ display: "inline-block", padding: "12px 28px", borderRadius: 10, background: "linear-gradient(90deg,#ffb861,#e8501a)", color: "#0a0a0a", fontWeight: 600, fontSize: 15, textDecoration: "none", marginBottom: 12 }}>
-            Downloaded? Open PresentFlow — you&apos;ll be signed in automatically
-          </a>
-          <div style={{ opacity: 0.55, fontSize: 12, marginBottom: showSkipLink ? 32 : 0 }}>
-            This link expires in 5 minutes and only works once — refresh this page for a new one if it&apos;s stale.
-            <br />
-            First time installing? Open the downloaded app once manually first (you&apos;ll see a normal sign-in screen) — that
-            one launch is what lets your computer recognize this link afterward. From then on, this button signs you in automatically.
-          </div>
-        </>
-      ) : (
-        <div style={{ opacity: 0.6, fontSize: 13, marginBottom: showSkipLink ? 32 : 0 }}>
-          On first launch, sign in with the account you just created. Your church data will sync automatically.
-        </div>
-      )}
+      <OpenDesktopButton showSkipLink={showSkipLink} />
     </div>
   );
 }
@@ -159,5 +145,34 @@ function DownloadCard({ platform, href, hint, primary, detected }: { platform: s
       <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>Download for {platform}</div>
       <div style={{ fontSize: 12, opacity: primary ? 0.8 : 0.65 }}>{hint}</div>
     </a>
+  );
+}
+
+function OpenDesktopButton({ showSkipLink }: { showSkipLink: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const open = async () => {
+    setBusy(true);
+    try {
+      const res = await mintDeviceLinkToken();
+      if (!res.ok) { toast.error(res.error); return; }
+      window.location.href = `presentflow://auth?token=${encodeURIComponent(res.token)}`;
+    } catch {
+      toast.error("Couldn't create a sign-in link. Open the app and choose \u201cContinue with the account you signed into on the web\u201d instead.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <button type="button" onClick={open} disabled={busy} style={{ display: "inline-block", padding: "12px 28px", borderRadius: 10, border: 0, background: "linear-gradient(90deg,#ffb861,#e8501a)", color: "#0a0a0a", fontWeight: 600, fontSize: 15, cursor: "pointer", marginBottom: 12 }}>
+        {busy ? "Opening PresentFlow\u2026" : "Downloaded? Open PresentFlow \u2014 you\u2019ll be signed in automatically"}
+      </button>
+      <div style={{ opacity: 0.55, fontSize: 12, marginBottom: showSkipLink ? 32 : 0 }}>
+        Each click makes a fresh one-time link (valid 20 minutes).
+        <br />
+        App didn&apos;t open, or you&apos;re on a different computer? Open the app and choose
+        {" "}<strong>Continue with the account you signed into on the web</strong> {"\u2014"} no password needed.
+      </div>
+    </>
   );
 }

@@ -17,7 +17,6 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { RecentUpdatesPanel } from "@/components/dashboard/RecentUpdatesPanel";
 import { ServiceReadinessPanel, type PrepItem } from "@/components/dashboard/ServiceReadinessPanel";
 import { DesktopDownloadPanel } from "@/components/settings/DesktopDownloadPanel";
-import { mintDeviceLinkToken } from "@/lib/device-link-actions";
 
 export default async function DashboardPage() {
   // Belt-and-braces: middleware already redirects desktop-shell users away
@@ -49,12 +48,6 @@ export default async function DashboardPage() {
       .innerJoin(servicePlans, eq(aiSuggestions.servicePlanId, servicePlans.id))
       .where(eq(servicePlans.churchId, user.churchId)),
   ]);
-
-  // Desktop-app download for this dashboard card. Minted fresh (5-min TTL) so
-  // the church can one-click auto-login into the desktop app. Best-effort — a
-  // failure just renders the download buttons without the auto-login deep link.
-  const deviceLink = await mintDeviceLinkToken().catch(() => null);
-  const deepLinkHref = deviceLink?.ok ? `presentflow://auth?token=${encodeURIComponent(deviceLink.token)}` : null;
 
   const churchSuggestions = suggestionRows.filter((row) => plans.some((plan) => plan.id === row.servicePlanId));
   const sortedUpcomingPlans = [...plans]
@@ -142,7 +135,7 @@ export default async function DashboardPage() {
           display, and real-time AI detection — from the PresentFlow desktop app on your church computer. Available for
           Windows and Mac.
         </p>
-        <DesktopDownloadPanel deepLinkHref={deepLinkHref} showSkipLink={false} />
+        <DesktopDownloadPanel showSkipLink={false} />
       </section>
 
     </div>
