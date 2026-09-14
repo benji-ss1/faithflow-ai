@@ -95,27 +95,39 @@ check("no verse context → next_verse does NOT fire", () => {
 });
 
 // ── (4) 2026-09-14: command-TAIL word count (lead-ins no longer drop commands) ─
-const tailCount = (t: string) => navCommandWordCount(t, parseContextCommand(t, VERSE_CTX)?.matchedText);
+// Mirrors the shell's full gate: relative nav, conf ≥70, count ≤5.
+const REL = new Set(["next_verse", "continue", "prev_verse", "back"]);
+const fires = (t: string) => {
+  const c = parseContextCommand(t, VERSE_CTX);
+  return !!c && REL.has(c.verb) && c.confidence >= 70 && navCommandWordCount(t, c) <= 5;
+};
 for (const t of [
   "Amen church can we go to next verse please",
+  "Amen can we go to the next verse please",
   "John chapter 3 verse 16, can we go to next verse please",
-  "could we go to the next verse",
-  "would we go to next verse please",
+  "John chapter 3 verse 16 can we go to next verse please",
+  "John chapter 3 verse 16 next verse please",
+  "are you there can we go to the next verse",
   "let us go to the next verse",
-  "can I go to next verse please",
+  "could we go back a verse please",
   "next verse",
 ]) {
-  check(`tail count '${t}' ≤5 (fires)`, () => {
-    assert.ok(parseContextCommand(t, VERSE_CTX)?.verb === "next_verse", "parses next_verse");
-    assert.ok(tailCount(t) <= 5, `got ${tailCount(t)}`);
-  });
+  check(`FIRES: '${t}'`, () => assert.ok(fires(t)));
 }
-check("narration 'we're gonna see this in the next verse' still BLOCKED (>5)", () => {
-  assert.ok(tailCount("we're gonna see this in the next verse") > 5, `got ${tailCount("we're gonna see this in the next verse")}`);
-});
-check("clause-broken narration 'In chapter 4, the next verse tells us God is love' still BLOCKED", () => {
-  assert.ok(tailCount("In chapter 4, the next verse tells us God is love") > 5);
-});
+for (const t of [
+  "we're gonna see this in the next verse",
+  "In chapter 4, the next verse tells us God is love",
+  "let us go back to the beginning",
+  "Amen, let us go back to our text",
+  "can I go back to my story",
+  "can I tell you something next verse",
+  "ushers please go back to your stations",
+  "Jesus said go on and sin no more. next verse tells us",
+  "Many of you have fallen away and God is saying, go back",
+  "I want us to see. Continue reading",
+]) {
+  check(`does NOT fire: '${t}'`, () => assert.ok(!fires(t)));
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

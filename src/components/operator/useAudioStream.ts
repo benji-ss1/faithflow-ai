@@ -3,7 +3,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { detectAll, SuggestionDedupe, WORSHIP_SCRIPTURE_CAP, type DetectAllResult } from "@/lib/ai-detection";
 import { parseBareVerse, parseBookVerseOnly, isValidChapter } from "@/lib/bible-parser";
 import { buildIndex, type IndexedSong, type SongIndex } from "@/lib/ai-detection/lyric-fragment";
-import { parseContextCommand } from "@/lib/context-parser";
 import type { SongMatchResult } from "@/lib/ai-detection/song-match";
 import { matchCustomCommand, readCustomCommands, readAudioInputPref, audioConstraintsFor, AUDIO_SOURCE_TYPE_KEY } from "@/lib/voice-commands";
 import { detectTranslationSwitch } from "@/lib/translation-commands";
@@ -422,10 +421,6 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       return;
     }
 
-    const relNavCmd = parseContextCommand(text, { hasVerseContext: true, hasSlideContext: false, hasSongContext: false });
-    const utteranceIsRelNav = !!relNavCmd && relNavCmd.confidence >= 70 &&
-      (relNavCmd.verb === "next_verse" || relNavCmd.verb === "continue" || relNavCmd.verb === "prev_verse" || relNavCmd.verb === "back");
-
     // Bare "verse 11" / "what does verse 7 say" — no book or chapter spoken
     // at all. Only meaningful once a passage is already active (see
     // lastActiveRefRef above), and only as a fallback when the parser found
@@ -592,10 +587,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
       // the back-and-forth stops auto-projecting after the first swap.
       // Auto-fire's other guards (AUTO toggle, min-gap, different-live-ref
       // check) keep this from spamming.
-      // 2026-09-14 verse-bounce fix: a growing interim "John 3:16 next verse"
-      // re-parses the origin ref; don't let that restatement force-live it
-      // (and bypass dedupe) -- the utterance is a relative-nav command.
-      const forceLive = occurrenceCount >= 2 && trustworthyForContext && !utteranceIsRelNav;
+      const forceLive = occurrenceCount >= 2 && trustworthyForContext;
       // fromInterim: only delay auto-fire when the verse number could be a
       // partial digit that Deepgram hasn't finished transcribing yet.
       // Verse ≥ 10: two digits already spoken — safe to fire from interim

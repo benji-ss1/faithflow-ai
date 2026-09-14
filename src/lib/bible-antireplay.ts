@@ -135,6 +135,8 @@ export type BibleAntiReplayDecision = {
     | "fire:voice-command-bypass"
     | "suppress:already-live"
     | "suppress:nav-origin";
+  /** true iff the suggestion must be marked handled (never re-evaluated). */
+  markHandled?: boolean;
 };
 
 /**
@@ -162,7 +164,9 @@ export function decideBibleAutoFire(input: BibleAntiReplayInput): BibleAntiRepla
   // VERSE-BOUNCE FIX (2026-09-14): a late/echoed detection of the verse voice
   // nav just moved AWAY from must not yank the projector back to it.
   if (navOriginSuppressed(input.navOrigin, input.target, input.liveText, input.now)) {
-    return { suppress: true, reason: "suppress:nav-origin" };
+    // markHandled (#6): the caller must mark this suggestion handled so the
+    // held origin can't fire later when the window lapses / liveSlide changes.
+    return { suppress: true, reason: "suppress:nav-origin", markHandled: true };
   }
   // A DIFFERENT reference (or non-scripture) is live → this is a genuine content
   // change / swap-back. Fire IMMEDIATELY — no cooldown gate, so a fast bounce
@@ -181,12 +185,35 @@ export function decideBibleAutoFire(input: BibleAntiReplayInput): BibleAntiRepla
   return { suppress: true, reason: "suppress:already-live" };
 }
 
-/** A voice-nav hop that actually projected: fromRef was live, toRef replaced it. */
+type Ref = { book: string; chapter: number; verseStart: number; verseEnd: number };
+/**
+ * A voice-nav CHAIN that actually projected: every ref left behind (fromRefs)
+ * in consecutive hops, the ref now live (toRef), and the last hop's ts (the
+ * window extends on each hop). 16→17→18 holds a late 16 AND 17.
+ */
 export type NavOrigin = {
-  fromRef: { book: string; chapter: number; verseStart: number; verseEnd: number };
-  toRef: { book: string; chapter: number; verseStart: number; verseEnd: number };
+  fromRefs: Ref[];
+  toRef: Ref;
   ts: number;
 };
+
+/**
+ * Pure: record a projected voice-nav hop from → to. Continues the chain when
+ * the previous hop is still in-window and `from` is where it landed; otherwise
+ * starts fresh. The ref now live is never in the held set (going back to it).
+ */
+export function extendNavOrigin(
+  prev: NavOrigin | null | undefined,
+  from: Ref,
+  to: Ref,
+  now: number,
+  windowMs: number = NAV_ORIGIN_WINDOW_MS,
+): NavOrigin {
+  const chained = !!prev && now - prev.ts >= 0 && now - prev.ts < windowMs && sameRef(prev.toRef, from);
+  const base = chained ? prev!.fromRefs : [];
+  const fromRefs = [...base.filter((r) => !sameRef(r, from)), from].filter((r) => !sameRef(r, to));
+  return { fromRefs, toRef: to, ts: now };
+}
 export const NAV_ORIGIN_WINDOW_MS = 8_000;
 
 const normBook = (b: string) => b.toLowerCase().replace(/\s+/g, " ").trim();
@@ -215,7 +242,22 @@ export function navOriginSuppressed(
 ): boolean {
   if (!nav) return false;
   if (now - nav.ts >= windowMs || now < nav.ts) return false;
-  if (!sameRef(nav.fromRef, target)) return false;
+  if (!nav.fromRefs.some((r) => sameRef(r, target))) return false;
   const live = parseLiveScriptureRef(liveText);
   return !!live && sameRef(live, nav.toRef);
+}
+
+/**
+ * Pure (#8): should a detection's forceLive (restatement) flag be ignored?
+ * Only when its ref is ALREADY live or is held by the voice-nav chain — so
+ * "go back to Matthew 5:5" (a different, non-origin ref) still restates and
+ * swaps back.
+ */
+export function shouldDropForceLive(
+  target: Ref,
+  liveText: string | null | undefined,
+  nav: NavOrigin | null | undefined,
+  now: number,
+): boolean {
+  return !isDifferentRefLive(liveText, target) || navOriginSuppressed(nav, target, liveText, now);
 }
