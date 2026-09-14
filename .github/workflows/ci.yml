@@ -31,6 +31,8 @@ jobs:
   changes:
     name: What's New entry (changes/*.md)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,13 +42,15 @@ jobs:
         with:
           node-version: "22"
 
-      # Fails when src/ changed without a changes/<slug>.md or a
-      # "no-user-change" marker, or when changelog.generated.ts is stale.
-      # See changes/README.md.
+      # Fails when src/ changed without a valid changes/<slug>.md or a
+      # "no-user-change" marker (own line / PR label), when a newly added
+      # note's version isn't above the merge base's newest, or when
+      # changelog.generated.ts is stale. See changes/README.md.
       - name: Check changes entry
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
         run: npm run check:changes
 
   lint:

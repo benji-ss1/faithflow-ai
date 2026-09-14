@@ -1,5 +1,5 @@
-// Pure helpers for scripts/build-changelog.mjs (importable from tests).
-// No dependencies — a tiny frontmatter parser covers the changes/*.md format.
+// Pure helpers for scripts/build-changelog.mjs, scripts/new-change.mjs and
+// scripts/check-changes.mjs (importable from tests). No dependencies.
 
 export const AUDIENCES = ["operator", "admin"];
 
@@ -20,18 +20,32 @@ export function bumpPatch(v) {
   return p.join(".");
 }
 
+export function maxVersion(versions) {
+  let newest = "0.0.0";
+  for (const v of versions) if (v && cmpVersion(v, newest) > 0) newest = v;
+  return newest;
+}
+
 function unquote(s) {
   const t = s.trim();
   if (t.length >= 2 && ((t[0] === '"' && t.endsWith('"')) || (t[0] === "'" && t.endsWith("'")))) return t.slice(1, -1);
   return t;
 }
 
+export function isCalendarDate(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return false;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
+}
+
 /**
  * Parse one changes/<slug>.md file. Frontmatter (between --- lines):
  *   headline: text            (required)
+ *   version: 0.1.404          (required — the release it belongs to; never edit once released)
+ *   date: YYYY-MM-DD          (required, must be a real calendar date)
  *   audience: operator|admin  (optional, default operator)
- *   version: 0.1.404          (optional — pins the release this belongs to)
- *   date: YYYY-MM-DD          (optional)
  *   order: 1                  (optional — sort within a release; lowest first)
  *   highlights:               (optional list; defaults to [headline])
  *     - text
@@ -41,6 +55,7 @@ export function parseChangeFile(text, slug) {
   const m = /^﻿?---\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/.exec(text);
   if (!m) throw new Error(`changes/${slug}.md: missing --- frontmatter ---`);
   const out = { slug, headline: "", highlights: [], audience: "operator", version: undefined, date: undefined, order: undefined };
+  const seen = new Set();
   let inList = false;
   for (const raw of m[1].split(/\r?\n/)) {
     if (!raw.trim() || raw.trim().startsWith("#")) continue;
@@ -54,6 +69,8 @@ export function parseChangeFile(text, slug) {
     const kv = /^([a-zA-Z]+):\s*(.*)$/.exec(raw);
     if (!kv) throw new Error(`changes/${slug}.md: cannot parse line "${raw}"`);
     const [, key, value] = kv;
+    if (seen.has(key)) throw new Error(`changes/${slug}.md: duplicate key "${key}"`);
+    seen.add(key);
     inList = false;
     switch (key) {
       case "headline": out.headline = unquote(value); break;
@@ -66,56 +83,140 @@ export function parseChangeFile(text, slug) {
     }
   }
   if (!out.headline) throw new Error(`changes/${slug}.md: headline is required`);
+  if (!out.version) throw new Error(`changes/${slug}.md: version is required — create notes with \`npm run changes:new -- <slug>\``);
+  if (!/^\d+\.\d+\.\d+$/.test(out.version)) throw new Error(`changes/${slug}.md: version must look like 0.1.404`);
+  if (!out.date) throw new Error(`changes/${slug}.md: date is required (YYYY-MM-DD)`);
+  if (!isCalendarDate(out.date)) throw new Error(`changes/${slug}.md: date must be a real YYYY-MM-DD date (got "${out.date}")`);
   if (!AUDIENCES.includes(out.audience)) throw new Error(`changes/${slug}.md: audience must be one of ${AUDIENCES.join("|")}`);
-  if (out.version && !/^\d+\.\d+\.\d+$/.test(out.version)) throw new Error(`changes/${slug}.md: version must look like 0.1.404`);
-  if (out.date && !/^\d{4}-\d{2}-\d{2}$/.test(out.date)) throw new Error(`changes/${slug}.md: date must be YYYY-MM-DD`);
   if (out.order !== undefined && !Number.isFinite(out.order)) throw new Error(`changes/${slug}.md: order must be a number`);
   if (out.highlights.length === 0) out.highlights = [out.headline];
   return out;
 }
 
-/** Extract { version, headline } pairs from the curated src/lib/changelog.ts source. */
+/** Best-effort version sniff for files that may not fully parse (e.g. older formats). */
+export function sniffVersion(text) {
+  const m = /^version:\s*["']?(\d+\.\d+\.\d+)["']?\s*$/m.exec(String(text).replace(/\r/g, ""));
+  return m ? m[1] : undefined;
+}
+
+/**
+ * Extract { version, headline } from every entry object of the curated
+ * CHANGELOG_HISTORY array in src/lib/changelog.ts. String/comment-aware
+ * bracket scanner: only keys at the entry object's own top level count, in any
+ * field order (nested highlight objects are ignored).
+ */
 export function readHistory(source) {
+  const decl = /CHANGELOG_HISTORY[^=]*=\s*\[/.exec(source);
+  if (!decl) return [];
+  const n = source.length;
+  let i = decl.index + decl[0].length - 1; // at "["
+  let depth = 0;
+  let obj = null;
   const out = [];
-  const re = /version:\s*"([^"]+)",\s*\n\s*date:\s*"[^"]*",\s*\n\s*headline:\s*"((?:[^"\\]|\\.)*)"/g;
-  let m;
-  while ((m = re.exec(source))) out.push({ version: m[1], headline: JSON.parse(`"${m[2]}"`) });
+  const readString = (q) => {
+    let j = i + 1;
+    while (j < n && source[j] !== q) j += source[j] === "\\" ? 2 : 1;
+    const raw = source.slice(i + 1, j);
+    i = j + 1;
+    return raw;
+  };
+  while (i < n) {
+    const c = source[i];
+    if (c === "/" && source[i + 1] === "/") { const e = source.indexOf("\n", i); i = e < 0 ? n : e + 1; continue; }
+    if (c === "/" && source[i + 1] === "*") { const e = source.indexOf("*/", i + 2); i = e < 0 ? n : e + 2; continue; }
+    if (c === '"' || c === "'" || c === "`") { readString(c); continue; }
+    if (c === "[" || c === "{" || c === "(") {
+      depth++;
+      if (c === "{" && depth === 2) obj = {};
+      i++;
+      continue;
+    }
+    if (c === "]" || c === "}" || c === ")") {
+      if (c === "}" && depth === 2 && obj) {
+        if (obj.version !== undefined && obj.headline !== undefined) out.push({ version: obj.version, headline: obj.headline });
+        obj = null;
+      }
+      depth--;
+      i++;
+      if (depth === 0) break;
+      continue;
+    }
+    if (depth === 2 && obj && /[A-Za-z_$]/.test(c)) {
+      const key = /^[A-Za-z_$][\w$]*/.exec(source.slice(i, i + 64))[0];
+      i += key.length;
+      const sep = /^\s*:\s*/.exec(source.slice(i, i + 64));
+      if (sep && (key === "version" || key === "headline")) {
+        const q = source[i + sep[0].length];
+        if (q === '"' || q === "'") {
+          i += sep[0].length;
+          const raw = readString(q);
+          obj[key] = q === '"' ? JSON.parse(`"${raw}"`) : raw.replace(/\\(.)/g, "$1");
+        }
+      }
+      continue;
+    }
+    i++;
+  }
   return out;
 }
 
 /**
- * Group parsed changes into ChangelogEntry objects (newest-first).
- * - Changes whose headline already appears in history are skipped (already merged by hand).
- * - Unpinned changes go to the "next" release: package.json version if it is
- *   newer than everything known, else one patch past the newest known version.
- * - A pinned version that already exists in history (headline not merged) is an error.
+ * Soft check for the local build (CI enforces a stricter rule on NEW files in
+ * scripts/check-changes.mjs): a change pinned below the newest curated release.
  */
-export function buildEntries(changes, { pkgVersion, history, today }) {
-  const historyVersions = new Set(history.map((h) => h.version));
-  const historyHeadlines = new Set(history.map((h) => h.headline));
-  const pending = changes.filter((c) => !historyHeadlines.has(c.headline));
-  for (const c of pending) {
-    if (c.version && historyVersions.has(c.version)) {
-      throw new Error(`changes/${c.slug}.md: version ${c.version} already exists in src/lib/changelog.ts history — remove "version:" or merge it there`);
-    }
+export function historyWarnings(changes, history) {
+  const newest = maxVersion(history.map((h) => h.version));
+  const versions = new Set(history.map((h) => h.version));
+  return changes
+    .filter((c) => !versions.has(c.version) && cmpVersion(c.version, newest) < 0)
+    .map((c) => `changes/${c.slug}.md: version ${c.version} is lower than the newest release ${newest} — anyone who already saw ${newest} will never see it`);
+}
+
+/** The version a brand-new change note gets: one patch above everything known. */
+export function nextChangeVersion(history, changeVersions) {
+  return bumpPatch(maxVersion([...history.map((h) => h.version), ...changeVersions]));
+}
+
+/**
+ * Group parsed changes into ChangelogEntry objects (newest-first).
+ * - A change whose version AND headline match a history entry is skipped (hand-merged).
+ * - A change whose version exists in history with a different headline is an error.
+ * - A change whose headline is used by a DIFFERENT history version is an error.
+ */
+export function buildEntries(changes, { history }) {
+  const byVersion = new Map();
+  const headlineVersion = new Map();
+  for (const h of history) {
+    if (!byVersion.has(h.version)) byVersion.set(h.version, new Set());
+    byVersion.get(h.version).add(h.headline);
+    if (!headlineVersion.has(h.headline)) headlineVersion.set(h.headline, h.version);
   }
-  let newest = "0.0.0";
-  for (const v of [...historyVersions, ...pending.map((c) => c.version).filter(Boolean)]) if (cmpVersion(v, newest) > 0) newest = v;
-  const next = cmpVersion(pkgVersion, newest) > 0 ? pkgVersion : bumpPatch(newest);
+
+  const pending = [];
+  for (const c of changes) {
+    const hv = byVersion.get(c.version);
+    if (hv) {
+      if (hv.has(c.headline)) continue;
+      throw new Error(`changes/${c.slug}.md: version ${c.version} already exists in src/lib/changelog.ts history — give it a new version (npm run changes:new) or merge it there`);
+    }
+    if (headlineVersion.has(c.headline)) {
+      throw new Error(`changes/${c.slug}.md: headline already used by version ${headlineVersion.get(c.headline)} — write a distinct headline`);
+    }
+    pending.push(c);
+  }
 
   const groups = new Map();
   for (const c of pending) {
-    const v = c.version || next;
-    if (!groups.has(v)) groups.set(v, []);
-    groups.get(v).push(c);
+    if (!groups.has(c.version)) groups.set(c.version, []);
+    groups.get(c.version).push(c);
   }
   const entries = [];
   for (const [version, list] of groups) {
     list.sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity) || (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
-    const dates = list.map((c) => c.date).filter(Boolean).sort();
+    const dates = list.map((c) => c.date).sort();
     entries.push({
       version,
-      date: dates.length ? dates[dates.length - 1] : today,
+      date: dates[dates.length - 1],
       headline: list[0].headline,
       highlights: list.flatMap((c) => c.highlights),
     });

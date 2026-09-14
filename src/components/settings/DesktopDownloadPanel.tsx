@@ -58,11 +58,12 @@ export function DesktopDownloadPanel({ deepLinkHref, showSkipLink = true }: { de
     );
   };
 
-  // Windows AND macOS are both shown prominently, side by side — churches run
-  // both and Windows was previously buried behind a link. The detected OS gets
-  // only its ORDER (it leads) — no "this computer" badge: UA
-  // sniffing mislabelled cards for Windows users, and browsers can't tell Apple
-  // Silicon from Intel, so both Mac cards are presented equally.
+  // Windows AND macOS are both shown prominently as full cards — churches run
+  // both and Windows was previously buried behind a link. Detection only picks
+  // the ORDER: the Windows row leads when we detect Windows, otherwise (Mac or
+  // unknown) the Mac row leads. No "this computer" badge: UA sniffing
+  // mislabelled cards for Windows users, and browsers can't tell Apple Silicon
+  // from Intel, so both Mac cards are presented equally.
   const winCard = <DownloadCard key="win" platform="Windows" href={urls.winUrl} hint="Windows 10 / 11 · .exe installer" primary />;
   const macArm = <DownloadCard key="marm" platform="macOS (Apple Silicon)" href={urls.arm64Url} hint="M1 / M2 / M3 / M4 Macs" primary />;
   const macInt = <DownloadCard key="mint" platform="macOS (Intel)" href={urls.x64Url} hint="Older Intel Macs" primary />;

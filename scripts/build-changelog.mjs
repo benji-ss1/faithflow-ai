@@ -6,21 +6,20 @@
 import { readFileSync, readdirSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseChangeFile, readHistory, buildEntries, renderModule } from "./changelog-lib.mjs";
+import { parseChangeFile, readHistory, buildEntries, renderModule, historyWarnings } from "./changelog-lib.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const changesDir = join(root, "changes");
 const outFile = join(root, "src/lib/changelog.generated.ts");
 const check = process.argv.includes("--check");
 
-const pkgVersion = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
 const history = readHistory(readFileSync(join(root, "src/lib/changelog.ts"), "utf8"));
 const files = existsSync(changesDir)
   ? readdirSync(changesDir).filter((f) => f.endsWith(".md") && f.toLowerCase() !== "readme.md").sort()
   : [];
 const changes = files.map((f) => parseChangeFile(readFileSync(join(changesDir, f), "utf8"), f.replace(/\.md$/, "")));
-const today = new Date().toISOString().slice(0, 10);
-const entries = buildEntries(changes, { pkgVersion, history, today });
+for (const w of historyWarnings(changes, history)) console.warn(`[changelog] WARNING ${w}`);
+const entries = buildEntries(changes, { history });
 const next = renderModule(entries);
 const current = existsSync(outFile) ? readFileSync(outFile, "utf8") : "";
 

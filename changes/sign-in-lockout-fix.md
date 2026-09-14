@@ -1,6 +1,7 @@
 ---
 headline: Signing in is more reliable — no more whole-church lockouts
 audience: operator
+version: 0.1.404
 date: 2026-09-14
 highlights:
   - Fixed: if a password is typed wrong, the sign-in page now tells you clearly what happened and when you can try again, instead of a vague error.
