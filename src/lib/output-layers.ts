@@ -120,7 +120,12 @@ export function rebuildOverridesFromSnapshot(
   layers: LayerWire[] | undefined | null,
   opts?: { snapEpoch?: number; epochRef?: EpochRef },
 ): LayerWire[] {
-  const snap = layers ?? [];
+  // Array.isArray guard: a malformed wire snapshot (e.g. layers: 42) must not
+  // throw inside the receiver — treat it as "no overrides".
+  // Entries that aren't objects with a string id (null, 7, …) are dropped too.
+  const snap: LayerWire[] = Array.isArray(layers)
+    ? layers.filter((l): l is LayerWire => !!l && typeof l === "object" && typeof (l as { id?: unknown }).id === "string")
+    : [];
   // ── Origin-epoch authority (Y1b) ─────────────────────────────────────────
   // The epoch identifies the operator TAB that produced this snapshot. When it
   // is present we can make a snapshot from a NEWER tab authoritative even if it

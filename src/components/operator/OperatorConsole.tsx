@@ -766,6 +766,12 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   // pipeline re-applies the CURRENT church layout, so a full↔third toggle can
   // update the slide already on screen (not just the next one).
   const lastSourceRef = useRef<SlidePayload | null>(null);
+  // Output identity of the STYLED slide committed together with lastSourceRef.
+  // un-blank / reapplyLayoutToLive only trust lastSourceRef when this still equals
+  // the identity of what is actually live; otherwise (a send path that didn't
+  // record a source — undo/redo, a future caller) they fall back to reducing the
+  // CURRENT live slide via sourceForRelayout, so they can never restore a stale slide.
+  const lastSourceLiveIdRef = useRef<string | null>(null);
 
   // Networked projector sync: when a pair code is minted the operator's
   // OutputState is ALSO published on the Supabase Realtime channel scoped by
@@ -1026,6 +1032,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // Runs BEFORE the identity checks so all downstream guards see the final slide.
     lastSourceRef.current = slide; // remember the pre-layout source (for a live toggle)
     slide = applyChurchLayout(slide, churchId);
+    lastSourceLiveIdRef.current = slideOutputIdentity(slide);
     // ALREADY-LIVE SKIP (2026-08-20): if this EXACT slide is already on the
     // projector, sending it again is a no-op — do nothing. Re-clicking the live
     // verse card, or the preacher repeating the verse that's on screen, used to
@@ -1079,13 +1086,25 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     try { console.log("[live] setLive committed + broadcast posted", { posted: posted !== undefined ? "ok" : "no-channel" }); } catch { /* ignore */ }
   }, [churchId]);
   const stageSlide = useCallback((slide: SlidePayload) => setStagedAISlide(slide), []);
+  // Direct (no-transition) send paths — send(), move autoSend, jumpTo, banked,
+  // legacy voice nav — used to skip applyChurchLayout, so with a lower-third
+  // church default they projected FULL screen while click/Enter banded. Route
+  // them through the same layout + source bookkeeping. applyChurchLayout is
+  // idempotent on already-styled slides (no double-apply) and returns blank/logo/
+  // empty unchanged; the "set" post is unchanged (still an instant hard cut).
+  const layoutForDirectSend = useCallback((slide: SlidePayload): SlidePayload => {
+    const styled = applyChurchLayout(slide, churchId);
+    lastSourceRef.current = slide;
+    lastSourceLiveIdRef.current = slideOutputIdentity(styled);
+    return styled;
+  }, [churchId]);
   const sendBankedToLive = useCallback((idx: number) => {
     const v = effectiveBank[idx];
     if (!v) return;
-    const slide = bankedToSlide(v);
+    const slide = layoutForDirectSend(bankedToSlide(v));
     setLive(slide);
     chRef.current?.postMessage({ type: "set", slide } as LiveMessage);
-  }, [effectiveBank, bankedToSlide]);
+  }, [effectiveBank, bankedToSlide, layoutForDirectSend]);
   const removeBanked = useCallback((idx: number) => {
     const v = effectiveBank[idx];
     if (!v) return;
@@ -1142,10 +1161,11 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     return () => { ch.close(); chRef.current = null; };
   }, []);
 
-  const send = useCallback((slide: SlidePayload) => {
+  const send = useCallback((raw: SlidePayload) => {
+    const slide = layoutForDirectSend(raw);
     setLive(slide);
     chRef.current?.postMessage({ type: "set", slide } as LiveMessage);
-  }, []);
+  }, [layoutForDirectSend]);
 
   const clearLive = useCallback(() => {
     setLive({ kind: "empty" });
@@ -1219,6 +1239,14 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   // re-clicking a slide). Remember the slide that was live when we blank, and
   // restore it when the operator un-blanks.
   const prevBeforeBlankRef = useRef<SlidePayload | null>(null);
+  // The pre-layout source of what's ACTUALLY live: lastSourceRef when its
+  // committed identity still matches the live slide, else the live slide reduced
+  // to raw content (never a stale earlier slide).
+  const currentLiveSource = useCallback((cur: SlidePayload): SlidePayload => {
+    const src = lastSourceRef.current;
+    if (src && lastSourceLiveIdRef.current !== null && lastSourceLiveIdRef.current === slideOutputIdentity(cur)) return src;
+    return sourceForRelayout(cur);
+  }, []);
   const goBlank = useCallback(() => {
     const cur = liveRef.current;
     const isBlank = cur?.kind === "blank" || cur?.kind === "empty";
@@ -1231,9 +1259,9 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // un-blank re-runs the CURRENT layout — and so a layout toggle after un-blank
     // can still reverse it (re-sending a styled slide would no-op in
     // applyChurchLayout). Falls back to the live slide if no source was captured.
-    if (cur && cur.kind !== "blank" && cur.kind !== "empty") prevBeforeBlankRef.current = lastSourceRef.current ?? cur;
+    if (cur && cur.kind !== "blank" && cur.kind !== "empty") prevBeforeBlankRef.current = currentLiveSource(cur);
     send({ kind: "blank", bgColor: plan.blankBgColor });
-  }, [plan.blankBgColor, send, sendSlideToLive]);
+  }, [plan.blankBgColor, send, sendSlideToLive, currentLiveSource]);
   const goLogo = useCallback(() => send({ kind: "logo", url: plan.logoUrl }), [plan.logoUrl, send]);
 
   // Use sendSlideToLive with instant:true so the LIVE button is always zero-latency.
@@ -1365,11 +1393,11 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // Never disturb an intentional blank/logo/empty screen.
     const cur = liveRef.current;
     if (!cur || cur.kind === "blank" || cur.kind === "logo" || cur.kind === "empty") return;
-    const src = lastSourceRef.current;
+    const src = currentLiveSource(cur);
     // Reduce the source back to raw content so applyChurchLayout re-derives the
     // CURRENT layout (a pre-styled source would no-op — that's the whole trick).
-    if (src) sendSlideToLive(sourceForRelayout(src), undefined, { instant: true, force: true });
-  }, [sendSlideToLive]);
+    sendSlideToLive(sourceForRelayout(src), undefined, { instant: true, force: true });
+  }, [sendSlideToLive, currentLiveSource]);
 
   // Any editor's "Apply to current slide" (or another surface) can push the
   // current layout onto the live slide via this event — "apply it back, anywhere".
@@ -1389,15 +1417,16 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     previewRef.current = next;
     setPreview(next);
     if (autoSend) {
-      const s = plan.items[next.itemIdx]?.slides[next.slideIdx];
-      if (s) {
+      const raw = plan.items[next.itemIdx]?.slides[next.slideIdx];
+      if (raw) {
+        const s = layoutForDirectSend(raw);
         setLive(s);
         chRef.current?.postMessage({ type: "set", slide: s } as LiveMessage);
         // Operator-initiated send → fire that slide's attached actions (AI paths never do).
         fireSlideActions(next.itemIdx, next.slideIdx);
       }
     }
-  }, [plan.items, autoSend, fireSlideActions]);
+  }, [plan.items, autoSend, fireSlideActions, layoutForDirectSend]);
 
   useEffect(() => {
     // Priority 4 / Y4: the desktop shell uses the centralized
@@ -1531,14 +1560,15 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
           : "back";
         const next = await bankAdvance(mode);
         if (!next) return;
-        const slide = bankedToSlide(next);
+        const rawSlide = bankedToSlide(next);
         const refLabel = `${next.book} ${next.chapter}:${next.verseStart}${next.verseStart !== next.verseEnd ? `-${next.verseEnd}` : ""}`;
         setAutopilotActivity({ source: "context-verse", ref: refLabel, ts: Date.now() });
         if (autoApprove.enabled && autoApprove.autoSendToLive) {
+          const slide = layoutForDirectSend(rawSlide);
           setLive(slide);
           chRef.current?.postMessage({ type: "set", slide } as LiveMessage);
         } else {
-          setStagedAISlide(slide);
+          setStagedAISlide(rawSlide);
         }
         toast.success(`${cmd.verb.replace("_", " ")} → ${refLabel}`);
         return;

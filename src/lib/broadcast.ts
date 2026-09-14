@@ -1250,9 +1250,33 @@ export function sanitizeSlide(s: unknown): SlidePayload | null {
       return out;
     }
     case "image":
-    case "video":
+    case "video": {
       // A media slide with no usable URL is not salvageable — signal "keep prior".
-      return isValidMediaUrl(st.url) ? (st as unknown as SlidePayload) : null;
+      if (!isValidMediaUrl(st.url)) return null;
+      // Rebuild field-by-field (was a raw passthrough, so an invalid band/layout/
+      // caption made the "sanitized" state still fail isValidOutputState). Keep
+      // the media; drop only the offending optional field.
+      const fit = st.fit === "contain" || st.fit === "cover" || st.fit === "fill" ? st.fit : undefined;
+      const band = st.layout === "third" && isValidScriptureBand(st.band) ? (st.band as ScriptureBandWire) : undefined;
+      const extras: { layout?: "third"; band?: ScriptureBandWire; bandMode?: "fit" | "caption"; caption?: string } = {};
+      if (st.layout === "third") {
+        extras.layout = "third";
+        if (band) extras.band = band;
+        if (st.bandMode === "fit" || st.bandMode === "caption") extras.bandMode = st.bandMode;
+        if (typeof st.caption === "string" && st.caption.length <= 500) extras.caption = st.caption;
+      }
+      if (st.kind === "image") {
+        const out: Extract<SlidePayload, { kind: "image" }> = { kind: "image", url: st.url as string, ...extras };
+        if (fit) out.fit = fit;
+        if (typeof st.blurFill === "boolean") out.blurFill = st.blurFill;
+        return out;
+      }
+      const out: Extract<SlidePayload, { kind: "video" }> = { kind: "video", url: st.url as string, ...extras };
+      if (fit) out.fit = fit;
+      if (typeof st.loop === "boolean") out.loop = st.loop;
+      if (typeof st.volume === "number" && Number.isFinite(st.volume) && st.volume >= 0 && st.volume <= 1) out.volume = st.volume;
+      return out;
+    }
     case "blank": {
       const out: Extract<SlidePayload, { kind: "blank" }> = { kind: "blank" };
       if (isValidColor(st.bgColor)) out.bgColor = st.bgColor as string;

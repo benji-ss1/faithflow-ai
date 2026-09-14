@@ -176,6 +176,12 @@ export function bandableTextOf(slide: SlidePayload): string {
  * mutates the input slide.
  */
 export function overlayBandSlide(slide: SlidePayload, c: ObsBandConfig, theme?: ObsThemeColors): SlidePayload {
+  // Banded media carrying a caption → show the caption text in the OBS band
+  // (never the picture itself). No caption → empty, as before.
+  if ((slide.kind === "image" || slide.kind === "video") && slide.layout === "third"
+    && typeof slide.caption === "string" && slide.caption.trim()) {
+    return { kind: "text", text: slide.caption.trim(), scriptureLayout: "lowerThird", scriptureBand: obsBandWire(c, theme) };
+  }
   if (slide.kind !== "text") return { kind: "empty" };
   const text = bandableTextOf(slide);
   if (!text.trim()) return { kind: "empty" };

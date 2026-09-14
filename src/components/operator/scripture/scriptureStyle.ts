@@ -100,7 +100,9 @@ export const DEFAULT_SCRIPTURE_DESIGN: ScriptureDesign = {
 // carried — the renderer owns geometry so preview == projector.
 export function bandWireFromDesign(d: ScriptureDesign): ScriptureBandWire | undefined {
   if (d.layout !== "lowerThird") return undefined;
-  const b = d.band;
+  // Defence-in-depth: a design that didn't come through loadScriptureStyle (e.g.
+  // an editor draft) is clamped too, so the wire band always validates.
+  const b = sanitizeBandStyle(d.band);
   // Geometry is ALWAYS carried (even for a "none" band) so the verse is placed
   // in the right third; paint is added only for solid/gradient.
   const wire: ScriptureBandWire = { topPct: bandTopPct(b), heightPct: b.heightPct, fontScale: b.fontScale };
@@ -357,19 +359,44 @@ export function designFromSlide(slide: EditableSlide, prev: ScriptureDesign): Sc
 
 const KEY = (churchId?: string) => `pf.scriptureStyle.v2.${churchId || "default"}`;
 
+// A corrupted / hand-edited saved band (e.g. heightPct:500, fontScale:NaN,
+// opacity:9, color:"red") would otherwise produce an INVALID wire band on EVERY
+// slide (applyChurchLayout runs on every send) → receivers drop the band/media.
+// Clamp every field to the editor's ranges; bad values fall back to BAND_DEFAULT.
+export function sanitizeBandStyle(raw: unknown): BandStyle {
+  const b = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const D = BAND_DEFAULT;
+  const num = (v: unknown, lo: number, hi: number, def: number) =>
+    typeof v === "number" && Number.isFinite(v) ? clampNum(v, lo, hi) : def;
+  const hex = (v: unknown, def: string) =>
+    typeof v === "string" && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(v) ? v : def;
+  return {
+    mode: b.mode === "none" || b.mode === "solid" || b.mode === "gradient" ? b.mode : D.mode,
+    color: hex(b.color, D.color),
+    color2: hex(b.color2, D.color2),
+    angle: num(b.angle, 0, 360, D.angle),
+    opacity: num(b.opacity, 0, 1, D.opacity),
+    position: b.position === "upper" || b.position === "mid" || b.position === "lower" ? b.position : D.position,
+    offsetY: num(b.offsetY, -25, 25, D.offsetY),
+    heightPct: num(b.heightPct, 10, 60, D.heightPct),
+    fontScale: num(b.fontScale, 0.5, 2, D.fontScale),
+  };
+}
+
 export function loadScriptureStyle(churchId?: string): ScriptureDesign {
   if (typeof window === "undefined") return DEFAULT_SCRIPTURE_DESIGN;
   try {
     const raw = window.localStorage.getItem(KEY(churchId));
     if (!raw) return DEFAULT_SCRIPTURE_DESIGN;
     const parsed = JSON.parse(raw) as Partial<ScriptureDesign>;
+    if (!parsed || typeof parsed !== "object") return DEFAULT_SCRIPTURE_DESIGN;
     return {
       // back-compat: pre-lower-third saved styles have no layout/band → default
       // to fullscreen + the black band, so an existing church is unchanged.
       layout: parsed.layout === "lowerThird" ? "lowerThird" : "fullscreen",
       verse: { ...DEFAULT_SCRIPTURE_DESIGN.verse, ...parsed.verse },
       reference: { ...DEFAULT_SCRIPTURE_DESIGN.reference, ...parsed.reference },
-      band: { ...DEFAULT_SCRIPTURE_DESIGN.band, ...parsed.band },
+      band: sanitizeBandStyle(parsed.band),
     };
   } catch { return DEFAULT_SCRIPTURE_DESIGN; }
 }
