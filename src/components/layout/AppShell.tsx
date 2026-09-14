@@ -1,5 +1,6 @@
 "use client";
 
+import { SessionKeepAlive } from "@/components/auth/SessionKeepAlive";
 import { useState } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
@@ -28,6 +29,7 @@ export function AppShell({ children, user, churchId, churchName, churchLogoUrl, 
     return (
       <div className="min-h-screen bg-background text-foreground">
         {children}
+        <SessionKeepAlive />
       </div>
     );
   }
@@ -52,6 +54,7 @@ export function AppShell({ children, user, churchId, churchName, churchLogoUrl, 
         </main>
       </div>
       <RealtimeSyncBridge churchId={churchId} />
+      <SessionKeepAlive />
     </div>
   );
 }

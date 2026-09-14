@@ -22,7 +22,12 @@ function extractIp(request: Request | undefined): string {
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  session: { strategy: "jwt" },
+  // Rolling 90-day sessions: every GET /api/auth/session (SessionKeepAlive,
+  // mounted in the app shell + operator) re-signs the JWT with a fresh 90-day
+  // expiry, so an active church never gets signed out. updateAge is advisory
+  // for JWT sessions (Auth.js re-issues on each session read) but documents
+  // intent. Was the 30-day default with no refresh path.
+  session: { strategy: "jwt", maxAge: 90 * 24 * 60 * 60, updateAge: 24 * 60 * 60 },
   pages: { signIn: "/login" },
   providers: [
     Credentials({

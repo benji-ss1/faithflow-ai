@@ -6,6 +6,7 @@ import { getDb } from "@/lib/db/client";
 import { churchPreferences, bibleTranslations } from "@/lib/db/schema";
 import { getExpandedServicePlan } from "@/lib/server/services";
 import { OperatorConsole } from "@/components/operator/OperatorConsole";
+import { SessionKeepAlive } from "@/components/auth/SessionKeepAlive";
 
 export default async function OperatePage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
@@ -62,6 +63,8 @@ export default async function OperatePage({ params }: { params: Promise<{ id: st
   const layersV2 = prefs?.layersV2 ?? false;
 
   return (
+    <>
+    <SessionKeepAlive />
     <OperatorConsole
       plan={plan}
       churchId={user.churchId}
@@ -71,5 +74,6 @@ export default async function OperatePage({ params }: { params: Promise<{ id: st
       layersV2={layersV2}
       initialShell={initialShell}
     />
+    </>
   );
 }
