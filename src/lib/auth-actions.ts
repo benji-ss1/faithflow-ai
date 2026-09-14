@@ -1,5 +1,5 @@
 "use server";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { headers } from "next/headers";
 import { timingSafeEqual } from "node:crypto";
 import bcrypt from "bcryptjs";
@@ -144,11 +144,20 @@ export async function resetPassword(token: string, newPassword: string): Promise
   if (!userId) return { ok: false, error: "This link is invalid or expired. Request a new one from the sign-in page." };
   const db = getDb();
   const passwordHash = await bcrypt.hash(newPassword, 12);
-  await db.update(users).set({ passwordHash }).where(eq(users.id, userId));
-  // A password reset ends every existing session (session_version bump) and
-  // revokes outstanding desktop sign-in links / pairing approvals, so neither a
-  // stolen 90-day cookie nor a link minted before the reset survives it.
-  await revokeAllSessionsForUser(userId).catch(async (e) => {
+  // Password change + session_version bump are ATOMIC: if the bump fails the
+  // password isn't changed either and the user sees an error (never a "success"
+  // that left a stolen 90-day cookie alive).
+  try {
+    await db.transaction(async (tx) => {
+      await tx.update(users).set({ passwordHash, sessionVersion: sql`${users.sessionVersion} + 1` }).where(eq(users.id, userId));
+    });
+  } catch (e) {
+    console.error("[resetPassword] password/session update failed:", e instanceof Error ? e.message : e);
+    return { ok: false, error: "We couldn't reset your password right now. Please request a new link and try again." };
+  }
+  // Also revoke outstanding desktop sign-in links / pairing approvals (version
+  // already bumped above).
+  await revokeAllSessionsForUser(userId, { bumpVersion: false }).catch(async (e) => {
     console.error("[resetPassword] session revocation failed:", e instanceof Error ? e.message : e);
     await invalidateUserTokens(userId, ["device_link", "device_pair"]).catch(() => { /* best-effort */ });
   });

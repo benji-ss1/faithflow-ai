@@ -76,7 +76,7 @@ export function DesktopPairPanel() {
         window.location.href = `/api/auth/device-exchange?token=${encodeURIComponent(j.token)}`;
         return;
       }
-      if (j.status === "invalid") {
+      if (j.status === "invalid" || j.status === "expired") {
         setState("error");
         setError("That code expired or was already used. Start again.");
         return;

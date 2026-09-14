@@ -18,6 +18,9 @@
 //  10. Re-approve after claim: same user idempotent; after consumption refused.
 //  11. Pairing request records device metadata; code stored only as keyed HMAC.
 //  12. 180-day absolute cap.
+//  13. RACE: reset concurrent with a desktop mid-poll → no device_link token
+//      issued around the reset survives it (200 randomized runs).
+//  14. Poll on a revoked/expired pairing row → "expired" (desktop stops, "Start again").
 
 import { eq, inArray } from "drizzle-orm";
 import { getDb } from "../../src/lib/db/client";
@@ -173,6 +176,31 @@ async function main() {
     record("password reset bumps session_version (old sessions end)", bSvAfter === bSv + 1 && sessionTokenVerdict({ tokenVersion: bSv, dbVersion: bSvAfter }) === "revoked");
     record("password reset revokes device_link", (await consumeAuthToken(bLink, "device_link")) === null);
     record("password reset revokes pending pairing", (await pollPairing(p4.ticket)).status !== "approved");
+
+    // 13. reset-vs-poll race
+    let survived = 0;
+    const RUNS = 200;
+    for (let i = 0; i < RUNS; i++) {
+      const p = await start();
+      await approvePairingForUser(A.userId, p.code);
+      const [pr] = await Promise.all([
+        pollPairing(p.ticket),
+        new Promise((r) => setTimeout(r, Math.random() * 6)).then(() => revokeAllSessionsForUser(A.userId)),
+      ]);
+      if (pr.status === "approved" && (await consumeAuthToken(pr.token, "device_link"))) survived++;
+    }
+    record("RACE: no exchange token survives a concurrent reset", survived === 0, `${survived}/${RUNS}`);
+
+    // 14. poll on revoked row → expired (not pending)
+    const p5 = await start();
+    await approvePairingForUser(A.userId, p5.code);
+    await revokeAllSessionsForUser(A.userId);
+    const p5poll = await pollPairing(p5.ticket);
+    record("poll after revocation → expired", p5poll.status === "expired", JSON.stringify(p5poll));
+    const p6 = await start();
+    await getDb().update(devicePairRequests).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(devicePairRequests.codeHash, pairCodeHash(p6.code)));
+    const p6poll = await pollPairing(p6.ticket);
+    record("poll on expired unapproved row → expired", p6poll.status === "expired", JSON.stringify(p6poll));
 
     // 12. absolute cap
     record("180-day cap: session older than cap → expired", sessionTokenVerdict({ authTime: Date.now() - SESSION_ABSOLUTE_MAX_MS - 1000, tokenVersion: 0, dbVersion: 0 }) === "expired");

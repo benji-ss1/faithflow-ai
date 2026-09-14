@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     console.error("[device-pair/poll] failed:", e instanceof Error ? e.message : e);
     return NextResponse.json({ status: "error" }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
-  const status = res.status === "invalid" ? 400 : res.status === "error" ? 503 : 200;
+  const status = res.status === "invalid" ? 400 : res.status === "expired" ? 410 : res.status === "error" ? 503 : 200;
   const out = NextResponse.json(res, { status, headers: { "Cache-Control": "no-store" } });
   if (res.status === "approved") {
     // Marker bound to THIS exchange token, in THIS window's cookie jar: lets

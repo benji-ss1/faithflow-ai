@@ -13,8 +13,14 @@ import { revokePendingPairings } from "./desktop-pair";
  * copy differs — within the 5-min refresh window), and burn outstanding desktop
  * links / pairing approvals. Used by password reset and "Sign out all devices".
  */
-export async function revokeAllSessionsForUser(userId: string): Promise<void> {
-  await getDb().update(users).set({ sessionVersion: sql`${users.sessionVersion} + 1` }).where(eq(users.id, userId));
-  await invalidateUserTokens(userId, ["device_link", "device_pair"]).catch(() => { /* best-effort */ });
+export async function revokeAllSessionsForUser(userId: string, opts: { bumpVersion?: boolean } = {}): Promise<void> {
+  // ORDER MATTERS (race with a desktop mid-poll): expire pairings FIRST so no
+  // new exchange token can be kept, then burn tokens, bump the version, and
+  // burn once more to catch a token inserted between the first two steps.
   await revokePendingPairings(userId).catch(() => { /* best-effort */ });
+  await invalidateUserTokens(userId, ["device_link", "device_pair"]).catch(() => { /* best-effort */ });
+  if (opts.bumpVersion !== false) {
+    await getDb().update(users).set({ sessionVersion: sql`${users.sessionVersion} + 1` }).where(eq(users.id, userId));
+  }
+  await invalidateUserTokens(userId, ["device_link", "device_pair"]).catch(() => { /* best-effort */ });
 }

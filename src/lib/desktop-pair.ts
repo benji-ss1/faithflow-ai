@@ -12,7 +12,7 @@
 import { and, eq, gt, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { devicePairRequests } from "./db/schema";
-import { issueAuthToken } from "./auth-tokens";
+import { consumeAuthToken, issueAuthToken } from "./auth-tokens";
 import {
   PAIR_UA_MAX,
   describeLocation,
@@ -120,6 +120,7 @@ export async function approvePairingForUser(userId: string, rawCode: unknown): P
 
 export type PollResult =
   | { status: "invalid" }
+  | { status: "expired" }
   | { status: "pending"; expiresAt: number }
   | { status: "error"; expiresAt: number }
   | { status: "approved"; token: string };
@@ -142,16 +143,27 @@ export async function pollPairing(ticket: unknown): Promise<PollResult> {
   const hit = consumed[0];
   if (!hit?.userId) {
     const [row] = await db
-      .select({ consumedAt: devicePairRequests.consumedAt })
+      .select({ consumedAt: devicePairRequests.consumedAt, expiresAt: devicePairRequests.expiresAt })
       .from(devicePairRequests)
       .where(eq(devicePairRequests.codeHash, t.codeHash))
       .limit(1);
     // No row (cleaned up / never started) or already consumed → this ticket is done.
     if (!row || row.consumedAt) return { status: "invalid" };
+    // Row expired or revoked (password reset / sign-out-all) → stop polling.
+    if (row.expiresAt.getTime() <= Date.now()) return { status: "expired" };
     return { status: "pending", expiresAt: t.expiresAt };
   }
   try {
     const token = await issueAuthToken(hit.userId, "device_link", PAIR_EXCHANGE_TTL_MS);
+    // Race guard vs revokeAllSessionsForUser: it expires this row FIRST, then
+    // burns device_link tokens. If the revoke landed before this re-read we burn
+    // the token ourselves; if after, our token already exists and its
+    // invalidateUserTokens pass burns it. Either way no token survives a reset.
+    const [after] = await db.select({ expiresAt: devicePairRequests.expiresAt }).from(devicePairRequests).where(eq(devicePairRequests.id, hit.id)).limit(1);
+    if (!after || after.expiresAt.getTime() <= Date.now()) {
+      await consumeAuthToken(token, "device_link").catch(() => { /* best-effort; reset also burns it */ });
+      return { status: "expired" };
+    }
     return { status: "approved", token };
   } catch (e) {
     // Un-consume so the desktop can retry the poll (claim stays with the approver).
@@ -161,12 +173,16 @@ export async function pollPairing(ticket: unknown): Promise<PollResult> {
   }
 }
 
-/** Password reset / sign-out-all: kill any approved-but-not-yet-consumed pairing for this user. */
+/**
+ * Password reset / sign-out-all: expire every still-live pairing this user
+ * approved — including ones a desktop is consuming right now (pollPairing
+ * re-reads expiry after issuing its token; see the race guard there).
+ */
 export async function revokePendingPairings(userId: string): Promise<void> {
   await getDb()
     .update(devicePairRequests)
     // JS Date (not SQL now()): columns are timestamp-without-tz written from JS
     // Dates, so DB now() in a non-UTC session timezone would not compare correctly.
     .set({ expiresAt: new Date(Date.now() - 1000) })
-    .where(and(eq(devicePairRequests.claimedByUserId, userId), isNull(devicePairRequests.consumedAt)));
+    .where(and(eq(devicePairRequests.claimedByUserId, userId), gt(devicePairRequests.expiresAt, new Date())));
 }

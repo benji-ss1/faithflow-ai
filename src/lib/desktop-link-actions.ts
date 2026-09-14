@@ -9,9 +9,11 @@ import { createLimiter } from "./rate-limit";
 
 // Web-side approval of a desktop pairing code (/link page). Requires a full
 // web session (requireUser redirects to /login otherwise); the claim is bound
-// to THAT user id only. Rate-limited per user (lookup + approve share the
-// budget) so code guessing is impractical on top of the 40-bit code space.
+// to THAT user id only. Rate-limited per user with SEPARATE budgets for code
+// lookup (typos are common) and approve, so a few mistyped codes can't exhaust
+// approval; both keep guessing impractical on top of the 40-bit code space.
 // NOTE: limiter is per-instance memory — follow-up: shared store.
+const lookupLimiter = createLimiter("device-pair-lookup", 20, 10 * 60 * 1000);
 const approveLimiter = createLimiter("device-pair-approve", 10, 10 * 60 * 1000);
 const RATE_MSG = "Too many attempts. Please wait a few minutes and try again.";
 
@@ -29,7 +31,7 @@ async function approverCountry(): Promise<string | null> {
 
 export async function lookupDesktopPairing(code: string): Promise<{ ok: true; request: PairLookupView } | { ok: false; error: string }> {
   const user = await requireUser();
-  if (!(await approveLimiter(user.id))) return { ok: false, error: RATE_MSG };
+  if (!(await lookupLimiter(user.id))) return { ok: false, error: RATE_MSG };
   const res = await lookupPairingRequest(user.id, code);
   if (!res.ok) return res;
   return {
