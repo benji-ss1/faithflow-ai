@@ -5,19 +5,10 @@ import { eq } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { users } from "./db/schema";
 import { consumeAuthToken } from "./auth-tokens";
-import { createLimiter, createPeeker } from "./rate-limit";
+import { InvalidCredentialsError, RateLimitedError, chargeLoginAttempt, clientIpFromHeaders, refundLoginSuccess } from "./login-guard";
 
-// H1: brute-force protection on credentials login. Two axes — per-IP and
-// per-email — so an attacker can neither grind one account from many IPs
-// nor grind many accounts from one IP. Fail-only counting: successful
-// logins do NOT consume the budget, so a legitimate user is never locked
-// out by their own successful sessions.
-const LOGIN_LIMIT = 5;
-const LOGIN_WINDOW_MS = 15 * 60 * 1000;
-const chargeLoginIp = createLimiter("login-ip", LOGIN_LIMIT, LOGIN_WINDOW_MS);
-const chargeLoginEmail = createLimiter("login-email", LOGIN_LIMIT, LOGIN_WINDOW_MS);
-const peekLoginIp = createPeeker("login-ip", LOGIN_LIMIT);
-const peekLoginEmail = createPeeker("login-email", LOGIN_LIMIT);
+// H1 brute-force protection lives in login-guard.ts (per-IP 30, per-email 5,
+// per-IP+email 5, charge-first, success refunds/clears).
 
 // Constant dummy hash of the same cost as real passwords. When the target
 // email doesn't exist, we still run bcrypt.compare against this so timing
@@ -26,9 +17,8 @@ const peekLoginEmail = createPeeker("login-email", LOGIN_LIMIT);
 const DUMMY_BCRYPT = "$2a$12$335D5UVYbxdTi0LCoKd1IuRaLuMq1vlTRH76Bzn/r2n6/LgEVSIgW";
 
 function extractIp(request: Request | undefined): string {
-  const h = request?.headers;
-  if (!h) return "unknown";
-  return h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "unknown";
+  // x-vercel-forwarded-for → x-real-ip → first x-forwarded-for → "unknown".
+  return clientIpFromHeaders(request?.headers);
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -41,12 +31,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!creds?.email || !creds?.password) return null;
         const email = String(creds.email).toLowerCase().trim();
         const ip = extractIp(request);
+        // Oversized input: reject BEFORE charging so junk can't grow the map
+        // (RFC 5321 max address 254; bcrypt only reads 72 bytes anyway).
+        if (email.length > 254 || String(creds.password).length > 1024) throw new InvalidCredentialsError();
 
-        // Pre-flight lockout check — peek only, no charge. A stream of
-        // failures that trips the limit shouldn't extend the window with
-        // every subsequent attempt.
-        if (await peekLoginIp(ip)) return null;
-        if (await peekLoginEmail(email)) return null;
+        // CHARGE-FIRST: synchronous check-and-increment of all three buckets
+        // BEFORE any await (DB/bcrypt), so parallel requests can't all pass
+        // the check. A locked attempt is not charged (doesn't extend window).
+        const lockedMin = chargeLoginAttempt(ip, email);
+        if (lockedMin !== null) throw new RateLimitedError(lockedMin);
 
         const db = getDb();
         const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
@@ -55,19 +48,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const hash = user?.passwordHash ?? DUMMY_BCRYPT;
         const ok = await bcrypt.compare(String(creds.password), hash);
 
-        if (!user || !ok) {
-          // Charge both counters on failure only.
-          await chargeLoginIp(ip);
-          await chargeLoginEmail(email);
-          return null;
-        }
+        // Failure: already charged above.
+        if (!user || !ok) throw new InvalidCredentialsError();
 
         // H2: fail-closed 2FA guard. schema has totpSecret + totpEnabled
         // but the TOTP challenge UI hasn't shipped. If a user record ever
         // has totpEnabled=true, refuse password-only login rather than
         // silently ignoring the flag — that would be a false-safety signal
         // to any admin who enrolled 2FA out-of-band.
-        if (user.totpEnabled) return null;
+        // Throws the SAME error as a wrong password (and keeps the charge),
+        // so the response can't be used as a password-correctness oracle.
+        if (user.totpEnabled) throw new InvalidCredentialsError();
+
+        refundLoginSuccess(ip, email);
 
         return { id: user.id, email: user.email, name: user.name, churchId: user.churchId, role: user.role };
       },

@@ -37,6 +37,7 @@ const CSS = `
 .pflogin .hero{min-height:100vh;padding:44px 56px 44px 64px;display:flex;flex-direction:column;justify-content:space-between;position:relative}
 .pflogin .brand{display:flex;align-items:center;gap:14px}
 .pflogin .brand img{height:34px;width:auto;display:block}
+.pflogin .pw-toggle:focus-visible{outline:2px solid var(--orange);outline-offset:2px;border-radius:4px}
 .pflogin .wordmark{font-family:"Sora",sans-serif;font-weight:700;font-size:24px;letter-spacing:-0.03em;color:var(--paper)}
 .pflogin .wordmark em{font-style:normal;font-weight:700;color:var(--orange)}
 .pflogin .hero-copy{max-width:640px;margin-top:auto;margin-bottom:8vh}
