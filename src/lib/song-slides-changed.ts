@@ -31,14 +31,18 @@ export function relocateLyricIndex(
   const freshCopies: number[] = [];
   freshN.forEach((t, i) => { if (t === liveNorm) freshCopies.push(i); });
   if (freshCopies.length === 0) return -1;
+  let p = 0;
+  while (p < oldN.length && p < freshN.length && oldN[p] === freshN[p]) p++;
+  // (0) Still at the same index, and nothing before it moved (same length, or
+  // the unchanged prefix covers it) → keep it (main's behaviour; covers
+  // reorders / edits / inserts AFTER the live slide).
+  if (oldIdx >= 0 && freshN[oldIdx] === liveNorm && (freshN.length === oldN.length || p > oldIdx)) return oldIdx;
   const oldCopies: number[] = [];
   oldN.forEach((t, i) => { if (t === liveNorm) oldCopies.push(i); });
   const ordinal = oldCopies.indexOf(oldIdx);
   if (ordinal >= 0 && oldCopies.length === freshCopies.length) return freshCopies[ordinal];
   const oldPrev = oldN[oldIdx - 1];
   const oldNext = oldN[oldIdx + 1];
-  let p = 0;
-  while (p < oldN.length && p < freshN.length && oldN[p] === freshN[p]) p++;
   const expected = oldIdx >= p ? oldIdx + (freshN.length - oldN.length) : oldIdx;
   let best = -1, bestScore = -1, bestDist = Infinity;
   for (const c of freshCopies) {

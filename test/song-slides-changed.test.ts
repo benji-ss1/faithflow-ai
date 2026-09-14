@@ -84,6 +84,24 @@ check("neighbours edited + insert at top (counts differ) → 4 via offset", () =
   const r = refreshTrackedSong(track(["v1", "ch", "v2", "ch", "end"], 3), ["ch", "v1x", "ch", "v2x", "ch", "endx"], norm("ch"), norm)!;
   assert.equal(r.currentIdx, 4);
 });
+check("fuzz: reorder with live slide still at its index → stays 2", () => {
+  const r = refreshTrackedSong(track(["B", "B", "B", "B", "C", "C", "C", "C", "V3"], 2), ["C", "B", "B", "B", "C", "C", "B", "C", "V3"], norm("B"), norm)!;
+  assert.equal(r.currentIdx, 2);
+});
+check("fuzz: edit a non-live slide after the live one → stays 2", () => {
+  const r = refreshTrackedSong(track(["Tag", "Tag", "Tag", "Tag", "V3"], 2), ["Tag", "Tag", "Tag", "ChorusA", "V3"], norm("Tag"), norm)!;
+  assert.equal(r.currentIdx, 2);
+});
+check("fuzz: insert Bridge,Verse1 after the live Verse1@8 → stays 8", () => {
+  const old = ["a", "b", "c", "d", "e", "f", "Verse1", "Bridge", "Verse1", "ChorusA", "V2"];
+  const fresh = [...old.slice(0, 9), "Bridge", "Verse1", ...old.slice(9)];
+  const r = refreshTrackedSong(track(old, 8), fresh, norm("Verse1"), norm)!;
+  assert.equal(r.currentIdx, 8);
+});
+check("Quick edit [A,X,A,Y] idx 2 → [Z,X,A,A] → 2", () => {
+  const r = refreshTrackedSong(track(["A", "X", "A", "Y"], 2), ["Z", "X", "A", "A"], norm("A"), norm)!;
+  assert.equal(r.currentIdx, 2);
+});
 check("structural-edit hint (tracking cleared): 2nd chorus stays the 2nd after Add slide", () => {
   const hint = { slides: ["v1", "ch", "v2", "ch", "end"], currentIdx: 3 };
   assert.equal(relocateLyricIndex(hint.slides, hint.currentIdx, ["v1", "ch", "v2", "ch", "new", "end"], norm("ch"), norm), 3);
