@@ -87,6 +87,7 @@ export type ExpandedPlan = {
 };
 
 export async function getExpandedServicePlan(planId: string, churchId: string): Promise<ExpandedPlan | null> {
+  if (!isUuid(planId)) return null; // clean not-found instead of a Postgres uuid-cast throw
   const db = getDb();
   const [plan] = await db.select().from(servicePlans).where(and(eq(servicePlans.id, planId), eq(servicePlans.churchId, churchId))).limit(1);
   if (!plan) return null;

@@ -406,7 +406,7 @@ export async function reorderItemSlides(
         .filter((x): x is string => typeof x === "string");
       const perm = newOrder.map((sid) => existingIds.indexOf(sid));
       await mergeServiceItemPayload(tx, itemId, planId, withRemappedActions({ mediaAssetIds: reordered }, perm));
-    } else if (item.type === "sermon" && typeof payload.pptxImportId === "string") {
+    } else if (item.type === "sermon" && typeof payload.pptxImportId === "string" && UUID_PAYLOAD_RE.test(payload.pptxImportId)) {
       // Grouped PowerPoint slides come from pptxSlides (shared, church-global).
       // Reorder PER-PLAN via a payload.pptxSlideOrder override (mirrors song's
       // slideOrder) so we never mutate the shared pptxSlides.order.
@@ -820,6 +820,7 @@ export async function reChunkAllSongs(): Promise<Result<{ tidied: number; skippe
 // Verify the slide belongs to a song owned by the caller's church. Two-hop
 // join: song_slides → songs → churches.
 async function assertSlideOwned(db: ReturnType<typeof getDb>, slideId: string, churchId: string) {
+  if (typeof slideId !== "string" || !UUID_PAYLOAD_RE.test(slideId)) return null; // clean not-found, no Postgres uuid throw
   const [row] = await db.select({ id: songSlides.id, songId: songSlides.songId })
     .from(songSlides)
     .innerJoin(songs, eq(songs.id, songSlides.songId))
@@ -829,6 +830,7 @@ async function assertSlideOwned(db: ReturnType<typeof getDb>, slideId: string, c
 }
 
 async function assertSongOwned(db: ReturnType<typeof getDb>, songId: string, churchId: string) {
+  if (typeof songId !== "string" || !UUID_PAYLOAD_RE.test(songId)) return null; // clean not-found, no Postgres uuid throw
   const [row] = await db.select().from(songs)
     .where(and(eq(songs.id, songId), eq(songs.churchId, churchId)))
     .limit(1);
@@ -1148,6 +1150,7 @@ async function assertServiceItemOwned(
   itemId: string,
   churchId: string,
 ): Promise<{ id: string; planId: string; type: ServiceItemType; payload: Record<string, unknown> } | null> {
+  if (typeof itemId !== "string" || !UUID_PAYLOAD_RE.test(itemId)) return null; // clean not-found, no Postgres uuid throw
   const [it] = await db
     .select({ id: serviceItems.id, planId: serviceItems.servicePlanId, type: serviceItems.type, payload: serviceItems.payload })
     .from(serviceItems)
@@ -1711,6 +1714,7 @@ export async function upsertSermonMetadata(input: {
   serviceDate?: string | null; // YYYY-MM-DD
 }): Promise<Result<{ id: string }>> {
   const user = await requireUser();
+  if (typeof input?.pptxImportId !== "string" || !UUID_PAYLOAD_RE.test(input.pptxImportId)) return { ok: false, error: "Import not found" };
   const db = getDb();
   const [imp] = await db.select().from(pptxImports)
     .where(and(eq(pptxImports.id, input.pptxImportId), eq(pptxImports.churchId, user.churchId)))
@@ -2711,19 +2715,21 @@ function normalizeGroupKind(kind: unknown): string {
 
 /** Verify a group belongs to a song owned by the caller's church. */
 async function assertGroupOwned(db: ReturnType<typeof getDb>, groupId: string, churchId: string) {
+  if (typeof groupId !== "string" || !UUID_PAYLOAD_RE.test(groupId)) return null;
   const [row] = await db.select({ id: songGroups.id, songId: songGroups.songId })
     .from(songGroups)
     .innerJoin(songs, eq(songs.id, songGroups.songId))
-    .where(and(eq(songGroups.id, groupId), eq(songs.churchId, churchId)))
+    .where(and(eq(songGroups.id, groupId), eq(songGroups.churchId, churchId), eq(songs.churchId, churchId)))
     .limit(1);
   return row ?? null;
 }
 
 async function assertArrangementOwned(db: ReturnType<typeof getDb>, arrangementId: string, churchId: string) {
+  if (typeof arrangementId !== "string" || !UUID_PAYLOAD_RE.test(arrangementId)) return null;
   const [row] = await db.select({ id: songArrangements.id, songId: songArrangements.songId })
     .from(songArrangements)
     .innerJoin(songs, eq(songs.id, songArrangements.songId))
-    .where(and(eq(songArrangements.id, arrangementId), eq(songs.churchId, churchId)))
+    .where(and(eq(songArrangements.id, arrangementId), eq(songArrangements.churchId, churchId), eq(songs.churchId, churchId)))
     .limit(1);
   return row ?? null;
 }
@@ -2738,7 +2744,7 @@ export async function createSongGroup(songId: string, name: string, kind?: strin
   if (trimmed.length > 60) return { ok: false, error: "Group name too long (max 60)" };
   if (color != null && !isHex6Color(color)) return { ok: false, error: "color must be a #rrggbb hex string" };
   const existing = await db.select({ id: songGroups.id, order: songGroups.order })
-    .from(songGroups).where(eq(songGroups.songId, songId)).orderBy(asc(songGroups.order));
+    .from(songGroups).where(and(eq(songGroups.songId, songId), eq(songGroups.churchId, user.churchId))).orderBy(asc(songGroups.order));
   if (existing.length >= MAX_GROUPS_PER_SONG) return { ok: false, error: `Cap of ${MAX_GROUPS_PER_SONG} groups per song` };
   const nextOrder = existing.length ? Math.max(...existing.map((g) => g.order)) + 1 : 0;
   const [row] = await db.insert(songGroups).values({
@@ -2756,7 +2762,7 @@ export async function renameSongGroup(groupId: string, name: string): Promise<Re
   const trimmed = (name ?? "").trim();
   if (!trimmed) return { ok: false, error: "Group name required" };
   if (trimmed.length > 60) return { ok: false, error: "Group name too long (max 60)" };
-  await db.update(songGroups).set({ name: trimmed }).where(eq(songGroups.id, groupId));
+  await db.update(songGroups).set({ name: trimmed }).where(and(eq(songGroups.id, groupId), eq(songGroups.churchId, user.churchId)));
   revalidatePath(`/library/songs/${owned.songId}`);
   return { ok: true };
 }
@@ -2769,7 +2775,7 @@ export async function recolorSongGroup(groupId: string, color: string | null, ki
   if (color != null && !isHex6Color(color)) return { ok: false, error: "color must be a #rrggbb hex string" };
   const patch: { color: string | null; kind?: string } = { color: color ?? null };
   if (kind !== undefined) patch.kind = normalizeGroupKind(kind);
-  await db.update(songGroups).set(patch).where(eq(songGroups.id, groupId));
+  await db.update(songGroups).set(patch).where(and(eq(songGroups.id, groupId), eq(songGroups.churchId, user.churchId)));
   revalidatePath(`/library/songs/${owned.songId}`);
   return { ok: true };
 }
@@ -2781,13 +2787,13 @@ export async function deleteSongGroup(groupId: string): Promise<Result> {
   if (!owned) return { ok: false, error: "Group not found" };
   // group_id ON DELETE SET NULL => slides survive, just become ungrouped.
   // Also strip the id from any of this song's arrangements so their order stays clean.
-  const arrs = await db.select().from(songArrangements).where(eq(songArrangements.songId, owned.songId));
+  const arrs = await db.select().from(songArrangements).where(and(eq(songArrangements.songId, owned.songId), eq(songArrangements.churchId, user.churchId)));
   await db.transaction(async (tx) => {
-    await tx.delete(songGroups).where(eq(songGroups.id, groupId));
+    await tx.delete(songGroups).where(and(eq(songGroups.id, groupId), eq(songGroups.churchId, user.churchId)));
     for (const a of arrs) {
       const order = Array.isArray(a.order) ? (a.order as unknown[]).filter((x): x is string => typeof x === "string") : [];
       if (order.includes(groupId)) {
-        await tx.update(songArrangements).set({ order: order.filter((g) => g !== groupId) }).where(eq(songArrangements.id, a.id));
+        await tx.update(songArrangements).set({ order: order.filter((g) => g !== groupId) }).where(and(eq(songArrangements.id, a.id), eq(songArrangements.churchId, user.churchId)));
       }
     }
   });
@@ -2825,9 +2831,9 @@ export async function createArrangement(songId: string, name: string, order?: st
   if (!trimmed) return { ok: false, error: "Arrangement name required" };
   if (trimmed.length > 80) return { ok: false, error: "Arrangement name too long (max 80)" };
   const existing = await db.select({ id: songArrangements.id, sort: songArrangements.sort })
-    .from(songArrangements).where(eq(songArrangements.songId, songId));
+    .from(songArrangements).where(and(eq(songArrangements.songId, songId), eq(songArrangements.churchId, user.churchId)));
   if (existing.length >= MAX_ARRANGEMENTS_PER_SONG) return { ok: false, error: `Cap of ${MAX_ARRANGEMENTS_PER_SONG} arrangements per song` };
-  const cleanOrder = await sanitizeArrangementOrder(db, songId, order);
+  const cleanOrder = await sanitizeArrangementOrder(db, songId, order, user.churchId);
   if (cleanOrder === null) return { ok: false, error: "Arrangement order too long" };
   const nextSort = existing.length ? Math.max(...existing.map((a) => a.sort)) + 1 : 0;
   const [row] = await db.insert(songArrangements).values({
@@ -2845,7 +2851,7 @@ export async function renameArrangement(arrangementId: string, name: string): Pr
   const trimmed = (name ?? "").trim();
   if (!trimmed) return { ok: false, error: "Arrangement name required" };
   if (trimmed.length > 80) return { ok: false, error: "Arrangement name too long (max 80)" };
-  await db.update(songArrangements).set({ name: trimmed }).where(eq(songArrangements.id, arrangementId));
+  await db.update(songArrangements).set({ name: trimmed }).where(and(eq(songArrangements.id, arrangementId), eq(songArrangements.churchId, user.churchId)));
   revalidatePath(`/library/songs/${owned.songId}`);
   return { ok: true };
 }
@@ -2855,7 +2861,7 @@ export async function deleteArrangement(arrangementId: string): Promise<Result> 
   const db = getDb();
   const owned = await assertArrangementOwned(db, arrangementId, user.churchId);
   if (!owned) return { ok: false, error: "Arrangement not found" };
-  await db.delete(songArrangements).where(eq(songArrangements.id, arrangementId));
+  await db.delete(songArrangements).where(and(eq(songArrangements.id, arrangementId), eq(songArrangements.churchId, user.churchId)));
   revalidatePath(`/library/songs/${owned.songId}`);
   return { ok: true };
 }
@@ -2867,9 +2873,9 @@ export async function reorderArrangement(arrangementId: string, order: string[])
   const db = getDb();
   const owned = await assertArrangementOwned(db, arrangementId, user.churchId);
   if (!owned) return { ok: false, error: "Arrangement not found" };
-  const cleanOrder = await sanitizeArrangementOrder(db, owned.songId, order);
+  const cleanOrder = await sanitizeArrangementOrder(db, owned.songId, order, user.churchId);
   if (cleanOrder === null) return { ok: false, error: "Arrangement order too long" };
-  await db.update(songArrangements).set({ order: cleanOrder }).where(eq(songArrangements.id, arrangementId));
+  await db.update(songArrangements).set({ order: cleanOrder }).where(and(eq(songArrangements.id, arrangementId), eq(songArrangements.churchId, user.churchId)));
   revalidatePath(`/library/songs/${owned.songId}`);
   return { ok: true };
 }
@@ -2877,11 +2883,11 @@ export async function reorderArrangement(arrangementId: string, order: string[])
 /** Clean an incoming arrangement order: keep only string group ids that belong
  *  to this song (repeats preserved), enforce the length cap. Returns null if too
  *  long. An empty/absent order yields []. */
-async function sanitizeArrangementOrder(db: ReturnType<typeof getDb>, songId: string, order: unknown): Promise<string[] | null> {
+async function sanitizeArrangementOrder(db: ReturnType<typeof getDb>, songId: string, order: unknown, churchId: string): Promise<string[] | null> {
   const arr = Array.isArray(order) ? (order as unknown[]).filter((x): x is string => typeof x === "string") : [];
   if (arr.length > MAX_ARRANGEMENT_LEN) return null;
   if (arr.length === 0) return [];
-  const groups = await db.select({ id: songGroups.id }).from(songGroups).where(eq(songGroups.songId, songId));
+  const groups = await db.select({ id: songGroups.id }).from(songGroups).where(and(eq(songGroups.songId, songId), eq(songGroups.churchId, churchId)));
   const valid = new Set(groups.map((g) => g.id));
   return arr.filter((id) => valid.has(id));
 }
@@ -2927,8 +2933,8 @@ export async function getSongArrangementModel(songId: string): Promise<Result<{
   const song = await assertSongOwned(db, songId, user.churchId);
   if (!song) return { ok: false, error: "Song not found" };
   const [groups, arrangements, slides] = await Promise.all([
-    db.select().from(songGroups).where(eq(songGroups.songId, songId)).orderBy(asc(songGroups.order)),
-    db.select().from(songArrangements).where(eq(songArrangements.songId, songId)).orderBy(asc(songArrangements.sort)),
+    db.select().from(songGroups).where(and(eq(songGroups.songId, songId), eq(songGroups.churchId, user.churchId))).orderBy(asc(songGroups.order)),
+    db.select().from(songArrangements).where(and(eq(songArrangements.songId, songId), eq(songArrangements.churchId, user.churchId))).orderBy(asc(songArrangements.sort)),
     db.select({ id: songSlides.id, groupId: songSlides.groupId }).from(songSlides).where(eq(songSlides.songId, songId)).orderBy(asc(songSlides.order)),
   ]);
   return {

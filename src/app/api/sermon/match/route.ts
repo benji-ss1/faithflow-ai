@@ -53,6 +53,7 @@ export async function POST(req: Request) {
   const transcriptWindow = String(body.transcriptWindow || "");
   const currentSlideIdx = typeof body.currentSlideIdx === "number" ? body.currentSlideIdx : 0;
   if (!pptxImportId) return NextResponse.json({ error: "pptxImportId required" }, { status: 400 });
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(pptxImportId)) return NextResponse.json({ error: "Import not found" }, { status: 404 });
 
   const db = getDb();
   const [imp] = await db.select().from(pptxImports)
