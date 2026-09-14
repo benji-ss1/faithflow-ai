@@ -252,16 +252,58 @@ async function main() {
   // ── Operator lower-third title lifetime ──────────────────────────────────
   check("title: send → shows; heartbeat/re-send same slide → stays; different slide → gone, lyrics show; clear → gone", () => {
     const lt = { line1: "Pastor Ade", line2: "Lead Pastor" };
-    let held: HeldLowerThird | null = { lt, identity: slideOutputIdentity(song) };
-    assert.deepEqual(heldLowerThirdFor(held, slideOutputIdentity(song)), lt, "shows");
-    assert.deepEqual(heldLowerThirdFor(held, slideOutputIdentity({ ...song } as SlidePayload)), lt, "same slide re-sent stays");
+    let held: HeldLowerThird | null = { lt, sendSeq: 4 };
+    assert.deepEqual(heldLowerThirdFor(held, 4), lt, "shows (heartbeat / same-position re-send don't bump the counter)");
     const next: SlidePayload = { kind: "text", text: "Amazing grace how sweet" };
-    const shown = heldLowerThirdFor(held, slideOutputIdentity(next));
-    assert.equal(shown, null, "different slide clears");
+    const shown = heldLowerThirdFor(held, 5);
+    assert.equal(shown, null, "next send clears");
     const r = pipeline(storeWith("lowerthird"), { url: "obs=lowerthird", slide: next, lowerThird: shown }).resolved;
     const html = render(r, next);
     assert.ok(html.includes("Amazing grace how sweet") && !html.includes("Pastor Ade"), "lyrics show after title cleared");
-    held = null; assert.equal(heldLowerThirdFor(held, slideOutputIdentity(song)), null, "explicit clear");
+    held = null; assert.equal(heldLowerThirdFor(held, 4), null, "explicit clear");
+  });
+  check("title: repeated IDENTICAL slide (chorus / blank) from another position clears the title", () => {
+    // Model of OperatorConsole.noteLiveSend: bump on identity change OR different position.
+    let seq = 0; let pos: string | null = null; let liveId = slideOutputIdentity({ kind: "empty" });
+    const sendAt = (s: SlidePayload, p: string | null) => {
+      const id = slideOutputIdentity(s); const idChanged = id !== liveId;
+      if (idChanged || (p !== null && p !== pos)) seq++;
+      if (p !== null || idChanged) pos = p;
+      liveId = id;
+    };
+    const lt = { line1: "Pastor Ade", line2: "" };
+    for (const s of [{ kind: "text", text: "Chorus: how great" }, { kind: "blank" }] as SlidePayload[]) {
+      sendAt(s, "0:1");
+      const held: HeldLowerThird = { lt, sendSeq: seq };
+      sendAt({ ...s } as SlidePayload, "0:1");
+      assert.deepEqual(heldLowerThirdFor(held, seq), lt, `${s.kind}: same position re-send keeps title`);
+      sendAt({ ...s } as SlidePayload, "0:5");
+      assert.equal(slideOutputIdentity(s), liveId, "identical content");
+      assert.equal(heldLowerThirdFor(held, seq), null, `${s.kind}: same content, different position clears title`);
+    }
+  });
+  check("publisher: message sent while a trailing editor send is pending survives on remote", () => {
+    let now = 0; const timers: { at: number; fn: () => void; id: number }[] = []; let nid = 0;
+    const clock = { now: () => now, setTimeout: (fn: () => void, ms: number) => { const id = ++nid; timers.push({ at: now + ms, fn, id }); return id; }, clearTimeout: (h: unknown) => { const i = timers.findIndex((t) => t.id === h); if (i >= 0) timers.splice(i, 1); } };
+    const advance = (to: number) => { for (;;) { timers.sort((a, b) => a.at - b.at); const t = timers[0]; if (!t || t.at > to) break; timers.shift(); now = t.at; t.fn(); } now = to; };
+    const remote: Array<{ camScale: number; operatorMessage: string | null }> = [];
+    const pub = createTrailingPublisher<{ camScale: number; operatorMessage: string | null }>((s) => remote.push(s), 125, clock);
+    pub.sendNow({ camScale: 1, operatorMessage: null });
+    advance(40); pub.schedule({ camScale: 1.2, operatorMessage: null }); // drag → pending
+    advance(60); pub.sendNow({ camScale: 1.2, operatorMessage: "Car KJA-123 blocking" }); // sendMessage
+    advance(2000);
+    assert.equal(remote[remote.length - 1].operatorMessage, "Car KJA-123 blocking", "message not overwritten by the trailing flush");
+  });
+  check("publisher: dispose flushes the pending trailing value", () => {
+    let now = 0; const handles: unknown[] = [];
+    const clock = { now: () => now, setTimeout: (_fn: () => void, _ms: number) => { const h = {}; handles.push(h); return h; }, clearTimeout: (h: unknown) => { const i = handles.indexOf(h); if (i >= 0) handles.splice(i, 1); } };
+    const sent: number[] = [];
+    const p = createTrailingPublisher<number>((v) => sent.push(v), 125, clock);
+    p.schedule(1); now = 10; p.schedule(2); p.schedule(3);
+    p.dispose();
+    assert.deepEqual(sent, [1, 3], "final value flushed on dispose");
+    assert.equal(handles.length, 0, "timer cleared");
+    p.dispose(); assert.deepEqual(sent, [1, 3], "second dispose is a no-op");
   });
   check("full × settings never leak into camera / lowerthird", () => {
     const { resolved } = pipeline(storeWith("camera", { fullScale: 2, fullDim: 0.9 }));

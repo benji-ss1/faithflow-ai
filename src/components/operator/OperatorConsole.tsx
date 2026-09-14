@@ -294,7 +294,14 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     setPreview({ itemIdx, slideIdx });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [live, setLive] = useState<SlidePayload>({ kind: "empty" });
+  const [live, setLiveRaw] = useState<SlidePayload>({ kind: "empty" });
+  // Live-send counter: bumps on every send that changes what's live — a new
+  // slide identity OR the same content from a DIFFERENT deck position (repeated
+  // chorus / blank). Never bumps on heartbeats or an already-live re-send of the
+  // same position. The operator's title is held against this, not content.
+  const [liveSendSeq, setLiveSendSeq] = useState(0);
+  const liveSendSeqRef = useRef(0);
+  const livePosRef = useRef<string | null>(null);
   // ── Live projection UNDO / REDO (Google-Docs-style back/forward for the
   // output). History is recorded centrally by watching `live` (below), so it
   // captures EVERY path that changes the projector — manual sends, editor Show,
@@ -665,10 +672,10 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   // it clears the moment a DIFFERENT slide goes live (production parity) or on an
   // explicit clear. Only /livestream renders it (band, full + camera looks).
   const [heldLowerThird, setHeldLowerThird] = useState<HeldLowerThird | null>(null);
-  const opLowerThird = heldLowerThirdFor(heldLowerThird, slideOutputIdentity(live));
+  const opLowerThird = heldLowerThirdFor(heldLowerThird, liveSendSeq);
   useEffect(() => {
-    if (heldLowerThird && heldLowerThird.identity !== slideOutputIdentity(live)) setHeldLowerThird(null);
-  }, [live, heldLowerThird]);
+    if (heldLowerThird && heldLowerThird.sendSeq !== liveSendSeq) setHeldLowerThird(null);
+  }, [liveSendSeq, heldLowerThird]);
   useEffect(() => {
     const read = () => {
       try {
@@ -745,7 +752,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       } catch { /* ignore */ }
     }, 125);
   }
-  useEffect(() => () => remotePublisherRef.current?.dispose(), []);
+  useEffect(() => () => { try { remotePublisherRef.current?.dispose(); } catch { /* ignore */ } }, []);
   useEffect(() => {
     const fastMarker = fastTransitionSlideRef.current;
     const useFastTransition = fastMarker?.slide === live;
@@ -838,6 +845,20 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   const chRef = useRef<LiveChannelLike | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;
+  type LivePos = { itemIdx: number; slideIdx: number };
+  /** Record a live send for the title key (see liveSendSeq). */
+  const noteLiveSend = useCallback((slide: SlidePayload, pos?: LivePos | null) => {
+    const posKey = pos ? `${pos.itemIdx}:${pos.slideIdx}` : null;
+    let idChanged = true;
+    try { idChanged = slideOutputIdentity(slide) !== slideOutputIdentity(liveRef.current); } catch { /* treat as changed */ }
+    const changed = idChanged || (posKey !== null && posKey !== livePosRef.current);
+    if (posKey !== null || idChanged) livePosRef.current = posKey;
+    if (changed) { liveSendSeqRef.current += 1; setLiveSendSeq(liveSendSeqRef.current); }
+  }, []);
+  const setLive = useCallback((slide: SlidePayload, pos?: LivePos | null) => {
+    noteLiveSend(slide, pos);
+    setLiveRaw(slide);
+  }, [noteLiveSend]);
   // The PRE-layout source of whatever is currently live — captured at
   // sendSlideToLive entry (before applyChurchLayout). Re-sending THIS through the
   // pipeline re-applies the CURRENT church layout, so a full↔third toggle can
@@ -973,10 +994,6 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       if (c && exp && Number(exp) > Date.now()) setPairCode(c);
     } catch { /* ignore */ }
     return () => window.removeEventListener("presentflow:obs-pair-code", onObsPair as EventListener);
-  }, []);
-  const publishRealtime = useCallback((state: OutputState) => {
-    if (!rtRef.current) return;
-    void rtRef.current.publish(state);
   }, []);
 
   // Phase 5A: local song library for client-side lyric/title matching.
@@ -1162,7 +1179,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   const sendSlideToLive = useCallback((
     slide: SlidePayload,
     spec?: import("@/lib/broadcast").TransitionSpec | null,
-    options?: { preserveConfiguredTransition?: boolean; instant?: boolean; force?: boolean; origin?: LiveOrigin; carryLiveOrigin?: boolean },
+    options?: { preserveConfiguredTransition?: boolean; instant?: boolean; force?: boolean; origin?: LiveOrigin; carryLiveOrigin?: boolean; position?: LivePos },
   ) => {
     // 2026-07-25 — added tracing + defensive guards after a field report
     // that "clicking a song slide does nothing" (v0.1.42 hunt). The pipeline
@@ -1202,6 +1219,9 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // weight, uppercase…) changed — those aren't part of slideOutputIdentity, so
     // without this a re-show of the "same" verse is silently a no-op.
     if (!options?.force && slideOutputIdentity(slide) === slideOutputIdentity(liveRef.current)) {
+      // Projector untouched, but same content from a DIFFERENT deck position is a
+      // new send for the operator title (it clears).
+      if (options?.position) noteLiveSend(slide, options.position);
       return;
     }
     if (options?.instant) {
@@ -1212,7 +1232,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       // carries transition:null. Used for Bible verse card clicks where a 1-2 s
       // theme fade is user-visible latency.
       fastTransitionSlideRef.current = { slide, transition: null };
-      setLive(slide);
+      setLive(slide, options?.position);
       setLiveBroadcastRevision((revision) => revision + 1);
       chRef.current?.postMessage({ type: "set", slide, transition: null } as LiveMessage);
       liveLayersRef.current.rearmSlide(); // R1b: a real new slide re-arms the slide layer
@@ -1230,7 +1250,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       if (spec !== undefined) setTransitionSpec(spec);
       setTransition = spec;
     }
-    setLive(slide);
+    setLive(slide, options?.position);
     // A repeated reference can reuse the exact same slide object. Force the
     // networked OutputState effect to republish even when React bails out of
     // the identical setLive value.
@@ -1242,7 +1262,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     } as LiveMessage);
     liveLayersRef.current.rearmSlide(); // R1b: a real new slide re-arms the slide layer
     try { console.log("[live] setLive committed + broadcast posted", { posted: posted !== undefined ? "ok" : "no-channel" }); } catch { /* ignore */ }
-  }, [churchId, stampLiveOrigin]);
+  }, [churchId, stampLiveOrigin, noteLiveSend, setLive]);
   const stageSlide = useCallback((slide: SlidePayload) => setStagedAISlide(slide), []);
   // Direct (no-transition) send paths — send(), move autoSend, jumpTo, banked,
   // legacy voice nav — used to skip applyChurchLayout, so with a lower-third
@@ -1320,11 +1340,11 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     return () => { ch.close(); chRef.current = null; };
   }, []);
 
-  const send = useCallback((raw: SlidePayload) => {
+  const send = useCallback((raw: SlidePayload, pos?: LivePos) => {
     const slide = layoutForDirectSend(raw);
-    setLive(slide);
+    setLive(slide, pos);
     chRef.current?.postMessage({ type: "set", slide } as LiveMessage);
-  }, [layoutForDirectSend]);
+  }, [layoutForDirectSend, setLive]);
 
   const clearLive = useCallback(() => {
     liveOriginRef.current = { origin: { kind: "other" }, identity: slideOutputIdentity({ kind: "empty" }) };
@@ -1536,7 +1556,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   }, [plan.items, dispatchEngineAction]);
 
   const sendPreview = useCallback(() => {
-    sendSlideToLive(previewSlide, undefined, { instant: true });
+    sendSlideToLive(previewSlide, undefined, { instant: true, ...(stagedAISlide ? {} : { position: { itemIdx: preview.itemIdx, slideIdx: preview.slideIdx } }) });
     // A staged AI slide (e.g. a detected verse) is what projects here — the
     // playlist position underneath is NOT being sent, so its actions must not fire.
     if (!stagedAISlide) fireSlideActions(preview.itemIdx, preview.slideIdx);
@@ -1584,13 +1604,13 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       const raw = plan.items[next.itemIdx]?.slides[next.slideIdx];
       if (raw) {
         const s = layoutForDirectSend(raw);
-        setLive(s);
+        setLive(s, next);
         chRef.current?.postMessage({ type: "set", slide: s } as LiveMessage);
         // Operator-initiated send → fire that slide's attached actions (AI paths never do).
         fireSlideActions(next.itemIdx, next.slideIdx);
       }
     }
-  }, [plan.items, autoSend, fireSlideActions, layoutForDirectSend]);
+  }, [plan.items, autoSend, fireSlideActions, layoutForDirectSend, setLive]);
 
   useEffect(() => {
     // Priority 4 / Y4: the desktop shell uses the centralized
@@ -1618,7 +1638,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     if (autoSend) {
       const s = plan.items[itemIdx]?.slides[slideIdx];
       if (s) {
-        send(s);
+        send(s, { itemIdx, slideIdx });
         // ProPresenter semantics (2026-09-14 user sign-off): a slide's actions run
         // whenever the OPERATOR puts it live — click, arrows, Enter, or a jump.
         fireSlideActions(itemIdx, slideIdx);
@@ -2086,18 +2106,20 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     const nextLt = (line1 || line2) ? { line1, line2 } : null;
     // Hold it against the CURRENT live slide so later emits of that same slide
     // keep it; a different slide going live clears it.
-    setHeldLowerThird(nextLt ? { lt: nextLt, identity: slideOutputIdentity(liveRef.current) } : null);
+    setHeldLowerThird(nextLt ? { lt: nextLt, sendSeq: liveSendSeqRef.current } : null);
     const rawLtState: OutputState = { ...base, lowerThird: nextLt };
     // Fail-open sanitize before the wire — the null-fallback `base` above is built
     // from a RAW `next`/`live` (unlike the main emit effect), so guard this path
     // too so a malformed neighbour field can never blank the projector.
     const state: OutputState = sanitizeOutputState(rawLtState) ?? rawLtState;
     safePost(chRef.current, { type: "output", state });
-    publishRealtime(scrubOutputStateForRemote(state)); // scrub local-only camera id + local-scope layers
+    // Through the remote publisher (scrub + Realtime + LAN) so a queued trailing
+    // editor send can never land AFTER this and overwrite it.
+    remotePublisherRef.current!.sendNow(state);
     lastOutputStateRef.current = state;
     publishObsPreviewState(state); // after the projector + remote posts
     toast.success(line1 || line2 ? "Lower third sent" : "Lower third cleared");
-  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, publishRealtime, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone]);
+  }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone]);
   // Actually CLEAR the lower third on the projector (was a placeholder toast
   // that left it on screen — a real live hazard). Reuses the working send path
   // with empty lines, which broadcasts lowerThird:null and toasts "cleared".
@@ -2126,9 +2148,11 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // Y5: fan out to remote paired projectors via realtime. Embedded into
     // OutputState so subscribers on the current channel API pick it up
     // without needing a new event type on the wire.
-    if (rtRef.current && lastOutputStateRef.current) {
+    // Routed through the remote publisher (sendNow drops any pending older
+    // trailing editor value) so it can't be overwritten by a queued send.
+    if (lastOutputStateRef.current) {
       const embedded: OutputState = { ...lastOutputStateRef.current, operatorMessage: text };
-      void rtRef.current.publish(embedded);
+      remotePublisherRef.current!.sendNow(embedded);
     }
     const expiresAt = typeof dismissAfterMs === "number" && dismissAfterMs > 0 ? Date.now() + dismissAfterMs : null;
     setActiveMessage({ text, expiresAt });
@@ -2140,9 +2164,9 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   }, []);
   const clearMessage = useCallback(() => {
     safePost(chRef.current, { type: "message", overlay: { clear: true } });
-    if (rtRef.current && lastOutputStateRef.current) {
+    if (lastOutputStateRef.current) {
       const embedded: OutputState = { ...lastOutputStateRef.current, operatorMessage: null };
-      void rtRef.current.publish(embedded);
+      remotePublisherRef.current!.sendNow(embedded);
     }
     if (activeMessageTimerRef.current) { clearTimeout(activeMessageTimerRef.current); activeMessageTimerRef.current = null; }
     setActiveMessage(null);

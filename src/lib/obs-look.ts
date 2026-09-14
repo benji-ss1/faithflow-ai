@@ -270,12 +270,14 @@ export function resolveObsRender(i: ObsRenderInput): ObsRenderResolved {
 }
 
 // ── Operator lower-third title lifetime ─────────────────────────────────────
-/** The operator's title is held against the slide identity that was live when it
- *  was sent. It shows while that slide stays live (heartbeats / re-sends of the
- *  same slide keep it) and is gone the moment a DIFFERENT slide goes live. */
-export type HeldLowerThird = { lt: { line1: string; line2: string }; identity: string };
-export function heldLowerThirdFor(held: HeldLowerThird | null, liveIdentity: string): { line1: string; line2: string } | null {
-  return held && held.identity === liveIdentity ? held.lt : null;
+/** The operator's title is held against the operator's live-send counter at the
+ *  moment it was sent. It shows while no newer live send has happened (heartbeats,
+ *  snapshot replies and already-live re-sends of the same position don't bump the
+ *  counter) and is gone on the NEXT send — including the same content from a
+ *  different deck position (repeated chorus, another blank). */
+export type HeldLowerThird = { lt: { line1: string; line2: string }; sendSeq: number };
+export function heldLowerThirdFor(held: HeldLowerThird | null, liveSendSeq: number): { line1: string; line2: string } | null {
+  return held && held.sendSeq === liveSendSeq ? held.lt : null;
 }
 
 // ── Remote publish coalescing (editor slider drags) ─────────────────────────
@@ -299,7 +301,12 @@ export function createTrailingPublisher<T>(send: (v: T) => void, intervalMs: num
       if (timer !== null) { clock.clearTimeout(timer); timer = null; }
       pending = null; last = clock.now(); send(v);
     },
-    dispose() { if (timer !== null) clock.clearTimeout(timer); timer = null; pending = null; },
+    /** Cancel the timer and FLUSH any pending trailing value (never drop the final value). */
+    dispose() {
+      if (timer !== null) clock.clearTimeout(timer);
+      timer = null;
+      if (pending) { const v = pending.v; pending = null; last = clock.now(); send(v); }
+    },
   };
 }
 
