@@ -17,7 +17,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { BookOpen, Music, Quote } from "lucide-react";
+import { BookOpen, Music, Quote, Link2 } from "lucide-react";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { RightRailDetections } from "./useRightRailDetections";
 import type { BibleRow, SongRow } from "@/lib/right-rail-visible";
@@ -75,37 +75,9 @@ export function AIDetectionsPanel({ ctx, sections, detections }: { ctx: Operator
   const audio = ctx.audio;
 
   const { bibleRows, songRows, phraseGroups: phraseMatchGroups, nowTick, dismiss, markInvalid } = detections;
-  const previewLookupRef = useRef<Set<string>>(new Set());
-  // Verse preview text (display only — never affects which rows are visible).
-  const [previews, setPreviews] = useState<Map<string, string>>(() => new Map());
-
-  // Verse-text LOOKUP side effect: verify each visible ref exists + fetch a
-  // preview. A failed lookup marks it invalid in the lifted store (survives
-  // popover close; time-limited to 10 min).
-  useEffect(() => {
-    for (const row of bibleRows) {
-      if (previewLookupRef.current.has(row.key)) continue;
-      previewLookupRef.current.add(row.key);
-      (async () => {
-        try {
-          const res = await cachedLookup({
-            book: row.book,
-            chapter: row.chapter,
-            verseStart: row.verseStart,
-            verseEnd: row.verseEnd,
-            translationCode: ctx.defaultTranslationCode,
-          });
-          if (!res.verses || res.verses.length === 0) {
-            markInvalid(row.key);
-            return;
-          }
-          const preview = res.verses[0]?.text?.slice(0, 40) ?? "";
-          if (!preview) return; // shape drift — skip rather than render empty
-          setPreviews((prev) => new Map(prev).set(row.key, preview));
-        } catch { /* leave without preview */ }
-      })();
-    }
-  }, [bibleRows, ctx.defaultTranslationCode, markInvalid]);
+  // Verse validation lookup + preview text live in useRightRailDetections
+  // (always mounted) so a closed popover never counts an invalid ref.
+  const previews = detections.previews;
 
   const autoApprove = !!ctx.autoApproveOn;
   const autoApproveThreshold = 85;
@@ -325,6 +297,18 @@ export function AIDetectionsPanel({ ctx, sections, detections }: { ctx: Operator
           Multiple candidate verses are shown — NEVER auto-picked, since a
           phrase can genuinely match more than one verse — the operator
           clicks the right one. */}
+      {showXrefs && phraseMatchGroups.length === 0 && (
+        <section className="px-2 py-2" data-testid="ai-cross-references-empty">
+          <div className="flex flex-col items-center gap-2 text-center py-6 px-3">
+            <span className="grid place-items-center w-9 h-9 rounded-xl bg-[var(--color-brand)]/10 text-[var(--color-brand)]/70 shadow-[var(--edge-top)]">
+              <Link2 className="w-4 h-4" strokeWidth={2} />
+            </span>
+            <p className="text-[11px] font-medium text-[var(--color-muted-foreground)] leading-relaxed">
+              No cross-references detected yet.
+            </p>
+          </div>
+        </section>
+      )}
       {showXrefs && phraseMatchGroups.length > 0 && (
         <>
           <section className="px-2 py-2" data-testid="ai-cross-references">

@@ -56,7 +56,27 @@ export type VisibleOpts = {
   dismissed: ReadonlySet<string>;
   /** Bible row key → epoch ms the lookup failed. Entries older than INVALID_REF_TTL_MS are ignored. */
   invalid: ReadonlyMap<string, number>;
+  /** Rail "Clear" / plan-change reset time: items with ts <= clearedAt stay hidden. */
+  clearedAt?: number;
+  /**
+   * Server song suggestionId -> first-seen ms. Server detections carry no ts,
+   * so a row keeps the time it was FIRST seen (not re-stamped on every
+   * update) and genuinely expires. Mutated: unseen ids are recorded at `now`.
+   */
+  serverFirstSeen?: Map<string, number>;
 };
+
+type RowLike = { key: string; confidence: number; ts: number; preview?: string; isPhraseMatch?: boolean };
+/** Returns `prev` when `next` is equal row-for-row (avoids an extra render). */
+export function keepIfSame<R extends RowLike>(prev: R[], next: R[]): R[] {
+  if (prev === next) return prev;
+  if (prev.length !== next.length) return next;
+  for (let i = 0; i < prev.length; i++) {
+    const a = prev[i], b = next[i];
+    if (a.key !== b.key || a.confidence !== b.confidence || a.ts !== b.ts || a.preview !== b.preview || a.isPhraseMatch !== b.isPhraseMatch) return next;
+  }
+  return prev;
+}
 
 export function isInvalidRef(invalid: ReadonlyMap<string, number>, key: string, now: number): boolean {
   const at = invalid.get(key);
@@ -160,9 +180,11 @@ export function selectVisibleBibleRows(
   prev: BibleRow[] = [],
 ): BibleRow[] {
   const { threshold, now, dismissed, invalid } = opts;
+  const clearedAt = opts.clearedAt ?? -Infinity;
   let rows = prev;
   for (const s of suggestions) {
     if (s.type !== "scripture") continue;
+    if (s.ts <= clearedAt) continue;
     if (s.confidence < threshold) continue;
     if (now - s.ts > EXPIRY_MS) continue;
     const row = bibleRowFromSuggestion(s);
@@ -171,13 +193,14 @@ export function selectVisibleBibleRows(
     if (dismissed.has(`bible:${row.key}`)) continue;
     rows = mergeBibleRows(rows, row);
   }
-  return pruneBibleRows(rows, opts);
+  return keepIfSame(prev, pruneBibleRows(rows, opts));
 }
 
 /** Expiry / invalid / dismissed prune for already-accumulated Bible rows. */
 export function pruneBibleRows(rows: BibleRow[], opts: VisibleOpts): BibleRow[] {
   const { now, dismissed, invalid } = opts;
-  return rows.filter((r) => now - r.ts < EXPIRY_MS && !isInvalidRef(invalid, r.key, now) && !dismissed.has(`bible:${r.key}`));
+  const clearedAt = opts.clearedAt ?? -Infinity;
+  return keepIfSame(rows, rows.filter((r) => now - r.ts < EXPIRY_MS && r.ts > clearedAt && !isInvalidRef(invalid, r.key, now) && !dismissed.has(`bible:${r.key}`)));
 }
 
 /**
@@ -191,9 +214,11 @@ export function selectVisibleSongRows(
   prev: SongRow[] = [],
 ): SongRow[] {
   const { threshold, now, dismissed } = opts;
+  const clearedAt = opts.clearedAt ?? -Infinity;
   let rows = prev;
   for (const s of data.suggestions) {
     if (s.type !== "song" && s.type !== "lyric") continue;
+    if (s.ts <= clearedAt) continue;
     if (s.confidence < threshold) continue;
     if (now - s.ts > EXPIRY_MS) continue;
     const row = songRowFromSuggestion(s);
@@ -202,21 +227,46 @@ export function selectVisibleSongRows(
     rows = mergeSongRows(rows, row);
   }
   for (const s of data.songSuggestions) {
-    const row = songRowFromServerSuggestion(s, now);
+    let firstSeen = now;
+    if (opts.serverFirstSeen) {
+      const seen = opts.serverFirstSeen.get(s.suggestionId);
+      if (seen === undefined) opts.serverFirstSeen.set(s.suggestionId, now);
+      else firstSeen = seen;
+    }
+    const row = songRowFromServerSuggestion(s, firstSeen);
     if (!row) continue;
     if (row.confidence < threshold) continue;
+    if (row.ts <= clearedAt) continue;
+    if (now - row.ts >= EXPIRY_MS) continue;
     if (dismissed.has(`song:${row.key}`)) continue;
+    // Never move an existing row's ts backwards (last-seen, never re-stamped).
+    const existing = rows.find((r) => r.key === row.key);
+    if (existing && existing.ts > row.ts) row.ts = existing.ts;
     rows = mergeSongRows(rows, row);
   }
-  return pruneSongRows(rows, opts);
+  return keepIfSame(prev, pruneSongRows(rows, opts));
 }
 
 export function pruneSongRows(rows: SongRow[], opts: VisibleOpts): SongRow[] {
   const { now, dismissed } = opts;
-  return rows.filter((r) => now - r.ts < EXPIRY_MS && !dismissed.has(`song:${r.key}`));
+  const clearedAt = opts.clearedAt ?? -Infinity;
+  return keepIfSame(rows, rows.filter((r) => now - r.ts < EXPIRY_MS && r.ts > clearedAt && !dismissed.has(`song:${r.key}`)));
 }
 
 /** Cross-reference groups: newer than 5 min, max 3. */
-export function selectVisiblePhraseGroups(phraseMatches: readonly PhraseMatch[] | undefined, opts: { now: number }): PhraseMatch[] {
-  return (phraseMatches ?? []).filter((g) => opts.now - g.ts < PHRASE_MATCH_EXPIRY_MS).slice(0, MAX_PHRASE_GROUPS);
+export function selectVisiblePhraseGroups(phraseMatches: readonly PhraseMatch[] | undefined, opts: { now: number; clearedAt?: number }): PhraseMatch[] {
+  const clearedAt = opts.clearedAt ?? -Infinity;
+  return (phraseMatches ?? []).filter((g) => opts.now - g.ts < PHRASE_MATCH_EXPIRY_MS && g.ts > clearedAt).slice(0, MAX_PHRASE_GROUPS);
+}
+
+/** Cross-refs badge = candidate verse rows the panel renders across visible groups. */
+export function countCrossRefCandidates(groups: readonly PhraseMatch[]): number {
+  return groups.reduce((n, g) => n + g.candidates.length, 0);
+}
+
+/** Drop failed-lookup entries past their TTL. */
+export function pruneInvalid(invalid: ReadonlyMap<string, number>, now: number): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const [k, at] of invalid) if (now - at <= INVALID_REF_TTL_MS) out.set(k, at);
+  return out;
 }

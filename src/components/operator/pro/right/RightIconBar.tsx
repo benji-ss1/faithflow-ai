@@ -39,6 +39,7 @@ import type { OperatorShellCtx } from "../../shell/types";
 import type { TimerApi, MessagesApi, TimersApi, MessagesBoardApi } from "../hooks";
 import { AIDetectionsPanel } from "./AIDetectionsPanel";
 import { useRightRailDetections } from "./useRightRailDetections";
+import { countCrossRefCandidates } from "@/lib/right-rail-visible";
 import { TimersPanel } from "./TimersPanel";
 import { MessagesPanel } from "./MessagesPanel";
 import dynamic from "next/dynamic";
@@ -152,10 +153,13 @@ export function RightIconBar({
   // sets, 5-min/max-3 phrase groups). The rows + sets live here (always
   // mounted) so dismissals survive popover close and counts expire on a 15s
   // tick even while the popover is closed. See src/lib/right-rail-visible.ts.
-  const detections = useRightRailDetections(ctx.audio, ctx.confidenceThreshold ?? 50);
+  const detections = useRightRailDetections(ctx.audio, ctx.confidenceThreshold ?? 50, {
+    planId: ctx.planId, translationCode: ctx.defaultTranslationCode,
+  });
   const bibleCount = detections.bibleRows.length;
   const songCount = detections.songRows.length;
-  const xrefCount = detections.phraseGroups.length;
+  // Cross-refs panel renders one row per candidate verse, so count candidates.
+  const xrefCount = countCrossRefCandidates(detections.phraseGroups);
 
   return (
     <div className="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-panel)]">

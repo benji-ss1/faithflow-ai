@@ -11,7 +11,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   selectVisibleBibleRows, selectVisibleSongRows, selectVisiblePhraseGroups,
-  pruneBibleRows, pruneSongRows, EXPIRY_MS, INVALID_REF_TTL_MS, MAX_ROWS,
+  pruneBibleRows, pruneSongRows, countCrossRefCandidates, pruneInvalid, EXPIRY_MS, INVALID_REF_TTL_MS, MAX_ROWS,
   type BibleRow, type SongRow, type VisibleOpts,
 } from "../src/lib/right-rail-visible";
 import type { UnifiedSuggestion, SongSuggestion, PhraseMatch } from "../src/components/operator/useAudioStream";
@@ -161,6 +161,94 @@ test("phrase groups ≤ 3, 5-min expiry, matching panel", () => {
   assert.deepEqual(selectVisiblePhraseGroups(groups, { now: T0 + 4 * 60_000 }), legacy);
   assert.equal(selectVisiblePhraseGroups(groups, { now: T0 + 15 * 60_000 }).length, 0);
   assert.equal(selectVisiblePhraseGroups(undefined, { now: T0 }).length, 0);
+});
+
+test("cross-ref badge === candidate rows the panel renders", () => {
+  const cand = (v: number) => ({ book: "John", chapter: 3, verse: v, text: "t", similarity: 70 });
+  const groups: PhraseMatch[] = [
+    { segmentId: "a", matchedText: "x", candidates: [cand(1), cand(2)], ts: T0 },
+    { segmentId: "b", matchedText: "x", candidates: [cand(3)], ts: T0 },
+    { segmentId: "c", matchedText: "x", candidates: [cand(4), cand(5), cand(6)], ts: T0 },
+    { segmentId: "d", matchedText: "x", candidates: [cand(7)], ts: T0 }, // 4th group: not shown
+  ];
+  const visible = selectVisiblePhraseGroups(groups, { now: T0 });
+  const panelRows = visible.flatMap((g) => g.candidates).length;
+  assert.equal(countCrossRefCandidates(visible), panelRows);
+  assert.equal(panelRows, 6);
+  assert.equal(countCrossRefCandidates(selectVisiblePhraseGroups([], { now: T0 })), 0);
+});
+
+test("server song keeps first-seen ts: expires at t0+10min despite new songs + dismissals", () => {
+  const firstSeen = new Map<string, number>();
+  const old = server("old", 80);
+  let rows: SongRow[] = [];
+  let srv: SongSuggestion[] = [old];
+  const dismissed = new Set<string>();
+  rows = selectVisibleSongRows({ suggestions: [], songSuggestions: srv }, opts({ serverFirstSeen: firstSeen }), rows);
+  assert.equal(rows.find((r) => r.key === "old")?.ts, T0);
+  // 4 new songs (stays under MAX_ROWS=8 so the cap isn't what hides "old").
+  for (let m = 1; m <= 4; m++) {
+    srv = [server(`new${m}`), ...srv];
+    if (m === 3) dismissed.add("song:new1");
+    rows = selectVisibleSongRows({ suggestions: [], songSuggestions: srv }, opts({ now: T0 + m * 2 * 60_000, dismissed: new Set(dismissed), serverFirstSeen: firstSeen }), rows);
+    assert.equal(rows.find((r) => r.key === "old")?.ts, T0, `minute ${m}`);
+  }
+  rows = selectVisibleSongRows({ suggestions: [], songSuggestions: [server("latest"), ...srv] }, opts({ now: T0 + EXPIRY_MS, dismissed, serverFirstSeen: firstSeen }), rows);
+  assert.equal(rows.some((r) => r.key === "old"), false);
+  assert.equal(rows.some((r) => r.key === "latest"), true);
+});
+
+test("invalid ref excluded with no panel mounted (hook-level markInvalid → prune)", () => {
+  const acc = hook([verse("John", 99, 99), verse("John", 3, 16)], [], opts());
+  assert.equal(acc.bible.length, 2);
+  // Hook's lookup effect calls markInvalid → invalid map updated; badge prunes.
+  const invalid = pruneInvalid(new Map([["stale", T0 - INVALID_REF_TTL_MS - 1]]), T0).set("John 99:99-99", T0);
+  assert.equal(invalid.has("stale"), false, "markInvalid prunes expired entries");
+  assert.equal(pruneBibleRows(acc.bible, opts({ invalid })).length, 1);
+});
+
+test("clearAll → all 0; older stay hidden, newer detection counts again", () => {
+  const firstSeen = new Map<string, number>();
+  const sugs = [verse("John", 3, 16, 90, T0 - 1000), song("a", 90, T0 - 1000)];
+  const srv = [server("s1")];
+  const phrases: PhraseMatch[] = [{ segmentId: "p", matchedText: "x", candidates: [{ book: "John", chapter: 1, verse: 1, text: "t", similarity: 80 }], ts: T0 - 1000 }];
+  selectVisibleSongRows({ suggestions: [], songSuggestions: srv }, opts({ now: T0 - 500, serverFirstSeen: firstSeen }));
+  const clearedAt = T0;
+  // clearAll: rows reset to [] then re-ingest with clearedAt (same arrays still present).
+  const o = opts({ now: T0 + 1000, clearedAt, serverFirstSeen: firstSeen });
+  const b = selectVisibleBibleRows(sugs, o, []);
+  const s = selectVisibleSongRows({ suggestions: [], songSuggestions: srv }, o, selectVisibleSongRows({ suggestions: sugs, songSuggestions: [] }, o, []));
+  assert.equal(b.length + s.length + countCrossRefCandidates(selectVisiblePhraseGroups(phrases, o)), 0);
+  // Genuinely new detections after Clear.
+  const o2 = opts({ now: T0 + 2000, clearedAt, serverFirstSeen: firstSeen });
+  const newSugs = [verse("Romans", 8, 28, 90, T0 + 1500), ...sugs];
+  const newSrv = [server("s2"), ...srv];
+  const newPhr: PhraseMatch[] = [{ ...phrases[0], segmentId: "p2", ts: T0 + 1500 }, ...phrases];
+  assert.deepEqual(selectVisibleBibleRows(newSugs, o2, b).map((r) => r.key), ["Romans 8:28-28"]);
+  assert.deepEqual(selectVisibleSongRows({ suggestions: [], songSuggestions: newSrv }, o2, s).map((r) => r.key), ["s2"]);
+  assert.equal(countCrossRefCandidates(selectVisiblePhraseGroups(newPhr, o2)), 1);
+});
+
+test("plan change reset uses the same clearAll semantics", () => {
+  // Plan A rows accumulated; plan switch → clearedAt = switch time, rows [].
+  const planA = hook([verse("John", 3, 16, 90, T0 - 5000)], [], opts());
+  assert.equal(planA.bible.length, 1);
+  const afterSwitch = selectVisibleBibleRows([verse("John", 3, 16, 90, T0 - 5000)], opts({ now: T0 + 10, clearedAt: T0 }), []);
+  assert.equal(afterSwitch.length, 0);
+  assert.equal(pruneBibleRows(planA.bible, opts({ clearedAt: T0 })).length, 0);
+});
+
+test("unchanged input returns the same array reference", () => {
+  const sugs = [verse("John", 3, 16), song("a")];
+  const firstSeen = new Map<string, number>();
+  const o = opts({ serverFirstSeen: firstSeen });
+  const b1 = selectVisibleBibleRows(sugs, o, []);
+  assert.equal(selectVisibleBibleRows(sugs, o, b1), b1);
+  assert.equal(pruneBibleRows(b1, o), b1);
+  const s1 = selectVisibleSongRows({ suggestions: sugs, songSuggestions: [server("x")] }, o, []);
+  const s2 = selectVisibleSongRows({ suggestions: sugs, songSuggestions: [server("x")].map((z) => ({ ...z, suggestionId: [...firstSeen.keys()][0] })) }, opts({ now: T0 + 5000, serverFirstSeen: firstSeen }), s1);
+  assert.equal(s2, s1);
+  assert.equal(pruneSongRows(s1, o), s1);
 });
 
 test("advancing the clock past expiry → 0 (tick prune, no new suggestions)", () => {
