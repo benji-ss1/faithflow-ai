@@ -24,6 +24,7 @@ import { X, Pencil, LayoutGrid, GripVertical, GripHorizontal, ChevronRight, Chec
 import { describeSpec, specKey } from "@/engine/actions/describe";
 import { macroHasGuardedAction } from "@/engine/macros";
 import { DotGridBackground } from "../DotGridBackground";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { groupColor } from "@/engine/arrangements";
 
 type ViewMode = "grid" | "list" | "text";
@@ -398,6 +399,17 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   const [quickEdit, setQuickEdit] = useState<{ slideIdx: number; slideId?: string; text: string } | null>(null);
   const [qeSaving, setQeSaving] = useState(false);
   const editedTextRef = useRef("");
+  // Last persisted text for the open Quick Edit (seeded at open, advanced on a
+  // successful save). Typed text !== this → unsaved changes.
+  const qeBaselineRef = useRef("");
+  const { confirm: confirmQe, dialog: qeConfirmDialog } = useConfirm();
+  const qeDirty = () => quickEdit !== null && editedTextRef.current !== qeBaselineRef.current;
+  // Close/switch guard: ask before silently dropping typed, unsaved text.
+  const confirmDiscardQe = async (): Promise<boolean> => {
+    if (!qeDirty()) return true;
+    return confirmQe({ title: "Discard unsaved changes?", description: "Your typed text on this slide hasn't been saved.", confirmLabel: "Discard", danger: true });
+  };
+  const closeQuickEdit = async () => { if (await confirmDiscardQe()) setQuickEdit(null); };
   // Quick Edit is DRAGGABLE so it never blocks the slides behind it. Offset is
   // held in a ref and applied directly to the panel's transform, so dragging
   // never re-renders (and can't disturb the in-place caret).
@@ -650,22 +662,23 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canPasteHere, ctx.previewSlideIdx, slides.length, item]);
 
-  const handleQuickEditSave = async (newText: string) => {
-    if (!quickEdit) return;
+  // Returns true only when the text was persisted.
+  const handleQuickEditSave = async (newText: string): Promise<boolean> => {
+    if (!quickEdit) return false;
     const trimmed = newText.trim();
     if (!trimmed) {
       const { toast } = await import("sonner");
       toast.error("Slide text can't be empty");
-      return;
+      return false;
     }
-    if (item?.type !== "song" || !(item as { songId?: string }).songId) return;
+    if (item?.type !== "song" || !(item as { songId?: string }).songId) return false;
     // Prefer the STABLE id captured at open; fall back to the index lookup for
     // safety. This survives a grid reorder while the non-modal editor is open.
     const slideId = quickEdit.slideId ?? item.songSlideRows?.[quickEdit.slideIdx]?.id;
     if (!slideId) {
       const { toast } = await import("sonner");
       toast.error("Couldn't find that slide to save");
-      return;
+      return false;
     }
     setQeSaving(true);
     try {
@@ -674,15 +687,19 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
       // no more flatten-to-plain. Works for plain AND designed songs.
       const res = await updateSongSlideText(slideId, trimmed);
       const { toast } = await import("sonner");
-      if (!res.ok) { toast.error(res.error ?? "Save failed"); return; }
+      if (!res.ok) { toast.error(res.error ?? "Save failed"); return false; }
+      qeBaselineRef.current = newText; // no longer dirty
       // Save ONLY persists + updates the slide — it does NOT push to the projector
       // (user directive 2026-08-26). "Send this slide live" is the separate,
       // explicit action; saving and sending live are independent choices. The
       // editor stays open so the operator can then Send Live if they want to.
       toast.success("Slide updated");
       // Keep the song tracker cache fresh (same event the add-slide paths fire).
-      try { window.dispatchEvent(new CustomEvent("presentflow:song-slides-changed", { detail: { songId: (item as { songId?: string }).songId } })); } catch { /* noop */ }
+      // keepLiveTracking: text-only edit — don't drop live-song tracking (see
+      // src/lib/song-slides-changed.ts).
+      try { window.dispatchEvent(new CustomEvent("presentflow:song-slides-changed", { detail: { songId: (item as { songId?: string }).songId, keepLiveTracking: true } })); } catch { /* noop */ }
       router.refresh(); // grid reflects the saved text; editor stays open
+      return true;
     } finally {
       setQeSaving(false);
     }
@@ -997,19 +1014,29 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                     const visible = objs.filter((o) => !o?.hidden);
                     const soleEditable = visible.length === 1 && visible[0]?.kind === "text";
                     if (!soleEditable) {
-                      void import("sonner").then(({ toast }) => toast.info("This slide has a custom layout — open it in the slide editor to change its text."));
+                      void import("sonner").then(({ toast }) => toast.info(
+                        "This slide has a custom layout — open it in the slide editor to change its text.",
+                        onOpenEditor
+                          ? { action: { label: "Open editor", onClick: () => { ctx.onJumpSlide(ctx.previewItemIdx, idx); onOpenEditor(); } } }
+                          : undefined,
+                      ));
                       return;
                     }
                     const firstText = objs.find((o) => o?.kind === "text");
                     if (firstText && typeof firstText.text === "string") text = firstText.text;
                   }
-                  editedTextRef.current = text; // seed the live-edit ref
                   // Capture the STABLE slide id now so Save can't be misdirected
                   // by a later reorder/delete while the editor stays open.
                   const slideId = item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined;
-                  qeOffset.current = { x: 0, y: 0 }; // open centred each time
-                  applyQeTransform(); // recenter even if the panel is already mounted (target switch)
-                  setQuickEdit({ slideIdx: idx, slideId, text });
+                  void (async () => {
+                    // Switching target with unsaved typed text → ask first.
+                    if (!(await confirmDiscardQe())) return;
+                    editedTextRef.current = text; // seed the live-edit ref
+                    qeBaselineRef.current = text;
+                    qeOffset.current = { x: 0, y: 0 }; // open centred each time
+                    applyQeTransform(); // recenter even if the panel is already mounted (target switch)
+                    setQuickEdit({ slideIdx: idx, slideId, text });
+                  })();
                 }}
                 onDuplicate={() => {
                   if (guardObjectSong()) return;
@@ -1123,6 +1150,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
           editable in place. Crucially it is NOT a modal: no overlay, no focus
           trap — the operator can still click other slides in the grid and push
           them LIVE mid-service while a quick edit is open. Small ✕ at top-left. */}
+      {qeConfirmDialog}
       {quickEdit !== null && (() => {
         const current = slides[quickEdit.slideIdx];
         const preview = current
@@ -1138,7 +1166,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
             onKeyDown={(e) => {
               // stopPropagation: closing the panel must never also reach the global
               // hotkey handler (Esc = clear live).
-              if (e.key === "Escape") { e.stopPropagation(); e.nativeEvent.stopImmediatePropagation?.(); setQuickEdit(null); }
+              if (e.key === "Escape") { e.stopPropagation(); e.nativeEvent.stopImmediatePropagation?.(); void closeQuickEdit(); }
               if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { void handleQuickEditSave(editedTextRef.current); }
             }}
           >
@@ -1175,7 +1203,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                 onEditInput={(t) => { editedTextRef.current = t; }}
               />
               {/* Close ✕ — top-left, like ProPresenter. */}
-              <button type="button" aria-label="Close" onClick={() => setQuickEdit(null)}
+              <button type="button" aria-label="Close" onClick={() => void closeQuickEdit()}
                 className="absolute top-1.5 left-1.5 w-6 h-6 flex items-center justify-center rounded-full bg-black/60 hover:bg-black/80 text-white/90 ring-1 ring-white/20 z-10">
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -1185,9 +1213,18 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
             <div className="mt-2.5 flex items-center justify-center gap-2">
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   const t = editedTextRef.current.trim();
-                  if (!t) return;
+                  if (!t) {
+                    void import("sonner").then(({ toast }) => toast("Type something first"));
+                    return;
+                  }
+                  // Unsaved typed text → save first (same church-scoped path + empty
+                  // rejection) so the grid and projector agree. "Save" alone still
+                  // never pushes live (2026-08-26 directive).
+                  if (qeDirty() && item?.type === "song") {
+                    if (!(await handleQuickEditSave(editedTextRef.current))) return;
+                  }
                   ctx.onSendSlideToLive(current ? applyTextToSlide(current, t) : { kind: "text", text: t }, undefined, itemSendOpts ?? { origin: { kind: "text" } });
                 }}
                 className="h-8 px-3 rounded-md text-[12px] font-medium bg-white/10 border border-white/20 hover:bg-white/20 text-white backdrop-blur-sm"

@@ -493,7 +493,16 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
     // Opening from a context menu: the menu's close restores focus to its trigger
     // (the slide card) AFTER this effect, stealing the caret. Re-place once that
     // settles, but only if focus isn't already inside the editable node.
-    const t = window.setTimeout(() => { if (textRef.current === el && !el.contains(document.activeElement)) place(); }, 60);
+    // Never steal focus from anything else the operator moved to (another input,
+    // a button): only reclaim it from body/nothing or the card/menu that opened us.
+    const t = window.setTimeout(() => {
+      if (textRef.current !== el) return;
+      const a = document.activeElement as HTMLElement | null;
+      if (a && el.contains(a)) return;
+      const reclaim = !a || a === document.body
+        || !!a.closest?.('[role="gridcell"], [role="menu"], [role="menuitem"], [data-radix-menu-content]');
+      if (reclaim) place();
+    }, 60);
     return () => window.clearTimeout(t);
   }, [editable]);
 

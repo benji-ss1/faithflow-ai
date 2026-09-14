@@ -145,6 +145,46 @@ async function main() {
     const [first] = await db.select().from(songSlides).where(eq(songSlides.id, rows[0].id));
     assert(first.lyrics === "First line here edited", "filled slide save persisted", JSON.stringify(first.lyrics));
     await page.keyboard.press("Escape");
+    await page.locator('[role="dialog"][aria-label^="Quick Edit"]').waitFor({ state: "detached", timeout: 5_000 });
+    assert(true, "Escape after a save closes without a discard prompt");
+
+    // h. Unsaved typing → "Send this slide live" SAVES first, then projects.
+    await page.locator('[role="gridcell"]').nth(1).click({ button: "right" });
+    await page.getByRole("menuitem", { name: /Quick Edit/ }).click();
+    await page.waitForFunction(() => (document.activeElement as HTMLElement | null)?.innerText === "Second line here", null, { timeout: 10_000 });
+    await page.keyboard.type(" sent");
+    await page.getByRole("button", { name: "Send this slide live" }).click();
+    await live.waitForFunction(() => /second line here sent/i.test(document.body.innerText), null, { timeout: 15_000 })
+      .then(() => assert(true, "send-live with unsaved text: /live shows it"))
+      .catch(async () => assert(false, "send-live with unsaved text: /live shows it", await liveText(live)));
+    const [second] = await db.select().from(songSlides).where(eq(songSlides.id, rows[1].id));
+    assert(second.lyrics === "Second line here sent", "send-live with unsaved text: DB saved first", JSON.stringify(second.lyrics));
+    await page.keyboard.press("Escape");
+    await page.locator('[role="dialog"][aria-label^="Quick Edit"]').waitFor({ state: "detached", timeout: 5_000 })
+      .then(() => assert(true, "closed after send-live (nothing unsaved → no prompt)"))
+      .catch(() => assert(false, "closed after send-live (nothing unsaved → no prompt)"));
+
+    // i. Unsaved typing → Esc → confirm appears; dismiss → still editing.
+    await page.locator('[role="gridcell"]').nth(1).click({ button: "right" });
+    await page.getByRole("menuitem", { name: /Quick Edit/ }).click();
+    await page.waitForFunction(() => (document.activeElement as HTMLElement | null)?.isContentEditable === true, null, { timeout: 10_000 });
+    await page.keyboard.type(" draft");
+    await page.keyboard.press("Escape");
+    const confirmBox = page.getByRole("alertdialog");
+    await confirmBox.waitFor({ timeout: 5_000 }).then(() => assert(true, "Esc with unsaved text shows 'Discard unsaved changes?'")).catch(() => assert(false, "Esc with unsaved text shows 'Discard unsaved changes?'"));
+    assert(/Discard unsaved changes\?/.test(await confirmBox.innerText().catch(() => "")), "confirm dialog title");
+    await confirmBox.getByRole("button", { name: /cancel/i }).click();
+    await page.waitForTimeout(400);
+    assert(await page.locator('[role="dialog"][aria-label^="Quick Edit"]').count() === 1, "dismissing the confirm keeps the Quick Edit panel open");
+    const stillText = await page.locator('[role="dialog"][aria-label^="Quick Edit"] [contenteditable]').innerText();
+    assert(/second line here sent draft/i.test(stillText), "typed draft preserved after dismiss", JSON.stringify(stillText));
+    assert(/second line here sent/.test(await liveText(live)), "live untouched by Esc/confirm");
+    // Discard to finish; DB must keep the saved (not draft) text.
+    await page.locator('[role="dialog"][aria-label="Close"], [aria-label="Close"]').first().click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Discard" }).click();
+    await page.locator('[role="dialog"][aria-label^="Quick Edit"]').waitFor({ state: "detached", timeout: 5_000 });
+    const [afterDiscard] = await db.select().from(songSlides).where(eq(songSlides.id, rows[1].id));
+    assert(afterDiscard.lyrics === "Second line here sent", "✕ + Discard closes without saving the draft");
   } catch (e) {
     fails++; console.error("[FAIL] exception:", (e as Error).message);
     await page.screenshot({ path: process.env.E2E_SCREENSHOT || "e2e-quick-edit-fail.png" }).catch(() => {});

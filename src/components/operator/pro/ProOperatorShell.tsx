@@ -80,6 +80,7 @@ import { parseContextCommand, terseCommandWordCount } from "@/lib/context-parser
 // useAudioStream's native branch.
 import { GUARDIAN_STATE_EVENT, type GuardianStatus } from "@/lib/audio/audioGuardian";
 import { shouldHoldSongAutoSwitch, liveOriginKey, resolveLyricIndex } from "@/lib/song-switch-guard";
+import { songSlidesChangedPlan, type SongSlidesChangedDetail } from "@/lib/song-slides-changed";
 
 // PF trace gate (R2). Mirrors useAudioStream.isDevOrTraceOn — cheap re-impl
 // here so the shell doesn't have to receive it via ctx.
@@ -1278,10 +1279,14 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   // add-slide handlers after createSongSlide succeeds.
   useEffect(() => {
     const onSongEdited = (e: Event) => {
-      const songId = (e as CustomEvent).detail?.songId as string | undefined;
-      if (!songId) return;
-      songSlidesCacheRef.current.delete(songId);
-      if (liveSongRef.current?.songId === songId) liveSongRef.current = null;
+      const detail = (e as CustomEvent).detail as SongSlidesChangedDetail | undefined;
+      const plan = songSlidesChangedPlan(detail, liveSongRef.current?.songId);
+      if (!plan.invalidate) return;
+      songSlidesCacheRef.current.delete(detail!.songId!);
+      // Quick edit save passes keepLiveTracking: keep following the live song so a
+      // same-song detection can't re-project slide 1 before the re-fetch; the
+      // reconcile effect (deps include cacheVersion) re-syncs the index after it.
+      if (plan.clearLiveTracking) liveSongRef.current = null;
       setSlideJumpSuggestion(null);
       setCacheVersion((v) => v + 1); // trigger a re-fetch + re-reconcile
     };
