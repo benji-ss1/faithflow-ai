@@ -297,8 +297,12 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   // output). History is recorded centrally by watching `live` (below), so it
   // captures EVERY path that changes the projector — manual sends, editor Show,
   // AI auto-fires, chip clicks — without threading through each call site.
-  const liveUndoStackRef = useRef<SlidePayload[]>([]);
-  const liveRedoStackRef = useRef<SlidePayload[]>([]);
+  // History entries carry the live ORIGIN recorded at send time, replayed on
+  // undo/redo (never re-resolved) so a song stays attributed to its song.
+  type LiveHistoryEntry = { slide: SlidePayload; origin: LiveOrigin | null };
+  const liveUndoStackRef = useRef<LiveHistoryEntry[]>([]);
+  const liveRedoStackRef = useRef<LiveHistoryEntry[]>([]);
+  const livePrevOriginRef = useRef<LiveOrigin | null>(null);
   const livePrevRef = useRef<SlidePayload>({ kind: "empty" });
   const liveUndoRedoInFlightRef = useRef(false);
   const [liveHistoryVer, setLiveHistoryVer] = useState(0);
@@ -822,7 +826,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     let origin: LiveOrigin | undefined = declared;
     let carried = false;
     if (!origin) {
-      origin = carriedOrigin(priorOrigin, styled as { kind: string; text?: string }, liveRef.current as { kind: string; text?: string }, carry);
+      origin = carriedOrigin(priorOrigin, styled as { kind: string; text?: string }, carry);
       carried = !!origin;
     }
     if (!origin && styled.kind === "text") {
@@ -849,11 +853,17 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       origin = found;
     }
     if (!origin) origin = recallOrigin(originByIdRef.current, identity);
-    origin = origin ?? inferLiveOrigin(styled);
+    origin = origin ?? { ...inferLiveOrigin(styled), inferred: true };
     if (declared) rememberOrigin(originByIdRef.current, identity, declared);
     else if (carried && origin.kind === "song") rememberOrigin(originByIdRef.current, identity, origin);
     liveOriginRef.current = { origin, identity };
   }, [churchId]);
+  // Origin recorded for a given live payload (null = unknown / not stamped here).
+  const originOf = useCallback((slide: SlidePayload): LiveOrigin | null => {
+    const r = liveOriginRef.current;
+    if (!r) return null;
+    try { return r.identity === slideOutputIdentity(slide) ? r.origin : null; } catch { return null; }
+  }, []);
   const getLiveOrigin = useCallback((): LiveOrigin | null => {
     const r = liveOriginRef.current;
     if (!r) return null;
@@ -1274,27 +1284,30 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     if (liveUndoRedoInFlightRef.current) {
       liveUndoRedoInFlightRef.current = false;
       livePrevRef.current = live;
+      livePrevOriginRef.current = originOf(live);
       return;
     }
     const prev = livePrevRef.current;
     let changed = true;
     try { changed = JSON.stringify(prev) !== JSON.stringify(live); } catch { /* keep true */ }
     if (changed) {
-      liveUndoStackRef.current.push(prev);
+      liveUndoStackRef.current.push({ slide: prev, origin: livePrevOriginRef.current });
       if (liveUndoStackRef.current.length > 60) liveUndoStackRef.current.shift();
       liveRedoStackRef.current = [];
       setLiveHistoryVer((v) => v + 1);
     }
     livePrevRef.current = live;
-  }, [live]);
+    livePrevOriginRef.current = originOf(live);
+  }, [live, originOf]);
 
   // Re-project a payload from history WITHOUT recording it as a new action
   // (instant cut — undo/redo should be immediate, no transition).
-  const reprojectFromHistory = useCallback((slide: SlidePayload) => {
+  const reprojectFromHistory = useCallback((entry: LiveHistoryEntry) => {
+    const slide = entry.slide;
     liveUndoRedoInFlightRef.current = true;
-    if (slide.kind === "empty") { setLive(slide); chRef.current?.postMessage({ type: "clear" } as LiveMessage); }
-    else sendSlideToLive(slide, null, { instant: true });
-  }, [sendSlideToLive]);
+    if (slide.kind === "empty") { clearLive(); }
+    else sendSlideToLive(slide, null, { instant: true, origin: entry.origin && !entry.origin.inferred ? entry.origin : undefined });
+  }, [sendSlideToLive, clearLive]);
 
   // Short human label for what a history slide is, for the undo/redo toast so the
   // operator gets a clear confirmation of what's now on the projector.
@@ -1315,19 +1328,19 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   const undoLive = useCallback(() => {
     const target = liveUndoStackRef.current.pop();
     if (target === undefined) { toast("Nothing to undo on the projector"); return; }
-    liveRedoStackRef.current.push(livePrevRef.current);
+    liveRedoStackRef.current.push({ slide: livePrevRef.current, origin: livePrevOriginRef.current });
     reprojectFromHistory(target);
     setLiveHistoryVer((v) => v + 1);
-    toast.success(`↶ Projector reverted to: ${liveSnippet(target)}`, { duration: 2200 });
+    toast.success(`↶ Projector reverted to: ${liveSnippet(target.slide)}`, { duration: 2200 });
   }, [reprojectFromHistory, liveSnippet]);
 
   const redoLive = useCallback(() => {
     const target = liveRedoStackRef.current.pop();
     if (target === undefined) { toast("Nothing to redo on the projector"); return; }
-    liveUndoStackRef.current.push(livePrevRef.current);
+    liveUndoStackRef.current.push({ slide: livePrevRef.current, origin: livePrevOriginRef.current });
     reprojectFromHistory(target);
     setLiveHistoryVer((v) => v + 1);
-    toast.success(`↷ Projector moved forward to: ${liveSnippet(target)}`, { duration: 2200 });
+    toast.success(`↷ Projector moved forward to: ${liveSnippet(target.slide)}`, { duration: 2200 });
   }, [reprojectFromHistory, liveSnippet]);
 
   // Blank is a TOGGLE (2026-08-29 fix — it used to only ever blank, so the
@@ -1335,6 +1348,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   // re-clicking a slide). Remember the slide that was live when we blank, and
   // restore it when the operator un-blanks.
   const prevBeforeBlankRef = useRef<SlidePayload | null>(null);
+  const prevBeforeBlankOriginRef = useRef<LiveOrigin | null>(null);
   // The pre-layout source of what's ACTUALLY live: lastSourceRef when its
   // committed identity still matches the live slide, else the live slide reduced
   // to raw content (never a stale earlier slide).
@@ -1348,16 +1362,16 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     const isBlank = cur?.kind === "blank" || cur?.kind === "empty";
     const prev = prevBeforeBlankRef.current;
     if (isBlank && prev && prev.kind !== "blank" && prev.kind !== "empty") {
-      sendSlideToLive(prev, undefined, { instant: true, force: true }); // un-blank
+      sendSlideToLive(prev, undefined, { instant: true, force: true, origin: prevBeforeBlankOriginRef.current && !prevBeforeBlankOriginRef.current.inferred ? prevBeforeBlankOriginRef.current : undefined }); // un-blank replays the recorded origin
       return;
     }
     // Remember the PRE-layout SOURCE (not the already-styled live slide) so
     // un-blank re-runs the CURRENT layout — and so a layout toggle after un-blank
     // can still reverse it (re-sending a styled slide would no-op in
     // applyChurchLayout). Falls back to the live slide if no source was captured.
-    if (cur && cur.kind !== "blank" && cur.kind !== "empty") prevBeforeBlankRef.current = currentLiveSource(cur);
+    if (cur && cur.kind !== "blank" && cur.kind !== "empty") { prevBeforeBlankRef.current = currentLiveSource(cur); prevBeforeBlankOriginRef.current = getLiveOrigin(); }
     send({ kind: "blank", bgColor: plan.blankBgColor });
-  }, [plan.blankBgColor, send, sendSlideToLive, currentLiveSource]);
+  }, [plan.blankBgColor, send, sendSlideToLive, currentLiveSource, getLiveOrigin]);
   const goLogo = useCallback(() => send({ kind: "logo", url: plan.logoUrl }), [plan.logoUrl, send]);
 
   // Use sendSlideToLive with instant:true so the LIVE button is always zero-latency.
@@ -1492,7 +1506,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     const src = currentLiveSource(cur);
     // Reduce the source back to raw content so applyChurchLayout re-derives the
     // CURRENT layout (a pre-styled source would no-op — that's the whole trick).
-    sendSlideToLive(sourceForRelayout(src), undefined, { instant: true, force: true });
+    sendSlideToLive(sourceForRelayout(src), undefined, { instant: true, force: true, carryLiveOrigin: true });
   }, [sendSlideToLive, currentLiveSource]);
 
   // Any editor's "Apply to current slide" (or another surface) can push the

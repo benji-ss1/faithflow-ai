@@ -445,7 +445,7 @@ function SlideActions({ ctx }: { ctx: OperatorShellCtx }) {
       <button
         type="button"
         disabled={!canResend}
-        onClick={() => ctx.onSendSlideToLive(ctx.liveSlide, null, { instant: true, force: true })}
+        onClick={() => ctx.onSendSlideToLive(ctx.liveSlide, null, { instant: true, force: true, carryLiveOrigin: true })}
         className={cn(
           "inline-flex items-center justify-center gap-1.5 h-8 rounded text-[12px] font-medium transition-colors",
           canResend

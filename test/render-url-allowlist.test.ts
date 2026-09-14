@@ -2,7 +2,7 @@
 // Run: npx tsx test/render-url-allowlist.test.ts
 import assert from "node:assert/strict";
 import { cleanRenderUrl, isRenderableUrl } from "../src/lib/render-url";
-import { isTopLevelNavigation } from "../src/lib/fetch-metadata";
+import { isTopLevelNavigation, isSubresourceRequest } from "../src/lib/fetch-metadata";
 
 const ok = [
   "/api/media/95f5dd86-dc58-4674-9bd1-ca8af7d8abbc",
@@ -57,3 +57,26 @@ assert.equal(isTopLevelNavigation(h({ "sec-fetch-dest": "document", "sec-fetch-m
 assert.equal(isTopLevelNavigation(h({ "sec-fetch-dest": "document", "sec-fetch-mode": "navigate", "sec-fetch-site": "same-origin", "sec-purpose": "prefetch" })), false);
 assert.equal(isTopLevelNavigation(h({ "sec-purpose": "prefetch;prerender" })), false);
 console.log(`render-url-allowlist: ${ok.length + bad.length + 12} assertions passed`);
+
+// 2026-09-14 pass 6: strict uuid media path, app-own absolute URLs, subresource dests.
+{
+  assert.equal(cleanRenderUrl("/api/media/------------------------------------"), null);
+  assert.equal(cleanRenderUrl("/api/media/95f5dd86dc584674-9bd1-ca8af7d8abbc-aaaa"), null);
+  for (const u of [
+    "https://presentflow.org/api/songs/public-domain/search?q=amazing",
+    "https://www.presentflow.org/api/auth/device-exchange",
+    "https://faithflow-ai.vercel.app/api/dev-login",
+    "https://faithflow-ai-git-main-benji.vercel.app/operator",
+    "https://PRESENTFLOW.org/api/media/95f5dd86-dc58-4674-9bd1-ca8af7d8abbc?x=1",
+  ]) assert.equal(cleanRenderUrl(u), null, u);
+  for (const u of [
+    "https://presentflow.org/api/media/95f5dd86-dc58-4674-9bd1-ca8af7d8abbc",
+    "https://presentflow.org/marketing/how-show.jpg",
+    "https://abc.supabase.co/storage/v1/object/public/x.png?token=1",
+    "https://other-app.vercel.app/x.png",
+  ]) assert.equal(cleanRenderUrl(u), u, u);
+  const h = (d: string | null) => ({ get: (n: string) => (n === "sec-fetch-dest" ? d : null) });
+  for (const d of ["image", "style", "video", "audio", "font", "iframe"]) assert.equal(isSubresourceRequest(h(d)), true, d);
+  for (const d of ["empty", "document", null]) assert.equal(isSubresourceRequest(h(d)), false, String(d));
+  console.log("pass-6 render-url/app-host/subresource checks OK");
+}

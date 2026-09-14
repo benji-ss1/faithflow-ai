@@ -19,3 +19,12 @@ export function isTopLevelNavigation(headers: { get(name: string): string | null
   if (headers.get("sec-purpose") !== null) return false;
   return true;
 }
+
+// Subresource destinations a credentialed JSON GET must never serve (an <img>,
+// CSS url(), <video>, <iframe>… pointed at it). fetch() sends dest "empty" and a
+// navigation "document" — both still allowed; absent header → allowed.
+const SUBRESOURCE_DESTS = new Set(["image", "style", "video", "audio", "font", "iframe", "frame", "embed", "object", "track", "script"]);
+export function isSubresourceRequest(headers: { get(name: string): string | null }): boolean {
+  const dest = headers.get("sec-fetch-dest");
+  return dest !== null && SUBRESOURCE_DESTS.has(dest.toLowerCase());
+}

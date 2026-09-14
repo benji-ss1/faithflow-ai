@@ -1,7 +1,7 @@
 // Song auto-switch guard (rule 7, 2026-09-14 — POSITIVE EVIDENCE revision).
 // Run: npx tsx test/song-switch-guard.test.ts
 import assert from "node:assert/strict";
-import { shouldHoldSongAutoSwitch, inferLiveOrigin, liveOriginKey, recallOrigin, rememberOrigin, carriedOrigin, type LiveOrigin } from "../src/lib/song-switch-guard";
+import { shouldHoldSongAutoSwitch, inferLiveOrigin, liveOriginKey, recallOrigin, rememberOrigin, carriedOrigin, resolveLyricIndex, type LiveOrigin } from "../src/lib/song-switch-guard";
 import { parseLiveScriptureRef } from "../src/lib/bible-antireplay";
 
 let pass = 0, fail = 0;
@@ -99,19 +99,19 @@ check("originById LRU: hit refreshes recency, cap 300 evicts least-recent", () =
 });
 check("re-send of live slide carries previous origin (bg drop / edit / theme)", () => {
   const A: LiveOrigin = { kind: "song", songId: "A" };
-  assert.deepEqual(carriedOrigin(A, { kind: "text", text: "Amazing grace how sweet the sound " }, lyric), A); // same text, new bg
-  assert.deepEqual(carriedOrigin(A, { kind: "text", text: "edited line" }, lyric, true), A); // explicit carry
-  assert.equal(carriedOrigin(A, { kind: "text", text: "Different slide" }, lyric), undefined); // new content re-infers
-  assert.equal(carriedOrigin(null, { kind: "text", text: lyric.text }, lyric, true), undefined);
-  assert.equal(carriedOrigin(A, { kind: "image" }, lyric, true), undefined);
+  assert.equal(carriedOrigin(A, { kind: "text", text: "Amazing grace how sweet the sound " }), undefined); // no implicit carry
+  assert.deepEqual(carriedOrigin(A, { kind: "text", text: "edited line" }, true), A); // explicit carry
+  assert.equal(carriedOrigin(A, { kind: "text", text: "Different slide" }), undefined);
+  assert.equal(carriedOrigin(null, { kind: "text", text: lyric.text }, true), undefined);
+  assert.equal(carriedOrigin(A, { kind: "image" }, true), undefined);
 });
 check("carriedOrigin: non-song prior is never carried (plan lookup must run)", () => {
-  assert.equal(carriedOrigin({ kind: "text" }, { kind: "text", text: lyric.text }, lyric), undefined);
-  assert.equal(carriedOrigin({ kind: "scripture" }, { kind: "text", text: lyric.text }, lyric, true), undefined);
+  assert.equal(carriedOrigin({ kind: "text" }, { kind: "text", text: lyric.text }, true), undefined);
+  assert.equal(carriedOrigin({ kind: "scripture" }, { kind: "text", text: lyric.text }, true), undefined);
 });
 // Mirror of OperatorConsole.stampLiveOrigin resolution order.
 function resolve(o: { declared?: LiveOrigin; prior?: LiveOrigin | null; next: { kind: string; text?: string }; live: { kind: string; text?: string } | null; carry?: boolean; plan?: LiveOrigin; mem: Map<string, LiveOrigin>; id: string }): LiveOrigin {
-  return o.declared ?? carriedOrigin(o.prior, o.next, o.live, o.carry) ?? o.plan ?? recallOrigin(o.mem, o.id) ?? inferLiveOrigin(o.next);
+  return o.declared ?? carriedOrigin(o.prior, o.next, o.carry) ?? o.plan ?? recallOrigin(o.mem, o.id) ?? inferLiveOrigin(o.next);
 }
 check("non-song prior + identical-text song slide (undeclared) → plan resolves song → HOLD", () => {
   const origin = resolve({ prior: { kind: "text" }, next: lyric, live: lyric, plan: { kind: "song", songId: "A" }, mem: new Map(), id: "x" });
@@ -131,12 +131,23 @@ check("shared line background drop: stale memory (A) loses to carried live origi
 check("declared live origin A outranks tracker B", () => {
   assert.equal(hold({ targetSongId: "A", trackedLiveSongId: "B", liveSlide: lyric, liveOrigin: { kind: "song", songId: "A" } }), false);
   assert.equal(hold({ targetSongId: "B", trackedLiveSongId: "B", liveSlide: lyric, liveOrigin: { kind: "song", songId: "A" } }), true);
-  assert.equal(hold({ targetSongId: "B", trackedLiveSongId: "B", liveSlide: lyric, liveOrigin: { kind: "song" } }), false); // id-less origin → tracker
+  assert.equal(hold({ targetSongId: "B", trackedLiveSongId: "B", liveSlide: lyric, liveOrigin: { kind: "song" } }), true); // id-less song origin → HOLD unconditionally
+  assert.equal(hold({ targetSongId: "A", trackedLiveSongId: null, liveSlide: lyric, liveOrigin: { kind: "song" } }), true);
+  assert.equal(hold({ targetSongId: "A", trackedLiveSongId: null, liveSlide: { kind: "blank" }, liveOrigin: { kind: "song" } }), false); // non-text → allow
 });
 check("SWITCH HELD key stable across slide advance of the same live song", () => {
   const k1 = liveOriginKey({ trackedLiveSongId: null, liveOrigin: { kind: "song", songId: "A" } });
   const k2 = liveOriginKey({ trackedLiveSongId: null, liveOrigin: { kind: "song", songId: "A" } });
   assert.equal(k1, k2);
+});
+check("repeated chorus: advance through chorus #2 keeps idx 5 → next 6; bounce 6 → 5", () => {
+  const n = ["v1", "chorus", "v2", "bridge", "v3", "chorus", "outro"];
+  assert.equal(resolveLyricIndex(n, "chorus", 5), 5); // auto-advance set idx 5 → tracker keeps it
+  assert.equal(resolveLyricIndex(n, "chorus", 5) + 1, 6);
+  assert.equal(resolveLyricIndex(n, "chorus", 6), 5); // bounce-back from 6 → nearest copy 5, not 1
+  assert.equal(resolveLyricIndex(n, "chorus", 2), 1); // near first copy
+  assert.equal(resolveLyricIndex(n, "chorus", null), 1);
+  assert.equal(resolveLyricIndex(n, "nope", 3), -1);
 });
 console.log(`\n${pass} passed, ${fail} failed`);
 assert.equal(fail, 0);

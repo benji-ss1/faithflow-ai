@@ -1184,7 +1184,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                 onClick={() => {
                   const t = editedTextRef.current.trim();
                   if (!t) return;
-                  ctx.onSendSlideToLive(current ? applyTextToSlide(current, t) : { kind: "text", text: t }, undefined, itemSendOpts ?? { carryLiveOrigin: true });
+                  ctx.onSendSlideToLive(current ? applyTextToSlide(current, t) : { kind: "text", text: t }, undefined, itemSendOpts ?? { origin: { kind: "text" } });
                 }}
                 className="h-8 px-3 rounded-md text-[12px] font-medium bg-white/10 border border-white/20 hover:bg-white/20 text-white backdrop-blur-sm"
               >

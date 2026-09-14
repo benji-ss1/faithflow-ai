@@ -38,7 +38,7 @@ const UNSAFE_CHARS = /["'\s<>\\\u0000-\u001f\u007f]/;
 // producer needs one), no dot segments, no percent-encoded dot/slash/backslash.
 // Stored media: exactly "/api/media/<uuid>" with an optional single file-name
 // segment — never an app route under that prefix ("/api/media/list", "/presign").
-const MEDIA_PATH = /^\/api\/media\/[0-9a-fA-F-]{36}(\/[\w.-]+)?$/;
+const MEDIA_PATH = /^\/api\/media\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(\/[\w.-]+)?$/;
 // Static public/ folders: image / video files only (no svg — it can carry script).
 const STATIC_PREFIXES = ["/marketing/", "/brand/", "/login/"];
 const STATIC_EXT = /\.(png|jpe?g|gif|webp|mp4|webm|mov)$/i;
@@ -47,6 +47,32 @@ function isAllowedRelativePath(p: string): boolean {
   if (p.split("/").some((seg) => seg === "." || seg === "..")) return false;
   if (MEDIA_PATH.test(p)) return true;
   return STATIC_PREFIXES.some((pre) => p.startsWith(pre) && p.length > pre.length) && STATIC_EXT.test(p);
+}
+
+// APP-OWN ORIGINS: an absolute URL on the app's own host is same-origin +
+// credentialed exactly like a relative path, so it must pass the SAME relative
+// allowlist (else "https://presentflow.org/api/songs/public-domain/search?q=…"
+// bypasses it and spends Groq). Allowlisted paths (stored media / static) keep
+// working when saved in absolute form.
+const APP_HOSTS = new Set(["presentflow.org", "www.presentflow.org", "faithflow-ai.vercel.app"]);
+const APP_PREVIEW_HOST = /^faithflow(-ai)?(-[a-z0-9-]+)?\.vercel\.app$/i;
+function isAppOwnHost(host: string): boolean {
+  const h = host.toLowerCase();
+  const hostname = h.replace(/:\d+$/, "");
+  if (APP_HOSTS.has(hostname) || APP_PREVIEW_HOST.test(hostname)) return true;
+  try {
+    const envUrl = process.env.NEXT_PUBLIC_APP_URL;
+    if (envUrl && new URL(envUrl).host.toLowerCase() === h) return true;
+  } catch { /* ignore */ }
+  try {
+    if (typeof window !== "undefined" && window.location?.host && window.location.host.toLowerCase() === h) return true;
+  } catch { /* ignore */ }
+  return false;
+}
+function sameAppAbsoluteOk(p: URL): boolean {
+  if (!isAppOwnHost(p.host)) return true;
+  if (p.search || p.hash) return false;
+  return isAllowedRelativePath(p.pathname);
 }
 
 export function cleanRenderUrl(url: unknown): string | null {
@@ -60,12 +86,12 @@ export function cleanRenderUrl(url: unknown): string | null {
   }
   if (/^blob:/i.test(clean)) return clean;
   if (/^https:\/\//i.test(clean)) {
-    try { return new URL(clean).protocol === "https:" ? clean : null; } catch { return null; }
+    try { const p = new URL(clean); return p.protocol === "https:" && sameAppAbsoluteOk(p) ? clean : null; } catch { return null; }
   }
   if (ALLOW_HTTP_LOOPBACK && /^http:\/\//i.test(clean)) {
     try {
       const p = new URL(clean);
-      return p.protocol === "http:" && LOOPBACK_HOSTS.has(p.hostname) ? clean : null;
+      return p.protocol === "http:" && LOOPBACK_HOSTS.has(p.hostname) && sameAppAbsoluteOk(p) ? clean : null;
     } catch { return null; }
   }
   return null;

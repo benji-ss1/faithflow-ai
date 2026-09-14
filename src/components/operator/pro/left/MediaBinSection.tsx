@@ -186,7 +186,7 @@ export function MediaBinSection({
       toast.error("No lyric/text slide is live — project a slide first, then set its background");
       return;
     }
-    ctx.onSendSlideToLive({ ...live, bgImageUrl: a.url }, null, { instant: true });
+    ctx.onSendSlideToLive({ ...live, bgImageUrl: a.url }, null, { instant: true, carryLiveOrigin: true });
     toast.success("Background set on the live slide");
   };
 

@@ -79,7 +79,7 @@ import { parseContextCommand, terseCommandWordCount } from "@/lib/context-parser
 // machine itself lives in src/lib/audio/audioGuardian.ts, fed by
 // useAudioStream's native branch.
 import { GUARDIAN_STATE_EVENT, type GuardianStatus } from "@/lib/audio/audioGuardian";
-import { shouldHoldSongAutoSwitch, liveOriginKey } from "@/lib/song-switch-guard";
+import { shouldHoldSongAutoSwitch, liveOriginKey, resolveLyricIndex } from "@/lib/song-switch-guard";
 
 // PF trace gate (R2). Mirrors useAudioStream.isDevOrTraceOn — cheap re-impl
 // here so the shell doesn't have to receive it via ctx.
@@ -1300,30 +1300,38 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   useEffect(() => {
     const liveText = ctx.liveSlide?.kind === "text" ? ctx.liveSlide.text : null;
     if (liveText == null) { liveSongRef.current = null; return; }
-    const norm0 = normalizeLyric(liveText);
-    // A DECLARED live song origin (valid only while its identity is live) wins
-    // over lyric matching: a shared line clicked from song A binds to A even if
-    // the tracker was following B.
+    const norm = normalizeLyric(liveText);
+    const live = liveSongRef.current;
     const declared = ctx.getLiveOrigin?.();
+    // A DECLARED (or plan-resolved — not merely inferred) NON-song origin → the operator
+    // sent this as non-song content: stop following a song even if the line is
+    // shared with one.
+    if (declared && declared.kind !== "song" && !declared.inferred) { liveSongRef.current = null; return; }
+    // A DECLARED song origin with id wins over lyric matching (a shared line
+    // clicked from song A binds to A even if the tracker followed B). Index is
+    // resolved NEAREST the tracked position so a repeated chorus stays on the copy
+    // auto-advance / bounce-back / jump just set (never snaps to the first copy).
     if (declared?.kind === "song" && declared.songId) {
       const entry = songSlidesCacheRef.current.get(declared.songId);
-      const idx = entry?.byText.get(norm0);
-      if (entry && idx != null) {
-        if (liveSongRef.current?.songId !== declared.songId || liveSongRef.current.currentIdx !== idx) {
-          const title = (ctx.plan.items.find((it) => (it as unknown as { songId?: string }).songId === declared.songId) as { title?: string } | undefined)?.title ?? "";
-          liveSongRef.current = { songId: declared.songId, title, slides: entry.slides, currentIdx: idx, confirmedAt: Date.now() };
+      if (entry) {
+        const prevIdx = live?.songId === declared.songId ? live.currentIdx : null;
+        const idx = resolveLyricIndex(entry.slides.map(normalizeLyric), norm, prevIdx);
+        if (idx >= 0) {
+          if (live?.songId !== declared.songId || live.currentIdx !== idx) {
+            const title = (ctx.plan.items.find((it) => (it as unknown as { songId?: string }).songId === declared.songId) as { title?: string } | undefined)?.title ?? "";
+            liveSongRef.current = live?.songId === declared.songId
+              ? { ...live, currentIdx: idx }
+              : { songId: declared.songId, title, slides: entry.slides, currentIdx: idx, confirmedAt: Date.now() };
+          }
+          return;
         }
-        return;
       }
     }
-    const live = liveSongRef.current;
-    // Fast path: still on the exact slide we already track — nothing to do.
-    if (live && live.slides[live.currentIdx] === liveText) return;
-    const norm = normalizeLyric(liveText);
-    // Prefer following the currently-tracked song (handles manual ← → within it).
+    // Prefer following the currently-tracked song (handles manual ← → within it),
+    // keeping/nearest to the tracked index.
     if (live) {
-      const idxInLive = live.slides.findIndex((t) => normalizeLyric(t) === norm);
-      if (idxInLive >= 0) { liveSongRef.current = { ...live, currentIdx: idxInLive }; return; }
+      const idxInLive = resolveLyricIndex(live.slides.map(normalizeLyric), norm, live.currentIdx);
+      if (idxInLive >= 0) { if (idxInLive !== live.currentIdx) liveSongRef.current = { ...live, currentIdx: idxInLive }; return; }
     }
     // Otherwise search all cached plan songs for a slide with this exact text.
     // Collect ALL matches first: if the same line appears in more than one song

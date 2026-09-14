@@ -28,7 +28,10 @@
 // song-A content (tracked or origin "song"), so song B is HELD as a chip until the
 // operator moves on (or taps it). Clear / blank / logo resets the origin.
 export type LiveOriginKind = "song" | "scripture" | "media" | "text" | "other";
-export type LiveOrigin = { kind: LiveOriginKind; songId?: string };
+// inferred: true = a best-effort GUESS from the payload (no declaration, carry or
+// plan hit). A guess never clears the lyric tracker and is never replayed as a
+// declaration (undo/redo, un-blank).
+export type LiveOrigin = { kind: LiveOriginKind; songId?: string; inferred?: true };
 
 export type SongSwitchGuardInput = {
   targetSongId: string;
@@ -50,10 +53,12 @@ export function shouldHoldSongAutoSwitch(i: SongSwitchGuardInput): boolean {
   // A DECLARED live song origin (with id, valid only while its identity is live)
   // outranks the lyric tracker when real text is on screen: the operator clicked
   // song A's shared line while the tracker still followed B → A is what is live.
-  if (liveIsText && i.liveOrigin?.kind === "song" && i.liveOrigin.songId) return i.liveOrigin.songId !== i.targetSongId;
+  // A song origin with an UNKNOWN id (a line shared by two plan songs) is song
+  // content we can't attribute → HOLD unconditionally (fail-safe; the tracker
+  // must not release it).
+  if (liveIsText && i.liveOrigin?.kind === "song") return !i.liveOrigin.songId || i.liveOrigin.songId !== i.targetSongId;
   if (i.trackedLiveSongId) return i.trackedLiveSongId !== i.targetSongId;
   if (!liveIsText) return false;
-  if (i.liveOrigin?.kind === "song") return i.liveOrigin.songId !== i.targetSongId;
   if (i.liveItemType === "song") return i.liveItemSongId !== i.targetSongId;
   return false;
 }
@@ -87,21 +92,27 @@ export function rememberOrigin(m: Map<string, LiveOrigin>, identity: string, ori
   while (m.size > cap) { const first = m.keys().next().value; if (first === undefined) break; m.delete(first); }
 }
 /** Re-send of the CURRENT live slide with no declared origin (background drop,
- *  editor show, theme/layout/layer re-send): carry the previous live origin
- *  forward instead of re-inferring (re-inference can never claim "song", so a
- *  library-sent song would silently lose its attribution). SONG priors only. Applies when the
- *  caller says so (`carry`) or the text content is unchanged. */
+ *  inline edit, layout/layer re-send): carry the previous SONG origin forward
+ *  ONLY when the caller explicitly says so (`carry`). No implicit carry — an
+ *  undeclared send re-resolves (plan → memory → inference). */
 export function carriedOrigin(
   prior: LiveOrigin | null | undefined,
   next: { kind: string; text?: string },
-  live: { kind: string; text?: string } | null | undefined,
   carry?: boolean,
 ): LiveOrigin | undefined {
-  // Only a SONG origin is carried — a non-song prior (text/scripture/…) must not
-  // shadow the plan lookup, which may positively identify the slide as a song.
-  if (!prior || prior.kind !== "song" || next.kind !== "text") return undefined;
-  if (carry) return prior;
-  if (live && live.kind === "text" && typeof live.text === "string" && typeof next.text === "string"
-    && live.text.trim() !== "" && live.text.trim() === next.text.trim()) return prior;
-  return undefined;
+  if (!carry || !prior || prior.kind !== "song" || next.kind !== "text") return undefined;
+  return prior;
+}
+
+/** Index of the live lyric inside a song's slides. Keeps `prevIdx` when that slide
+ *  already matches (a repeated chorus stays on ITS copy); otherwise the matching
+ *  index NEAREST to prevIdx (ties → the earlier one); -1 when absent. */
+export function resolveLyricIndex(normSlides: string[], liveNorm: string, prevIdx: number | null | undefined): number {
+  if (prevIdx != null && prevIdx >= 0 && prevIdx < normSlides.length && normSlides[prevIdx] === liveNorm) return prevIdx;
+  let best = -1;
+  for (let k = 0; k < normSlides.length; k++) {
+    if (normSlides[k] !== liveNorm) continue;
+    if (best < 0 || (prevIdx != null && Math.abs(k - prevIdx) < Math.abs(best - prevIdx))) best = k;
+  }
+  return best;
 }
