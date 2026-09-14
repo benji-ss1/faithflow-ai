@@ -36,10 +36,31 @@ export const LOGIN_EMAIL_LIMIT = 5;
 export const LOGIN_IP_EMAIL_LIMIT = 5;
 
 type Hit = { count: number; resetAt: number };
-/** Attempt COUNTERS. Freely evictable oldest-first (Map insertion order):
- *  a counter at its limit has already been copied into `locks`, so evicting
- *  counters can never release a lock. */
+/** Attempt COUNTERS. `hits` is the O(1) index; every key also lives in exactly
+ *  one COUNT TIER (insertion-ordered Map per current count, email scope kept
+ *  separate). Eviction takes the lowest non-email tier first, then the lowest
+ *  email tier, oldest-first within a tier — so a flood of fresh count-1 junk can
+ *  never age out a target's count-4 email counter; wiping it needs ~LOGIN_MAX_KEYS
+ *  email counters at count ≥ 4 (≈ 80k attempts), comparable to breaking a lock.
+ *  A counter at its limit has already been copied into the lock store, so
+ *  evicting counters can never release a lock. */
 const hits = new Map<string, Hit>();
+const TOP_TIER = LOGIN_IP_LIMIT; // counts ≥ this share the top tier
+const emailTiers = Array.from({ length: TOP_TIER + 1 }, () => new Map<string, Hit>());
+const otherTiers = Array.from({ length: TOP_TIER + 1 }, () => new Map<string, Hit>());
+const tierOf = (key: string, count: number) =>
+  (key.startsWith("email:") ? emailTiers : otherTiers)[Math.max(0, Math.min(count, TOP_TIER))];
+function dropHit(key: string): void {
+  const h = hits.get(key);
+  if (h) { hits.delete(key); tierOf(key, h.count).delete(key); }
+}
+/** Batch (10%) eviction, O(batch + tiers): lowest tier first, other scopes before email. */
+function evictCounters(): void {
+  let n = LOGIN_MAX_KEYS / 10;
+  for (const tiers of [otherTiers, emailTiers]) for (const t of tiers) {
+    for (const k of t.keys()) { t.delete(k); hits.delete(k); if (--n === 0) return; }
+  }
+}
 export const LOGIN_MAX_KEYS = 20_000;
 /** LOCK STORE (key → lockedUntil). Junk counter inserts never touch it. Split
  *  by scope so eviction can prefer IP / IP+email locks over email locks
@@ -120,7 +141,7 @@ const lockMap = (key: string) => (key.startsWith("email:") ? emailLocks : otherL
 
 function live(key: string, now: number): Hit | undefined {
   const h = hits.get(key);
-  if (h && h.resetAt < now) { hits.delete(key); return undefined; }
+  if (h && h.resetAt < now) { dropHit(key); return undefined; }
   return h;
 }
 
@@ -179,22 +200,18 @@ export function chargeLoginAttempt(ip: string, email: string): number | null {
   if (locked !== null) return locked;
   if (now - lastSweep >= SWEEP_EVERY_MS) { // expired sweep ≤ once per 30s (amortised O(1))
     lastSweep = now;
-    for (const [k, h] of hits) if (h.resetAt < now) hits.delete(k);
+    for (const [k, h] of hits) if (h.resetAt < now) dropHit(k);
     for (const m of [otherLocks, emailLocks]) for (const [k, u] of m) if (u < now) m.delete(k);
   }
   for (const [key, limit] of keysFor(ip, email)) {
     let h = live(key, now);
-    if (h) { h.count++; hits.delete(key); hits.set(key, h); } // touch → tail (O(1))
+    if (h) { tierOf(key, h.count).delete(key); h.count++; } // move tier → tail (O(1))
     else {
-      // Oldest-first batch eviction (10%) with ONE iterator — O(batch), no
-      // skipping: locks live in the separate lock store.
-      if (hits.size >= LOGIN_MAX_KEYS) {
-        let n = LOGIN_MAX_KEYS / 10;
-        for (const k of hits.keys()) { hits.delete(k); if (--n === 0) break; }
-      }
+      if (hits.size >= LOGIN_MAX_KEYS) evictCounters(); // locks live in the separate lock store
       h = { count: 1, resetAt: now + LOGIN_WINDOW_MS };
       hits.set(key, h);
     }
+    tierOf(key, h.count).set(key, h);
     if (h.count >= limit) setLock(key, h.resetAt, now);
   }
   return null;
@@ -214,13 +231,14 @@ export function loginLockCount(): number { return emailLocks.size + otherLocks.s
  *  attempt's IP charge only (its lock is lifted only if that drops it below limit). */
 export function refundLoginSuccess(ip: string, email: string): void {
   const [[ipKey, ipLimit], [emailKey], [ipEmailKey]] = keysFor(ip, email);
-  hits.delete(emailKey); emailLocks.delete(emailKey);
-  hits.delete(ipEmailKey); otherLocks.delete(ipEmailKey);
+  dropHit(emailKey); emailLocks.delete(emailKey);
+  dropHit(ipEmailKey); otherLocks.delete(ipEmailKey);
   const h = live(ipKey, Date.now());
   if (h) {
+    tierOf(ipKey, h.count).delete(ipKey);
     h.count--;
     if (h.count < ipLimit) otherLocks.delete(ipKey);
-    if (h.count <= 0) hits.delete(ipKey);
+    if (h.count <= 0) hits.delete(ipKey); else tierOf(ipKey, h.count).set(ipKey, h);
   }
 }
 

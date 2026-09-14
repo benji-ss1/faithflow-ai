@@ -206,6 +206,27 @@ async function attempt(ip: string, email: string, correct: boolean) {
     assert.notEqual(loginLockedFor(ip, email), null);
   });
 
+  await check("counter-age: 4 wrong + 50k fresh junk keys cannot reset the target's count; 5th wrong locks", () => {
+    const v4 = (i: number) => `${(i >>> 24) & 255}.${(i >> 16) & 255}.${(i >> 8) & 255}.${i & 255}`;
+    const target = "age-victim@x";
+    for (let i = 0; i < 4; i++) assert.equal(chargeLoginAttempt(v4(0x61000000 + i), target), null);
+    for (let i = 0; i < 50_000; i++) chargeLoginAttempt(v4(0x62000000 + i), `aj${i}@x`);
+    assert.ok(loginGuardSize() <= LOGIN_MAX_KEYS);
+    assert.equal(chargeLoginAttempt(v4(0x63000000), target), null, "5th guess allowed");
+    assert.notEqual(chargeLoginAttempt(v4(0x63000001), target), null, "6th must be locked (count was not reset)");
+  });
+
+  await check("counter-age: wiping a count-4 counter needs ≥ ~68k attempts of count-4 email junk (batch evict → ~18k × 4)", () => {
+    const v4 = (i: number) => `${(i >>> 24) & 255}.${(i >> 16) & 255}.${(i >> 8) & 255}.${i & 255}`;
+    const target = "age-victim2@x"; let ipn = 0x64000000;
+    for (let i = 0; i < 4; i++) chargeLoginAttempt(v4(ipn++), target);
+    // cheapest junk at count 4: fresh IP per attempt, 4 hits per email. 17k emails = 68k attempts (measured wipe ≈ 72-74k).
+    for (let e = 0; e < 17_000; e++) for (let j = 0; j < 4; j++) chargeLoginAttempt(v4(ipn++), `aw${e}@x`);
+    assert.ok(loginGuardSize() <= LOGIN_MAX_KEYS);
+    assert.equal(chargeLoginAttempt(v4(ipn++), target), null);
+    assert.notEqual(loginLockedFor("0.0.0.1", target), null, "count-4 target survived 68k attempts → 5th locks");
+  });
+
   await check("lock-everything flood (2,000 IPs × 6 emails × 5): target stays locked, attempts stay O(1)", () => {
     const v4 = (i: number) => `${(i >>> 24) & 255}.${(i >> 16) & 255}.${(i >> 8) & 255}.${i & 255}`;
     const target = "flood-victim@x"; let idx = 1;
