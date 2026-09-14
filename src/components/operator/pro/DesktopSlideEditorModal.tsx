@@ -1,4 +1,5 @@
 "use client";
+import type { LiveOrigin } from "@/lib/song-switch-guard";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -158,7 +159,10 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
         .filter(Boolean)
         .join("\n");
       const text = textFromObjects || cur.lyrics || "";
-      ctx.onSendSlideToLive(projectableTextSlide(text, cur.bgColor, cur.bgImageUrl, cur.objects), undefined, { carryLiveOrigin: true });
+      // Declare the origin (song guard, 2026-09-14 gate): the editor knows what it
+      // is editing, so never carry a stale live origin onto a DIFFERENT song.
+      const origin: LiveOrigin = songId ? { kind: "song", songId } : itemType === "scripture" ? { kind: "scripture" } : { kind: "text" };
+      ctx.onSendSlideToLive(projectableTextSlide(text, cur.bgColor, cur.bgImageUrl, cur.objects), undefined, { origin });
       // Confirmation (user directive): the editor is fullscreen, so the operator
       // can't see the projector — tell them the slide went live.
       toast.success(`Slide ${editor.currentIndex + 1} is now on the projector`, { icon: <Play className="w-4 h-4" /> });
@@ -166,7 +170,7 @@ export function DesktopSlideEditorModal({ ctx, open, onClose, targetSong = null,
     }
     // Fallback (no in-editor slide): jump the live output to the saved slide.
     if (item) { ctx.onJumpSlide(ctx.previewItemIdx, editor.currentIndex); toast.success("Sent to the projector", { icon: <Play className="w-4 h-4" /> }); }
-  }, [editor, ctx, item]);
+  }, [editor, ctx, item, songId, itemType]);
 
   // Open on the slide the operator double-clicked (playlist mode); target song
   // opens at the top.

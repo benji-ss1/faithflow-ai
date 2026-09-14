@@ -6,7 +6,8 @@ import { isTopLevelNavigation } from "../src/lib/fetch-metadata";
 
 const ok = [
   "/api/media/95f5dd86-dc58-4674-9bd1-ca8af7d8abbc",
-  "/api/media/abc-123/file.png",
+  "/api/media/95f5dd86-dc58-4674-9bd1-ca8af7d8abbc/file.png",
+  "/marketing/bring-library.mp4",
   "/marketing/how-show.jpg",
   "/brand/pf-logo-mark.png",
   "/login/slide-1.png",
@@ -27,6 +28,17 @@ const bad = [
   "/api/media/a%5Cb",
   "/api/mediax/1",
   "/livestream",
+  "/api/media/list",
+  "/api/media/list/",
+  "/api/media/presign",
+  "/api/media/95f5dd86-dc58-4674-9bd1-ca8af7d8abbc/",
+  "/api/media/95f5dd86-dc58-4674-9bd1-ca8af7d8abbc/a/b.png",
+  "/api/media/%252e%252e/auth",
+  "/marketing/%252e%252e/x.jpg",
+  "/marketing/",
+  "/marketing/page",
+  "/brand/logo.svg",
+  "/login/slide-1.png/",
 ];
 for (const u of ok) { assert.equal(cleanRenderUrl(u), u, u); assert.equal(isRenderableUrl(u), true, u); }
 for (const u of bad) { assert.equal(cleanRenderUrl(u), null, u); assert.equal(isRenderableUrl(u), false, u); }
@@ -38,4 +50,10 @@ assert.equal(isTopLevelNavigation(h({ "sec-fetch-dest": "image", "sec-fetch-mode
 assert.equal(isTopLevelNavigation(h({ "sec-fetch-dest": "empty", "sec-fetch-mode": "cors" })), false);
 assert.equal(isTopLevelNavigation(h({ "sec-fetch-dest": "iframe", "sec-fetch-mode": "navigate" })), false);
 assert.equal(isTopLevelNavigation(h({ "sec-fetch-dest": "document", "sec-fetch-mode": "no-cors" })), false);
-console.log(`render-url-allowlist: ${ok.length + bad.length + 6} assertions passed`);
+assert.equal(isTopLevelNavigation(h({ "sec-fetch-dest": "document", "sec-fetch-mode": "navigate", "sec-fetch-site": "cross-site" })), false);
+assert.equal(isTopLevelNavigation(h({ "sec-fetch-dest": "document", "sec-fetch-mode": "navigate", "sec-fetch-site": "same-site" })), false);
+assert.equal(isTopLevelNavigation(h({ "sec-fetch-dest": "document", "sec-fetch-mode": "navigate", "sec-fetch-site": "same-origin" })), true);
+assert.equal(isTopLevelNavigation(h({ "sec-fetch-dest": "document", "sec-fetch-mode": "navigate", "sec-fetch-site": "none" })), true);
+assert.equal(isTopLevelNavigation(h({ "sec-fetch-dest": "document", "sec-fetch-mode": "navigate", "sec-fetch-site": "same-origin", "sec-purpose": "prefetch" })), false);
+assert.equal(isTopLevelNavigation(h({ "sec-purpose": "prefetch;prerender" })), false);
+console.log(`render-url-allowlist: ${ok.length + bad.length + 12} assertions passed`);

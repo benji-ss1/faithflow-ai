@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   }
 
   const nextParam = req.nextUrl.searchParams.get("next") || "/operator";
-  const dest = nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "/operator";
+  const dest = nextParam.startsWith("/") && !nextParam.startsWith("//") && !nextParam.includes("\\") ? nextParam : "/operator";
 
   try {
     await signOut({ redirect: false }).catch(() => {});

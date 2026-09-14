@@ -814,7 +814,12 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       liveOriginRef.current = { origin: { kind: "other" }, identity };
       return;
     }
-    let origin: LiveOrigin | undefined = declared ?? recallOrigin(originByIdRef.current, identity);
+    // Resolution order for a send (2026-09-14 gate): declared → carried SONG
+    // origin of the slide being re-sent (explicit carry or unchanged text) →
+    // plan lookup → per-identity memory → inference. Carry/plan run BEFORE the
+    // memory so a shared line ("Hallelujah") remembered for song B cannot shadow
+    // song A that is actually live.
+    let origin: LiveOrigin | undefined = declared;
     let carried = false;
     if (!origin) {
       origin = carriedOrigin(priorOrigin, styled as { kind: string; text?: string }, liveRef.current as { kind: string; text?: string }, carry);
@@ -843,6 +848,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       }
       origin = found;
     }
+    if (!origin) origin = recallOrigin(originByIdRef.current, identity);
     origin = origin ?? inferLiveOrigin(styled);
     if (declared) rememberOrigin(originByIdRef.current, identity, declared);
     else if (carried && origin.kind === "song") rememberOrigin(originByIdRef.current, identity, origin);

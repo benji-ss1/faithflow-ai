@@ -1300,6 +1300,22 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   useEffect(() => {
     const liveText = ctx.liveSlide?.kind === "text" ? ctx.liveSlide.text : null;
     if (liveText == null) { liveSongRef.current = null; return; }
+    const norm0 = normalizeLyric(liveText);
+    // A DECLARED live song origin (valid only while its identity is live) wins
+    // over lyric matching: a shared line clicked from song A binds to A even if
+    // the tracker was following B.
+    const declared = ctx.getLiveOrigin?.();
+    if (declared?.kind === "song" && declared.songId) {
+      const entry = songSlidesCacheRef.current.get(declared.songId);
+      const idx = entry?.byText.get(norm0);
+      if (entry && idx != null) {
+        if (liveSongRef.current?.songId !== declared.songId || liveSongRef.current.currentIdx !== idx) {
+          const title = (ctx.plan.items.find((it) => (it as unknown as { songId?: string }).songId === declared.songId) as { title?: string } | undefined)?.title ?? "";
+          liveSongRef.current = { songId: declared.songId, title, slides: entry.slides, currentIdx: idx, confirmedAt: Date.now() };
+        }
+        return;
+      }
+    }
     const live = liveSongRef.current;
     // Fast path: still on the exact slide we already track — nothing to do.
     if (live && live.slides[live.currentIdx] === liveText) return;
@@ -1331,7 +1347,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     }
     // Live content isn't an unambiguously-recognised song slide → stop tracking.
     liveSongRef.current = null;
-  }, [ctx.liveSlide, ctx.plan.items, cacheVersion]);
+  }, [ctx.liveSlide, ctx.plan.items, cacheVersion, ctx.getLiveOrigin]);
 
   // Any OTHER manual operator action (click anywhere, or any keydown that
   // isn't our confirm key) cancels Part 7 auto-advance tracking and starts a

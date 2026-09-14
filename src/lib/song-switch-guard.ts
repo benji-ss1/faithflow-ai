@@ -45,10 +45,14 @@ export type SongSwitchGuardInput = {
 };
 
 export function shouldHoldSongAutoSwitch(i: SongSwitchGuardInput): boolean {
-  if (i.trackedLiveSongId) return i.trackedLiveSongId !== i.targetSongId;
   const s = i.liveSlide;
-  if (!s || s.kind !== "text") return false;
-  if (typeof s.text !== "string" || !s.text.trim()) return false;
+  const liveIsText = !!s && s.kind === "text" && typeof s.text === "string" && !!s.text.trim();
+  // A DECLARED live song origin (with id, valid only while its identity is live)
+  // outranks the lyric tracker when real text is on screen: the operator clicked
+  // song A's shared line while the tracker still followed B → A is what is live.
+  if (liveIsText && i.liveOrigin?.kind === "song" && i.liveOrigin.songId) return i.liveOrigin.songId !== i.targetSongId;
+  if (i.trackedLiveSongId) return i.trackedLiveSongId !== i.targetSongId;
+  if (!liveIsText) return false;
   if (i.liveOrigin?.kind === "song") return i.liveOrigin.songId !== i.targetSongId;
   if (i.liveItemType === "song") return i.liveItemSongId !== i.targetSongId;
   return false;
@@ -85,7 +89,7 @@ export function rememberOrigin(m: Map<string, LiveOrigin>, identity: string, ori
 /** Re-send of the CURRENT live slide with no declared origin (background drop,
  *  editor show, theme/layout/layer re-send): carry the previous live origin
  *  forward instead of re-inferring (re-inference can never claim "song", so a
- *  library-sent song would silently lose its attribution). Applies when the
+ *  library-sent song would silently lose its attribution). SONG priors only. Applies when the
  *  caller says so (`carry`) or the text content is unchanged. */
 export function carriedOrigin(
   prior: LiveOrigin | null | undefined,
@@ -93,7 +97,9 @@ export function carriedOrigin(
   live: { kind: string; text?: string } | null | undefined,
   carry?: boolean,
 ): LiveOrigin | undefined {
-  if (!prior || next.kind !== "text") return undefined;
+  // Only a SONG origin is carried — a non-song prior (text/scripture/…) must not
+  // shadow the plan lookup, which may positively identify the slide as a song.
+  if (!prior || prior.kind !== "song" || next.kind !== "text") return undefined;
   if (carry) return prior;
   if (live && live.kind === "text" && typeof live.text === "string" && typeof next.text === "string"
     && live.text.trim() !== "" && live.text.trim() === next.text.trim()) return prior;

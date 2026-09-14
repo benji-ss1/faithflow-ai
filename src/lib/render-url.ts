@@ -13,7 +13,7 @@
 //
 // Accepted:
 //   • same-origin paths under an explicit prefix allowlist ONLY — "/api/media/<id>",
-//     "/marketing/x.jpg", "/brand/…", "/login/…" (see RELATIVE_PREFIXES)
+//     "/marketing/x.jpg", "/brand/…", "/login/…" (see MEDIA_PATH / STATIC_PREFIXES)
 //   • https:// URLs (presigned S3 / Supabase storage)
 //   • http:// ONLY for localhost / 127.0.0.1 / [::1] AND only outside production
 //     (dev MinIO). Statically false in prod builds.
@@ -36,12 +36,17 @@ const UNSAFE_CHARS = /["'\s<>\\\u0000-\u001f\u007f]/;
 // that real producers emit are allowed: stored media ("/api/media/<id>") and the
 // static public/ image folders (marketing, brand, login). No query/fragment (no
 // producer needs one), no dot segments, no percent-encoded dot/slash/backslash.
-const RELATIVE_PREFIXES = ["/api/media/", "/marketing/", "/brand/", "/login/"];
+// Stored media: exactly "/api/media/<uuid>" with an optional single file-name
+// segment — never an app route under that prefix ("/api/media/list", "/presign").
+const MEDIA_PATH = /^\/api\/media\/[0-9a-fA-F-]{36}(\/[\w.-]+)?$/;
+// Static public/ folders: image / video files only (no svg — it can carry script).
+const STATIC_PREFIXES = ["/marketing/", "/brand/", "/login/"];
+const STATIC_EXT = /\.(png|jpe?g|gif|webp|mp4|webm|mov)$/i;
 function isAllowedRelativePath(p: string): boolean {
-  if (/[?#]/.test(p)) return false;
-  if (/%(2e|2f|5c)/i.test(p)) return false;
+  if (/[?#%]/.test(p)) return false;
   if (p.split("/").some((seg) => seg === "." || seg === "..")) return false;
-  return RELATIVE_PREFIXES.some((pre) => p.startsWith(pre) && p.length > pre.length);
+  if (MEDIA_PATH.test(p)) return true;
+  return STATIC_PREFIXES.some((pre) => p.startsWith(pre) && p.length > pre.length) && STATIC_EXT.test(p);
 }
 
 export function cleanRenderUrl(url: unknown): string | null {

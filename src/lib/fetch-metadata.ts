@@ -10,5 +10,12 @@ export function isTopLevelNavigation(headers: { get(name: string): string | null
   const mode = headers.get("sec-fetch-mode");
   if (dest !== null && dest !== "document") return false;
   if (mode !== null && mode !== "navigate") return false;
+  // Cross-site / same-site navigations (a link or form on another origin) are
+  // refused; Electron's loadURL and typed/bookmarked URLs send "none", in-app
+  // links send "same-origin". Speculative loads (prefetch / prerender) carry
+  // Sec-Purpose and must never swap a session.
+  const site = headers.get("sec-fetch-site");
+  if (site !== null && site !== "none" && site !== "same-origin") return false;
+  if (headers.get("sec-purpose") !== null) return false;
   return true;
 }
