@@ -994,7 +994,7 @@ export function PlaylistSection({
       }
     }
     try {
-      ctx.onSendSlideToLive(payload);
+      ctx.onSendSlideToLive(payload, undefined, it.type === "song" ? { origin: { kind: "song", songId: (it as { songId?: string }).songId } } : undefined);
       toast.success(`"${it.title}" — slide ${sIdx + 1} → LIVE`);
     } catch (e) {
       console.warn("[playlist] send-slide failed", e);

@@ -175,6 +175,8 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   const router = useRouter();
   const item = ctx.plan.items[ctx.previewItemIdx];
   const slides: SlidePayload[] = item?.slides ?? [];
+  // Song auto-switch guard: every send of a song item's slide declares its origin.
+  const itemSendOpts = item?.type === "song" ? { origin: { kind: "song" as const, songId: (item as { songId?: string }).songId } } : undefined;
   // Frame-aware DISPLAY slides — media images are rendered (and projected) through
   // their saved frame (crop / pan / zoom / blur-fill) so the grid preview is 1:1
   // with what goes live. Non-media / un-framed slides pass through unchanged.
@@ -228,7 +230,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
     if (ctx.previewItemIdx !== ctx.liveItemIdx) return;
     const live = ctx.liveSlide;
     if (!live || live.kind !== "text") return;
-    ctx.onSendSlideToLive({ ...(live as Extract<SlidePayload, { kind: "text" }>), bgImageUrl }, null, { instant: true });
+    ctx.onSendSlideToLive({ ...(live as Extract<SlidePayload, { kind: "text" }>), bgImageUrl }, null, { instant: true, carryLiveOrigin: true });
   };
   // The index (within THIS item) of the slide currently on the projector, by FULL
   // identity (not just lyric text) — so a single-slide background change only
@@ -760,7 +762,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
       // re-send it with the new background right away so /live updates instantly too.
       const base = displaySlides[idx] ?? slides[idx];
       if (idx === liveSlideIdx && base) {
-        ctx.onSendSlideToLive({ ...(base as Extract<SlidePayload, { kind: "text" }>), bgImageUrl: payload.url }, null, { instant: true });
+        ctx.onSendSlideToLive({ ...(base as Extract<SlidePayload, { kind: "text" }>), bgImageUrl: payload.url }, null, { instant: true, carryLiveOrigin: true });
       }
     }
     void (async () => {
@@ -905,7 +907,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                 selected={idx === ctx.previewSlideIdx}
                 canQuickEdit={item?.type === "song" && !!(item as { songId?: string }).songId}
                 onSendLive={() => {
-                  fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => { ctx.onSendSlideToLive(displaySlides[idx] ?? s); ctx.fireSlideActions(ctx.previewItemIdx, idx); });
+                  fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => { ctx.onSendSlideToLive(displaySlides[idx] ?? s, undefined, itemSendOpts); ctx.fireSlideActions(ctx.previewItemIdx, idx); });
                 }}
                 onSelect={() => {
                   console.log("[click] slide", { id: slideIds[idx], idx, safeMode: safeMode() });
@@ -923,7 +925,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                     // Fix-loop 2026-07-27: dedupe key includes the playlist
                     // item — the `slide-${i}` fallback collides across items
                     // and across reorders.
-                    fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => { ctx.onSendSlideToLive(displaySlides[idx] ?? s); ctx.fireSlideActions(ctx.previewItemIdx, idx); });
+                    fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => { ctx.onSendSlideToLive(displaySlides[idx] ?? s, undefined, itemSendOpts); ctx.fireSlideActions(ctx.previewItemIdx, idx); });
                   }
                 }}
                 onDouble={() => {
@@ -948,7 +950,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                       return;
                     }
                   }
-                  if (safeMode()) fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => ctx.onSendSlideToLive(displaySlides[idx] ?? s));
+                  if (safeMode()) fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => ctx.onSendSlideToLive(displaySlides[idx] ?? s, undefined, itemSendOpts));
                 }}
                 onDelete={() => {
                   // Delete THIS slide immediately by its DB id (works for designed
@@ -1182,7 +1184,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                 onClick={() => {
                   const t = editedTextRef.current.trim();
                   if (!t) return;
-                  ctx.onSendSlideToLive(current ? applyTextToSlide(current, t) : { kind: "text", text: t });
+                  ctx.onSendSlideToLive(current ? applyTextToSlide(current, t) : { kind: "text", text: t }, undefined, itemSendOpts ?? { carryLiveOrigin: true });
                 }}
                 className="h-8 px-3 rounded-md text-[12px] font-medium bg-white/10 border border-white/20 hover:bg-white/20 text-white backdrop-blur-sm"
               >

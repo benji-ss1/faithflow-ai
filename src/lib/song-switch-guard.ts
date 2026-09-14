@@ -69,3 +69,33 @@ export function inferLiveOrigin(slide: { kind: string; reference?: string } | nu
   if (typeof slide.reference === "string" && slide.reference.trim()) return { kind: "scripture" };
   return { kind: "text" };
 }
+
+/** LRU memory of declared origins per output identity (capped). A hit refreshes
+ *  recency so an origin that keeps being re-sent is never the one evicted. */
+export function recallOrigin(m: Map<string, LiveOrigin>, identity: string): LiveOrigin | undefined {
+  const o = m.get(identity);
+  if (o !== undefined) { m.delete(identity); m.set(identity, o); }
+  return o;
+}
+export function rememberOrigin(m: Map<string, LiveOrigin>, identity: string, origin: LiveOrigin, cap = 300): void {
+  m.delete(identity);
+  m.set(identity, origin);
+  while (m.size > cap) { const first = m.keys().next().value; if (first === undefined) break; m.delete(first); }
+}
+/** Re-send of the CURRENT live slide with no declared origin (background drop,
+ *  editor show, theme/layout/layer re-send): carry the previous live origin
+ *  forward instead of re-inferring (re-inference can never claim "song", so a
+ *  library-sent song would silently lose its attribution). Applies when the
+ *  caller says so (`carry`) or the text content is unchanged. */
+export function carriedOrigin(
+  prior: LiveOrigin | null | undefined,
+  next: { kind: string; text?: string },
+  live: { kind: string; text?: string } | null | undefined,
+  carry?: boolean,
+): LiveOrigin | undefined {
+  if (!prior || next.kind !== "text") return undefined;
+  if (carry) return prior;
+  if (live && live.kind === "text" && typeof live.text === "string" && typeof next.text === "string"
+    && live.text.trim() !== "" && live.text.trim() === next.text.trim()) return prior;
+  return undefined;
+}

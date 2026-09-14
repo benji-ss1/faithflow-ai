@@ -13,7 +13,7 @@ import { useLiveLayers } from "./useLiveLayers";
 import { clampObsBand, type ObsBandConfig } from "@/lib/obs-lowerthird";
 import { readFontScale, readReferenceScale, readReferenceColor } from "./pro/operatorConstants";
 import { applyChurchLayout, sourceForRelayout } from "./scripture/scriptureStyle";
-import { inferLiveOrigin, type LiveOrigin } from "@/lib/song-switch-guard";
+import { inferLiveOrigin, type LiveOrigin, recallOrigin, rememberOrigin, carriedOrigin } from "@/lib/song-switch-guard";
 import { useBackgroundState } from "@/backgrounds/hooks/useBackgroundState";
 import { toBackgroundSpec } from "@/backgrounds/models/BackgroundTypes";
 import { openOutputChannel } from "@/lib/realtime";
@@ -802,13 +802,24 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   const originByIdRef = useRef<Map<string, LiveOrigin>>(new Map());
   const planItemsRef = useRef(plan.items);
   planItemsRef.current = plan.items;
-  const stampLiveOrigin = useCallback((source: SlidePayload, styled: SlidePayload, declared?: LiveOrigin) => {
+  const stampLiveOrigin = useCallback((source: SlidePayload, styled: SlidePayload, declared?: LiveOrigin, carry?: boolean) => {
     const identity = slideOutputIdentity(styled);
+    // Origin of what is on the projector BEFORE this send (only while still valid).
+    let priorOrigin: LiveOrigin | null = null;
+    try {
+      const r = liveOriginRef.current;
+      priorOrigin = r && r.identity === slideOutputIdentity(liveRef.current) ? r.origin : null;
+    } catch { priorOrigin = null; }
     if (styled.kind === "blank" || styled.kind === "empty" || styled.kind === "logo") {
       liveOriginRef.current = { origin: { kind: "other" }, identity };
       return;
     }
-    let origin: LiveOrigin | undefined = declared ?? originByIdRef.current.get(identity);
+    let origin: LiveOrigin | undefined = declared ?? recallOrigin(originByIdRef.current, identity);
+    let carried = false;
+    if (!origin) {
+      origin = carriedOrigin(priorOrigin, styled as { kind: string; text?: string }, liveRef.current as { kind: string; text?: string }, carry);
+      carried = !!origin;
+    }
     if (!origin && styled.kind === "text") {
       // Resolve against the plan: a slide belonging to a plan item inherits its
       // type (song items carry songId). Two different songs sharing the line →
@@ -833,11 +844,8 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       origin = found;
     }
     origin = origin ?? inferLiveOrigin(styled);
-    if (declared) {
-      const m = originByIdRef.current;
-      m.set(identity, declared);
-      if (m.size > 300) { const first = m.keys().next().value; if (first !== undefined) m.delete(first); }
-    }
+    if (declared) rememberOrigin(originByIdRef.current, identity, declared);
+    else if (carried && origin.kind === "song") rememberOrigin(originByIdRef.current, identity, origin);
     liveOriginRef.current = { origin, identity };
   }, [churchId]);
   const getLiveOrigin = useCallback((): LiveOrigin | null => {
@@ -1084,7 +1092,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   const sendSlideToLive = useCallback((
     slide: SlidePayload,
     spec?: import("@/lib/broadcast").TransitionSpec | null,
-    options?: { preserveConfiguredTransition?: boolean; instant?: boolean; force?: boolean; origin?: LiveOrigin },
+    options?: { preserveConfiguredTransition?: boolean; instant?: boolean; force?: boolean; origin?: LiveOrigin; carryLiveOrigin?: boolean },
   ) => {
     // 2026-07-25 — added tracing + defensive guards after a field report
     // that "clicking a song slide does nothing" (v0.1.42 hunt). The pipeline
@@ -1111,7 +1119,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // already-live skip below the identity is unchanged, so a re-stamp only ever
     // refines the origin (a declared song origin wins over an inferred one).
     if (options?.origin || slideOutputIdentity(slide) !== slideOutputIdentity(liveRef.current) || options?.force) {
-      stampLiveOrigin(originSource, slide, options?.origin);
+      stampLiveOrigin(originSource, slide, options?.origin, options?.carryLiveOrigin);
     }
     // ALREADY-LIVE SKIP (2026-08-20): if this EXACT slide is already on the
     // projector, sending it again is a no-op — do nothing. Re-clicking the live

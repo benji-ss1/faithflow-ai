@@ -808,12 +808,14 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   // detection loop re-evaluates on every transcript tick).
   const heldLogKeysRef = useRef<Map<string, string>>(new Map());
   const logSwitchHeld = useCallback((songId: string, msg: string) => {
-    const key = liveOriginKey(songSwitchInput(songId)) + "|" + (ctx.liveSlide && ctx.liveSlide.kind === "text" ? ctx.liveSlide.text : "");
+    // Key = live ORIGIN identity only (not live text) so advancing through the
+    // live song's slides does not re-log the same hold on every slide.
+    const key = liveOriginKey(songSwitchInput(songId));
     if (heldLogKeysRef.current.get(songId) === key) return;
     if (heldLogKeysRef.current.size > 100) heldLogKeysRef.current.clear();
     heldLogKeysRef.current.set(songId, key);
     console.log(msg);
-  }, [songSwitchInput, ctx.liveSlide]);
+  }, [songSwitchInput]);
 
   // ---- Part 6: auto-stage on ≥85% confidence, AUTO on ---------------------
   const stageSong = useCallback(async (songId: string, title: string, confidence: number, source: "detection" | "progression") => {
@@ -919,7 +921,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
         return;
       }
       lastSongAutoLiveAtRef.current = now;
-      ctx.onSendSlideToLive({ kind: "text", text });
+      ctx.onSendSlideToLive({ kind: "text", text }, undefined, { origin: { kind: "song", songId } });
       liveSongRef.current = { songId, title, slides, currentIdx: startIdx, confirmedAt: now };
       lastAdvanceTsRef.current = now;
       matchStreakRef.current = 0;
