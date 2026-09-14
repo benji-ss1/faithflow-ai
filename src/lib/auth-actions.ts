@@ -1,13 +1,14 @@
 "use server";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { headers } from "next/headers";
 import { timingSafeEqual } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { getDb } from "./db/client";
 import { users } from "./db/schema";
-import { issueAuthToken, consumeAuthToken } from "./auth-tokens";
+import { issueAuthToken, consumeAuthToken, invalidateUserTokens } from "./auth-tokens";
 import { sendVerificationEmail, sendPasswordResetEmail } from "./email";
 import { createLimiter } from "./rate-limit";
+import { bumpSessionVersion, revokeAllSessionsForUser } from "./session-revocation";
 
 type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
 
@@ -143,7 +144,29 @@ export async function resetPassword(token: string, newPassword: string): Promise
   if (!userId) return { ok: false, error: "This link is invalid or expired. Request a new one from the sign-in page." };
   const db = getDb();
   const passwordHash = await bcrypt.hash(newPassword, 12);
-  await db.update(users).set({ passwordHash }).where(eq(users.id, userId));
+  // Password change + session_version bump are ATOMIC: if the bump fails the
+  // password isn't changed either and the user sees an error (never a "success"
+  // that left a stolen 90-day cookie alive).
+  try {
+    await db.transaction(async (tx) => {
+      await tx.update(users).set({ passwordHash, sessionVersion: sql`${users.sessionVersion} + 1` }).where(eq(users.id, userId));
+    });
+  } catch (e) {
+    console.error("[resetPassword] password/session update failed:", e instanceof Error ? e.message : e);
+    return { ok: false, error: "We couldn't reset your password right now. Please request a new link and try again." };
+  }
+  // Also revoke outstanding desktop sign-in links / pairing approvals (version
+  // already bumped above). Revocation retries + logs internally and never throws
+  // (the password has already changed, so we don't surface an error).
+  await revokeAllSessionsForUser(userId, { bumpVersion: false });
+  // Second bump AFTER revocation: any session minted by a desktop exchange that
+  // raced the revoke window captured at most the first bump's version, so it
+  // is revoked on refresh. Retry once; log loudly on failure.
+  try {
+    await bumpSessionVersion(userId);
+  } catch {
+    await bumpSessionVersion(userId).catch((e) => console.error("[resetPassword] post-revocation session_version bump FAILED:", e instanceof Error ? e.message : e));
+  }
   return { ok: true };
 }
 

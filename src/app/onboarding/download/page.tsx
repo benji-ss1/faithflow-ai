@@ -3,7 +3,6 @@ import { eq } from "drizzle-orm";
 import { requireUser, requirePartialUser } from "@/lib/session";
 import { getDb } from "@/lib/db/client";
 import { churches, users } from "@/lib/db/schema";
-import { mintDeviceLinkToken } from "@/lib/device-link-actions";
 import { DesktopDownloadPanel } from "@/components/settings/DesktopDownloadPanel";
 
 export const dynamic = "force-dynamic";
@@ -33,10 +32,6 @@ async function markOnboardingCompleteOnFinalStep(): Promise<void> {
 export default async function OnboardingDownloadPage() {
   await requireUser();
   await markOnboardingCompleteOnFinalStep();
-  // Minted fresh on every page load (5 min TTL) — if the user sits on this
-  // page a while before clicking, they can just refresh for a new one.
-  const link = await mintDeviceLinkToken();
-  const deepLinkHref = link.ok ? `presentflow://auth?token=${encodeURIComponent(link.token)}` : null;
   return (
     <div style={{ minHeight: "100vh", background: "#0a0a0a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div style={{ maxWidth: 640, width: "100%", textAlign: "center" }}>
@@ -50,7 +45,7 @@ export default async function OnboardingDownloadPage() {
           Your workspace is ready. The Present Flow desktop app is where you run live services — projector output, stage display, real-time AI detection, and Bible panel all run locally on your church's computer.
         </p>
 
-        <DesktopDownloadPanel deepLinkHref={deepLinkHref} />
+        <DesktopDownloadPanel />
 
         <Link
           href="/dashboard"

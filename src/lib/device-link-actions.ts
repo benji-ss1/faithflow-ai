@@ -7,16 +7,18 @@
  * pattern (verify_email, password_reset) rather than a new table: same
  * shape (userId + sha256 hash + expiry + single-use), just a new `kind`.
  *
- * TTL is short (5 min) because this is consumed within seconds of minting —
- * the user clicks "Open PresentFlow" right after downloading, not later.
+ * Minted ON CLICK (never during a page render, so tokens aren't embedded in
+ * HTML/caches). TTL is 20 min to cover download + install + first open.
+ * Single-use, stored hashed, rate-limited, and revoked on password reset
+ * (see resetPassword → invalidateUserTokens).
  */
 
 import { requireUser } from "./session";
 import { issueAuthToken } from "./auth-tokens";
 import { createLimiter } from "./rate-limit";
 
-const TTL_MS = 5 * 60 * 1000;
-const mintLimiter = createLimiter("device-link-mint", 10, 60 * 60 * 1000);
+const TTL_MS = 20 * 60 * 1000;
+const mintLimiter = createLimiter("device-link-mint", 20, 60 * 60 * 1000);
 
 export async function mintDeviceLinkToken(): Promise<{ ok: true; token: string } | { ok: false; error: string }> {
   const user = await requireUser();
