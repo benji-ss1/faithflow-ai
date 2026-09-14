@@ -7,7 +7,7 @@ import {
   LOGIN_IP_LIMIT, LOGIN_EMAIL_LIMIT, LOGIN_IP_EMAIL_LIMIT,
   chargeLoginAttempt, loginLockedFor, refundLoginSuccess,
   InvalidCredentialsError, RateLimitedError,
-  LOGIN_MAX_KEYS, loginGuardSize, normalizeIp, clientIpFromHeaders,
+  LOGIN_MAX_KEYS, loginGuardSize, normalizeIp, clientIpFromHeaders, LOGIN_MAX_IP_LEN,
 } from "../src/lib/login-guard";
 import { signInErrorMessage, normalizeEmail } from "../src/lib/auth-error-message";
 import { CredentialsSignin } from "next-auth";
@@ -173,6 +173,36 @@ async function attempt(ip: string, email: string, correct: boolean) {
     for (let i = 0; i < 1000; i++) chargeLoginAttempt(`z${i}`, `zz${i}@x`);
     const ms = performance.now() - t;
     assert.ok(ms < 50, `1000 attempts took ${ms.toFixed(1)}ms`);
+  });
+
+  await check("normalizeIp: oversize/pathological input is fast + bounded", () => {
+    for (const bad of [":".repeat(16_000), "0:".repeat(8_000), "0:".repeat(8_000) + "ffff:1.2.3.4x"]) {
+      const t0 = performance.now();
+      const out = normalizeIp(bad);
+      assert.ok(performance.now() - t0 < 5, "must complete < 5ms");
+      assert.equal(out, "invalid-ip");
+    }
+    assert.ok(normalizeIp("a".repeat(LOGIN_MAX_IP_LEN)).length <= LOGIN_MAX_IP_LEN);
+    for (let n = 1; n <= 40; n++) { const t0 = performance.now(); normalizeIp("0:".repeat(n) + "x"); assert.ok(performance.now() - t0 < 5); }
+  });
+
+  await check("normalizeIp: structurally invalid IPv6 never merges into a /64", () => {
+    assert.equal(normalizeIp("1::2::3"), "1::2::3");
+    assert.notEqual(normalizeIp("2001:db8::1::1"), normalizeIp("2001:db8::1"));
+    assert.notEqual(normalizeIp("::1.2.3.4"), normalizeIp("::1"));
+    assert.equal(normalizeIp("1:2:3:4:5:6:7:8:9"), "1:2:3:4:5:6:7:8:9");
+    assert.equal(normalizeIp("1:2:3:4::5:6:7:8"), "1:2:3:4::5:6:7:8");
+    assert.equal(normalizeIp("::ffff:1.2.3.999"), "::ffff:1.2.3.999");
+    assert.equal(normalizeIp("0:0:0:0:0:ffff:1.2.3.4"), "1.2.3.4");
+  });
+
+  await check("eviction: junk-key flood cannot wipe an active lock", () => {
+    const ip = "203.0.113.77", email = "locked-target@x";
+    for (let i = 0; i < LOGIN_IP_EMAIL_LIMIT; i++) chargeLoginAttempt(ip, email);
+    assert.notEqual(loginLockedFor(ip, email), null);
+    for (let i = 0; i < 100_000; i++) chargeLoginAttempt(`198.51.${(i >> 8) & 255}.${i & 255}`, `junk${i}@x`);
+    assert.ok(loginGuardSize() <= LOGIN_MAX_KEYS);
+    assert.notEqual(loginLockedFor(ip, email), null);
   });
 
   console.log(`\n${pass} pass, ${fail} fail`);

@@ -1,6 +1,13 @@
 import { CredentialsSignin } from "next-auth";
 
 /**
+ * SCOPE / TRUST: counters are PER SERVER INSTANCE (in-memory, not shared across
+ * Vercel lambdas), and the client IP is taken from Vercel-set proxy headers
+ * (x-vercel-forwarded-for first) — correct only because the app is Vercel-hosted
+ * behind Vercel's edge. Planned follow-up: a shared DB-backed atomic store.
+ */
+
+/**
  * Credentials-login brute-force guard (H1), shared-church-network aware.
  *
  * Three axes, 15-minute fixed windows:
@@ -48,23 +55,54 @@ export function clientIpFromHeaders(h: { get(name: string): string | null } | un
   );
 }
 
-/** IPv4 unchanged; IPv4-mapped IPv6 → IPv4; other IPv6 → its /64 prefix. */
+/** Raw client-IP strings longer than this collapse to one "invalid-ip" bucket
+ *  (bounds key memory; checked before any parsing). */
+export const LOGIN_MAX_IP_LEN = 64;
+
+function dottedQuad(s: string): number[] | null {
+  const p = s.split(".");
+  if (p.length !== 4) return null;
+  const n = p.map((x) => (x.length >= 1 && x.length <= 3 && [...x].every((c) => c >= "0" && c <= "9") ? Number(x) : NaN));
+  return n.every((x) => x <= 255) ? n : null;
+}
+
+/** IPv4 unchanged; ::ffff:a.b.c.d → IPv4; other valid IPv6 → its /64 prefix;
+ *  structurally invalid input kept as-is (its own bucket). Regex-free parse. */
 export function normalizeIp(raw: string): string {
-  let ip = raw.trim().toLowerCase().replace(/^\[|\]$/g, "").split("%")[0];
+  if (typeof raw !== "string" || raw.length > LOGIN_MAX_IP_LEN) return "invalid-ip";
+  let ip = raw.trim().toLowerCase();
+  if (ip.startsWith("[")) ip = ip.slice(1);
+  if (ip.endsWith("]")) ip = ip.slice(0, -1);
+  ip = ip.split("%")[0];
   if (!ip.includes(":")) return ip;
-  const mapped = /^(?:0*:)*:?(?:0*:)*ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(ip);
-  if (mapped) return mapped[1];
-  const v4tail = /(\d{1,3}(?:\.\d{1,3}){3})$/.exec(ip);
-  if (v4tail) { // embedded dotted quad → two hex groups
-    const [a, b, c, d] = v4tail[1].split(".").map(Number);
-    ip = ip.slice(0, -v4tail[1].length) + ((a << 8) | b).toString(16) + ":" + ((c << 8) | d).toString(16);
+  const orig = ip;
+  const halves = ip.split("::");
+  if (halves.length > 2) return orig; // more than one "::" — invalid
+  const lastColon = ip.lastIndexOf(":");
+  const tailStr = ip.slice(lastColon + 1);
+  let quad: number[] | null = null;
+  if (tailStr.includes(".")) { // embedded dotted quad → two hex groups
+    quad = dottedQuad(tailStr);
+    if (!quad) return orig;
+    ip = ip.slice(0, lastColon + 1) + ((quad[0] << 8) | quad[1]).toString(16) + ":" + ((quad[2] << 8) | quad[3]).toString(16);
   }
-  const [head, tail] = ip.split("::");
-  const hg = head ? head.split(":") : [];
-  const tg = tail !== undefined && tail ? tail.split(":") : [];
-  const groups = ip.includes("::") ? [...hg, ...Array(Math.max(0, 8 - hg.length - tg.length)).fill("0"), ...tg] : hg;
-  if (groups.length !== 8 || groups.some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return ip; // not valid v6: keep as-is
-  return groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":") + "::/64";
+  const isHex = (g: string) => g.length >= 1 && g.length <= 4 && [...g].every((c) => (c >= "0" && c <= "9") || (c >= "a" && c <= "f"));
+  let groups: string[];
+  if (halves.length === 2) {
+    const [head, tail] = ip.split("::");
+    const hg = head ? head.split(":") : [];
+    const tg = tail ? tail.split(":") : [];
+    if (hg.length + tg.length > 7) return orig;
+    groups = [...hg, ...Array(8 - hg.length - tg.length).fill("0"), ...tg];
+  } else groups = ip.split(":");
+  if (groups.length !== 8 || !groups.every(isHex)) return orig; // not valid v6: keep as-is
+  if (quad) {
+    // Only ::ffff:a.b.c.d maps to IPv4. Other dotted forms (e.g. deprecated
+    // ::1.2.3.4) stay distinct rather than merging into ::/64 with ::1.
+    const mapped = groups.slice(0, 5).every((g) => parseInt(g, 16) === 0) && parseInt(groups[5], 16) === 0xffff;
+    return mapped ? quad.join(".") : orig;
+  }
+  return groups.slice(0, 4).map((g) => parseInt(g, 16).toString(16)).join(":") + "::/64";
 }
 
 const keysFor = (rawIp: string, email: string, ip = normalizeIp(rawIp)) =>
@@ -73,6 +111,9 @@ const keysFor = (rawIp: string, email: string, ip = normalizeIp(rawIp)) =>
     [`email:${email}`, LOGIN_EMAIL_LIMIT],
     [`ipemail:${ip}|${email}`, LOGIN_IP_EMAIL_LIMIT],
   ] as const;
+
+const limitOf = (key: string) =>
+  key.startsWith("ip:") ? LOGIN_IP_LIMIT : key.startsWith("email:") ? LOGIN_EMAIL_LIMIT : LOGIN_IP_EMAIL_LIMIT;
 
 function live(key: string, now: number): Hit | undefined {
   const h = hits.get(key);
@@ -108,9 +149,23 @@ export function chargeLoginAttempt(ip: string, email: string): number | null {
     else {
       // Batch-evict the oldest 10% with ONE iterator: repeated keys().next()
       // after head deletes re-walks V8's tombstones (O(n) per call).
+      // Locked keys (at/over limit) are re-queued to the tail, not evicted, so
+      // a junk-key flood can't wipe an active lock. Visits are bounded to
+      // 2x batch (O(batch)); if nothing could be evicted, drop the head anyway
+      // to keep the hard memory bound.
       if (hits.size >= LOGIN_MAX_KEYS) {
-        let n = LOGIN_MAX_KEYS / 10;
-        for (const k of hits.keys()) { hits.delete(k); if (--n <= 0) break; }
+        const batch = LOGIN_MAX_KEYS / 10;
+        let evicted = 0, visits = 0;
+        const requeue: [string, Hit][] = [];
+        for (const [k, h] of hits) {
+          if (++visits > batch * 2) break;
+          if (h.count >= limitOf(k) && h.resetAt >= now) requeue.push([k, h]);
+          else evicted++;
+          hits.delete(k);
+          if (evicted >= batch) break;
+        }
+        for (const [k, h] of requeue) hits.set(k, h);
+        if (evicted === 0) { const k = hits.keys().next().value; if (k !== undefined) hits.delete(k); }
       }
       hits.set(key, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
     }
