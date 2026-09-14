@@ -13,6 +13,7 @@ import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
 import { registerMediaAsset } from "@/lib/actions";
 import { removeFlatBackground } from "./logoKey";
 import { loadMediaFrame, saveMediaFrame, type MediaFrame } from "./mediaFrame";
+import { LayoutDefaultControl } from "@/components/operator/layout/LayoutDefaultControl";
 
 /**
  * Live, WYSIWYG preview of the church's REAL active theme background — mirrors
@@ -534,6 +535,11 @@ export function MediaImageEditor({
                 <button onClick={() => switchMode("background")} className={cn(btn, "flex-1")} style={on(bgMode === "background")}><Square className="w-3.5 h-3.5" /> Logo on background</button>
               </div>
               <div className="mt-1.5 text-[10px] text-zinc-500">{bgMode === "matte" ? "Image fills the screen (black letterbox), replacing the theme." : "Place the logo centred over a background — good for wide/odd-shaped logos."}</div>
+            </Section>
+
+            <Section label="Projection layout">
+              <LayoutDefaultControl churchId={ctx.churchId} compact />
+              <div className="mt-1.5 text-[10px] text-zinc-500">Set to a Lower / Upper / Mid third to place your images &amp; videos — and songs &amp; verses — in a band instead of full screen. This is your default for everything.</div>
             </Section>
 
             {bgMode === "matte" ? (

@@ -11,7 +11,6 @@ import { addBuiltInHymnsToMyChurch } from "@/lib/actions";
 import { ChurchBrandingUploader } from "@/components/organization/ChurchBrandingUploader";
 import { OnboardingSplash } from "@/components/onboarding/OnboardingSplash";
 import {
-  AuthShell,
   authInputCls,
   authInputStyle,
   authLabelCls,
@@ -19,6 +18,7 @@ import {
   authCtaCls,
   authCtaStyle,
 } from "@/components/auth/AuthShell";
+import { PfAuthScene } from "@/components/auth/PfAuthScene";
 
 /**
  * PresentFlow onboarding wizard — six steps, dark-themed AuthShell.
@@ -216,7 +216,9 @@ export function OnboardingWizard({
   if (showSplash) return <OnboardingSplash />;
 
   return (
-    <AuthShell>
+    <PfAuthScene scrollable>
+      <div className="aside-top"><span className="o">Setup</span><span>Wave I</span></div>
+      <div className="form-wrap">
       {/* Six-segment progress bar */}
       <div className="mb-7 flex items-center gap-1.5">
         {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
@@ -586,7 +588,8 @@ export function OnboardingWizard({
           )}
         </div>
       </div>
-    </AuthShell>
+      </div>
+    </PfAuthScene>
   );
 }
 

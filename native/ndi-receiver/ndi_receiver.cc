@@ -188,7 +188,7 @@ void NdiReceiver::CaptureLoop() {
   while (running_.load()) {
     NDIlib_audio_frame_v2_t audio;
     // 200ms timeout so the loop wakes to check running_ even with no audio.
-    NDIlib_frame_type_e t = NDIlib_recv_capture_v3(recv_, nullptr, &audio, nullptr, 200);
+    NDIlib_frame_type_e t = NDIlib_recv_capture_v2(recv_, nullptr, &audio, nullptr, 200);
     if (t != NDIlib_frame_type_audio) {
       // Nothing (timeout) or a non-audio frame — nothing to free for audio; the
       // SDK only allocates on the type it returned.

@@ -1,6 +1,6 @@
 {
   "name": "presentflow",
-  "version": "0.1.378",
+  "version": "0.1.380",
   "private": true,
   "description": "PresentFlow — AI-native church presentation software.",
   "author": "PresentFlow",
@@ -159,6 +159,7 @@
       "node_modules/universalify/**/*",
       "node_modules/jsonfile/**/*",
       "node_modules/tiny-typed-emitter/**/*",
+      "node_modules/ws/**/*",
       "node_modules/debug/**/*",
       "node_modules/ms/**/*",
       "node_modules/ffmpeg-static/**/*"
