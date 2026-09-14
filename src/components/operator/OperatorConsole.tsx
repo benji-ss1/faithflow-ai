@@ -8,7 +8,7 @@ import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, AI_AUTO_TRANSITION, slideOutputIdentity, sanitizeOutputState, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
 import { clampObsBand, type ObsBandConfig } from "@/lib/obs-lowerthird";
 import { readFontScale, readReferenceScale, readReferenceColor } from "./pro/operatorConstants";
-import { styleScriptureSlide } from "./scripture/scriptureStyle";
+import { applyChurchLayout, sourceForRelayout } from "./scripture/scriptureStyle";
 import { useBackgroundState } from "@/backgrounds/hooks/useBackgroundState";
 import { toBackgroundSpec } from "@/backgrounds/models/BackgroundTypes";
 import { openOutputChannel } from "@/lib/realtime";
@@ -699,6 +699,11 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   const chRef = useRef<LiveChannelLike | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;
+  // The PRE-layout source of whatever is currently live — captured at
+  // sendSlideToLive entry (before applyChurchLayout). Re-sending THIS through the
+  // pipeline re-applies the CURRENT church layout, so a full↔third toggle can
+  // update the slide already on screen (not just the next one).
+  const lastSourceRef = useRef<SlidePayload | null>(null);
 
   // Networked projector sync: when a pair code is minted the operator's
   // OutputState is ALSO published on the Supabase Realtime channel scoped by
@@ -950,12 +955,15 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       console.warn("[live] sendSlideToLive got invalid slide payload — no-op", slide);
       return;
     }
-    // PREVIEW≠LIVE FIX (2026-08-25): apply the church's saved scripture design to
-    // a plain auto-fired/verse-nav scripture slide so the projector matches the
-    // styled operator preview. No-op for songs (no reference) + already-styled
-    // sends (have objects). See styleScriptureSlide. Runs BEFORE the identity
-    // checks so all downstream guards operate on the final styled slide.
-    slide = styleScriptureSlide(slide, churchId);
+    // CENTRAL LAYOUT (2026-08-25 scripture preview≠live fix, generalized 2026-09-04):
+    // apply the church's saved projection layout to EVERY send so the projector
+    // matches the styled preview AND "set the layout once → applies to everything"
+    // holds. Scripture keeps full styling; songs/plain text get confined into the
+    // church's lower-third band when that's the saved default (else unchanged);
+    // a per-slide layout override wins; media is untouched. See applyChurchLayout.
+    // Runs BEFORE the identity checks so all downstream guards see the final slide.
+    lastSourceRef.current = slide; // remember the pre-layout source (for a live toggle)
+    slide = applyChurchLayout(slide, churchId);
     // ALREADY-LIVE SKIP (2026-08-20): if this EXACT slide is already on the
     // projector, sending it again is a no-op — do nothing. Re-clicking the live
     // verse card, or the preacher repeating the verse that's on screen, used to
@@ -1155,7 +1163,11 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       sendSlideToLive(prev, undefined, { instant: true, force: true }); // un-blank
       return;
     }
-    if (cur && cur.kind !== "blank" && cur.kind !== "empty") prevBeforeBlankRef.current = cur;
+    // Remember the PRE-layout SOURCE (not the already-styled live slide) so
+    // un-blank re-runs the CURRENT layout — and so a layout toggle after un-blank
+    // can still reverse it (re-sending a styled slide would no-op in
+    // applyChurchLayout). Falls back to the live slide if no source was captured.
+    if (cur && cur.kind !== "blank" && cur.kind !== "empty") prevBeforeBlankRef.current = lastSourceRef.current ?? cur;
     send({ kind: "blank", bgColor: plan.blankBgColor });
   }, [plan.blankBgColor, send, sendSlideToLive]);
   const goLogo = useCallback(() => send({ kind: "logo", url: plan.logoUrl }), [plan.logoUrl, send]);
@@ -1164,6 +1176,28 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   // The fade/dissolve transition is intentional for playlist slides, but when an
   // operator explicitly presses LIVE they want it NOW — no 1-2 s animation delay.
   const sendPreview = useCallback(() => sendSlideToLive(previewSlide, undefined, { instant: true }), [previewSlide, sendSlideToLive]);
+
+  // Re-apply the CURRENT church layout to the slide already on screen: re-send its
+  // pre-layout source through the pipeline (which re-runs applyChurchLayout with
+  // the now-current default). instant:true = a clean hard cut (no fade); force
+  // bypasses the already-live skip so a layout-only change actually re-projects.
+  const reapplyLayoutToLive = useCallback(() => {
+    // Never disturb an intentional blank/logo/empty screen.
+    const cur = liveRef.current;
+    if (!cur || cur.kind === "blank" || cur.kind === "logo" || cur.kind === "empty") return;
+    const src = lastSourceRef.current;
+    // Reduce the source back to raw content so applyChurchLayout re-derives the
+    // CURRENT layout (a pre-styled source would no-op — that's the whole trick).
+    if (src) sendSlideToLive(sourceForRelayout(src), undefined, { instant: true, force: true });
+  }, [sendSlideToLive]);
+
+  // Any editor's "Apply to current slide" (or another surface) can push the
+  // current layout onto the live slide via this event — "apply it back, anywhere".
+  useEffect(() => {
+    const onReapply = () => reapplyLayoutToLive();
+    window.addEventListener("presentflow:reapply-layout-live", onReapply);
+    return () => window.removeEventListener("presentflow:reapply-layout-live", onReapply);
+  }, [reapplyLayoutToLive]);
 
   const move = useCallback((dir: 1 | -1) => {
     setPreview((cur) => {

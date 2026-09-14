@@ -4,7 +4,7 @@ import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, sanitizeOutputState, slideOutputIdentity, type OutputState, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
 import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
-import { overlayBandSlide, parseObsBand, clampObsBand, DEFAULT_OBS_BAND, type ObsBandConfig, type ObsThemeColors } from "@/lib/obs-lowerthird";
+import { livestreamRenderPlan, parseObsBand, clampObsBand, DEFAULT_OBS_BAND, type ObsBandConfig, type ObsThemeColors } from "@/lib/obs-lowerthird";
 import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
 import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
 import { openOutputChannel, isValidPairCode, type RealtimeConnStatus } from "@/lib/realtime";
@@ -405,7 +405,8 @@ export default function LivestreamPage() {
   // Only pass a solid/gradient bg colour (image/video themes have no solid fill).
   const solidThemeBg = appearance && (appearance.bgType === "solid" || appearance.bgType === "gradient" || appearance.bgType === undefined) ? appearance.bgColor : undefined;
   const themeColors: ObsThemeColors = { textColor: appearance?.textColor, bgColor: solidThemeBg, bgColor2: solidThemeBg ? appearance?.bgColor2 : undefined, bgAngle: appearance?.bgAngle };
-  const renderSlide: SlidePayload = mode === "lower_third" ? overlayBandSlide(slide, obsBand, themeColors) : slide;
+  // Lower-third: operator lowerThird lines win over the slide; no backdrop layers (prod a0f53c8 parity).
+  const { renderSlide, showBackdrop, showFullOverlays } = livestreamRenderPlan(mode, slide, lowerThird, obsBand, themeColors);
   return (
     <div
       className="fixed inset-0 overflow-hidden cursor-none"
@@ -417,23 +418,23 @@ export default function LivestreamPage() {
           {/* Background Templates layer for the broadcast/NDI output. Never in
               transparent (OBS-key) mode. When active the slide goes transparent. */}
           {/* Live camera wins over a Background Template here too (mirrors /live). */}
-          {!transparent && background && background.type !== "none" && !videoInput && <BackgroundLayer key={background.shaderPreset ?? background.type} background={background} />}
-          {!transparent && hasVideoBackground(videoInput, appearance) && !(!transparent && background && background.type !== "none" && !videoInput) ? (
+          {showBackdrop && !transparent && background && background.type !== "none" && !videoInput && <BackgroundLayer key={background.shaderPreset ?? background.type} background={background} />}
+          {showBackdrop && !transparent && hasVideoBackground(videoInput, appearance) && !(!transparent && background && background.type !== "none" && !videoInput) ? (
             <OutputSlide slide={renderSlide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} projectorFit />
           ) : transitionsEnabled ? (
             <TransitionWrapper identityKey={slideOutputIdentity(renderSlide)} transition={transition}>
-              <SlideRenderer slide={renderSlide} projectorFit fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} overVideo={!!(!transparent && background && background.type !== "none" && !videoInput)} transparentBg={transparent} videoMuted={false} onVideoRef={handleVideoRef} />
+              <SlideRenderer slide={renderSlide} projectorFit fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} overVideo={!!(showBackdrop && !transparent && background && background.type !== "none" && !videoInput)} transparentBg={transparent} videoMuted={false} onVideoRef={handleVideoRef} />
             </TransitionWrapper>
           ) : (
-            <SlideRenderer slide={renderSlide} projectorFit fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} overVideo={!!(!transparent && background && background.type !== "none" && !videoInput)} transparentBg={transparent} videoMuted={false} onVideoRef={handleVideoRef} />
+            <SlideRenderer slide={renderSlide} projectorFit fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} overVideo={!!(showBackdrop && !transparent && background && background.type !== "none" && !videoInput)} transparentBg={transparent} videoMuted={false} onVideoRef={handleVideoRef} />
           )}
           {/* No theme logo in OBS transparent mode — the overlay is text-only so
               OBS composites just the lyrics/verse over the camera. */}
-          {!transparent && <ThemeLogoLayer appearance={appearance} />}
+          {showBackdrop && !transparent && <ThemeLogoLayer appearance={appearance} />}
           {/* Announcement scrim is a FULL-frame overlay — keep it off the OBS
               lower-third caption (it would paint over the band). Full mode only. */}
-          {mode === "full" && <AnnouncementLayer ann={announcement} />}
-          {mode === "full" && lowerThird && (
+          {showFullOverlays && <AnnouncementLayer ann={announcement} />}
+          {showFullOverlays && lowerThird && (
             <div className="absolute bottom-16 left-16 right-16 max-w-[70%]">
               <div className="bg-black/70 backdrop-blur-sm border-l-4 border-[color:var(--color-brand)] p-5">
                 <div className="text-white font-semibold text-2xl leading-tight">{lowerThird.line1}</div>
@@ -447,8 +448,9 @@ export default function LivestreamPage() {
           SlideRenderer band branch as everything above (via `renderSlide`), so it
           uses the church's real fonts/style + auto-fit instead of the old
           hard-coded generic white-on-black div (which had no font parity and
-          clipped long lyrics). The operator's explicit lowerThird MESSAGE overlay
-          still renders above. */}
+          clipped long lyrics). In lower-third mode the operator's own lowerThird
+          (line1/line2) REPLACES the slide text in that band (prod parity); the
+          full-frame lowerThird box + announcements render in full mode only. */}
 
       {/* allowWeb === false → operator said in-building only; never show on
           this public OBS-facing surface. */}
