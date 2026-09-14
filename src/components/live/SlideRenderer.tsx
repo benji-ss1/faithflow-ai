@@ -390,7 +390,11 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
       // positioned layout via SlideObjectsLayer.
       const visible = objects.filter((o) => !o.hidden);
       const soleText = visible.length === 1 && visible[0].kind === "text" ? visible[0] : null;
-      if (soleText && soleText.text.trim()) {
+      // Quick edit on a BLANK slide (Add slide copies the neighbour's text object
+      // with text ""): in edit mode keep the single-text editable path so the
+      // operator can type straight onto it. Gated on `editable`, so every
+      // non-edit render (projector/stage/livestream/thumbnails) is unchanged.
+      if (soleText && (soleText.text.trim() || editable)) {
         const animated = usesAnimatedBg(appearance, overVideo || transparentBg, slideBg || slide.bgImageUrl);
         // Respect the operator's colour/font/weight/alignment; AutoFitText owns
         // the SIZE (fill-to-fit) + the always-on uppercase crowd-readability.
