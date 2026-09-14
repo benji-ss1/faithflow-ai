@@ -59,17 +59,14 @@ export async function createChurchAndAttachUser(input: {
         defaultTranslationId: kjv?.id ?? null,
       });
 
-      // Beta trial: full pilot-tier features, but on a TRIALING clock. After
-      // TRIAL_DAYS the app locks behind the "trial ended — contact us" prompt
-      // until they pay (getEntitlement.trialExpired). tier stays "pilot" so every
-      // feature is unlocked during the trial. Exactly one week.
-      const TRIAL_DAYS = 7;
-      const trialEnd = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
+      // No automatic trials (owner directive 2026-09-14): every new church
+      // starts on "pilot" with no trial clock. A trial is only ever started
+      // by hand, per church, once the owner says so.
       await tx.insert(subscriptions).values({
         churchId: church.id,
         tier: "pilot",
-        status: "trialing",
-        trialEnd,
+        status: "pilot",
+        trialEnd: null,
       });
 
       return church.id;
