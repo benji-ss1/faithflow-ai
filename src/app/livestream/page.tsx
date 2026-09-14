@@ -4,7 +4,7 @@ import { Maximize2, X } from "lucide-react";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
 import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, sanitizeOutputState, type OutputState, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState, type LayerWire, type ObsLookWire } from "@/lib/broadcast";
 import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStaleLayersSnapshot } from "@/lib/output-layers";
-import { DEFAULT_OBS_BAND, type ObsBandConfig } from "@/lib/obs-lowerthird";
+import { livestreamRenderPlan, DEFAULT_OBS_BAND, type ObsBandConfig } from "@/lib/obs-lowerthird";
 import { parseObsUrl, resolveObsRender, obsThemeColorsOf, applyObsLiveFields, type ObsUrlDefaults } from "@/lib/obs-look";
 import { openOutputChannel, isValidPairCode, type RealtimeConnStatus } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
@@ -472,6 +472,21 @@ export default function LivestreamPage() {
   // Theme colours mirrored from the live appearance — used ONLY by the "theme"
   // band style so OBS reproduces the projector's exact background + text colour.
   // Only pass a solid/gradient bg colour (image/video themes have no solid fill).
+  // Lower-third (prod fe1fd02 parity via livestreamRenderPlan): no backdrop
+  // layers (background / camera / theme video / logo), no full-frame overlays,
+  // and the operator's lowerThird line1[/line2] replaces the slide text. The
+  // compositor applies obsBand itself, so only the SOURCE slide is substituted
+  // here (never the plan's already-banded renderSlide — no double band). When a
+  // live look already routes lowerThird through obsBandExtras, HEAD's handling wins.
+  const { showBackdrop, showFullOverlays } = livestreamRenderPlan(mode, slide, lowerThird, obsRender.obsBand ?? DEFAULT_OBS_BAND, themeColors);
+  const ltLine1 = typeof lowerThird?.line1 === "string" ? lowerThird.line1.trim() : "";
+  const ltLine2 = typeof lowerThird?.line2 === "string" ? lowerThird.line2.trim() : "";
+  const compositorSlide: SlidePayload = mode === "lower_third" && ltLine1 && !obsRender.obsBandExtras?.lowerThird
+    ? { kind: "text", text: ltLine2 ? `${ltLine1}\n${ltLine2}` : ltLine1 }
+    : slide;
+  const compositorAppearance = !showBackdrop && obsRender.appearance
+    ? { ...obsRender.appearance, logoUrl: undefined, bgVideoUrl: undefined }
+    : obsRender.appearance;
   return (
     <div
       className="fixed inset-0 overflow-hidden cursor-none"
@@ -489,10 +504,10 @@ export default function LivestreamPage() {
               overlays below stay route-owned (bespoke layout, not duplicated). */}
           <OutputCompositor
             mode="livestream"
-            slide={slide}
-            appearance={obsRender.appearance}
-            background={background}
-            videoInput={videoInput}
+            slide={compositorSlide}
+            appearance={compositorAppearance}
+            background={showBackdrop ? background : null}
+            videoInput={showBackdrop ? videoInput : null}
             transition={transition}
             fontScale={obsRender.fontScale}
             referenceScale={referenceScale}
@@ -511,8 +526,8 @@ export default function LivestreamPage() {
           />
           {/* Announcement scrim is a FULL-frame overlay — keep it off the OBS
               lower-third caption (it would paint over the band). Full mode only. */}
-          {mode === "full" && <AnnouncementLayer ann={announcement} />}
-          {mode === "full" && lowerThird && (
+          {showFullOverlays && <AnnouncementLayer ann={announcement} />}
+          {showFullOverlays && lowerThird && (
             <div className="absolute bottom-16 left-16 right-16 max-w-[70%]">
               <div className="bg-black/70 backdrop-blur-sm border-l-4 border-[color:var(--color-brand)] p-5">
                 <div className="text-white font-semibold text-2xl leading-tight">{lowerThird.line1}</div>
@@ -523,11 +538,12 @@ export default function LivestreamPage() {
         </>
       )}
       {/* 2026-09-06: the OBS lower-third caption is now rendered by the SAME
-          SlideRenderer band branch as everything above (the OutputCompositor
-          `obsBand` transform), so it uses the church's real fonts/style +
-          auto-fit instead of the old hard-coded generic white-on-black div
-          (which had no font parity and clipped long lyrics). The operator's
-          explicit lowerThird MESSAGE overlay still renders above. */}
+          SlideRenderer band branch as everything above (via the OutputCompositor `obsBand` transform), so it
+          uses the church's real fonts/style + auto-fit instead of the old
+          hard-coded generic white-on-black div (which had no font parity and
+          clipped long lyrics). In lower-third mode the operator's own lowerThird
+          (line1/line2) REPLACES the slide text in that band (prod parity); the
+          full-frame lowerThird box + announcements render in full mode only. */}
 
       {/* allowWeb === false → operator said in-building only; never show on
           this public OBS-facing surface. */}

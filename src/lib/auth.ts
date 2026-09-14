@@ -8,7 +8,7 @@ import { exchangeDeviceLinkToken } from "./auth-tokens";
 import { sessionTokenVerdict } from "./desktop-auth-core";
 import { InvalidCredentialsError, RateLimitedError, chargeLoginAttempt, clientIpFromHeaders, refundLoginSuccess } from "./login-guard";
 
-// H1 brute-force protection lives in login-guard.ts (per-IP 30, per-email 5,
+// H1 brute-force protection lives in login-guard.ts (per-IP 50, per-email 5,
 // per-IP+email 5, charge-first, success refunds/clears).
 
 // Constant dummy hash of the same cost as real passwords. When the target

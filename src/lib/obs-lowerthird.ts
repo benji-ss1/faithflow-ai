@@ -226,3 +226,25 @@ export function isValidObsBand(v: unknown): v is ObsBandConfig {
   return numOk(p.topPct, 0, 100) && numOk(p.heightPct, 1, 100) && numOk(p.fontScale, 0.1, 4)
     && numOk(p.opacity, 0, 1) && typeof p.style === "string" && OBS_BAND_STYLES.includes(p.style as ObsBandStyle);
 }
+
+/**
+ * /livestream render plan (regression fix vs prod a0f53c8). In lower-third mode
+ * the operator's own lowerThird (line1[/line2]) takes PRIORITY over the live
+ * slide in the band, and NO background/logo/announcement layers render (prod
+ * parity — a non-transparent lower-third output must not paint the theme bg).
+ * Full mode is a pass-through.
+ */
+export type LivestreamRenderPlan = { renderSlide: SlidePayload; showBackdrop: boolean; showFullOverlays: boolean };
+export function livestreamRenderPlan(
+  mode: "full" | "lower_third",
+  slide: SlidePayload,
+  lowerThird: { line1: string; line2?: string } | null | undefined,
+  c: ObsBandConfig,
+  theme?: ObsThemeColors,
+): LivestreamRenderPlan {
+  if (mode !== "lower_third") return { renderSlide: slide, showBackdrop: true, showFullOverlays: true };
+  const l1 = typeof lowerThird?.line1 === "string" ? lowerThird.line1.trim() : "";
+  const l2 = typeof lowerThird?.line2 === "string" ? lowerThird.line2.trim() : "";
+  const source: SlidePayload = l1 ? { kind: "text", text: l2 ? `${l1}\n${l2}` : l1 } : slide;
+  return { renderSlide: overlayBandSlide(source, c, theme), showBackdrop: false, showFullOverlays: false };
+}
