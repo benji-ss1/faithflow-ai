@@ -280,9 +280,28 @@ export function repairNavVerseHomophones(text: string): string {
 // strip leading/trailing politeness + filler, THEN apply the terseness gate.
 // Genuine narration ("we're gonna see this in the next verse" = 8, no filler to
 // strip) still exceeds the limit and stays blocked.
-const NAV_FILLER_RE = /\b(?:please|thanks|thank\s+you|okay|ok|alright|all\s+right|so|now|well|yeah|yep|can\s+you|could\s+you|would\s+you|can\s+we|shall\s+we|let's|kindly|just|then|and|hey|oh|erm|um|uh)\b/gi;
+const NAV_FILLER_RE = /\b(?:please|thanks|thank\s+you|okay|ok|alright|all\s+right|so|now|well|yeah|yep|can\s+you|could\s+you|would\s+you|can\s+we|could\s+we|would\s+we|can\s+i|let\s+us|shall\s+we|let's|kindly|just|then|and|hey|oh|erm|um|uh)\b/gi;
 export function terseCommandWordCount(text: string): number {
   return text.replace(NAV_FILLER_RE, " ").replace(/[,.?!;:]/g, " ").split(/\s+/).filter(Boolean).length;
+}
+
+// 2026-09-14 field fix: the guard counted the WHOLE transcript, so a command
+// with a lead-in ("Amen church can we go to next verse please" = 6; "John
+// chapter 3 verse 16, can we go to next verse please" = 9) was dropped. Count
+// only the TAIL from the nav match onward — but ONLY when the command is set
+// off from what precedes it (a clause break, or a request lead-in like "can
+// we" / "please"). Otherwise fall back to the whole-utterance count, so
+// narration ("we're gonna see this in the next verse") stays blocked.
+const NAV_REQUEST_LEADIN_RE = /(?:[,.?!;:]|\b(?:can\s+we|could\s+we|would\s+we|shall\s+we|can\s+you|could\s+you|would\s+you|can\s+i|let\s+us|let's|please|kindly|okay|ok|alright))\s*$/i;
+export function navCommandWordCount(text: string, matchedText: string | undefined): number {
+  const whole = terseCommandWordCount(text);
+  if (!matchedText) return whole;
+  const repaired = repairNavVerseHomophones(text);
+  const idx = repaired.toLowerCase().indexOf(matchedText.toLowerCase());
+  if (idx < 0) return whole;
+  const prefix = repaired.slice(0, idx);
+  if (prefix.trim() === "" || !NAV_REQUEST_LEADIN_RE.test(prefix)) return whole;
+  return Math.min(whole, terseCommandWordCount(repaired.slice(idx)));
 }
 
 export function parseContextCommand(text: string, available: ContextAvailability): ContextCommand | null {

@@ -15,6 +15,7 @@ import assert from "node:assert";
 import {
   parseContextCommand,
   terseCommandWordCount,
+  navCommandWordCount,
   repairNavVerseHomophones,
 } from "../src/lib/context-parser";
 
@@ -91,6 +92,29 @@ check("parse 'can we go back to verse 7 please' → goto/prev (still works)", ()
 check("no verse context → next_verse does NOT fire", () => {
   const c = parseContextCommand("next verse please", { hasVerseContext: false, hasSlideContext: false, hasSongContext: false });
   assert.ok(!c || c.verb !== "next_verse", `verb=${c?.verb}`);
+});
+
+// ── (4) 2026-09-14: command-TAIL word count (lead-ins no longer drop commands) ─
+const tailCount = (t: string) => navCommandWordCount(t, parseContextCommand(t, VERSE_CTX)?.matchedText);
+for (const t of [
+  "Amen church can we go to next verse please",
+  "John chapter 3 verse 16, can we go to next verse please",
+  "could we go to the next verse",
+  "would we go to next verse please",
+  "let us go to the next verse",
+  "can I go to next verse please",
+  "next verse",
+]) {
+  check(`tail count '${t}' ≤5 (fires)`, () => {
+    assert.ok(parseContextCommand(t, VERSE_CTX)?.verb === "next_verse", "parses next_verse");
+    assert.ok(tailCount(t) <= 5, `got ${tailCount(t)}`);
+  });
+}
+check("narration 'we're gonna see this in the next verse' still BLOCKED (>5)", () => {
+  assert.ok(tailCount("we're gonna see this in the next verse") > 5, `got ${tailCount("we're gonna see this in the next verse")}`);
+});
+check("clause-broken narration 'In chapter 4, the next verse tells us God is love' still BLOCKED", () => {
+  assert.ok(tailCount("In chapter 4, the next verse tells us God is love") > 5);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -23,6 +23,7 @@ import {
   decideBibleAutoFire,
   isDifferentRefLive,
   liveGuardText,
+  navOriginSuppressed,
   parseLiveScriptureRef,
   resolvedDetectionAction,
 } from "../src/lib/bible-antireplay";
@@ -255,6 +256,37 @@ async function main() {
     const noRef: SlidePayload = { kind: "text", text: "16 For God so loved the world" };
     const a = resolvedDetectionAction(noRef, johnRef);
     assert.strictEqual(a.send, true, "unlabelled slide isn't ref-identifiable → allow (safe default)");
+  });
+
+  // ── 2026-09-14 verse-bounce: nav-origin suppression ─────────────────────
+  const john16 = { book: "John", chapter: 3, verseStart: 16, verseEnd: 16 };
+  const john17 = { book: "John", chapter: 3, verseStart: 17, verseEnd: 17 };
+  const nav = { fromRef: john16, toRef: john17, ts: 1_000_000 };
+  const live17 = liveScripture("John", 3, 17);
+  await check("navOriginSuppressed: origin re-detected within 8s while 17 live → suppressed", () => {
+    assert.strictEqual(navOriginSuppressed(nav, john16, live17, nav.ts + 2_000), true);
+    const d = decideBibleAutoFire({ key: "j16", firedMap: {}, now: nav.ts + 2_000, liveText: live17, target: john16, forceLive: true, navOrigin: nav });
+    assert.strictEqual(d.suppress, true);
+    assert.strictEqual(d.reason, "suppress:nav-origin");
+  });
+  await check("navOriginSuppressed: after 8s → fires (swap-back)", () => {
+    assert.strictEqual(navOriginSuppressed(nav, john16, live17, nav.ts + 8_000), false);
+    const d = decideBibleAutoFire({ key: "j16", firedMap: {}, now: nav.ts + 8_001, liveText: live17, target: john16, navOrigin: nav });
+    assert.strictEqual(d.reason, "fire:different-ref-live");
+  });
+  await check("navOriginSuppressed: a THIRD ref live → fires", () => {
+    const liveGen = liveScripture("Genesis", 4, 4);
+    assert.strictEqual(navOriginSuppressed(nav, john16, liveGen, nav.ts + 1_000), false);
+    const d = decideBibleAutoFire({ key: "j16", firedMap: {}, now: nav.ts + 1_000, liveText: liveGen, target: john16, navOrigin: nav });
+    assert.strictEqual(d.suppress, false);
+  });
+  await check("navOriginSuppressed: different target (not origin) → fires", () => {
+    assert.strictEqual(navOriginSuppressed(nav, gen4_4, live17, nav.ts + 1_000), false);
+  });
+  await check("decideBibleAutoFire: voiceCommand bypasses nav-origin", () => {
+    const d = decideBibleAutoFire({ key: "j16", firedMap: {}, now: nav.ts + 1_000, liveText: live17, target: john16, voiceCommand: true, navOrigin: nav });
+    assert.strictEqual(d.suppress, false);
+    assert.strictEqual(d.reason, "fire:voice-command-bypass");
   });
 
   console.log(`\n${pass} passed, ${fail} failed`);
