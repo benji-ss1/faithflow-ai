@@ -157,6 +157,19 @@ check("shouldIgnore: contentEditable → true", () => {
     true,
   );
 });
+check("shouldIgnore: contenteditable=plaintext-only (Quick edit slide) → true", () => {
+  // Chromium reports isContentEditable=true for plaintext-only; the Quick edit
+  // node is also matched attribute-wise via closest() when a child is the target.
+  const el = {
+    tagName: "DIV",
+    isContentEditable: true,
+    getAttribute: (n: string) => (n === "contenteditable" ? "plaintext-only" : null),
+    closest: () => null,
+  } as unknown as EventTarget;
+  assert.strictEqual(shouldIgnore(el), true);
+  assert.strictEqual(decodeShortcut(ev({ key: "g", code: "KeyG", target: el })), null);
+  assert.strictEqual(decodeShortcut(ev({ key: "Escape", code: "Escape", target: el })), null);
+});
 check("shouldIgnore: BUTTON → false", () => {
   assert.strictEqual(shouldIgnore({ tagName: "BUTTON" } as unknown as EventTarget), false);
 });

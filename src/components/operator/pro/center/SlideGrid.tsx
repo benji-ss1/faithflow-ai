@@ -680,6 +680,8 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
       // explicit action; saving and sending live are independent choices. The
       // editor stays open so the operator can then Send Live if they want to.
       toast.success("Slide updated");
+      // Keep the song tracker cache fresh (same event the add-slide paths fire).
+      try { window.dispatchEvent(new CustomEvent("presentflow:song-slides-changed", { detail: { songId: (item as { songId?: string }).songId } })); } catch { /* noop */ }
       router.refresh(); // grid reflects the saved text; editor stays open
     } finally {
       setQeSaving(false);
@@ -1124,8 +1126,8 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
       {quickEdit !== null && (() => {
         const current = slides[quickEdit.slideIdx];
         const preview = current
-          ? applyTextToSlide(current, quickEdit.text || " ")
-          : ({ kind: "text", text: quickEdit.text || " " } as SlidePayload);
+          ? applyTextToSlide(current, quickEdit.text)
+          : ({ kind: "text", text: quickEdit.text } as SlidePayload);
         return (
           <div
             ref={qePanelRef}
@@ -1134,7 +1136,9 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
             role="dialog"
             aria-label={`Quick Edit — Slide ${quickEdit.slideIdx + 1}`}
             onKeyDown={(e) => {
-              if (e.key === "Escape") { setQuickEdit(null); }
+              // stopPropagation: closing the panel must never also reach the global
+              // hotkey handler (Esc = clear live).
+              if (e.key === "Escape") { e.stopPropagation(); e.nativeEvent.stopImmediatePropagation?.(); setQuickEdit(null); }
               if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { void handleQuickEditSave(editedTextRef.current); }
             }}
           >
