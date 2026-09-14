@@ -15,17 +15,15 @@
  * - Partial refs (chapter=0) never surface as detections.
  * - Songs never auto-project (CLAUDE.md rule 7). Double-click = load only.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { BookOpen, Music, Quote } from "lucide-react";
 import type { OperatorShellCtx } from "../../shell/types";
-import type { UnifiedSuggestion, SongSuggestion } from "../../useAudioStream";
+import type { RightRailDetections } from "./useRightRailDetections";
+import type { BibleRow, SongRow } from "@/lib/right-rail-visible";
 import { cachedLookup } from "@/lib/bible-client-cache";
 import { cn } from "@/lib/utils";
 import { dispatchInternal } from "@/lib/internal-events";
-
-const MAX_ROWS = 8;
-const EXPIRY_MS = 10 * 60 * 1000; // 10 min
 
 // ---------- relative time helper ----------
 function relTime(ts: number, nowMs: number): string {
@@ -55,140 +53,18 @@ function crossRefConfClass(similarity: number): string {
   return "text-[var(--color-muted-foreground)] border-[var(--color-border)] bg-[var(--color-elevated)]";
 }
 
-// ---------- Bible row shape ----------
-export type BibleRow = {
-  key: string;
-  book: string;
-  chapter: number;
-  verseStart: number;
-  verseEnd: number;
-  confidence: number;
-  ts: number;
-  preview?: string;       // first 40 chars of verse text
-  invalid?: boolean;      // db lookup returned 0 verses
-  isPhraseMatch?: boolean; // fuzzy quote match (✦ badge), not a spoken reference
-};
-
-// ---------- Song row shape ----------
-export type SongRow = {
-  key: string;             // songId
-  songId: string;
-  title: string;
-  artist: string | null;
-  confidence: number;
-  ts: number;
-  preview?: string;        // first line of first slide
-  matchType: "Title" | "Lyric" | "PD";
-  source: "playlist" | "local_library" | "public_domain";
-};
-
-/**
- * Bible dedupe/merge — exported for tests.
- */
-export function mergeBibleRows(prev: BibleRow[], incoming: BibleRow): BibleRow[] {
-  const idx = prev.findIndex((r) => r.key === incoming.key);
-  if (idx >= 0) {
-    // Only replace / bump if new confidence >= existing (higher wins).
-    if (incoming.confidence >= prev[idx].confidence) {
-      const merged = [incoming, ...prev.slice(0, idx), ...prev.slice(idx + 1)];
-      return merged.slice(0, MAX_ROWS);
-    }
-    // Refresh timestamp on same-or-lower conf so it stays visible.
-    const bumped = { ...prev[idx], ts: incoming.ts };
-    return [bumped, ...prev.slice(0, idx), ...prev.slice(idx + 1)].slice(0, MAX_ROWS);
-  }
-  return [incoming, ...prev].slice(0, MAX_ROWS);
-}
-
-/**
- * Song dedupe/merge — exported for tests.
- */
-export function mergeSongRows(prev: SongRow[], incoming: SongRow): SongRow[] {
-  const idx = prev.findIndex((r) => r.key === incoming.key);
-  if (idx >= 0) {
-    if (incoming.confidence >= prev[idx].confidence) {
-      const merged = [incoming, ...prev.slice(0, idx), ...prev.slice(idx + 1)];
-      return merged.slice(0, MAX_ROWS);
-    }
-    const bumped = { ...prev[idx], ts: incoming.ts };
-    return [bumped, ...prev.slice(0, idx), ...prev.slice(idx + 1)].slice(0, MAX_ROWS);
-  }
-  return [incoming, ...prev].slice(0, MAX_ROWS);
-}
-
-/**
- * Canonical Bible key: "Book chapter:vs-ve".
- */
-export function bibleKey(book: string, chapter: number, vs: number, ve: number): string {
-  return `${book} ${chapter}:${vs}-${ve}`;
-}
-
-/**
- * Filter a raw suggestion to a Bible row candidate. Returns null when the
- * ref is partial (chapter=0) or malformed.
- */
-export function bibleRowFromSuggestion(s: UnifiedSuggestion): BibleRow | null {
-  if (s.type !== "scripture") return null;
-  const { book, chapter, verseStart, verseEnd } = s.ref;
-  if (!book || !chapter || chapter <= 0) return null;
-  if (!verseStart || verseStart <= 0) return null;
-  return {
-    key: bibleKey(book, chapter, verseStart, verseEnd),
-    book, chapter, verseStart, verseEnd,
-    confidence: s.confidence,
-    ts: s.ts,
-    ...(s.isPhraseMatch ? { isPhraseMatch: true } : {}),
-  };
-}
-
-/**
- * Server-side song detections arrive via a different shape (Fly audio
- * bridge `{type:"song", song:{...}}` messages, stored in
- * useAudioStream's `songSuggestions`) than the client-side detectAll()
- * suggestions. This adapts them into the same SongRow shape so both
- * sources render in one deduped list — server detections were previously
- * silently discarded because the panel only read `suggestions`.
- */
-export function songRowFromServerSuggestion(s: SongSuggestion): SongRow | null {
-  if (!s.songId) return null;
-  return {
-    key: s.songId,
-    songId: s.songId,
-    title: s.title,
-    artist: null,
-    confidence: s.confidence,
-    ts: Date.now(),
-    preview: s.matchedText ? s.matchedText.slice(0, 60) : undefined,
-    matchType: "Title",
-    source: "local_library",
-  };
-}
-
-export function songRowFromSuggestion(s: UnifiedSuggestion): SongRow | null {
-  if (s.type !== "song" && s.type !== "lyric") return null;
-  const m = s.match;
-  if (!m || !m.songId) return null;
-  const matchType: SongRow["matchType"] =
-    s.type === "lyric" ? "Lyric"
-      : m.source === "public_domain" ? "PD"
-      : "Title";
-  return {
-    key: m.songId,
-    songId: m.songId,
-    title: m.title,
-    artist: m.artist ?? null,
-    confidence: s.confidence,
-    ts: s.ts,
-    preview: m.matchedLine ? m.matchedLine.split(/\r?\n/)[0].slice(0, 60) : undefined,
-    matchType,
-    source: m.source,
-  };
-}
+// Row shapes + merge/adapter helpers moved to src/lib/right-rail-visible.ts
+// (shared with the RightIconBar badges); re-exported for existing importers.
+export {
+  mergeBibleRows, mergeSongRows, bibleKey, bibleRowFromSuggestion,
+  songRowFromSuggestion, songRowFromServerSuggestion,
+} from "@/lib/right-rail-visible";
+export type { BibleRow, SongRow } from "@/lib/right-rail-visible";
 
 // ---------- Main panel ----------
 export type DetectionSection = "bible" | "songs" | "xrefs";
 
-export function AIDetectionsPanel({ ctx, sections }: { ctx: OperatorShellCtx; sections?: DetectionSection[] }) {
+export function AIDetectionsPanel({ ctx, sections, detections }: { ctx: OperatorShellCtx; sections?: DetectionSection[]; detections: RightRailDetections }) {
   // 2026-07-25 Phase 3 hook: RightIconBar embeds this component inside
   // per-icon popovers and passes a `sections` filter so each popover
   // only renders its slice. If unset, all three sections render (legacy
@@ -197,117 +73,39 @@ export function AIDetectionsPanel({ ctx, sections }: { ctx: OperatorShellCtx; se
   const showSongs = !sections || sections.includes("songs");
   const showXrefs = !sections || sections.includes("xrefs");
   const audio = ctx.audio;
-  const threshold = ctx.confidenceThreshold ?? 50;
 
-  const [bibleRows, setBibleRows] = useState<BibleRow[]>([]);
-  const [songRows, setSongRows] = useState<SongRow[]>([]);
-  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set());
-  // key -> when it was marked invalid. TIME-LIMITED (was a permanent Set) —
-  // a reference that failed lookup once (e.g. a mispronounced/misheard
-  // verse from an accented speaker producing a slightly-wrong book/chapter/
-  // verse) must not be silently blacklisted for the rest of the service.
-  // The ASR can and does recover on a later, cleaner utterance of the same
-  // verse; permanently dropping it made detections appear to "stop working
-  // after a while" the longer a service ran and the more misheard
-  // references accumulated.
-  const invalidRefsRef = useRef<Map<string, number>>(new Map());
-  const INVALID_REF_TTL_MS = 10 * 60 * 1000; // 10 minutes
-  const isInvalidRef = (key: string) => {
-    const at = invalidRefsRef.current.get(key);
-    if (at === undefined) return false;
-    if (Date.now() - at > INVALID_REF_TTL_MS) { invalidRefsRef.current.delete(key); return false; }
-    return true;
-  };
+  const { bibleRows, songRows, phraseGroups: phraseMatchGroups, nowTick, dismiss, markInvalid } = detections;
   const previewLookupRef = useRef<Set<string>>(new Set());
-  const [nowTick, setNowTick] = useState(() => Date.now());
+  // Verse preview text (display only — never affects which rows are visible).
+  const [previews, setPreviews] = useState<Map<string, string>>(() => new Map());
 
-  // Cross-reference groups — phrase-content matches with no reference
-  // structure spoken (see the audio-bridge's "phrase cross-reference"
-  // branch). Time-limited the same way detections are, so a stale group
-  // doesn't linger in the panel forever.
-  const PHRASE_MATCH_EXPIRY_MS = 5 * 60 * 1000;
-  const phraseMatchGroups = useMemo(
-    () => (audio.phraseMatches ?? []).filter((g) => nowTick - g.ts < PHRASE_MATCH_EXPIRY_MS).slice(0, 3),
-    [audio.phraseMatches, nowTick],
-  );
-
-  // Tick every 15s to refresh relative timestamps + expire rows.
+  // Verse-text LOOKUP side effect: verify each visible ref exists + fetch a
+  // preview. A failed lookup marks it invalid in the lifted store (survives
+  // popover close; time-limited to 10 min).
   useEffect(() => {
-    const iv = setInterval(() => setNowTick(Date.now()), 15_000);
-    return () => clearInterval(iv);
-  }, []);
-
-  // Ingest new suggestions -> split into sections.
-  useEffect(() => {
-    const now = Date.now();
-    for (const s of audio.suggestions) {
-      if (s.confidence < threshold) continue;
-      if (now - s.ts > EXPIRY_MS) continue;
-
-      if (s.type === "scripture") {
-        const row = bibleRowFromSuggestion(s);
-        if (!row) continue;
-        if (isInvalidRef(row.key)) continue;
-        if (dismissedKeys.has(`bible:${row.key}`)) continue;
-
-        // Kick off a lookup to verify the ref exists + get preview text.
-        if (!previewLookupRef.current.has(row.key)) {
-          previewLookupRef.current.add(row.key);
-          (async () => {
-            try {
-              const res = await cachedLookup({
-                book: row.book,
-                chapter: row.chapter,
-                verseStart: row.verseStart,
-                verseEnd: row.verseEnd,
-                translationCode: ctx.defaultTranslationCode,
-              });
-              if (!res.verses || res.verses.length === 0) {
-                // Invalid — drop and remember.
-                invalidRefsRef.current.set(row.key, Date.now());
-                setBibleRows((prev) => prev.filter((r) => r.key !== row.key));
-                return;
-              }
-              const preview = res.verses[0]?.text?.slice(0, 40) ?? "";
-              if (!preview) return; // shape drift — skip rather than render empty
-              setBibleRows((prev) => prev.map((r) => r.key === row.key ? { ...r, preview } : r));
-            } catch { /* leave without preview */ }
-          })();
-        }
-        setBibleRows((prev) => mergeBibleRows(prev, row));
-      } else if (s.type === "song" || s.type === "lyric") {
-        const row = songRowFromSuggestion(s);
-        if (!row) continue;
-        if (dismissedKeys.has(`song:${row.key}`)) continue;
-        setSongRows((prev) => mergeSongRows(prev, row));
-      }
+    for (const row of bibleRows) {
+      if (previewLookupRef.current.has(row.key)) continue;
+      previewLookupRef.current.add(row.key);
+      (async () => {
+        try {
+          const res = await cachedLookup({
+            book: row.book,
+            chapter: row.chapter,
+            verseStart: row.verseStart,
+            verseEnd: row.verseEnd,
+            translationCode: ctx.defaultTranslationCode,
+          });
+          if (!res.verses || res.verses.length === 0) {
+            markInvalid(row.key);
+            return;
+          }
+          const preview = res.verses[0]?.text?.slice(0, 40) ?? "";
+          if (!preview) return; // shape drift — skip rather than render empty
+          setPreviews((prev) => new Map(prev).set(row.key, preview));
+        } catch { /* leave without preview */ }
+      })();
     }
-    // Drop expired rows.
-    setBibleRows((prev) => prev.filter((r) => now - r.ts < EXPIRY_MS && !isInvalidRef(r.key)));
-    setSongRows((prev) => prev.filter((r) => now - r.ts < EXPIRY_MS));
-  }, [audio.suggestions, threshold, dismissedKeys, ctx.defaultTranslationCode]);
-
-  // Ingest server-side song detections (Fly audio bridge) — a separate
-  // source from the client-computed `audio.suggestions` above. Without this,
-  // server detections were silently dropped since the panel only read
-  // `suggestions`. Merged/deduped by songId via mergeSongRows.
-  useEffect(() => {
-    const now = Date.now();
-    for (const s of audio.songSuggestions) {
-      const row = songRowFromServerSuggestion(s);
-      if (!row) continue;
-      if (row.confidence < threshold) continue;
-      if (dismissedKeys.has(`song:${row.key}`)) continue;
-      setSongRows((prev) => mergeSongRows(prev, row));
-    }
-    setSongRows((prev) => prev.filter((r) => now - r.ts < EXPIRY_MS));
-  }, [audio.songSuggestions, threshold, dismissedKeys]);
-
-  // Also prune on tick.
-  useEffect(() => {
-    setBibleRows((prev) => prev.filter((r) => nowTick - r.ts < EXPIRY_MS));
-    setSongRows((prev) => prev.filter((r) => nowTick - r.ts < EXPIRY_MS));
-  }, [nowTick]);
+  }, [bibleRows, ctx.defaultTranslationCode, markInvalid]);
 
   const autoApprove = !!ctx.autoApproveOn;
   const autoApproveThreshold = 85;
@@ -327,8 +125,7 @@ export function AIDetectionsPanel({ ctx, sections }: { ctx: OperatorShellCtx; se
         translationCode: ctx.defaultTranslationCode,
       });
       if (!res.verses || res.verses.length === 0) {
-        invalidRefsRef.current.set(row.key, Date.now());
-        setBibleRows((prev) => prev.filter((r) => r.key !== row.key));
+        markInvalid(row.key);
         toast.error("Reference not found in DB");
         return;
       }
@@ -394,14 +191,8 @@ export function AIDetectionsPanel({ ctx, sections }: { ctx: OperatorShellCtx; se
     }
   };
 
-  const dismissBible = (key: string) => {
-    setDismissedKeys((prev) => new Set(prev).add(`bible:${key}`));
-    setBibleRows((prev) => prev.filter((r) => r.key !== key));
-  };
-  const dismissSong = (key: string) => {
-    setDismissedKeys((prev) => new Set(prev).add(`song:${key}`));
-    setSongRows((prev) => prev.filter((r) => r.key !== key));
-  };
+  const dismissBible = (key: string) => dismiss("bible", key);
+  const dismissSong = (key: string) => dismiss("song", key);
 
   const paused = audio.stage === "paused";
 
@@ -495,9 +286,9 @@ export function AIDetectionsPanel({ ctx, sections }: { ctx: OperatorShellCtx; se
                         />
                       )}
                     </div>
-                    {row.preview && (
+                    {previews.get(row.key) && (
                       <div className="text-[10px] text-[var(--color-muted-foreground)] truncate leading-tight">
-                        {row.preview}…
+                        {previews.get(row.key)}…
                       </div>
                     )}
                     <div className="text-[9px] text-[var(--color-muted-foreground)]/70 leading-tight">
