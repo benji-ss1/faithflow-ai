@@ -24,13 +24,18 @@
  * the same resolution — preview == OBS.
  */
 import type { SlidePayload, ThemeAppearance, ObsLookWire, ObsTextColorWire } from "./broadcast";
-import { clampObsBand, parseObsBand, DEFAULT_OBS_BAND, type ObsBandConfig, type ObsThemeColors, type ObsBandExtras } from "./obs-lowerthird";
+import { clampObsBand, parseObsBand, placementToTop, DEFAULT_OBS_BAND, OBS_BAND_STYLES, type ObsBandConfig, type ObsBandStyle, type ObsThemeColors, type ObsBandExtras } from "./obs-lowerthird";
 
 export type ObsLook = "camera" | "lowerthird" | "full";
 export const OBS_LOOKS: ObsLook[] = ["camera", "lowerthird", "full"];
 export type ObsTextColor = ObsTextColorWire;
 export type ObsCamPos = "top" | "middle" | "bottom";
 export type ObsCamEffect = "shadow" | "outline" | "none";
+/** "Over your camera" layout (2026-09-14): a see-through lower-third band over
+ *  the camera (default) or the original full-frame words. */
+export type ObsCamLayout = "lowerthird" | "full";
+export type ObsCamBandPosition = "upper" | "mid" | "lower" | "custom";
+export const OBS_CAM_BAND_MARGIN_PCT = 6;
 
 /** Per-look settings (everything except the look choice + band geometry). */
 export type ObsLookSettings = {
@@ -43,12 +48,30 @@ export type ObsLookSettings = {
   camScrim: number;       // camera: dark scrim behind words 0..0.9 (0 = none)
   fullScale: number;      // full: text size multiplier 0.5..2
   fullDim: number;        // full: background dim 0..0.9
+  // ── Over your camera LAYOUT (2026-09-14) ──
+  // BACK-COMPAT RULE (locked by test/obs-editor.test.ts): the camera layout only
+  // takes effect when (a) the OBS link carries live=1, or (b) camLayoutSet is
+  // true (the operator explicitly changed a camera layout control). A link
+  // pasted before this existed (no live=1) with no explicit change keeps the
+  // legacy full-frame camera look byte-identically. New installs default the
+  // editor to "lowerthird"; a pre-existing v2 store (settings saved before this
+  // field existed) migrates to "full" so existing users keep full-frame.
+  camLayout: ObsCamLayout;
+  camLayoutSet: boolean;
+  camBandPosition: ObsCamBandPosition;
+  camBandOffsetPct: number; // 0 (top) .. 100 (bottom) — used when position = custom
+  camBandHeightPct: number; // 10..60
+  camBandScale: number;     // 0.5..2
+  camBandOpacity: number;   // 0..1
+  camBandStyle: ObsBandStyle; // default "clear" = see-through band
 };
 
 export const DEFAULT_OBS_LOOK_SETTINGS: ObsLookSettings = {
   ltText: "auto", ltRef: true,
   camScale: 1, camPos: "middle", camText: "auto", camEffect: "shadow", camScrim: 0,
   fullScale: 1, fullDim: 0,
+  camLayout: "lowerthird", camLayoutSet: false, camBandPosition: "lower", camBandOffsetPct: 100,
+  camBandHeightPct: DEFAULT_OBS_BAND.heightPct, camBandScale: 1, camBandOpacity: 0.6, camBandStyle: "clear",
 };
 
 const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
@@ -72,7 +95,38 @@ export function clampObsLookSettings(raw: unknown): ObsLookSettings {
     camScrim: num(r.camScrim, 0, 0.9, d.camScrim),
     fullScale: num(r.fullScale, 0.5, 2, d.fullScale),
     fullDim: num(r.fullDim, 0, 0.9, d.fullDim),
+    camLayout: isObsCamLayout(r.camLayout) ? r.camLayout : d.camLayout,
+    camLayoutSet: r.camLayoutSet === true,
+    camBandPosition: isObsCamBandPosition(r.camBandPosition) ? r.camBandPosition : d.camBandPosition,
+    camBandOffsetPct: num(r.camBandOffsetPct, 0, 100, d.camBandOffsetPct),
+    camBandHeightPct: num(r.camBandHeightPct, 10, 60, d.camBandHeightPct),
+    camBandScale: num(r.camBandScale, 0.5, 2, d.camBandScale),
+    camBandOpacity: num(r.camBandOpacity, 0, 1, d.camBandOpacity),
+    camBandStyle: OBS_BAND_STYLES.includes(r.camBandStyle as ObsBandStyle) ? (r.camBandStyle as ObsBandStyle) : d.camBandStyle,
   };
+}
+export function isObsCamLayout(v: unknown): v is ObsCamLayout { return v === "lowerthird" || v === "full"; }
+export function isObsCamBandPosition(v: unknown): v is ObsCamBandPosition { return v === "upper" || v === "mid" || v === "lower" || v === "custom"; }
+
+/** Band top% for a camera-band position (upper/mid/lower bands, or custom 0..100 placement). */
+export function camBandTopPct(pos: ObsCamBandPosition, heightPct: number, offsetPct: number): number {
+  const h = Number.isFinite(heightPct) ? Math.min(60, Math.max(10, heightPct)) : DEFAULT_OBS_BAND.heightPct;
+  const room = 100 - h;
+  switch (pos) {
+    case "upper": return Math.min(room, OBS_CAM_BAND_MARGIN_PCT);
+    case "mid": return Math.round(room / 2);
+    case "lower": return Math.max(0, room - OBS_CAM_BAND_MARGIN_PCT);
+    default: return placementToTop(offsetPct, h);
+  }
+}
+
+/** The see-through band config the camera look uses in its lower-third layout. */
+export function camBandConfig(s: ObsLookSettings): ObsBandConfig {
+  return clampObsBand({
+    heightPct: s.camBandHeightPct,
+    topPct: camBandTopPct(s.camBandPosition, s.camBandHeightPct, s.camBandOffsetPct),
+    fontScale: s.camBandScale, opacity: s.camBandOpacity, style: s.camBandStyle,
+  });
 }
 
 // ── Device-local editor store (one versioned object) ─────────────────────────
@@ -106,7 +160,7 @@ export function readObsEditorStore(rawV2: string | null, rawLegacyBand: string |
           look: OBS_LOOKS.includes(p.look as ObsLook) ? (p.look as ObsLook) : "camera",
           lookLive: p.lookLive === true,
           band: clampObsBand((p.band && typeof p.band === "object" ? p.band : {}) as Partial<ObsBandConfig>),
-          settings: clampObsLookSettings(p.settings),
+          settings: migrateV2Settings(p.settings),
         };
       }
     } catch { /* fall through to migration */ }
@@ -114,7 +168,19 @@ export function readObsEditorStore(rawV2: string | null, rawLegacyBand: string |
   let band = DEFAULT_OBS_BAND;
   if (rawLegacyBand) { try { band = clampObsBand(JSON.parse(rawLegacyBand)); } catch { /* ignore */ } }
   const look: ObsLook = OBS_LOOKS.includes(rawLegacyLook as ObsLook) ? (rawLegacyLook as ObsLook) : "camera";
-  return { v: 2, look, lookLive: false, band, settings: { ...DEFAULT_OBS_LOOK_SETTINGS } };
+  // A legacy (pre-editor) user already has a full-frame camera link → keep the
+  // editor on full-frame too; a brand-new install defaults to the lower third.
+  const legacyUser = rawLegacyBand != null || rawLegacyLook != null;
+  const settings = { ...DEFAULT_OBS_LOOK_SETTINGS, ...(legacyUser ? { camLayout: "full" as const } : {}) };
+  return { v: 2, look, lookLive: false, band, settings };
+}
+
+/** v2 settings saved before camLayout existed → the user had full-frame camera
+ *  words, so they keep "full" (unless they pick lower third). */
+function migrateV2Settings(raw: unknown): ObsLookSettings {
+  const s = clampObsLookSettings(raw);
+  const hadLayout = !!raw && typeof raw === "object" && "camLayout" in (raw as Record<string, unknown>);
+  return hadLayout ? s : { ...s, camLayout: "full" };
 }
 
 /** The obsLook wire the operator publishes for a store (look only when picked). */
@@ -209,6 +275,8 @@ export type ObsRenderResolved = {
   look: ObsLook;
   transparent: boolean;
   mode: "full" | "lower_third";
+  /** Camera look only: which layout rendered (undefined for other looks). */
+  camLayout?: ObsCamLayout;
   obsBand: ObsBandConfig | null;
   obsBandExtras: ObsBandExtras | undefined;
   fontScale: number;
@@ -226,18 +294,40 @@ export function resolveObsRender(i: ObsRenderInput): ObsRenderResolved {
     else if (live.look === "lowerthird") { transparent = true; mode = "lower_third"; }
     else { transparent = false; mode = "full"; }
   }
-  const look = urlLook({ transparent, mode });
+  let look = urlLook({ transparent, mode });
   const s = live ? clampObsLookSettings(live) : null;
+  // Camera layout (see the BACK-COMPAT RULE on ObsLookSettings.camLayout): only a
+  // live=1 link (default lower third) or an explicit operator change moves the
+  // camera look off legacy full-frame. Old links with no explicit change are
+  // untouched (camLayout stays undefined → exactly the legacy path below).
+  let camLayout: ObsCamLayout | undefined;
+  if (look === "camera") {
+    const rawLayout = live && isObsCamLayout(live.camLayout) ? live.camLayout : undefined;
+    if (i.url.live) camLayout = rawLayout ?? "lowerthird";
+    else if (live?.camLayoutSet === true && rawLayout) camLayout = rawLayout;
+    if (camLayout === "lowerthird") mode = "lower_third";
+  }
   const out: ObsRenderResolved = {
     look, transparent, mode,
-    obsBand: mode === "lower_third" ? (i.liveBand ? clampObsBand(i.liveBand) : i.url.band) : null,
+    obsBand: mode === "lower_third" && camLayout !== "lowerthird" ? (i.liveBand ? clampObsBand(i.liveBand) : i.url.band) : null,
     obsBandExtras: undefined,
     fontScale: i.fontScale,
     appearance: i.appearance,
     obsOverlay: undefined,
     backgroundDim: undefined,
   };
-  if (look === "lowerthird") {
+  if (camLayout) out.camLayout = camLayout;
+  if (look === "camera" && camLayout === "lowerthird") {
+    // See-through band over the camera, geometry/style from the camera band
+    // controls (defaults when no live settings reached us yet).
+    const cs = s ?? DEFAULT_OBS_LOOK_SETTINGS;
+    out.obsBand = camBandConfig(cs);
+    const ex: ObsBandExtras = {};
+    const tc = resolveTextColor(cs.camText, i.themeColors);
+    if (tc) ex.textColor = tc;
+    if (i.lowerThird && (i.lowerThird.line1 || i.lowerThird.line2)) ex.lowerThird = i.lowerThird;
+    if (Object.keys(ex).length) out.obsBandExtras = ex;
+  } else if (look === "lowerthird") {
     const ex: ObsBandExtras = {};
     if (s) {
       const tc = resolveTextColor(s.ltText, i.themeColors);

@@ -23,7 +23,7 @@ import { DEFAULT_OBS_BAND, parseObsBand, clampObsBand, overlayBandSlide, type Ob
 import {
   DEFAULT_OBS_LOOK_SETTINGS, OBS_OUTLINE_TEXT_SHADOW, readObsEditorStore, obsLookWireFromStore, parseObsUrl,
   resolveObsRender, applyObsLiveFields, obsThemeColorsOf, clampObsLookSettings, urlLook, heldLowerThirdFor,
-  createTrailingPublisher, OBS_MAX_FONT_SCALE, type HeldLowerThird,
+  createTrailingPublisher, OBS_MAX_FONT_SCALE, camBandTopPct, type HeldLowerThird,
   type ObsEditorStore, type ObsLook, type ObsRenderResolved,
 } from "../src/lib/obs-look";
 
@@ -44,6 +44,8 @@ const q = (s: string) => { const p = new URLSearchParams(s); return (k: string) 
 function storeWith(look: ObsLook, patch: Partial<ObsEditorStore["settings"]> = {}, band: Partial<ObsBandConfig> = {}): ObsEditorStore {
   return { v: 2, look, lookLive: true, band: clampObsBand({ ...DEFAULT_OBS_BAND, ...band }), settings: { ...DEFAULT_OBS_LOOK_SETTINGS, ...patch } };
 }
+/** Camera look pinned to the full-frame layout (for the full-frame control tests). */
+const camFull = (patch: Partial<ObsEditorStore["settings"]> = {}) => storeWith("camera", { camLayout: "full", ...patch });
 
 /** The operator publish → wire → livestream apply → resolve pipeline. */
 function pipeline(store: ObsEditorStore, opts: { url?: string; slide?: SlidePayload; lowerThird?: { line1: string; line2: string } | null; appearance?: ThemeAppearance | null; viaMessage?: boolean } = {}): { resolved: ObsRenderResolved; state: OutputState } {
@@ -80,7 +82,7 @@ async function main() {
   for (const via of [false, true]) {
     const tag = via ? "(coerceLiveMessage)" : "(sanitizeOutputState)";
     check(`look: camera picked live overrides a ?obs=lowerthird link ${tag}`, () => {
-      const { resolved } = pipeline(storeWith("camera"), { url: "obs=lowerthird&live=1", viaMessage: via });
+      const { resolved } = pipeline(camFull(), { url: "obs=lowerthird&live=1", viaMessage: via });
       assert.equal(resolved.look, "camera"); assert.equal(resolved.transparent, true); assert.equal(resolved.obsBand, null);
     });
     check(`look: lowerthird picked live overrides a plain link ${tag}`, () => {
@@ -118,7 +120,7 @@ async function main() {
   check("look opt-in: settings still restyle ONLY the look an old link shows", () => {
     const cam = pipeline(storeWith("full", { camScale: 1.5, fullScale: 2, fullDim: 0.5 }), { url: "bg=transparent" }).resolved;
     assert.equal(cam.look, "camera"); assert.equal(cam.fontScale, 1.5); assert.equal(cam.backgroundDim, undefined);
-    const full = pipeline(storeWith("camera", { camScale: 1.5, fullScale: 0.8 }), { url: "" }).resolved;
+    const full = pipeline(camFull({ camScale: 1.5, fullScale: 0.8 }), { url: "" }).resolved;
     assert.equal(full.look, "full"); assert.equal(full.fontScale, 0.8); assert.equal(full.obsOverlay, undefined);
     const lt = pipeline(storeWith("camera", { ltText: "black", camScale: 2 }), { url: "obs=lowerthird" }).resolved;
     assert.equal(lt.look, "lowerthird"); assert.equal(lt.fontScale, 1); assert.equal(lt.obsBandExtras?.textColor, "#111111");
@@ -176,36 +178,36 @@ async function main() {
 
   // ── Over your camera controls ────────────────────────────────────────────
   check("camera × text size → compositor fontScale multiplied", () => {
-    assert.equal(pipeline(storeWith("camera", { camScale: 1.6 })).resolved.fontScale, 1.6);
-    assert.equal(pipeline(storeWith("camera", { camScale: 0.5 })).resolved.fontScale, 0.5);
+    assert.equal(pipeline(camFull({ camScale: 1.6 })).resolved.fontScale, 1.6);
+    assert.equal(pipeline(camFull({ camScale: 0.5 })).resolved.fontScale, 0.5);
   });
   for (const pos of ["top", "bottom"] as const) {
     check(`camera × position ${pos} → rendered alignment`, () => {
-      const { resolved } = pipeline(storeWith("camera", { camPos: pos }));
+      const { resolved } = pipeline(camFull({ camPos: pos }));
       assert.equal(resolved.obsOverlay?.verticalAlign, pos);
       assert.ok(render(resolved, song).includes(pos === "top" ? "items-start" : "items-end"));
     });
   }
   check("camera × position middle → centred (no hint)", () => {
-    const { resolved } = pipeline(storeWith("camera", { camPos: "middle" }));
+    const { resolved } = pipeline(camFull({ camPos: "middle" }));
     assert.equal(resolved.obsOverlay, undefined);
   });
   for (const [mode, expect] of [["white", "#ffffff"], ["black", "#111111"], ["theme", "#ffd400"], ["#00ff00", "#00ff00"]] as const) {
     check(`camera × text colour ${mode} → ${expect} rendered`, () => {
-      const { resolved } = pipeline(storeWith("camera", { camText: mode }), { appearance: { ...theme, textColor: "#ffd400" } as ThemeAppearance });
+      const { resolved } = pipeline(camFull({ camText: mode }), { appearance: { ...theme, textColor: "#ffd400" } as ThemeAppearance });
       assert.ok(render(resolved, song).includes(`color:${expect}`));
     });
   }
   check("camera × effect outline → outline shadow rendered", () => {
-    const { resolved } = pipeline(storeWith("camera", { camEffect: "outline" }));
+    const { resolved } = pipeline(camFull({ camEffect: "outline" }));
     assert.ok(render(resolved, song).includes(OBS_OUTLINE_TEXT_SHADOW.slice(0, 30)));
   });
   check("camera × effect none → text-shadow none", () => {
-    const { resolved } = pipeline(storeWith("camera", { camEffect: "none" }));
+    const { resolved } = pipeline(camFull({ camEffect: "none" }));
     assert.ok(render(resolved, song).includes("text-shadow:none"));
   });
   check("camera × scrim 50% → rgba(0,0,0,0.5) background rendered", () => {
-    const { resolved } = pipeline(storeWith("camera", { camScrim: 0.5 }));
+    const { resolved } = pipeline(camFull({ camScrim: 0.5 }));
     assert.ok(render(resolved, song).includes("rgba(0,0,0,0.5)"));
   });
   check("camera × designed slide → colour + scrim reach SlideObjectsLayer path", () => {
@@ -213,9 +215,72 @@ async function main() {
       { kind: "text", x: 0, y: 0, w: 900, h: 200, text: "Line A", color: "#ffffff" },
       { kind: "text", x: 0, y: 300, w: 900, h: 200, text: "Line B", color: "#ffffff" },
     ] } as SlidePayload;
-    const { resolved } = pipeline(storeWith("camera", { camScrim: 0.3, camText: "#ff00ff" }), { slide: designed });
+    const { resolved } = pipeline(camFull({ camScrim: 0.3, camText: "#ff00ff" }), { slide: designed });
     const html = render(resolved, designed);
     assert.ok(html.includes("rgba(0,0,0,0.3)")); assert.ok(html.includes("#ff00ff"));
+  });
+
+  // ── Over your camera LAYOUT (lower third default / full / positions) ─────
+  for (const via of [false, true]) {
+    check(`camLayout: new live=1 link defaults to a see-through LOWER THIRD ${via ? "(coerce)" : "(sanitize)"}`, () => {
+      const s = readObsEditorStore(null, null, null);
+      assert.equal(s.settings.camLayout, "lowerthird", "new install UI default");
+      const { resolved } = pipeline({ ...s, look: "camera", lookLive: true }, { url: "bg=transparent&live=1", viaMessage: via });
+      assert.equal(resolved.look, "camera"); assert.equal(resolved.camLayout, "lowerthird");
+      assert.equal(resolved.transparent, true); assert.equal(resolved.mode, "lower_third");
+      assert.equal(resolved.obsBand?.style, "clear", "transparent band");
+      assert.equal(resolved.obsBand!.topPct, 100 - resolved.obsBand!.heightPct - 6);
+      const html = render(resolved, song);
+      assert.ok(html.includes("background:transparent") && html.includes("He reigns forever more"));
+    });
+  }
+  check("camLayout: live=1 link with NO live settings yet → lower third by default", () => {
+    const r = resolveObsRender({ url: parseObsUrl(q("bg=transparent&live=1")), fontScale: 1, appearance: theme, themeColors: obsThemeColorsOf(theme), lowerThird: null });
+    assert.equal(r.camLayout, "lowerthird"); assert.equal(r.mode, "lower_third"); assert.equal(r.transparent, true); assert.ok(r.obsBand);
+  });
+  check("camLayout: switch to full → legacy full-frame words (no band), full-frame controls apply", () => {
+    const { resolved } = pipeline(camFull({ camScale: 1.5, camPos: "top" }), { url: "bg=transparent&live=1" });
+    assert.equal(resolved.camLayout, "full"); assert.equal(resolved.mode, "full"); assert.equal(resolved.obsBand, null);
+    assert.equal(resolved.fontScale, 1.5); assert.equal(resolved.obsOverlay?.verticalAlign, "top");
+  });
+  for (const [pos, h, off, top] of [["upper", 24, 0, 6], ["mid", 24, 0, 38], ["lower", 24, 0, 70], ["custom", 24, 0, 0], ["custom", 24, 50, 38], ["custom", 24, 100, 76], ["upper", 60, 0, 6], ["lower", 60, 0, 34], ["mid", 30, 0, 35]] as const) {
+    check(`camLayout: position ${pos} (h=${h}, offset=${off}) → band top ${top}%`, () => {
+      assert.equal(camBandTopPct(pos, h, off), top);
+      const { resolved } = pipeline(storeWith("camera", { camBandPosition: pos, camBandHeightPct: h, camBandOffsetPct: off }), { url: "live=1" });
+      assert.equal(resolved.obsBand?.topPct, top); assert.equal(resolved.obsBand?.heightPct, h);
+      const bs = overlayBandSlide(song, resolved.obsBand!, {}, resolved.obsBandExtras) as Extract<SlidePayload, { kind: "text" }>;
+      assert.equal(bs.scriptureBand!.topPct, top, "band wire top% the renderer consumes");
+      assert.ok(render(resolved, song).includes("He reigns forever more"));
+    });
+  }
+  check("camLayout: band style/opacity/size/text colour reach the rendered band", () => {
+    const { resolved } = pipeline(storeWith("camera", { camBandStyle: "black", camBandOpacity: 0.8, camBandScale: 1.5, camText: "#ff0000" }), { url: "live=1" });
+    assert.equal(resolved.obsBand?.style, "black"); assert.equal(resolved.obsBand?.fontScale, 1.5);
+    const html = render(resolved, song);
+    assert.ok(html.includes("opacity:0.8") && html.includes("color:#ff0000"));
+  });
+  check("camLayout: OLD link (no live=1) stays full-frame unless explicitly changed", () => {
+    const old = pipeline(storeWith("camera", { camLayout: "lowerthird", camLayoutSet: false }), { url: "bg=transparent" }).resolved;
+    assert.equal(old.mode, "full"); assert.equal(old.obsBand, null); assert.equal(old.camLayout, undefined);
+    const picked = pipeline(storeWith("camera", { camLayout: "lowerthird", camLayoutSet: true }), { url: "bg=transparent" }).resolved;
+    assert.equal(picked.mode, "lower_third"); assert.ok(picked.obsBand);
+    const pickedFull = pipeline(storeWith("camera", { camLayout: "full", camLayoutSet: true }), { url: "bg=transparent" }).resolved;
+    assert.equal(pickedFull.mode, "full");
+    // camLayout never affects non-camera looks.
+    for (const u of ["", "obs=lowerthird", "live=1"]) {
+      const r = pipeline(storeWith(u === "live=1" ? "full" : "camera", { camLayout: "lowerthird", camLayoutSet: true, camBandPosition: "upper" }), { url: u }).resolved;
+      assert.notEqual(r.look, "camera"); assert.equal(r.camLayout, undefined);
+    }
+  });
+  check("camLayout migration: pre-existing v2 store (no camLayout) keeps full-frame; legacy user too; new install lower third", () => {
+    const pre = JSON.stringify({ v: 2, look: "camera", lookLive: true, band: DEFAULT_OBS_BAND, settings: { camScale: 1.4 } });
+    const s = readObsEditorStore(pre, null, null);
+    assert.equal(s.settings.camLayout, "full"); assert.equal(s.settings.camScale, 1.4);
+    assert.equal(pipeline(s, { url: "bg=transparent&live=1" }).resolved.mode, "full", "existing live=1 user keeps full-frame");
+    assert.equal(readObsEditorStore(null, null, "camera").settings.camLayout, "full");
+    assert.equal(readObsEditorStore(null, null, null).settings.camLayout, "lowerthird");
+    const rt = readObsEditorStore(JSON.stringify({ ...s, settings: { ...s.settings, camLayout: "lowerthird", camLayoutSet: true } }), null, null);
+    assert.equal(rt.settings.camLayout, "lowerthird"); assert.equal(rt.settings.camLayoutSet, true);
   });
 
   // ── Full projector look controls ─────────────────────────────────────────
@@ -306,7 +371,7 @@ async function main() {
     p.dispose(); assert.deepEqual(sent, [1, 3], "second dispose is a no-op");
   });
   check("full × settings never leak into camera / lowerthird", () => {
-    const { resolved } = pipeline(storeWith("camera", { fullScale: 2, fullDim: 0.9 }));
+    const { resolved } = pipeline(camFull({ fullScale: 2, fullDim: 0.9 }));
     assert.equal(resolved.fontScale, 1); assert.equal(resolved.backgroundDim, undefined);
   });
 
@@ -352,7 +417,8 @@ async function main() {
     let seed = 99;
     const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
     const junk = [undefined, null, NaN, Infinity, -1, 0, 0.5, 0.95, 1, 2, 3, "", "auto", "white", "theme", "#fff", "#ff00ff", "#ggg", "red", "rgba(0,0,0,1)", "camera", "lowerthird", "full", "top", "middle", "outline", true, false, [], {}, JSON.parse('{"__proto__":{"x":1}}'), "x".repeat(5000)];
-    const keys = ["look", "ltText", "ltRef", "camScale", "camPos", "camText", "camEffect", "camScrim", "fullScale", "fullDim", "evil"];
+    junk.push("lowerthird", "full", "upper", "mid", "lower", "custom", "grey", "clear", "frost", 10, 24, 50, 60, 61, 100, 101, -0.1);
+    const keys = ["look", "ltText", "ltRef", "camScale", "camPos", "camText", "camEffect", "camScrim", "fullScale", "fullDim", "camLayout", "camLayoutSet", "camBandPosition", "camBandOffsetPct", "camBandHeightPct", "camBandScale", "camBandOpacity", "camBandStyle", "evil"];
     const pick = () => junk[Math.floor(rnd() * junk.length)];
     for (let i = 0; i < 20000; i++) {
       const look: Record<string, unknown> = {};
@@ -367,11 +433,18 @@ async function main() {
       // Resolution never throws and always yields clamped numbers.
       const r = resolveObsRender({ url: parseObsUrl(q(rnd() < 0.5 ? "obs=lowerthird" : "bg=transparent")), liveLook: out!.obsLook ?? null, fontScale: 1, appearance: theme, themeColors: obsThemeColorsOf(theme), lowerThird: null });
       assert.ok(Number.isFinite(r.fontScale) && r.fontScale >= 0.5 && r.fontScale <= 2);
+      const r2 = resolveObsRender({ url: parseObsUrl(q(rnd() < 0.5 ? "bg=transparent&live=1" : "bg=transparent")), liveLook: out!.obsLook ?? null, fontScale: 1, appearance: theme, themeColors: {}, lowerThird: null });
+      if (r2.obsBand) assert.ok(r2.obsBand.topPct >= 0 && r2.obsBand.topPct + r2.obsBand.heightPct <= 100 && Number.isFinite(r2.obsBand.opacity), "camera band on-screen");
+      if (msg && msg.type === "output") assert.deepEqual(msg.state.obsLook ?? null, out!.obsLook ?? null, "coerce == sanitize");
       const cs = clampObsLookSettings(out!.obsLook);
       assert.ok(cs.camScrim >= 0 && cs.camScrim <= 0.9 && cs.fullDim >= 0 && cs.fullDim <= 0.9);
     }
     assert.equal(sanitizeObsLook([1]), null);
     assert.equal(isValidOutputState({ live: song, aspectRatio: "16:9", obsLook: { camScale: 9 } }), false, "strict rejects out-of-range");
+    for (const bad of [{ camLayout: "side" }, { camLayoutSet: 1 }, { camBandPosition: "left" }, { camBandOffsetPct: 101 }, { camBandHeightPct: 5 }, { camBandScale: NaN }, { camBandOpacity: 2 }, { camBandStyle: "red" }]) {
+      assert.equal(isValidOutputState({ live: song, aspectRatio: "16:9", obsLook: bad }), false, `strict rejects ${JSON.stringify(bad)}`);
+      assert.deepEqual(sanitizeOutputState({ live: song, aspectRatio: "16:9", obsLook: bad })!.obsLook, {}, "fail-open drops the bad field");
+    }
   });
 
   // ── Remote publish throttle (editor drags) ───────────────────────────────

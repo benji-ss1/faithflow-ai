@@ -304,10 +304,13 @@ export function ObsOverlayCard() {
   const pickLook = useCallback((l: Look) => setStore((s) => ({ ...s, look: l, lookLive: true })), []);
   const setBand = useCallback((fn: (b: ObsBandConfig) => ObsBandConfig) => setStore((s) => ({ ...s, band: clampObsBand(fn(s.band)) })), []);
   const setSetting = useCallback(<K extends keyof ObsLookSettings>(k: K, v: ObsLookSettings[K]) => setStore((s) => ({ ...s, settings: { ...s.settings, [k]: v } })), []);
+  // Camera LAYOUT controls also stamp camLayoutSet so an explicit change reaches
+  // even a pre-existing (no live=1) link — see the back-compat rule in obs-look.ts.
+  const setCamLayoutSetting = useCallback(<K extends keyof ObsLookSettings>(k: K, v: ObsLookSettings[K]) => setStore((s) => ({ ...s, settings: { ...s.settings, [k]: v, camLayoutSet: true } })), []);
   const resetLook = useCallback(() => setStore((s) => {
     const d = DEFAULT_OBS_LOOK_SETTINGS;
     if (s.look === "lowerthird") return { ...s, band: DEFAULT_OBS_BAND, settings: { ...s.settings, ltText: d.ltText, ltRef: d.ltRef } };
-    if (s.look === "camera") return { ...s, settings: { ...s.settings, camScale: d.camScale, camPos: d.camPos, camText: d.camText, camEffect: d.camEffect, camScrim: d.camScrim } };
+    if (s.look === "camera") return { ...s, settings: { ...s.settings, camScale: d.camScale, camPos: d.camPos, camText: d.camText, camEffect: d.camEffect, camScrim: d.camScrim, camBandPosition: d.camBandPosition, camBandOffsetPct: d.camBandOffsetPct, camBandHeightPct: d.camBandHeightPct, camBandScale: d.camBandScale, camBandOpacity: d.camBandOpacity, camBandStyle: d.camBandStyle } };
     return { ...s, settings: { ...s.settings, fullScale: d.fullScale, fullDim: d.fullDim } };
   }), []);
 
@@ -433,7 +436,7 @@ export function ObsOverlayCard() {
         <div className="eyebrow">1 · How should the words look?</div>
         <div className="space-y-1.5">
           {([
-            { id: "camera" as const, title: "Over your camera", desc: "Words fill the frame, over the live camera." },
+            { id: "camera" as const, title: "Over your camera", desc: "See-through words over the live camera — a lower third or the full frame." },
             { id: "lowerthird" as const, title: "Lower third", desc: "Words in a neat band near the bottom, over the camera. Broadcast style." },
             { id: "full" as const, title: "Full projector look", desc: "Theme background + words, exactly like the projector. Its own scene." },
           ]).map((opt) => (
@@ -504,6 +507,41 @@ export function ObsOverlayCard() {
           )}
 
           {look === "camera" && (
+            <Segmented label="Layout" value={settings.camLayout} options={[{ id: "lowerthird", label: "Lower third" }, { id: "full", label: "Full projector" }]} onChange={(v) => setCamLayoutSetting("camLayout", v)} />
+          )}
+
+          {look === "camera" && settings.camLayout === "lowerthird" && (
+            <>
+              <Segmented label="Band position" value={settings.camBandPosition} options={[{ id: "upper", label: "Upper" }, { id: "mid", label: "Mid" }, { id: "lower", label: "Lower" }, { id: "custom", label: "Custom" }]} onChange={(v) => setCamLayoutSetting("camBandPosition", v)} />
+              {settings.camBandPosition === "custom" && (
+                <BandSlider label="Position (0 = top · 100 = bottom)" value={settings.camBandOffsetPct} min={0} max={100} step={1} suffix="%" onChange={(v) => setCamLayoutSetting("camBandOffsetPct", v)} />
+              )}
+              <div className="space-y-1">
+                <div className="text-[10px] text-[var(--color-muted-foreground)]">Band background</div>
+                <div className="grid grid-cols-3 gap-1">
+                  {OBS_BAND_STYLES.map((st) => (
+                    <button key={st} type="button" onClick={() => setCamLayoutSetting("camBandStyle", st)} title={OBS_BAND_STYLE_META[st].hint} aria-pressed={settings.camBandStyle === st}
+                      className={`rounded border overflow-hidden transition ${settings.camBandStyle === st ? "border-[var(--color-brand)] ring-1 ring-[var(--color-brand)]" : "border-[var(--color-border)] hover:border-[var(--color-brand)]/50"}`}>
+                      <span className="block h-6 relative" style={{ background: "linear-gradient(135deg,#3b4a5a,#6b7c8c)" }}>
+                        <span className="absolute inset-x-0 bottom-0 h-3 flex items-center justify-center" style={{ background: bandSwatch(st) }}>
+                          <span className="text-[6px] font-bold leading-none" style={{ color: st === "frost" ? "#111" : "#fff" }}>Aa</span>
+                        </span>
+                      </span>
+                      <span className="block text-[8px] text-center py-0.5 text-[var(--color-muted-foreground)] leading-none truncate px-0.5">{OBS_BAND_STYLE_META[st].label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <BandSlider label="Band height" value={settings.camBandHeightPct} min={10} max={60} step={1} suffix="%" onChange={(v) => setCamLayoutSetting("camBandHeightPct", v)} />
+              <BandSlider label="Text size (smaller / bigger)" value={settings.camBandScale} min={0.5} max={2} step={0.05} onChange={(v) => setCamLayoutSetting("camBandScale", v)} />
+              {settings.camBandStyle !== "clear" && (
+                <BandSlider label="Background opacity (see-through)" value={Math.round(settings.camBandOpacity * 100)} min={0} max={100} step={5} suffix="%" onChange={(v) => setCamLayoutSetting("camBandOpacity", v / 100)} />
+              )}
+              <TextColorPicker value={settings.camText} onChange={(v) => setSetting("camText", v)} />
+            </>
+          )}
+
+          {look === "camera" && settings.camLayout === "full" && (
             <>
               <BandSlider label="Text size (smaller / bigger)" value={settings.camScale} min={0.5} max={2} step={0.05} onChange={(v) => setSetting("camScale", v)} />
               <Segmented label="Text position" value={settings.camPos} options={[{ id: "top", label: "Top" }, { id: "middle", label: "Middle" }, { id: "bottom", label: "Bottom" }]} onChange={(v) => setSetting("camPos", v)} />

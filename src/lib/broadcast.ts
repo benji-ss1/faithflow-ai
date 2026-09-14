@@ -69,6 +69,15 @@ export type ObsLookWire = {
   camScrim?: number;
   fullScale?: number;
   fullDim?: number;
+  // "Over your camera" layout (see ObsLookSettings in obs-look.ts for the back-compat rule).
+  camLayout?: "lowerthird" | "full";
+  camLayoutSet?: boolean;
+  camBandPosition?: "upper" | "mid" | "lower" | "custom";
+  camBandOffsetPct?: number;
+  camBandHeightPct?: number;
+  camBandScale?: number;
+  camBandOpacity?: number;
+  camBandStyle?: "grey" | "black" | "clear" | "gradient" | "frost" | "theme";
 };
 
 export type SlidePayload =
@@ -1168,6 +1177,14 @@ const OBS_LOOK_FIELDS: Record<string, (x: unknown) => boolean> = {
   camScrim: (x) => typeof x === "number" && Number.isFinite(x) && x >= 0 && x <= 0.9,
   fullScale: (x) => typeof x === "number" && Number.isFinite(x) && x >= 0.5 && x <= 2,
   fullDim: (x) => typeof x === "number" && Number.isFinite(x) && x >= 0 && x <= 0.9,
+  camLayout: (x) => x === "lowerthird" || x === "full",
+  camLayoutSet: (x) => typeof x === "boolean",
+  camBandPosition: (x) => x === "upper" || x === "mid" || x === "lower" || x === "custom",
+  camBandOffsetPct: (x) => typeof x === "number" && Number.isFinite(x) && x >= 0 && x <= 100,
+  camBandHeightPct: (x) => typeof x === "number" && Number.isFinite(x) && x >= 10 && x <= 60,
+  camBandScale: (x) => typeof x === "number" && Number.isFinite(x) && x >= 0.5 && x <= 2,
+  camBandOpacity: (x) => typeof x === "number" && Number.isFinite(x) && x >= 0 && x <= 1,
+  camBandStyle: (x) => x === "grey" || x === "black" || x === "clear" || x === "gradient" || x === "frost" || x === "theme",
 };
 function isValidObsLook(v: unknown): boolean {
   if (v === null) return true;
