@@ -53,8 +53,9 @@ function announce(code: string | null) {
   try { window.dispatchEvent(new CustomEvent("presentflow:obs-pair-code", { detail: { code } })); } catch { /* ignore */ }
 }
 
-/** Build the OBS Browser Source URL for the chosen transport + look. The look in
- *  the URL is only the INITIAL default — live edits override it once picked. */
+/** Build the OBS Browser Source URL for the chosen transport + look. `&live=1`
+ *  opts THIS link into following the editor's live look choice; links pasted
+ *  before (no live=1) keep their URL look. */
 function buildUrl(opts: { transport: Transport; look: Look; code?: string | null; churchId?: string; lan?: LanInfo | null; band?: ObsBandConfig }): string {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const extra = opts.look === "camera"
@@ -62,12 +63,13 @@ function buildUrl(opts: { transport: Transport; look: Look; code?: string | null
     : opts.look === "lowerthird"
       ? `&obs=lowerthird&${obsBandParams(opts.band ?? DEFAULT_OBS_BAND)}`
       : "";
+  const extra2 = `${extra}&live=1`;
   if (opts.transport === "lan" && opts.lan?.ip && opts.lan.port) {
     const base = `http://${opts.lan.ip}:${opts.lan.port}`;
-    return `${base}/livestream?lan=${opts.lan.ip}:${opts.lan.port}${extra}`;
+    return `${base}/livestream?lan=${opts.lan.ip}:${opts.lan.port}${extra2}`;
   }
   const churchQ = opts.churchId ? `&church=${encodeURIComponent(opts.churchId)}` : "";
-  return `${origin}/livestream?pair=${opts.code ?? ""}${churchQ}${extra}`;
+  return `${origin}/livestream?pair=${opts.code ?? ""}${churchQ}${extra2}`;
 }
 
 async function copyText(text: string): Promise<boolean> {
@@ -179,13 +181,14 @@ function ObsPreview(props: { store: ObsEditorStore; state: OutputState | null; s
   // Preview shows the SELECTED look (even before it's published live) with the
   // editor's band + settings — resolved exactly as /livestream resolves them.
   const r = resolveObsRender({
-    url: { transparent: store.look !== "full", mode: store.look === "lowerthird" ? "lower_third" : "full", band: store.band, lookLock: false },
+    url: { transparent: store.look !== "full", mode: store.look === "lowerthird" ? "lower_third" : "full", band: store.band, live: true },
     liveLook: { ...store.settings, look: store.look },
     liveBand: store.band,
     fontScale: typeof st?.fontScale === "number" ? st.fontScale : 1,
     appearance,
     themeColors,
     lowerThird: st?.lowerThird ?? null,
+    hasTemplateBackground: !!st?.background,
   });
   const lt = st?.lowerThird ?? null;
   return (
@@ -444,6 +447,9 @@ export function ObsOverlayCard() {
         <p className="text-[10px] text-[var(--color-muted-foreground)] leading-relaxed">
           This only changes your <span className="text-[var(--color-foreground)]">OBS stream</span>. Your projector and operator screen stay exactly as they are.
         </p>
+        <p className="text-[10px] text-[var(--color-muted-foreground)] leading-relaxed" data-obs-link-note>
+          Links you already added to OBS keep their look. Create a new link for this look to follow live changes.
+        </p>
 
         <div className="mt-1 rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/30 p-2.5 space-y-2.5">
           <div className="flex items-center justify-between">
@@ -516,15 +522,12 @@ export function ObsOverlayCard() {
 
           {ready ? (
             <div className="rounded bg-emerald-500/10 border border-emerald-500/30 px-2 py-1.5">
-              <p className="text-[10px] text-[var(--color-foreground)] leading-relaxed"><span className="font-semibold text-emerald-500">Changes apply to OBS live</span> — as long as the app is open and OBS is connected, every tweak (including the look) shows on the stream instantly. You only need the link the first time you add it in OBS.</p>
+              <p className="text-[10px] text-[var(--color-foreground)] leading-relaxed"><span className="font-semibold text-emerald-500">Changes apply to OBS live</span> — as long as the app is open and OBS is connected, every tweak shows on the stream instantly (a look change reaches links created here). You only need the link the first time you add it in OBS.</p>
             </div>
           ) : (
             <div className="rounded bg-[var(--color-muted)]/30 border border-[var(--color-border)] px-2 py-1.5">
               <p className="text-[10px] text-[var(--color-muted-foreground)] leading-relaxed"><span className="font-semibold text-[var(--color-foreground)]">Preview only</span> — create your link below to send these to OBS.</p>
             </div>
-          )}
-          {!store.lookLive && (
-            <p className="text-[9.5px] text-[var(--color-muted-foreground)] leading-relaxed">Tip: until you tap a look above, an OBS link you already pasted keeps the look it was created with.</p>
           )}
         </div>
       </div>

@@ -88,7 +88,7 @@ export default function LivestreamPage() {
   // ?mode=lower_third / ?obs=lowerthird (implies transparent) → lower third with
   // the band geometry baked into the link. The OBS editor's LIVE look/settings
   // (OutputState.obsLook / obsLowerThird) layer over these via resolveObsRender.
-  const [urlDefaults, setUrlDefaults] = useState<ObsUrlDefaults>({ transparent: false, mode: "full", band: DEFAULT_OBS_BAND, lookLock: false });
+  const [urlDefaults, setUrlDefaults] = useState<ObsUrlDefaults>({ transparent: false, mode: "full", band: DEFAULT_OBS_BAND, live: false });
   const [liveBand, setLiveBand] = useState<ObsBandConfig | null>(null);
   const [liveLook, setLiveLook] = useState<ObsLookWire | null>(null);
   useEffect(() => {
@@ -99,7 +99,7 @@ export default function LivestreamPage() {
   // Theme colours mirrored from the live appearance — used by the "theme" band
   // style / "theme" text colour so OBS reproduces the projector's exact colours.
   const themeColors = obsThemeColorsOf(appearance);
-  const obsRender = resolveObsRender({ url: urlDefaults, liveLook, liveBand, fontScale, appearance, themeColors, lowerThird });
+  const obsRender = resolveObsRender({ url: urlDefaults, liveLook, liveBand, fontScale, appearance, themeColors, lowerThird, hasTemplateBackground: !!background });
   const transparent = obsRender.transparent;
   const mode = obsRender.mode;
 

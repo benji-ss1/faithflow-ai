@@ -16,13 +16,14 @@ import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
-  sanitizeOutputState, coerceLiveMessage, isValidOutputState, scrubOutputStateForRemote, sanitizeObsLook,
+  sanitizeOutputState, coerceLiveMessage, isValidOutputState, scrubOutputStateForRemote, sanitizeObsLook, slideOutputIdentity,
   type OutputState, type SlidePayload, type ThemeAppearance, type ObsLookWire,
 } from "../src/lib/broadcast";
 import { DEFAULT_OBS_BAND, parseObsBand, clampObsBand, overlayBandSlide, type ObsBandConfig } from "../src/lib/obs-lowerthird";
 import {
   DEFAULT_OBS_LOOK_SETTINGS, OBS_OUTLINE_TEXT_SHADOW, readObsEditorStore, obsLookWireFromStore, parseObsUrl,
-  resolveObsRender, applyObsLiveFields, obsThemeColorsOf, clampObsLookSettings,
+  resolveObsRender, applyObsLiveFields, obsThemeColorsOf, clampObsLookSettings, urlLook, heldLowerThirdFor,
+  createTrailingPublisher, OBS_MAX_FONT_SCALE, type HeldLowerThird,
   type ObsEditorStore, type ObsLook, type ObsRenderResolved,
 } from "../src/lib/obs-look";
 
@@ -58,7 +59,7 @@ function pipeline(store: ObsEditorStore, opts: { url?: string; slide?: SlidePayl
     ? (coerceLiveMessage({ type: "output", state: JSON.parse(JSON.stringify(remote)) }) as { state: OutputState }).state
     : sanitizeOutputState(JSON.parse(JSON.stringify(remote)))!;
   const f = applyObsLiveFields(received);
-  const url = parseObsUrl(q(opts.url ?? ""));
+  const url = parseObsUrl(q(opts.url ?? "live=1"));
   const resolved = resolveObsRender({
     url, liveLook: f.liveLook, liveBand: f.liveBand, fontScale: received.fontScale ?? 1,
     appearance: received.appearance ?? null, themeColors: obsThemeColorsOf(received.appearance), lowerThird: received.lowerThird,
@@ -79,15 +80,15 @@ async function main() {
   for (const via of [false, true]) {
     const tag = via ? "(coerceLiveMessage)" : "(sanitizeOutputState)";
     check(`look: camera picked live overrides a ?obs=lowerthird link ${tag}`, () => {
-      const { resolved } = pipeline(storeWith("camera"), { url: "obs=lowerthird", viaMessage: via });
+      const { resolved } = pipeline(storeWith("camera"), { url: "obs=lowerthird&live=1", viaMessage: via });
       assert.equal(resolved.look, "camera"); assert.equal(resolved.transparent, true); assert.equal(resolved.obsBand, null);
     });
     check(`look: lowerthird picked live overrides a plain link ${tag}`, () => {
-      const { resolved } = pipeline(storeWith("lowerthird"), { url: "", viaMessage: via });
+      const { resolved } = pipeline(storeWith("lowerthird"), { url: "live=1", viaMessage: via });
       assert.equal(resolved.look, "lowerthird"); assert.equal(resolved.transparent, true); assert.ok(resolved.obsBand);
     });
     check(`look: full picked live overrides a ?bg=transparent link ${tag}`, () => {
-      const { resolved } = pipeline(storeWith("full"), { url: "bg=transparent", viaMessage: via });
+      const { resolved } = pipeline(storeWith("full"), { url: "bg=transparent&live=1", viaMessage: via });
       assert.equal(resolved.look, "full"); assert.equal(resolved.transparent, false);
     });
   }
@@ -99,9 +100,28 @@ async function main() {
     assert.equal(resolved.look, "lowerthird");
     assert.equal(resolved.obsBand?.style, "black", "migrated band reaches OBS");
   });
-  check("look: ?lookLock=1 pins a Browser Source to its URL look", () => {
-    const { resolved } = pipeline(storeWith("full"), { url: "bg=transparent&lookLock=1" });
-    assert.equal(resolved.look, "camera");
+  // OPT-IN per link: an old link (no live=1) × every live look keeps its URL look.
+  for (const u of ["", "bg=transparent", "obs=lowerthird", "mode=lower_third", "obs=lowerthird&ltStyle=frost&ltTop=10", "bg=transparent&lookLock=1"]) {
+    for (const lk of ["camera", "lowerthird", "full"] as const) {
+      check(`look opt-in: old link "${u || "(none)"}" × live ${lk} → URL look unchanged`, () => {
+        const url = parseObsUrl(q(u));
+        const { resolved } = pipeline(storeWith(lk, { camScale: 1.5, fullDim: 0.5, ltText: "white" }), { url: u });
+        assert.equal(resolved.look, urlLook(url));
+        assert.equal(resolved.transparent, url.transparent); assert.equal(resolved.mode, url.mode);
+      });
+      check(`look opt-in: live=1 link "${u || "(none)"}" follows live ${lk}`, () => {
+        const { resolved } = pipeline(storeWith(lk), { url: `${u}&live=1` });
+        assert.equal(resolved.look, lk);
+      });
+    }
+  }
+  check("look opt-in: settings still restyle ONLY the look an old link shows", () => {
+    const cam = pipeline(storeWith("full", { camScale: 1.5, fullScale: 2, fullDim: 0.5 }), { url: "bg=transparent" }).resolved;
+    assert.equal(cam.look, "camera"); assert.equal(cam.fontScale, 1.5); assert.equal(cam.backgroundDim, undefined);
+    const full = pipeline(storeWith("camera", { camScale: 1.5, fullScale: 0.8 }), { url: "" }).resolved;
+    assert.equal(full.look, "full"); assert.equal(full.fontScale, 0.8); assert.equal(full.obsOverlay, undefined);
+    const lt = pipeline(storeWith("camera", { ltText: "black", camScale: 2 }), { url: "obs=lowerthird" }).resolved;
+    assert.equal(lt.look, "lowerthird"); assert.equal(lt.fontScale, 1); assert.equal(lt.obsBandExtras?.textColor, "#111111");
   });
 
   // ── Lower third controls ─────────────────────────────────────────────────
@@ -202,12 +222,46 @@ async function main() {
   check("full × text size → compositor fontScale multiplied", () => {
     assert.equal(pipeline(storeWith("full", { fullScale: 1.4 })).resolved.fontScale, 1.4);
   });
-  check("full × darken → theme dim rendered + template veil", () => {
+  check("full × darken → ONE mechanism: theme dim (no template) OR veil (template), never both", () => {
     const { resolved } = pipeline(storeWith("full", { fullDim: 0.4 }));
-    assert.equal(resolved.appearance?.dim, 0.4); assert.equal(resolved.backgroundDim, 0.4);
+    assert.equal(resolved.appearance?.dim, 0.4); assert.equal(resolved.backgroundDim, undefined);
     assert.ok(render(resolved, song).includes("rgba(0,0,0,0.4)"), "theme dim layer");
-    const withTemplate = renderToStaticMarkup(React.createElement(OutputCompositor, { mode: "livestream", slide: song, background: { type: "image", imageUrl: "https://x.test/a.jpg" } as never, backgroundDim: 0.4, appearance: resolved.appearance }));
-    assert.ok(withTemplate.includes('data-obs-dim="0.4"'), "template veil");
+    const bg = { type: "image", imageUrl: "https://x.test/a.jpg" } as never;
+    const t = resolveObsRender({ url: parseObsUrl(q("")), liveLook: { fullDim: 0.4 }, fontScale: 1, appearance: theme, themeColors: obsThemeColorsOf(theme), lowerThird: null, hasTemplateBackground: true });
+    assert.equal(t.backgroundDim, 0.4); assert.equal(t.appearance, theme, "theme dim untouched when veil used");
+    const html = renderToStaticMarkup(React.createElement(OutputCompositor, { mode: "livestream", slide: song, background: bg, backgroundDim: t.backgroundDim, appearance: t.appearance }));
+    assert.ok(html.includes('data-obs-dim="0.4"'), "template veil");
+    assert.ok(!html.includes("linear-gradient(rgba(0,0,0,0.4)"), "no stacked theme dim");
+    // Monotonic: more slider → never lighter, on both paths.
+    let prevA = -1, prevB = -1;
+    for (let d = 0; d <= 0.9001; d += 0.05) {
+      const a = resolveObsRender({ url: parseObsUrl(q("")), liveLook: { fullDim: d }, fontScale: 1, appearance: { ...theme, dim: 0.2 } as ThemeAppearance, themeColors: {}, lowerThird: null });
+      const b = resolveObsRender({ url: parseObsUrl(q("")), liveLook: { fullDim: d }, fontScale: 1, appearance: theme, themeColors: {}, lowerThird: null, hasTemplateBackground: true });
+      const da = a.appearance?.dim ?? 0, db = b.backgroundDim ?? 0;
+      assert.ok(da >= prevA && db >= prevB, `monotonic at ${d}`); prevA = da; prevB = db;
+      assert.ok(!(a.backgroundDim && (a.appearance?.dim ?? 0) > (theme.dim ?? 0)) && !(b.backgroundDim && b.appearance !== theme), "never both");
+    }
+  });
+  check("font cap: stream fontScale × look size never exceeds 4", () => {
+    for (const lk of ["camera", "full"] as const) {
+      const r = resolveObsRender({ url: parseObsUrl(q(lk === "camera" ? "bg=transparent" : "")), liveLook: { camScale: 2, fullScale: 2 }, fontScale: 3, appearance: theme, themeColors: {}, lowerThird: null });
+      assert.equal(r.fontScale, OBS_MAX_FONT_SCALE);
+    }
+  });
+
+  // ── Operator lower-third title lifetime ──────────────────────────────────
+  check("title: send → shows; heartbeat/re-send same slide → stays; different slide → gone, lyrics show; clear → gone", () => {
+    const lt = { line1: "Pastor Ade", line2: "Lead Pastor" };
+    let held: HeldLowerThird | null = { lt, identity: slideOutputIdentity(song) };
+    assert.deepEqual(heldLowerThirdFor(held, slideOutputIdentity(song)), lt, "shows");
+    assert.deepEqual(heldLowerThirdFor(held, slideOutputIdentity({ ...song } as SlidePayload)), lt, "same slide re-sent stays");
+    const next: SlidePayload = { kind: "text", text: "Amazing grace how sweet" };
+    const shown = heldLowerThirdFor(held, slideOutputIdentity(next));
+    assert.equal(shown, null, "different slide clears");
+    const r = pipeline(storeWith("lowerthird"), { url: "obs=lowerthird", slide: next, lowerThird: shown }).resolved;
+    const html = render(r, next);
+    assert.ok(html.includes("Amazing grace how sweet") && !html.includes("Pastor Ade"), "lyrics show after title cleared");
+    held = null; assert.equal(heldLowerThirdFor(held, slideOutputIdentity(song)), null, "explicit clear");
   });
   check("full × settings never leak into camera / lowerthird", () => {
     const { resolved } = pipeline(storeWith("camera", { fullScale: 2, fullDim: 0.9 }));
@@ -276,6 +330,26 @@ async function main() {
     }
     assert.equal(sanitizeObsLook([1]), null);
     assert.equal(isValidOutputState({ live: song, aspectRatio: "16:9", obsLook: { camScale: 9 } }), false, "strict rejects out-of-range");
+  });
+
+  // ── Remote publish throttle (editor drags) ───────────────────────────────
+  check("throttle: 1000 drag updates → ≤ ~8/s remote sends, final value delivered, no reordering", () => {
+    let now = 0; const timers: { at: number; fn: () => void; id: number }[] = []; let nid = 0;
+    const clock = { now: () => now, setTimeout: (fn: () => void, ms: number) => { const id = ++nid; timers.push({ at: now + ms, fn, id }); return id; }, clearTimeout: (h: unknown) => { const i = timers.findIndex((t) => t.id === h); if (i >= 0) timers.splice(i, 1); } };
+    const advance = (to: number) => { for (;;) { timers.sort((a, b) => a.at - b.at); const t = timers[0]; if (!t || t.at > to) break; timers.shift(); now = t.at; t.fn(); } now = to; };
+    const sent: { v: number; at: number }[] = [];
+    const p = createTrailingPublisher<number>((v) => sent.push({ v, at: now }), 125, clock);
+    let seed = 5; const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+    for (let i = 0; i < 1000; i++) { advance(now + Math.floor(rnd() * 20)); p.schedule(i); }
+    const dragEnd = now;
+    advance(now + 1000);
+    assert.equal(sent[sent.length - 1].v, 999, "final value delivered");
+    for (let i = 1; i < sent.length; i++) { assert.ok(sent[i].v > sent[i - 1].v, "monotonic"); assert.ok(sent[i].at - sent[i - 1].at >= 125, "spacing ≥125ms"); }
+    assert.ok(sent.length <= Math.ceil(dragEnd / 125) + 2, `rate: ${sent.length} sends over ${dragEnd}ms`);
+    // Immediate (slide) send drops the pending older editor value.
+    const s2: number[] = []; const p2 = createTrailingPublisher<number>((v) => s2.push(v), 125, clock);
+    p2.schedule(1); p2.schedule(2); p2.sendNow(3); advance(now + 1000);
+    assert.deepEqual(s2, [1, 3], "no stale trailing value after an immediate send");
   });
 
   // ── Projector isolation ──────────────────────────────────────────────────

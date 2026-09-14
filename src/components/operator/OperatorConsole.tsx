@@ -11,7 +11,7 @@ import { nextPreviewPosition } from "@/lib/operator-nav";
 import { dispatchInternal } from "@/lib/internal-events";
 import { useLiveLayers } from "./useLiveLayers";
 import { clampObsBand, type ObsBandConfig } from "@/lib/obs-lowerthird";
-import { OBS_EDITOR_KEY, readObsEditorStore, obsLookWireFromStore, publishObsPreviewState } from "@/lib/obs-look";
+import { OBS_EDITOR_KEY, LEGACY_BAND_KEY, LEGACY_LOOK_KEY, readObsEditorStore, obsLookWireFromStore, publishObsPreviewState, heldLowerThirdFor, createTrailingPublisher, type HeldLowerThird } from "@/lib/obs-look";
 import type { ObsLookWire } from "@/lib/broadcast";
 import { readFontScale, readReferenceScale, readReferenceColor } from "./pro/operatorConstants";
 import { applyChurchLayout, sourceForRelayout } from "./scripture/scriptureStyle";
@@ -660,16 +660,22 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   // look itself, published live as OutputState.obsLook. Read ONLY by /livestream.
   // Null until the new editor has saved anything → exactly the legacy snapshot.
   const [obsLook, setObsLook] = useState<ObsLookWire | null>(null);
-  // Operator's own lower third (line1/line2) — held so the heartbeat/any state
-  // change keeps it on the stream until the operator clears it (was dropped to
-  // null by the next OutputState emit). Only /livestream renders it.
-  const [opLowerThird, setOpLowerThird] = useState<{ line1: string; line2: string } | null>(null);
+  // Operator's own lower third (line1/line2) — held against the slide that was
+  // live when it was sent: heartbeats / re-sends of that same slide keep it, and
+  // it clears the moment a DIFFERENT slide goes live (production parity) or on an
+  // explicit clear. Only /livestream renders it (band, full + camera looks).
+  const [heldLowerThird, setHeldLowerThird] = useState<HeldLowerThird | null>(null);
+  const opLowerThird = heldLowerThirdFor(heldLowerThird, slideOutputIdentity(live));
+  useEffect(() => {
+    if (heldLowerThird && heldLowerThird.identity !== slideOutputIdentity(live)) setHeldLowerThird(null);
+  }, [live, heldLowerThird]);
   useEffect(() => {
     const read = () => {
       try {
         const v2 = localStorage.getItem(OBS_EDITOR_KEY);
         if (v2) {
-          const store = readObsEditorStore(v2, null, null);
+          // Corrupt v2 JSON falls back to the legacy v1 band (not the default).
+          const store = readObsEditorStore(v2, localStorage.getItem(LEGACY_BAND_KEY), localStorage.getItem(LEGACY_LOOK_KEY));
           setObsLowerThird(store.band);
           setObsLook(obsLookWireFromStore(store));
           return;
@@ -680,11 +686,6 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       } catch { /* ignore */ }
     };
     read();
-    const onChange = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail && typeof detail === "object") { try { setObsLowerThird(clampObsBand(detail)); } catch { /* ignore */ } }
-      else read();
-    };
     const onEditor = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (detail && typeof detail === "object") {
@@ -695,10 +696,8 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
         } catch { /* ignore */ }
       } else read();
     };
-    window.addEventListener("presentflow:obs-band-changed", onChange);
     window.addEventListener("presentflow:obs-editor-changed", onEditor);
     return () => {
-      window.removeEventListener("presentflow:obs-band-changed", onChange);
       window.removeEventListener("presentflow:obs-editor-changed", onEditor);
     };
   }, []);
@@ -730,6 +729,23 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   liveLayersRef.current = liveLayers;
 
   const lastEmittedKeyRef = useRef<string>("");
+  // Remote (Realtime + LAN) fan-out. Editor-only changes (obsLook /
+  // obsLowerThird — slider drags) are coalesced to a trailing ≤~8/s with the
+  // final value guaranteed; everything else (slides, theme, title) sends at once.
+  // The same-machine BroadcastChannel post is NEVER throttled (rule 8).
+  const lastRemoteNonObsKeyRef = useRef<string>("");
+  const remotePublisherRef = useRef<ReturnType<typeof createTrailingPublisher<OutputState>> | null>(null);
+  if (!remotePublisherRef.current) {
+    remotePublisherRef.current = createTrailingPublisher<OutputState>((st) => {
+      const remote = scrubOutputStateForRemote(st);
+      if (rtRef.current) { void rtRef.current.publish(remote); }
+      try {
+        const lan = (typeof window !== "undefined" ? (window as unknown as { electronAPI?: { lan?: { publish: (s: unknown) => void } } }).electronAPI?.lan : undefined);
+        if (lan) lan.publish(remote);
+      } catch { /* ignore */ }
+    }, 125);
+  }
+  useEffect(() => () => remotePublisherRef.current?.dispose(), []);
   useEffect(() => {
     const fastMarker = fastTransitionSlideRef.current;
     const useFastTransition = fastMarker?.slide === live;
@@ -789,23 +805,26 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     if (key === lastEmittedKeyRef.current) return;
     lastEmittedKeyRef.current = key;
     lastOutputStateRef.current = state; // cached for snapshot-on-join replay
-    publishObsPreviewState(state);
     safePost(chRef.current, { type: "output", state });
     // videoInput.deviceId only means something on THIS machine (the camera is
     // physically here), so it goes over same-machine BroadcastChannel only —
     // never Realtime. A cross-device surface can't open a local camera id, and
     // this prevents a paired frame from activating a default camera on a public
     // livestream (security).
-    if (rtRef.current) { void rtRef.current.publish(scrubOutputStateForRemote(state)); }
-    // LAN OVERLAY fan-out (desktop only) — mirror the full OutputState to the
-    // local http+ws server so an OBS Browser Source on a SEPARATE broadcast PC
-    // gets lyrics over the LAN with no cloud dependency. Same videoInput scrub as
-    // Realtime (a local camera id is meaningless on another machine). No-op on
-    // web (electronAPI.lan absent) and cheap fire-and-forget over IPC.
-    try {
-      const lan = (typeof window !== "undefined" ? (window as unknown as { electronAPI?: { lan?: { publish: (s: unknown) => void } } }).electronAPI?.lan : undefined);
-      if (lan) lan.publish(scrubOutputStateForRemote(state));
-    } catch { /* ignore */ }
+    // LAN OVERLAY fan-out (desktop only) rides the same publisher — mirrors the
+    // full OutputState to the local http+ws server so an OBS Browser Source on a
+    // SEPARATE broadcast PC gets lyrics over the LAN with no cloud dependency.
+    // Same videoInput scrub as Realtime (see remotePublisherRef).
+    {
+      let nonObsKey: string;
+      try { const { obsLook: _l, obsLowerThird: _b, ...rest } = state; void _l; void _b; nonObsKey = `${JSON.stringify(rest)}:${liveBroadcastRevision}`; } catch { nonObsKey = String(Math.random()); }
+      const editorOnly = nonObsKey === lastRemoteNonObsKeyRef.current;
+      lastRemoteNonObsKeyRef.current = nonObsKey;
+      if (editorOnly) remotePublisherRef.current!.schedule(state);
+      else remotePublisherRef.current!.sendNow(state);
+    }
+    // Same-window editor preview — AFTER every projector/remote post.
+    publishObsPreviewState(state);
     // CUT-THEN-FLOAT FIX (2026-08-20): do NOT clear the marker here. It used to
     // be one-shot, so the NEXT OutputState re-post for the SAME instant slide
     // (1 Hz heartbeat / any dep change) fell through to `transitionSpec` and
@@ -2065,8 +2084,9 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       zone: activeZone,
     };
     const nextLt = (line1 || line2) ? { line1, line2 } : null;
-    // Hold it so later OutputState emits (heartbeat / slide change / LAN) keep it.
-    setOpLowerThird(nextLt);
+    // Hold it against the CURRENT live slide so later emits of that same slide
+    // keep it; a different slide going live clears it.
+    setHeldLowerThird(nextLt ? { lt: nextLt, identity: slideOutputIdentity(liveRef.current) } : null);
     const rawLtState: OutputState = { ...base, lowerThird: nextLt };
     // Fail-open sanitize before the wire — the null-fallback `base` above is built
     // from a RAW `next`/`live` (unlike the main emit effect), so guard this path
@@ -2075,7 +2095,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     safePost(chRef.current, { type: "output", state });
     publishRealtime(scrubOutputStateForRemote(state)); // scrub local-only camera id + local-scope layers
     lastOutputStateRef.current = state;
-    publishObsPreviewState(state);
+    publishObsPreviewState(state); // after the projector + remote posts
     toast.success(line1 || line2 ? "Lower third sent" : "Lower third cleared");
   }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, publishRealtime, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone]);
   // Actually CLEAR the lower third on the projector (was a placeholder toast

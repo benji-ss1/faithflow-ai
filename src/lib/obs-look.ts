@@ -12,10 +12,10 @@
  * unchanged.
  *
  * BACK-COMPAT CONTRACT (locked by test/obs-editor.test.ts):
- *   - A link pasted in OBS before this existed keeps working: the URL decides
- *     the look until the operator explicitly PICKS a look in the new editor
- *     (`look` is only published after an explicit pick), and `?lookLock=1`
- *     pins a Browser Source to its URL look forever (multi-scene setups).
+ *  - The LIVE look choice is OPT-IN PER LINK: only a link carrying `&live=1`
+ *     (every link the new editor creates/copies) follows the editor's look.
+ *     A link pasted in OBS before this existed (no `live=1`) keeps its URL look
+ *     forever; per-look SETTINGS still restyle the look that link shows.
  *   - No live obsLook (or all-default settings) ⇒ resolveObsRender returns the
  *     exact legacy compositor inputs (same fontScale, same appearance object,
  *     no overlay hints) ⇒ byte-identical render.
@@ -129,16 +129,17 @@ export type ObsUrlDefaults = {
   transparent: boolean;
   mode: "full" | "lower_third";
   band: ObsBandConfig;
-  /** ?lookLock=1 → ignore the live look choice (settings still apply). */
-  lookLock: boolean;
+  /** ?live=1 → this link follows the editor's live look choice. Absent (every
+   *  link pasted before the editor existed) → the URL look is fixed. */
+  live: boolean;
 };
 
-/** Parse the /livestream URL exactly as the legacy page did (+ lookLock). */
+/** Parse the /livestream URL exactly as the legacy page did (+ live opt-in). */
 export function parseObsUrl(get: (k: string) => string | null): ObsUrlDefaults {
   let transparent = get("bg") === "transparent";
   let mode: "full" | "lower_third" = get("mode") === "lower_third" ? "lower_third" : "full";
   if (get("obs") === "lowerthird") { mode = "lower_third"; transparent = true; }
-  return { transparent, mode, band: parseObsBand(get), lookLock: get("lookLock") === "1" };
+  return { transparent, mode, band: parseObsBand(get), live: get("live") === "1" };
 }
 
 /** The look a URL-only link produces (legacy semantics). */
@@ -196,7 +197,13 @@ export type ObsRenderInput = {
   appearance: ThemeAppearance | null;
   themeColors: ObsThemeColors;
   lowerThird: { line1: string; line2: string } | null;
+  /** A template BackgroundSpec is showing (full-look darken uses the veil over
+   *  it instead of the theme dim — ONE mechanism, never both stacked). */
+  hasTemplateBackground?: boolean;
 };
+
+/** Effective font scale ceiling (stream fontScale × look text size). */
+export const OBS_MAX_FONT_SCALE = 4;
 
 export type ObsRenderResolved = {
   look: ObsLook;
@@ -214,7 +221,7 @@ export function resolveObsRender(i: ObsRenderInput): ObsRenderResolved {
   let transparent = i.url.transparent;
   let mode = i.url.mode;
   const live = i.liveLook ?? null;
-  if (live?.look && !i.url.lookLock) {
+  if (live?.look && i.url.live) {
     if (live.look === "camera") { transparent = true; mode = "full"; }
     else if (live.look === "lowerthird") { transparent = true; mode = "lower_third"; }
     else { transparent = false; mode = "full"; }
@@ -241,7 +248,7 @@ export function resolveObsRender(i: ObsRenderInput): ObsRenderResolved {
     if (i.lowerThird && (i.lowerThird.line1 || i.lowerThird.line2)) ex.lowerThird = i.lowerThird;
     if (Object.keys(ex).length) out.obsBandExtras = ex;
   } else if (look === "camera" && s) {
-    if (s.camScale !== 1) out.fontScale = i.fontScale * s.camScale;
+    if (s.camScale !== 1) out.fontScale = Math.min(OBS_MAX_FONT_SCALE, i.fontScale * s.camScale);
     const h: ObsOverlayHints = {};
     const tc = resolveTextColor(s.camText, i.themeColors);
     if (tc) h.textColor = tc;
@@ -251,13 +258,49 @@ export function resolveObsRender(i: ObsRenderInput): ObsRenderResolved {
     if (s.camScrim > 0) h.scrim = s.camScrim;
     if (Object.keys(h).length) out.obsOverlay = h;
   } else if (look === "full" && s) {
-    if (s.fullScale !== 1) out.fontScale = i.fontScale * s.fullScale;
+    if (s.fullScale !== 1) out.fontScale = Math.min(OBS_MAX_FONT_SCALE, i.fontScale * s.fullScale);
     if (s.fullDim > 0) {
-      out.backgroundDim = s.fullDim;
-      if (i.appearance) out.appearance = { ...i.appearance, dim: Math.max(i.appearance.dim ?? 0, s.fullDim) };
+      // ONE darkening mechanism: the veil over a template background, else the
+      // theme's own dim layer (raised to the slider, never lowered) — monotonic.
+      if (i.hasTemplateBackground) out.backgroundDim = s.fullDim;
+      else if (i.appearance) out.appearance = { ...i.appearance, dim: Math.max(i.appearance.dim ?? 0, s.fullDim) };
     }
   }
   return out;
+}
+
+// ── Operator lower-third title lifetime ─────────────────────────────────────
+/** The operator's title is held against the slide identity that was live when it
+ *  was sent. It shows while that slide stays live (heartbeats / re-sends of the
+ *  same slide keep it) and is gone the moment a DIFFERENT slide goes live. */
+export type HeldLowerThird = { lt: { line1: string; line2: string }; identity: string };
+export function heldLowerThirdFor(held: HeldLowerThird | null, liveIdentity: string): { line1: string; line2: string } | null {
+  return held && held.identity === liveIdentity ? held.lt : null;
+}
+
+// ── Remote publish coalescing (editor slider drags) ─────────────────────────
+/** Trailing throttle for REMOTE (Realtime/LAN) publishes of editor-driven state.
+ *  Leading send when idle, then at most one send per `intervalMs` carrying the
+ *  LATEST value; the final value is always delivered. `sendNow` bypasses it (and
+ *  drops any pending older value, since the immediate send is newer). */
+export function createTrailingPublisher<T>(send: (v: T) => void, intervalMs: number, clock: { now: () => number; setTimeout: (fn: () => void, ms: number) => unknown; clearTimeout: (h: unknown) => void } = {
+  now: () => Date.now(), setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
+}) {
+  let last = -Infinity; let pending: { v: T } | null = null; let timer: unknown = null;
+  const fire = () => { timer = null; if (!pending) return; const v = pending.v; pending = null; last = clock.now(); send(v); };
+  return {
+    schedule(v: T) {
+      pending = { v };
+      if (timer !== null) return;
+      const wait = last + intervalMs - clock.now();
+      if (wait <= 0) fire(); else timer = clock.setTimeout(fire, wait);
+    },
+    sendNow(v: T) {
+      if (timer !== null) { clock.clearTimeout(timer); timer = null; }
+      pending = null; last = clock.now(); send(v);
+    },
+    dispose() { if (timer !== null) clock.clearTimeout(timer); timer = null; pending = null; },
+  };
 }
 
 // ── Same-window preview feed (operator console → OBS editor card) ────────────
