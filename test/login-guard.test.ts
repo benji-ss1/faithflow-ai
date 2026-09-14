@@ -29,8 +29,8 @@ async function attempt(ip: string, email: string, correct: boolean) {
 }
 
 (async () => {
-  await check("limits are 30 / 5 / 5", () => {
-    assert.equal(LOGIN_IP_LIMIT, 30); assert.equal(LOGIN_EMAIL_LIMIT, 5); assert.equal(LOGIN_IP_EMAIL_LIMIT, 5);
+  await check("limits are 50 / 5 / 5", () => {
+    assert.equal(LOGIN_IP_LIMIT, 50); assert.equal(LOGIN_EMAIL_LIMIT, 5); assert.equal(LOGIN_IP_EMAIL_LIMIT, 5);
   });
 
   await check("one person's 5 typos lock only them, not a colleague on the same IP", async () => {
@@ -57,17 +57,17 @@ async function attempt(ip: string, email: string, correct: boolean) {
     assert.equal(rs.filter((r) => r === "rl").length, 45);
   });
 
-  await check("200 PARALLEL wrong attempts across emails, one IP → exactly 30 checked", async () => {
+  await check("200 PARALLEL wrong attempts across emails, one IP → exactly 50 checked", async () => {
     const rs = await Promise.all(Array.from({ length: 200 }, (_, i) => attempt("10.2.0.2", `p${i}@x.org`, false)));
-    assert.equal(rs.filter((r) => r === "inv").length, 30);
+    assert.equal(rs.filter((r) => r === "inv").length, 50);
   });
 
   await check("locked attempt is not charged (does not extend / over-count)", async () => {
     const ip = "10.2.0.3", e = "lk@x.org";
     for (let i = 0; i < 20; i++) await attempt(ip, e, false);
-    // IP bucket holds only the 5 checked attempts, so 25 more other-email attempts fit.
-    let ok = 0; for (let i = 0; i < 30; i++) if ((await attempt(ip, `o${i}@x.org`, false)) === "inv") ok++;
-    assert.equal(ok, 25);
+    // IP bucket holds only the 5 checked attempts, so 45 more other-email attempts fit.
+    let ok = 0; for (let i = 0; i < 50; i++) if ((await attempt(ip, `o${i}@x.org`, false)) === "inv") ok++;
+    assert.equal(ok, 45);
   });
 
   await check("success clears email + IP+email counters", async () => {
@@ -80,10 +80,10 @@ async function attempt(ip: string, email: string, correct: boolean) {
 
   await check("success refunds only its own IP charge, not other IP failures", async () => {
     const ip = "10.0.0.5";
-    for (let i = 0; i < 29; i++) await attempt(ip, `v${i}@x.org`, false);
-    assert.equal(await attempt(ip, "good@x.org", true), "ok"); // charged to 30, refunded to 29
+    for (let i = 0; i < 49; i++) await attempt(ip, `v${i}@x.org`, false);
+    assert.equal(await attempt(ip, "good@x.org", true), "ok"); // charged to 50, refunded to 49
     assert.equal(loginLockedFor(ip, "other@x.org"), null);
-    await attempt(ip, "v29@x.org", false); // 30
+    await attempt(ip, "v49@x.org", false); // 50
     assert.notEqual(loginLockedFor(ip, "other@x.org"), null);
   });
 
@@ -140,7 +140,7 @@ async function attempt(ip: string, email: string, correct: boolean) {
     // rotating the interface id within one /64 shares the per-IP+email bucket
     for (let i = 0; i < 5; i++) await attempt(`2001:db8:9:9::${i + 1}`, "v6@x.org", false);
     assert.notEqual(loginLockedFor("2001:db8:9:9::abcd", "v6@x.org"), null);
-    for (let i = 0; i < 30; i++) await attempt(`2001:db8:7:7::${i + 1}`, `v6i${i}@x.org`, false);
+    for (let i = 0; i < 50; i++) await attempt(`2001:db8:7:7::${i + 1}`, `v6i${i}@x.org`, false);
     assert.notEqual(loginLockedFor("2001:db8:7:7::beef", "fresh@x.org"), null, "per-IP bucket is /64-wide");
     assert.equal(loginLockedFor("2001:db8:7:8::1", "fresh@x.org"), null, "other /64 unaffected");
   });

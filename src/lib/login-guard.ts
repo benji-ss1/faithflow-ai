@@ -11,7 +11,7 @@ import { CredentialsSignin } from "next-auth";
  * Credentials-login brute-force guard (H1), shared-church-network aware.
  *
  * Three axes, 15-minute fixed windows:
- *  - per-IP        30  — a whole church shares one public IP; 5 (old value)
+ *  - per-IP        50  — a whole church shares one public IP; 5 (old value)
  *                        let a few operators' typos lock everyone out.
  *  - per-email      5  — can't grind one account from many IPs.
  *  - per-IP+email   5  — one person's typos lock only themselves on that
@@ -31,7 +31,7 @@ import { CredentialsSignin } from "next-auth";
  * instances, so lockouts can be intermittent (same as rate-limit.ts).
  */
 export const LOGIN_WINDOW_MS = 15 * 60 * 1000;
-export const LOGIN_IP_LIMIT = 30;
+export const LOGIN_IP_LIMIT = 50; // 15 operators x 2 typos must not lock a church network
 export const LOGIN_EMAIL_LIMIT = 5;
 export const LOGIN_IP_EMAIL_LIMIT = 5;
 

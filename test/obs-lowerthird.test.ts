@@ -21,6 +21,7 @@ import {
   bandableTextOf,
   overlayBandSlide,
   isValidObsBand,
+  livestreamRenderPlan,
   placementToTop,
   topToPlacement,
 } from "../src/lib/obs-lowerthird";
@@ -223,6 +224,33 @@ check("the wrapped caption is a valid renderable text slide (stable identity)", 
   const s = overlayBandSlide(plainSong, DEFAULT_OBS_BAND);
   // slideOutputIdentity must not throw and must be deterministic.
   assert.equal(slideOutputIdentity(s), slideOutputIdentity(overlayBandSlide(plainSong, DEFAULT_OBS_BAND)));
+});
+
+check("livestream lower_third: operator line1/line2 take priority over lyrics", () => {
+  const lyric: SlidePayload = { kind: "text", text: "Amazing grace" };
+  const p = livestreamRenderPlan("lower_third", lyric, { line1: "Pastor John", line2: "Lead Pastor" }, DEFAULT_OBS_BAND);
+  assert.equal(p.renderSlide.kind, "text");
+  const t = (p.renderSlide as { text: string }).text;
+  assert.ok(t.includes("Pastor John") && t.includes("Lead Pastor") && !t.includes("Amazing"));
+  assert.equal((p.renderSlide as { scriptureLayout?: string }).scriptureLayout, "lowerThird");
+  const only1 = livestreamRenderPlan("lower_third", lyric, { line1: "Welcome", line2: "" }, DEFAULT_OBS_BAND);
+  assert.equal((only1.renderSlide as { text: string }).text, "Welcome");
+});
+check("livestream lower_third: no operator lines -> lyrics in band; no backdrop/overlays", () => {
+  const lyric: SlidePayload = { kind: "text", text: "Amazing grace" };
+  for (const lt of [null, { line1: "  ", line2: "x" }]) {
+    const p = livestreamRenderPlan("lower_third", lyric, lt, DEFAULT_OBS_BAND);
+    assert.equal((p.renderSlide as { text: string }).text, "Amazing grace");
+    assert.equal(p.showBackdrop, false);
+    assert.equal(p.showFullOverlays, false);
+  }
+});
+check("livestream full mode is a pass-through", () => {
+  const lyric: SlidePayload = { kind: "text", text: "Amazing grace" };
+  const p = livestreamRenderPlan("full", lyric, { line1: "Pastor John", line2: "" }, DEFAULT_OBS_BAND);
+  assert.equal(p.renderSlide, lyric);
+  assert.equal(p.showBackdrop, true);
+  assert.equal(p.showFullOverlays, true);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);
