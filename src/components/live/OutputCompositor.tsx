@@ -42,7 +42,7 @@ import {
   type TransitionSpec,
 } from "@/lib/broadcast";
 import type { ProjectionZone } from "@/lib/projection-zone";
-import { overlayBandSlide, type ObsBandConfig, type ObsThemeColors } from "@/lib/obs-lowerthird";
+import { overlayBandSlide, type ObsBandConfig, type ObsThemeColors, type ObsBandExtras } from "@/lib/obs-lowerthird";
 import { planOutput, type CompositorMode, type OutputLayerPlan, type PlanInput } from "@/lib/output-plan";
 import { resolveLayeredInput, layerOpacities } from "@/lib/output-layers-render";
 import type { LayerWire } from "@/lib/broadcast";
@@ -74,6 +74,13 @@ export interface OutputCompositorProps {
    *  precedence). Undefined → pass-through (full mode / other routes). */
   obsBand?: ObsBandConfig | null;
   obsThemeColors?: ObsThemeColors;
+  /** OBS editor band extras (text colour / hide reference / operator lower
+   *  third). Undefined ⇒ legacy band caption. Livestream + OBS preview only. */
+  obsBandExtras?: ObsBandExtras;
+  /** OBS editor "Over your camera" hints (only act with transparent). */
+  obsOverlay?: { textColor?: string; textShadow?: string; verticalAlign?: "top" | "center" | "bottom"; scrim?: number };
+  /** OBS editor "Full projector look" background-template dim (0..0.9). */
+  backgroundDim?: number;
   videoMuted?: boolean;
   onVideoRef?: (el: HTMLVideoElement | null) => void;
   /**
@@ -108,6 +115,7 @@ export function OutputCompositor(props: OutputCompositorProps) {
     appearance, transition, fontScale, referenceScale,
     referenceColor, zone, obsBand, obsThemeColors, videoMuted = false, onVideoRef,
     layersEnabled, layerOverrides, previewFrozen = false,
+    obsBandExtras, obsOverlay, backgroundDim,
   } = props;
 
   // Phase 3: when layers mode is on, resolve the render input from the operator's
@@ -118,7 +126,7 @@ export function OutputCompositor(props: OutputCompositorProps) {
   const opacities = layersEnabled ? layerOpacities(layerOverrides) : {};
 
   // OBS lower-third band transform (livestream lower_third capture mode).
-  const effectiveSlide: SlidePayload = obsBand ? overlayBandSlide(slide, obsBand, obsThemeColors) : slide;
+  const effectiveSlide: SlidePayload = obsBand ? overlayBandSlide(slide, obsBand, obsThemeColors, obsBandExtras) : slide;
 
   // Render one plan layer by its stable id. The z-ordering + enable/disable is
   // owned by planOutput; the compositor just paints enabled layers in order.
@@ -145,10 +153,18 @@ export function OutputCompositor(props: OutputCompositorProps) {
 
   function renderLayerInner(layer: OutputLayerPlan): ReactNode {
     switch (layer.id) {
-      case "background":
-        return layer.props.background ? (
-          <BackgroundLayer key={layer.props.background.shaderPreset ?? layer.props.background.type} background={layer.props.background} frozen={previewFrozen} />
-        ) : null;
+      case "background": {
+        if (!layer.props.background) return null;
+        const bgNode = <BackgroundLayer key={layer.props.background.shaderPreset ?? layer.props.background.type} background={layer.props.background} frozen={previewFrozen} />;
+        if (!(typeof backgroundDim === "number" && backgroundDim > 0)) return bgNode;
+        // OBS editor full-look dim: a black veil over the template, under the words.
+        return (
+          <div key="bg-dim-wrap" className="absolute inset-0">
+            {bgNode}
+            <div className="absolute inset-0 pointer-events-none" data-obs-dim={backgroundDim} style={{ background: `rgba(0,0,0,${Math.min(0.9, backgroundDim)})` }} />
+          </div>
+        );
+      }
       case "slide": {
         const { renderMode, overVideo, transparentBg, videoInput } = layer.props;
         if (renderMode === "over-video") {
@@ -178,6 +194,7 @@ export function OutputCompositor(props: OutputCompositorProps) {
             transparentBg={transparentBg}
             videoMuted={videoMuted}
             onVideoRef={onVideoRef}
+            {...(obsOverlay ? { obsOverlay } : {})}
           />
         );
         return renderMode === "transition" ? (
