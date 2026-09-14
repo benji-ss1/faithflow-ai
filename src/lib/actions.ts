@@ -1,6 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { eq, and, asc, sql, inArray } from "drizzle-orm";
+import { adHocCleanupTargets } from "./operator-plan-select";
 import { getDb } from "./db/client";
 import { readableTextColor } from "./colorway";
 import { bakeThemeIntoObjectsJson } from "./theme-bake";
@@ -67,22 +68,27 @@ export async function deleteServicePlan(id: string): Promise<Result> {
 
 // Bulk cleanup of leftover "Ad-hoc service" plans that pile up from repeated
 // operator opens without a scheduled plan. Keeps the single most recent
-// ad-hoc (by id desc) and deletes the rest. Church-scoped via the WHERE.
+// ad-hoc (by created_at) and deletes the EMPTY rest. Church-scoped via the WHERE.
 export async function cleanupAdHocServicePlans(): Promise<Result<{ deleted: number }>> {
   const user = await requireCap("operate_services");
   const db = getDb();
   const adHocs = await db
-    .select({ id: servicePlans.id })
+    .select({
+      id: servicePlans.id,
+      createdAt: servicePlans.createdAt,
+      itemCount: sql<number>`(SELECT count(*)::int FROM service_items si WHERE si.service_plan_id = ${servicePlans.id})`,
+    })
     .from(servicePlans)
     .where(and(eq(servicePlans.churchId, user.churchId), eq(servicePlans.title, "Ad-hoc service")));
-  if (adHocs.length <= 1) return { ok: true, data: { deleted: 0 } };
-  // Keep the last (largest id — most recent insert); delete the rest one-by-one
-  // via the existing single-delete path so we get the same church-scoped WHERE
-  // discipline and cascade behavior.
-  const sorted = [...adHocs].sort((a, b) => a.id.localeCompare(b.id));
-  const toDelete = sorted.slice(0, -1);
-  for (const row of toDelete) {
-    await db.delete(servicePlans).where(and(eq(servicePlans.id, row.id), eq(servicePlans.churchId, user.churchId)));
+  // Keep the most recently CREATED ad-hoc; never delete one that has items
+  // (service_items cascade). The delete re-checks emptiness to close the race.
+  const toDelete = adHocCleanupTargets(adHocs);
+  for (const id of toDelete) {
+    await db.delete(servicePlans).where(and(
+      eq(servicePlans.id, id),
+      eq(servicePlans.churchId, user.churchId),
+      sql`NOT EXISTS (SELECT 1 FROM service_items si WHERE si.service_plan_id = ${servicePlans.id})`,
+    ));
   }
   revalidatePath("/services");
   return { ok: true, data: { deleted: toDelete.length } };

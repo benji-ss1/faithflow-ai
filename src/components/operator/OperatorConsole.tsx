@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { decidePlanPropChange } from "@/lib/operator-plan-select";
 import { ArrowLeft, ChevronLeft, ChevronRight, Monitor, Radio, Square, Sun, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { openLiveChannel, type LiveChannelLike, safePost, isValidMessageOverlay, AI_AUTO_TRANSITION, slideOutputIdentity, sanitizeOutputState, scrubOutputStateForRemote, type SlidePayload, type LiveMessage, type OutputState, type MessageOverlay } from "@/lib/broadcast";
@@ -139,7 +140,48 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   // which nuked interim transcript state, the audio pipeline, and
   // BroadcastChannel output state (CLAUDE.md rule 8).
   const [plan, setPlan] = useState<ExpandedPlan>(planProp);
-  useEffect(() => { setPlan(planProp); }, [planProp]);
+  // Never silently swap to a DIFFERENT plan on refresh (2026-09-14 field bug:
+  // a post-midnight refresh resolved a new empty "today" plan). Same id → adopt;
+  // different id on the /operator landing → keep the current plan + offer a switch.
+  const planIdRef = useRef<string>(planProp.id);
+  useEffect(() => {
+    const onLanding = typeof window !== "undefined" && window.location.pathname === "/operator";
+    if (decidePlanPropChange(planIdRef.current, planProp.id, onLanding) === "adopt") {
+      planIdRef.current = planProp.id;
+      setPlan(planProp);
+      return;
+    }
+    toast("A different service was loaded", {
+      id: "operator-plan-swap",
+      description: "Your current playlist is still on screen.",
+      duration: 15000,
+      action: {
+        label: "Switch to today's service",
+        onClick: () => {
+          planIdRef.current = planProp.id;
+          setPlan(planProp);
+          try {
+            const u = new URL(window.location.href);
+            u.searchParams.set("plan", planProp.id);
+            router.replace(u.pathname + u.search, { scroll: false });
+          } catch { /* ignore */ }
+        },
+      },
+    });
+  }, [planProp]);
+  // Pin the landing URL to the plan on screen so router.refresh() reloads it.
+  useEffect(() => {
+    if (typeof window === "undefined" || window.location.pathname !== "/operator" || !plan?.id) return;
+    try {
+      const u = new URL(window.location.href);
+      if (u.searchParams.get("plan") === plan.id) return;
+      u.searchParams.set("plan", plan.id);
+      // Via the Next router: a raw history.replaceState is overwritten by the
+      // router's canonical URL on the next refresh (caught by the local E2E).
+      router.replace(u.pathname + u.search, { scroll: false });
+    } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan?.id]);
   // Hybrid Phase 1 — durably snapshot the current service (church-scoped) for
   // offline fallback. Best-effort + dynamically imported so it can never affect
   // the online path. Snapshots the LIVE `plan` (including the operator's

@@ -1,4 +1,5 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
+import { isUuid } from "@/lib/operator-plan-select";
 import { cookies, headers } from "next/headers";
 import { requireUser } from "@/lib/session";
 import { getDb } from "@/lib/db/client";
@@ -17,7 +18,12 @@ import { OfflineState } from "./OfflineState";
 //
 // A per-plan operator page still exists at `/services/[id]/operate` for
 // explicit deep-links, and renders visually identical.
-export default async function OperatorLandingPage() {
+export default async function OperatorLandingPage({ searchParams }: { searchParams?: Promise<{ plan?: string | string[] }> }) {
+  // `?plan=<id>` is stamped into the URL by OperatorConsole once a plan is on
+  // screen, so router.refresh() reloads THAT plan instead of re-resolving
+  // "today" (which after midnight swapped the operator to a new empty plan).
+  const sp = (await searchParams) ?? {};
+  const pinnedPlanId = typeof sp.plan === "string" && isUuid(sp.plan) ? sp.plan : null;
   const user = await requireUser();
   const db = getDb();
   const cookieStore = await cookies();
@@ -65,7 +71,7 @@ export default async function OperatorLandingPage() {
         eq(servicePlans.churchId, user.churchId),
         eq(servicePlans.scheduledFor, _todayKey),
       ))
-      .orderBy(asc(servicePlans.id))
+      .orderBy(desc(servicePlans.createdAt), desc(servicePlans.id))
       .limit(1);
     todaysPlan = todayRows[0] ?? null;
 
@@ -84,21 +90,36 @@ export default async function OperatorLandingPage() {
   }
 
   let plan: ExpandedPlan | null = null;
-  if (todaysPlan) {
+  if (pinnedPlanId) {
+    // Church-scoped inside getExpandedServicePlan; a foreign/deleted id → null → fall through.
+    plan = await getExpandedServicePlan(pinnedPlanId, user.churchId);
+  }
+  if (!plan && todaysPlan) {
     plan = await getExpandedServicePlan(todaysPlan.id, user.churchId);
   }
   // No plan for today → create a real one so every server action has a valid
   // UUID to write against. Prior implementation used a "__ephemeral__" sentinel
   // that broke any DB query passing planId unfiltered.
   if (!plan) {
-    const [created] = await db
-      .insert(servicePlans)
-      .values({
-        churchId: user.churchId,
-        title: "Ad-hoc service",
-        scheduledFor: getTodayInChurchTz(church?.timezone),
-      })
-      .returning({ id: servicePlans.id });
+    // Concurrent renders/refreshes used to insert duplicate ad-hoc plans (15ms
+    // apart in the field). Serialize per church+date with a transaction-scoped
+    // advisory lock, then re-check before inserting. No schema change needed.
+    const todayKey = getTodayInChurchTz(church?.timezone);
+    const created = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`operator-adhoc:${user.churchId}:${todayKey}`}))`);
+      const [existing] = await tx
+        .select({ id: servicePlans.id })
+        .from(servicePlans)
+        .where(and(eq(servicePlans.churchId, user.churchId), eq(servicePlans.scheduledFor, todayKey)))
+        .orderBy(desc(servicePlans.createdAt), desc(servicePlans.id))
+        .limit(1);
+      if (existing) return existing;
+      const [row] = await tx
+        .insert(servicePlans)
+        .values({ churchId: user.churchId, title: "Ad-hoc service", scheduledFor: todayKey })
+        .returning({ id: servicePlans.id });
+      return row;
+    });
     plan = await getExpandedServicePlan(created.id, user.churchId);
     if (!plan) {
       plan = { id: created.id, title: "Ad-hoc service", items: [], logoUrl, blankBgColor };
