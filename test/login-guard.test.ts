@@ -8,6 +8,7 @@ import {
   chargeLoginAttempt, loginLockedFor, refundLoginSuccess,
   InvalidCredentialsError, RateLimitedError,
   LOGIN_MAX_KEYS, loginGuardSize, normalizeIp, clientIpFromHeaders, LOGIN_MAX_IP_LEN,
+  LOGIN_MAX_LOCKS, loginLockCount, LOGIN_WINDOW_MS as LOGIN_WINDOW_MS_TEST,
 } from "../src/lib/login-guard";
 import { signInErrorMessage, normalizeEmail } from "../src/lib/auth-error-message";
 import { CredentialsSignin } from "next-auth";
@@ -189,7 +190,7 @@ async function attempt(ip: string, email: string, correct: boolean) {
   await check("normalizeIp: structurally invalid IPv6 never merges into a /64", () => {
     assert.equal(normalizeIp("1::2::3"), "1::2::3");
     assert.notEqual(normalizeIp("2001:db8::1::1"), normalizeIp("2001:db8::1"));
-    assert.notEqual(normalizeIp("::1.2.3.4"), normalizeIp("::1"));
+    assert.equal(normalizeIp("::1.2.3.4"), "0:0:0:0::/64"); // embedded quad groups by /64 (b58aa6d parity)
     assert.equal(normalizeIp("1:2:3:4:5:6:7:8:9"), "1:2:3:4:5:6:7:8:9");
     assert.equal(normalizeIp("1:2:3:4::5:6:7:8"), "1:2:3:4::5:6:7:8");
     assert.equal(normalizeIp("::ffff:1.2.3.999"), "::ffff:1.2.3.999");
@@ -203,6 +204,77 @@ async function attempt(ip: string, email: string, correct: boolean) {
     for (let i = 0; i < 100_000; i++) chargeLoginAttempt(`198.51.${(i >> 8) & 255}.${i & 255}`, `junk${i}@x`);
     assert.ok(loginGuardSize() <= LOGIN_MAX_KEYS);
     assert.notEqual(loginLockedFor(ip, email), null);
+  });
+
+  await check("lock-everything flood (2,000 IPs × 6 emails × 5): target stays locked, attempts stay O(1)", () => {
+    const v4 = (i: number) => `${(i >>> 24) & 255}.${(i >> 16) & 255}.${(i >> 8) & 255}.${i & 255}`;
+    const target = "flood-victim@x"; let idx = 1;
+    while (chargeLoginAttempt(v4(0x5a000000 + idx++), target) === null);
+    assert.equal(idx, 7, "target locked after exactly 5 checks");
+    for (let ip = 0; ip < 2000; ip++) for (let m = 0; m < 6; m++) for (let j = 0; j < 5; j++) chargeLoginAttempt(v4(0x2d000000 + ip), `L${ip}-${m}@x`);
+    assert.ok(loginGuardSize() <= LOGIN_MAX_KEYS && loginLockCount() <= LOGIN_MAX_LOCKS);
+    assert.notEqual(chargeLoginAttempt(v4(0x5b000001), target), null, "target must still be locked");
+    const ts: number[] = []; const t0 = performance.now();
+    for (let i = 0; i < 1000; i++) { const t = performance.now(); chargeLoginAttempt(v4(0x4d000000 + i), `n${i}@x`); ts.push(performance.now() - t); }
+    const total = performance.now() - t0; ts.sort((a, b) => a - b);
+    assert.ok(total < 50, `1000 attempts took ${total.toFixed(1)}ms`);
+    assert.ok(ts[989] < 0.1, `p99 ${ts[989].toFixed(3)}ms`);
+    let extra = 0; for (let i = 0; i < 100; i++) if (chargeLoginAttempt(v4(0x5c000000 + i), target) === null) extra++;
+    assert.equal(extra, 0);
+  });
+
+  await check("lock store: bound respected, expired locks dropped, email lock outlives IP-scoped pressure", () => {
+    const realNow = Date.now; let now = realNow() + 3 * LOGIN_WINDOW_MS_TEST; Date.now = () => now;
+    try {
+      for (let i = 0; i < 5; i++) chargeLoginAttempt(`172.16.0.${i}`, "old-lock@x");
+      now += LOGIN_WINDOW_MS_TEST + 1; // old-lock now expired
+      for (let i = 0; i < 5; i++) chargeLoginAttempt(`172.17.0.${i}`, "keep@x"); // earliest LIVE lockedUntil
+      now += 1000;
+      // each fresh email from its own /64 → 1 email lock + 1 IP+email lock; 70k locks total > cap,
+      // email locks (35k) stay under cap so only IP-scoped locks may be evicted.
+      for (let i = 0; i < LOGIN_MAX_LOCKS / 2 + 10_000; i++) {
+        const ip = `2001:db8:${(i >> 16).toString(16)}:${(i & 0xffff).toString(16)}::1`;
+        for (let j = 0; j < 5; j++) chargeLoginAttempt(ip, `pk${i}@x`);
+        if (i % 1000 === 0) assert.ok(loginLockCount() <= LOGIN_MAX_LOCKS);
+      }
+      assert.ok(loginLockCount() <= LOGIN_MAX_LOCKS);
+      assert.notEqual(loginLockedFor("9.9.9.9", "keep@x"), null, "live email lock survived");
+      assert.equal(loginLockedFor("9.9.9.9", "old-lock@x"), null, "expired lock gone");
+    } finally { Date.now = realNow; }
+  });
+
+  await check("normalizeIp: non-::ffff embedded dotted quad groups by /64 exactly like b58aa6d", () => {
+    // b58aa6d reference implementation (regex) — test-only oracle.
+    const ref = (raw: string) => {
+      let ip = raw.trim().toLowerCase().replace(/^\[|\]$/g, "").split("%")[0];
+      if (!ip.includes(":")) return ip;
+      const mapped = /^(?:0*:)*:?(?:0*:)*ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(ip);
+      if (mapped) return mapped[1];
+      const v4tail = /(\d{1,3}(?:\.\d{1,3}){3})$/.exec(ip);
+      if (v4tail) { const [a, b, c, d] = v4tail[1].split(".").map(Number); ip = ip.slice(0, -v4tail[1].length) + ((a << 8) | b).toString(16) + ":" + ((c << 8) | d).toString(16); }
+      const [head, tail] = ip.split("::"); const hg = head ? head.split(":") : []; const tg = tail ? tail.split(":") : [];
+      const groups = ip.includes("::") ? [...hg, ...Array(Math.max(0, 8 - hg.length - tg.length)).fill("0"), ...tg] : hg;
+      if (groups.length !== 8 || groups.some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return ip;
+      return groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":") + "::/64";
+    };
+    assert.equal(normalizeIp("2001:db8:1:1::1.2.3.4"), "2001:db8:1:1::/64");
+    assert.equal(normalizeIp("64:ff9b::1.2.3.4"), "64:ff9b:0:0::/64");
+    assert.equal(normalizeIp("::1.2.3.4"), "0:0:0:0::/64");
+    assert.equal(normalizeIp("1:2:3:4:5:6:1.2.3.4"), "1:2:3:4::/64");
+    assert.equal(normalizeIp("::ffff:1.2.3.4"), "1.2.3.4");
+    let s = 12345; const r = (n: number) => ((s = (s * 1103515245 + 12345) % 2 ** 31) % n);
+    const hx = () => r(65536).toString(16), q = () => `${r(256)}.${r(256)}.${r(256)}.${r(256)}`;
+    let n = 0;
+    for (let i = 0; i < 5000; i++) {
+      const g = Array.from({ length: 6 }, hx);
+      const forms = [
+        `${g.join(":")}:${q()}`, `${g.slice(0, 4).join(":")}::${q()}`, `${g.slice(0, 1 + r(5)).join(":")}::${q()}`,
+        `::${q()}`, `64:ff9b::${q()}`, `[${g.slice(0, 4).join(":")}::${hx()}:${q()}]`, g.concat(hx(), hx()).join(":"),
+        `::ffff:${q()}`, `0:0:0:0:0:ffff:${q()}`,
+      ];
+      for (const f of forms) { assert.equal(normalizeIp(f), ref(f), f); n++; }
+    }
+    assert.equal(n, 45_000);
   });
 
   console.log(`\n${pass} pass, ${fail} fail`);

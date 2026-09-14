@@ -36,11 +36,17 @@ export const LOGIN_EMAIL_LIMIT = 5;
 export const LOGIN_IP_EMAIL_LIMIT = 5;
 
 type Hit = { count: number; resetAt: number };
+/** Attempt COUNTERS. Freely evictable oldest-first (Map insertion order):
+ *  a counter at its limit has already been copied into `locks`, so evicting
+ *  counters can never release a lock. */
 const hits = new Map<string, Hit>();
-// Hard memory bound: oldest-first eviction via Map insertion order. Touched
-// keys (charged or hit-while-locked) are re-inserted at the tail, so an
-// actively-attacked account stays in the map during a random-key flood.
 export const LOGIN_MAX_KEYS = 20_000;
+/** LOCK STORE (key → lockedUntil). Junk counter inserts never touch it. Split
+ *  by scope so eviction can prefer IP / IP+email locks over email locks
+ *  (email locks protect accounts). */
+const emailLocks = new Map<string, number>();
+const otherLocks = new Map<string, number>();
+export const LOGIN_MAX_LOCKS = 50_000;
 const SWEEP_EVERY_MS = 30_000;
 let lastSweep = 0;
 
@@ -66,7 +72,7 @@ function dottedQuad(s: string): number[] | null {
   return n.every((x) => x <= 255) ? n : null;
 }
 
-/** IPv4 unchanged; ::ffff:a.b.c.d → IPv4; other valid IPv6 → its /64 prefix;
+/** IPv4 unchanged; ::ffff:a.b.c.d → IPv4; other valid IPv6 (incl. embedded quad) → its /64 prefix;
  *  structurally invalid input kept as-is (its own bucket). Regex-free parse. */
 export function normalizeIp(raw: string): string {
   if (typeof raw !== "string" || raw.length > LOGIN_MAX_IP_LEN) return "invalid-ip";
@@ -96,12 +102,10 @@ export function normalizeIp(raw: string): string {
     groups = [...hg, ...Array(8 - hg.length - tg.length).fill("0"), ...tg];
   } else groups = ip.split(":");
   if (groups.length !== 8 || !groups.every(isHex)) return orig; // not valid v6: keep as-is
-  if (quad) {
-    // Only ::ffff:a.b.c.d maps to IPv4. Other dotted forms (e.g. deprecated
-    // ::1.2.3.4) stay distinct rather than merging into ::/64 with ::1.
-    const mapped = groups.slice(0, 5).every((g) => parseInt(g, 16) === 0) && parseInt(groups[5], 16) === 0xffff;
-    return mapped ? quad.join(".") : orig;
-  }
+  // Only ::ffff:a.b.c.d maps to IPv4. Other embedded-quad forms (64:ff9b::1.2.3.4,
+  // 2001:db8:1:1::1.2.3.4, ::1.2.3.4) group by /64 like any IPv6 (as b58aa6d) —
+  // keeping them distinct let an attacker rotate the quad inside one /64.
+  if (quad && groups.slice(0, 5).every((g) => parseInt(g, 16) === 0) && parseInt(groups[5], 16) === 0xffff) return quad.join(".");
   return groups.slice(0, 4).map((g) => parseInt(g, 16).toString(16)).join(":") + "::/64";
 }
 
@@ -112,19 +116,52 @@ const keysFor = (rawIp: string, email: string, ip = normalizeIp(rawIp)) =>
     [`ipemail:${ip}|${email}`, LOGIN_IP_EMAIL_LIMIT],
   ] as const;
 
-const limitOf = (key: string) =>
-  key.startsWith("ip:") ? LOGIN_IP_LIMIT : key.startsWith("email:") ? LOGIN_EMAIL_LIMIT : LOGIN_IP_EMAIL_LIMIT;
+const lockMap = (key: string) => (key.startsWith("email:") ? emailLocks : otherLocks);
 
 function live(key: string, now: number): Hit | undefined {
   const h = hits.get(key);
   if (h && h.resetAt < now) { hits.delete(key); return undefined; }
-  if (h) { hits.delete(key); hits.set(key, h); } // touch → tail (O(1))
   return h;
+}
+
+/**
+ * Lock-store eviction, only when full. Batched (10% of the cap) so the O(n)
+ * scan runs at most once per LOGIN_MAX_LOCKS/10 lock inserts → O(1) amortised.
+ *  1. drop every EXPIRED lock (both scopes);
+ *  2. if still short of the batch, drop the locks with the EARLIEST lockedUntil
+ *     (closest to expiring anyway = least protection lost), taking IP / IP+email
+ *     locks first and email locks only if no others remain.
+ * Residual limit (documented): an attacker who creates > LOGIN_MAX_LOCKS live
+ * email locks (≥ 250k requests in one window, per instance) can age out the
+ * earliest-expiring email lock; its counter may still hold it.
+ */
+function makeLockRoom(now: number): void {
+  if (emailLocks.size + otherLocks.size < LOGIN_MAX_LOCKS) return;
+  const batch = LOGIN_MAX_LOCKS / 10;
+  let freed = 0;
+  for (const m of [otherLocks, emailLocks]) for (const [k, u] of m) if (u < now) { m.delete(k); freed++; }
+  for (const m of [otherLocks, emailLocks]) {
+    let need = batch - freed;
+    if (need <= 0) return;
+    if (m.size <= need) { freed += m.size; m.clear(); continue; }
+    const until = Float64Array.from(m.values()).sort();
+    const cut = until[need - 1];
+    for (const [k, u] of m) { if (u <= cut) { m.delete(k); freed++; if (--need === 0) break; } }
+  }
+}
+
+function setLock(key: string, until: number, now: number): void {
+  const m = lockMap(key);
+  if (!m.has(key)) makeLockRoom(now);
+  m.set(key, Math.max(until, m.get(key) ?? 0));
 }
 
 function lockedMinutes(ip: string, email: string, now: number): number | null {
   let ms = -1;
   for (const [key, limit] of keysFor(ip, email)) {
+    const m = lockMap(key);
+    const u = m.get(key);
+    if (u !== undefined) { if (u < now) m.delete(key); else ms = Math.max(ms, u - now); }
     const h = live(key, now);
     if (h && h.count >= limit) ms = Math.max(ms, h.resetAt - now);
   }
@@ -133,7 +170,8 @@ function lockedMinutes(ip: string, email: string, now: number): number | null {
 
 /**
  * Synchronous check-and-charge. Returns minutes until unlock if any bucket is
- * already at its limit (nothing charged), else charges all three and returns null.
+ * locked (lock store first, then counters; nothing charged), else charges all
+ * three and returns null. A bucket reaching its limit is recorded in the lock store.
  */
 export function chargeLoginAttempt(ip: string, email: string): number | null {
   const now = Date.now();
@@ -142,33 +180,22 @@ export function chargeLoginAttempt(ip: string, email: string): number | null {
   if (now - lastSweep >= SWEEP_EVERY_MS) { // expired sweep ≤ once per 30s (amortised O(1))
     lastSweep = now;
     for (const [k, h] of hits) if (h.resetAt < now) hits.delete(k);
+    for (const m of [otherLocks, emailLocks]) for (const [k, u] of m) if (u < now) m.delete(k);
   }
-  for (const [key] of keysFor(ip, email)) {
-    const h = live(key, now);
-    if (h) h.count++;
+  for (const [key, limit] of keysFor(ip, email)) {
+    let h = live(key, now);
+    if (h) { h.count++; hits.delete(key); hits.set(key, h); } // touch → tail (O(1))
     else {
-      // Batch-evict the oldest 10% with ONE iterator: repeated keys().next()
-      // after head deletes re-walks V8's tombstones (O(n) per call).
-      // Locked keys (at/over limit) are re-queued to the tail, not evicted, so
-      // a junk-key flood can't wipe an active lock. Visits are bounded to
-      // 2x batch (O(batch)); if nothing could be evicted, drop the head anyway
-      // to keep the hard memory bound.
+      // Oldest-first batch eviction (10%) with ONE iterator — O(batch), no
+      // skipping: locks live in the separate lock store.
       if (hits.size >= LOGIN_MAX_KEYS) {
-        const batch = LOGIN_MAX_KEYS / 10;
-        let evicted = 0, visits = 0;
-        const requeue: [string, Hit][] = [];
-        for (const [k, h] of hits) {
-          if (++visits > batch * 2) break;
-          if (h.count >= limitOf(k) && h.resetAt >= now) requeue.push([k, h]);
-          else evicted++;
-          hits.delete(k);
-          if (evicted >= batch) break;
-        }
-        for (const [k, h] of requeue) hits.set(k, h);
-        if (evicted === 0) { const k = hits.keys().next().value; if (k !== undefined) hits.delete(k); }
+        let n = LOGIN_MAX_KEYS / 10;
+        for (const k of hits.keys()) { hits.delete(k); if (--n === 0) break; }
       }
-      hits.set(key, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+      h = { count: 1, resetAt: now + LOGIN_WINDOW_MS };
+      hits.set(key, h);
     }
+    if (h.count >= limit) setLock(key, h.resetAt, now);
   }
   return null;
 }
@@ -178,16 +205,23 @@ export function loginLockedFor(ip: string, email: string): number | null {
   return lockedMinutes(ip, email, Date.now());
 }
 
-/** Test/diagnostic: current number of tracked keys. */
+/** Test/diagnostic: current number of tracked counter keys. */
 export function loginGuardSize(): number { return hits.size; }
+/** Test/diagnostic: current number of stored locks. */
+export function loginLockCount(): number { return emailLocks.size + otherLocks.size; }
 
-/** Successful sign-in: clear email + IP+email; refund this attempt's IP charge only. */
+/** Successful sign-in: clear email + IP+email (counters AND locks); refund this
+ *  attempt's IP charge only (its lock is lifted only if that drops it below limit). */
 export function refundLoginSuccess(ip: string, email: string): void {
-  const [[ipKey], [emailKey], [ipEmailKey]] = keysFor(ip, email);
-  hits.delete(emailKey);
-  hits.delete(ipEmailKey);
+  const [[ipKey, ipLimit], [emailKey], [ipEmailKey]] = keysFor(ip, email);
+  hits.delete(emailKey); emailLocks.delete(emailKey);
+  hits.delete(ipEmailKey); otherLocks.delete(ipEmailKey);
   const h = live(ipKey, Date.now());
-  if (h) { h.count--; if (h.count <= 0) hits.delete(ipKey); }
+  if (h) {
+    h.count--;
+    if (h.count < ipLimit) otherLocks.delete(ipKey);
+    if (h.count <= 0) hits.delete(ipKey);
+  }
 }
 
 // Distinct error codes surfaced to the client as `res.code`. Never reveal
