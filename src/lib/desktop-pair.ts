@@ -2,62 +2,171 @@
 // auth + rate limits; this module is directly adversarial-tested
 // (test/adversarial/desktop-signin.test.ts).
 //
-// Flow: desktop login page → startPairing() → shows code, keeps ticket →
-// user signs in on the web, opens /link?code=… → approvePairingForUser()
-// writes an auth_tokens row (kind device_pair, user-scoped, hashed, 10 min)
-// → desktop pollPairing(ticket) atomically consumes that row and receives a
+// Flow: desktop login page → startPairing() records a device_pair_requests row
+// (code hash, IP, UA, geo) and returns code + signed ticket → the user types
+// the code on /link → lookupPairingRequest() shows the requesting device →
+// approvePairingForUser() ATOMICALLY claims the row (first approver wins) →
+// desktop pollPairing(ticket) atomically consumes the claim and receives a
 // short-lived single-use device_link token → navigates to device-exchange.
 
-import { and, eq, gte, isNull } from "drizzle-orm";
+import { and, eq, gt, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { getDb } from "./db/client";
-import { authTokens } from "./db/schema";
+import { devicePairRequests } from "./db/schema";
 import { issueAuthToken } from "./auth-tokens";
-import { PAIR_TTL_MS, formatPairCode, generatePairCode, normalizePairCode, pairCodeHash, signPairTicket, verifyPairTicket } from "./desktop-auth-core";
+import {
+  PAIR_UA_MAX,
+  describeLocation,
+  describeUserAgent,
+  formatPairCode,
+  generatePairCode,
+  normalizePairCode,
+  pairCodeHash,
+  signPairTicket,
+  verifyPairTicket,
+} from "./desktop-auth-core";
 
 export const PAIR_EXCHANGE_TTL_MS = 2 * 60 * 1000;
+/** Expired rows are kept this long (so late polls/approvals get a clear answer), then deleted. */
+const CLEANUP_GRACE_MS = 60 * 60 * 1000;
 
-export function startPairing(): { code: string; displayCode: string; ticket: string; expiresAt: number; nonce: string } {
-  const code = generatePairCode();
-  const t = signPairTicket(code);
-  return { code, displayCode: formatPairCode(code), ticket: t.ticket, expiresAt: t.expiresAt, nonce: t.nonce };
+export type PairRequestMeta = { ip?: string | null; userAgent?: string | null; country?: string | null; city?: string | null };
+
+export async function cleanupExpiredPairRequests(now = Date.now()): Promise<void> {
+  await getDb().delete(devicePairRequests).where(lt(devicePairRequests.expiresAt, new Date(now - CLEANUP_GRACE_MS)));
 }
 
-export type ApproveResult = { ok: true } | { ok: false; error: string };
+export async function startPairing(meta: PairRequestMeta = {}): Promise<{ code: string; displayCode: string; ticket: string; expiresAt: number; nonce: string }> {
+  const db = getDb();
+  // Lazy cleanup, best-effort (indexed on expires_at).
+  await cleanupExpiredPairRequests().catch(() => { /* non-fatal */ });
+  for (let attempt = 0; ; attempt++) {
+    const code = generatePairCode();
+    const t = signPairTicket(code);
+    const inserted = await db
+      .insert(devicePairRequests)
+      .values({
+        codeHash: pairCodeHash(code),
+        expiresAt: new Date(t.expiresAt),
+        ip: meta.ip ? meta.ip.slice(0, 64) : null,
+        userAgent: meta.userAgent ? meta.userAgent.slice(0, PAIR_UA_MAX) : null,
+        country: meta.country ?? null,
+        city: meta.city ?? null,
+      })
+      .onConflictDoNothing()
+      .returning({ id: devicePairRequests.id });
+    if (inserted[0]) return { code, displayCode: formatPairCode(code), ticket: t.ticket, expiresAt: t.expiresAt, nonce: t.nonce };
+    // 40-bit collision with a live/grace row: astronomically rare — retry.
+    if (attempt >= 3) throw new Error("could not allocate pairing code");
+  }
+}
 
+export type PairRequestView = { device: string; location: string; country: string | null; createdAt: Date };
+
+function view(row: { userAgent: string | null; city: string | null; country: string | null; createdAt: Date }): PairRequestView {
+  return { device: describeUserAgent(row.userAgent), location: describeLocation(row.city, row.country), country: row.country, createdAt: row.createdAt };
+}
+
+const BAD_FORMAT = "That code doesn't look right. It's 8 letters/numbers shown on the desktop app.";
+const NOT_FOUND = "That code wasn't found or has expired. Start again on the desktop app.";
+const ALREADY_APPROVED = "This code was already approved. Start again on the desktop app.";
+const ALREADY_USED = "That code has already been used. Start again on the desktop app.";
+
+export type LookupResult = { ok: true; request: PairRequestView; alreadyApprovedByYou: boolean } | { ok: false; error: string };
+
+/** Read-only: what device is asking? Refuses codes claimed by someone else / consumed / expired. */
+export async function lookupPairingRequest(userId: string, rawCode: unknown): Promise<LookupResult> {
+  const code = normalizePairCode(rawCode);
+  if (!code) return { ok: false, error: BAD_FORMAT };
+  const [row] = await getDb().select().from(devicePairRequests).where(eq(devicePairRequests.codeHash, pairCodeHash(code))).limit(1);
+  if (!row || row.expiresAt.getTime() <= Date.now()) return { ok: false, error: NOT_FOUND };
+  if (row.consumedAt) return { ok: false, error: ALREADY_USED };
+  if (row.claimedByUserId && row.claimedByUserId !== userId) return { ok: false, error: ALREADY_APPROVED };
+  return { ok: true, request: view(row), alreadyApprovedByYou: row.claimedByUserId === userId };
+}
+
+export type ApproveResult =
+  | { ok: true; firstApproval: boolean; request: PairRequestView }
+  | { ok: false; error: string };
+
+/**
+ * Atomic first-approver-wins claim. One UPDATE ... WHERE claimed_by_user_id IS
+ * NULL RETURNING: concurrent approvers can't both match. Same user again is
+ * idempotent (until the desktop consumes it); anyone else is refused.
+ */
 export async function approvePairingForUser(userId: string, rawCode: unknown): Promise<ApproveResult> {
   const code = normalizePairCode(rawCode);
-  if (!code) return { ok: false, error: "That code doesn't look right. It's 8 letters/numbers shown on the desktop app." };
+  if (!code) return { ok: false, error: BAD_FORMAT };
   const hash = pairCodeHash(code);
   const db = getDb();
-  const existing = await db
-    .select({ userId: authTokens.userId })
-    .from(authTokens)
-    .where(and(eq(authTokens.tokenHash, hash), eq(authTokens.kind, "device_pair"), isNull(authTokens.usedAt), gte(authTokens.expiresAt, new Date())))
-    .limit(1);
-  if (existing[0]) {
-    // Idempotent for the same user; nobody else may re-point a pending approval.
-    return existing[0].userId === userId ? { ok: true } : { ok: false, error: "That code has already been used. Start again on the desktop app." };
-  }
-  await db.insert(authTokens).values({ userId, kind: "device_pair", tokenHash: hash, expiresAt: new Date(Date.now() + PAIR_TTL_MS) });
-  return { ok: true };
+  const now = new Date();
+  const claimed = await db
+    .update(devicePairRequests)
+    .set({ claimedByUserId: userId, claimedAt: now })
+    .where(and(
+      eq(devicePairRequests.codeHash, hash),
+      isNull(devicePairRequests.claimedByUserId),
+      isNull(devicePairRequests.consumedAt),
+      gt(devicePairRequests.expiresAt, now),
+    ))
+    .returning();
+  if (claimed[0]) return { ok: true, firstApproval: true, request: view(claimed[0]) };
+
+  const [row] = await db.select().from(devicePairRequests).where(eq(devicePairRequests.codeHash, hash)).limit(1);
+  if (!row || row.expiresAt.getTime() <= Date.now()) return { ok: false, error: NOT_FOUND };
+  if (row.consumedAt) return { ok: false, error: ALREADY_USED };
+  if (row.claimedByUserId === userId) return { ok: true, firstApproval: false, request: view(row) };
+  return { ok: false, error: ALREADY_APPROVED };
 }
 
 export type PollResult =
   | { status: "invalid" }
   | { status: "pending"; expiresAt: number }
+  | { status: "error"; expiresAt: number }
   | { status: "approved"; token: string };
 
 export async function pollPairing(ticket: unknown): Promise<PollResult> {
   const t = verifyPairTicket(ticket);
   if (!t) return { status: "invalid" };
   const db = getDb();
-  const claimed = await db
-    .update(authTokens)
-    .set({ usedAt: new Date() })
-    .where(and(eq(authTokens.tokenHash, t.codeHash), eq(authTokens.kind, "device_pair"), isNull(authTokens.usedAt), gte(authTokens.expiresAt, new Date())))
-    .returning({ userId: authTokens.userId });
-  const userId = claimed[0]?.userId;
-  if (!userId) return { status: "pending", expiresAt: t.expiresAt };
-  const token = await issueAuthToken(userId, "device_link", PAIR_EXCHANGE_TTL_MS);
-  return { status: "approved", token };
+  const now = new Date();
+  const consumed = await db
+    .update(devicePairRequests)
+    .set({ consumedAt: now })
+    .where(and(
+      eq(devicePairRequests.codeHash, t.codeHash),
+      isNotNull(devicePairRequests.claimedByUserId),
+      isNull(devicePairRequests.consumedAt),
+      gt(devicePairRequests.expiresAt, now),
+    ))
+    .returning({ id: devicePairRequests.id, userId: devicePairRequests.claimedByUserId });
+  const hit = consumed[0];
+  if (!hit?.userId) {
+    const [row] = await db
+      .select({ consumedAt: devicePairRequests.consumedAt })
+      .from(devicePairRequests)
+      .where(eq(devicePairRequests.codeHash, t.codeHash))
+      .limit(1);
+    // No row (cleaned up / never started) or already consumed → this ticket is done.
+    if (!row || row.consumedAt) return { status: "invalid" };
+    return { status: "pending", expiresAt: t.expiresAt };
+  }
+  try {
+    const token = await issueAuthToken(hit.userId, "device_link", PAIR_EXCHANGE_TTL_MS);
+    return { status: "approved", token };
+  } catch (e) {
+    // Un-consume so the desktop can retry the poll (claim stays with the approver).
+    console.error("[desktop-pair] exchange token issue failed:", e instanceof Error ? e.message : e);
+    await db.update(devicePairRequests).set({ consumedAt: null }).where(eq(devicePairRequests.id, hit.id)).catch(() => { /* ignore */ });
+    return { status: "error", expiresAt: t.expiresAt };
+  }
+}
+
+/** Password reset / sign-out-all: kill any approved-but-not-yet-consumed pairing for this user. */
+export async function revokePendingPairings(userId: string): Promise<void> {
+  await getDb()
+    .update(devicePairRequests)
+    // JS Date (not SQL now()): columns are timestamp-without-tz written from JS
+    // Dates, so DB now() in a non-UTC session timezone would not compare correctly.
+    .set({ expiresAt: new Date(Date.now() - 1000) })
+    .where(and(eq(devicePairRequests.claimedByUserId, userId), isNull(devicePairRequests.consumedAt)));
 }

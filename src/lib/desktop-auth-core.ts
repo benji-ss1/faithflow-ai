@@ -56,8 +56,97 @@ export function normalizePairCode(input: unknown): string | null {
   return c;
 }
 
+/** Keyed (HMAC, AUTH_SECRET-derived) so a DB dump of code hashes can't be
+ *  brute-forced over the 40-bit code space offline. */
 export function pairCodeHash(code: string): string {
-  return crypto.createHash("sha256").update(`device_pair:${code}`).digest("hex");
+  return crypto.createHmac("sha256", secret()).update(`device_pair:${code}`).digest("hex");
+}
+
+// ── Pairing request metadata (shown to the approver on /link) ───────────────
+
+export const PAIR_UA_MAX = 256;
+
+/** Vercel geo headers are URI-encoded (x-vercel-ip-city: "S%C3%A3o%20Paulo"). */
+export function decodeGeoHeader(v: string | null | undefined, max = 80): string | null {
+  if (!v) return null;
+  let out = v;
+  try { out = decodeURIComponent(v); } catch { /* keep raw */ }
+  out = [...out].filter((ch) => { const c = ch.charCodeAt(0); return c > 31 && c !== 127 && ch !== "<" && ch !== ">"; }).join("").trim().slice(0, max);
+  return out || null;
+}
+
+export function readGeo(headers: { get(name: string): string | null }): { country: string | null; city: string | null } {
+  const country = decodeGeoHeader(headers.get("x-vercel-ip-country"), 8);
+  return { country: country ? country.toUpperCase() : null, city: decodeGeoHeader(headers.get("x-vercel-ip-city")) };
+}
+
+/** Rough, human-readable "Browser on OS" from a User-Agent. Display only. */
+export function describeUserAgent(ua: string | null | undefined): string {
+  if (!ua) return "Unknown device";
+  const os =
+    /Windows NT/i.test(ua) ? "Windows" :
+    /iPhone|iPad|iPod/i.test(ua) ? "iOS" :
+    /Mac OS X|Macintosh/i.test(ua) ? "macOS" :
+    /Android/i.test(ua) ? "Android" :
+    /CrOS/i.test(ua) ? "ChromeOS" :
+    /Linux/i.test(ua) ? "Linux" : "Unknown OS";
+  const app =
+    /PresentFlow|Electron/i.test(ua) ? "PresentFlow desktop app" :
+    /Edg\//i.test(ua) ? "Edge" :
+    /OPR\//i.test(ua) ? "Opera" :
+    /Firefox\//i.test(ua) ? "Firefox" :
+    /Chrome\//i.test(ua) ? "Chrome" :
+    /Safari\//i.test(ua) ? "Safari" : "Unknown browser";
+  return `${app} on ${os}`;
+}
+
+export function describeLocation(city: string | null, country: string | null): string {
+  if (city && country) return `${city}, ${country}`;
+  return city || country || "Unknown location";
+}
+
+/** Strong-warning trigger: both countries known AND different. Unknown on
+ *  either side is not treated as a mismatch (local dev / missing geo). */
+export function isGeoMismatch(requestCountry: string | null | undefined, approverCountry: string | null | undefined): boolean {
+  if (!requestCountry || !approverCountry) return false;
+  return requestCountry.trim().toUpperCase() !== approverCountry.trim().toUpperCase();
+}
+
+// ── Session revocation / absolute lifetime ──────────────────────────────────
+
+export const SESSION_ABSOLUTE_MAX_MS = 180 * 24 * 60 * 60 * 1000;
+
+/**
+ * Pure verdict for an existing session JWT. `authTime` is the ORIGINAL sign-in
+ * time (preserved across rolling refreshes); `tokenVersion` the users.session_version
+ * copied in at sign-in; `dbVersion` the current DB value (undefined = not loaded
+ * this call). Legacy tokens (pre-hardening) lack both: treated as version 0 and
+ * authTime is stamped on first refresh by the caller.
+ */
+export function sessionTokenVerdict(input: { authTime?: unknown; tokenVersion?: unknown; dbVersion?: number; now?: number }): "ok" | "expired" | "revoked" {
+  const now = input.now ?? Date.now();
+  const at = Number(input.authTime);
+  if (input.authTime !== undefined && (!Number.isFinite(at) || now - at > SESSION_ABSOLUTE_MAX_MS)) return "expired";
+  if (input.dbVersion !== undefined) {
+    const tv = input.tokenVersion === undefined ? 0 : Number(input.tokenVersion);
+    if (tv !== input.dbVersion) return "revoked";
+  }
+  return "ok";
+}
+
+// ── Pair-exchange marker (skip the no-session confirm page) ─────────────────
+// Set as an httpOnly cookie on the POLL response in the same window that polled,
+// bound to the exchange token. A forwarded exchange URL opened elsewhere lacks
+// it and gets the confirm page (login-CSRF protection).
+
+export const PAIR_MARKER_COOKIE = "pf_pair_x";
+
+export function signPairExchangeMarker(exchangeToken: string): string {
+  return hmac("pf-pair-exchange", tokenHash(exchangeToken));
+}
+
+export function verifyPairExchangeMarker(marker: unknown, exchangeToken: string): boolean {
+  return typeof marker === "string" && marker.length < 200 && safeEqual(marker, signPairExchangeMarker(exchangeToken));
 }
 
 type TicketPayload = { v: 1; h: string; n: string; e: number };
@@ -103,16 +192,26 @@ export function verifyExchangeConfirm(csrf: unknown, sessionUserId: string, devi
   return safeEqual(csrf.slice(dot + 1), hmac("pf-dx-confirm", `${sessionUserId}:${tokenHash(deviceToken)}:${exp}`));
 }
 
-export type ExchangeDecision = "exchange" | "same-user" | "confirm" | "invalid";
+export type ExchangeDecision = "exchange" | "same-user" | "confirm" | "confirm-signin" | "invalid";
+
+/** CSRF subject for the no-session "Sign in as …?" confirm POST. */
+export const ANON_CONFIRM_SUBJECT = "anon";
 
 /**
  * What GET /api/auth/device-exchange should do. A token for a DIFFERENT user
  * than the one already signed in must never swap silently — it needs an
  * explicit, CSRF-protected confirm POST.
  */
-export function decideExchange(sessionUserId: string | null, tokenUserId: string | null): ExchangeDecision {
+export function decideExchange(
+  sessionUserId: string | null,
+  tokenUserId: string | null,
+  opts: { pairMarkerValid?: boolean } = {},
+): ExchangeDecision {
   if (!tokenUserId) return "invalid";
-  if (!sessionUserId) return "exchange";
+  // No session: only the window that completed pairing (valid marker cookie)
+  // exchanges silently. A bare deep link / forwarded URL must confirm, so an
+  // attacker can't log a victim's desktop into the ATTACKER's account.
+  if (!sessionUserId) return opts.pairMarkerValid ? "exchange" : "confirm-signin";
   if (sessionUserId === tokenUserId) return "same-user";
   return "confirm";
 }
@@ -122,7 +221,8 @@ export function isSameOriginPost(headers: { get(name: string): string | null }):
   const site = headers.get("sec-fetch-site");
   if (site !== null && site !== "same-origin") return false;
   const origin = headers.get("origin");
-  const host = headers.get("x-forwarded-host") ?? headers.get("host");
+  // Proxies may append: "a.example, b.internal" — the first hop is the client-facing host.
+  const host = headers.get("x-forwarded-host")?.split(",")[0]?.trim() || headers.get("host");
   if (!origin || !host) return false;
   try {
     return new URL(origin).host === host;

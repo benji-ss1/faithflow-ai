@@ -110,6 +110,32 @@ This link expires in 1 hour. If you didn't request this, you can ignore it — y
   return deliver(to, "Reset your PresentFlow password", html, text);
 }
 
+/** Security notice after a desktop pairing approval. Best-effort: callers must
+ *  not fail the approval if delivery fails (deliver() logs + returns ok:false). */
+export async function sendDeviceSignedInEmail(
+  to: string,
+  name: string,
+  info: { device: string; location: string; when: Date },
+) {
+  const url = `${APP_URL}/settings#security`;
+  const when = info.when.toUTCString();
+  const text = `Hi ${name},
+
+A computer was signed in to your PresentFlow account.
+
+Device: ${info.device}
+Location (approximate): ${info.location}
+Time: ${when}
+
+If this was you, no action is needed. If it wasn't, sign out all devices now and change your password:
+
+${url}
+
+— PresentFlow`;
+  const html = `<p>Hi ${escapeHtml(name)},</p><p><b>A computer was signed in to your PresentFlow account.</b></p><p>Device: ${escapeHtml(info.device)}<br>Location (approximate): ${escapeHtml(info.location)}<br>Time: ${escapeHtml(when)}</p><p>If this was you, no action is needed. If it wasn't, <a href="${url}">sign out all devices</a> now and change your password.</p>`;
+  return deliver(to, "A computer was signed in to your PresentFlow account", html, text);
+}
+
 export async function sendInvitationEmail(to: string, invitedByName: string, churchName: string, token: string) {
   const url = `${APP_URL}/accept-invite?token=${token}`;
   const text = `Hi,

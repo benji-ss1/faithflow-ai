@@ -3,22 +3,26 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db/client";
 import { churches, users } from "@/lib/db/schema";
-import { normalizePairCode, formatPairCode } from "@/lib/desktop-auth-core";
 import { LinkApproveForm } from "./LinkApproveForm";
 
 export const dynamic = "force-dynamic";
 
 // Web page the desktop app opens in the system browser: approve a computer to
 // sign in as the account signed into THIS browser. Public in middleware so we
-// can bounce to /login with a ?next= back to this exact code.
+// can bounce to /login with a ?next= back here.
+//
+// Anti-phishing: the code is NEVER pre-filled from the URL (a link someone
+// sends you would otherwise be a one-click approval). ?code= only shows a
+// notice; the user must type the code shown on their own computer, then sees
+// the requesting device/location before approving.
 export default async function LinkDevicePage({ searchParams }: { searchParams: Promise<{ code?: string }> }) {
   const { code: rawCode } = await searchParams;
-  const code = normalizePairCode(rawCode ?? "");
+  const cameWithCode = typeof rawCode === "string" && rawCode.length > 0;
   const session = await auth();
   const email = session?.user?.email;
   if (!email) {
-    const next = code ? `/link?code=${formatPairCode(code)}` : "/link";
-    redirect(`/login?next=${encodeURIComponent(next)}`);
+    // Deliberately drop the code from ?next= — it is never used to pre-fill.
+    redirect(`/login?next=${encodeURIComponent(cameWithCode ? "/link?from=desktop" : "/link")}`);
   }
   const db = getDb();
   const [me] = await db.select({ name: users.name, email: users.email, churchId: users.churchId }).from(users).where(eq(users.email, email)).limit(1);
@@ -34,9 +38,9 @@ export default async function LinkDevicePage({ searchParams }: { searchParams: P
         <p style={{ opacity: 0.8, lineHeight: 1.5, margin: "0 0 18px" }}>
           The PresentFlow desktop app on that computer will be signed in as <strong>{me.email}</strong> for <strong>{church?.name ?? "your church"}</strong>.
         </p>
-        <LinkApproveForm initialCode={code ? formatPairCode(code) : ""} />
+        <LinkApproveForm showTypeNotice />
         <p style={{ opacity: 0.55, fontSize: 12, lineHeight: 1.5, marginTop: 18 }}>
-          Only approve a code that is showing on a computer in front of you. Never approve a code someone sent you.
+          Never approve a code someone sent you or read out to you.
         </p>
       </div>
     </div>
