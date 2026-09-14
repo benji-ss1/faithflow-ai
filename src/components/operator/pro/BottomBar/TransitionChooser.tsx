@@ -13,7 +13,7 @@ export const TRANSITIONS = [
 
 // Map each display name to a preview-animation class (see PREVIEW_CSS below).
 // Exotic effects that share an engine substitute reuse a fitting preview.
-function previewKind(name: string): string {
+export function previewKind(name: string): string {
   switch (name) {
     case "Cut": return "cut";
     case "Fade": return "fade";
@@ -187,7 +187,6 @@ function TransitionCard({
   onToggleFav: () => void;
   onSelect: () => void;
 }) {
-  const kind = previewKind(name);
   return (
     <button
       onClick={onSelect}
@@ -199,10 +198,7 @@ function TransitionCard({
       }`}
     >
       {/* Animated mini-preview */}
-      <div className={`pf-tp pf-tp--${kind} relative w-full h-[62px] rounded-lg overflow-hidden`}>
-        <span className="pf-tp-out" />
-        <span className="pf-tp-in" />
-      </div>
+      <TransitionPreviewBox name={name} className="h-[62px]" />
       <div className="flex items-center justify-between mt-1.5 pl-1">
         <span className={`text-[11px] font-semibold truncate ${selected ? "text-[var(--color-foreground)]" : "text-[var(--color-muted-foreground)] group-hover:text-[var(--color-foreground)]"}`}>{name}</span>
         <span
@@ -219,10 +215,29 @@ function TransitionCard({
   );
 }
 
+// Shared animated preview box — the two-layer orange/grey mini-slide that
+// demonstrates a transition on a loop. Exported so the centre Transitions panel
+// renders the SAME cards as this bottom-bar chooser. Pair with <TransitionPreviewStyle/>
+// (or inline <style>{PREVIEW_CSS}</style>) once in the host so the keyframes exist.
+export function TransitionPreviewBox({ name, className = "" }: { name: string; className?: string }) {
+  const kind = previewKind(name);
+  return (
+    <div className={`pf-tp pf-tp--${kind} relative w-full rounded-lg overflow-hidden ${className}`}>
+      <span className="pf-tp-out" />
+      <span className="pf-tp-in" />
+    </div>
+  );
+}
+
+/** Injects the preview keyframes once. Render a single instance per host. */
+export function TransitionPreviewStyle() {
+  return <style>{PREVIEW_CSS}</style>;
+}
+
 // Two-layer looping previews. `.pf-tp-out` = outgoing slide, `.pf-tp-in` =
 // incoming slide. Each `.pf-tp--<kind>` drives the incoming layer's reveal so
 // the card visually demonstrates the effect on a ~2.4s loop.
-const PREVIEW_CSS = `
+export const PREVIEW_CSS = `
 .pf-tp { background: #0a0a0c; }
 .pf-tp-out, .pf-tp-in { position: absolute; inset: 0; display: block; }
 .pf-tp-out { background: linear-gradient(135deg, #26262b, #17171b); }

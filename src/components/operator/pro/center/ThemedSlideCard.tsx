@@ -31,7 +31,14 @@ export function ThemedSlideCard({
   const hasBg = !!(background && background.type !== "none");
   const kind = slide.kind;
   const themeable = kind === "text" || kind === "blank";
-  const showBg = hasBg && themeable;
+  // A per-slide background IMAGE fully overrides the global/theme background (this
+  // is the precedence SlideRenderer uses on the LIVE path). The card must match:
+  // if we still painted the global CardBackground here it would stack ABOVE
+  // SlideRenderer's own per-slide image and hide it — so the card showed the global
+  // background while live showed the dropped image. Suppress the global layer (and
+  // overVideo) when the slide carries its own image, making the card === live.
+  const hasSlideImage = kind === "text" && !!(slide as { bgImageUrl?: string }).bgImageUrl;
+  const showBg = hasBg && themeable && !hasSlideImage;
   return (
     <>
       {showBg && <CardBackground background={background!} />}

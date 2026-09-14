@@ -14,6 +14,10 @@ const DISMISS_PREFIX = "presentflow.announcement.dismissed.";
  */
 export function AnnouncementBar() {
   const [show, setShow] = useState(false);
+  // An app UPDATE always takes priority over the What's-New bar — when the update
+  // banner is active the announcement yields (no stacked/duplicate banners). The
+  // update banner emits this event; default false so the web build is unaffected.
+  const [updateActive, setUpdateActive] = useState(false);
 
   useEffect(() => {
     if (!ANNOUNCEMENT) return;
@@ -25,7 +29,13 @@ export function AnnouncementBar() {
     }
   }, []);
 
-  if (!ANNOUNCEMENT || !show) return null;
+  useEffect(() => {
+    const onUpdate = (e: Event) => setUpdateActive(!!(e as CustomEvent<{ active?: boolean }>).detail?.active);
+    window.addEventListener("presentflow:update-banner-active", onUpdate);
+    return () => window.removeEventListener("presentflow:update-banner-active", onUpdate);
+  }, []);
+
+  if (!ANNOUNCEMENT || !show || updateActive) return null;
   const ann = ANNOUNCEMENT;
 
   const info = ann.tone === "info";
@@ -44,7 +54,18 @@ export function AnnouncementBar() {
       role="status"
     >
       <span className="truncate">{ann.message}</span>
-      {ann.ctaLabel && ann.ctaHref && (
+      {ann.ctaLabel && ann.ctaHref === "#whats-new" ? (
+        // Sentinel: open the What's New patch-notes modal in place instead of
+        // navigating (testers are already on the operator).
+        <button
+          type="button"
+          onClick={() => { try { window.dispatchEvent(new CustomEvent("presentflow:open-whats-new")); } catch { /* noop */ } }}
+          className="shrink-0 inline-flex items-center gap-1 h-6 px-2.5 rounded-md text-[11.5px] font-bold"
+          style={{ background: "#ffffff", color: "#17130c" }}
+        >
+          {ann.ctaLabel} <ArrowRight className="w-3.5 h-3.5" />
+        </button>
+      ) : ann.ctaLabel && ann.ctaHref ? (
         <Link
           href={ann.ctaHref}
           className="shrink-0 inline-flex items-center gap-1 h-6 px-2.5 rounded-md text-[11.5px] font-bold"
@@ -52,7 +73,7 @@ export function AnnouncementBar() {
         >
           {ann.ctaLabel} <ArrowRight className="w-3.5 h-3.5" />
         </Link>
-      )}
+      ) : null}
       <button
         onClick={dismiss}
         aria-label="Dismiss announcement"

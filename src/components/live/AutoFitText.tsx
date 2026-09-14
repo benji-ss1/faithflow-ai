@@ -330,7 +330,14 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
     const cached = editingRef.current ? undefined : fitCacheGet(cacheKey);
     if (cached !== undefined) {
       lastFittedRef.current = cached;
-      setSize(Math.max(effectiveMinPx, Math.min(maxPx, Math.round(cached * fontScaleRef.current))));
+      // Y6: re-fit a scaled-up size back into the box (band vScale) so a repeat
+      // slide can't overflow via the cache path either.
+      const cachedShown = refitScaledToBox(
+        cached, Math.round(cached * fontScaleRef.current), effectiveMinPx, maxPx,
+        (px) => { t.style.fontSize = `${px}px`; return t.scrollWidth <= bw + 1 && t.scrollHeight <= bh + 1; },
+      );
+      t.style.fontSize = `${cachedShown}px`;
+      setSize(cachedShown);
       return;
     }
 
@@ -359,8 +366,14 @@ export function AutoFitText({ text, className, textStyle, maxPx = 220, paddingRa
         hi = mid - 1;
       }
     }
-    // B3 manual scale (see projector path). Clamp to [effectiveMinPx, maxPx].
-    const shown = Math.max(effectiveMinPx, Math.min(maxPx, Math.round(best * fontScaleRef.current)));
+    // B3 manual scale (see projector path). Clamp to [effectiveMinPx, maxPx] AND
+    // (Y6) re-fit a scaled-up size back into the box so the band's "Text size"
+    // (vScale) can't push the verse past the band box (200% overflow). Scale ≤ 1
+    // or a fitting scale-up is unchanged.
+    const shown = refitScaledToBox(
+      best, Math.round(best * fontScaleRef.current), effectiveMinPx, maxPx,
+      (px) => { t.style.fontSize = `${px}px`; return t.scrollWidth <= bw + 1 && t.scrollHeight <= bh + 1; },
+    );
     // Fix-loop 2026-07-27: pin the DOM to the shown size — the loop's last
     // probe may have been a failing value, and a no-op setState (resize with
     // unchanged best) would otherwise leave it on screen.
@@ -606,6 +619,38 @@ const TRAILING_REF_RE = /\n\n([1-3]?\s?[A-Za-z ]+ \d+:\d+(?:-\d+)?\s*(?:\([A-Z0-
  * trailing reference (songs, announcements, plain text) so the whole string
  * renders at the primary size.
  */
+/**
+ * Y6 — re-fit a manually-scaled size back into the box.
+ *
+ * In the non-projector fit path (used by the scripture lower-third band), the
+ * shown size is `best × fontScale`. `best` is the largest that fits UP TO maxPx,
+ * so scaling UP (e.g. the band's "Text size" vScale at 200%) can push the size
+ * past what the band box can actually hold — the verse overflows the band. This
+ * clamps the scaled size DOWN to the largest that genuinely fits, but only when
+ * scaling up AND overflowing: a scale ≤ 1, or a scale-up that still fits, is
+ * returned unchanged (byte-identical to the prior behaviour). Pure: the box test
+ * is injected as `fits(px)`, so the algorithm is unit-testable without a DOM.
+ */
+export function refitScaledToBox(
+  best: number,
+  desiredShown: number,
+  minPx: number,
+  maxPx: number,
+  fits: (px: number) => boolean,
+): number {
+  const clamp = (v: number) => Math.max(minPx, Math.min(maxPx, v));
+  const shown = clamp(desiredShown);
+  if (shown <= best) return shown;          // scaling down / neutral — unchanged
+  if (fits(shown)) return shown;            // fits the box — keep the enlargement
+  // Largest size in [best, shown] that still fits (best is known to fit).
+  let lo = best, hi = shown, found = best;
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (fits(mid)) { found = mid; lo = mid + 1; } else { hi = mid - 1; }
+  }
+  return clamp(found);
+}
+
 export function splitTrailingRef(text: string): { body: string; ref: string } {
   if (!text) return { body: "", ref: "" };
   const m = TRAILING_REF_RE.exec(text);

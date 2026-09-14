@@ -25,7 +25,7 @@ function bgStyle(cfg: Record<string, unknown>): React.CSSProperties {
   const bg2 = (cfg.bgColor2 as string) || "#1A0A14";
   const bgImageUrl = (cfg.bgImageUrl as string) || "";
   if (bgType === "gradient") return { background: `linear-gradient(135deg, ${bg1}, ${bg2})` };
-  if (bgType === "image" && bgImageUrl) return { backgroundImage: `url(${bgImageUrl})`, backgroundSize: "cover", backgroundPosition: "center" };
+  if (bgType === "image" && bgImageUrl) return { backgroundImage: `url("${bgImageUrl}")`, backgroundSize: "cover", backgroundPosition: "center" };
   return { background: bg1 };
 }
 

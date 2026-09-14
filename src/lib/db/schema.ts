@@ -1,7 +1,11 @@
-import { pgTable, uuid, text, timestamp, integer, jsonb, boolean, pgEnum, date, vector, index, uniqueIndex, numeric } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, integer, jsonb, boolean, pgEnum, date, vector, index, uniqueIndex, numeric, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
-export const serviceItemTypeEnum = pgEnum("service_item_type", ["song", "scripture", "media", "sermon", "blank", "logo"]);
+export const serviceItemTypeEnum = pgEnum("service_item_type", ["song", "scripture", "media", "sermon", "blank", "logo", "header"]);
+// Single source of truth for the service-item type union (Y4). Derived from the
+// pgEnum so the DB enum and every TS annotation can never drift. type-only import
+// downstream ⇒ zero runtime/bundle cost in client components.
+export type ServiceItemType = (typeof serviceItemTypeEnum.enumValues)[number];
 export const mediaKindEnum = pgEnum("media_kind", ["image", "video"]);
 export const pptxStatusEnum = pgEnum("pptx_status", ["pending", "converting", "ready", "failed"]);
 
@@ -55,6 +59,10 @@ export const users = pgTable("users", {
   // user so we don't hot-write on every RSC prefetch). Surfaces on the Team
   // page so admins can see who's been active recently.
   lastActiveAt: timestamp("last_active_at"),
+  // Embedded in the session JWT at sign-in; bumped by "sign out all devices"
+  // and password reset. The jwt refresh ends any session whose copy differs.
+  // docs/migrations/2026-09-14-desktop-signin-hardening.sql
+  sessionVersion: integer("session_version").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -62,12 +70,33 @@ export const users = pgTable("users", {
 export const authTokens = pgTable("auth_tokens", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
-  kind: text("kind").notNull(), // "verify_email" | "password_reset"
+  kind: text("kind").notNull(), // "verify_email" | "password_reset" | "device_link" | "device_pair"
   tokenHash: text("token_hash").notNull(),
   expiresAt: timestamp("expires_at").notNull(),
   usedAt: timestamp("used_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// Desktop pairing requests (one per code shown on a desktop). Records the
+// requesting device so the approver sees what they're approving, and gives an
+// atomic first-approver-wins claim. Server-only; RLS deny-all.
+// docs/migrations/2026-09-14-desktop-signin-hardening.sql
+export const devicePairRequests = pgTable("device_pair_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  codeHash: text("code_hash").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  ip: text("ip"),
+  userAgent: text("user_agent"),
+  country: text("country"),
+  city: text("city"),
+  claimedByUserId: uuid("claimed_by_user_id").references(() => users.id, { onDelete: "cascade" }),
+  claimedAt: timestamp("claimed_at"),
+  consumedAt: timestamp("consumed_at"),
+}, (t) => [
+  uniqueIndex("device_pair_requests_code_hash_uq").on(t.codeHash),
+  index("device_pair_requests_expires_idx").on(t.expiresAt),
+]);
 
 // Invitations: admin adds a teammate → email with a signed invite link.
 export const invitations = pgTable("invitations", {
@@ -127,6 +156,22 @@ export const migrationJobs = pgTable("migration_jobs", {
   completedAt: timestamp("completed_at"),
 });
 
+// ProPresenter parity (Phase 3.6) — named content libraries per church.
+// Content (songs, media) references a library via a nullable library_id;
+// NULL = unassigned, surfaced as the built-in "Default" library in the UI.
+export const libraries = pgTable("libraries", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id).notNull(),
+  name: text("name").notNull(),
+  order: integer("order").notNull().default(0),
+  // Wave 3 (item 3b): optional #rrggbb colour label, rendered as a dot/accent
+  // on the rail row. NULL = no label. Validated on write like header colours.
+  color: text("color"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("idx_libraries_church").on(t.churchId, t.order),
+]);
+
 export const servicePlans = pgTable("service_plans", {
   id: uuid("id").primaryKey().defaultRandom(),
   churchId: uuid("church_id").references(() => churches.id).notNull(),
@@ -162,8 +207,13 @@ export const songs = pgTable("songs", {
   // mediaAssets.id; nullable + ON DELETE SET NULL so removing a media asset
   // never orphans a song.
   defaultBackgroundAssetId: uuid("default_background_asset_id"),
+  // ProPresenter parity (Phase 3.6): optional library membership. Nullable +
+  // ON DELETE SET NULL so a deleted library never orphans a song (falls back
+  // to the "Default" bucket). Tolerant reads treat NULL as unassigned.
+  libraryId: uuid("library_id").references(() => libraries.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
+  index("idx_songs_library").on(t.libraryId),
   // Serves every dup-check (WHERE church_id = ? AND title = ?, used by all
   // 4 import paths) and every song-count query (getSongUsage) — previously
   // a full table scan on both. Had no index at all beyond the primary key.
@@ -179,12 +229,57 @@ export const songSlides = pgTable("song_slides", {
   // When present + non-empty, this is the source of truth; when null,
   // the legacy `lyrics` string renders as a single full-canvas text object.
   objectsJson: jsonb("objects_json"),
+  // ProPresenter parity (§12): group membership. NULL = ungrouped (no-regression
+  // line — a song with no groups projects byte-identically to today). ON DELETE
+  // SET NULL so deleting a group never orphans its slides.
+  groupId: uuid("group_id").references((): AnyPgColumn => songGroups.id, { onDelete: "set null" }),
+  // Phase 4 (Slide Actions / P8) — serializable ActionSpec[] fired when this
+  // slide goes live (validated NON-destructive: no blank/kill/clear_all). NULL/[]
+  // = no attached actions (no-regression line). See src/engine/slide-actions.
+  actions: jsonb("actions").notNull().default([]),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   // The FK to songs does NOT auto-index song_id in Postgres, yet every slide
   // read + the re-chunk delete filters on it. Invisible at demo scale, a
   // table-scan storm when re-chunking across a library (A2, Speed fold §3a-5).
   index("idx_song_slides_song").on(t.songId),
+  index("idx_song_slides_group").on(t.groupId),
+]);
+
+// ProPresenter parity (§12 / MVP §9) — named, colour-coded sections of ONE song.
+// See docs/migrations/2026-09-08-add-song-groups-and-arrangements.sql for the
+// data-model rationale (relational, not JSONB, so edit-once-update-everywhere is
+// free). church_id is defence-in-depth; every read still two-hop verifies via
+// songs.church_id.
+export const songGroups = pgTable("song_groups", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id).notNull(),
+  songId: uuid("song_id").references(() => songs.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  kind: text("kind").notNull().default("custom"), // verse|chorus|bridge|intro|blank|tag|custom
+  color: text("color"), // #rrggbb; null = palette default by kind
+  order: integer("order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("idx_song_groups_song").on(t.songId, t.order),
+  index("idx_song_groups_church").on(t.churchId),
+]);
+
+// Named orderings of group references, per song. `order` is a string[] of
+// songGroups.id, repeatable (Chorus x3). Absence of any arrangement == today's
+// natural slide order (the no-regression line).
+export const songArrangements = pgTable("song_arrangements", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id).notNull(),
+  songId: uuid("song_id").references(() => songs.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  isDefault: boolean("is_default").notNull().default(false),
+  order: jsonb("order").notNull().default([]),
+  sort: integer("sort").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("idx_song_arrangements_song").on(t.songId, t.sort),
+  index("idx_song_arrangements_church").on(t.churchId),
 ]);
 
 export const mediaAssets = pgTable("media_assets", {
@@ -201,8 +296,11 @@ export const mediaAssets = pgTable("media_assets", {
   widthPx: integer("width_px"),
   heightPx: integer("height_px"),
   durationMs: integer("duration_ms"),
+  // ProPresenter parity (Phase 3.6): optional library membership (see songs).
+  libraryId: uuid("library_id").references(() => libraries.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
+  index("idx_media_assets_library").on(t.libraryId),
   // 2026-08-31 media-library speed: listMedia does
   // where(church_id).orderBy(created_at) on every panel open — this composite
   // index turns the seq-scan + sort into an index range scan (matches the
@@ -394,6 +492,15 @@ export const churchPreferences = pgTable("church_preferences", {
   autoApproveEnabled: boolean("auto_approve_enabled").notNull().default(false),
   autoApproveThreshold: integer("auto_approve_threshold").notNull().default(90), // 0-100
   autoSendToLive: boolean("auto_send_to_live").notNull().default(false), // when auto-approve + this = true, skip Preview altogether
+  // Decoupling Phase 3 (2026-09-08): per-church opt-in for the layers/output
+  // engine (operator Layers Panel + render-from-layers). Gated ALSO by the
+  // global NEXT_PUBLIC_LAYERS_V2 kill-switch. Default false: no church path
+  // changes until it is deliberately enabled + projector-verified.
+  // NOTE: because operate/operator select ALL columns via db.select(), the
+  // matching migration MUST be applied to the DB BEFORE this code deploys, or
+  // those pages error on the missing column. Migration-first is REQUIRED (the
+  // app-code `?? false` only covers the no-row case, not an absent column).
+  layersV2: boolean("layers_v2").notNull().default(false),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
@@ -483,6 +590,68 @@ export const themes = pgTable("themes", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+// Wave 7 — multi-timer + message templates -----------------------------------
+// Church-persisted timer DEFINITIONS (the operator's saved timers): a name, a
+// type, and a duration (for countdown) or a target clock (for countdown_to).
+// Runtime state (running/remaining/shown) is NEVER persisted here — it lives in
+// the operator session so a fresh Sunday never resurrects last week's countdown.
+export const timerTypeEnum = pgEnum("timer_type", ["countdown", "countdown_to", "elapsed"]);
+
+export const timerDefinitions = pgTable("timer_definitions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  type: timerTypeEnum("type").notNull().default("countdown"),
+  // Seconds to count down from (countdown). Ignored for elapsed / countdown_to.
+  durationSec: integer("duration_sec").notNull().default(300),
+  // Wall-clock target "HH:MM" (24h) for countdown_to. Null otherwise; resolved
+  // to today's epoch on load.
+  targetClock: text("target_clock"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("idx_timer_definitions_church").on(t.churchId, t.sortOrder),
+]);
+
+// Church-persisted MESSAGE TEMPLATES: a reusable name + text + position preset +
+// style basics + an optional bound timer (config jsonb). The {{timer}} token in
+// the text renders the bound timer's live value.
+export const messageTemplates = pgTable("message_templates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  text: text("text").notNull().default(""),
+  // OverlayPosition string ("lower-third", "top-right", …).
+  position: text("position").notNull().default("lower-third"),
+  // { scroll?, scrollDir?, scrollSec?, allowWeb?, dismiss?, timerId? } — style +
+  // behaviour basics + optional {{timer}} binding. jsonb for additive growth.
+  config: jsonb("config").notNull().default({}),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("idx_message_templates_church").on(t.churchId, t.sortOrder),
+]);
+
+// ProPresenter parity (§21.2 Automation domain) — Automations (macros): a
+// church-persisted, named list of serializable ActionSpec[] fired in sequence.
+// Caps enforced in the server action (≤50/church, ≤20 actions each). Guarded
+// (destructive) actions ARE allowed here but fire behind an in-panel confirm.
+export const macros = pgTable("macros", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  churchId: uuid("church_id").references(() => churches.id, { onDelete: "cascade" }).notNull(),
+  name: text("name").notNull(),
+  // ActionSpec[] — validated + sanitized on write (no macro-in-macro recursion).
+  actions: jsonb("actions").notNull().default([]),
+  enabled: boolean("enabled").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("idx_macros_church").on(t.churchId, t.sortOrder),
+]);
 
 // Networked projector sync — device pairings.
 // Each row is a short-lived pair code that authorises a projector/stage/stream
@@ -627,7 +796,9 @@ export const openFlowConversations = pgTable("openflow_conversations", {
 
 export const servicePlanRelations = relations(servicePlans, ({ many }) => ({ items: many(serviceItems) }));
 export const serviceItemRelations = relations(serviceItems, ({ one }) => ({ plan: one(servicePlans, { fields: [serviceItems.servicePlanId], references: [servicePlans.id] }) }));
-export const songRelations = relations(songs, ({ many }) => ({ slides: many(songSlides) }));
-export const songSlideRelations = relations(songSlides, ({ one }) => ({ song: one(songs, { fields: [songSlides.songId], references: [songs.id] }) }));
+export const songRelations = relations(songs, ({ many }) => ({ slides: many(songSlides), groups: many(songGroups), arrangements: many(songArrangements) }));
+export const songSlideRelations = relations(songSlides, ({ one }) => ({ song: one(songs, { fields: [songSlides.songId], references: [songs.id] }), group: one(songGroups, { fields: [songSlides.groupId], references: [songGroups.id] }) }));
+export const songGroupRelations = relations(songGroups, ({ one, many }) => ({ song: one(songs, { fields: [songGroups.songId], references: [songs.id] }), slides: many(songSlides) }));
+export const songArrangementRelations = relations(songArrangements, ({ one }) => ({ song: one(songs, { fields: [songArrangements.songId], references: [songs.id] }) }));
 export const pptxImportRelations = relations(pptxImports, ({ many }) => ({ slides: many(pptxSlides) }));
 export const pptxSlideRelations = relations(pptxSlides, ({ one }) => ({ import: one(pptxImports, { fields: [pptxSlides.pptxImportId], references: [pptxImports.id] }) }));

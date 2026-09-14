@@ -29,4 +29,13 @@ const survives = (bgColor: string | undefined, objects: any[]) => (projectableTe
   check("theme bgColor undefined", bgColor === undefined);
   check("theme one logo object", objects.length === 1 && (objects[0] as any).kind === "image");
 }
+{
+  // Blur fill: a full-screen blurred image backdrop (objects[0]) + sharp logo (objects[1]).
+  const { bgColor, objects } = buildMediaFrameSlide({ fit: "contain", posX: 50, posY: 50, zoom: 1, bgMode: "background", bgKind: "blur", logoSizePct: 55 } as any, URL);
+  check("blur bgColor black backstop", bgColor === "#000000");
+  check("blur backdrop FIRST: full-canvas cover image with blur flag", objects.length === 2 && (objects[0] as any).kind === "image" && (objects[0] as any).w === 1920 && (objects[0] as any).h === 1080 && (objects[0] as any).fit === "cover" && (objects[0] as any).blur === true);
+  check("blur backdrop uses the same image url", (objects[0] as any).url === URL);
+  check("blur logo second: sharp contain, no blur", (objects[1] as any).kind === "image" && (objects[1] as any).fit === "contain" && !(objects[1] as any).blur && (objects[1] as any).w === 1056);
+  check("blur payload survives (backdrop+logo)", survives(bgColor, objects));
+}
 console.log(`\n${pass} passed, ${fail} failed`); assert.equal(fail, 0);

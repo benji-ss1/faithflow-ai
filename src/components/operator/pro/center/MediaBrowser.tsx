@@ -18,16 +18,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import { Upload, Pencil, Trash2, CheckSquare, Square, ListPlus, ArrowUpDown, GripVertical, Check, Crop, X } from "lucide-react";
+import { Upload, Pencil, Trash2, CheckSquare, Square, ListPlus, ArrowUpDown, GripVertical, Check, Crop, X, Images } from "lucide-react";
 import { DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCenter, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, useSortable, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import { projectableTextSlide, type SlidePayload } from "@/lib/broadcast";
-import { registerMediaAsset, renameMediaAsset, deleteMediaAsset } from "@/lib/actions";
-import { setMediaOnActiveTheme } from "@/lib/theme-quick-apply";
+import { registerMediaAsset, renameMediaAsset, deleteMediaAsset, setMediaLibrary, listLibraries, type LibraryRow } from "@/lib/actions";
+import { useSelectedLibrary, libraryQueryParam, getSelectedLibrary, setSelectedLibrary, type LibraryFilter } from "../left/libraryFilter";
+import { setMediaOnActiveTheme, clearActiveThemeBackground, type QuickThemeChange } from "@/lib/theme-quick-apply";
+import { setMediaAsBackground, normalizeMediaKind } from "@/backgrounds/mediaAsBackground";
+import { snapshotBackgroundState, restoreBackgroundState, removeCustomBackground } from "@/backgrounds/store/backgroundStore";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { MediaImportWizard } from "./MediaImportWizard";
+import { takePendingImport, onOsDropImport, type PendingImport } from "./pendingImport";
 import { MediaImageEditor } from "./MediaImageEditor";
 import { loadMediaFrame, clearMediaFrame, buildMediaFrameSlide } from "./mediaFrame";
 import { loadMediaOrder, saveMediaOrder, applyMediaOrder } from "./mediaOrder";
@@ -40,6 +45,7 @@ type Asset = {
   createdAt: string;
   url: string;          // full-res original — used for projection + theme apply
   thumbUrl?: string;    // small grid preview — falls back to url server-side
+  mediaKey?: string;    // durable S3 key — re-mint a media background's URL across restarts
 };
 
 type Filter = "all" | "image" | "video";
@@ -68,6 +74,8 @@ export function MediaBrowser({
   ctx: OperatorShellCtx;
   onExitToSlides: () => void;
 }) {
+  // Electron-safe confirm (native window.confirm can freeze the desktop shell).
+  const { confirm, dialog: confirmDialog } = useConfirm();
   // Seed from the per-church cache so re-opening the panel paints immediately.
   const [assets, setAssets] = useState<Asset[]>(() => mediaListCache.get(ctx.churchId) ?? []);
   const [loading, setLoading] = useState(false);
@@ -77,6 +85,9 @@ export function MediaBrowser({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [wizardOpen, setWizardOpen] = useState(false);
+  // Wave 3 (item 4c): a pending OS-file-drop import (files + target library),
+  // fed from a Library-row drop in the left rail via the pendingImport bridge.
+  const [dropImport, setDropImport] = useState<PendingImport | null>(null);
   const [editingImage, setEditingImage] = useState<Asset | null>(null);
   // Pending single-click → project timer, so a double-click (to open the framing
   // editor) cancels it instead of first flashing the raw image onto the projector.
@@ -100,12 +111,62 @@ export function MediaBrowser({
   const [order, setOrder] = useState<string[]>([]);
   const [reorderMode, setReorderMode] = useState(false);
   useEffect(() => { setOrder(loadMediaOrder(ctx.churchId)); }, [ctx.churchId]);
+
+  // Wave 3 (item 4c): consume an OS-file-drop import — on mount (covers the
+  // case where the drop switched us to media mode and mounted us) AND on the
+  // event (covers "already mounted"). Opens the wizard pre-queued + pre-filed.
+  useEffect(() => {
+    const consume = () => {
+      const p = takePendingImport();
+      if (p) { setDropImport(p); setWizardOpen(true); }
+    };
+    consume();
+    return onOsDropImport(consume);
+  }, []);
   const renameInputRef = useRef<HTMLInputElement>(null);
+
+  // ProPresenter parity (Phase 3.6): filter the grid by the selected Library.
+  // The per-church cache is only valid for the unfiltered ("all") view, so a
+  // filtered view bypasses cache read + write-through entirely.
+  const [selectedLibrary] = useSelectedLibrary();
+  const libQ = libraryQueryParam(selectedLibrary);
+  const listUrl = `/api/media/list${libQ ? `?library=${encodeURIComponent(libQ)}` : ""}`;
+  const cacheEligible = selectedLibrary === "all";
+  const [libs, setLibs] = useState<LibraryRow[]>([]);
+  useEffect(() => {
+    let m = true;
+    void listLibraries().then((r) => { if (m && r.ok) setLibs(r.data!.libraries); });
+    const h = () => { void listLibraries().then((r) => { if (m && r.ok) setLibs(r.data!.libraries); }); };
+    window.addEventListener("presentflow:libraries-changed", h);
+    return () => { m = false; window.removeEventListener("presentflow:libraries-changed", h); };
+  }, []);
+  const moveMedia = async (assetId: string, libraryId: string | null) => {
+    const res = await setMediaLibrary(assetId, libraryId);
+    if (!res.ok) { toast.error(res.error ?? "Move failed"); return; }
+    // Field fix (wave 6C): a move filters the asset out of the current library
+    // view, which reads as "it's gone". If viewing a specific library that
+    // isn't the destination, offer a one-tap "View in <dest>" that follows it.
+    const destFilter: LibraryFilter = libraryId ?? "default";
+    const destName = libraryId
+      ? (libs.find((l) => l.id === libraryId)?.name ?? "that library")
+      : "Ungrouped";
+    const current = getSelectedLibrary();
+    if (current !== "all" && current !== destFilter) {
+      toast.success(`Moved to ${destName}`, {
+        action: { label: `View in ${destName}`, onClick: () => setSelectedLibrary(destFilter) },
+        duration: 6000,
+      });
+    } else {
+      toast.success(`Moved to ${destName}`);
+    }
+    window.dispatchEvent(new CustomEvent("presentflow:libraries-changed"));
+    loadAssets(true);
+  };
 
   // ── Data loading ─────────────────────────────────────────────────────────
   const loadAssets = (quiet = false) => {
     if (!quiet) setLoading(true);
-    fetch("/api/media/list")
+    fetch(listUrl)
       .then((r) => r.json())
       .then((data: unknown) => setAssets((data as { assets?: Asset[] }).assets ?? []))
       .catch(() => toast.error("Failed to load media"))
@@ -116,10 +177,10 @@ export function MediaBrowser({
     let cancelled = false;
     // If we have a cached list, the grid is already showing it — revalidate
     // quietly (no spinner blanking the grid). Only show the spinner on a genuine
-    // cold open with nothing to show.
-    const hasCache = (mediaListCache.get(ctx.churchId)?.length ?? 0) > 0;
+    // cold open with nothing to show. (Cache applies to the unfiltered view only.)
+    const hasCache = cacheEligible && (mediaListCache.get(ctx.churchId)?.length ?? 0) > 0;
     if (!hasCache) setLoading(true);
-    fetch("/api/media/list")
+    fetch(listUrl)
       .then((r) => r.json())
       .then((data: unknown) => { if (!cancelled) setAssets((data as { assets?: Asset[] }).assets ?? []); })
       // On a revalidation failure, KEEP the cached grid (graceful) — only surface
@@ -128,17 +189,17 @@ export function MediaBrowser({
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ctx.churchId]);
+  }, [ctx.churchId, listUrl]);
 
-  // Write-through: mirror every assets change (revalidation + optimistic
-  // rename/delete/import updates) into the per-church cache so the next re-open
-  // paints the latest state instantly. Guarded so an initial empty state never
-  // clobbers a populated cache before the first load resolves.
+  // Write-through: mirror every assets change into the per-church cache so the
+  // next re-open paints the latest state instantly. ONLY for the unfiltered
+  // view — a filtered list must never poison the full-library cache.
   useEffect(() => {
+    if (!cacheEligible) return;
     if (assets.length > 0 || mediaListCache.has(ctx.churchId)) {
       mediaListCache.set(ctx.churchId, assets);
     }
-  }, [assets, ctx.churchId]);
+  }, [assets, ctx.churchId, cacheEligible]);
 
   // One-time thumbnail backfill for PRE-EXISTING assets (rows that predate the
   // on-upload thumbnail step). Fire-and-forget, bounded per call — loop until
@@ -241,8 +302,26 @@ export function MediaBrowser({
 
   // ── Actions ───────────────────────────────────────────────────────────────
   const sendLive = (a: Asset) => {
+    // Was something already on the projector? (a blank slide = nothing live).
+    const wasLive = !!ctx.liveSlide && ctx.liveSlide.kind !== "blank";
     setSelectedId(a.id);
     ctx.onSendSlideToLive(toSlide(a));
+    // Post-click hint: a plain click sends an IMAGE as a full slide. When a
+    // service is already live, the operator may have wanted it BEHIND the lyrics
+    // instead. Offer a one-tap switch. Honest + minimal: tapping it sets the
+    // media as the background layer; the image slide it just sent stays up until
+    // the operator advances (no clever auto-restore of the previous slide).
+    if (wasLive && !a.kind.startsWith("video")) {
+      toast.success("Image sent to the screen", {
+        id: "pf-media-sent-hint",
+        description: "Wanted it behind your lyrics instead? Set it as the background — the image stays up until you advance.",
+        action: {
+          label: "Set as background instead",
+          onClick: () => setAsBackground(a),
+        },
+        duration: 8000,
+      });
+    }
   };
 
   const addToPlaylist = async (a: Asset) => {
@@ -269,22 +348,77 @@ export function MediaBrowser({
     try {
       await ctx.onAddMediaGroup(title, ids);
       setBulkIds(new Set());
-      toast.success(`Added "${title}" to the playlist — double-click to rename`, { icon: "🗂️" });
+      toast.success(`Added "${title}" to the playlist — double-click to rename`);
       onExitToSlides();
     } finally {
       setAddingGroup(false);
     }
   };
 
+  // ── Quick theme actions (right-click) ───────────────────────────────────────
+  // Every quick theme change (set/clear background, set logo) is UNDOABLE: the
+  // helper returns a revert() that restores the prior config and re-pushes it
+  // live, surfaced as an Undo action on the success toast. This is the fix for
+  // "I set a media image as the background and there was no way to undo it".
+  const runThemeChange = async (
+    change: Promise<QuickThemeChange | null>,
+    okMsg: (name: string) => string,
+    emptyMsg: string,
+  ) => {
+    const res = await change;
+    if (!res) { toast.error(emptyMsg); return; }
+    // Stable id: a newer quick theme change REPLACES the previous toast, so the
+    // visible Undo always reverts the most recent change (never an older one).
+    toast.success(okMsg(res.name), {
+      id: "pf-theme-quick-change",
+      action: {
+        label: "Undo",
+        onClick: () => {
+          void res.revert().then((ok) =>
+            ok ? toast.success("Reverted", { id: "pf-theme-quick-change" })
+               : toast.error("Couldn't undo — the theme may have changed", { id: "pf-theme-quick-change" }));
+        },
+      },
+      duration: 8000,
+    });
+  };
+
+  // ── Set as background (Background Template machinery) ───────────────────────
+  // Route the media item through the EXISTING custom-background path so it sits
+  // BEHIND the lyrics and STAYS there across every slide advance until cleared or
+  // replaced — Victor's "press an image → it's the background layer" mandate. It
+  // rides the same BackgroundSpec + precedence (camera-wins, theme/template
+  // mutual-exclusivity) as every Background Template. Undoable: snapshot the
+  // prior background state and restore it exactly on Undo (mirrors the theme
+  // quick-change Undo idiom).
+  const setAsBackground = (a: Asset) => {
+    const prev = snapshotBackgroundState();
+    const bg = setMediaAsBackground({ id: a.id, url: a.url, fileName: a.fileName, kind: normalizeMediaKind(a.kind), mediaKey: a.mediaKey });
+    setSelectedId(a.id);
+    toast.success(`“${bg.name}” is now your background — it stays behind every slide`, {
+      id: "pf-media-background",
+      action: {
+        label: "Undo",
+        onClick: () => { restoreBackgroundState(prev); toast.success("Background reverted", { id: "pf-media-background" }); },
+      },
+      duration: 8000,
+    });
+  };
+
   // ── Delete ────────────────────────────────────────────────────────────────
   const deleteAsset = async (a: Asset) => {
-    if (!window.confirm(`Permanently delete "${a.fileName}"? This cannot be undone.`)) return;
+    if (!(await confirm({ title: `Delete "${a.fileName}"?`, description: "This cannot be undone.", confirmLabel: "Delete", danger: true }))) return;
     const result = await deleteMediaAsset(a.id);
     if (!result?.ok) {
       toast.error((result as { error?: string } | undefined)?.error ?? "Delete failed");
     } else {
       toast.success(`"${a.fileName}" deleted`);
       clearMediaFrame(ctx.churchId, a.id); // don't orphan the saved framing
+      // Honesty: if this asset was set as the active Background Template, drop it
+      // from the custom-background store too (removeCustomBackground resets the
+      // active id to None when it was live) so the projector never points at a
+      // now-deleted asset and the Backgrounds picker doesn't list a dead entry.
+      removeCustomBackground(`media-bg-${a.id}`);
       setAssets((prev) => prev.filter((x) => x.id !== a.id));
       if (selectedId === a.id) setSelectedId(null);
     }
@@ -301,11 +435,11 @@ export function MediaBrowser({
   const bulkDelete = async () => {
     const rows = assets.filter((a) => bulkIds.has(a.id));
     if (rows.length === 0) return;
-    if (!window.confirm(`Permanently delete ${rows.length} item${rows.length === 1 ? "" : "s"}? This cannot be undone.`)) return;
+    if (!(await confirm({ title: `Delete ${rows.length} item${rows.length === 1 ? "" : "s"}?`, description: "This cannot be undone.", confirmLabel: "Delete", danger: true }))) return;
     setBulkBusy(true);
     const failed = new Set<string>();
     let deleted = 0;
-    for (const a of rows) { const res = await deleteMediaAsset(a.id); if (res?.ok) { deleted++; clearMediaFrame(ctx.churchId, a.id); } else failed.add(a.id); }
+    for (const a of rows) { const res = await deleteMediaAsset(a.id); if (res?.ok) { deleted++; clearMediaFrame(ctx.churchId, a.id); removeCustomBackground(`media-bg-${a.id}`); } else failed.add(a.id); }
     setBulkBusy(false);
     setAssets((prev) => prev.filter((a) => !bulkIds.has(a.id) || failed.has(a.id)));
     if (selectedId && bulkIds.has(selectedId) && !failed.has(selectedId)) setSelectedId(null);
@@ -340,10 +474,13 @@ export function MediaBrowser({
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <>
+      {confirmDialog}
       <MediaImportWizard
         open={wizardOpen}
-        onClose={() => setWizardOpen(false)}
+        onClose={() => { setWizardOpen(false); setDropImport(null); }}
         onImported={() => loadAssets(true)}
+        initialFiles={dropImport?.files}
+        initialLibraryId={dropImport?.libraryId ?? null}
       />
 
       {editingImage && (
@@ -351,6 +488,16 @@ export function MediaBrowser({
           asset={{ id: editingImage.id, url: editingImage.url, fileName: editingImage.fileName }}
           ctx={ctx}
           onClose={() => setEditingImage(null)}
+          onAssetReplaced={(a) => {
+            // A "remove flat background" commit created a new transparent asset.
+            // Show it in the grid immediately (optimistic) and retarget editing to
+            // it so subsequent Save/framing persists against the durable new asset.
+            const now = new Date().toISOString();
+            setAssets((prev) => (prev.some((x) => x.id === a.id)
+              ? prev
+              : [{ id: a.id, fileName: a.fileName, kind: "image", sizeBytes: 0, createdAt: now, url: a.url, thumbUrl: a.url }, ...prev]));
+            setEditingImage((prev) => (prev ? { ...prev, id: a.id, url: a.url, fileName: a.fileName } : prev));
+          }}
         />
       )}
 
@@ -485,7 +632,11 @@ export function MediaBrowser({
                     type="button"
                     draggable
                     onDragStart={(e) => {
-                      e.dataTransfer.effectAllowed = "copy";
+                      // "copyMove" so a drop onto a left-rail LIBRARY row (which
+                      // sets dropEffect="move") is accepted by Chromium/Electron —
+                      // "copy" alone makes the browser reject the move drop. The
+                      // playlist add path (dropEffect="copy") still works. (5B-1.)
+                      e.dataTransfer.effectAllowed = "copyMove";
                       e.dataTransfer.setData(
                         "application/x-pf-library-item",
                         JSON.stringify({ pfType: "media", id: a.id, title: a.fileName, url: a.url, kind: a.kind }),
@@ -570,6 +721,30 @@ export function MediaBrowser({
                         <Crop className="w-3 h-3" /> Edit
                       </span>
                     )}
+                    {/* Set-as-background pill — the split affordance alongside the
+                        one-click send. Bottom-right (clear of the checkbox, Edit
+                        pill and filename bar); images AND videos. */}
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label="Set as background"
+                      title="Set as background — stays behind your lyrics for every slide"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (clickTimerRef.current) { window.clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
+                        setAsBackground(a);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault(); e.stopPropagation();
+                          if (clickTimerRef.current) { window.clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
+                          setAsBackground(a);
+                        }
+                      }}
+                      className="absolute right-1 bottom-8 z-10 inline-flex h-6 px-1.5 items-center gap-1 rounded bg-black/60 text-white/85 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80 hover:text-white text-[10px] font-semibold"
+                    >
+                      <Images className="w-3 h-3" /> Background
+                    </span>
                     {a.kind.startsWith("video") ? (
                       // eslint-disable-next-line jsx-a11y/media-has-caption
                       <video
@@ -645,25 +820,65 @@ export function MediaBrowser({
                     >
                       Add to Playlist
                     </ContextMenu.Item>
+                    <ContextMenu.Sub>
+                      <ContextMenu.SubTrigger className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between data-[state=open]:bg-[var(--color-panel)]"><span>Move to library</span><span className="opacity-60">▸</span></ContextMenu.SubTrigger>
+                      <ContextMenu.Portal>
+                        <ContextMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[160px] max-h-[300px] overflow-y-auto">
+                          <ContextMenu.Item onSelect={() => void moveMedia(a.id, null)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">Default (unfiled)</ContextMenu.Item>
+                          {libs.length > 0 && <ContextMenu.Separator className="h-px my-1 bg-[var(--color-border)]" />}
+                          {libs.map((lib) => (
+                            <ContextMenu.Item key={lib.id} onSelect={() => void moveMedia(a.id, lib.id)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer truncate">{lib.name}</ContextMenu.Item>
+                          ))}
+                        </ContextMenu.SubContent>
+                      </ContextMenu.Portal>
+                    </ContextMenu.Sub>
+                    {/* Set as background — the Background Template path (behind
+                        the lyrics, persists across every slide advance). Distinct
+                        from the theme background below; available for video too. */}
+                    <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
+                    <ContextMenu.Item
+                      onSelect={() => setAsBackground(a)}
+                      className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center gap-2"
+                    >
+                      <Images className="w-3.5 h-3.5 opacity-80" /> Set as background
+                    </ContextMenu.Item>
                     {!a.kind.startsWith("video") && (
                       <>
                         <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
                         <ContextMenu.Item
-                          onSelect={() => void setMediaOnActiveTheme("background", a.url).then((name) =>
-                            name ? toast.success(`Set as background of theme “${name}”`) : toast.error("No theme to update"))}
+                          onSelect={() => void runThemeChange(
+                            setMediaOnActiveTheme("background", a.url),
+                            (name) => `Saved into theme “${name}”: Background`,
+                            "No theme to update",
+                          )}
                           className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer"
                         >
-                          Set as theme background
+                          Save into theme: Background
                         </ContextMenu.Item>
                         <ContextMenu.Item
-                          onSelect={() => void setMediaOnActiveTheme("logo", a.url).then((name) =>
-                            name ? toast.success(`Set as logo of theme “${name}”`) : toast.error("No theme to update"))}
+                          onSelect={() => void runThemeChange(
+                            setMediaOnActiveTheme("logo", a.url),
+                            (name) => `Saved into theme “${name}”: Logo`,
+                            "No theme to update",
+                          )}
                           className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer"
                         >
-                          Set as theme logo
+                          Save into theme: Logo
                         </ContextMenu.Item>
                       </>
                     )}
+                    {/* Always available — the one-tap escape hatch for a theme
+                        background that was set and now needs to go. */}
+                    <ContextMenu.Item
+                      onSelect={() => void runThemeChange(
+                        clearActiveThemeBackground(),
+                        (name) => `Cleared background of theme “${name}”`,
+                        "No theme background to clear",
+                      )}
+                      className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer"
+                    >
+                      Clear theme background
+                    </ContextMenu.Item>
                     <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
                     <ContextMenu.Item
                       onSelect={() => startRename(a)}

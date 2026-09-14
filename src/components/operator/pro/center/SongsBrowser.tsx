@@ -17,9 +17,15 @@ import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import { DotGridBackground } from "../DotGridBackground";
 import type { SlidePayload } from "@/lib/broadcast";
-import { createSong, createSongSlide, importPro6Files, renameSong, updateSongSlides, deleteSong, reChunkSong } from "@/lib/actions";
+import { createSong, createSongSlide, importPro6Files, renameSong, updateSongSlides, deleteSong, reChunkSong, importParsedSongs } from "@/lib/actions";
+import { parseVpagd } from "@/lib/import/videopsalm";
+import { parseSongText } from "@/lib/import/song-text";
 import { isInternalEvent } from "@/lib/internal-events";
+import type { SongSelection } from "@/lib/song-selection";
 import { ProPresenterImportDialog } from "@/components/library/ProPresenterImportDialog";
+import { useSelectedLibrary, libraryQueryParam, getSelectedLibrary, setSelectedLibrary, type LibraryFilter } from "../left/libraryFilter";
+import { listLibraries, setSongLibrary, type LibraryRow } from "@/lib/actions";
+import * as ContextMenu from "@radix-ui/react-context-menu";
 
 type SongRow = { id: string; title: string; artist: string | null };
 type SlideRow = { id?: string; lyrics: string };
@@ -27,9 +33,15 @@ type SlideRow = { id?: string; lyrics: string };
 export function SongsBrowser({
   ctx,
   onExitToSlides,
+  openSong,
+  onSongOpened,
 }: {
   ctx: OperatorShellCtx;
   onExitToSlides: () => void;
+  // A song requested from outside (e.g. the Cmd+K search palette), carried in by
+  // the always-mounted shell so it survives this panel's mount. Null when none.
+  openSong?: SongSelection | null;
+  onSongOpened?: () => void;
 }) {
   const router = useRouter();
   const [songs, setSongs] = useState<SongRow[]>([]);
@@ -93,11 +105,50 @@ export function SongsBrowser({
     return () => window.removeEventListener("presentflow:center-slide-size", handler);
   }, []);
 
+  // ProPresenter parity (Phase 3.6): filter the list by the selected Library
+  // and offer a "Move to library" action per song.
+  const [selectedLibrary] = useSelectedLibrary();
+  const [libs, setLibs] = useState<LibraryRow[]>([]);
+  useEffect(() => {
+    let m = true;
+    void listLibraries().then((r) => { if (m && r.ok) setLibs(r.data!.libraries); });
+    const h = () => { void listLibraries().then((r) => { if (m && r.ok) setLibs(r.data!.libraries); }); };
+    window.addEventListener("presentflow:libraries-changed", h);
+    return () => { m = false; window.removeEventListener("presentflow:libraries-changed", h); };
+  }, []);
+  const moveSong = useCallback(async (songId: string, libraryId: string | null) => {
+    const res = await setSongLibrary(songId, libraryId);
+    if (!res.ok) { toast.error(res.error ?? "Move failed"); return; }
+    // Field fix (wave 6C): "I moved it into Songs and now it's completely gone."
+    // A move filters the item out of the CURRENT library view — which reads as
+    // the item vanishing. If we're viewing a specific library that ISN'T the
+    // destination, the song legitimately leaves this view, so offer a one-tap
+    // "View in <dest>" that switches the filter to where it now lives. When
+    // viewing "all", it stays on screen (the reload keeps it), so a plain
+    // confirmation is enough.
+    const destFilter: LibraryFilter = libraryId ?? "default";
+    const destName = libraryId
+      ? (libs.find((l) => l.id === libraryId)?.name ?? "that library")
+      : "Ungrouped";
+    const current = getSelectedLibrary();
+    if (current !== "all" && current !== destFilter) {
+      toast.success(`Moved to ${destName}`, {
+        action: { label: `View in ${destName}`, onClick: () => setSelectedLibrary(destFilter) },
+        duration: 6000,
+      });
+    } else {
+      toast.success(`Moved to ${destName}`);
+    }
+    window.dispatchEvent(new CustomEvent("presentflow:libraries-changed"));
+    setReloadKey((k) => k + 1);
+  }, [libs]);
+
   const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetch("/api/songs/list")
+    const q = libraryQueryParam(selectedLibrary);
+    fetch(`/api/songs/list${q ? `?library=${encodeURIComponent(q)}` : ""}`)
       .then(async (r) => {
         const data = await r.json().catch(() => ({}));
         if (cancelled) return;
@@ -107,7 +158,7 @@ export function SongsBrowser({
       .catch((err) => { if (!cancelled) toast.error(err instanceof Error ? err.message : "Failed to load songs"); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [reloadKey]);
+  }, [reloadKey, selectedLibrary]);
 
   // --- ProPresenter import (button + drag-drop) ----------------------------
   // The button now opens the polished 4-step dialog (handles Pro7, .proBundle,
@@ -121,6 +172,7 @@ export function SongsBrowser({
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [droppedFiles, setDroppedFiles] = useState<File[] | undefined>(undefined);
   const dragDepth = useRef(0);
+  const vpInputRef = useRef<HTMLInputElement>(null);
 
   const importProFiles = useCallback(async (fileList: FileList | File[]) => {
     if (importing) return;
@@ -167,6 +219,57 @@ export function SongsBrowser({
     }
   }, [importing]);
 
+  // Import from VideoPsalm (.vpagd, unzip + relaxed-JSON) AND plain-text song
+  // exports (.txt — the "guided export" path for EasyWorship & ProPresenter text
+  // exports). Both parse in the browser → persisted via importParsedSongs. A raw
+  // binary .ews (EasyWorship's own DB) can't be read directly, so we point the user
+  // at its text export instead of failing silently.
+  const importVideoPsalmFiles = useCallback(async (fileList: FileList | File[]) => {
+    if (importing) return;
+    const all = Array.from(fileList);
+    const vpagd = all.filter((f) => /\.vpagd$/i.test(f.name));
+    const txt = all.filter((f) => /\.txt$/i.test(f.name));
+    const ews = all.filter((f) => /\.ews$/i.test(f.name));
+    if (ews.length > 0) {
+      toast.info("For EasyWorship, export your songs to plain text (.txt) — File → Export → Text — then drop those here.", { duration: 7000 });
+    }
+    if (vpagd.length === 0 && txt.length === 0) return;
+    setImporting(true);
+    try {
+      const parsed: { title: string; artist: string | null; slides: string[] }[] = [];
+      let failedFiles = 0;
+      for (const f of vpagd) {
+        try { parsed.push(...parseVpagd(new Uint8Array(await f.arrayBuffer()))); } catch { failedFiles++; }
+      }
+      for (const f of txt) {
+        try {
+          const song = parseSongText(await f.text(), f.name);
+          if (song.slides.length > 0) parsed.push(song); else failedFiles++;
+        } catch { failedFiles++; }
+      }
+      if (parsed.length === 0) {
+        toast.error(failedFiles > 0 ? "Couldn't read that song file." : "No songs with lyrics found in the file(s).");
+        return;
+      }
+      const res = await importParsedSongs(parsed);
+      if (!res.ok) { toast.error(res.error || "Import failed"); return; }
+      const { added, duplicateSkipped, limitSkipped } = res.data!;
+      const parts = [`Imported ${added} song${added === 1 ? "" : "s"}`];
+      if (duplicateSkipped > 0) parts.push(`${duplicateSkipped} duplicate${duplicateSkipped === 1 ? "" : "s"} skipped`);
+      if (limitSkipped > 0) parts.push(`${limitSkipped} skipped — song limit reached`);
+      if (failedFiles > 0) parts.push(`${failedFiles} file${failedFiles === 1 ? "" : "s"} unreadable`);
+      (added > 0 ? toast.success : toast.warning)(parts.join(", "), { duration: 5000 });
+      if (added > 0) {
+        setReloadKey((k) => k + 1);
+        try { window.dispatchEvent(new Event("presentflow:songs-changed")); } catch { /* ignore */ }
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Import failed");
+    } finally {
+      setImporting(false);
+    }
+  }, [importing]);
+
   const onDragEnter = useCallback((e: React.DragEvent) => {
     if (!e.dataTransfer?.types?.includes("Files")) return;
     e.preventDefault();
@@ -188,6 +291,11 @@ export function SongsBrowser({
     dragDepth.current = 0;
     setDragOver(false);
     const arr = Array.from(e.dataTransfer.files);
+    // VideoPsalm / text (EasyWorship guided export) take their own client-parse path.
+    if (arr.some((f) => /\.(vpagd|txt|ews)$/i.test(f.name))) {
+      void importVideoPsalmFiles(arr);
+      if (!arr.some((f) => /\.(pro6|pro5|pro|propresenter|proBundle|pro7|pro7x|zip)$/i.test(f.name))) return;
+    }
     // Route through the dialog for anything Pro7/bundle-shaped. Legacy
     // .pro6/.pro5 XML drops keep the fast one-shot path so a single-file
     // drop of an older ProPresenter export still finishes in one action.
@@ -201,7 +309,7 @@ export function SongsBrowser({
       return;
     }
     void importProFiles(e.dataTransfer.files);
-  }, [importProFiles]);
+  }, [importProFiles, importVideoPsalmFiles]);
 
   useEffect(() => {
     if (!selected) { setSlides(null); return; }
@@ -230,12 +338,23 @@ export function SongsBrowser({
         return;
       }
       try { console.log("[songs-play-current] firing", { songId: selected.id, title: selected.title, slideLen: first.lyrics.length }); } catch { /* ignore */ }
-      ctx.onSendSlideToLive({ kind: "text", text: first.lyrics });
+      ctx.onSendSlideToLive({ kind: "text", text: first.lyrics }, undefined, { origin: { kind: "song", songId: selected.id } });
       toast.success(`"${selected.title}" — slide 1 → LIVE`, { duration: 1500 });
     };
     window.addEventListener("presentflow:songs-play-current", handler);
     return () => window.removeEventListener("presentflow:songs-play-current", handler);
   }, [selected, slides, ctx]);
+
+  // Open a song requested from outside (Cmd+K search). The shell holds the pick
+  // and passes it as `openSong`, so it's already present when this panel mounts
+  // (no listener-mount race). The payload carries the row directly, so the preview
+  // works even if the song is filtered out of the current library view. We ack via
+  // onSongOpened so the shell clears it and a later manual selection isn't reverted.
+  useEffect(() => {
+    if (!openSong) return;
+    setSelected({ id: openSong.id, title: openSong.title, artist: openSong.artist });
+    onSongOpened?.();
+  }, [openSong, onSongOpened]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -331,7 +450,7 @@ export function SongsBrowser({
       {dragOver && (
         <div className="absolute inset-2 z-40 rounded-lg border-2 border-dashed border-[var(--color-brand)] bg-[var(--color-brand)]/10 flex items-center justify-center pointer-events-none">
           <div className="text-sm font-semibold text-[var(--color-brand)] bg-[var(--color-panel)]/90 px-4 py-2 rounded-md">
-            Drop ProPresenter files (.proBundle / .pro / .pro7 / .pro6 / .pro5) to import
+            Drop ProPresenter (.proBundle / .pro / .pro7 / .pro6 / .pro5), VideoPsalm (.vpagd) or text (.txt) song files to import
           </div>
         </div>
       )}
@@ -354,6 +473,31 @@ export function SongsBrowser({
             )}
           >
             <Upload className="w-3.5 h-3.5" /> {importing ? "Importing…" : "Import"}
+          </button>
+          {/* VideoPsalm (.vpagd) — click-to-import via a hidden file picker (drag-drop
+              also works). EasyWorship (.ews) is detected and scaffolded. */}
+          <input
+            ref={vpInputRef}
+            type="file"
+            accept=".vpagd,.txt,.ews"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              const files = e.target.files;
+              if (files && files.length) void importVideoPsalmFiles(files);
+              e.target.value = ""; // allow re-picking the same file
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => vpInputRef.current?.click()}
+            title="Import VideoPsalm (.vpagd) or plain-text song exports (.txt — incl. EasyWorship: File → Export → Text)"
+            className={cn(
+              "h-8 px-2 rounded-md border border-[var(--color-border)] flex items-center gap-1 text-[11px] font-semibold cursor-pointer hover:bg-[var(--color-elevated)]",
+              importing && "opacity-50 pointer-events-none",
+            )}
+          >
+            <Upload className="w-3.5 h-3.5" /> VideoPsalm
           </button>
           <AddSongDialog
             existingTitles={songs.map((s) => s.title)}
@@ -395,11 +539,17 @@ export function SongsBrowser({
           {filtered.map((s) => {
             const isChecked = selectedIds.has(s.id);
             return (
+            <ContextMenu.Root key={s.id}>
+              <ContextMenu.Trigger asChild>
             <li
-              key={s.id}
               draggable
               onDragStart={(e) => {
-                e.dataTransfer.effectAllowed = "copy";
+                // "copyMove" — NOT "copy". A library-row drop target sets
+                // dropEffect="move" (filing into a library) and Chromium/Electron
+                // REJECTS the drop when the source only allows "copy" (drop event
+                // never fires → "why doesn't it enter?"). copyMove permits BOTH the
+                // playlist "copy" add and the library "move" file. (Field fix 5B-1.)
+                e.dataTransfer.effectAllowed = "copyMove";
                 e.dataTransfer.setData(
                   "application/x-pf-library-item",
                   JSON.stringify({ pfType: "song", id: s.id, title: s.title }),
@@ -424,6 +574,24 @@ export function SongsBrowser({
                 {s.artist && <div className="text-[11px] text-[var(--color-muted-foreground)] truncate">{s.artist}</div>}
               </button>
             </li>
+              </ContextMenu.Trigger>
+              <ContextMenu.Portal>
+                <ContextMenu.Content className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[160px]">
+                  <ContextMenu.Sub>
+                    <ContextMenu.SubTrigger className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer flex items-center justify-between data-[state=open]:bg-[var(--color-panel)]"><span>Move to library</span><span className="opacity-60">▸</span></ContextMenu.SubTrigger>
+                    <ContextMenu.Portal>
+                      <ContextMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-50 min-w-[160px] max-h-[300px] overflow-y-auto">
+                        <ContextMenu.Item onSelect={() => void moveSong(s.id, null)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer">Default (unfiled)</ContextMenu.Item>
+                        {libs.length > 0 && <ContextMenu.Separator className="h-px my-1 bg-[var(--color-border)]" />}
+                        {libs.map((lib) => (
+                          <ContextMenu.Item key={lib.id} onSelect={() => void moveSong(s.id, lib.id)} className="px-3 py-1.5 rounded hover:bg-[var(--color-panel)] outline-none cursor-pointer truncate">{lib.name}</ContextMenu.Item>
+                        ))}
+                      </ContextMenu.SubContent>
+                    </ContextMenu.Portal>
+                  </ContextMenu.Sub>
+                </ContextMenu.Content>
+              </ContextMenu.Portal>
+            </ContextMenu.Root>
             );
           })}
         </ul>
@@ -485,6 +653,9 @@ export function SongsBrowser({
                   setEditingIdx(null);
                   void createSongSlide(selected.id, undefined, { objects: [], lyrics: "" }).then((res) => {
                     if (!res.ok) { toast.error(res.error || "Add slide failed"); return; }
+                    // Invalidate cached slides so live tracking / jump suggestions
+                    // don't use stale (pre-edit) text.
+                    try { window.dispatchEvent(new CustomEvent("presentflow:song-slides-changed", { detail: { songId: selected.id } })); } catch { /* noop */ }
                     refreshSlides(selected.id);
                   });
                 }}
@@ -607,7 +778,7 @@ export function SongsBrowser({
                           toast.error("Live-send handler not wired — reload the app.");
                           return;
                         }
-                        ctx.onSendSlideToLive(payload);
+                        ctx.onSendSlideToLive(payload, undefined, selected ? { origin: { kind: "song", songId: selected.id } } : undefined);
                         toast.success(`Sent to LIVE: "${sl.lyrics.slice(0, 40).replace(/\n/g, " ")}${sl.lyrics.length > 40 ? "…" : ""}"`, { duration: 2000 });
                       }}
                       className="absolute inset-0 w-full h-full"

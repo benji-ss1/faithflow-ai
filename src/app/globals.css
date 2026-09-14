@@ -61,6 +61,19 @@
   --color-destructive:    #ff6d6d;
   --color-destructive-foreground: #17130c;
 
+  /* Decoupling Phase 3 — Layers Panel per-layer accent hues (fixed, so each
+     layer reads distinctly at a glance in both themes). Referenced by
+     LAYER_META in src/components/operator/pro/right/LayersPanel.tsx. */
+  --pf-layer-background:   #8b5cf6;
+  --pf-layer-camera:       #06b6d4;
+  --pf-layer-slide:        #f59e0b;
+  --pf-layer-media:        #10b981;
+  --pf-layer-logo:         #eab308;
+  --pf-layer-announcement: #ef4444;
+  --pf-layer-band:         #ec4899;
+  --pf-layer-timer:        #3b82f6;
+  --pf-layer-message:      #a3a3a3;
+
   /* Borders and inputs */
   --color-border:  rgba(255,255,255,0.10);
   --color-input:   rgba(255,255,255,0.10);

@@ -24,3 +24,27 @@ export function useSlideClipboard(): SlidePayload | null {
     () => clip,
   );
 }
+
+/**
+ * App-wide TEXT clipboard (C1). Separate from the slide clipboard: "Copy Text"
+ * stores the slide's lyric text here so "Paste Text" can drop it onto ANOTHER
+ * slide via the right-click menu — without touching that slide's design/layout.
+ * In-memory per session; reactive via useTextClipboard().
+ */
+let textClip: string | null = null;
+const textListeners = new Set<() => void>();
+
+export function setTextClipboard(text: string): void {
+  textClip = text;
+  textListeners.forEach((l) => { try { l(); } catch { /* noop */ } });
+}
+export function getTextClipboard(): string | null { return textClip; }
+
+export function useTextClipboard(): string | null {
+  return useSyncExternalStore(
+    (cb) => { textListeners.add(cb); return () => { textListeners.delete(cb); }; },
+    () => textClip,
+    () => textClip,
+  );
+}
+

@@ -10,7 +10,9 @@ import { createTheme, updateTheme, duplicateTheme, deleteTheme, setDefaultTheme,
 import { BackgroundSelector } from "@/backgrounds/components/BackgroundSelector";
 import { buildColorwayFromPalette } from "@/lib/colorway";
 import { ThemeImportDialog } from "@/components/library/ThemeImportDialog";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { loadContentTypeStyles, saveContentTypeStyles, CONTENT_STYLE_TYPES, type ContentStyleType, type ContentTypeStyles } from "@/lib/content-type-styles";
+import { uploadFileToMediaStorage } from "@/lib/media-upload";
 
 // Kept minimal + additive — see `type ThemeConfig` in src/lib/actions.ts for
 // the full sanitised shape. Everything below is optional; the preview + the
@@ -79,6 +81,8 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState<ThemeRow | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  // Electron-safe confirm (native window.confirm can freeze the desktop shell).
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   function refresh(next: ThemeRow[]) {
     setThemes(next.slice().sort((a, b) => a.name.localeCompare(b.name)));
@@ -126,8 +130,8 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
     });
   }
 
-  function onDelete(id: string, name: string) {
-    if (!confirm(`Delete "${name}"? This can't be undone.`)) return;
+  async function onDelete(id: string, name: string) {
+    if (!(await confirm({ title: `Delete "${name}"?`, description: "This can't be undone.", confirmLabel: "Delete", danger: true }))) return;
     startTransition(async () => {
       const res = await deleteTheme(id);
       if (!res.ok) { toast.error(res.error || "Could not delete"); return; }
@@ -239,6 +243,7 @@ export function ThemesManager({ themes: initial, churchLogoUrl, onThemeActivated
 
   return (
     <div className={operatorMode ? "space-y-4" : "space-y-6"}>
+      {confirmDialog}
       {/* Backgrounds — a NEW section that plugs into the Themes area (it does
           NOT modify the theme system). Placed at the top so operators find it
           the moment they open Themes. */}
@@ -423,7 +428,7 @@ function SlidePreview({ config, mode = "lyrics", churchName = "Grace Community",
     bgType === "gradient"
       ? { background: `linear-gradient(${bgAngle}deg, ${bg1}, ${bg2})` }
       : bgType === "image" && bgImageUrl
-        ? { background: `#000 url(${bgImageUrl}) center/cover no-repeat` }
+        ? { background: `#000 url("${bgImageUrl}") center/cover no-repeat` }
         : bgType === "video"
           ? { background: "#000" } // video element renders on top; keep base black in case url fails
           : { background: bg1 };
@@ -737,14 +742,16 @@ function ThemeEditor({
               <BgAssetPicker
                 kind="image"
                 url={get(cfg, "bgImageUrl", "") as string}
-                onUrl={(url) => set({ bgImageUrl: url })}
+                // Removing the image (url === "") clears the background back to a
+                // plain solid colour instead of leaving an empty image bg.
+                onUrl={(url) => set(url ? { bgImageUrl: url } : { bgImageUrl: "", bgType: "solid" })}
               />
             )}
             {get<"solid" | "gradient" | "image" | "video">(cfg, "bgType", "solid") === "video" && (
               <BgAssetPicker
                 kind="video"
                 url={get(cfg, "bgVideoUrl", "") as string}
-                onUrl={(url) => set({ bgVideoUrl: url })}
+                onUrl={(url) => set(url ? { bgVideoUrl: url } : { bgVideoUrl: "", bgType: "solid" })}
               />
             )}
             <Row label={`Opacity — ${Math.round((get(cfg, "bgOpacity", 1) as number) * 100)}%`}>
@@ -1279,23 +1286,10 @@ function BgAssetPicker({
   async function pickFile(file: File) {
     setUploading(true);
     try {
-      const presign = await fetch("/api/media/presign", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileName: file.name, contentType: file.type, size: file.size, purpose: "media" }),
-      }).then((r) => r.json()) as { url?: string; key?: string; error?: string };
-      if (presign.error) throw new Error(presign.error);
-      if (!presign.url || !presign.key) throw new Error("Presign response missing url or key");
-      const put = await fetch(presign.url, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
-      if (!put.ok) throw new Error("Upload failed");
-      const getResult = await fetch("/api/media/url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: presign.key }),
-      }).then((r) => r.json()) as { url?: string; error?: string };
-      if (getResult.error) throw new Error(getResult.error);
-      if (!getResult.url) throw new Error("Could not get download URL");
-      onUrl(getResult.url);
+      // Shared presign → PUT → signed-URL path (wave-6 fix pass): one upload flow
+      // reused across the Layers logo picker and this Themes bg picker.
+      const downloadUrl = await uploadFileToMediaStorage(file, "media");
+      onUrl(downloadUrl);
       toast.success(`${kind === "image" ? "Image" : "Video"} uploaded`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Upload failed");

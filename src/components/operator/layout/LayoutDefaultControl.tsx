@@ -78,7 +78,7 @@ export function LayoutDefaultControl({ churchId, compact }: { churchId?: string;
           </button>
           <button type="button" onClick={() => updateLayout("lowerThird")}
             className={`inline-flex items-center justify-center gap-1.5 text-[11px] font-semibold px-2 py-2 rounded-md border transition ${isThird ? "border-[var(--color-brand)] bg-[var(--color-brand)]/10 text-[var(--color-foreground)]" : "border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:border-[var(--color-brand)]/40"}`}>
-            <PanelBottom className="w-3.5 h-3.5" /> Third band
+            <PanelBottom className="w-3.5 h-3.5" /> Lower third
           </button>
         </div>
         <p className="text-[10px] text-[var(--color-muted-foreground)] leading-relaxed mt-1.5">

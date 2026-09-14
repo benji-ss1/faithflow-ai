@@ -9,6 +9,7 @@ import { listTranslations } from "@/lib/server/bible";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { SettingsForm } from "@/components/settings/SettingsForm";
 import { TranslationsPanel } from "@/components/settings/TranslationsPanel";
+import { SignOutAllDevices } from "@/components/settings/SignOutAllDevices";
 
 export default async function SettingsPage() {
   const user = await requireUser();
@@ -82,6 +83,7 @@ export default async function SettingsPage() {
           </p>
         </div>
       )}
+      <SignOutAllDevices />
     </div>
   );
 }

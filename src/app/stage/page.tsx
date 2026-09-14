@@ -2,14 +2,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
-import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
-import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, slideOutputIdentity, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance } from "@/lib/broadcast";
+import { OutputCompositor } from "@/components/live/OutputCompositor";
+import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type LayerWire } from "@/lib/broadcast";
+import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStaleLayersSnapshot } from "@/lib/output-layers";
 import type { ProjectionZone } from "@/lib/projection-zone";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
-import { TransitionWrapper } from "@/components/live/TransitionWrapper";
 
 if (typeof window !== "undefined" && !(window as unknown as { __ffStageGuarded?: boolean }).__ffStageGuarded) {
   (window as unknown as { __ffStageGuarded: boolean }).__ffStageGuarded = true;
@@ -55,6 +54,11 @@ export default function StagePage() {
   const lastMessageContentRef = useRef<string | null>(null);
   const lastMessageMsgAt = useRef<number>(0);
   const [timerOverlay, setTimerOverlay] = useState<{ name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed" } | null>(null);
+  // Wave 7: named (keyed) timers — the confidence-monitor use case (worship /
+  // sermon countdowns visible to the platform). Ride alongside the legacy slot.
+  type StageTimer = { id: string; name?: string; remainingSec: number; running: boolean; overrun?: boolean; scale?: number; color?: string };
+  const [namedTimers, setNamedTimers] = useState<Record<string, StageTimer>>({});
+  const namedTimerAtRef = useRef<Record<string, number>>({});
   const [connected, setConnected] = useState(false);
   const [pairBadge, setPairBadge] = useState<string | null>(null);
   // null on server + first client render to avoid hydration mismatch on the clock.
@@ -62,6 +66,13 @@ export default function StagePage() {
   useEffect(() => { setNow(new Date()); }, []);
   const [showHelp, setShowHelp] = useState(true);
   const lastMsgAt = useRef<number>(Date.now());
+  // Decoupling Phase 2 (DORMANT): per-layer override store for incoming
+  // layer-patch messages. Nothing reads it yet (Phase 3, NEXT_PUBLIC_LAYERS_V2).
+  const layerOverridesRef = useRef<Map<string, LayerWire>>(new Map());
+  // Y1b: the origin epoch last folded from a snapshot (fresh-tab authority).
+  const layerEpochRef = useRef<number | undefined>(undefined);
+  // Phase 3: re-render-triggering snapshot of the override map (see /live).
+  const [layerOverridesArr, setLayerOverridesArr] = useState<LayerWire[]>([]);
   // Operator heartbeats the timer overlay at 1Hz while shown — sweep it off
   // if the beats stop (operator window closed/crashed).
   const lastTimerMsgAt = useRef<number>(0);
@@ -107,14 +118,21 @@ export default function StagePage() {
         else if (msg.type === "clear") applyCurrent({ kind: "empty" });
         else if (msg.type === "pong") applyCurrent(msg.slide);
         else if (msg.type === "output") {
+          // Ghost-operator guard (field wave 6B) — ignore a strictly-older
+          // operator tab's snapshot so it can't blank this surface. Inert when
+          // LAYERS_V2 is off or single-operator. See isStaleLayersSnapshot.
+          if (LAYERS_V2 && isStaleLayersSnapshot(msg.state.layersEpoch, layerEpochRef.current)) return;
           applyCurrent(msg.state.live);
           // Apply the non-slide fields only when they actually changed (dedup).
           let restSig: string;
           try {
-            restSig = JSON.stringify([msg.state.next, msg.state.fontScale, msg.state.referenceScale, msg.state.referenceColor, msg.state.background, msg.state.appearance, msg.state.zone, msg.state.nextItem, msg.state.operatorMessage, msg.state.countdownEndsAt, msg.state.announcement, msg.state.transition]);
+            restSig = JSON.stringify([msg.state.next, msg.state.fontScale, msg.state.referenceScale, msg.state.referenceColor, msg.state.background, msg.state.appearance, msg.state.zone, msg.state.nextItem, msg.state.operatorMessage, msg.state.countdownEndsAt, msg.state.announcement, msg.state.transition, LAYERS_V2 ? (msg.state.layers ?? null) : null, LAYERS_V2 ? (msg.state.layersEpoch ?? null) : null]);
           } catch { restSig = String(Date.now()); }
           if (restSig !== appliedRestSig) {
             appliedRestSig = restSig;
+            if (LAYERS_V2) {
+              setLayerOverridesArr(rebuildOverridesFromSnapshot(layerOverridesRef.current, msg.state.layers, { snapEpoch: msg.state.layersEpoch, epochRef: layerEpochRef }));
+            }
             setNext(msg.state.next);
             setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);
             setReferenceScale(typeof msg.state.referenceScale === "number" ? msg.state.referenceScale : 1);
@@ -147,8 +165,26 @@ export default function StagePage() {
             }
           }
         } else if (msg.type === "timer") {
-          if ("clear" in msg.overlay && msg.overlay.clear) setTimerOverlay(null);
-          else { setTimerOverlay(msg.overlay); lastTimerMsgAt.current = Date.now(); }
+          const ov = msg.overlay;
+          const oid = (ov as { id?: string }).id;
+          if (oid) {
+            if ("clear" in ov && ov.clear) {
+              setNamedTimers((m) => { const n = { ...m }; delete n[oid]; return n; });
+              delete namedTimerAtRef.current[oid];
+            } else if ("remainingSec" in ov) {
+              setNamedTimers((m) => ({ ...m, [oid]: { id: oid, name: ov.name, remainingSec: ov.remainingSec, running: ov.running, overrun: ov.overrun, scale: ov.scale, color: ov.color } }));
+              namedTimerAtRef.current[oid] = Date.now();
+            }
+          } else if ("clear" in ov && ov.clear) setTimerOverlay(null);
+          else { setTimerOverlay(ov); lastTimerMsgAt.current = Date.now(); }
+        } else if (msg.type === "layer-patch") {
+          // Decoupling Phase 2 (DORMANT): store the override; nothing renders from
+          // it yet — Phase 3 gates consumption behind NEXT_PUBLIC_LAYERS_V2.
+          // Bounded: existing ids update; a new id is dropped once full (MAX_LAYERS).
+          {
+            applyLayerPatchBounded(layerOverridesRef.current, msg.layer);
+            if (LAYERS_V2) setLayerOverridesArr(Array.from(layerOverridesRef.current.values()));
+          }
         }
       } catch (err) {
         console.warn("[stage] message handler error:", err instanceof Error ? err.message : String(err));
@@ -172,6 +208,15 @@ export default function StagePage() {
       if (lastTimerMsgAt.current > 0 && Date.now() - lastTimerMsgAt.current > 5000) {
         lastTimerMsgAt.current = 0;
         setTimerOverlay(null);
+      }
+      // Wave 7: sweep named timers whose per-id heartbeat has stopped for 5s.
+      {
+        const now = Date.now();
+        const staleIds = Object.keys(namedTimerAtRef.current).filter((id) => now - namedTimerAtRef.current[id] > 5000);
+        if (staleIds.length) {
+          for (const id of staleIds) delete namedTimerAtRef.current[id];
+          setNamedTimers((m) => { const n = { ...m }; for (const id of staleIds) delete n[id]; return n; });
+        }
       }
       // Stale-message sweep: 5s without a heartbeat → operator is gone, take
       // the message (incl. dismiss:manual) down.
@@ -302,23 +347,55 @@ export default function StagePage() {
       {/* CURRENT — dominant, full width so text is as large as possible */}
       <div className="relative flex-1 min-h-0">
         <div className="absolute top-3 left-4 text-[11px] font-mono uppercase tracking-widest text-white/45 z-10">Current</div>
-        {(timerOverlay || countdownStr) && (
-          <div className="absolute top-3 right-4 z-10 flex items-center gap-2 bg-white/[0.06] border border-white/10 rounded-xl px-3 py-1.5 backdrop-blur-sm">
-            <span className="text-[9px] font-mono uppercase tracking-widest text-white/40">
-              {timerOverlay ? (timerOverlay.name || "Timer") : "Countdown"}{timerOverlay && !timerOverlay.running ? " (paused)" : ""}
-            </span>
-            <span className={`text-3xl font-mono font-light tabular-nums ${timerOverlay && timerOverlay.remainingSec < 0 ? "text-red-400" : "text-white/85"}`}>
-              {timerOverlay ? formatStageTimer(timerOverlay.remainingSec) : countdownStr}
-            </span>
+        {(timerOverlay || countdownStr || Object.keys(namedTimers).length > 0) && (
+          <div className="absolute top-3 right-4 z-10 flex flex-col items-end gap-1.5">
+            {(timerOverlay || countdownStr) && (
+              <div className="flex items-center gap-2 bg-white/[0.06] border border-white/10 rounded-xl px-3 py-1.5 backdrop-blur-sm">
+                <span className="text-[9px] font-mono uppercase tracking-widest text-white/40">
+                  {timerOverlay ? (timerOverlay.name || "Timer") : "Countdown"}{timerOverlay && !timerOverlay.running ? " (paused)" : ""}
+                </span>
+                <span className={`text-3xl font-mono font-light tabular-nums ${timerOverlay && timerOverlay.remainingSec < 0 ? "text-red-400" : "text-white/85"}`}>
+                  {timerOverlay ? formatStageTimer(timerOverlay.remainingSec) : countdownStr}
+                </span>
+              </div>
+            )}
+            {/* Wave 7: named timers — clean big numbers (no box/border), sized by
+                the operator's scale control. */}
+            {Object.values(namedTimers).map((t) => {
+              const scale = t.scale ?? 1;
+              const over = t.remainingSec < 0;
+              const color = t.color ?? (over ? "#f87171" : "rgba(255,255,255,0.9)");
+              return (
+                <div key={t.id} className="flex flex-col items-end leading-none">
+                  <span className="font-mono uppercase tracking-widest" style={{ color, opacity: 0.5, fontSize: `${0.9 * scale}vw` }}>
+                    {t.name || "Timer"}{!t.running ? " (paused)" : ""}
+                  </span>
+                  <span className="font-mono font-light tabular-nums" style={{ color, fontSize: `${4.5 * scale}vw`, lineHeight: 1, textShadow: "0 2px 12px rgba(0,0,0,0.5)" }}>
+                    {formatStageTimer(t.remainingSec)}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         )}
-        <PresentationCanvas zone={zone}>
-          {background && background.type !== "none" && <BackgroundLayer key={background.shaderPreset ?? background.type} background={background} />}
-          <TransitionWrapper identityKey={slideOutputIdentity(current)} transition={transition}>
-            <SlideRenderer slide={current} projectorFit fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} overVideo={!!(background && background.type !== "none")} />
-          </TransitionWrapper>
-          <ThemeLogoLayer appearance={appearance} />
-        </PresentationCanvas>
+        {/* Decoupling Phase 1: shared OutputCompositor. mode="stage" encodes the
+            confidence-monitor specifics — never a live camera, default canvas
+            dims, always-transition, muted media. The "Next" preview strip below
+            stays route-owned (it is stage-unique, not duplicated). */}
+        <OutputCompositor
+          mode="stage"
+          slide={current}
+          appearance={appearance}
+          background={background}
+          transition={transition}
+          fontScale={fontScale}
+          referenceScale={referenceScale}
+          referenceColor={referenceColor}
+          zone={zone}
+          videoMuted
+          layersEnabled={LAYERS_V2}
+          layerOverrides={LAYERS_V2 ? layerOverridesArr : undefined}
+        />
         <AnnouncementLayer ann={announcement} />
         {/* Operator message — a slim bar over the bottom of the current area, only
             when the operator actually sends one (no dead placeholder). */}

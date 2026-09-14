@@ -1,10 +1,15 @@
 "use client";
+import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { SlideRenderer } from "@/components/live/SlideRenderer";
 import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
+import { OutputCompositor } from "@/components/live/OutputCompositor";
 import type { OperatorShellCtx } from "../../shell/types";
 import { CopyConfirm } from "../CopyConfirm";
+import { getEffect, ensureEffectKeyframes, type EffectId } from "@/lib/effects";
+import { TRANSITION_NAME_TO_EFFECT_ID, TRANSITION_PREVIEW_EVENT } from "../BottomBar";
+import type { SlidePayload } from "@/lib/broadcast";
 
 // The live slide's text carries its reference/translation as a trailing
 // line after a blank line ("...verse body...\n\nBook Ch:Verse (KJV)") — see
@@ -38,6 +43,39 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
   const copyText = ctx.liveSlide.kind === "text"
     ? (reference && !ctx.liveSlide.text.includes(reference) ? `${ctx.liveSlide.text}\n\n${reference}` : ctx.liveSlide.text)
     : (reference ?? "");
+
+  // ── Transition preview overlay ────────────────────────────────────────────
+  // When the operator clicks a transition in the picker, replay its projector
+  // ENTER animation ONCE right here so they see how it looks. Fully isolated: an
+  // overlay that renders the current slide (or a sample when idle) with the real
+  // effect CSS, then removes itself on animation end. It NEVER touches the live
+  // render path below, so there's zero risk of the projector pulse/churn bugs.
+  const [demo, setDemo] = useState<{ nonce: number; animation: string } | null>(null);
+  useEffect(() => {
+    ensureEffectKeyframes();
+    const onPreview = (e: Event) => {
+      const d = (e as CustomEvent<{ name?: string; durationMs?: number }>).detail;
+      const name = d?.name;
+      if (!name) return;
+      const effectId = TRANSITION_NAME_TO_EFFECT_ID[name];
+      const durationMs = d?.durationMs ?? 600;
+      // Cut, or a ~instant duration, has nothing to animate — clear any overlay so
+      // a 0ms animation can never leave the black incoming layer stuck on screen.
+      if (!effectId || durationMs < 50) { setDemo(null); return; }
+      const eff = getEffect(effectId as EffectId);
+      if (!eff) return;
+      const animation = eff.css(durationMs, "ease-in-out").in;
+      setDemo((cur) => ({ nonce: (cur?.nonce ?? 0) + 1, animation }));
+    };
+    window.addEventListener(TRANSITION_PREVIEW_EVENT, onPreview);
+    return () => window.removeEventListener(TRANSITION_PREVIEW_EVENT, onPreview);
+  }, []);
+  // The slide shown in the demo: the current live slide, or a neutral sample so
+  // the motion is visible when the projector is idle.
+  const demoSlide: SlidePayload = isLive
+    ? ctx.liveSlide
+    : { kind: "text", text: "Transition preview" };
+
   return (
     <div className="p-2 flex flex-col gap-2">
       {/* 2026-07-25 Phase 1 refactor:
@@ -86,14 +124,42 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
             LIVE
           </div>
         )}
-        <PresentationCanvas zone={ctx.zone}>
-          {/* WYSIWYG: show the active background behind the slide, exactly like
-              the projector (slide goes transparent via overVideo). */}
-          {/* key on the preset forces a fresh WebGL canvas on theme switch —
-              reusing the canvas permanently loses its context (freezes the shader). */}
-          {ctx.background && ctx.background.type !== "none" && <BackgroundLayer key={ctx.background.shaderPreset ?? ctx.background.type} background={ctx.background} />}
-          <SlideRenderer slide={ctx.liveSlide} appearance={ctx.appearance ?? undefined} projectorFit fontScale={ctx.fontScale} referenceScale={ctx.referenceScale} referenceColor={ctx.referenceColor} overVideo={!!(ctx.background && ctx.background.type !== "none")} onVideoRef={onVideoRef} />
-        </PresentationCanvas>
+        {ctx.layersEngineOn ? (
+          /* Layers engine ON: render the preview through the SAME
+             resolveLayeredPlan/override path as /live (OutputCompositor with the
+             operator's own layer overrides) so the operator monitor is WYSIWYG
+             with the projector under a clear/hide/swap/zone override — not just
+             for the un-overridden state. transition is pinned null: the preview
+             is a monitor, not a projector, and a fade on a tiny box adds no
+             information (and avoids any enter-animation churn). Flag OFF keeps
+             the byte-identical legacy render below. */
+          <OutputCompositor
+            mode="live"
+            slide={ctx.liveSlide}
+            appearance={ctx.appearance}
+            background={ctx.background ?? null}
+            videoInput={ctx.videoInput ?? null}
+            transition={null}
+            fontScale={ctx.fontScale}
+            referenceScale={ctx.referenceScale}
+            referenceColor={ctx.referenceColor}
+            zone={ctx.zone}
+            aspectRatio={ctx.aspectRatio}
+            onVideoRef={onVideoRef}
+            layersEnabled
+            layerOverrides={ctx.liveLayers.overrides}
+            previewFrozen
+          />
+        ) : (
+          <PresentationCanvas zone={ctx.zone}>
+            {/* WYSIWYG: show the active background behind the slide, exactly like
+                the projector (slide goes transparent via overVideo). */}
+            {/* key on the preset forces a fresh WebGL canvas on theme switch —
+                reusing the canvas permanently loses its context (freezes the shader). */}
+            {ctx.background && ctx.background.type !== "none" && <BackgroundLayer key={ctx.background.shaderPreset ?? ctx.background.type} background={ctx.background} frozen />}
+            <SlideRenderer slide={ctx.liveSlide} appearance={ctx.appearance ?? undefined} projectorFit fontScale={ctx.fontScale} referenceScale={ctx.referenceScale} referenceColor={ctx.referenceColor} overVideo={!!(ctx.background && ctx.background.type !== "none")} onVideoRef={onVideoRef} />
+          </PresentationCanvas>
+        )}
         {ctx.liveSlide.kind !== "empty" && (
           <button
             onClick={ctx.onKill}
@@ -102,6 +168,29 @@ export function LivePreviewPanel({ ctx, onVideoRef }: { ctx: OperatorShellCtx; o
           >
             <X className="w-4 h-4" />
           </button>
+        )}
+        {/* One-shot transition demo overlay (see comment above). Two layers so the
+            effect is actually VISIBLE: a static contrasting "outgoing" backdrop, and
+            the incoming slide (opaque black, like a real projector slide) animating in
+            over it. A black-on-black fade would otherwise be imperceptible on the idle
+            monitor. Keyed on nonce so each click replays; self-removes when its OWN
+            enter animation finishes (guarded so a child's animationend can't kill it). */}
+        {demo && (
+          <div className="absolute inset-0 z-[6] pointer-events-none overflow-hidden">
+            {/* Outgoing frame — a distinct, non-black backdrop for the effect to reveal from. */}
+            <div className="absolute inset-0" style={{ background: "linear-gradient(135deg,#3a3a42,#1b1b20)" }} />
+            {/* Incoming slide — the real transition plays on THIS layer. */}
+            <div
+              key={demo.nonce}
+              className="absolute inset-0 bg-black"
+              style={{ animation: demo.animation }}
+              onAnimationEnd={(e) => { if (e.target === e.currentTarget) setDemo(null); }}
+            >
+              <PresentationCanvas zone={ctx.zone}>
+                <SlideRenderer slide={demoSlide} appearance={ctx.appearance ?? undefined} projectorFit fontScale={ctx.fontScale} referenceScale={ctx.referenceScale} referenceColor={ctx.referenceColor} />
+              </PresentationCanvas>
+            </div>
+          </div>
         )}
       </div>
       {/* Always-legible reference strip — book, chapter:verse, translation —

@@ -10,28 +10,38 @@
  *   ├──────┬─────────────────────────────────┬─────────────────┤
  *   │ Left │  Center (slide grid / Bible)    │  Right sidebar  │
  *   │ ~160 │                                 │   ~300px        │
+ *   │ Lib  │                                 │                 │
+ *   │ Play │                                 │                 │
+ *   │ Media│  (Media Bin is docked in the    │                 │
+ *   │ Bin  │   left rail below the Playlist,  │                 │
+ *   │      │   collapsible — NOT a bottom     │                 │
+ *   │      │   strip; the old MediaStrip is   │                 │
+ *   │      │   removed)                       │                 │
  *   ├──────┴─────────────────────────────────┴─────────────────┤
  *   │  BottomBar (40px)                                        │
- *   ├──────────────────────────────────────────────────────────┤
- *   │  MediaStrip (140px, collapsible)                         │
  *   └──────────────────────────────────────────────────────────┘
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Quote } from "lucide-react";
+import { Quote, X } from "lucide-react";
 import type { OperatorShellCtx } from "../shell/types";
 import { OperatorErrorBoundary } from "../OperatorErrorBoundary";
 import { TopBar } from "./TopBar";
+import { isStaleServerActionError, staleActionRecovery } from "@/lib/stale-action";
 import { LibrarySection } from "./left/LibrarySection";
 import { PlaylistSection } from "./left/PlaylistSection";
 import { MediaSection } from "./left/MediaSection";
+import { TransitionsPanel } from "./center/TransitionsPanel";
+import { MediaBinSection } from "./left/MediaBinSection";
 import { HardwareSection } from "./left/HardwarePanel";
 import { CenterHeader } from "./center/CenterHeader";
 import { SlideGrid } from "./center/SlideGrid";
+import { ArrangementStrip } from "./center/ArrangementStrip";
 import { DesktopSlideEditorModal } from "./DesktopSlideEditorModal";
 import { MediaImageEditor } from "./center/MediaImageEditor";
 import { BibleMode } from "./center/BibleMode";
 import { SongsBrowser } from "./center/SongsBrowser";
+import { SONG_OPEN_EVENT, type SongSelection } from "@/lib/song-selection";
 import { MediaBrowser } from "./center/MediaBrowser";
 import { OpenFlowPanel } from "@/components/operator/openflow/OpenFlowPanel";
 import { OpenFlowSidebar } from "@/components/operator/openflow/OpenFlowSidebar";
@@ -43,9 +53,10 @@ import { OutputRoutingRow } from "./right/OutputRoutingRow";
 // RightIconBar. AIDetectionsPanel still imported transitively (via
 // RightIconBar's popovers). Old RightTabs.tsx kept in tree, unused.
 import { RightIconBar } from "./right/RightIconBar";
+import { VerticalClearRail } from "./right/VerticalClearRail";
 import { TranscriptDisplay } from "./TranscriptDisplay";
 import { BottomBar } from "./BottomBar";
-import { useTimerSession, useMessagesSession, useBibleSession } from "./hooks";
+import { useTimerSession, useMessagesSession, useBibleSession, useTimersSession, useMessagesBoard, expandMessageTokens, timerTokenValue } from "./hooks";
 import { openLiveChannel, safePost, type LiveChannelLike } from "@/lib/broadcast";
 import { cachedLookup } from "@/lib/bible-client-cache";
 import { setAvailableTranslationCodes, getAvailableTranslationCodes } from "@/lib/translation-commands";
@@ -61,13 +72,14 @@ import { CONFIDENCE_THRESHOLD, BIBLE_AUTOFIRE_CONFIDENCE, BIBLE_SUGGEST_CONFIDEN
 import { OperatorTour, hasSeenTour } from "@/components/tutorial/OperatorTour";
 import { WhatsNewModal } from "../WhatsNewModal";
 import { dispatchInternal, isInternalEvent, internalPayload } from "@/lib/internal-events";
-import { matchNextSlide, isLikelyEndOfSong, scoreCoverage, slideWords } from "@/lib/ai-detection/lyric-position";
+import { matchNextSlide, isLikelyEndOfSong, scoreCoverage, slideWords, matchBestSlide } from "@/lib/ai-detection/lyric-position";
 import { parseContextCommand, terseCommandWordCount } from "@/lib/context-parser";
 // Audio Guardian (2026-07-27) — native-capture self-healing watchdog.
 // The shell only CONSUMES its state events (toasts + red chip); the state
 // machine itself lives in src/lib/audio/audioGuardian.ts, fed by
 // useAudioStream's native branch.
 import { GUARDIAN_STATE_EVENT, type GuardianStatus } from "@/lib/audio/audioGuardian";
+import { shouldHoldSongAutoSwitch, liveOriginKey, resolveLyricIndex } from "@/lib/song-switch-guard";
 
 // PF trace gate (R2). Mirrors useAudioStream.isDevOrTraceOn — cheap re-impl
 // here so the shell doesn't have to receive it via ctx.
@@ -97,7 +109,7 @@ function pfTraceOn(): boolean {
  * Legacy value "playlist" is aliased to "slides" so older stored state /
  * external callers keep working.
  */
-export type CenterMode = "slides" | "bible" | "songs" | "media" | "openflow";
+export type CenterMode = "slides" | "bible" | "songs" | "media" | "openflow" | "transitions";
 
 // OpenFlow ships behind a public flag so the entry only appears where it's
 // actually enabled (both this flag AND the server-side OPENFLOW_GROQ_API_KEY).
@@ -108,6 +120,7 @@ const OPENFLOW_ENABLED = process.env.NEXT_PUBLIC_OPENFLOW_ENABLED === "1";
 // without reading this entire file. All sign-off history is documented there.
 import {
   MEDIA_STRIP_KEY,
+  MEDIA_BIN_HEIGHT_KEY,
   SLIDE_SIZE_KEY,
   SAFE_MODE_KEY,
   LEFT_PANEL_WIDTH_KEY,
@@ -119,6 +132,8 @@ import {
   SONG_DISAMBIG_MARGIN,
   SONG_AUTO_FIRED_SESSION_KEY,
   SONG_AUTO_LIVE_MIN_GAP_MS,
+  SONG_JUMP_SUGGEST_CONFIDENCE,
+  SONG_SWITCH_WHILE_LIVE_CONFIDENCE,
   AUTO_FIRED_SESSION_KEY,
   AUTO_APPROVE_KEY_INSTANT,
   AUTO_ADVANCE_KEY,
@@ -260,7 +275,7 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
       const slides = Array.isArray(res.slides) ? (res.slides as { lyrics: string }[]) : [];
       const firstLyric = slides.map((s) => (typeof s.lyrics === "string" ? s.lyrics : "")).find((t) => t.trim().length > 0);
       if (firstLyric) {
-        ctx.onSendSlideToLive({ kind: "text", text: firstLyric });
+        ctx.onSendSlideToLive({ kind: "text", text: firstLyric }, undefined, { origin: { kind: "song", songId } });
         songClickFiredAtRef.current.set(songId, Date.now());
         toast.success(`"${songTitle}" → LIVE (slide 1)`);
         // Navigate the center panel to slides so the operator sees the song
@@ -610,6 +625,20 @@ async function fetchSongLyricSlides(songId: string): Promise<string[]> {
   return slides.map((s) => s.lyrics).filter((s) => !!s && s.trim().length > 0);
 }
 
+// Normalize a slide's text for identity comparison (collapse whitespace, drop
+// case + punctuation). Used to recognise WHICH song+slide is currently live —
+// regardless of whether the operator or the AI put it there — so the same-song
+// guards stop re-projecting a song that's already up (2026-09-06 fix).
+function normalizeLyric(s: string): string {
+  return s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").replace(/\s+/g, " ").trim();
+}
+
+// First non-empty line of a slide's lyrics, trimmed for a compact chip label.
+function firstLineOf(s: string): string {
+  const line = (s ?? "").split(/\n+/).map((l) => l.trim()).find((l) => l.length > 0) ?? "";
+  return line.length > 48 ? `${line.slice(0, 47)}…` : line;
+}
+
 /**
  * Part 6/7/8 controller + banner. Mounted once in ProOperatorShell. Reads
  * ctx.audio for detections/transcript and ctx.plan for playlist order; the
@@ -621,6 +650,22 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   const [autoAdvanceFlash, setAutoAdvanceFlash] = useState(false);
   const liveSongRef = useRef<LiveSongTrack | null>(null);
   const [, forceRender] = useState(0); // liveSongRef mutations need a render nudge for the indicator
+  // Cache of each plan song's ordered slide texts, so we can recognise which
+  // song+slide is currently live (by matching ctx.liveSlide's text) no matter
+  // who projected it — the AI, a chip tap, or a manual slide click. This powers
+  // the "don't re-project a song that's already up" fix and follows manual
+  // navigation. Keyed by songId; entries are {slides, byText} for O(1) lookup.
+  const songSlidesCacheRef = useRef<Map<string, { slides: string[]; byText: Map<string, number> }>>(new Map());
+  // Bumped whenever the cache gains/loses an entry, so effects that read the
+  // ref (which alone wouldn't re-run) can re-reconcile once slides arrive.
+  const [cacheVersion, setCacheVersion] = useState(0);
+  // Suggest-only "the singer is on slide N — go there?" chip (2026-09-06). The
+  // projector NEVER moves on its own within a song; the operator taps to confirm.
+  const [slideJumpSuggestion, setSlideJumpSuggestion] = useState<{ songId: string; index: number; text: string; confidence: number } | null>(null);
+  // Ref mirror so effects can read the current suggestion without a stale
+  // render-closure (and without adding it to their deps → re-run loops).
+  const slideJumpSuggestionRef = useRef(slideJumpSuggestion);
+  slideJumpSuggestionRef.current = slideJumpSuggestion;
 
   const stagingInFlightRef = useRef<Set<string>>(new Set());
   // songId -> when it was last staged/auto-lived. A TIME-LIMITED cooldown
@@ -740,6 +785,38 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
 
   const autoApprove = !!ctx.autoApproveOn;
 
+  // Ref mirror of stagedSong for async callbacks (autoLiveSong isn't keyed on it).
+  const stagedSongRef = useRef(stagedSong);
+  stagedSongRef.current = stagedSong;
+  // Song auto-switch hold (rule 7, 2026-09-14). Conservative "a song is live by
+  // ANY evidence" decision — see src/lib/song-switch-guard.ts for the signal choice.
+  // POSITIVE-EVIDENCE revision: holds only when a different song is provably live
+  // (tracked song, recorded song ORIGIN of the live output, or a plan song item).
+  const songSwitchInput = useCallback((songId: string) => {
+    const item = ctx.liveItemIdx >= 0 ? (ctx.plan.items[ctx.liveItemIdx] as { type?: string; songId?: string } | undefined) : undefined;
+    return {
+      targetSongId: songId,
+      trackedLiveSongId: liveSongRef.current?.songId,
+      liveSlide: ctx.liveSlide,
+      liveOrigin: ctx.getLiveOrigin?.() ?? null,
+      liveItemType: item?.type,
+      liveItemSongId: item?.songId,
+    };
+  }, [ctx.liveSlide, ctx.liveItemIdx, ctx.plan.items, ctx.getLiveOrigin]);
+  const holdSongSwitch = useCallback((songId: string) => shouldHoldSongAutoSwitch(songSwitchInput(songId)), [songSwitchInput]);
+  // Dedupe the "SWITCH HELD" log: once per songId per live-origin change (the
+  // detection loop re-evaluates on every transcript tick).
+  const heldLogKeysRef = useRef<Map<string, string>>(new Map());
+  const logSwitchHeld = useCallback((songId: string, msg: string) => {
+    // Key = live ORIGIN identity only (not live text) so advancing through the
+    // live song's slides does not re-log the same hold on every slide.
+    const key = liveOriginKey(songSwitchInput(songId));
+    if (heldLogKeysRef.current.get(songId) === key) return;
+    if (heldLogKeysRef.current.size > 100) heldLogKeysRef.current.clear();
+    heldLogKeysRef.current.set(songId, key);
+    console.log(msg);
+  }, [songSwitchInput]);
+
   // ---- Part 6: auto-stage on ≥85% confidence, AUTO on ---------------------
   const stageSong = useCallback(async (songId: string, title: string, confidence: number, source: "detection" | "progression") => {
     if (stagingInFlightRef.current.has(songId)) return;
@@ -748,7 +825,11 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     try {
       const slides = await fetchSongLyricSlides(songId);
       if (slides.length === 0) return;
-      setStagedSong({ songId, title, slides, currentIdx: 0, confidence, source });
+      // Pre-select the slide being sung so the operator confirms the RIGHT slide
+      // with one keypress (not always slide 1). Conservative; falls back to 0.
+      const best = matchBestSlide(recentWordsRef.current, slides);
+      const currentIdx = best.index >= 0 && best.confidence >= SONG_JUMP_SUGGEST_CONFIDENCE ? best.index : 0;
+      setStagedSong({ songId, title, slides, currentIdx, confidence, source });
       console.log(`[song-autoprogression] staged "${title}" (${songId}) at ${Math.round(confidence)}% via ${source} — awaiting human confirm (press ${SONG_AUTOSTAGE_CONFIRM_KEY.replace("Key", "")})`, { ts: Date.now() });
     } catch {
       /* non-fatal — leave unstaged, detection will resurface naturally */
@@ -766,6 +847,14 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   const autoLiveSong = useCallback(async (songId: string, title: string, confidence: number) => {
     if (stagingInFlightRef.current.has(songId)) return;
     if (liveSongRef.current?.songId === songId) return; // already live
+    // 2026-09-14 rule-7 sign-off — THE chokepoint: while a DIFFERENT song is live
+    // (by ANY evidence, see song-switch-guard.ts) the AI never auto-switches the
+    // projector. Keep/stage the song as a chip for the operator instead.
+    if (holdSongSwitch(songId)) {
+      logSwitchHeld(songId, `[song-autolive] SWITCH HELD — "${title}" ${Math.round(confidence)}% while a different song is live → staged for operator confirm (never auto-switch)`);
+      if (!stagedSongRef.current) void stageSong(songId, title, confidence, "detection");
+      return;
+    }
     // 2026-07-26 hard debounce — the field-report "glitching, repeatedly
     // firing GTF → LIVE toast" that survived v0.1.68's outer-effect guards.
     // Even after id + freshness dedup at the effect layer, Deepgram's
@@ -818,10 +907,22 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
         console.warn(`[latency] autoLiveSong BLOCKED: 0 slides returned for songId=${songId} title="${title}"`);
         return;
       }
-      const text = slides[0];
+      // Start on the slide actually being sung, not always slide 1 (2026-09-06
+      // "go to the slide they're singing"). Only when the recent words clearly &
+      // unambiguously identify a slide (matchBestSlide is conservative); else
+      // fall back to slide 0 — the previous behaviour, so no regression.
+      const best = matchBestSlide(recentWordsRef.current, slides);
+      const startIdx = best.index >= 0 && best.confidence >= SONG_JUMP_SUGGEST_CONFIDENCE ? best.index : 0;
+      const text = slides[startIdx];
+      // Re-check after the async fetch — a song may have gone live meanwhile.
+      if (holdSongSwitch(songId)) {
+        logSwitchHeld(songId, `[song-autolive] SWITCH HELD (post-fetch) — "${title}" while a different song is live → staged`);
+        if (!stagedSongRef.current) setStagedSong({ songId, title, slides, currentIdx: startIdx, confidence, source: "detection" });
+        return;
+      }
       lastSongAutoLiveAtRef.current = now;
-      ctx.onSendSlideToLive({ kind: "text", text });
-      liveSongRef.current = { songId, title, slides, currentIdx: 0, confirmedAt: now };
+      ctx.onSendSlideToLive({ kind: "text", text }, undefined, { origin: { kind: "song", songId } });
+      liveSongRef.current = { songId, title, slides, currentIdx: startIdx, confirmedAt: now };
       lastAdvanceTsRef.current = now;
       matchStreakRef.current = 0;
       notifyManualSongAdvance(songId, title);
@@ -871,7 +972,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     } finally {
       stagingInFlightRef.current.delete(songId);
     }
-  }, [ctx, stageSong]);
+  }, [ctx, stageSong, holdSongSwitch, logSwitchHeld]);
 
   useEffect(() => {
     // 2026-07-26 policy change (user sign-off): song auto-fire is NO
@@ -933,7 +1034,13 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       // so a second transcript update landing in the same tick could
       // otherwise still see `stagedSong` non-null and re-enter this branch
       // before autoLiveSong's own guards kick in.
-      if (risen && !promotionInFlightRef.current.has(risen.songId)) {
+      // Rule 7 (2026-09-14): a risen staged song must NOT auto-switch while a
+      // different song is live — keep it staged (don't drop it) and fall through.
+      // autoLiveSong enforces the same hold; checking here too avoids clearing
+      // the staged banner before autoLiveSong would refuse.
+      if (risen && holdSongSwitch(risen.songId)) {
+        logSwitchHeld(risen.songId, `[song-autolive] SWITCH HELD — risen staged "${risen.title}" ${risen.confidence}% while a different song is live → stays staged`);
+      } else if (risen && !promotionInFlightRef.current.has(risen.songId)) {
         promotionInFlightRef.current.add(risen.songId);
         setStagedSong(null);
         void autoLiveSong(risen.songId, risen.title, risen.confidence).finally(() => {
@@ -1026,7 +1133,22 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       if (ambiguous) {
         console.log(`[song-autolive] AMBIGUOUS — "${c.title}" ${c.confidence}% vs "${runnerUp!.title}" ${runnerUp!.confidence}% (< ${SONG_DISAMBIG_MARGIN}pt margin) → staging for manual pick instead of auto-project`);
       }
-      if (c.confidence >= SONG_AUTOLIVE_CONFIDENCE && !musicHold && !ambiguous) {
+      // Don't change songs mid-song unless it's a MASSIVE change (2026-09-06
+      // user directive). If a DIFFERENT song is already live, a new song must
+      // clear the higher SONG_SWITCH_WHILE_LIVE_CONFIDENCE bar to auto-switch
+      // the projector; otherwise it's staged as a manual chip (suggest) rather
+      // than auto-swapping. Starting a song when nothing/other content is live
+      // keeps the normal SONG_AUTOLIVE_CONFIDENCE bar.
+      // 2026-09-14 (user directive, supersedes the 95% auto-switch): while a
+      // DIFFERENT song is live the AI NEVER switches the projector on its own —
+      // even at ≥SONG_SWITCH_WHILE_LIVE_CONFIDENCE it only stages the new song
+      // as a manual chip ("give them the option in case you are wrong").
+      // Conservative ANY-evidence check (covers library-sent / untracked songs).
+      const differentSongLive = holdSongSwitch(c.songId);
+      if (differentSongLive && c.confidence >= SONG_SWITCH_WHILE_LIVE_CONFIDENCE) {
+        logSwitchHeld(c.songId, `[song-autolive] SWITCH HELD — "${c.title}" ${c.confidence}% while a different song is live → staging for operator confirm (never auto-switch)`);
+      }
+      if (!differentSongLive && c.confidence >= SONG_AUTOLIVE_CONFIDENCE && !musicHold && !ambiguous) {
         stagedOrHandledRef.current.set(c.songId, now);
         firedSuggestionIdsRef.current.add(c.suggestionId);
         // Prune fired-id set to last 200 entries (LRU-ish via clear+re-add
@@ -1051,7 +1173,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     }
     // autoApprove intentionally NOT in deps — see 2026-07-26 policy note
     // above (song auto-fire no longer gated on the AUTO/MANUAL toggle).
-  }, [ctx.audio.suggestions, ctx.audio.songSuggestions, stagedSong, stageSong, autoLiveSong]);
+  }, [ctx.audio.suggestions, ctx.audio.songSuggestions, stagedSong, stageSong, autoLiveSong, holdSongSwitch, logSwitchHeld]);
 
   // ---- Part 6: THE ONE confirm path that may touch ctx.onSendSlideToLive --
   const confirmStagedSongLive = useCallback(() => {
@@ -1064,7 +1186,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       // The single explicit human action (keypress) required by CLAUDE.md
       // rule 7 / the task invariant. Every other code path in this module
       // is forbidden from calling this.
-      ctx.onSendSlideToLive({ kind: "text", text });
+      ctx.onSendSlideToLive({ kind: "text", text }, undefined, { origin: { kind: "song", songId: stagedSong.songId } });
       liveSongRef.current = {
         songId: stagedSong.songId,
         title: stagedSong.title,
@@ -1120,21 +1242,120 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [stagedSong, confirmStagedSongLive]);
 
-  // If the live output changes to content that doesn't match what
-  // liveSongRef thinks is live (operator manually navigated to a different
-  // song/verse/slide by some path other than confirmStagedSongLive or this
-  // component's own auto-advance), stop tracking it — otherwise a stale ref
-  // could resume auto-advancing a song that's no longer actually on screen
-  // if the operator returns to it within the cooldown window.
+  // Populate/refresh the plan-song slide cache so we can recognise which song a
+  // live slide belongs to. Fetches only songs not already cached; bounded to the
+  // plan's songs (a handful). Runs on mount + whenever the plan's songs change.
+  const planSongIdsKey = ctx.plan.items.map((it) => (it as unknown as { songId?: string }).songId).filter(Boolean).join(",");
   useEffect(() => {
-    const live = liveSongRef.current;
-    if (!live) return;
-    const expected = live.slides[live.currentIdx];
+    let cancelled = false;
+    const songIds = Array.from(new Set(
+      ctx.plan.items.map((it) => (it as unknown as { songId?: string }).songId).filter((v): v is string => !!v),
+    ));
+    (async () => {
+      let added = false;
+      for (const songId of songIds) {
+        if (cancelled) return;
+        if (songSlidesCacheRef.current.has(songId)) continue;
+        try {
+          const slides = await fetchSongLyricSlides(songId);
+          if (cancelled) return;
+          const byText = new Map<string, number>();
+          slides.forEach((t, i) => { const n = normalizeLyric(t); if (n && !byText.has(n)) byText.set(n, i); });
+          songSlidesCacheRef.current.set(songId, { slides, byText });
+          added = true;
+        } catch { /* non-fatal — recognition just won't fire for this song */ }
+      }
+      // Nudge the reconcile effect so a song projected during this async load
+      // window (before its slides arrived) gets tracked once they're cached.
+      if (added && !cancelled) setCacheVersion((v) => v + 1);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planSongIdsKey, cacheVersion]);
+
+  // Invalidate a song's cached slides when it's edited (e.g. Add slide), so the
+  // tracker + jump suggestions never use stale text/indices. Fired by the
+  // add-slide handlers after createSongSlide succeeds.
+  useEffect(() => {
+    const onSongEdited = (e: Event) => {
+      const songId = (e as CustomEvent).detail?.songId as string | undefined;
+      if (!songId) return;
+      songSlidesCacheRef.current.delete(songId);
+      if (liveSongRef.current?.songId === songId) liveSongRef.current = null;
+      setSlideJumpSuggestion(null);
+      setCacheVersion((v) => v + 1); // trigger a re-fetch + re-reconcile
+    };
+    window.addEventListener("presentflow:song-slides-changed", onSongEdited);
+    return () => window.removeEventListener("presentflow:song-slides-changed", onSongEdited);
+  }, []);
+
+  // Keep liveSongRef in sync with WHAT'S ACTUALLY LIVE, from any source. When a
+  // text slide goes live, find which cached plan-song contains that exact slide
+  // and track it (song id + slide index); when the live content isn't a known
+  // song slide (a verse, media, blank, or an un-cached song), stop tracking.
+  // This is the linchpin of the "don't re-project a song that's already up" fix:
+  // the same-song guards in stageSong/autoLiveSong only work when liveSongRef is
+  // set, and previously it was set ONLY by the AI/confirm paths — so a song the
+  // operator started by hand wasn't recognised and repeats re-fired slide 1.
+  useEffect(() => {
     const liveText = ctx.liveSlide?.kind === "text" ? ctx.liveSlide.text : null;
-    if (liveText !== expected) {
-      liveSongRef.current = null;
+    if (liveText == null) { liveSongRef.current = null; return; }
+    const norm = normalizeLyric(liveText);
+    const live = liveSongRef.current;
+    const declared = ctx.getLiveOrigin?.();
+    // A DECLARED (or plan-resolved — not merely inferred) NON-song origin → the operator
+    // sent this as non-song content: stop following a song even if the line is
+    // shared with one.
+    if (declared && declared.kind !== "song" && !declared.inferred) { liveSongRef.current = null; return; }
+    // A DECLARED song origin with id wins over lyric matching (a shared line
+    // clicked from song A binds to A even if the tracker followed B). Index is
+    // resolved NEAREST the tracked position so a repeated chorus stays on the copy
+    // auto-advance / bounce-back / jump just set (never snaps to the first copy).
+    if (declared?.kind === "song" && declared.songId) {
+      const entry = songSlidesCacheRef.current.get(declared.songId);
+      if (entry) {
+        const prevIdx = live?.songId === declared.songId ? live.currentIdx : null;
+        const idx = resolveLyricIndex(entry.slides.map(normalizeLyric), norm, prevIdx);
+        if (idx >= 0) {
+          if (live?.songId !== declared.songId || live.currentIdx !== idx) {
+            const title = (ctx.plan.items.find((it) => (it as unknown as { songId?: string }).songId === declared.songId) as { title?: string } | undefined)?.title ?? "";
+            liveSongRef.current = live?.songId === declared.songId
+              ? { ...live, currentIdx: idx }
+              : { songId: declared.songId, title, slides: entry.slides, currentIdx: idx, confirmedAt: Date.now() };
+          }
+          return;
+        }
+      }
     }
-  }, [ctx.liveSlide]);
+    // Prefer following the currently-tracked song (handles manual ← → within it),
+    // keeping/nearest to the tracked index.
+    if (live) {
+      const idxInLive = resolveLyricIndex(live.slides.map(normalizeLyric), norm, live.currentIdx);
+      if (idxInLive >= 0) { if (idxInLive !== live.currentIdx) liveSongRef.current = { ...live, currentIdx: idxInLive }; return; }
+    }
+    // Otherwise search all cached plan songs for a slide with this exact text.
+    // Collect ALL matches first: if the same line appears in more than one song
+    // (worship sets share lines — "hallelujah", "holy holy holy"), binding to
+    // the first would mis-attribute the live song, so we leave it untracked.
+    // Also ignore trivially-short lines (<3 words) which collide constantly.
+    const wordCount = norm.split(" ").filter(Boolean).length;
+    const matches: Array<{ songId: string; idx: number }> = [];
+    for (const [songId, entry] of songSlidesCacheRef.current) {
+      const idx = entry.byText.get(norm);
+      if (idx != null) matches.push({ songId, idx });
+      if (matches.length > 1) break;
+    }
+    if (matches.length === 1 && wordCount >= 3) {
+      const { songId, idx } = matches[0];
+      const entry = songSlidesCacheRef.current.get(songId)!;
+      const title = (ctx.plan.items.find((it) => (it as unknown as { songId?: string }).songId === songId) as { title?: string } | undefined)?.title ?? "";
+      liveSongRef.current = { songId, title, slides: entry.slides, currentIdx: idx, confirmedAt: Date.now() };
+      setSlideJumpSuggestion(null); // reconciled — clear any stale jump chip
+      return;
+    }
+    // Live content isn't an unambiguously-recognised song slide → stop tracking.
+    liveSongRef.current = null;
+  }, [ctx.liveSlide, ctx.plan.items, cacheVersion, ctx.getLiveOrigin]);
 
   // Any OTHER manual operator action (click anywhere, or any keydown that
   // isn't our confirm key) cancels Part 7 auto-advance tracking and starts a
@@ -1178,7 +1399,30 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     lastWordTsRef.current = Date.now();
 
     const live = liveSongRef.current;
-    if (!live) return;
+    if (!live) { if (slideJumpSuggestionRef.current) setSlideJumpSuggestion(null); return; }
+
+    // SUGGEST-ONLY within-song jump (2026-09-06, user chose suggest-not-auto):
+    // if the singer has clearly moved to a DIFFERENT slide of the live song,
+    // surface a one-tap "go to slide N" chip. The projector NEVER moves on its
+    // own here (song auto-advance stays disabled). Conservative confidence bar
+    // + matchBestSlide's ambiguity guard keep near-duplicate slides quiet.
+    {
+      const bestNow = matchBestSlide(recentWordsRef.current, live.slides);
+      const cur = slideJumpSuggestionRef.current;
+      const qualifies = bestNow.index >= 0
+        && bestNow.index !== live.currentIdx
+        && bestNow.confidence >= SONG_JUMP_SUGGEST_CONFIDENCE;
+      if (qualifies) {
+        if (cur?.index !== bestNow.index || cur?.songId !== live.songId) {
+          setSlideJumpSuggestion({ songId: live.songId, index: bestNow.index, text: live.slides[bestNow.index], confidence: bestNow.confidence });
+        }
+      } else if (cur) {
+        // Signal decayed (back on the live slide, ambiguous, low confidence, or
+        // no match) → clear the chip so it never latches on a stale slide.
+        setSlideJumpSuggestion(null);
+      }
+    }
+
     if (Date.now() < cooldownUntilRef.current) return;
     // Dynamic floor: short slides (<5 content words) need more time to avoid
     // double-advancing on a single sung phrase.
@@ -1202,7 +1446,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     if (matchStreakRef.current >= requiredStreak) {
       if (!tryAutoMoveRef.current(live.currentIdx, nextIdx)) { matchStreakRef.current = 0; return; }
       const text = live.slides[nextIdx];
-      ctx.onSendSlideToLive({ kind: "text", text });
+      ctx.onSendSlideToLive({ kind: "text", text }, undefined, { origin: { kind: "song", songId: live.songId } });
       liveSongRef.current = { ...live, currentIdx: nextIdx };
       lastAdvanceTsRef.current = Date.now();
       matchStreakRef.current = 0;
@@ -1255,7 +1499,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     if (interimMatchStreakRef.current >= 2) {
       if (!tryAutoMoveRef.current(live.currentIdx, nextIdx)) { interimMatchStreakRef.current = 0; return; }
       const text = live.slides[nextIdx];
-      ctx.onSendSlideToLive({ kind: "text", text });
+      ctx.onSendSlideToLive({ kind: "text", text }, undefined, { origin: { kind: "song", songId: live.songId } });
       liveSongRef.current = { ...live, currentIdx: nextIdx };
       lastAdvanceTsRef.current = Date.now();
       matchStreakRef.current = 0;
@@ -1295,7 +1539,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       if (!tryAutoMoveRef.current(live.currentIdx, nextIdx)) return;
       // Silence after ≥ 65% of slide spoken → done, advance
       const text = live.slides[nextIdx];
-      sendLiveStableRef.current({ kind: "text", text });
+      sendLiveStableRef.current({ kind: "text", text }, undefined, { origin: { kind: "song", songId: live.songId } });
       liveSongRef.current = { ...live, currentIdx: nextIdx };
       lastAdvanceTsRef.current = Date.now();
       matchStreakRef.current = 0;
@@ -1336,7 +1580,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     if (bounceBackStreakRef.current >= 1) {
       if (!tryAutoMoveRef.current(live.currentIdx, live.currentIdx - 1)) { bounceBackStreakRef.current = 0; return; }
       const text = live.slides[live.currentIdx - 1];
-      ctx.onSendSlideToLive({ kind: "text", text });
+      ctx.onSendSlideToLive({ kind: "text", text }, undefined, { origin: { kind: "song", songId: live.songId } });
       liveSongRef.current = { ...live, currentIdx: live.currentIdx - 1 };
       lastAdvanceTsRef.current = Date.now();
       matchStreakRef.current = 0;
@@ -1389,10 +1633,63 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     setStagedSong(null);
   }, [stagedSong]);
 
-  if (!stagedSong && !autoAdvanceFlash) return null;
+  // Operator confirms the suggested within-song jump (a click = explicit
+  // intent, so this may touch live output). Moves the live slide to the sung
+  // one and re-syncs tracking; the projector never got here on its own.
+  const applyJumpSuggestion = () => {
+    const s = slideJumpSuggestion;
+    const live = liveSongRef.current;
+    if (!s || !live || live.songId !== s.songId || s.index >= live.slides.length) { setSlideJumpSuggestion(null); return; }
+    ctx.onSendSlideToLive({ kind: "text", text: s.text }, undefined, { origin: { kind: "song", songId: live.songId } });
+    liveSongRef.current = { ...live, currentIdx: s.index };
+    lastAdvanceTsRef.current = Date.now();
+    matchStreakRef.current = 0;
+    recentWordsRef.current = [];
+    setSlideJumpSuggestion(null);
+  };
+  const showJumpChip = !!slideJumpSuggestion
+    && liveSongRef.current?.songId === slideJumpSuggestion.songId
+    && slideJumpSuggestion.index !== liveSongRef.current?.currentIdx;
+
+  if (!stagedSong && !autoAdvanceFlash && !showJumpChip) return null;
 
   return (
     <div className="shrink-0 px-3 py-2 flex flex-col gap-2" data-testid="song-autostage-banner">
+      {showJumpChip && slideJumpSuggestion && (
+        <div
+          className="rounded-xl px-3 py-2 flex items-center gap-2"
+          style={{
+            background: "rgba(15,15,17,0.96)",
+            border: "1px solid rgba(255,255,255,0.10)",
+            borderLeft: "3px solid #3b82f6",
+            boxShadow: "0 12px 36px rgba(0,0,0,0.5)",
+          }}
+          role="status"
+        >
+          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full" style={{ color: "#7db3ff", background: "rgba(59,130,246,0.14)", border: "1px solid rgba(59,130,246,0.3)" }}>
+            Now singing
+          </span>
+          <span className="text-[12px] text-white/90 truncate flex-1" title={slideJumpSuggestion.text}>
+            Slide {slideJumpSuggestion.index + 1}: {firstLineOf(slideJumpSuggestion.text)}
+          </span>
+          <button
+            onClick={applyJumpSuggestion}
+            className="shrink-0 h-7 px-3 rounded-lg text-[11px] font-semibold text-white"
+            style={{ background: "#2563eb" }}
+            title="Move the projector to the slide being sung"
+          >
+            Go to slide {slideJumpSuggestion.index + 1}
+          </button>
+          <button
+            onClick={() => setSlideJumpSuggestion(null)}
+            className="shrink-0 h-7 w-7 rounded-lg text-white/50 hover:text-white hover:bg-white/10 inline-flex items-center justify-center"
+            title="Dismiss"
+            aria-label="Dismiss"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
       {stagedSong && (
         <div
           // 2026-08-16: restyled to the clean dark-card look (matches the app's
@@ -1501,7 +1798,18 @@ function stripRefCode(s: string | null | undefined): string {
 export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const [centerMode, setCenterMode] = useState<CenterMode>("slides");
+  // A song the Cmd+K search asked to open. Held HERE (always-mounted shell) and
+  // passed to SongsBrowser as a prop, so the pick survives that panel's mount —
+  // mirrors the bible-goto pattern (the in-panel listener lost the race).
+  const [openSong, setOpenSong] = useState<SongSelection | null>(null);
+  // Stable identity so SongsBrowser's [openSong, onSongOpened] effect can't re-run
+  // on unrelated shell re-renders (avoids re-applying a stale pick over a manual one).
+  const clearOpenSong = useCallback(() => setOpenSong(null), []);
   const [mediaStripOpen, setMediaStripOpen] = useState(true);
+  // Media Bin pop-out (field fix 6A): taller strip in the center bottom dock.
+  const [mediaBinPoppedOut, setMediaBinPoppedOut] = useState(false);
+  // Media Bin manual height (field wave 6E item 1): persisted pull-up resize.
+  const [mediaBinHeight, setMediaBinHeight] = useState(148);
   const [slideSize, setSlideSize] = useState(160);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
@@ -1628,7 +1936,15 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       if (s === "0") setMediaStripOpen(false);
       const sz = window.localStorage.getItem(SLIDE_SIZE_KEY);
       if (sz) setSlideSize(Math.max(96, Math.min(240, parseInt(sz, 10) || 160)));
+      const bh = window.localStorage.getItem(MEDIA_BIN_HEIGHT_KEY);
+      if (bh) setMediaBinHeight(Math.max(96, Math.min(620, parseInt(bh, 10) || 148)));
     } catch { /* noop */ }
+  }, []);
+
+  const handleMediaBinResize = useCallback((px: number) => {
+    const clamped = Math.max(96, Math.min(620, Math.round(px)));
+    setMediaBinHeight(clamped);
+    try { window.localStorage.setItem(MEDIA_BIN_HEIGHT_KEY, String(clamped)); } catch { /* noop */ }
   }, []);
 
   useEffect(() => {
@@ -1653,6 +1969,23 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     return () => window.removeEventListener("presentflow:restart-audio", h);
   }, [onRestartAudio]);
 
+  // Stale-action recovery (Wave 3, item 1). A tab open across a Vercel redeploy
+  // holds cached chunks referencing Server Action ids the fresh server no longer
+  // has → Next.js rejects with a recognisable "Failed to find Server Action"
+  // error, which used to surface as an alarming red toast. We detect that ONE
+  // failure class and replace it with a calm "PresentFlow updated" notice: if
+  // nothing is live we auto-reload; if content IS live we NEVER yank the
+  // projector — the operator taps Reload when ready.
+  const [staleUpdate, setStaleUpdate] = useState(false);
+  const liveSlideRef = useRef(ctx.liveSlide);
+  liveSlideRef.current = ctx.liveSlide;
+  // Track "is a service in progress" the SAME way UpdateBanner does, so the
+  // auto-reload guard never yanks the page mid-service. A momentarily-empty
+  // projector while the AI is actively listening (e.g. between songs) is NOT
+  // "nothing live" — a full reload there drops the audio/WS + AI session.
+  const listeningRef = useRef(ctx.audio?.listening);
+  listeningRef.current = ctx.audio?.listening;
+
   // Global safety net: any promise that rejects without a handler OR any
   // synchronous throw outside a React tree normally shows up as a red dev
   // overlay AND leaves the operator staring at a silent void. Surface both
@@ -1666,13 +1999,41 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       setTimeout(() => { recentToasts = Math.max(0, recentToasts - 1); }, 3000);
       return recentToasts <= 3; // suppress after 3 in 3s so we don't spam
     };
+    // Intercept the stale-action class BEFORE the generic toast. Returns true if
+    // handled (so the caller skips the red toast).
+    const handleStale = (err: unknown): boolean => {
+      if (!isStaleServerActionError(err)) return false;
+      // "In service" = anything projected (incl. a "blank"/black-out, which
+      // holds restore state in memory) OR the AI actively listening. Strictly
+      // MORE conservative than a bare kind!=="empty": only a truly idle shell
+      // (nothing projected AND not listening) may auto-reload.
+      const contentIsLive = liveSlideRef.current?.kind !== "empty" || !!listeningRef.current;
+      // Reload-loop guard: if we already spent our one auto-reload very recently
+      // (a stale SW served the same old chunk back and it re-threw), do NOT
+      // reload again — fall through to the manual banner instead of spinning.
+      let recentlyAutoReloaded = false;
+      try {
+        const at = Number(window.sessionStorage.getItem("pf-stale-autoreload-at"));
+        recentlyAutoReloaded = Number.isFinite(at) && at > 0 && Date.now() - at < 30_000;
+      } catch { /* sessionStorage unavailable → treat as not-recent */ }
+      const { autoReload } = staleActionRecovery({ contentIsLive, recentlyAutoReloaded });
+      if (autoReload) {
+        try { window.sessionStorage.setItem("pf-stale-autoreload-at", String(Date.now())); } catch { /* noop */ }
+        window.location.reload();
+        return true;
+      }
+      setStaleUpdate(true); // show the calm banner with a Reload button
+      return true;
+    };
     const onRej = (e: PromiseRejectionEvent) => {
       const reason = e.reason;
+      if (handleStale(reason)) return;
       const msg = reason instanceof Error ? reason.message : String(reason ?? "unhandled rejection");
       console.error("[operator-global-error] unhandledrejection:", msg, reason);
       if (bump()) toast.error(`Background task failed: ${msg.slice(0, 120)}`);
     };
     const onErr = (e: ErrorEvent) => {
+      if (handleStale(e.error ?? e.message)) return;
       // React error boundaries catch render errors; this catches
       // event-handler throws and native-callback errors.
       const msg = e.message || String(e.error ?? "unknown error");
@@ -2037,6 +2398,8 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // R4/R5: session hooks live at the shell so state survives tab/mode swap.
   const timer = useTimerSession();
   const messages = useMessagesSession();
+  const timers = useTimersSession();        // Wave 7 — multi named timers
+  const messagesBoard = useMessagesBoard();  // Wave 7 — templates + active messages
   const bibleSession = useBibleSession(ctx.defaultTranslationCode);
   // Always-current handle to the session so the callback below (captured by
   // effects that don't re-subscribe on every grid change) never reads a stale
@@ -2109,11 +2472,19 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   // CONTENT changes (text + dismissAfterMs), so heartbeats never restart it.
   const messagesStateRef = useRef(messages.state);
   useEffect(() => { messagesStateRef.current = messages.state; }, [messages.state]);
+  // Wave 7: current timers + active board messages, read inside the interval so
+  // the {{timer}} token stays live and the extras array is always fresh.
+  const timersSlotsRef = useRef(timers.slots);
+  useEffect(() => { timersSlotsRef.current = timers.slots; }, [timers.slots]);
+  const boardActiveRef = useRef(messagesBoard.active);
+  useEffect(() => { boardActiveRef.current = messagesBoard.active; }, [messagesBoard.active]);
   const messagePostedRef = useRef(false);
+  const legacyActive = messages.state.showing && messages.state.text.trim().length > 0;
+  const boardCount = messagesBoard.active.length;
   useEffect(() => {
     const ch = overlayChRef.current;
     if (!ch) return;
-    if (!(messages.state.showing && messages.state.text.trim().length > 0)) {
+    if (!legacyActive && boardCount === 0) {
       if (messagePostedRef.current) {
         // Only broadcast clear:true after at least one show — otherwise every
         // slide navigation on a fresh operator would spam `{clear:true}`.
@@ -2122,36 +2493,55 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
       }
       return;
     }
+    const DISMISS_MS: Record<string, number | null> = {
+      "5s": 5000, "10s": 10000, "30s": 30000, "1min": 60000, "5min": 300000, manual: null,
+    };
+    // Build the {{timer}} token map from the live timers snapshot.
+    const timerTokens = (): { map: Record<string, string>; first?: string } => {
+      const slots = timersSlotsRef.current;
+      const map: Record<string, string> = {};
+      for (const s of slots) map[s.def.id] = timerTokenValue(s.remaining);
+      const firstShown = slots.find((s) => s.shown) ?? slots[0];
+      return { map, first: firstShown ? timerTokenValue(firstShown.remaining) : undefined };
+    };
     const post = () => {
       const s = messagesStateRef.current;
-      // Simple {{time}}/{{date}}/{{currentSlide}} token expansion at post time.
       const now = new Date();
-      const text = s.text
-        .replace(/\{\{time\}\}/g, now.toLocaleTimeString())
-        .replace(/\{\{date\}\}/g, now.toLocaleDateString())
-        .replace(/\{\{currentSlide\}\}/g, String((previewSlideIdxRef.current ?? 0) + 1));
-      const DISMISS_MS: Record<string, number | null> = {
-        "5s": 5000, "10s": 10000, "30s": 30000, "1min": 60000, "5min": 300000, manual: null,
-      };
-      safePost(ch, {
-        type: "message",
-        overlay: {
-          text,
-          dismissAfterMs: DISMISS_MS[s.dismiss] ?? null,
-          position: s.position,
-          allowWeb: s.allowWeb,
-          // Ticker: only send the motion fields when scroll is on, so a static
-          // message stays byte-identical on the wire (and old projectors ignore
-          // the extra fields harmlessly).
-          ...(s.scroll ? { scroll: true, scrollDir: s.scrollDir, scrollSec: s.scrollSec } : {}),
-        },
-      });
+      const { map, first } = timerTokens();
+      // Legacy single message (authoritative slot "default"). Kept EXACTLY as
+      // before (time/date/currentSlide tokens); clear:true when not showing so
+      // the "default" slot is emptied while extras keep painting.
+      const overlay = legacyActive
+        ? {
+            text: s.text
+              .replace(/\{\{time\}\}/g, now.toLocaleTimeString())
+              .replace(/\{\{date\}\}/g, now.toLocaleDateString())
+              .replace(/\{\{currentSlide\}\}/g, String((previewSlideIdxRef.current ?? 0) + 1)),
+            dismissAfterMs: DISMISS_MS[s.dismiss] ?? null,
+            position: s.position,
+            allowWeb: s.allowWeb,
+            ...(s.scroll ? { scroll: true, scrollDir: s.scrollDir, scrollSec: s.scrollSec } : {}),
+          }
+        : { clear: true as const };
+      // Extra simultaneous messages (Wave 7). Each keyed by its own id; the
+      // {{timer}} token renders the bound timer's live clock.
+      const extras = boardActiveRef.current
+        .filter((m) => !m.hidden) // hidden messages stay listed for re-show but leave the wire
+        .map((m) => ({
+          id: m.id,
+          text: expandMessageTokens(m.text, { now, currentSlide: previewSlideIdxRef.current, timers: map, firstTimer: first }),
+          dismissAfterMs: DISMISS_MS[m.dismiss] ?? null,
+          position: m.position,
+          allowWeb: m.allowWeb,
+          ...(m.scroll ? { scroll: true, scrollDir: m.scrollDir, scrollSec: m.scrollSec } : {}),
+        })).filter((m) => m.text.trim().length > 0);
+      safePost(ch, { type: "message", overlay, messages: extras });
       messagePostedRef.current = true;
     };
     post();
     const id = setInterval(post, 1000);
     return () => clearInterval(id);
-  }, [messages.state.showing, messages.state.text, messages.state.dismiss, messages.state.position, messages.state.allowWeb, messages.state.scroll, messages.state.scrollDir, messages.state.scrollSec]);
+  }, [legacyActive, boardCount, messages.state.showing, messages.state.text, messages.state.dismiss, messages.state.position, messages.state.allowWeb, messages.state.scroll, messages.state.scrollDir, messages.state.scrollSec]);
 
   // JPD Fix 1: timer overlay is projected ONLY while `shown` (explicit
   // "Show on screen" toggle in the Timers tab). While shown we heartbeat at
@@ -2194,6 +2584,70 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     const id = setInterval(post, 1000);
     return () => clearInterval(id);
   }, [timer.state.shown, timer.state.running, timer.state.name, timer.state.type, timer.state.position]);
+
+  // Wave 7: publish each SHOWN named timer as a KEYED TimerOverlay (id = its
+  // slot id), heartbeating at 1Hz like the legacy timer. When a timer stops
+  // being shown (hidden/deleted) we send a per-id clear so the projector drops
+  // just that one. Reads the live slots via ref inside the interval so ticking
+  // never re-creates the interval. The legacy timer (slot "default") is
+  // untouched by this effect — the two coexist on the wire by id.
+  const shownTimerIdsRef = useRef<Set<string>>(new Set());
+  const shownTimerKey = timers.slots.filter((s) => s.shown).map((s) => `${s.def.id}:${s.position}:${s.scale}`).join(",");
+  useEffect(() => {
+    const ch = overlayChRef.current;
+    if (!ch) return;
+    const post = () => {
+      const slots = timersSlotsRef.current;
+      const nowShown = new Set<string>();
+      for (const s of slots) {
+        if (!s.shown) continue;
+        nowShown.add(s.def.id);
+        safePost(ch, {
+          type: "timer",
+          overlay: {
+            id: s.def.id,
+            name: s.def.name,
+            remainingSec: Math.max(-3600, Math.min(24 * 60 * 60, Math.round(s.remaining))),
+            running: s.def.type === "countdown_to" ? true : s.runtime.running,
+            kind: s.def.type === "elapsed" ? "elapsed" : "countdown",
+            position: s.position,
+            overrun: s.overrun,
+            scale: s.scale,
+          },
+        });
+      }
+      // Clear any timer that WAS shown last tick but isn't now.
+      for (const id of shownTimerIdsRef.current) {
+        if (!nowShown.has(id)) safePost(ch, { type: "timer", overlay: { clear: true, id } });
+      }
+      shownTimerIdsRef.current = nowShown;
+    };
+    post();
+    const id = setInterval(post, 1000);
+    return () => clearInterval(id);
+  }, [shownTimerKey]);
+
+  // Wave 7: engine/macro TIMER_COMMAND entry point (ctx.onTimerCommand emits
+  // this CustomEvent). "default" routes to the legacy quick timer; any other id
+  // routes to the named-timer session.
+  useEffect(() => {
+    const onCmd = (e: Event) => {
+      // Nonce guard (Y1): drop any timer-command event that didn't come through
+      // dispatchInternal (XSS / browser extension can't forge the module nonce).
+      if (!isInternalEvent(e)) return;
+      const d = internalPayload<{ timerId?: string; command?: "start" | "stop" | "reset" }>(e);
+      if (!d?.command) return;
+      if (d.timerId === "default" || !d.timerId) {
+        if (d.command === "reset") timer.reset();
+        else if (d.command === "start" && !timer.state.running) timer.toggleRun();
+        else if (d.command === "stop" && timer.state.running) timer.toggleRun();
+        return;
+      }
+      timers.command(d.timerId, d.command);
+    };
+    window.addEventListener("presentflow:timer-command", onCmd);
+    return () => window.removeEventListener("presentflow:timer-command", onCmd);
+  }, [timer, timers]);
 
   // Auto-route AI scripture detections into the Bible session so switching
   // into Bible mode shows the detected passage immediately — even if the
@@ -3440,6 +3894,20 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bibleSession, ctx]);
 
+  // ── Cmd+K search → open a song in the Songs library ───────────────────────
+  // Always-mounted here so the synchronous event fired while switching INTO songs
+  // mode is never missed (the conditionally-mounted SongsBrowser can't catch it).
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent<SongSelection>).detail;
+      if (!d || !d.id) return;
+      setOpenSong({ id: d.id, title: d.title, artist: d.artist ?? null });
+      setCenterMode("songs");
+    };
+    window.addEventListener(SONG_OPEN_EVENT, handler);
+    return () => window.removeEventListener(SONG_OPEN_EVENT, handler);
+  }, []);
+
   // ── Song chip → switch center to slides so operator sees it land ──────────
   // AIDetectionsPanel dispatches this after a song-chip click goes live.
   // Without this the projector updates but the operator's center panel stays
@@ -4155,6 +4623,18 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-[var(--color-app-bg)] text-[var(--color-foreground)]">
       <AnnouncementBar />
+      {staleUpdate && (
+        <div role="status" className="flex items-center gap-3 px-4 py-2 text-[12.5px] font-medium bg-[var(--color-brand)]/15 border-b border-[var(--color-brand)]/40 text-[var(--color-foreground)]">
+          <span className="flex-1">PresentFlow updated — reload to continue. Nothing on the projector will change until you do.</span>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="shrink-0 px-3 py-1 rounded-md bg-[var(--color-brand)] text-white font-semibold hover:opacity-90 active:scale-95 transition"
+          >
+            Reload
+          </button>
+        </div>
+      )}
       <UpdateBanner liveSlide={ctx.liveSlide} listening={ctx.audio?.listening} />
       <AICaptionsBanner ctx={ctx} />
       <div data-tour="top" className="relative">
@@ -4198,6 +4678,10 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
         >
           <LibrarySection onCenterMode={setCenterMode} />
           <PlaylistSection ctx={ctx} onCenterMode={setCenterMode} />
+          {/* Media Bin relocated (field fix 6A): it now docks the CENTER column's
+              bottom strip (below the slide grid + stage), not the left rail. See
+              the <main> block below. The TopBar media toggle still drives it via
+              mediaStripOpen. */}
           {OPENFLOW_ENABLED ? (
             <OpenFlowSidebar
               active={centerMode === "openflow"}
@@ -4239,14 +4723,37 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
               ) : centerMode === "bible" ? (
                 <BibleMode ctx={ctx} session={bibleSession} />
               ) : centerMode === "songs" ? (
-                <SongsBrowser ctx={ctx} onExitToSlides={() => setCenterMode("slides")} />
+                <SongsBrowser ctx={ctx} onExitToSlides={() => setCenterMode("slides")} openSong={openSong} onSongOpened={clearOpenSong} />
               ) : centerMode === "media" ? (
                 <MediaBrowser ctx={ctx} onExitToSlides={() => setCenterMode("slides")} />
+              ) : centerMode === "transitions" ? (
+                <TransitionsPanel />
               ) : (
-                <SlideGrid ctx={ctx} slideSize={slideSize} onOpenEditor={() => setSlideEditorOpen(true)} />
+                <>
+                  {/* Groups & Arrangements strip (wave 6D) — renders only for a
+                      previewed song that uses groups; no-op otherwise. */}
+                  <ArrangementStrip ctx={ctx} />
+                  <SlideGrid ctx={ctx} slideSize={slideSize} onOpenEditor={() => setSlideEditorOpen(true)} />
+                </>
               )}
             </OperatorErrorBoundary>
           </div>
+          {/* Media Bin — CENTER bottom strip (field fix 6A). Sits below the slide
+              grid + stage as a non-scrolling dock, pushing the stage strip up.
+              Collapsible (slim header when closed) + pop-out (taller when open).
+              Hidden while OpenFlow owns the whole center. */}
+          {centerMode !== "openflow" && (
+            <MediaBinSection
+              open={mediaStripOpen}
+              onToggle={() => setMediaStripOpen((v) => !v)}
+              onCenterMode={setCenterMode}
+              poppedOut={mediaBinPoppedOut}
+              onTogglePopout={() => setMediaBinPoppedOut((v) => !v)}
+              ctx={ctx}
+              height={mediaBinHeight}
+              onResize={handleMediaBinResize}
+            />
+          )}
           </div>
         </main>
 
@@ -4289,13 +4796,29 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
               this change) for easy rollback if this regresses; will
               be deleted in a follow-up ship. */}
           <OperatorErrorBoundary fallbackLabel="Right icon bar error">
-            <RightIconBar ctx={ctx} timer={timer} messages={messages} />
+            <RightIconBar ctx={ctx} timer={timer} messages={messages} timers={timers} messagesBoard={messagesBoard} />
           </OperatorErrorBoundary>
           {/* Placeholder keeps the sidebar flex column filling the
               available height so the icon bar sits at the bottom of the
               sidebar rather than floating mid-column. */}
           <div className="flex-1 min-h-0" />
         </aside>
+
+        {/* Decoupling Phase 3b — CLEAR-CUES RAIL. A slim, ALWAYS-visible strip of
+            per-layer clear cues at the far right edge (ProPresenter parity):
+            each cue lights in the layer accent when that layer is live, click
+            clears that layer, the bottom X (guarded hold) clears all. It reuses
+            the same useLiveLayers rows/actions as the LayersPanel popover — no
+            duplicated state. Gated on ctx.layersEngineOn (env kill-switch AND
+            church opt-in): OFF ⇒ VerticalClearRail returns null AND this branch
+            reserves no column ⇒ zero DOM, byte-identical legacy layout. Sits as
+            its own flex column to the right of the sidebar, so it never overlaps
+            or shifts the sidebar's inline popovers. */}
+        {ctx.layersEngineOn && (
+          <OperatorErrorBoundary fallbackLabel="Clear-cues rail error">
+            <VerticalClearRail ctx={ctx} />
+          </OperatorErrorBoundary>
+        )}
       </div>
 
       <SongAutopilotStaging ctx={ctx} />
@@ -4310,6 +4833,7 @@ export function ProOperatorShell({ ctx }: { ctx: OperatorShellCtx }) {
           ctx={ctx}
           onOpenShortcutsHelp={() => setShortcutsHelpOpen(true)}
           centerMode={centerMode}
+          videoRef={previewVideoRef}
         />
       </div>
 

@@ -10,6 +10,7 @@
 // projection-zone is a pure module (types + math, no browser APIs / no
 // "use client"), so importing it here keeps this file server-safe.
 import { isValidZone, type ProjectionZone } from "./projection-zone";
+import { isRenderableUrl } from "./render-url";
 
 // Rich slide objects for the projector (Phase 5D-2 → live). Coordinates are in
 // the 1920×1080 virtual canvas the editor uses; renderers scale by percentage.
@@ -21,7 +22,7 @@ export type SlideObjectWire =
       lineHeight?: number; letterSpacing?: number; uppercase?: boolean; shadow?: boolean; stroke?: string; strokeWidth?: number }
   | { kind: "shape"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; locked?: boolean; hidden?: boolean; shape: "rect" | "ellipse";
       fill?: string; fill2?: string; fillAngle?: number; stroke?: string; strokeWidth?: number; radius?: number; opacity?: number }
-  | { kind: "image"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; locked?: boolean; hidden?: boolean; url: string; fit?: "contain" | "cover" | "fill"; posX?: number; posY?: number; zoom?: number; opacity?: number; blurFill?: boolean }
+  | { kind: "image"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; locked?: boolean; hidden?: boolean; url: string; fit?: "contain" | "cover" | "fill"; posX?: number; posY?: number; zoom?: number; opacity?: number; blurFill?: boolean; blur?: boolean }
   | { kind: "video"; x: number; y: number; w: number; h: number; anim?: "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right" | "zoom"; animDelayMs?: number; rotation?: number; locked?: boolean; hidden?: boolean; url: string; fit?: "contain" | "cover" | "fill"; loop?: boolean; muted?: boolean; opacity?: number };
 
 export const SLIDE_CANVAS_W = 1920;
@@ -53,6 +54,31 @@ export type ScriptureBandWire = {
   // renderer uses it verbatim instead of auto-contrasting. Scripture-projector
   // payloads NEVER set it, so their rendering is unchanged.
   textColor?: string;
+};
+
+// OBS editor wire (see src/lib/obs-look.ts). Colour: named mode or #rgb/#rrggbb.
+export type ObsTextColorWire = "auto" | "white" | "black" | "theme" | `#${string}`;
+export type ObsLookWire = {
+  look?: "camera" | "lowerthird" | "full";
+  ltText?: ObsTextColorWire;
+  ltRef?: boolean;
+  camScale?: number;
+  camPos?: "top" | "middle" | "bottom";
+  camText?: ObsTextColorWire;
+  camEffect?: "shadow" | "outline" | "none";
+  camScrim?: number;
+  fullScale?: number;
+  fullDim?: number;
+  // "Over your camera" layout (see ObsLookSettings in obs-look.ts for the back-compat rule).
+  camLayout?: "lowerthird" | "full";
+  /** RETIRED (never published, ignored by the renderer); validator kept tolerant for back-compat. */
+  camLayoutSet?: boolean;
+  camBandPosition?: "upper" | "mid" | "lower" | "custom";
+  camBandOffsetPct?: number;
+  camBandHeightPct?: number;
+  camBandScale?: number;
+  camBandOpacity?: number;
+  camBandStyle?: "grey" | "black" | "clear" | "gradient" | "frost" | "theme";
 };
 
 export type SlidePayload =
@@ -267,6 +293,96 @@ export type BackgroundSpec = {
   overlayOpacity?: number;
 };
 
+// ── Layer model on the wire (Decoupling Phase 2 — ADDITIVE, DORMANT) ────────
+// A per-layer wire contract so a single layer (background, camera, a lyrics
+// band over a feed, …) can be described, swapped or patched independently of the
+// monolithic OutputState snapshot. Purely additive: `OutputState.layers` is
+// OPTIONAL and NOT yet consumed by the compositor (it renders from the legacy
+// fields — see docs/DECOUPLING_PLAN.md Phase 3). `outputStateToLayers()` in
+// src/lib/output-layers.ts derives this list from the legacy fields as the
+// migration seam. Every shape here is fully hardened (see isValidLayerWire):
+// unknown/invalid layers are DROPPED, never passed through.
+export type LayerKind =
+  | "background" | "camera" | "slide" | "band"
+  | "announcement" | "timer" | "message" | "media" | "logo";
+// NOTE (forward-compat): "audio" is RESERVED for Phase 5 (audio routing) and is
+// deliberately NOT in this union yet. A wire carrying kind:"audio" today is an
+// UNKNOWN future kind → dropped by sanitizeLayers, rejected by the strict array
+// validator (a newer sender can't force an older receiver to render a shape it
+// doesn't understand). See docs/DECOUPLING_PLAN.md.
+
+// Where a layer paints on the 1920×1080 canvas. `band` carries explicit
+// geometry (percent of canvas); `full`/`lowerThird` are named presets the
+// renderer resolves to geometry.
+export type LayerZone =
+  | { kind: "full" }
+  | { kind: "lowerThird" }
+  | { kind: "band"; yPct: number; hPct: number };
+
+// Common per-layer fields. `id` is a stable, short, safe string (the seam the
+// operator layer panel + layer-patch key on). `z` orders the stack (ascending).
+// `transportScope` mirrors the videoInput scoping rule: "local" = same-machine
+// only (e.g. a live camera deviceId, meaningless off-box), "all" = fan out.
+type LayerWireBase = {
+  id: string;
+  z: number;
+  enabled: boolean;
+  opacity?: number;                       // 0..1
+  zone?: LayerZone;
+  transportScope?: "local" | "all";
+  // Monotonic revision stamp (Decoupling Phase 3 hardening). Assigned by the
+  // ORIGIN (operator) from a per-session counter seeded at Date.now(), so a
+  // later write ALWAYS carries a higher rev than an earlier one — even across
+  // origins (a freshly-opened operator seeds from a later clock than a stale
+  // ghost tab). Receivers keep the highest rev per layer id and IGNORE anything
+  // older, so a lagging ~1Hz OutputState heartbeat (or a ghost tab's snapshot)
+  // can never clobber a fresher incremental layer-patch. Optional + tolerant of
+  // absence: a legacy sender with no rev behaves exactly as before.
+  rev?: number;
+  // The layer-model expression of the legacy `overVideo` flag: the slide/media
+  // content's own background goes transparent so whatever sits behind it (a live
+  // camera or a theme video) shows through. Set by the adapter exactly when
+  // planOutput resolves the slide to the over-video render mode.
+  bgTransparent?: boolean;
+};
+
+// Discriminated on `kind` so each payload reuses an EXISTING hardened validator
+// (BackgroundSpec / VideoInputState / SlidePayload / ScriptureBandWire /
+// AnnouncementPayload / TimerOverlay / MessageOverlay). Payload is optional so a
+// layer-patch can toggle enable/opacity/zone/z alone without resending content.
+export type LayerWire =
+  | (LayerWireBase & { kind: "background"; payload?: BackgroundSpec | null })
+  | (LayerWireBase & { kind: "camera"; payload?: VideoInputState | null })
+  | (LayerWireBase & { kind: "slide"; payload?: SlidePayload })
+  | (LayerWireBase & { kind: "media"; payload?: SlidePayload })
+  | (LayerWireBase & { kind: "band"; payload?: ScriptureBandWire })
+  | (LayerWireBase & { kind: "announcement"; payload?: AnnouncementPayload })
+  | (LayerWireBase & { kind: "timer"; payload?: TimerOverlay })
+  | (LayerWireBase & { kind: "message"; payload?: MessageOverlay })
+  // Theme logo layer. No content payload today (the legacy theme logo has no
+  // wire-borne url — it is resolved renderer-side); the optional `{ url }` shape
+  // is reserved for a future explicit-logo override, validated via the same
+  // https/blob URL gates as every other media url.
+  | (LayerWireBase & { kind: "logo"; payload?: { url?: string } | null });
+
+// Hardening bounds. A layer id is interpolated into React keys + used as a Map
+// key; keep it a short safe token so it can't smuggle markup / pollution. z is
+// bounded well beyond the legacy 0/10/20 stack. The array is capped so a hostile
+// snapshot can't balloon memory.
+export const MAX_LAYERS = 16;
+// Sanity window for the monotonic `rev` / `layersEpoch` stamps. Revs are
+// Date.now()-seeded on the origin, so an honest stamp is always within a small
+// clock-skew of "now". A stamp more than this far in the FUTURE is either a
+// hostile pin (e.g. 2^52) or a badly-mis-set clock (wrong year) — rejected at
+// validation, and used receiver-side to self-heal a map that a prior bad stamp
+// pinned (a stored rev exceeding an incoming rev by more than this window is
+// treated as stale, so an honest lower rev can take over without a reload).
+export const REV_MAX_SKEW_MS = 86_400_000; // 24h
+const LAYER_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+const LAYER_KINDS = new Set<string>([
+  "background", "camera", "slide", "band", "announcement", "timer", "message", "media", "logo",
+]);
+
 export type OutputState = {
   live: SlidePayload;                // audience/projector output
   next: SlidePayload | null;         // for stage display "Next up"
@@ -311,6 +427,26 @@ export type OutputState = {
   // ObsBandConfig (src/lib/obs-lowerthird.ts); typed loosely here to avoid a
   // circular import, validated by isValidObsBand in the sanitizer.
   obsLowerThird?: { topPct: number; heightPct: number; fontScale: number; opacity: number; style: string } | null;
+  // OBS EDITOR live look + per-look settings (2026-09-14, src/lib/obs-look.ts).
+  // Read ONLY by /livestream. `look` is present only once the operator explicitly
+  // picked a look in the editor (absent → the OBS link's URL decides the look).
+  obsLook?: ObsLookWire | null;
+  // Decoupling Phase 2 (ADDITIVE, DORMANT): the per-layer stack. Optional and
+  // NOT yet consumed by the compositor — it renders from the legacy fields
+  // above. Populated in a later phase (behind NEXT_PUBLIC_LAYERS_V2); today it
+  // rides the wire only so validators/adapters can be locked in first. Invalid
+  // entries are DROPPED by sanitizeOutputState (never passed through).
+  layers?: LayerWire[];
+  // Decoupling Phase 3 (Y1b) — the ORIGIN's per-tab epoch (its Date.now seed,
+  // the same seed the rev counter starts from). Present whenever the layers
+  // engine is on for this operator, EVEN when `layers` is empty, so a freshly
+  // opened operator tab authoritatively announces itself. Receivers compare it
+  // to the epoch they last folded: a snapshot from a NEWER epoch (fresh tab)
+  // clears+replaces the projector's override map even if it carries no overrides
+  // (restores the refresh-clears invariant); an OLDER epoch (a ghost tab) is
+  // ignored so it can't clobber; the SAME epoch keeps the rev-gated merge.
+  // Optional + legacy-tolerant: absence ⇒ the pre-epoch rev-gated merge.
+  layersEpoch?: number;
 };
 
 /**
@@ -332,12 +468,17 @@ export type MessageOverlay =
   /** `allowWeb` gates the PUBLIC /livestream surface only (default true for
    * old-format compat). /live and /stage are in-building operator surfaces
    * and always render. */
-  | { text: string; dismissAfterMs?: number | null; position?: OverlayPosition; allowWeb?: boolean;
+  // `id` (Wave 7) keys a message in the multi-message stack (renderers keep a
+  // per-id map). ABSENT id ⇒ the legacy single-message slot (key "default"), so
+  // old operators/projectors are unchanged. The {{timer:ID}} / {{timer}} token is
+  // expanded to a live clock value by the OPERATOR at post time (like {{time}}),
+  // so the wire always carries the already-rendered text — no renderer coupling.
+  | { id?: string; text: string; dismissAfterMs?: number | null; position?: OverlayPosition; allowWeb?: boolean;
       /** Horizontal ticker: when true the message scrolls across its band
        * (continuous loop). `scrollDir` is the travel direction; `scrollSec` is
        * the seconds for one full pass (lower = faster). Absent/false = static. */
       scroll?: boolean; scrollDir?: "ltr" | "rtl"; scrollSec?: number; clear?: false }
-  | { clear: true };
+  | { clear: true; id?: string };
 
 // Ticker speed bounds (seconds for one pass). Clamped on both the wire and the
 // operator control so a hostile/typo'd value can't freeze or hyper-spin the band.
@@ -350,8 +491,18 @@ export const MSG_SCROLL_DEFAULT_SEC = 18;
  * is authoritative; renderers just format it. Send `{clear:true}` to hide.
  */
 export type TimerOverlay =
-  | { name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed"; position?: OverlayPosition; clear?: false }
-  | { clear: true };
+  // `id` (Wave 7) keys a timer in the multi-timer stack — renderers keep a
+  // per-id map and paint each shown timer. ABSENT id ⇒ the legacy single-timer
+  // slot (rendered under the reserved key "default"), so old operators/projectors
+  // behave EXACTLY as before. `overrun` is an optional pre-computed flag; a
+  // renderer can also derive it from `remainingSec < 0` (kept for old wires).
+  // `scale` (Wave 7) is the operator's size multiplier for the clean numeric
+  // timer (1 = default). `color` overrides the number colour. Renderers draw the
+  // timer as plain big numbers (no box/border) so it reads like a real stage clock.
+  | { id?: string; name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed"; position?: OverlayPosition; overrun?: boolean; scale?: number; color?: string; clear?: false }
+  // `{clear:true}` (no id) clears the legacy slot; `{clear:true, id}` clears one
+  // named timer without disturbing the others.
+  | { clear: true; id?: string };
 
 export type LiveMessage =
   | { type: "set"; slide: SlidePayload; transition?: TransitionSpec | null } // legacy + optional one-shot override
@@ -359,7 +510,11 @@ export type LiveMessage =
   | { type: "ping"; join?: boolean } // join:true = genuine (re)connect; wants a full OutputState snapshot back, not just a pong
   | { type: "pong"; slide: SlidePayload }
   | { type: "output"; state: OutputState }             // new: full multi-surface state
-  | { type: "message"; overlay: MessageOverlay }       // P2: transient message overlay
+  // P2: transient message overlay. `overlay` is the LEGACY single-message slot
+  // (authoritative — old projectors read only this). `messages` (Wave 7) is the
+  // ADDITIVE multi-message stack: each keyed MessageOverlay is painted
+  // independently by newer renderers; old renderers ignore the extra field.
+  | { type: "message"; overlay: MessageOverlay; messages?: MessageOverlay[] }
   | { type: "timer"; overlay: TimerOverlay }            // F1: timer overlay on outputs
   | { type: "media-control"; command: "play" | "pause" | "seek" | "volume" | "mute" | "unmute" | "restart" | "loop" | "unloop"; value?: number }
   | { type: "media-status"; currentTime: number; duration: number; paused: boolean; volume: number; muted: boolean; loop: boolean }
@@ -367,7 +522,12 @@ export type LiveMessage =
   // the master; it broadcasts its position ~1×/sec so the projector can
   // reconcile drift (seek only past a threshold) and match play/pause — keeping
   // the projector frame-aligned with what the operator sees, not free-running.
-  | { type: "media-sync"; currentTime: number; paused: boolean };
+  | { type: "media-sync"; currentTime: number; paused: boolean }
+  // Decoupling Phase 2 (ADDITIVE, DORMANT): a single-layer update — swap/patch
+  // one layer without resending the whole OutputState. Receivers store it into a
+  // per-layer override map; rendering from it is gated behind NEXT_PUBLIC_LAYERS_V2
+  // (default off) so this is provably inert today. See docs/DECOUPLING_PLAN.md.
+  | { type: "layer-patch"; layer: LayerWire };
 
 /**
  * Runtime validator for LiveMessage. Renderer pages should NEVER trust an
@@ -405,8 +565,15 @@ export function isValidLiveMessage(m: unknown): m is LiveMessage {
       return isValidSlide((m as { slide?: unknown }).slide);
     case "output":
       return isValidOutputState((m as { state?: unknown }).state);
-    case "message":
-      return isValidMessageOverlay((m as { overlay?: unknown }).overlay);
+    case "message": {
+      const mm = m as { overlay?: unknown; messages?: unknown };
+      if (!isValidMessageOverlay(mm.overlay)) return false;
+      if (mm.messages !== undefined) {
+        if (!Array.isArray(mm.messages) || mm.messages.length > 16) return false;
+        if (!mm.messages.every(isValidMessageOverlay)) return false;
+      }
+      return true;
+    }
     case "timer":
       return isValidTimerOverlay((m as { overlay?: unknown }).overlay);
     case "media-control":
@@ -415,6 +582,8 @@ export function isValidLiveMessage(m: unknown): m is LiveMessage {
       return isValidMediaStatus(m);
     case "media-sync":
       return isValidMediaSync(m);
+    case "layer-patch":
+      return isValidLayerWire((m as { layer?: unknown }).layer);
     default:
       return false;
   }
@@ -426,6 +595,9 @@ export function isValidTimerOverlay(overlay: unknown): overlay is TimerOverlay {
   if (!overlay || typeof overlay !== "object") return false;
   if (hasPollutionKey(overlay)) return false;
   const o = overlay as Record<string, unknown>;
+  // `id` (optional): a short safe token — it becomes a React/Map key on the
+  // renderer. Same charset bound as a layer id. Valid on BOTH arms (clear-by-id).
+  if (o.id !== undefined && (typeof o.id !== "string" || !LAYER_ID_RE.test(o.id))) return false;
   if (o.clear === true) return true;
   if (typeof o.remainingSec !== "number" || !Number.isFinite(o.remainingSec)) return false;
   // Allow -3600s (0 mm:ss with negatives for overtime), cap upper at 24h.
@@ -433,6 +605,9 @@ export function isValidTimerOverlay(overlay: unknown): overlay is TimerOverlay {
   if (typeof o.running !== "boolean") return false;
   if (o.kind !== "countdown" && o.kind !== "elapsed") return false;
   if (o.name != null && (typeof o.name !== "string" || o.name.length > 120)) return false;
+  if (o.overrun !== undefined && typeof o.overrun !== "boolean") return false;
+  if (o.scale !== undefined && (typeof o.scale !== "number" || !Number.isFinite(o.scale) || o.scale < 0.25 || o.scale > 8)) return false;
+  if (o.color !== undefined && !isValidColor(o.color)) return false;
   if (!isValidOverlayPosition(o.position)) return false;
   return true;
 }
@@ -471,6 +646,7 @@ export function isValidMessageOverlay(overlay: unknown): overlay is MessageOverl
   if (!overlay || typeof overlay !== "object") return false;
   if (hasPollutionKey(overlay)) return false;
   const o = overlay as Record<string, unknown>;
+  if (o.id !== undefined && (typeof o.id !== "string" || !LAYER_ID_RE.test(o.id))) return false;
   if (o.clear === true) return true;
   if (typeof o.text !== "string") return false;
   if (o.text.length === 0 || o.text.length > 2000) return false;
@@ -492,9 +668,6 @@ export function isValidMessageOverlay(overlay: unknown): overlay is MessageOverl
   return true;
 }
 
-// Y11: allowed URL protocols for image/video slides. `javascript:` /
-// `data:` / `file:` are explicitly rejected — no XSS, no local-file leak.
-const ALLOWED_URL_PROTOCOLS = new Set(["https:", "http:", "blob:"]);
 // Basic CSS color: hex or rgb()/rgba(). No `red;--x:url(...)` shenanigans.
 const COLOR_RE = /^(?:#[0-9a-fA-F]{3,8}|rgba?\(\s*\d+(?:\s*,\s*\d+){2}\s*(?:,\s*(?:0|1|0?\.\d+))?\s*\))$/;
 function isValidColor(c: unknown): boolean {
@@ -502,14 +675,11 @@ function isValidColor(c: unknown): boolean {
   if (c.length > 32) return false;
   return COLOR_RE.test(c.trim());
 }
+// ONE URL POLICY (2026-09-14): media slide / logo URLs now share the exact
+// save/read/output rule in render-url.ts (was: http on ANY host + raw quotes /
+// whitespace accepted, same-origin relative paths rejected).
 function isValidMediaUrl(u: unknown): boolean {
-  if (typeof u !== "string" || u.length === 0 || u.length > 2048) return false;
-  try {
-    const parsed = new URL(u);
-    return ALLOWED_URL_PROTOCOLS.has(parsed.protocol);
-  } catch {
-    return false;
-  }
+  return isRenderableUrl(u);
 }
 
 // Font-family is interpolated into a CSS value, so bound it to a safe charset
@@ -517,29 +687,11 @@ function isValidMediaUrl(u: unknown): boolean {
 // not be able to inject CSS through it.
 const FONT_FAMILY_RE = /^[a-zA-Z0-9 ,._'"-]{1,120}$/;
 
-// A media URL interpolated into a CSS url("...") or an <img>/<video> src on the
-// projector. Requires https (media must load on the https output page — and it
-// matches the mapper, so a mapped appearance always passes) AND rejects the raw
-// quote/whitespace chars that could break out of url("...") (legit https/S3
-// URLs percent-encode those).
-// Dev-only http-loopback allowance. In production this is `false` (statically
-// inlined + dead-code-eliminated by the Next/webpack build), so the loopback
-// branch never ships to prod validators — closing the cross-device
-// localhost-probe vector. Production media is S3/presigned-https regardless.
-const ALLOW_HTTP_LOOPBACK = process.env.NODE_ENV !== "production";
-function isValidRenderUrl(u: unknown): boolean {
-  if (typeof u !== "string" || u.length === 0 || u.length > 2048) return false;
-  if (/["'\s<>\\]/.test(u)) return false;
-  try {
-    const p = new URL(u);
-    if (p.protocol === "https:") return true;
-    // Local dev only: the dummy app serves media from MinIO over
-    // http://localhost:9000. Allow http ONLY for loopback hosts, and ONLY in
-    // dev; every other host stays https-only, so a cross-device payload can
-    // never point at an arbitrary http:// host.
-    if (ALLOW_HTTP_LOOPBACK && p.protocol === "http:" && (p.hostname === "localhost" || p.hostname === "127.0.0.1" || p.hostname === "[::1]")) return true;
-    return false;
-  } catch { return false; }
+// ONE URL POLICY (2026-09-14): delegates to render-url.ts so save, read and
+// output agree. Same-origin relative "/api/media/…" paths are now accepted
+// (projector pages are same-origin, so they resolve) instead of silently dropped.
+export function isValidRenderUrl(u: unknown): boolean {
+  return isRenderableUrl(u, { allowBlob: false });
 }
 const LOGO_POSITIONS = new Set([
   "top-left", "top-center", "top-right",
@@ -564,6 +716,105 @@ export function isValidBackgroundSpec(b: unknown): b is BackgroundSpec {
     if (v !== undefined && (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > 100)) return false;
   }
   return true;
+}
+
+// ── LayerWire validation (Decoupling Phase 2) ──────────────────────────────
+function isValidLayerZone(zone: unknown): zone is LayerZone {
+  if (!zone || typeof zone !== "object" || hasPollutionKey(zone)) return false;
+  const z = zone as Record<string, unknown>;
+  if (z.kind === "full" || z.kind === "lowerThird") return true;
+  if (z.kind === "band") {
+    // Clamp/bound the band geometry: yPct 0..100, hPct 1..100. Out-of-range
+    // (incl. NaN/Infinity) is rejected → the whole layer is dropped upstream.
+    const numOk = (v: unknown, lo: number, hi: number) => typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi;
+    return numOk(z.yPct, 0, 100) && numOk(z.hPct, 1, 100);
+  }
+  return false;
+}
+
+// Validate a layer's optional payload against the EXISTING hardened validator
+// for its kind (URLs go through the same https/blob validators as everywhere).
+function isValidLayerPayload(kind: string, payload: unknown): boolean {
+  if (payload === undefined) return true; // enable/opacity/zone/z-only patch
+  switch (kind) {
+    case "background": return payload === null || isValidBackgroundSpec(payload);
+    case "camera":     return payload === null || isValidVideoInput(payload);
+    case "slide":
+    case "media":      return isValidSlide(payload);
+    case "band":       return isValidScriptureBand(payload);
+    case "announcement": return isValidAnnouncement(payload);
+    case "timer":      return isValidTimerOverlay(payload);
+    case "message":    return isValidMessageOverlay(payload);
+    case "logo":       return payload === null || isValidLogoPayload(payload);
+    default:           return false;
+  }
+}
+
+// Logo payload: no content (undefined/null) or an optional explicit-logo url,
+// validated through the same https/blob render-url gate as all media.
+function isValidLogoPayload(payload: unknown): boolean {
+  if (!payload || typeof payload !== "object" || hasPollutionKey(payload)) return false;
+  const o = payload as Record<string, unknown>;
+  if (o.url !== undefined && !isValidRenderUrl(o.url)) return false;
+  return true;
+}
+
+export function isValidLayerWire(l: unknown): l is LayerWire {
+  if (!l || typeof l !== "object" || hasPollutionKey(l)) return false;
+  const p = l as Record<string, unknown>;
+  // id: short, safe token (no markup / pollution — used as a React key + Map key).
+  if (typeof p.id !== "string" || !LAYER_ID_RE.test(p.id)) return false;
+  if (typeof p.kind !== "string" || !LAYER_KINDS.has(p.kind)) return false;
+  // z: finite, bounded (legacy stack is 0/10/20; allow generous head-room).
+  if (typeof p.z !== "number" || !Number.isFinite(p.z) || p.z < -1000 || p.z > 1000) return false;
+  if (typeof p.enabled !== "boolean") return false;
+  if (p.opacity !== undefined && (typeof p.opacity !== "number" || !Number.isFinite(p.opacity) || p.opacity < 0 || p.opacity > 1)) return false;
+  if (p.zone !== undefined && !isValidLayerZone(p.zone)) return false;
+  if (p.transportScope !== undefined && p.transportScope !== "local" && p.transportScope !== "all") return false;
+  if (p.bgTransparent !== undefined && typeof p.bgTransparent !== "boolean") return false;
+  // rev: optional monotonic stamp. When present it must be a finite, non-negative
+  // number (Date.now()-seeded on the origin, so realistically large). Absence is
+  // legacy-valid (tolerant).
+  // rev must be finite, non-negative, AND not absurdly in the future (a 2^52
+  // pin or a wrong-clock-year sender): a stamp more than REV_MAX_SKEW_MS beyond
+  // "now" cannot be an honest Date.now()-seeded rev, so the layer is rejected.
+  if (p.rev !== undefined && (typeof p.rev !== "number" || !Number.isFinite(p.rev) || p.rev < 0 || p.rev > Date.now() + REV_MAX_SKEW_MS)) return false;
+  if (!isValidLayerPayload(p.kind, p.payload)) return false;
+  return true;
+}
+
+/** Validate an OutputState.layers array: bounded length, every entry valid, and
+ * ids UNIQUE. Layer ids are the identity the operator panel + layer-patch key on
+ * (and Map/React keys downstream), so a strict sender must never ship two layers
+ * sharing an id — the strict validator rejects the whole array if it does. */
+function isValidLayersArray(v: unknown): v is LayerWire[] {
+  if (!Array.isArray(v)) return false;
+  if (v.length > MAX_LAYERS) return false;
+  if (!v.every(isValidLayerWire)) return false;
+  const ids = new Set<string>();
+  for (const l of v) {
+    const id = (l as LayerWire).id;
+    if (ids.has(id)) return false; // duplicate id
+    ids.add(id);
+  }
+  return true;
+}
+
+/** Fail-open salvage for OutputState.layers: DROP invalid entries, DROP
+ * subsequent duplicate ids (first-wins — a hostile/legacy sender can't shadow an
+ * earlier layer by re-using its id), and cap length at MAX_LAYERS. */
+function sanitizeLayers(v: unknown): LayerWire[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const seen = new Set<string>();
+  const kept: LayerWire[] = [];
+  for (const l of v) {
+    if (!isValidLayerWire(l)) continue;
+    if (seen.has(l.id)) continue; // first wins on duplicate id
+    seen.add(l.id);
+    kept.push(l);
+    if (kept.length >= MAX_LAYERS) break;
+  }
+  return kept;
 }
 
 export function isValidThemeAppearance(a: unknown): a is ThemeAppearance {
@@ -659,6 +910,7 @@ export function isValidSlideObject(o: unknown): o is SlideObjectWire {
       if (p.posY !== undefined && (typeof p.posY !== "number" || !Number.isFinite(p.posY) || p.posY < 0 || p.posY > 100)) return false;
       if (p.zoom !== undefined && (typeof p.zoom !== "number" || !Number.isFinite(p.zoom) || p.zoom < 1 || p.zoom > 8)) return false;
       if (p.blurFill !== undefined && typeof p.blurFill !== "boolean") return false;
+      if (p.blur !== undefined && typeof p.blur !== "boolean") return false;
       return true;
     case "video":
       if (!isValidRenderUrl(p.url)) return false;
@@ -723,7 +975,7 @@ export function slideDesignSig(s: Extract<SlidePayload, { kind: "text" }>): stri
       // image | video — fold fit + crop/pan/zoom so a reframe of an already-live
       // image changes the output identity (otherwise the already-live skip
       // swallows it and the projector never updates).
-      return base + o.url + (o.kind === "image" ? `|${o.fit ?? ""}|${o.posX ?? 50},${o.posY ?? 50},${o.zoom ?? 1}|${o.blurFill ? "b" : ""}` : "");
+      return base + o.url + (o.kind === "image" ? `|${o.fit ?? ""}|${o.posX ?? 50},${o.posY ?? 50},${o.zoom ?? 1}|${o.blurFill ? "b" : ""}${o.blur ? "B" : ""}` : "");
     }).join(";");
   }
   return sig;
@@ -833,12 +1085,39 @@ function isValidSlide(s: unknown): s is SlidePayload {
   }
 }
 
-function isValidAnnouncement(a: unknown): a is AnnouncementPayload {
+const ANNOUNCEMENT_POSITIONS = new Set<string>(["lower_third", "top_banner", "ticker", "center_card"]);
+const ANNOUNCEMENT_ALIGNS = new Set<string>(["left", "center", "right"]);
+const ANNOUNCEMENT_STYLE_STRING_KEYS = ["fontFamily", "textColor", "bgColor"] as const;
+const ANNOUNCEMENT_STYLE_NUMBER_KEYS = ["fontSizePx", "fontWeight", "bgOpacity", "padding", "borderRadius"] as const;
+
+/** Plain non-array object; each KNOWN field, when present, has its declared
+ *  type (strings ≤200 chars, finite numbers, align in its enum). Missing fields
+ *  are tolerated (the renderer has defaults). */
+export function isValidAnnouncementStyle(st: unknown): st is AnnouncementStyle {
+  if (!st || typeof st !== "object" || Array.isArray(st)) return false;
+  if (hasPollutionKey(st)) return false;
+  const s = st as Record<string, unknown>;
+  for (const k of ANNOUNCEMENT_STYLE_STRING_KEYS) {
+    if (s[k] !== undefined && typeof s[k] !== "string") return false;
+  }
+  for (const k of ANNOUNCEMENT_STYLE_NUMBER_KEYS) {
+    if (s[k] !== undefined && (typeof s[k] !== "number" || !Number.isFinite(s[k]))) return false;
+  }
+  if (s.align !== undefined && !ANNOUNCEMENT_ALIGNS.has(s.align as string)) return false;
+  return true;
+}
+
+export function isValidAnnouncement(a: unknown): a is AnnouncementPayload {
   if (!a || typeof a !== "object") return false;
   if (hasPollutionKey(a)) return false;
   const p = a as Record<string, unknown>;
   if (typeof p.line1 !== "string" || p.line1.length > 500) return false;
   if (p.line2 !== undefined && (typeof p.line2 !== "string" || p.line2.length > 500)) return false;
+  // position + style are dereferenced unconditionally by AnnouncementLayer —
+  // an announcement missing/garbling them must be rejected (fail-open: callers
+  // drop the announcement, never the slide).
+  if (!ANNOUNCEMENT_POSITIONS.has(p.position as string)) return false;
+  if (!isValidAnnouncementStyle(p.style)) return false;
   if (p.logo !== undefined && p.logo !== null) {
     if (typeof p.logo !== "object" || hasPollutionKey(p.logo)) return false;
     const lg = p.logo as Record<string, unknown>;
@@ -880,6 +1159,52 @@ function isValidObsLowerThird(v: unknown): boolean {
   const numOk = (x: unknown, lo: number, hi: number) => typeof x === "number" && Number.isFinite(x) && x >= lo && x <= hi;
   return numOk(p.topPct, 0, 100) && numOk(p.heightPct, 1, 100) && numOk(p.fontScale, 0.1, 4)
     && numOk(p.opacity, 0, 1) && typeof p.style === "string" && OBS_BAND_STYLE_SET.has(p.style);
+}
+
+// OBS editor live look (read only by /livestream). Strict: every present field
+// must be well-typed + in range; unknown keys are ignored (forward-compat).
+const OBS_HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+function isObsTextColorWire(x: unknown): boolean {
+  return x === "auto" || x === "white" || x === "black" || x === "theme" || (typeof x === "string" && OBS_HEX_RE.test(x));
+}
+const OBS_LOOK_FIELDS: Record<string, (x: unknown) => boolean> = {
+  look: (x) => x === "camera" || x === "lowerthird" || x === "full",
+  ltText: isObsTextColorWire,
+  ltRef: (x) => typeof x === "boolean",
+  camScale: (x) => typeof x === "number" && Number.isFinite(x) && x >= 0.5 && x <= 2,
+  camPos: (x) => x === "top" || x === "middle" || x === "bottom",
+  camText: isObsTextColorWire,
+  camEffect: (x) => x === "shadow" || x === "outline" || x === "none",
+  camScrim: (x) => typeof x === "number" && Number.isFinite(x) && x >= 0 && x <= 0.9,
+  fullScale: (x) => typeof x === "number" && Number.isFinite(x) && x >= 0.5 && x <= 2,
+  fullDim: (x) => typeof x === "number" && Number.isFinite(x) && x >= 0 && x <= 0.9,
+  camLayout: (x) => x === "lowerthird" || x === "full",
+  camLayoutSet: (x) => typeof x === "boolean",
+  camBandPosition: (x) => x === "upper" || x === "mid" || x === "lower" || x === "custom",
+  camBandOffsetPct: (x) => typeof x === "number" && Number.isFinite(x) && x >= 0 && x <= 100,
+  camBandHeightPct: (x) => typeof x === "number" && Number.isFinite(x) && x >= 10 && x <= 60,
+  camBandScale: (x) => typeof x === "number" && Number.isFinite(x) && x >= 0.5 && x <= 2,
+  camBandOpacity: (x) => typeof x === "number" && Number.isFinite(x) && x >= 0 && x <= 1,
+  camBandStyle: (x) => x === "grey" || x === "black" || x === "clear" || x === "gradient" || x === "frost" || x === "theme",
+};
+function isValidObsLook(v: unknown): boolean {
+  if (v === null) return true;
+  if (!v || typeof v !== "object" || Array.isArray(v) || hasPollutionKey(v)) return false;
+  const p = v as Record<string, unknown>;
+  for (const k of Object.keys(OBS_LOOK_FIELDS)) {
+    if (p[k] !== undefined && !OBS_LOOK_FIELDS[k](p[k])) return false;
+  }
+  return true;
+}
+/** Fail-open: keep only known, valid fields (drops bad ones); null when not a plain object. */
+export function sanitizeObsLook(v: unknown): ObsLookWire | null {
+  if (!v || typeof v !== "object" || Array.isArray(v) || hasPollutionKey(v)) return null;
+  const p = v as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(OBS_LOOK_FIELDS)) {
+    if (p[k] !== undefined && OBS_LOOK_FIELDS[k](p[k])) out[k] = p[k];
+  }
+  return out as ObsLookWire;
 }
 
 function isValidNextItem(n: unknown): boolean {
@@ -928,6 +1253,11 @@ export function isValidOutputState(s: unknown): s is OutputState {
   if (st.videoInput !== undefined && !isValidVideoInput(st.videoInput)) return false;
   if (st.zone !== undefined && st.zone !== null && !isValidZone(st.zone)) return false;
   if (st.obsLowerThird !== undefined && !isValidObsLowerThird(st.obsLowerThird)) return false;
+  if (st.obsLook !== undefined && !isValidObsLook(st.obsLook)) return false;
+  if (st.layers !== undefined && !isValidLayersArray(st.layers)) return false;
+  // layersEpoch (Y1b): optional origin epoch stamp. Finite, non-negative, and —
+  // like rev — not absurdly in the future (hostile pin / wrong-clock sender).
+  if (st.layersEpoch !== undefined && (typeof st.layersEpoch !== "number" || !Number.isFinite(st.layersEpoch) || st.layersEpoch < 0 || st.layersEpoch > Date.now() + REV_MAX_SKEW_MS)) return false;
   return true;
 }
 
@@ -973,9 +1303,34 @@ export function sanitizeSlide(s: unknown): SlidePayload | null {
       return out;
     }
     case "image":
-    case "video":
+    case "video": {
       // A media slide with no usable URL is not salvageable — signal "keep prior".
-      return isValidMediaUrl(st.url) ? (st as unknown as SlidePayload) : null;
+      if (!isValidMediaUrl(st.url)) return null;
+      // Rebuild field-by-field (was a raw passthrough, so an invalid band/layout/
+      // caption made the "sanitized" state still fail isValidOutputState). Keep
+      // the media; drop only the offending optional field.
+      const fit = st.fit === "contain" || st.fit === "cover" || st.fit === "fill" ? st.fit : undefined;
+      const band = st.layout === "third" && isValidScriptureBand(st.band) ? (st.band as ScriptureBandWire) : undefined;
+      const extras: { layout?: "third"; band?: ScriptureBandWire; bandMode?: "fit" | "caption"; caption?: string } = {};
+      if (st.layout === "third") {
+        extras.layout = "third";
+        if (band) extras.band = band;
+        if (st.bandMode === "fit" || st.bandMode === "caption") extras.bandMode = st.bandMode;
+        // Over-long caption: truncate to the 500 wire cap instead of dropping it.
+        if (typeof st.caption === "string") extras.caption = st.caption.slice(0, 500);
+      }
+      if (st.kind === "image") {
+        const out: Extract<SlidePayload, { kind: "image" }> = { kind: "image", url: st.url as string, ...extras };
+        if (fit) out.fit = fit;
+        if (typeof st.blurFill === "boolean") out.blurFill = st.blurFill;
+        return out;
+      }
+      const out: Extract<SlidePayload, { kind: "video" }> = { kind: "video", url: st.url as string, ...extras };
+      if (fit) out.fit = fit;
+      if (typeof st.loop === "boolean") out.loop = st.loop;
+      if (typeof st.volume === "number" && Number.isFinite(st.volume) && st.volume >= 0 && st.volume <= 1) out.volume = st.volume;
+      return out;
+    }
     case "blank": {
       const out: Extract<SlidePayload, { kind: "blank" }> = { kind: "blank" };
       if (isValidColor(st.bgColor)) out.bgColor = st.bgColor as string;
@@ -1044,6 +1399,19 @@ export function sanitizeOutputState(s: unknown): OutputState | null {
   if (out.videoInput !== undefined && out.videoInput !== null && !isValidVideoInput(out.videoInput)) out.videoInput = null;
   if (out.zone !== undefined && out.zone !== null && !isValidZone(out.zone)) out.zone = null;
   if (out.obsLowerThird !== undefined && !isValidObsLowerThird(out.obsLowerThird)) out.obsLowerThird = null;
+  if (out.obsLook !== undefined && out.obsLook !== null && !isValidObsLook(out.obsLook)) out.obsLook = sanitizeObsLook(out.obsLook);
+  // Layers (Phase 2, dormant): DROP invalid entries rather than poisoning the
+  // snapshot. undefined stays undefined (never fabricate an empty array).
+  if (out.layers !== undefined) {
+    const layers = sanitizeLayers(out.layers);
+    if (layers === undefined) delete out.layers; else out.layers = layers;
+  }
+  // layersEpoch (Y1b): drop a malformed / future-pinned epoch rather than
+  // poisoning the whole snapshot (fail-open, mirrors the rev clamp).
+  if (out.layersEpoch !== undefined) {
+    const e = out.layersEpoch;
+    if (typeof e !== "number" || !Number.isFinite(e) || e < 0 || e > Date.now() + REV_MAX_SKEW_MS) delete out.layersEpoch;
+  }
   return out as unknown as OutputState;
 }
 
@@ -1075,7 +1443,43 @@ export function coerceLiveMessage(raw: unknown): LiveMessage | null {
     const st = sanitizeOutputState(r.state);
     return st ? ({ type: "output", state: st } as LiveMessage) : null;
   }
+  // Multi-message salvage: if the legacy `overlay` is valid but a stray entry in
+  // `messages[]` isn't, keep the valid ones rather than dropping the whole
+  // message (the legacy slot must never be lost to a bad extra entry).
+  if (r?.type === "message") {
+    const rm = raw as { overlay?: unknown; messages?: unknown };
+    if (!isValidMessageOverlay(rm.overlay)) return null;
+    if (Array.isArray(rm.messages)) {
+      const kept = (rm.messages as unknown[]).filter(isValidMessageOverlay).slice(0, 16) as MessageOverlay[];
+      return { type: "message", overlay: rm.overlay as MessageOverlay, messages: kept } as LiveMessage;
+    }
+    return { type: "message", overlay: rm.overlay as MessageOverlay } as LiveMessage;
+  }
   return null;
+}
+
+/**
+ * Scrub an OutputState of everything that only means something on the ORIGIN
+ * machine before it fans out over Realtime / LAN (NOT BroadcastChannel, which is
+ * same-machine and keeps the local fields). This is the single choke point for
+ * the local-vs-remote transport rule:
+ *   1. `videoInput.deviceId` is a physical camera id on THIS box — meaningless
+ *      (and a security risk: could activate a default cam on a public livestream)
+ *      off-machine → nulled. (Behaviour preserved EXACTLY from the old inline
+ *      `state.videoInput ? { ...state, videoInput: null } : state` scrub: same
+ *      reference returned when there's nothing to strip.)
+ *   2. Phase 2 (DORMANT — `layers` is never populated today): any layer marked
+ *      `transportScope === "local"` is dropped for remote transports, mirroring
+ *      the videoInput rule at the same seam. Inert until Phase 3 populates layers.
+ * Pure + allocation-free on the common (nothing-to-strip) path.
+ */
+export function scrubOutputStateForRemote(state: OutputState): OutputState {
+  let out: OutputState = state;
+  if (state.videoInput) out = { ...out, videoInput: null };
+  if (out.layers && out.layers.some((l) => l.transportScope === "local")) {
+    out = { ...out, layers: out.layers.filter((l) => l.transportScope !== "local") };
+  }
+  return out;
 }
 
 /**

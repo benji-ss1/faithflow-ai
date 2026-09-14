@@ -5,6 +5,7 @@ import { getDb } from "@/lib/db/client";
 import { songs, songSlides } from "@/lib/db/schema";
 import { SongTitleEditor } from "@/components/library/SongTitleEditor";
 import { SongSlideEditor } from "@/components/library/SongSlideEditor";
+import { SongArrangements } from "@/components/library/SongArrangements";
 import { SongLicensingPanel } from "@/components/library/SongLicensingPanel";
 import { TidySlidesButton } from "@/components/library/TidySlidesButton";
 import { sanitizeLyrics } from "@/lib/pro6-parser";
@@ -29,6 +30,9 @@ export default async function SongDetailPage({ params }: { params: Promise<{ id:
         <TidySlidesButton songId={song.id} />
       </div>
       <SongSlideEditor songId={song.id} initialSlides={slides.map((s) => ({ lyrics: sanitizeLyrics(s.lyrics) }))} />
+      <div className="pt-4 border-t border-[var(--color-border)]">
+        <SongArrangements songId={song.id} slides={slides.map((s) => ({ id: s.id, lyrics: sanitizeLyrics(s.lyrics) }))} />
+      </div>
     </div>
   );
 }

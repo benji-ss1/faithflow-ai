@@ -11,6 +11,7 @@ import type { MultiChannelCapture } from "@/lib/audio/multiChannelCapture";
 import type { BankedVerse } from "../useVerseBank";
 import type { InternetMetadataCard } from "../AIAssistantPanel";
 import type { AutopilotMode, ServiceMode } from "../OperatorConsole";
+import type { UseLiveLayers } from "../useLiveLayers";
 
 export type OperatorShellCtx = {
   plan: ExpandedPlan;
@@ -88,6 +89,11 @@ export type OperatorShellCtx = {
   onClearMessage: () => void;
   onStartCountdown: (seconds: number) => void;
   countdownEndsAt: number | null;
+  // Wave 7 — multi-timer engine. Dispatches a start/stop/reset command to a
+  // named timer slot owned by the shell's useTimersSession (via a CustomEvent
+  // so the engine/macro layer can drive timers without holding a ref to the
+  // shell state). Legacy single timer is slot "default".
+  onTimerCommand: (timerId: string, command: "start" | "stop" | "reset") => void;
 
   onOpenProjector: () => void;
   onOpenStage: () => void;
@@ -160,13 +166,36 @@ export type OperatorShellCtx = {
   onSendSlideToLive: (
     slide: SlidePayload,
     transition?: import("@/lib/broadcast").TransitionSpec | null,
-    options?: { preserveConfiguredTransition?: boolean; instant?: boolean; force?: boolean },
+    options?: { preserveConfiguredTransition?: boolean; instant?: boolean; force?: boolean; origin?: import("@/lib/song-switch-guard").LiveOrigin; carryLiveOrigin?: boolean },
   ) => void;
+  /** Origin (song/scripture/media/text/other) of the CURRENT live output, or null
+   *  when unknown (set by another device / unstamped). Song auto-switch guard. */
+  getLiveOrigin?: () => import("@/lib/song-switch-guard").LiveOrigin | null;
   // Live projection undo/redo — step the projector back/forward through what was shown.
   onUndoLive: () => void;
   onRedoLive: () => void;
   canUndoLive: boolean;
   canRedoLive: boolean;
+  // Decoupling Phase 3 — operator Layers Panel.
+  // `layersEngineOn` = global NEXT_PUBLIC_LAYERS_V2 kill-switch AND this church's
+  // `layersV2` opt-in. When false the panel shows a disabled affordance.
+  layersEngineOn: boolean;
+  liveLayers: UseLiveLayers;
+  // Phase 4 — set a media asset as the (persistent) background layer, routing
+  // through the setMediaAsBackground store machinery (Wave 4). The real handler
+  // behind the SET_BACKGROUND_MEDIA engine action.
+  onSetBackgroundMedia: (assetRef: { id: string; url: string; fileName: string; kind: string; mediaKey?: string }) => void;
+  // Phase 4 — the ONE action dispatcher seam. A stable wrapper around
+  // engine `dispatchAction(ctx, action, opts)` bound to the live ctx. Slide
+  // actions, Automations, and (later) voice/AI emit through this. Parallel path
+  // per the blueprint — existing UI handlers are NOT rewired through it yet.
+  dispatchEngineAction: (
+    action: import("@/engine/actions").EngineAction,
+    opts?: { confirmed?: boolean },
+  ) => import("@/engine/actions").DispatchResult;
+  // Phase 4 — fire a slide's attached actions (if any) through the dispatcher.
+  // Operator-initiated sends call this with the sent slide's (itemIdx, slideIdx).
+  fireSlideActions: (itemIdx: number, slideIdx: number) => void;
   onStageSlide: (slide: SlidePayload) => void;
   onBankAddReference: (ref: { book: string; chapter: number; verseStart: number; verseEnd: number }) => Promise<BankedVerse | null>;
   onSendBankedToLive: (idx: number) => void;

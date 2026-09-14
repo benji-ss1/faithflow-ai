@@ -1,12 +1,13 @@
 "use client";
 import { createContext, useContext, type ReactNode } from "react";
 import type { UseSlideEditorReturn } from "./useSlideEditor";
+import type { ServiceItemType } from "@/lib/db/schema";
 
 type SaveState = "idle" | "saving" | "error";
 
 export type SlideEditorContextValue = UseSlideEditorReturn & {
   itemId: string | null;
-  itemType: "song" | "scripture" | "media" | "sermon" | "blank" | "logo" | null;
+  itemType: ServiceItemType | null;
   songId: string | null;
   saveState: SaveState;
   onSave: () => void;

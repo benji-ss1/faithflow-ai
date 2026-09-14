@@ -48,7 +48,7 @@ export function parseLiveScriptureRef(liveText: string | null | undefined): Live
   // code-less when the operator's "display translation" toggle is off, so a
   // mandatory (CODE) suffix made this always return null → the already-live
   // suppression guard was silently defeated.
-  const m = liveText.match(/(\d?\s*[A-Za-z]+)\s+(\d+):(\d+)(?:-(\d+))?(?:\s*\([A-Za-z0-9]+\))?\s*$/);
+  const m = liveText.match(/(\d?\s*[A-Za-z]+)\s+(\d+):(\d+)(?:\s*[-\u2013\u2014]\s*(\d+))?(?:\s*\([A-Za-z0-9]+\))?\s*$/);
   if (!m) return null;
   const verseStart = parseInt(m[3], 10);
   const verseEnd = m[4] ? parseInt(m[4], 10) : verseStart;

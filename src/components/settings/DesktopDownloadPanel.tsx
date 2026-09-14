@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { mintDeviceLinkToken } from "@/lib/device-link-actions";
 import {
   DESKTOP_DOWNLOAD_ARM64_URL,
   DESKTOP_DOWNLOAD_X64_URL,
@@ -8,8 +9,9 @@ import {
   resolveDesktopDownloadUrls,
   type DesktopDownloadUrls,
 } from "@/lib/desktop-download";
+import { detectDesktopOs, type DesktopOs } from "@/lib/desktop-os";
 
-type OS = "windows" | "mac" | "other";
+type OS = DesktopOs;
 
 const INITIAL_URLS: DesktopDownloadUrls = {
   arm64Url: DESKTOP_DOWNLOAD_ARM64_URL,
@@ -24,8 +26,9 @@ const INITIAL_URLS: DesktopDownloadUrls = {
  * Shared desktop-download UI — used by the onboarding download step and the
  * Settings download page. Auto-detects the operator's OS so the right installer
  * (Windows .exe or macOS .dmg) is the big primary button; the rest are tucked
- * under "Other computers". `deepLinkHref` is a fresh 5-min single-use token
- * minted server-side; the deep-link auto-sign-in works on Windows AND macOS.
+ * under "Other computers". "Open PresentFlow" mints a fresh single-use 20-min
+ * device-link token ON CLICK (server action) — never embedded in page HTML;
+ * the deep-link auto-sign-in works on Windows AND macOS.
  *
  * Download links auto-track whatever was most recently published to GitHub
  * Releases (`resolveDesktopDownloadUrls`) — cutting + publishing a new
@@ -34,15 +37,12 @@ const INITIAL_URLS: DesktopDownloadUrls = {
  * manual bump) so there's never a blank/broken link while the live lookup
  * runs, then swaps in the live URLs once resolved.
  */
-export function DesktopDownloadPanel({ deepLinkHref, showSkipLink = true }: { deepLinkHref: string | null; showSkipLink?: boolean }) {
+export function DesktopDownloadPanel({ showSkipLink = true }: { showSkipLink?: boolean }) {
   const [os, setOs] = useState<OS | null>(null);
   const [urls, setUrls] = useState<DesktopDownloadUrls>(INITIAL_URLS);
 
   useEffect(() => {
-    const ua = (navigator.userAgent || "").toLowerCase();
-    if (ua.includes("win")) setOs("windows");
-    else if (ua.includes("mac")) setOs("mac");
-    else setOs("other");
+    setOs(detectDesktopOs(navigator as Navigator & { userAgentData?: { platform?: string } }));
   }, []);
 
   useEffect(() => {
@@ -60,25 +60,26 @@ export function DesktopDownloadPanel({ deepLinkHref, showSkipLink = true }: { de
     );
   };
 
-  // Windows AND macOS are both shown prominently, side by side — churches run
-  // both and Windows was previously buried behind a link. The detected OS gets
-  // a "Recommended for this computer" ribbon; nothing is hidden.
-  const winCard = <DownloadCard key="win" platform="Windows" href={urls.winUrl} hint="Windows 10 / 11 · .exe installer" primary detected={os === "windows"} />;
-  const macArm = <DownloadCard key="marm" platform="macOS (Apple Silicon)" href={urls.arm64Url} hint="M1 / M2 / M3 / M4 Macs" primary detected={os === "mac"} />;
-  const macInt = <DownloadCard key="mint" platform="macOS (Intel)" href={urls.x64Url} hint="Older Intel Macs" primary={false} detected={false} />;
+  // Windows AND macOS are both shown prominently as full cards — churches run
+  // both and Windows was previously buried behind a link. Detection only picks
+  // the ORDER: the Windows row leads when we detect Windows, otherwise (Mac or
+  // unknown) the Mac row leads. No "this computer" badge: UA sniffing
+  // mislabelled cards for Windows users, and browsers can't tell Apple Silicon
+  // from Intel, so both Mac cards are presented equally.
+  const winCard = <DownloadCard key="win" platform="Windows" href={urls.winUrl} hint="Windows 10 / 11 · .exe installer" primary />;
+  const macArm = <DownloadCard key="marm" platform="macOS (Apple Silicon)" href={urls.arm64Url} hint="M1 / M2 / M3 / M4 Macs" primary />;
+  const macInt = <DownloadCard key="mint" platform="macOS (Intel)" href={urls.x64Url} hint="Older Intel Macs" primary />;
 
-  // Detected OS leads; both top platforms (Windows + Apple Silicon Mac) stay
-  // prominent side by side; Intel Mac is a clearly-visible secondary card.
-  const topRow = os === "windows" ? [winCard, macArm] : [macArm, winCard];
+  // Detected OS leads. Windows on its own row; the two Mac cards sit side by
+  // side as equals (we never claim which Mac architecture this is).
+  const winRow = <div key="win-row" style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12, marginBottom: 12 }}>{winCard}</div>;
+  const macRow = <div key="mac-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>{macArm}{macInt}</div>;
+  const rows = os === "windows" ? [winRow, macRow] : [macRow, winRow];
 
   return (
     <div style={{ maxWidth: 640, width: "100%" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-        {topRow}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12, marginBottom: 20 }}>
-        {macInt}
-      </div>
+      {rows}
+      <div style={{ marginBottom: 8 }} />
 
       {/* First-launch instructions — BOTH shown so a Mac operator setting up a
           Windows church PC (or vice-versa) always has the steps they need.
@@ -118,28 +119,12 @@ export function DesktopDownloadPanel({ deepLinkHref, showSkipLink = true }: { de
         )
       ))}
 
-      {deepLinkHref ? (
-        <>
-          <a href={deepLinkHref} style={{ display: "inline-block", padding: "12px 28px", borderRadius: 10, background: "linear-gradient(90deg,#ffb861,#e8501a)", color: "#0a0a0a", fontWeight: 600, fontSize: 15, textDecoration: "none", marginBottom: 12 }}>
-            Downloaded? Open PresentFlow — you&apos;ll be signed in automatically
-          </a>
-          <div style={{ opacity: 0.55, fontSize: 12, marginBottom: showSkipLink ? 32 : 0 }}>
-            This link expires in 5 minutes and only works once — refresh this page for a new one if it&apos;s stale.
-            <br />
-            First time installing? Open the downloaded app once manually first (you&apos;ll see a normal sign-in screen) — that
-            one launch is what lets your computer recognize this link afterward. From then on, this button signs you in automatically.
-          </div>
-        </>
-      ) : (
-        <div style={{ opacity: 0.6, fontSize: 13, marginBottom: showSkipLink ? 32 : 0 }}>
-          On first launch, sign in with the account you just created. Your church data will sync automatically.
-        </div>
-      )}
+      <OpenDesktopButton showSkipLink={showSkipLink} />
     </div>
   );
 }
 
-function DownloadCard({ platform, href, hint, primary, detected }: { platform: string; href: string; hint: string; primary: boolean; detected: boolean }) {
+function DownloadCard({ platform, href, hint, primary }: { platform: string; href: string; hint: string; primary: boolean }) {
   return (
     <a
       href={href}
@@ -151,13 +136,37 @@ function DownloadCard({ platform, href, hint, primary, detected }: { platform: s
         boxShadow: primary ? "0 2px 8px rgba(232,80,26,0.25)" : "0 1px 3px rgba(10,10,10,0.08)",
       }}
     >
-      {detected && (
-        <span style={{ position: "absolute", top: 10, right: 10, background: "#0a0a0a", color: "#fff", fontSize: 10, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", padding: "3px 7px", borderRadius: 999 }}>
-          This computer
-        </span>
-      )}
       <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>Download for {platform}</div>
       <div style={{ fontSize: 12, opacity: primary ? 0.8 : 0.65 }}>{hint}</div>
     </a>
+  );
+}
+
+function OpenDesktopButton({ showSkipLink }: { showSkipLink: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const open = async () => {
+    setBusy(true);
+    try {
+      const res = await mintDeviceLinkToken();
+      if (!res.ok) { toast.error(res.error); return; }
+      window.location.href = `presentflow://auth?token=${encodeURIComponent(res.token)}`;
+    } catch {
+      toast.error("Couldn't create a sign-in link. Open the app and choose \u201cContinue with the account you signed into on the web\u201d instead.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <button type="button" onClick={open} disabled={busy} style={{ display: "inline-block", padding: "12px 28px", borderRadius: 10, border: 0, background: "linear-gradient(90deg,#ffb861,#e8501a)", color: "#0a0a0a", fontWeight: 600, fontSize: 15, cursor: "pointer", marginBottom: 12 }}>
+        {busy ? "Opening PresentFlow\u2026" : "Downloaded? Open PresentFlow \u2014 you\u2019ll be signed in automatically"}
+      </button>
+      <div style={{ opacity: 0.55, fontSize: 12, marginBottom: showSkipLink ? 32 : 0 }}>
+        Each click makes a fresh one-time link (valid 20 minutes).
+        <br />
+        App didn&apos;t open, or you&apos;re on a different computer? Open the app and choose
+        {" "}<strong>Continue with the account you signed into on the web</strong> {"\u2014"} no password needed.
+      </div>
+    </>
   );
 }

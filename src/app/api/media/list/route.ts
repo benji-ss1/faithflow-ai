@@ -11,13 +11,23 @@ export const runtime = "nodejs";
 // downgrade / tier expiry.
 const mediaListLimiter = createLimiter("media-list", 30, 60_000);
 
-export async function GET() {
+// A named library id must be a UUID (Y2) — reject anything else with a 400 so a
+// malformed/hostile ?library= can never reach the query as an opaque string.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export async function GET(req: Request) {
   const user = await apiUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!(await mediaListLimiter(user.id))) {
     return NextResponse.json({ error: "Too many media list requests — slow down" }, { status: 429 });
   }
-  const media = await listMedia(user.churchId);
+  // ProPresenter parity: ?library=all (default) | default (unfiled) | <uuid>.
+  const lib = new URL(req.url).searchParams.get("library");
+  if (lib != null && lib !== "all" && lib !== "default" && !UUID_RE.test(lib)) {
+    return NextResponse.json({ error: "Invalid library id" }, { status: 400 });
+  }
+  const filter = lib == null || lib === "all" ? undefined : lib === "default" ? null : lib;
+  const media = await listMedia(user.churchId, filter);
   const withUrls = await Promise.all(media.map(async (m) => {
     // `url` is the full-res original — used for PROJECTION (must stay high-res).
     // `thumbUrl` is the small grid preview (falls back to the original when no
@@ -36,6 +46,11 @@ export async function GET() {
       createdAt: m.createdAt.toISOString(),
       url,
       thumbUrl,
+      // The durable S3 key (NOT a presigned URL) so a media-set Background
+      // Template can re-mint a fresh URL across restarts (useBackgroundState).
+      // Church-scoped keys; the /api/media/url re-mint endpoint re-checks the
+      // caller's churchId against the key's first segment (IDOR guard).
+      mediaKey: m.s3Key,
     };
   }));
   return NextResponse.json({ assets: withUrls });

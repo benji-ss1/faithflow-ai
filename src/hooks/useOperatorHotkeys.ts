@@ -225,6 +225,8 @@ export function useOperatorHotkeys(handlers: HotkeyHandlers) {
           return;
         case "send-live": {
           e.preventDefault();
+          // Holding Enter must not re-send (and re-fire slide actions) on key-repeat.
+          if (e.repeat) return;
           const safe = h.isSafeMode ? h.isSafeMode() : false;
           if (safe) {
             // Safe Mode ON: don't push to live. Notify shell so it can
@@ -238,6 +240,7 @@ export function useOperatorHotkeys(handlers: HotkeyHandlers) {
         case "send-live-force":
           // Shift+Enter — advanced operator override, bypass Safe Mode.
           e.preventDefault();
+          if (e.repeat) return;
           h.onSendLive();
           return;
         case "kill-live":

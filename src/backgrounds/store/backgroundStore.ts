@@ -88,14 +88,85 @@ export function readActiveBackground(): PFBackground {
 
 export function setActiveBackgroundId(id: string): void {
   if (!isBrowser()) return;
-  const known = findBuiltIn(id) ? id : "none";
+  // Validate against BOTH built-ins AND the operator's custom uploads — the old
+  // built-in-only check silently coerced every custom background to "none", so
+  // an uploaded image/video background could never persist as active.
+  const known = findAny(id) ? id : "none";
   try {
     localStorage.setItem(ACTIVE_KEY, known);
+    // Stamp WHEN a real template was explicitly chosen so "last pick wins"
+    // survives an app restart (see shouldKeepTemplateOverThemeBg). Selecting
+    // "none" is a clear, not a pick — it must not out-rank a theme background.
+    if (known !== "none") localStorage.setItem(PICKED_AT_KEY, String(Date.now()));
   } catch {
     /* ignore */
   }
   try {
     window.dispatchEvent(new CustomEvent(BACKGROUND_CHANGED_EVENT, { detail: { id: known } }));
+  } catch {
+    /* ignore */
+  }
+}
+
+// ── "Last explicit pick wins" persistence ────────────────────────────────────
+// A Background Template and a theme's OWN background are mutually exclusive on
+// the projector (2026-08-28 invariant). Across an app restart we lose the
+// in-session ordering, so previously the mount self-heal ALWAYS cleared the
+// template when the default theme carried a background — which erased the
+// operator's last-chosen template (e.g. Gentle Waves) on every relaunch.
+// We now stamp each explicit choice and, on restart, keep whichever was picked
+// most recently. Selecting a template stamps PICKED_AT_KEY; applying a theme
+// that carries a background stamps THEME_BG_PICKED_AT_KEY.
+const PICKED_AT_KEY = "presentflow.backgrounds.pickedAt.v1";
+const THEME_BG_PICKED_AT_KEY = "presentflow.backgrounds.themeBgPickedAt.v1";
+
+function readNum(key: string): number {
+  if (!isBrowser()) return 0;
+  try { return Number(localStorage.getItem(key)) || 0; } catch { return 0; }
+}
+
+/** Record that a theme background became the active look (an explicit choice). */
+export function markThemeBackgroundPicked(): void {
+  if (!isBrowser()) return;
+  try { localStorage.setItem(THEME_BG_PICKED_AT_KEY, String(Date.now())); } catch { /* ignore */ }
+}
+
+/**
+ * On restart, should the active Background Template be kept in preference to the
+ * default theme's own background? True when the template was the more recent
+ * explicit pick — so the operator's last live choice persists.
+ */
+export function shouldKeepTemplateOverThemeBg(): boolean {
+  return readNum(PICKED_AT_KEY) > readNum(THEME_BG_PICKED_AT_KEY);
+}
+
+// A snapshot of the full active-background state (which template + the ordering
+// stamps), so an Undo can restore it EXACTLY — including a template that a
+// "Set as theme background" had silently cleared under the mutual-exclusivity
+// rule. Without this, Undo would restore the theme config but leave the operator
+// on a plain look instead of their previous template.
+export type BackgroundStateSnapshot = { activeId: string; pickedAt: number; themeBgPickedAt: number };
+
+export function snapshotBackgroundState(): BackgroundStateSnapshot {
+  return {
+    activeId: readActiveBackgroundId(),
+    pickedAt: readNum(PICKED_AT_KEY),
+    themeBgPickedAt: readNum(THEME_BG_PICKED_AT_KEY),
+  };
+}
+
+export function restoreBackgroundState(s: BackgroundStateSnapshot): void {
+  if (!isBrowser()) return;
+  const activeId = findAny(s.activeId) ? s.activeId : "none";
+  try {
+    localStorage.setItem(ACTIVE_KEY, activeId);
+    localStorage.setItem(PICKED_AT_KEY, String(s.pickedAt));
+    localStorage.setItem(THEME_BG_PICKED_AT_KEY, String(s.themeBgPickedAt));
+  } catch {
+    /* ignore */
+  }
+  try {
+    window.dispatchEvent(new CustomEvent(BACKGROUND_CHANGED_EVENT, { detail: { id: activeId } }));
   } catch {
     /* ignore */
   }

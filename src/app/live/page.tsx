@@ -1,16 +1,12 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
-import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { PresentationCanvas } from "@/components/live/PresentationCanvas";
-import { openLiveChannel, type LiveChannelLike, safePost, coerceLiveMessage, slideOutputIdentity, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
+import { OutputCompositor } from "@/components/live/OutputCompositor";
+import { openLiveChannel, type LiveChannelLike, safePost, coerceLiveMessage, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type OverlayPosition, type ThemeAppearance, type VideoInputState, type LayerWire } from "@/lib/broadcast";
+import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStaleLayersSnapshot } from "@/lib/output-layers";
 import type { ProjectionZone } from "@/lib/projection-zone";
-import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
-import { TransitionWrapper } from "@/components/live/TransitionWrapper";
-import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
 import { openOutputChannel, isValidPairCode } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
-import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
 
 // Module-scope, capture-phase suppressor. Runs before React/Next dev-overlay
 // listeners so a stray DOM Event rejection (autoplay block, fullscreen deny,
@@ -85,6 +81,16 @@ export default function LivePage() {
   // zone/etc.) so a full output snapshot re-sent every ~3s (self-heal) doesn't
   // re-render the projector unless something actually changed.
   const lastOutputSigRef = useRef<string>("");
+  // Decoupling Phase 2 (DORMANT): per-layer override store for incoming
+  // layer-patch messages. Nothing reads it yet (Phase 3, NEXT_PUBLIC_LAYERS_V2).
+  const layerOverridesRef = useRef<Map<string, LayerWire>>(new Map());
+  // Y1b: the origin epoch last folded from a snapshot (fresh-tab authority).
+  const layerEpochRef = useRef<number | undefined>(undefined);
+  // Phase 3: a re-render-triggering snapshot of the override map. Gated by
+  // NEXT_PUBLIC_LAYERS_V2 — when off, nothing ever populates the map (the
+  // operator only emits layer-patches when its church has opted in), so the
+  // projector output is byte-identical to the legacy path.
+  const [layerOverridesArr, setLayerOverridesArr] = useState<LayerWire[]>([]);
   // Content key (text|dismissAfterMs) of the currently shown message — the
   // operator heartbeats the same overlay at 1Hz, and we must only (re)arm the
   // client-side dismiss countdown when the CONTENT changes, not per heartbeat.
@@ -96,6 +102,14 @@ export default function LivePage() {
   // Operator heartbeats the timer overlay at 1Hz while shown — if the beats
   // stop (operator window closed/crashed) we sweep the stale timer off screen.
   const lastTimerMsgAt = useRef<number>(0);
+  // Wave 7: named (keyed) timers ride alongside the legacy default slot above.
+  type TimerItem = { id: string; name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed"; position?: OverlayPosition; overrun?: boolean; scale?: number; color?: string };
+  const [namedTimers, setNamedTimers] = useState<Record<string, TimerItem>>({});
+  const namedTimerAtRef = useRef<Record<string, number>>({});
+  // Wave 7: extra simultaneous messages (keyed) ride alongside the legacy one.
+  type MsgItem = { id: string; text: string; position: OverlayPosition; scroll?: boolean; scrollDir?: "ltr" | "rtl"; scrollSec?: number };
+  const [extraMessages, setExtraMessages] = useState<MsgItem[]>([]);
+  const lastExtraMsgAt = useRef<number>(0);
   const [connected, setConnected] = useState(false);
   const [showHelp, setShowHelp] = useState(true);
   const [warning, setWarning] = useState<string | null>(null);
@@ -169,6 +183,24 @@ export default function LivePage() {
         else if (msg.type === "clear") applyLive({ kind: "empty" });
         else if (msg.type === "pong") applyLive(msg.slide);
         else if (msg.type === "output") {
+          // GHOST-OPERATOR GUARD (field wave 6B). Two operator instances on the
+          // same BroadcastChannel (a stale/duplicate operator tab left open) BOTH
+          // answer this projector's ping heartbeats with a full "output" snapshot.
+          // An OLDER (ghost) tab that has nothing live emits live:{kind:"empty"} +
+          // no layer overrides, which used to CLOBBER the projector's base live
+          // slide to empty — and because a slide/media layer "show" (eye re-enable)
+          // carries NO payload (R1a), the operator's eye-toggle then had no base to
+          // restore and /live stayed black. rebuildOverridesFromSnapshot already
+          // rejects an older tab's OVERRIDE snapshot by origin epoch (Y1b); apply
+          // that SAME authority to the whole output snapshot so a ghost tab can't
+          // blank the base slide/background/camera/logo either. Strictly-older
+          // epoch ⇒ ignore the entire snapshot. Provably inert when LAYERS_V2 is
+          // off (no epoch on the wire) and single-operator (one epoch, never <),
+          // so the legacy path is byte-identical — a fresh/higher-epoch operator
+          // still wins immediately (authoritative replace in the override rebuild).
+          if (LAYERS_V2 && isStaleLayersSnapshot(msg.state.layersEpoch, layerEpochRef.current)) {
+            return; // ghost (older) operator — do not let it blank this projector
+          }
           applyLive(msg.state.live); // has its own content-signature dedup
           // The operator now answers the ~3s heartbeat with a FULL output snapshot
           // (so a dropped theme/background self-heals on the projector — the
@@ -182,10 +214,18 @@ export default function LivePage() {
               msg.state.appearance ?? null, msg.state.background ?? null, msg.state.videoInput ?? null,
               msg.state.zone ?? null, msg.state.announcement ?? null, msg.state.transition ?? null,
               msg.state.aspectRatio, msg.state.fontScale, msg.state.referenceScale, msg.state.referenceColor ?? null,
+              LAYERS_V2 ? (msg.state.layers ?? null) : null, LAYERS_V2 ? (msg.state.layersEpoch ?? null) : null,
             ]);
           } catch { outSig = String(Date.now()); }
           if (outSig !== lastOutputSigRef.current) {
             lastOutputSigRef.current = outSig;
+            // Phase 3 late-join convergence: the operator's active layer patches
+            // ride the full OutputState (state.layers). Rebuild the override map
+            // from them so a projector that joined mid-service converges to the
+            // same layer stack the live layer-patch messages built incrementally.
+            if (LAYERS_V2) {
+              setLayerOverridesArr(rebuildOverridesFromSnapshot(layerOverridesRef.current, msg.state.layers, { snapEpoch: msg.state.layersEpoch, epochRef: layerEpochRef }));
+            }
             setAnnouncement(msg.state.announcement ?? null);
             setTransition(msg.state.transition ?? null);
             setAspectRatio(msg.state.aspectRatio);
@@ -198,6 +238,14 @@ export default function LivePage() {
             setZone(msg.state.zone ?? null);
           }
         } else if (msg.type === "message") {
+          // Wave 7: extra simultaneous messages (keyed) ride in `messages[]`.
+          // Always reconcile from the array (empty ⇒ none), heartbeated at 1Hz.
+          if (msg.messages) {
+            lastExtraMsgAt.current = Date.now();
+            setExtraMessages(msg.messages
+              .filter((m): m is Extract<typeof m, { text: string }> => "text" in m && typeof m.text === "string")
+              .map((m) => ({ id: (m as { id?: string }).id ?? m.text, text: m.text, position: m.position ?? "lower-third", scroll: m.scroll, scrollDir: m.scrollDir, scrollSec: m.scrollSec })));
+          }
           // Auto-dismiss timer is client-side, so multiple output windows
           // stay in sync without needing a shared wall-clock deadline.
           if ("clear" in msg.overlay && msg.overlay.clear) {
@@ -223,8 +271,19 @@ export default function LivePage() {
             }
           }
         } else if (msg.type === "timer") {
-          if ("clear" in msg.overlay && msg.overlay.clear) setTimerOverlay(null);
-          else { setTimerOverlay(msg.overlay); lastTimerMsgAt.current = Date.now(); }
+          const ov = msg.overlay;
+          const oid = (ov as { id?: string }).id;
+          if (oid) {
+            // Wave 7: keyed named timer.
+            if ("clear" in ov && ov.clear) {
+              setNamedTimers((m) => { const n = { ...m }; delete n[oid]; return n; });
+              delete namedTimerAtRef.current[oid];
+            } else if ("remainingSec" in ov) {
+              setNamedTimers((m) => ({ ...m, [oid]: { id: oid, name: ov.name, remainingSec: ov.remainingSec, running: ov.running, kind: ov.kind, position: ov.position, overrun: ov.overrun, scale: ov.scale, color: ov.color } }));
+              namedTimerAtRef.current[oid] = Date.now();
+            }
+          } else if ("clear" in ov && ov.clear) setTimerOverlay(null);
+          else { setTimerOverlay(ov); lastTimerMsgAt.current = Date.now(); }
         } else if (msg.type === "media-control") {
           const el = videoElRef.current;
           if (!el) return;
@@ -255,6 +314,16 @@ export default function LivePage() {
           }
           if (msg.paused && !el.paused) el.pause();
           else if (!msg.paused && el.paused) el.play().catch(() => {});
+        } else if (msg.type === "layer-patch") {
+          // Decoupling Phase 2 (DORMANT): store the single-layer override; nothing
+          // renders from it yet — Phase 3 gates consumption behind NEXT_PUBLIC_LAYERS_V2.
+          // Bound the map: a hostile same-channel sender must not grow it without
+          // limit. Existing ids may always be updated; a NEW id is dropped once the
+          // map is full (mirrors MAX_LAYERS on the OutputState.layers array).
+          {
+            applyLayerPatchBounded(layerOverridesRef.current, msg.layer);
+            if (LAYERS_V2) setLayerOverridesArr(Array.from(layerOverridesRef.current.values())); // Phase 3: re-render the stack
+          }
         }
       } catch (err) {
         console.warn("[live] message handler error:", err instanceof Error ? err.message : String(err));
@@ -281,6 +350,20 @@ export default function LivePage() {
       if (lastTimerMsgAt.current > 0 && Date.now() - lastTimerMsgAt.current > 5000) {
         lastTimerMsgAt.current = 0;
         setTimerOverlay(null);
+      }
+      // Wave 7: sweep named timers whose per-id heartbeat has stopped for 5s.
+      {
+        const now = Date.now();
+        const staleIds = Object.keys(namedTimerAtRef.current).filter((id) => now - namedTimerAtRef.current[id] > 5000);
+        if (staleIds.length) {
+          for (const id of staleIds) delete namedTimerAtRef.current[id];
+          setNamedTimers((m) => { const n = { ...m }; for (const id of staleIds) delete n[id]; return n; });
+        }
+      }
+      // Wave 7: sweep extra messages if their shared heartbeat stops for 5s.
+      if (lastExtraMsgAt.current > 0 && Date.now() - lastExtraMsgAt.current > 5000) {
+        lastExtraMsgAt.current = 0;
+        setExtraMessages([]);
       }
       // Stale-message sweep: same contract as timers — operator heartbeats at
       // 1Hz while a message is showing; 5s of silence means the operator is
@@ -477,60 +560,87 @@ export default function LivePage() {
                 scale it to the display — identical geometry to the operator
                 preview (which wraps the same SlideRenderer in the same canvas),
                 so what the operator sees is exactly what the projector shows. */}
-            <PresentationCanvas canvasW={aspectRatio === "4:3" ? 1440 : 1920} canvasH={1080} zone={zone}>
-              {/* Background Templates Layer — BETWEEN the theme background and the
-                  text. Active (type != none) ⇒ render it and make the slide
-                  transparent (overVideo) so it shows through. type none ⇒ nothing
-                  renders here and the existing behaviour is byte-identical. */}
-              {/* key on the preset forces a fresh WebGL canvas on a mid-service
-                  theme switch — reusing the canvas loses its context and freezes
-                  the shader. The init gap is white-safe: ShaderBackground always
-                  paints a dark floor. */}
-              {/* A LIVE camera input wins over a Background Template. Turning on
-                  Video Input is an explicit, active choice; a Background Template
-                  is a passive theme setting. Previously the template unconditionally
-                  suppressed the camera here (church saw the shader instead of their
-                  camera). So: skip the template layer whenever a live camera is set,
-                  and let the camera path below take precedence over the template. */}
-              {background && background.type !== "none" && !videoInput && <BackgroundLayer key={background.shaderPreset ?? background.type} background={background} />}
-              {hasVideoBackground(videoInput, appearance) && !(background && background.type !== "none" && !videoInput) ? (
-                // Video behind the slide (camera or theme video bg): no slide-keyed
-                // transition wrapper, so the video stays playing across slide
-                // changes — only the overlay updates.
-                <OutputSlide slide={slide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} projectorFit />
-              ) : (
-                // 2026-08-16: TransitionWrapper RESTORED. It was removed 2026-08-15
-                // because its height:100% collapsed the measured box and under-sized
-                // the projector text — but AutoFitText now sizes against the fixed
-                // PresentationCanvas geometry via context (not the DOM box), so the
-                // wrapper can't affect text size anymore. This brings the projector's
-                // slide transitions (fade/cut/etc.) back, matching /stage.
-                <TransitionWrapper identityKey={slideOutputIdentity(slide)} transition={transition}>
-                  <SlideRenderer slide={slide} projectorFit fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} overVideo={!!(background && background.type !== "none" && !videoInput)} videoMuted={false} onVideoRef={handleVideoRef} />
-                </TransitionWrapper>
-              )}
-              <ThemeLogoLayer appearance={appearance} />
-            </PresentationCanvas>
+            {/* Decoupling Phase 1: the background / camera / slide / theme-logo
+                composite + ALL its precedence rules (camera-wins-over-template,
+                per-slide black bg suppression, transition-vs-over-video) now live
+                in the shared OutputCompositor, consumed identically by all four
+                output routes. mode="live" encodes this route's specifics
+                (aspect-driven canvas, always-transition, unmuted media). */}
+            <OutputCompositor
+              mode="live"
+              slide={slide}
+              appearance={appearance}
+              background={background}
+              videoInput={videoInput}
+              transition={transition}
+              fontScale={fontScale}
+              referenceScale={referenceScale}
+              referenceColor={referenceColor}
+              zone={zone}
+              aspectRatio={aspectRatio}
+              videoMuted={false}
+              onVideoRef={handleVideoRef}
+              layersEnabled={LAYERS_V2}
+              layerOverrides={LAYERS_V2 ? layerOverridesArr : undefined}
+            />
           </div>
           <AnnouncementLayer ann={announcement} />
           {/* z-order: slide < timer (z-20) < message (z-30). Corner/lower-third
               placement keeps overlays off the slide text unless the operator
               explicitly picks "center". */}
-          {timerOverlay && (
-            <div className={`${overlayPosClass(timerOverlay.position ?? "top-right")} pointer-events-none z-20`}>
-              <div
-                className="inline-block bg-black/70 backdrop-blur-sm px-6 py-3 rounded-md border"
-                style={{ borderColor: timerOverlay.remainingSec < 0 ? "#ef4444" : "var(--color-brand, #06b6d4)" }}
-              >
+          {timerOverlay && (() => {
+            const pos = timerOverlay.position ?? "top-right";
+            const over = timerOverlay.remainingSec < 0;
+            const color = over ? "#f87171" : "#ffffff";
+            return (
+              <div className={`${overlayPosClass(pos)} pointer-events-none z-20 flex flex-col leading-none`} style={{ alignItems: pos.includes("right") ? "flex-end" : pos === "center" ? "center" : "flex-start" }}>
                 {timerOverlay.name && (
-                  <div className="text-white/70 text-xs uppercase tracking-wider mb-1">{timerOverlay.name}</div>
+                  <div className="uppercase tracking-[0.15em] font-semibold" style={{ color, opacity: 0.75, fontSize: "1.4vw", textShadow: "0 2px 10px rgba(0,0,0,0.6)" }}>{timerOverlay.name}</div>
                 )}
-                <div
-                  className={`text-white text-3xl md:text-5xl font-mono font-bold tabular-nums leading-none ${timerOverlay.remainingSec < 0 ? "text-red-400" : ""}`}
-                >
+                <div className="font-mono font-bold tabular-nums" style={{ color, fontSize: "7vw", textShadow: "0 4px 18px rgba(0,0,0,0.65)", lineHeight: 1 }}>
                   {formatTimerMMSS(timerOverlay.remainingSec)}
                 </div>
               </div>
+            );
+          })()}
+          {/* Wave 7: named timers, grouped per position so multiple in one
+              corner stack instead of overlapping. */}
+          {Object.values(namedTimers).length > 0 && (() => {
+            const groups: Record<string, TimerItem[]> = {};
+            for (const t of Object.values(namedTimers)) { const p = t.position ?? "top-right"; (groups[p] ??= []).push(t); }
+            return Object.entries(groups).map(([pos, items]) => (
+              <div key={pos} className={`${overlayPosClass(pos as OverlayPosition)} pointer-events-none z-20 flex flex-col gap-4`}>
+                {items.map((t) => {
+                  const scale = t.scale ?? 1;
+                  const over = t.remainingSec < 0;
+                  const color = t.color ?? (over ? "#f87171" : "#ffffff");
+                  return (
+                    <div key={t.id} className="flex flex-col leading-none" style={{ alignItems: pos.includes("right") ? "flex-end" : pos === "center" ? "center" : "flex-start" }}>
+                      {t.name && (
+                        <div className="uppercase tracking-[0.15em] font-semibold" style={{ color, opacity: 0.75, fontSize: `${1.4 * scale}vw`, textShadow: "0 2px 10px rgba(0,0,0,0.6)" }}>{t.name}</div>
+                      )}
+                      <div className="font-mono font-bold tabular-nums" style={{ color, fontSize: `${7 * scale}vw`, textShadow: "0 4px 18px rgba(0,0,0,0.65)", lineHeight: 1 }}>
+                        {formatTimerMMSS(t.remainingSec)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ));
+          })()}
+          {/* Wave 7: extra simultaneous messages, stacked in the lower-third band. */}
+          {extraMessages.length > 0 && (
+            <div className="absolute left-[6%] right-[6%] bottom-[6%] pointer-events-none z-30 flex flex-col gap-2">
+              {extraMessages.map((m) => (
+                <div key={m.id} className="bg-black/70 backdrop-blur-sm border-l-4 px-6 py-4 rounded-sm overflow-hidden"
+                  style={{ borderColor: "var(--color-brand, #06b6d4)" }}>
+                  {m.scroll ? (
+                    <div className="text-white text-xl md:text-3xl font-semibold whitespace-nowrap" style={{ display: "inline-block", paddingLeft: "100%", animation: `pf-msg-ticker ${Math.max(4, Math.min(120, m.scrollSec ?? 18))}s linear infinite`, animationDirection: m.scrollDir === "ltr" ? "reverse" : "normal" }}>{m.text}</div>
+                  ) : (
+                    <div className="text-white text-xl md:text-3xl font-semibold leading-tight text-left">{m.text}</div>
+                  )}
+                </div>
+              ))}
             </div>
           )}
           {messageOverlay && (
@@ -607,11 +717,6 @@ export default function LivePage() {
     </div>
   );
 }
-
-// Identity key for the projector transition: change it and TransitionWrapper
-// plays the configured enter animation. Keyed by slide content (+ design sig)
-// so a repeat of the SAME slide doesn't re-trigger a transition.
-// (Identity helper consolidated into broadcast.ts → slideOutputIdentity.)
 
 function formatTimerMMSS(sec: number): string {
   const negative = sec < 0;

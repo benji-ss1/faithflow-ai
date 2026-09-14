@@ -31,15 +31,19 @@
 import { useCallback, useEffect, useState } from "react";
 import { loadSessionState, updateSessionState } from "@/lib/operatorSessionState";
 import * as Popover from "@radix-ui/react-popover";
-import { BookOpen, Music, Link2, Settings as SettingsIcon } from "lucide-react";
+import { BookOpen, Music, Link2, Settings as SettingsIcon, Layers as LayersIcon, Timer as TimerIcon, MessageSquare } from "lucide-react";
+import { LAYERS_V2 } from "@/lib/output-layers";
+import { LayersPanel } from "./LayersPanel";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
-import type { TimerApi, MessagesApi } from "../hooks";
+import type { TimerApi, MessagesApi, TimersApi, MessagesBoardApi } from "../hooks";
 import type { UnifiedSuggestion } from "../../useAudioStream";
 import { AIDetectionsPanel, songRowFromSuggestion } from "./AIDetectionsPanel";
-import { MessagesTab } from "./tabs/MessagesTab";
-import { TimersTab } from "./tabs/TimersTab";
-import { MacrosTab } from "./tabs/MacrosTab";
+import { TimersPanel } from "./TimersPanel";
+import { MessagesPanel } from "./MessagesPanel";
+import dynamic from "next/dynamic";
+// Speed: Automations tab loaded on demand (off the operator hot path).
+const MacrosTab = dynamic(() => import("./tabs/MacrosTab").then((m) => m.MacrosTab), { ssr: false });
 import { ThemesModal } from "../ThemesModal";
 import { BibleLicensingTab } from "./tabs/BibleLicensingTab";
 import { ChannelStrip } from "../../ChannelStrip";
@@ -48,14 +52,21 @@ import { ChannelStrip } from "../../ChannelStrip";
 // HardwarePanel still imports ScreensPanel directly; the component is
 // unchanged. Only the right-side entry point is removed.
 
-type PopoverKey = "bible" | "songs" | "xrefs" | "logs" | "settings" | "themes";
+type PopoverKey = "bible" | "songs" | "xrefs" | "logs" | "settings" | "themes" | "layers" | "timers" | "messages";
+
+// First-run discoverability for the Layers panel: set once the operator opens
+// Layers for the first time. Until then (and only when Layers is enabled for the
+// church) a subtle pulse dot + "New: Layers" tooltip draws attention to the icon.
+const LAYERS_OPENED_KEY = "presentflow.layers.opened.v1";
 
 export function RightIconBar({
-  ctx, timer, messages,
+  ctx, timer, messages, timers, messagesBoard,
 }: {
   ctx: OperatorShellCtx;
   timer: TimerApi;
   messages: MessagesApi;
+  timers: TimersApi;
+  messagesBoard: MessagesBoardApi;
 }) {
   const [openKey, setOpenKeyInner] = useState<PopoverKey | null>(null);
   // JPD Fix 5 (2026-07-27): restore the last-open sidebar popover on
@@ -66,6 +77,40 @@ export function RightIconBar({
     setOpenKeyInner(k);
     updateSessionState({ sidebarTab: k });
   }, []);
+  // First-run Layers pulse. Default true (no SSR flash / no dot), then flip to
+  // false post-mount iff Layers is enabled for the church AND never opened.
+  const [layersSeen, setLayersSeen] = useState(true);
+  useEffect(() => {
+    if (!LAYERS_V2 || !ctx.layersEngineOn) return;
+    try {
+      if (window.localStorage.getItem(LAYERS_OPENED_KEY) !== "1") setLayersSeen(false);
+    } catch { /* noop */ }
+  }, [ctx.layersEngineOn]);
+  // Mark Layers as opened the first time its popover opens → clears the pulse.
+  useEffect(() => {
+    if (openKey !== "layers" || layersSeen) return;
+    setLayersSeen(true);
+    try { window.localStorage.setItem(LAYERS_OPENED_KEY, "1"); } catch { /* noop */ }
+  }, [openKey, layersSeen]);
+
+  // Deep-link + programmatic panel opening. The What's New "Open Layers →"
+  // button dispatches presentflow:open-panel; a ?panel=layers query (e.g.
+  // navigating in from the dashboard) opens it on mount. Only valid keys open.
+  useEffect(() => {
+    const openPanel = (name: string | null) => {
+      if (name === "layers") { if (LAYERS_V2 && ctx.layersEngineOn) setOpenKey("layers"); return; }
+      if (name === "bible" || name === "songs" || name === "xrefs" || name === "settings") setOpenKey(name);
+    };
+    const onOpenPanel = (e: Event) => openPanel((e as CustomEvent<{ panel?: string }>).detail?.panel ?? null);
+    window.addEventListener("presentflow:open-panel", onOpenPanel);
+    try {
+      const p = new URLSearchParams(window.location.search).get("panel");
+      if (p) openPanel(p);
+    } catch { /* noop */ }
+    return () => window.removeEventListener("presentflow:open-panel", onOpenPanel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctx.layersEngineOn]);
+
   useEffect(() => {
     const saved = loadSessionState()?.sidebarTab;
     // Change 5C — "screens" removed from the valid-key list. A stale
@@ -81,7 +126,7 @@ export function RightIconBar({
   // guardian-triggered open remounts it on its default sub-tab ("audio")
   // even if the popover was already open on Messages/Timers/etc.
   const [settingsEpoch, setSettingsEpoch] = useState(0);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<"messages" | "timers" | "macros" | "bible">("messages");
+  const [settingsInitialTab] = useState<"macros" | "bible">("macros");
   // Themes now opens as a full-screen operator modal (not a sidebar popover).
   const [themesModalOpen, setThemesModalOpen] = useState(false);
   useEffect(() => {
@@ -140,6 +185,26 @@ export function RightIconBar({
           k="logs" openKey={openKey} setOpen={setOpenKey}
           Icon={ScrollText} label="Logs"
         /> */}
+        {/* Decoupling Phase 3: Layers entry. Rendered ONLY when the global
+            NEXT_PUBLIC_LAYERS_V2 kill-switch is on (zero DOM otherwise). The
+            per-church opt-in is handled inside LayersPanel (disabled note). */}
+        {LAYERS_V2 && (
+          <IconTrigger
+            k="layers" openKey={openKey} setOpen={setOpenKey}
+            Icon={LayersIcon}
+            label={!ctx.layersEngineOn ? "Layers (not enabled for this church)" : layersSeen ? "Layers" : "New: Layers"}
+            attention={ctx.layersEngineOn && !layersSeen}
+          />
+        )}
+        <IconTrigger
+          k="timers" openKey={openKey} setOpen={setOpenKey}
+          Icon={TimerIcon} label="Timers" badge={timers.slots.filter((s) => s.shown).length}
+        />
+        <IconTrigger
+          k="messages" openKey={openKey} setOpen={setOpenKey}
+          Icon={MessageSquare} label="Messages"
+          badge={messagesBoard.active.length + (messages.state.showing ? 1 : 0)}
+        />
         <IconTrigger
           k="settings" openKey={openKey} setOpen={setOpenKey}
           Icon={SettingsIcon} label="Settings"
@@ -167,9 +232,24 @@ export function RightIconBar({
       {/* Logs popover render also disabled — see IconTrigger comment above.
           If openKey somehow ends up "logs" (stale localStorage), no popover
           renders and the icon-bar row is clean. */}
+      {LAYERS_V2 && openKey === "layers" && (
+        <PopoverShell title="Layers" onClose={() => setOpenKey(null)}>
+          <LayersPanel ctx={ctx} />
+        </PopoverShell>
+      )}
+      {openKey === "timers" && (
+        <PopoverShell title="Timers" onClose={() => setOpenKey(null)}>
+          <TimersPanel quick={timer} timers={timers} />
+        </PopoverShell>
+      )}
+      {openKey === "messages" && (
+        <PopoverShell title="Messages" onClose={() => setOpenKey(null)}>
+          <MessagesPanel compose={messages} board={messagesBoard} />
+        </PopoverShell>
+      )}
       {openKey === "settings" && (
         <PopoverShell title="Settings" onClose={() => setOpenKey(null)}>
-          <SettingsPopoverBody key={settingsEpoch} initialTab={settingsInitialTab} timer={timer} messages={messages} />
+          <SettingsPopoverBody key={settingsEpoch} ctx={ctx} initialTab={settingsInitialTab} />
         </PopoverShell>
       )}
       {/* Change 5C — Screens popover render block removed. */}
@@ -182,7 +262,7 @@ export function RightIconBar({
 }
 
 function IconTrigger({
-  k, openKey, setOpen, Icon, label, badge,
+  k, openKey, setOpen, Icon, label, badge, attention,
 }: {
   k: PopoverKey;
   openKey: PopoverKey | null;
@@ -190,6 +270,9 @@ function IconTrigger({
   Icon: React.ComponentType<{ className?: string }>;
   label: string;
   badge?: number;
+  // First-run attention affordance (subtle brand pulse dot). Cleared by the
+  // parent once the panel is opened for the first time.
+  attention?: boolean;
 }) {
   const active = openKey === k;
   return (
@@ -209,6 +292,13 @@ function IconTrigger({
         >
           {/* dock-style magnify bounce on hover */}
           <Icon className="w-4 h-4 transition-transform duration-150 ease-out group-hover:scale-[1.35] group-hover:-translate-y-0.5 group-active:scale-110" />
+          {attention && !(typeof badge === "number" && badge > 0) && (
+            <span
+              aria-hidden
+              className="absolute top-1.5 right-1/2 translate-x-3 w-2 h-2 rounded-full animate-pulse"
+              style={{ background: "var(--color-brand)", boxShadow: "0 0 0 3px color-mix(in oklab, var(--color-brand) 30%, transparent)" }}
+            />
+          )}
           {typeof badge === "number" && badge > 0 && (
             <span
               aria-label={`${badge} new`}
@@ -263,17 +353,19 @@ function PopoverShell({
 }
 
 function SettingsPopoverBody({
-  timer, messages, initialTab = "messages",
+  ctx,
+  initialTab = "macros",
 }: {
-  timer: TimerApi;
-  messages: MessagesApi;
-  initialTab?: "messages" | "timers" | "macros" | "bible";
+  // Automations test-run fires through ctx.dispatchEngineAction — without it
+  // MacrosTab can only show "Test-run needs the live operator console".
+  ctx: OperatorShellCtx;
+  // Messages + Timers moved to their OWN top-level icons (Wave 7, rec6): "take
+  // out messages and timers from this section and give them their own sections."
+  initialTab?: "macros" | "bible";
 }) {
-  const [subTab, setSubTab] = useState<"messages" | "timers" | "macros" | "bible">(initialTab);
+  const [subTab, setSubTab] = useState<"macros" | "bible">(initialTab);
   const tabs: { k: typeof subTab; label: string }[] = [
-    { k: "messages", label: "Messages" },
-    { k: "timers", label: "Timers" },
-    { k: "macros", label: "Macros" },
+    { k: "macros", label: "Automations" },
     { k: "bible", label: "Bible" },
   ];
   return (
@@ -302,9 +394,7 @@ function SettingsPopoverBody({
         ))}
       </div>
       <div className="p-2 text-[12px]">
-        {subTab === "messages" && <MessagesTab api={messages} />}
-        {subTab === "timers" && <TimersTab api={timer} />}
-        {subTab === "macros" && <MacrosTab />}
+        {subTab === "macros" && <MacrosTab ctx={ctx} />}
         {subTab === "bible" && <BibleLicensingTab />}
       </div>
     </div>

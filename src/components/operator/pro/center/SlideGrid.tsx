@@ -7,16 +7,123 @@ import type { BackgroundSpec } from "@/lib/broadcast";
 import { cn } from "@/lib/utils";
 import type { OperatorShellCtx } from "../../shell/types";
 import type { SlidePayload, ThemeAppearance } from "@/lib/broadcast";
-import { useSlideClipboard, setSlideClipboard, getSlideClipboard } from "@/lib/slide-clipboard";
-import { updateSongSlides, deleteSongSlide, updateSongSlideText } from "@/lib/actions";
+import { useSlideClipboard, setSlideClipboard, getSlideClipboard, setTextClipboard, useTextClipboard, getTextClipboard } from "@/lib/slide-clipboard";
+import { pasteInsertIndex, pasteDisabledReason } from "@/lib/slide-paste";
+import { updateSongSlides, deleteSongSlide, updateSongSlideText, setSongSlideBackgroundImage, createSongImageSlide, setServiceItemSlideBackground, addServiceItemImageSlide, assignSlidesToGroup, createSongGroup, setSongSlideActions, clearSongSlideBackgroundImage, clearAllSongSlideBackgrounds, setAllSongSlidesBackgroundImage, applyThemeToSong, revertSongTheme, applyThemeToSongSlide, removeThemeFromSongSlide } from "@/lib/actions";
+import { BUILT_IN_BACKGROUNDS } from "@/backgrounds/presets/defaultTemplates";
+import { setActiveBackgroundId } from "@/backgrounds/store/backgroundStore";
+import { useBackgroundState } from "@/backgrounds/hooks/useBackgroundState";
+import { sanitizeSlideActions } from "@/engine/slide-actions";
+import { SLIDE_SAFE_PALETTE } from "@/engine/actions/palette";
+import type { ActionSpec } from "@/engine/actions/spec";
+import { parseMediaDropPayload, isImageAsset, resolveMediaDrop, MEDIA_DROP_MIME } from "@/lib/media-drop";
 import { applyTextToSlide, projectableTextSlide } from "@/lib/broadcast";
 import { loadMediaFrame, buildMediaFrameSlide } from "./mediaFrame";
 import { useRouter } from "next/navigation";
-import { X, Pencil, LayoutGrid, GripVertical, GripHorizontal } from "lucide-react";
+import { X, Pencil, LayoutGrid, GripVertical, GripHorizontal, ChevronRight, Check, Layers, Zap, Image as ImageIcon, Palette, Timer, MessageSquare, Sparkles, Captions, Workflow, Trash2 } from "lucide-react";
+import { describeSpec, specKey } from "@/engine/actions/describe";
+import { macroHasGuardedAction } from "@/engine/macros";
 import { DotGridBackground } from "../DotGridBackground";
+import { groupColor } from "@/engine/arrangements";
 
 type ViewMode = "grid" | "list" | "text";
 const VIEW_MODE_KEY = "presentflow.operator.slideViewMode";
+
+// A1/A2 (2026-09-09): the per-slide Actions submenu holds only attach-style
+// actions that actually reach the projector by default. Timer/message moved to the
+// Automations editor; set_background/clear_layer were SILENT NO-OPS on slides
+// (they need the dormant LAYERS_V2 engine) and are replaced by the working
+// "Background" submenu (setActiveBackgroundId → OutputState.background → /live).
+// Render-invariant, so computed once at module scope.
+const SLIDE_MENU_PALETTE = SLIDE_SAFE_PALETTE.filter((e) => {
+  const t = e.make().type;
+  return t !== "timer" && t !== "show_message" && t !== "clear_message"
+    && t !== "set_background" && t !== "clear_layer";
+});
+
+
+// Standard song sections offered in the per-slide "Section →" quick menu (wave
+// 6G). Each maps to a group KIND so a freshly-created section gets a sensible
+// colour without the operator touching the colour picker.
+const STANDARD_SECTIONS: { name: string; kind: string }[] = [
+  { name: "Verse 1", kind: "verse" },
+  { name: "Verse 2", kind: "verse" },
+  { name: "Verse 3", kind: "verse" },
+  { name: "Chorus", kind: "chorus" },
+  { name: "Pre-Chorus", kind: "chorus" },
+  { name: "Bridge", kind: "bridge" },
+  { name: "Intro", kind: "intro" },
+  { name: "Tag", kind: "tag" },
+  { name: "Ending", kind: "custom" },
+];
+
+// Section menu wiring passed to each slide card (null for non-editable items).
+type SectionMenu = {
+  groups: { id: string; name: string; kind: string; color: string | null }[];
+  currentGroupId: string | null;
+  onAssign: (groupId: string | null) => void;
+  onQuickCreate: (name: string, kind: string) => void;
+};
+type SlideActionsMenu = {
+  palette: { label: string; make: () => ActionSpec }[];
+  current: ActionSpec[];
+  onToggle: (spec: ActionSpec) => void;
+  /** Remove the attached action at index i (works for legacy timer/message too). */
+  onRemoveAt: (i: number) => void;
+  onClearAll: () => void;
+  /** Human label for an attached spec (macro names resolved when loaded). */
+  describe: (spec: ActionSpec) => string;
+  /** Enabled, NON-guarded Automations offered under "Run automation →". */
+  automations: { id: string; name: string }[];
+};
+
+// Badge icon per attached action type (up to 3 shown, then "+N").
+function actionTypeIcon(t: ActionSpec["type"]) {
+  switch (t) {
+    case "timer": return Timer;
+    case "show_message": case "clear_message": return MessageSquare;
+    case "logo": return Sparkles;
+    case "send_lower_third": case "clear_lower_third": return Captions;
+    case "macro": return Workflow;
+    case "set_background": case "set_background_media": return ImageIcon;
+    case "clear_layer": return Layers;
+    default: return Zap;
+  }
+}
+
+// Open a trigger's Radix context menu from the keyboard / a click by synthesising
+// a contextmenu event at the element's centre (Radix listens for onContextMenu).
+function openContextMenuAt(el: HTMLElement | null) {
+  if (!el) return;
+  const r = el.getBoundingClientRect();
+  el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }));
+}
+// Background submenu — IMAGE controls only (user model 2026-09-09): add via
+// drag-from-media-bin, use this slide's image on all slides, or clear one/all.
+type BgMenu = {
+  thisImageUrl?: string;
+  onUseOnAll: () => void;
+  onRemove: () => void;
+  onRemoveAll: () => void;
+  canEdit: boolean;
+  hasGlobalBg: boolean;
+  onClearGlobal: () => void;
+};
+// Theme submenu — the named LOOKS (Gentle Waves, Holy Fire…) shown with a colour
+// preview, applied to the live projector instantly; plus any saved DB themes
+// (font/colour styling) applied to all slides of the song.
+type ThemeMenu = {
+  activeLookId: string;
+  onSwitchLook: (id: string) => void;
+  looks: { id: string; name: string; c1?: string; c2?: string }[];
+  dbThemes: { id: string; name: string }[];
+  onApplyDb: (themeId: string) => void;
+  onRemoveDb: () => void;
+  // Per-slide theme override (apply/remove a theme on THIS slide only).
+  onApplyDbThisSlide: (themeId: string) => void;
+  onRemoveDbThisSlide: () => void;
+  canApplyDb: boolean;
+};
 import {
   DndContext,
   closestCenter,
@@ -68,23 +175,198 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   const router = useRouter();
   const item = ctx.plan.items[ctx.previewItemIdx];
   const slides: SlidePayload[] = item?.slides ?? [];
+  // Song auto-switch guard: every send of a song item's slide declares its origin.
+  const itemSendOpts = item?.type === "song" ? { origin: { kind: "song" as const, songId: (item as { songId?: string }).songId } } : undefined;
   // Frame-aware DISPLAY slides — media images are rendered (and projected) through
   // their saved frame (crop / pan / zoom / blur-fill) so the grid preview is 1:1
   // with what goes live. Non-media / un-framed slides pass through unchanged.
+  // Optimistic per-slide background overrides keyed by slide index — set the INSTANT
+  // a media image is dropped on ONE slide, so that slide's card updates immediately
+  // (no wait for the server round-trip + router.refresh). Cleared automatically once
+  // the real slide data catches up (the effect below), so it never masks a change.
+  const [optimisticBg, setOptimisticBg] = useState<Record<number, string>>({});
   const displaySlides: SlidePayload[] = useMemo(() => {
-    if (item?.type !== "media") return slides;
     return slides.map((s, i) => {
-      if (s.kind !== "image") return s;
-      const assetId = item.mediaMeta?.[i]?.id;
-      const frame = assetId ? loadMediaFrame(ctx.churchId, assetId) : null;
-      if (!frame) return s;
-      const { bgColor, objects } = buildMediaFrameSlide(frame, s.url);
-      return projectableTextSlide("", bgColor, undefined, objects);
+      let base = s;
+      if (item?.type === "media" && s.kind === "image") {
+        const assetId = item.mediaMeta?.[i]?.id;
+        const frame = assetId ? loadMediaFrame(ctx.churchId, assetId) : null;
+        if (frame) {
+          const { bgColor, objects } = buildMediaFrameSlide(frame, s.url);
+          base = projectableTextSlide("", bgColor, undefined, objects);
+        }
+      }
+      // "" is the CLEARED sentinel (remove), a url is a set — so drag, use-on-all
+      // AND remove all update the card instantly, just like a Theme change.
+      // SONG items only: songs persist bgImageUrl in songSlides.objectsJson (the
+      // clear-effect reconciles against that). Non-song items persist per-item and
+      // wouldn't reconcile here, so we don't fold an optimistic override onto them.
+      const ob = optimisticBg[i];
+      if (ob !== undefined && base.kind === "text" && item?.type === "song") return { ...base, bgImageUrl: ob === "" ? undefined : ob };
+      return base;
     });
     // ctx.churchId + item identity drive this; slides is derived from item.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slides, item, ctx.churchId]);
+  }, [slides, item, ctx.churchId, optimisticBg]);
+  // Drop an optimistic override once the real slide reflects it (post-refresh).
+  useEffect(() => {
+    setOptimisticBg((prev) => {
+      if (Object.keys(prev).length === 0) return prev;
+      let changed = false;
+      const next: Record<number, string> = {};
+      for (const [k, url] of Object.entries(prev)) {
+        const i = Number(k);
+        const real = (slides[i] as { bgImageUrl?: string } | undefined)?.bgImageUrl;
+        const want = url === "" ? undefined : url;
+        if (real === want) { changed = true; continue; }
+        next[i] = url;
+      }
+      return changed ? next : prev;
+    });
+  }, [slides]);
+  // Re-send the CURRENTLY-LIVE slide of this item with a new/removed per-slide
+  // background, instantly (used by remove + use-on-all so /live tracks the change).
+  const reSendLiveWithBg = (bgImageUrl: string | undefined) => {
+    if (ctx.previewItemIdx !== ctx.liveItemIdx) return;
+    const live = ctx.liveSlide;
+    if (!live || live.kind !== "text") return;
+    ctx.onSendSlideToLive({ ...(live as Extract<SlidePayload, { kind: "text" }>), bgImageUrl }, null, { instant: true, carryLiveOrigin: true });
+  };
+  // The index (within THIS item) of the slide currently on the projector, by FULL
+  // identity (not just lyric text) — so a single-slide background change only
+  // touches /live when it's genuinely the live slide. -1 when this item isn't live
+  // or the slide isn't found. This is what prevents a duplicate-lyric off-screen
+  // slide from repainting the live projector (a live-service hazard).
+  const liveSlideIdx = useMemo(() => {
+    if (ctx.previewItemIdx !== ctx.liveItemIdx) return -1;
+    let key: string | null = null;
+    try { key = JSON.stringify(ctx.liveSlide); } catch { key = null; }
+    if (!key) return -1;
+    return slides.findIndex((s) => { try { return JSON.stringify(s) === key; } catch { return false; } });
+  }, [ctx.previewItemIdx, ctx.liveItemIdx, ctx.liveSlide, slides]);
   const lastDragEndRef = useRef(0);
+
+  // Groups & Arrangements (wave 6D): per-slide group badge chips. Additive chrome
+  // — read from the expanded item's `slideGroupIds` + `groups` meta which the
+  // loader carries ONLY for songs that use groups. Groupless songs → empty map →
+  // no chips render (byte-identical to today).
+  const groupChips = useMemo(() => {
+    const ids = item?.slideGroupIds;
+    const groups = item?.groups;
+    if (!ids || !groups || groups.length === 0) return null;
+    const byId = new Map(groups.map((g) => [g.id, g]));
+    return ids.map((gid) => {
+      if (!gid) return null;
+      const g = byId.get(gid);
+      if (!g) return null;
+      return { label: g.name || g.kind, color: groupColor({ kind: g.kind, color: g.color, name: g.name }) };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item]);
+
+  // ── Per-slide section (group) assignment (wave 6G) ────────────────────────
+  // Right-click a slide → "Section →" to tag it with a group (Verse 1, Chorus,
+  // Bridge…) WITHOUT leaving the shell. Assigns via the existing church-scoped
+  // actions; the badge + strip refresh live. Only armed for editable song items.
+  const sectionSongId = item?.type === "song" ? (item as { songId?: string }).songId : undefined;
+  const songGroups = item?.groups ?? [];
+  const slideGroupIds = item?.slideGroupIds;
+  const assignSlideSection = (idx: number, groupId: string | null) => {
+    const slideId = item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined;
+    if (!sectionSongId || !slideId) return;
+    void (async () => {
+      const { toast } = await import("sonner");
+      const res = await assignSlidesToGroup(sectionSongId, [slideId], groupId);
+      if (!res.ok) { toast.error(res.error ?? "Couldn't set the section"); return; }
+      router.refresh();
+    })();
+  };
+  // Create a standard-named group (if it doesn't exist yet) and assign this slide
+  // to it — the "make this the bridge" one-tap. Matches an existing group by
+  // (case-insensitive) name so repeated taps reuse the same group.
+  const quickCreateSectionAndAssign = (idx: number, name: string, kind: string) => {
+    const slideId = item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined;
+    if (!sectionSongId || !slideId) return;
+    const existing = songGroups.find((g) => g.name.trim().toLowerCase() === name.trim().toLowerCase());
+    if (existing) { assignSlideSection(idx, existing.id); return; }
+    void (async () => {
+      const { toast } = await import("sonner");
+      const created = await createSongGroup(sectionSongId, name, kind);
+      if (!created.ok) { toast.error(created.error ?? "Couldn't create the section"); return; }
+      if (!created.data) { toast.error("Couldn't create the section"); return; }
+      const res = await assignSlidesToGroup(sectionSongId, [slideId], created.data.id);
+      if (!res.ok) { toast.error(res.error ?? "Couldn't set the section"); return; }
+      toast.success(`Added section “${name}”`);
+      router.refresh();
+    })();
+  };
+
+  // ── Slide Actions (Phase 4) ─────────────────────────────────────────────────
+  // Per-slide attached actions (NON-destructive). Song slides persist to
+  // song_slides.actions via setSongSlideActions. Badges + a right-click palette to
+  // add/remove. Guarded actions are never offered here (enforced at save + dispatch).
+  const slideActionSpecs = useMemo(() => {
+    const raw = item?.slideActions;
+    if (!Array.isArray(raw)) return null;
+    return raw.map((arr) => sanitizeSlideActions(arr));
+  }, [item?.slideActions]);
+  const canEditSlideActions = item?.type === "song" && !!sectionSongId;
+  // Non-destructive palette offered on a slide — SLIDE_MENU_PALETTE (module const)
+  // is the background-focused subset (timer/message filtered out; see A1 above).
+  const saveSlideActions = (idx: number, next: ActionSpec[], okMsg: string) => {
+    const slideId = item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined;
+    if (!sectionSongId || !slideId) return;
+    void (async () => {
+      const { toast } = await import("sonner");
+      const res = await setSongSlideActions(slideId, next);
+      if (!res.ok) { toast.error(res.error ?? "Couldn't set slide action"); return; }
+      toast.success(okMsg);
+      router.refresh();
+    })();
+  };
+  const toggleSlideAction = (idx: number, spec: ActionSpec) => {
+    const current = slideActionSpecs?.[idx] ?? [];
+    const key = specKey(spec);
+    const exists = current.some((s) => specKey(s) === key);
+    const next = exists ? current.filter((s) => specKey(s) !== key) : [...current, spec];
+    saveSlideActions(idx, next, exists ? "Removed slide action" : "Attached slide action");
+  };
+  const removeSlideActionAt = (idx: number, i: number) => {
+    const current = slideActionSpecs?.[idx] ?? [];
+    if (i < 0 || i >= current.length) return;
+    saveSlideActions(idx, current.filter((_, j) => j !== i), "Removed slide action");
+  };
+  const clearSlideActions = (idx: number) => saveSlideActions(idx, [], "Removed all slide actions");
+
+  // Church Automations — for naming attached `macro` actions and the
+  // "Run automation →" submenu. Only loaded for editable song items; refreshed
+  // when the Automations panel changes. A failure just leaves ids unresolved.
+  const [churchMacros, setChurchMacros] = useState<{ id: string; name: string; enabled: boolean; guarded: boolean }[]>([]);
+  useEffect(() => {
+    if (!canEditSlideActions) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const { listMacros } = await import("@/lib/actions");
+        const res = await listMacros();
+        if (cancelled || !res.ok || !res.data) return;
+        setChurchMacros(res.data.map((m) => ({
+          id: m.id, name: m.name, enabled: m.enabled,
+          guarded: macroHasGuardedAction({ id: m.id, churchId: "", name: m.name, actions: m.actions as ActionSpec[], enabled: m.enabled }),
+        })));
+      } catch { /* optional */ }
+    };
+    void load();
+    const onChanged = () => { void load(); };
+    window.addEventListener("presentflow:macros-changed", onChanged);
+    return () => { cancelled = true; window.removeEventListener("presentflow:macros-changed", onChanged); };
+  }, [canEditSlideActions]);
+  const describeSlideSpec = (spec: ActionSpec) =>
+    describeSpec(spec, spec.type === "macro" ? churchMacros.find((m) => m.id === spec.macroId)?.name : undefined);
+  const runnableAutomations = useMemo(
+    () => churchMacros.filter((m) => m.enabled && !m.guarded).map((m) => ({ id: m.id, name: m.name })),
+    [churchMacros],
+  );
 
   // View mode is toggled by the BottomBar (fires "presentflow:slide-view-mode").
   // Persist per-machine so operators keep their preferred layout across launches.
@@ -152,6 +434,9 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   };
   // App-level clipboard for cut/copy/paste within the grid
   const clipboardSlide = useSlideClipboard();
+  // Grid root — used to scope the Cmd/Ctrl+V paste shortcut to "focus is in the
+  // slide grid" so it never fires while the operator is typing elsewhere.
+  const gridRootRef = useRef<HTMLDivElement | null>(null);
 
   // Data-loss guard: the grid's Quick Edit / Duplicate / Delete / Paste rewrite
   // the WHOLE song from lyrics only (updateSongSlides), which drops every slide's
@@ -173,7 +458,159 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   // Paste the clipboard slide at a chosen position (insertIdx). Shared by the
   // per-slide "Paste after" and the empty-space "Paste at end" menus, so the
   // operator can decide WHERE the copied slide lands.
-  const canPasteHere = !!clipboardSlide && item?.type === "song" && !!(item as { songId?: string }).songId;
+  const isEditableSong = item?.type === "song" && !!(item as { songId?: string }).songId;
+  const canPasteHere = !!clipboardSlide && isEditableSong;
+  // Honest, operator-facing reason paste is unavailable (null when it IS). Drives
+  // a DISABLED "Paste slide" menu item with a tooltip instead of hiding it — the
+  // field complaint was silence reading as "I don't have any editing access".
+  const pasteReason = pasteDisabledReason(!!clipboardSlide, isEditableSong);
+  // C1: text clipboard — "Copy Text" fills it; "Paste Text" drops it onto ANOTHER
+  // slide, preserving that slide's design (updateSongSlideText swaps only the text).
+  const textClipboard = useTextClipboard();
+  const canPasteText = !!textClipboard && isEditableSong;
+  const pasteTextOnto = (idx: number) => {
+    const text = getTextClipboard();
+    void (async () => {
+      const { toast } = await import("sonner");
+      if (!text) { toast.error("No copied text to paste"); return; }
+      const slideId = item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined;
+      if (!slideId) { toast.error("Couldn't find that slide"); return; }
+      const res = await updateSongSlideText(slideId, text);
+      if (!res.ok) { toast.error(res.error ?? "Paste failed"); return; }
+      toast.success("Text pasted");
+      router.refresh();
+    })();
+  };
+
+  // ── Theme (looks) & Background (images) controls ────────────────────────────
+  // THEME = the named LOOKS (Gentle Waves, Holy Fire…). Applying one switches the
+  // LIVE projector background instantly via the Background-Templates store — the
+  // path that works in the default config (setActiveBackgroundId →
+  // useBackgroundState → OutputState.background → /live). Reactive so the ✓ tracks
+  // the live look even when changed elsewhere.
+  const activeBackgroundId = useBackgroundState().active.id;
+  const switchLook = (id: string) => {
+    setActiveBackgroundId(id);
+    const name = BUILT_IN_BACKGROUNDS.find((b) => b.id === id)?.name ?? "look";
+    void import("sonner").then(({ toast }) =>
+      toast.success(id === "none" ? "Look cleared" : `Look: ${name}`));
+  };
+  // Set the optimistic override for EVERY slide index at once (used by the
+  // all-slides operations so all cards update instantly, like a Theme change).
+  const setOptimisticAll = (value: string) => {
+    setOptimisticBg(() => { const n: Record<number, string> = {}; slides.forEach((_, i) => { n[i] = value; }); return n; });
+  };
+  // BACKGROUND = per-slide IMAGE. Use this slide's image on every slide of the song.
+  const useImageOnAllSlides = (url?: string) => {
+    const songId = item?.type === "song" ? (item as { songId?: string }).songId : undefined;
+    if (!songId || !url) { void import("sonner").then(({ toast }) => toast.error(!url ? "This slide has no image to use" : "Only songs can do this")); return; }
+    setOptimisticAll(url);          // INSTANT: every card shows the image now
+    reSendLiveWithBg(url);          // INSTANT: /live updates if a slide of this item is live
+    void (async () => {
+      const { toast } = await import("sonner");
+      const res = await setAllSongSlidesBackgroundImage(songId, url);
+      if (!res.ok) { toast.error(res.error ?? "Couldn't set image"); setOptimisticBg({}); return; }
+      toast.success(`Image set on ${res.data?.count ?? 0} slide${(res.data?.count ?? 0) === 1 ? "" : "s"}`);
+      router.refresh();
+    })();
+  };
+  // Clear the LIVE projector background (the global "Worship background" / look) —
+  // the thing the operator actually sees behind every slide. Separate from a
+  // per-slide image, so it can be cleared distinctly.
+  const clearProjectorBackground = () => {
+    if (activeBackgroundId && activeBackgroundId !== "none") { setActiveBackgroundId("none"); return true; }
+    return false;
+  };
+  // Remove the per-slide background IMAGE from THIS slide (instant, like Theme).
+  const removeSlideBackground = (idx: number) => {
+    const slideId = item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined;
+    if (!slideId) { void import("sonner").then(({ toast }) => toast.error("Couldn't find that slide")); return; }
+    setOptimisticBg((m) => ({ ...m, [idx]: "" }));  // INSTANT: this card clears now
+    if (idx === liveSlideIdx) {
+      reSendLiveWithBg(undefined);                   // INSTANT: /live clears ONLY if THIS exact slide is live
+    }
+    void (async () => {
+      const { toast } = await import("sonner");
+      const res = await clearSongSlideBackgroundImage(slideId);
+      if (!res.ok) { toast.error(res.error ?? "Couldn't remove background"); setOptimisticBg((m) => { const n = { ...m }; delete n[idx]; return n; }); return; }
+      toast.success(res.data?.cleared ? "Background removed from slide" : "This slide had no background image");
+      router.refresh();
+    })();
+  };
+  // A4: remove the per-slide background image from EVERY slide (instant, like Theme).
+  const removeAllSlideBackgrounds = () => {
+    const songId = item?.type === "song" ? (item as { songId?: string }).songId : undefined;
+    if (!songId) { void import("sonner").then(({ toast }) => toast.error("Only songs can do this")); return; }
+    setOptimisticAll("");            // INSTANT: every card clears now
+    reSendLiveWithBg(undefined);     // INSTANT: /live clears if a slide of this item is live
+    void (async () => {
+      const { toast } = await import("sonner");
+      const res = await clearAllSongSlideBackgrounds(songId);
+      if (!res.ok) { toast.error(res.error ?? "Couldn't remove backgrounds"); setOptimisticBg({}); return; }
+      const n = res.data?.count ?? 0;
+      toast.success(n > 0 ? `Removed the image from ${n} slide${n === 1 ? "" : "s"}` : "No slides had their own image");
+      router.refresh();
+    })();
+  };
+
+  // A5: themes — fetched once for the "Theme" submenu. Apply/remove operate on the
+  // whole song (all slides) via the existing church-scoped actions.
+  const [themes, setThemes] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void fetch("/api/themes").then((r) => r.json()).then((d) => {
+      if (!alive) return;
+      const list = Array.isArray(d?.themes) ? d.themes : [];
+      setThemes(list.map((t: { id: string; name: string }) => ({ id: t.id, name: t.name })));
+    }).catch(() => { /* themes optional */ });
+    return () => { alive = false; };
+  }, []);
+  const applyThemeAll = (themeId: string) => {
+    void (async () => {
+      const { toast } = await import("sonner");
+      const songId = item?.type === "song" ? (item as { songId?: string }).songId : undefined;
+      if (!songId) { toast.error("Only songs can take a theme"); return; }
+      const res = await applyThemeToSong(themeId, songId);
+      if (!res.ok) { toast.error(res.error ?? "Couldn't apply theme"); return; }
+      toast.success("Theme applied — re-send a slide to update the screen");
+      router.refresh();
+    })();
+  };
+  const removeThemeAll = () => {
+    void (async () => {
+      const { toast } = await import("sonner");
+      const songId = item?.type === "song" ? (item as { songId?: string }).songId : undefined;
+      if (!songId) { toast.error("Only songs can do this"); return; }
+      const res = await revertSongTheme(songId);
+      if (!res.ok) { toast.error(res.error ?? "Couldn't remove theme"); return; }
+      toast.success("Theme removed — re-send a slide to update the screen");
+      router.refresh();
+    })();
+  };
+  // Per-slide theme override (Victor: "individually select the theme for each slide").
+  const applyThemeThisSlide = (themeId: string, slideId: string | undefined) => {
+    void (async () => {
+      const { toast } = await import("sonner");
+      const songId = item?.type === "song" ? (item as { songId?: string }).songId : undefined;
+      if (!songId || !slideId) { toast.error("Only a song slide can take a theme"); return; }
+      const res = await applyThemeToSongSlide(themeId, songId, slideId);
+      if (!res.ok) { toast.error(res.error ?? "Couldn't theme this slide"); return; }
+      toast.success("Theme applied to this slide — re-send it to update the screen");
+      router.refresh();
+    })();
+  };
+  const removeThemeThisSlide = (slideId: string | undefined) => {
+    void (async () => {
+      const { toast } = await import("sonner");
+      const songId = item?.type === "song" ? (item as { songId?: string }).songId : undefined;
+      if (!songId || !slideId) { toast.error("Only a song slide can do this"); return; }
+      const res = await removeThemeFromSongSlide(songId, slideId);
+      if (!res.ok) { toast.error(res.error ?? "Couldn't remove this slide's theme"); return; }
+      toast.success("This slide's theme removed");
+      router.refresh();
+    })();
+  };
+
   const pasteSlideAt = (insertIdx: number) => {
     if (guardObjectSong()) return;
     const copied = getSlideClipboard();
@@ -181,7 +618,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
     const songId = (item as { songId?: string })?.songId;
     if (item?.type !== "song" || !songId) return;
     void (async () => {
-      const at = Math.max(0, Math.min(insertIdx, slides.length));
+      const at = pasteInsertIndex(insertIdx, slides.length);
       const newSlides = [...slides];
       newSlides.splice(at, 0, copied);
       const updatedSlides = newSlides.map((sl) => ({ lyrics: sl.kind === "text" ? ((sl as { text?: string }).text ?? "") : "" }));
@@ -190,6 +627,28 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
       if (!res.ok) toast.error(res.error ?? "Paste failed"); else toast.success("Slide pasted");
     })();
   };
+
+  // Cmd/Ctrl+V pastes the copied slide when the grid has focus (a slide is
+  // selected / the grid was clicked). Scoped to the grid so it never hijacks
+  // paste in a text field, and it inserts AFTER the currently-selected slide.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "v" && e.key !== "V") return;
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const root = gridRootRef.current;
+      const active = document.activeElement;
+      if (!root || !active || !root.contains(active)) return;
+      // Never steal a genuine text paste (Quick Edit box, rename inputs, etc.).
+      const tag = (active as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || (active as HTMLElement).isContentEditable) return;
+      if (!canPasteHere) return;
+      e.preventDefault();
+      pasteSlideAt(ctx.previewSlideIdx + 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canPasteHere, ctx.previewSlideIdx, slides.length, item]);
 
   const handleQuickEditSave = async (newText: string) => {
     if (!quickEdit) return;
@@ -261,8 +720,97 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
     ctx.onReorderSlidesInItem?.(ctx.previewItemIdx, nextOrder);
   };
 
+  // ── Media-bin drag/drop (field fix wave 6A) ──────────────────────────────
+  // A media thumbnail dragged from the Media Bin carries MEDIA_DROP_MIME. Two
+  // behaviours, decided by resolveMediaDrop (pure, unit-tested): drop ONTO a
+  // slide sets that slide's per-slide background; drop into empty grid space
+  // creates a new full-screen image slide.
+  //
+  // DECOUPLING (field fix 6C): backgrounds + image slides are NOT song-only.
+  // Songs use their durable per-slide DB path; scripture / media / sermon items
+  // use the additive per-item payload path (setServiceItemSlideBackground /
+  // addServiceItemImageSlide). Non-content dividers (header / blank / logo) can't
+  // hold slide content, so the affordance stays OFF for them (honest — no silent
+  // gate: the drop targets simply don't arm rather than arming then failing).
+  const editableSongId = item?.type === "song" ? (item as { songId?: string }).songId : undefined;
+  const itemId = item?.id;
+  const canAcceptMediaDrop = !!item && (
+    item.type === "song" ? !!editableSongId : (item.type === "scripture" || item.type === "media" || item.type === "sermon")
+  );
+  // Which slide index is currently a background drop target (ring highlight),
+  // and whether the empty grid area is an active new-slide target (caret).
+  const [bgDropIdx, setBgDropIdx] = useState<number | null>(null);
+  const [newDropActive, setNewDropActive] = useState(false);
+  // Read the media payload off a drag event (null if it isn't a media drag).
+  const readMediaDrag = (e: React.DragEvent) => parseMediaDropPayload(e.dataTransfer.getData(MEDIA_DROP_MIME));
+  // dragover types don't expose getData on some browsers — presence of the MIME
+  // in types is the cross-OS signal that a media drag is in progress.
+  const isMediaDrag = (e: React.DragEvent) => e.dataTransfer.types.includes(MEDIA_DROP_MIME);
+
+  const dropMediaOnSlide = (idx: number, e: React.DragEvent) => {
+    const payload = readMediaDrag(e);
+    if (!payload) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setBgDropIdx(null);
+    setNewDropActive(false);
+    // INSTANT PREVIEW: paint the new background on the card immediately, before any
+    // server round-trip, so the drop feels instant (D1). Cleared once real data lands.
+    if (canAcceptMediaDrop && isImageAsset(payload)) {
+      setOptimisticBg((m) => ({ ...m, [idx]: payload.url }));
+      // INSTANT LIVE: if this exact slide is what's currently on the projector,
+      // re-send it with the new background right away so /live updates instantly too.
+      const base = displaySlides[idx] ?? slides[idx];
+      if (idx === liveSlideIdx && base) {
+        ctx.onSendSlideToLive({ ...(base as Extract<SlidePayload, { kind: "text" }>), bgImageUrl: payload.url }, null, { instant: true, carryLiveOrigin: true });
+      }
+    }
+    void (async () => {
+      const { toast } = await import("sonner");
+      if (!canAcceptMediaDrop) { toast.error("This item can't take a slide background"); setOptimisticBg((m) => { const n = { ...m }; delete n[idx]; return n; }); return; }
+      if (!isImageAsset(payload)) { toast.error("Only images can be used as a slide background"); return; }
+      if (editableSongId) {
+        const slideId = item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined;
+        if (!slideId) { toast.error("Couldn't find that slide"); setOptimisticBg((m) => { const n = { ...m }; delete n[idx]; return n; }); return; }
+        const res = await setSongSlideBackgroundImage(slideId, payload.url);
+        if (!res.ok) { toast.error(res.error ?? "Couldn't set background"); setOptimisticBg((m) => { const n = { ...m }; delete n[idx]; return n; }); return; }
+      } else {
+        if (!itemId) { toast.error("Couldn't find that item"); setOptimisticBg((m) => { const n = { ...m }; delete n[idx]; return n; }); return; }
+        const res = await setServiceItemSlideBackground(itemId, idx, payload.url);
+        if (!res.ok) { toast.error(res.error ?? "Couldn't set background"); setOptimisticBg((m) => { const n = { ...m }; delete n[idx]; return n; }); return; }
+      }
+      toast.success(`Background set on slide ${idx + 1} only — use “BG” for every slide`);
+      router.refresh();
+    })();
+  };
+
+  const dropMediaOnEmpty = (e: React.DragEvent) => {
+    const payload = readMediaDrag(e);
+    if (!payload) return;
+    e.preventDefault();
+    setBgDropIdx(null);
+    setNewDropActive(false);
+    const decision = resolveMediaDrop({ over: "empty", insertIndex: slides.length });
+    const insertIndex = decision.action === "new-image-slide" ? decision.insertIndex : slides.length;
+    void (async () => {
+      const { toast } = await import("sonner");
+      if (!canAcceptMediaDrop) { toast.error("Image slides can't be added to this item"); return; }
+      if (!isImageAsset(payload)) { toast.error("Only images can be added as a slide"); return; }
+      if (editableSongId) {
+        const res = await createSongImageSlide(editableSongId, insertIndex, payload.url);
+        if (!res.ok) { toast.error(res.error ?? "Couldn't add the slide"); return; }
+      } else {
+        if (!itemId) { toast.error("Couldn't find that item"); return; }
+        const res = await addServiceItemImageSlide(itemId, payload.url);
+        if (!res.ok) { toast.error(res.error ?? "Couldn't add the slide"); return; }
+      }
+      toast.success("Added a full-screen image slide");
+      router.refresh();
+    })();
+  };
+
   return (
-    <div className="p-2 flex flex-col gap-6">
+    <div ref={gridRootRef} className="p-2 flex flex-col gap-6">
       {/* Main slide grid — Task B: 6px gutter. Y10: semantic grid + gridcell roles. */}
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={slideIds} strategy={rectSortingStrategy}>
@@ -273,7 +821,14 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
             aria-label="Slides"
             // min-h so the empty area below the cards is part of the grid and can
             // be right-clicked to paste a copied slide at the end.
-            className={cn("relative isolate", viewMode === "text" ? "flex flex-col" : "grid", "min-h-[45vh]")}
+            // Media-bin drop: dragging over empty grid space arms the "add a new
+            // image slide" affordance; a card's own dragover stops propagation so
+            // this only lights when NOT over a slide.
+            onDragOver={(e) => { if (isMediaDrag(e) && canAcceptMediaDrop) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; setBgDropIdx(null); setNewDropActive(true); } }}
+            onDragLeave={(e) => { if (e.currentTarget === e.target) setNewDropActive(false); }}
+            onDrop={(e) => { if (isMediaDrag(e)) dropMediaOnEmpty(e); }}
+            className={cn("relative isolate", viewMode === "text" ? "flex flex-col" : "grid", "min-h-[45vh]",
+              newDropActive && "outline-2 outline-dashed outline-[var(--color-brand)] outline-offset-[-6px] rounded-lg")}
             style={viewMode === "text"
               ? { gap: 4 }
               // alignContent:start packs rows at the top so a wrapped row (e.g.
@@ -285,6 +840,13 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
             }
           >
             <DotGridBackground />
+            {newDropActive && (
+              <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center">
+                <div className="px-3 py-1.5 rounded-full bg-[var(--color-brand)] text-black text-[11px] font-semibold shadow-lg">
+                  Drop to add a full-screen image slide
+                </div>
+              </div>
+            )}
             {slides.length === 0 && (
               <div className="col-span-full relative flex flex-col items-center justify-center gap-3 py-20 text-center">
                 <div className="w-12 h-12 rounded-xl grid place-items-center surface-elev">
@@ -302,12 +864,50 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                 id={slideIds[idx]}
                 slide={displaySlides[idx] ?? s}
                 index={idx + 1}
+                groupChip={groupChips?.[idx] ?? null}
+                actionCount={slideActionSpecs?.[idx]?.length ?? 0}
+                actionTypes={slideActionSpecs?.[idx]?.map((a) => a.type)}
+                actionsMenu={canEditSlideActions ? {
+                  palette: SLIDE_MENU_PALETTE,
+                  current: slideActionSpecs?.[idx] ?? [],
+                  onToggle: (spec: ActionSpec) => toggleSlideAction(idx, spec),
+                  onRemoveAt: (i: number) => removeSlideActionAt(idx, i),
+                  onClearAll: () => clearSlideActions(idx),
+                  describe: describeSlideSpec,
+                  automations: runnableAutomations,
+                } : null}
+                sectionMenu={sectionSongId ? {
+                  groups: songGroups,
+                  currentGroupId: slideGroupIds?.[idx] ?? null,
+                  onAssign: (gid) => assignSlideSection(idx, gid),
+                  onQuickCreate: (name, kind) => quickCreateSectionAndAssign(idx, name, kind),
+                } : null}
+                bgMenu={{
+                  thisImageUrl: ((displaySlides[idx] ?? s) as { bgImageUrl?: string }).bgImageUrl,
+                  onUseOnAll: () => useImageOnAllSlides(((displaySlides[idx] ?? s) as { bgImageUrl?: string }).bgImageUrl),
+                  onRemove: () => removeSlideBackground(idx),
+                  onRemoveAll: removeAllSlideBackgrounds,
+                  canEdit: item?.type === "song" && !!(item as { songId?: string }).songId,
+                  hasGlobalBg: activeBackgroundId !== "none",
+                  onClearGlobal: () => { if (clearProjectorBackground()) void import("sonner").then(({ toast }) => toast.success("Projector background cleared (all screens)")); },
+                }}
+                themeMenu={{
+                  activeLookId: activeBackgroundId,
+                  onSwitchLook: switchLook,
+                  looks: BUILT_IN_BACKGROUNDS.map((b) => ({ id: b.id, name: b.name, c1: (b as { shaderPrimaryColor?: string }).shaderPrimaryColor, c2: (b as { shaderSecondaryColor?: string }).shaderSecondaryColor })),
+                  dbThemes: themes,
+                  onApplyDb: applyThemeAll,
+                  onRemoveDb: removeThemeAll,
+                  onApplyDbThisSlide: (themeId) => applyThemeThisSlide(themeId, item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined),
+                  onRemoveDbThisSlide: () => removeThemeThisSlide(item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined),
+                  canApplyDb: item?.type === "song" && !!(item as { songId?: string }).songId,
+                }}
                 appearance={ctx.appearance ?? undefined}
                 background={ctx.background}
                 selected={idx === ctx.previewSlideIdx}
                 canQuickEdit={item?.type === "song" && !!(item as { songId?: string }).songId}
                 onSendLive={() => {
-                  fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => ctx.onSendSlideToLive(displaySlides[idx] ?? s));
+                  fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => { ctx.onSendSlideToLive(displaySlides[idx] ?? s, undefined, itemSendOpts); ctx.fireSlideActions(ctx.previewItemIdx, idx); });
                 }}
                 onSelect={() => {
                   console.log("[click] slide", { id: slideIds[idx], idx, safeMode: safeMode() });
@@ -325,7 +925,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                     // Fix-loop 2026-07-27: dedupe key includes the playlist
                     // item — the `slide-${i}` fallback collides across items
                     // and across reorders.
-                    fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => ctx.onSendSlideToLive(displaySlides[idx] ?? s));
+                    fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => { ctx.onSendSlideToLive(displaySlides[idx] ?? s, undefined, itemSendOpts); ctx.fireSlideActions(ctx.previewItemIdx, idx); });
                   }
                 }}
                 onDouble={() => {
@@ -350,7 +950,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                       return;
                     }
                   }
-                  if (safeMode()) fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => ctx.onSendSlideToLive(displaySlides[idx] ?? s));
+                  if (safeMode()) fireLive(`${ctx.previewItemIdx}:${slideIds[idx]}`, () => ctx.onSendSlideToLive(displaySlides[idx] ?? s, undefined, itemSendOpts));
                 }}
                 onDelete={() => {
                   // Delete THIS slide immediately by its DB id (works for designed
@@ -434,19 +1034,38 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                 onCopyText={() => {
                   const text = s.kind === "text" ? ((s as { text?: string }).text ?? "") : "";
                   if (text) {
+                    // In-app text clipboard powers "Paste Text" onto another slide;
+                    // also mirror to the OS clipboard for paste outside the app.
+                    setTextClipboard(text);
                     navigator.clipboard.writeText(text).then(() => {
                       void import("sonner").then(({ toast }) => toast.success("Copied to clipboard"));
                     }).catch(() => {
-                      void import("sonner").then(({ toast }) => toast.error("Copy failed"));
+                      // In-app copy already succeeded (Paste Text works); the OS
+                      // clipboard mirror failed — report honestly, not as success.
+                      void import("sonner").then(({ toast }) => toast("Copied in app (system clipboard unavailable)"));
                     });
                   }
                 }}
+                canPasteText={canPasteText && s.kind === "text"}
+                onPasteText={() => pasteTextOnto(idx)}
                 onCopySlide={() => {
                   setSlideClipboard(s);
                   void import("sonner").then(({ toast }) => toast.success("Slide copied"));
                 }}
                 canPaste={canPasteHere}
+                pasteReason={pasteReason}
                 onPasteSlide={() => pasteSlideAt(idx + 1)}
+                bgDropActive={bgDropIdx === idx}
+                onMediaDragOver={(e) => {
+                  if (!isMediaDrag(e) || !canAcceptMediaDrop) return;
+                  e.preventDefault();
+                  e.stopPropagation(); // keep the empty-area new-slide affordance off while over a card
+                  e.dataTransfer.dropEffect = "copy";
+                  setNewDropActive(false);
+                  setBgDropIdx(idx);
+                }}
+                onMediaDragLeave={() => setBgDropIdx((cur) => (cur === idx ? null : cur))}
+                onMediaDrop={(e) => dropMediaOnSlide(idx, e)}
               />
             ))}
           </div>
@@ -454,9 +1073,15 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
           <ContextMenu.Portal>
             <ContextMenu.Content className="min-w-[180px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
               <ContextMenu.Item disabled={!canPasteHere} onSelect={() => pasteSlideAt(slides.length)}
+                title={pasteReason ?? undefined}
                 className={cn("px-3 py-1.5 rounded outline-none cursor-pointer", canPasteHere ? "hover:bg-[var(--color-panel)] text-[var(--color-foreground)]" : "opacity-40 cursor-not-allowed")}>
                 {canPasteHere ? "Paste slide (at end)" : "Paste slide"}
               </ContextMenu.Item>
+              {!canPasteHere && pasteReason && (
+                <div className="px-3 pb-1 pt-0.5 text-[10px] leading-snug text-[var(--color-muted-foreground)] max-w-[220px]">
+                  {pasteReason}
+                </div>
+              )}
             </ContextMenu.Content>
           </ContextMenu.Portal>
           </ContextMenu.Root>
@@ -559,7 +1184,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                 onClick={() => {
                   const t = editedTextRef.current.trim();
                   if (!t) return;
-                  ctx.onSendSlideToLive(current ? applyTextToSlide(current, t) : { kind: "text", text: t });
+                  ctx.onSendSlideToLive(current ? applyTextToSlide(current, t) : { kind: "text", text: t }, undefined, itemSendOpts ?? { origin: { kind: "text" } });
                 }}
                 className="h-8 px-3 rounded-md text-[12px] font-medium bg-white/10 border border-white/20 hover:bg-white/20 text-white backdrop-blur-sm"
               >
@@ -586,11 +1211,20 @@ function SortableSlideCard(props: {
   id: string;
   slide: SlidePayload;
   index: number;
+  groupChip?: { label: string; color: string } | null;
+  sectionMenu?: SectionMenu | null;
+  bgMenu?: BgMenu | null;
+  themeMenu?: ThemeMenu | null;
+  actionCount?: number;
+  actionTypes?: ActionSpec["type"][];
+  actionsMenu?: SlideActionsMenu | null;
   appearance?: ThemeAppearance;
   background?: BackgroundSpec | null;
   selected: boolean;
   canQuickEdit: boolean;
   canPaste: boolean;
+  pasteReason: string | null;
+  canPasteText: boolean;
   onSelect: () => void;
   onDouble: () => void;
   onDelete: () => void;
@@ -599,7 +1233,12 @@ function SortableSlideCard(props: {
   onCopyText: () => void;
   onCopySlide: () => void;
   onPasteSlide: () => void;
+  onPasteText: () => void;
   onSendLive: () => void;
+  bgDropActive: boolean;
+  onMediaDragOver: (e: React.DragEvent) => void;
+  onMediaDragLeave: (e: React.DragEvent) => void;
+  onMediaDrop: (e: React.DragEvent) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: props.id });
@@ -609,15 +1248,40 @@ function SortableSlideCard(props: {
     opacity: isDragging ? 0.5 : 1,
   };
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners} className="relative w-full min-w-0 group/slide">
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      onDragOver={props.onMediaDragOver}
+      onDragLeave={props.onMediaDragLeave}
+      onDrop={props.onMediaDrop}
+      className="relative w-full min-w-0 group/slide"
+    >
+      {/* Media-bin background drop affordance: a brand ring + "Set as background"
+          badge over this slide while a media thumbnail hovers it. */}
+      {props.bgDropActive && (
+        <div className="pointer-events-none absolute inset-0 z-20 rounded-lg ring-2 ring-[var(--color-brand)] bg-[var(--color-brand)]/15 grid place-items-center">
+          <span className="px-2 py-0.5 rounded-full bg-[var(--color-brand)] text-black text-[10px] font-semibold shadow">Set as background</span>
+        </div>
+      )}
       <SlideCard
         slide={props.slide}
         index={props.index}
+        groupChip={props.groupChip}
+        sectionMenu={props.sectionMenu}
+        bgMenu={props.bgMenu}
+        themeMenu={props.themeMenu}
+        actionCount={props.actionCount}
+        actionTypes={props.actionTypes}
+        actionsMenu={props.actionsMenu}
         appearance={props.appearance}
         background={props.background}
         selected={props.selected}
         canQuickEdit={props.canQuickEdit}
         canPaste={props.canPaste}
+        pasteReason={props.pasteReason}
+        canPasteText={props.canPasteText}
         onSelect={props.onSelect}
         onDouble={props.onDouble}
         onDelete={props.onDelete}
@@ -626,6 +1290,7 @@ function SortableSlideCard(props: {
         onCopyText={props.onCopyText}
         onCopySlide={props.onCopySlide}
         onPasteSlide={props.onPasteSlide}
+        onPasteText={props.onPasteText}
         onSendLive={props.onSendLive}
       />
       {/* Native drag-to-playlist handle. Kept SEPARATE from the dnd-kit reorder
@@ -655,15 +1320,24 @@ function SortableSlideCard(props: {
 }
 
 function SlideCard({
-  slide, index, appearance, background, selected, canQuickEdit, canPaste, onSelect, onDouble, onDelete, onQuickEdit, onDuplicate, onCopyText, onCopySlide, onPasteSlide, onSendLive,
+  slide, index, groupChip, sectionMenu, bgMenu, themeMenu, actionCount, actionTypes, actionsMenu, appearance, background, selected, canQuickEdit, canPaste, pasteReason, canPasteText, onSelect, onDouble, onDelete, onQuickEdit, onDuplicate, onCopyText, onCopySlide, onPasteSlide, onPasteText, onSendLive,
 }: {
   slide: SlidePayload;
   index: number;
+  groupChip?: { label: string; color: string } | null;
+  sectionMenu?: SectionMenu | null;
+  bgMenu?: BgMenu | null;
+  themeMenu?: ThemeMenu | null;
+  actionCount?: number;
+  actionTypes?: ActionSpec["type"][];
+  actionsMenu?: SlideActionsMenu | null;
   appearance?: ThemeAppearance;
   background?: BackgroundSpec | null;
   selected: boolean;
   canQuickEdit: boolean;
   canPaste: boolean;
+  pasteReason: string | null;
+  canPasteText: boolean;
   onSelect: () => void;
   onDouble: () => void;
   onDelete: () => void;
@@ -672,6 +1346,7 @@ function SlideCard({
   onCopyText: () => void;
   onCopySlide: () => void;
   onPasteSlide: () => void;
+  onPasteText: () => void;
   onSendLive: () => void;
 }) {
   return (
@@ -691,6 +1366,14 @@ function SlideCard({
           // The inner (this card's) menu still opens — stopPropagation only blocks
           // the ANCESTOR grid trigger, not this element's own Radix handler.
           onContextMenu={(e) => e.stopPropagation()}
+          // Keyboard access: Shift+F10 / the ContextMenu key open this card's menu.
+          onKeyDown={(e) => {
+            if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+              e.preventDefault();
+              e.stopPropagation();
+              openContextMenuAt(e.currentTarget);
+            }
+          }}
           // Staggered pop-in when a song's slides first mount (keyed by slide id,
           // so it fires on song switch, not on every re-render).
           style={{ animationDelay: `${Math.min(Math.max(index - 1, 0), 14) * 22}ms` }}
@@ -720,12 +1403,46 @@ function SlideCard({
           <div
             className="absolute top-1.5 left-1.5 min-w-[20px] h-5 px-1 flex items-center justify-center rounded-md text-[10px] font-bold tabular-nums transition-colors"
             style={selected
-              ? { background: "var(--color-brand)", color: "#17130c", boxShadow: "var(--shadow-sm)" }
+              ? { background: "var(--color-brand)", color: "var(--color-primary-foreground)", boxShadow: "var(--shadow-sm)" }
               : { background: "rgba(0,0,0,0.55)", color: "rgba(255,255,255,0.82)", border: "1px solid rgba(255,255,255,0.14)" }}
             aria-hidden
           >
             {index}
           </div>
+          {/* Group badge (wave 6D) — colour-coded chip. Moved to the BOTTOM-left
+              corner (was top-left, over the lyrics) so the section label never
+              obscures the words. Slightly smaller + translucent for the same reason. */}
+          {groupChip && (
+            <div
+              className="absolute bottom-1.5 left-1.5 max-w-[55%] h-[18px] px-1.5 flex items-center rounded-md text-[9px] font-semibold uppercase tracking-wide truncate shadow-sm z-10 pointer-events-none"
+              style={{ background: `color-mix(in oklab, ${groupChip.color} 85%, transparent)`, color: "#fff", border: "1px solid rgba(255,255,255,0.18)" }}
+              title={`Section: ${groupChip.label}`}
+            >
+              <span className="truncate">{groupChip.label}</span>
+            </div>
+          )}
+          {/* Slide-actions badge (Phase 4) — a tiny lightning row on the top-right
+              when this slide has attached actions (ProPresenter-style). */}
+          {(actionCount ?? 0) > 0 && (() => {
+            const types = actionTypes ?? [];
+            const shown = types.slice(0, 3);
+            const extra = (actionCount ?? 0) - shown.length;
+            return (
+              <span
+                className="absolute top-1.5 right-1.5 h-5 px-1.5 flex items-center gap-0.5 rounded-md text-[10px] font-bold shadow-sm cursor-pointer"
+                style={{ background: "color-mix(in oklab, var(--color-shell) 70%, transparent)", color: "var(--color-brand)", border: "1px solid color-mix(in oklab, var(--color-brand) 40%, transparent)" }}
+                title={`${actionCount} slide action${actionCount === 1 ? "" : "s"} fire when this slide goes live — click to view`}
+                // Click opens the card menu (Actions → Attached list) instead of selecting/sending the slide.
+                onPointerDown={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); openContextMenuAt(e.currentTarget.closest("button")); }}
+              >
+                {shown.length === 0
+                  ? <><Zap className="w-3 h-3" />{actionCount}</>
+                  : <>{shown.map((t, i) => { const Icon = actionTypeIcon(t); return <Icon key={i} className="w-3 h-3" />; })}{extra > 0 && <span>+{extra}</span>}</>}
+              </span>
+            );
+          })()}
         </button>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
@@ -738,6 +1455,276 @@ function SlideCard({
             <span className="w-3.5 h-3.5 rounded-full bg-[var(--color-brand)] inline-block shrink-0" />
             Send to Live
           </ContextMenu.Item>
+          {actionsMenu && (
+            <ContextMenu.Sub>
+              <ContextMenu.SubTrigger className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]">
+                <Zap className="w-3.5 h-3.5 text-[var(--color-brand)]" />
+                Actions{actionsMenu.current.length > 0 ? ` (${actionsMenu.current.length})` : ""}
+                <ChevronRight className="w-3.5 h-3.5 ml-auto" />
+              </ContextMenu.SubTrigger>
+              <ContextMenu.Portal>
+                <ContextMenu.SubContent className="min-w-[220px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
+                  <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)]">Attached — fire when this slide goes live</div>
+                  {actionsMenu.current.length === 0 && (
+                    <div className="px-3 py-1.5 text-[11px] text-[var(--color-muted-foreground)]">None attached</div>
+                  )}
+                  {actionsMenu.current.map((spec, i) => (
+                    <ContextMenu.Item
+                      key={`attached-${specKey(spec)}-${i}`}
+                      onSelect={(e) => { e.preventDefault(); actionsMenu.onRemoveAt(i); }}
+                      className="group flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]"
+                      aria-label={`Remove ${actionsMenu.describe(spec)}`}
+                    >
+                      <Check className="w-3.5 h-3.5 shrink-0 text-[var(--color-brand)]" />
+                      <span className="flex-1 min-w-0 truncate">{actionsMenu.describe(spec)}</span>
+                      <span className="ml-2 flex items-center gap-1 text-[10px] text-[var(--color-muted-foreground)] group-data-[highlighted]:text-[var(--color-destructive)]"><Trash2 className="w-3 h-3" />Remove</span>
+                    </ContextMenu.Item>
+                  ))}
+                  {actionsMenu.current.length > 1 && (
+                    <ContextMenu.Item
+                      onSelect={(e) => { e.preventDefault(); actionsMenu.onClearAll(); }}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer text-[var(--color-destructive)] data-[highlighted]:bg-[var(--color-panel)]"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                      Remove all actions
+                    </ContextMenu.Item>
+                  )}
+                  <ContextMenu.Separator className="h-px my-1 bg-[var(--color-border)]" />
+                  <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)]">Add</div>
+                  {actionsMenu.palette.map((p, i) => {
+                    const spec = p.make();
+                    const on = actionsMenu.current.some((c) => specKey(c) === specKey(spec));
+                    return (
+                      <ContextMenu.Item
+                        key={i}
+                        onSelect={(e) => { e.preventDefault(); actionsMenu.onToggle(spec); }}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]"
+                      >
+                        <span className="w-3.5 h-3.5 shrink-0">{on && <Check className="w-3.5 h-3.5 text-[var(--color-brand)]" />}</span>
+                        <span className="min-w-0 truncate">{p.label}</span>
+                      </ContextMenu.Item>
+                    );
+                  })}
+                  {actionsMenu.automations.length > 0 && (
+                    <ContextMenu.Sub>
+                      <ContextMenu.SubTrigger className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]">
+                        <Workflow className="w-3.5 h-3.5 shrink-0" />
+                        Run automation
+                        <ChevronRight className="w-3.5 h-3.5 ml-auto" />
+                      </ContextMenu.SubTrigger>
+                      <ContextMenu.Portal>
+                        <ContextMenu.SubContent className="min-w-[200px] max-w-[280px] max-h-72 overflow-y-auto rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
+                          {actionsMenu.automations.map((m) => {
+                            const spec: ActionSpec = { type: "macro", macroId: m.id };
+                            const on = actionsMenu.current.some((c) => specKey(c) === specKey(spec));
+                            return (
+                              <ContextMenu.Item
+                                key={m.id}
+                                onSelect={(e) => { e.preventDefault(); actionsMenu.onToggle(spec); }}
+                                className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]"
+                              >
+                                <span className="w-3.5 h-3.5 shrink-0">{on && <Check className="w-3.5 h-3.5 text-[var(--color-brand)]" />}</span>
+                                <span className="min-w-0 truncate">{m.name}</span>
+                              </ContextMenu.Item>
+                            );
+                          })}
+                        </ContextMenu.SubContent>
+                      </ContextMenu.Portal>
+                    </ContextMenu.Sub>
+                  )}
+                </ContextMenu.SubContent>
+              </ContextMenu.Portal>
+            </ContextMenu.Sub>
+          )}
+          {/* Section (Groups & Arrangements, wave 6G) — grouped directly under
+              Actions (the "organize this slide" pair). Tag THIS slide with a group
+              so it can be arranged; lists existing sections + standard names to
+              quick-create. */}
+          {sectionMenu && (
+            <ContextMenu.Sub>
+              <ContextMenu.SubTrigger className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)] data-[state=open]:bg-[var(--color-panel)]">
+                <Layers className="w-3.5 h-3.5 text-[var(--color-muted-foreground)]" />
+                <span className="flex-1">Section</span>
+                <ChevronRight className="w-3.5 h-3.5 opacity-60" />
+              </ContextMenu.SubTrigger>
+              <ContextMenu.Portal>
+                <ContextMenu.SubContent className="min-w-[190px] max-h-[340px] overflow-y-auto rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
+                  {sectionMenu.currentGroupId && (
+                    <>
+                      <ContextMenu.Item
+                        onSelect={() => sectionMenu.onAssign(null)}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]"
+                      >
+                        <X className="w-3.5 h-3.5 text-[var(--color-muted-foreground)]" /> Ungrouped
+                      </ContextMenu.Item>
+                      <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
+                    </>
+                  )}
+                  {/* Existing sections on this song */}
+                  {sectionMenu.groups.length > 0 && (
+                    <>
+                      {[...sectionMenu.groups].map((g) => (
+                        <ContextMenu.Item
+                          key={g.id}
+                          onSelect={() => sectionMenu.onAssign(g.id)}
+                          className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]"
+                        >
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: groupColor({ kind: g.kind, color: g.color, name: g.name }) }} />
+                          <span className="flex-1 truncate">{g.name || g.kind}</span>
+                          {sectionMenu.currentGroupId === g.id && <Check className="w-3.5 h-3.5 text-[var(--color-brand)]" />}
+                        </ContextMenu.Item>
+                      ))}
+                      <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
+                    </>
+                  )}
+                  {/* Standard names not already present — one-tap create + assign */}
+                  <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">New section</div>
+                  {STANDARD_SECTIONS.filter(
+                    (s) => !sectionMenu.groups.some((g) => g.name.trim().toLowerCase() === s.name.toLowerCase()),
+                  ).map((s) => (
+                    <ContextMenu.Item
+                      key={s.name}
+                      onSelect={() => sectionMenu.onQuickCreate(s.name, s.kind)}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]"
+                    >
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0 opacity-70" style={{ background: groupColor({ kind: s.kind, color: null, name: s.name }) }} />
+                      <span className="flex-1 truncate">{s.name}</span>
+                    </ContextMenu.Item>
+                  ))}
+                </ContextMenu.SubContent>
+              </ContextMenu.Portal>
+            </ContextMenu.Sub>
+          )}
+          {/* Theme — the named LOOKS (Gentle Waves, Holy Fire…) with a colour
+              preview, applied to the live projector instantly; plus any saved DB
+              themes (font/colour) applied to all slides. Peer of Actions/Section. */}
+          {themeMenu && (
+            <ContextMenu.Sub>
+              <ContextMenu.SubTrigger className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)] data-[state=open]:bg-[var(--color-panel)]">
+                <Palette className="w-3.5 h-3.5 text-[var(--color-muted-foreground)]" />
+                <span className="flex-1">Theme</span>
+                <ChevronRight className="w-3.5 h-3.5 opacity-60" />
+              </ContextMenu.SubTrigger>
+              <ContextMenu.Portal>
+                <ContextMenu.SubContent className="min-w-[210px] max-h-[380px] overflow-y-auto rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
+                  <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">Looks · projector</div>
+                  {themeMenu.looks.map((l) => (
+                    <ContextMenu.Item
+                      key={l.id}
+                      onSelect={(e) => { e.preventDefault(); themeMenu.onSwitchLook(l.id); }}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]"
+                    >
+                      <span
+                        className="w-4 h-4 rounded shrink-0 border border-[var(--color-border)]"
+                        style={l.id === "none"
+                          ? { background: "repeating-conic-gradient(#666 0% 25%, #333 0% 50%) 50% / 8px 8px" }
+                          : { background: `linear-gradient(135deg, ${l.c1 ?? "#334155"}, ${l.c2 ?? l.c1 ?? "#334155"})` }}
+                      />
+                      <span className="flex-1 truncate">{l.name}</span>
+                      {themeMenu.activeLookId === l.id && <Check className="w-3.5 h-3.5 text-[var(--color-brand)]" />}
+                    </ContextMenu.Item>
+                  ))}
+                  {themeMenu.dbThemes.length > 0 && (
+                    <>
+                      <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
+                      <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">Saved themes</div>
+                      {/* Per theme: choose THIS slide (per-slide override) or ALL slides. */}
+                      {themeMenu.dbThemes.map((t) => (
+                        <ContextMenu.Sub key={t.id}>
+                          <ContextMenu.SubTrigger
+                            disabled={!themeMenu.canApplyDb}
+                            className={cn(
+                              "flex items-center justify-between gap-2 px-3 py-1.5 rounded outline-none data-[state=open]:bg-[var(--color-panel)]",
+                              themeMenu.canApplyDb ? "cursor-pointer data-[highlighted]:bg-[var(--color-panel)]" : "opacity-40 cursor-not-allowed",
+                            )}
+                          >
+                            <span className="flex-1 truncate">{t.name}</span><span className="opacity-60">▸</span>
+                          </ContextMenu.SubTrigger>
+                          <ContextMenu.Portal>
+                            <ContextMenu.SubContent className="rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-lg z-[60] min-w-[150px]">
+                              <ContextMenu.Item onSelect={() => themeMenu.canApplyDb && themeMenu.onApplyDbThisSlide(t.id)} className="px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]">This slide</ContextMenu.Item>
+                              <ContextMenu.Item onSelect={() => themeMenu.canApplyDb && themeMenu.onApplyDb(t.id)} className="px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]">All slides</ContextMenu.Item>
+                            </ContextMenu.SubContent>
+                          </ContextMenu.Portal>
+                        </ContextMenu.Sub>
+                      ))}
+                      {themeMenu.canApplyDb && (
+                        <>
+                          <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
+                          <ContextMenu.Item
+                            onSelect={() => themeMenu.onRemoveDbThisSlide()}
+                            className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer text-[var(--color-destructive)] data-[highlighted]:bg-[var(--color-panel)]"
+                          >
+                            Remove theme (this slide)
+                          </ContextMenu.Item>
+                          <ContextMenu.Item
+                            onSelect={() => themeMenu.onRemoveDb()}
+                            className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer text-[var(--color-destructive)] data-[highlighted]:bg-[var(--color-panel)]"
+                          >
+                            Remove theme (all slides)
+                          </ContextMenu.Item>
+                        </>
+                      )}
+                    </>
+                  )}
+                </ContextMenu.SubContent>
+              </ContextMenu.Portal>
+            </ContextMenu.Sub>
+          )}
+          {/* Background — the per-slide IMAGE. Add by dragging from the Media bin;
+              copy this slide's image to all slides, or clear one/all. */}
+          {bgMenu && bgMenu.canEdit && (
+            <ContextMenu.Sub>
+              <ContextMenu.SubTrigger className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)] data-[state=open]:bg-[var(--color-panel)]">
+                <ImageIcon className="w-3.5 h-3.5 text-[var(--color-muted-foreground)]" />
+                <span className="flex-1">Background</span>
+                <ChevronRight className="w-3.5 h-3.5 opacity-60" />
+              </ContextMenu.SubTrigger>
+              <ContextMenu.Portal>
+                <ContextMenu.SubContent className="min-w-[210px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
+                  <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">This slide only</div>
+                  <div className="px-3 py-0.5 text-[10px] text-[var(--color-muted-foreground)]">Drag from the Media bin onto a slide = that slide only. Use “BG” on a media item for every slide.</div>
+                  <ContextMenu.Item
+                    disabled={!bgMenu.thisImageUrl}
+                    onSelect={() => bgMenu.thisImageUrl && bgMenu.onUseOnAll()}
+                    title={bgMenu.thisImageUrl ? "Copy this slide's image onto every slide" : "Drag an image from the Media bin onto this slide first"}
+                    className={cn(
+                      "flex items-center gap-2 px-3 py-1.5 rounded outline-none",
+                      bgMenu.thisImageUrl
+                        ? "cursor-pointer data-[highlighted]:bg-[var(--color-panel)]"
+                        : "opacity-40 cursor-not-allowed",
+                    )}
+                  >
+                    Use this image on all slides
+                  </ContextMenu.Item>
+                  <ContextMenu.Item
+                    onSelect={() => bgMenu.onRemove()}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer text-[var(--color-destructive)] data-[highlighted]:bg-[var(--color-panel)]"
+                  >
+                    Remove image from this slide
+                  </ContextMenu.Item>
+                  <ContextMenu.Item
+                    onSelect={() => bgMenu.onRemoveAll()}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer text-[var(--color-destructive)] data-[highlighted]:bg-[var(--color-panel)]"
+                  >
+                    Remove images from all slides
+                  </ContextMenu.Item>
+                  {bgMenu.hasGlobalBg && (
+                    <>
+                      <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
+                      <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">All screens</div>
+                      <ContextMenu.Item
+                        onSelect={() => bgMenu.onClearGlobal()}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer text-[var(--color-destructive)] data-[highlighted]:bg-[var(--color-panel)]"
+                      >
+                        Clear projector background (the “BG” one)
+                      </ContextMenu.Item>
+                    </>
+                  )}
+                </ContextMenu.SubContent>
+              </ContextMenu.Portal>
+            </ContextMenu.Sub>
+          )}
           <ContextMenu.Separator className="h-px bg-[var(--color-border)] my-1" />
 
           {/* Quick Edit — only for song slides (non-song items have no editable text stored in DB) */}
@@ -758,20 +1745,50 @@ function SlideCard({
           >
             Copy Text
           </ContextMenu.Item>
+          {/* Paste Text (C1) — drop copied text onto THIS slide, keeping its design.
+              Disabled (with dimmed styling) until text is copied AND this is an
+              editable song slide. */}
+          <ContextMenu.Item
+            disabled={!canPasteText}
+            onSelect={canPasteText ? onPasteText : undefined}
+            title={
+              canPasteText
+                ? "Replace this slide's words, keep its design"
+                : slide.kind === "text"
+                  ? "Copy text from a slide first"
+                  : "Only text slides can take pasted text"
+            }
+            className={cn(
+              "flex items-center gap-2 px-3 py-1.5 rounded outline-none",
+              canPasteText
+                ? "cursor-pointer data-[highlighted]:bg-[var(--color-panel)] data-[highlighted]:text-[var(--color-foreground)]"
+                : "opacity-40 cursor-not-allowed",
+            )}
+          >
+            Paste Text
+          </ContextMenu.Item>
           <ContextMenu.Item
             onSelect={onCopySlide}
             className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)] data-[highlighted]:text-[var(--color-foreground)]"
           >
             Copy Slide
           </ContextMenu.Item>
-          {canPaste && (
-            <ContextMenu.Item
-              onSelect={onPasteSlide}
-              className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)] data-[highlighted]:text-[var(--color-foreground)]"
-            >
-              Paste Slide
-            </ContextMenu.Item>
-          )}
+          {/* Paste Slide — always shown. Disabled with an honest tooltip when it
+              can't apply (nothing copied, or a non-editable Bible/media item), so
+              the operator sees WHY rather than a silently missing action. */}
+          <ContextMenu.Item
+            disabled={!canPaste}
+            onSelect={canPaste ? onPasteSlide : undefined}
+            title={pasteReason ?? undefined}
+            className={cn(
+              "flex items-center gap-2 px-3 py-1.5 rounded outline-none",
+              canPaste
+                ? "cursor-pointer data-[highlighted]:bg-[var(--color-panel)] data-[highlighted]:text-[var(--color-foreground)]"
+                : "opacity-40 cursor-not-allowed",
+            )}
+          >
+            Paste Slide
+          </ContextMenu.Item>
           {canQuickEdit && (
             <ContextMenu.Item
               onSelect={onDuplicate}

@@ -114,7 +114,7 @@ function themeTextStyle(appearance: ThemeAppearance | null | undefined): React.C
   return Object.keys(s).length ? s : undefined;
 }
 
-export function SlideRenderer({ slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef, fontScale, referenceScale, referenceColor, appearance, overVideo, transparentBg, verticalAlign = "center", editable, onEditInput }: {
+export function SlideRenderer({ slide, className, textMinPx, disablePagination, projectorFit, videoMuted = true, onVideoRef, fontScale, referenceScale, referenceColor, appearance, overVideo, transparentBg, verticalAlign = "center", editable, onEditInput, obsOverlay }: {
   slide: SlidePayload;
   className?: string;
   // Phase 2a: rendering as an overlay ON TOP of a live video layer. Makes
@@ -168,8 +168,22 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
   // editing so the caret + fit stay stable.
   editable?: boolean;
   onEditInput?: (text: string) => void;
+  // OBS editor "Over your camera" hints (2026-09-14, src/lib/obs-look.ts). Only
+  // /livestream (and the OBS editor preview) pass it, and it only acts together
+  // with transparentBg. Undefined ⇒ byte-identical legacy render.
+  obsOverlay?: { textColor?: string; textShadow?: string; verticalAlign?: "top" | "center" | "bottom"; scrim?: number };
 }) {
   const base = "w-full h-full flex items-center justify-center overflow-hidden";
+  // OBS overlay hints apply ONLY in transparent (OBS-key) mode.
+  const obsHints = transparentBg ? obsOverlay : undefined;
+  const obsTextOverride: React.CSSProperties = {
+    ...(obsHints?.textColor ? { color: obsHints.textColor } : {}),
+    ...(obsHints?.textShadow ? { textShadow: obsHints.textShadow } : {}),
+  };
+  const obsTransparentBg: React.CSSProperties = obsHints?.scrim && obsHints.scrim > 0
+    ? { background: `rgba(0,0,0,${Math.min(0.9, obsHints.scrim)})` }
+    : { background: "transparent" };
+  const obsVAlign = obsHints?.verticalAlign && obsHints.verticalAlign !== "center" ? obsHints.verticalAlign : undefined;
   // Effective per-slide background: the DEFAULT black ("#000000") counts as
   // "unset" so the theme/template can show through (see isDefaultSlideBg). A
   // colour the operator actually customised still wins. Used by the song/
@@ -177,9 +191,18 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
   const rawSlideBg = "bgColor" in slide ? slide.bgColor : undefined;
   const slideBg = rawSlideBg && !isDefaultSlideBg(rawSlideBg) ? rawSlideBg : undefined;
 
-  // A cleared slide is transparent in overlay mode (camera shows through in OBS),
-  // otherwise opaque black.
-  if (slide.kind === "empty") return <div className={`${base} ${transparentBg ? "" : "bg-black"} ${className || ""}`} />;
+  // A cleared slide is transparent in overlay mode (camera shows through in OBS)
+  // AND when a Background Template / theme video sits behind it (overVideo) — so a
+  // cleared slide reveals the active template instead of a hard black box. This
+  // matches the `blank` branch below. Without a template/camera behind (overVideo
+  // false, not transparent) an empty slide stays opaque black (nothing behind to
+  // reveal → the projector goes black, the correct "cleared" state). This also
+  // fixes the LAYERS_V2 path: the compositor wraps each layer in an `absolute`
+  // opacity container, which flips the empty slide's paint order ABOVE the
+  // absolute BackgroundLayer (in the legacy/preview path the empty slide is
+  // `position:static`, so the absolute template paints on top of it) — a
+  // transparent empty slide keeps the template visible in BOTH paths.
+  if (slide.kind === "empty") return <div className={`${base} ${(transparentBg || overVideo) ? "" : "bg-black"} ${className || ""}`} />;
 
   if (slide.kind === "blank") {
     // Over video OR in OBS transparent mode, a blank slide is fully transparent
@@ -284,7 +307,13 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
               // paginated verse would strand page 2+. Shrink the WHOLE verse to the
               // band instead. (The chunker splits genuinely-long verses upstream.)
               disablePagination
-              fontScale={fontScale}
+              // The band "Text size" (vScale) must MULTIPLY the fitted verse, not
+              // merely raise maxPx: a normal verse fits its box well below the 150px
+              // cap, so raising the cap alone is a no-op (field bug 2026-09-08). The
+              // real size lever is AutoFitText's fontScale prop (shown = best*scale),
+              // so fold vScale in there (× any incoming projector fontScale). maxPx
+              // stays scaled so a scaled-up verse isn't clamped by the ceiling.
+              fontScale={(fontScale && fontScale > 0 ? fontScale : 1) * vScale}
               className="font-display font-semibold"
               textStyle={{
                 ...themeTextStyle(appearance),
@@ -329,7 +358,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
       // transparent over the background layer so the theme shows through beneath
       // the objects (scripture/lyrics over the theme). Else the theme fill.
       const designBg: React.CSSProperties = transparentBg
-        ? { background: "transparent" } // OBS overlay: only the objects render
+        ? obsTransparentBg // OBS overlay: only the objects render (+ optional editor scrim)
         : slide.bgImageUrl
           ? { background: `#000 url("${slide.bgImageUrl}") center/cover no-repeat` }
           : slideBg
@@ -380,6 +409,7 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
           // OBS overlay: no background scrim, so a strong drop-shadow keeps white
           // text legible over ANY camera feed (bright/busy backgrounds).
           ...(transparentBg ? { textShadow: OBS_OVERLAY_TEXT_SHADOW } : {}),
+          ...obsTextOverride,
         };
         return (
           <div className={`${base} ${animated ? "relative" : ""} ${className || ""}`} style={designBg}>
@@ -396,8 +426,8 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
               // can't grow edge-to-edge and clip. When the operator moves the
               // lyrics off-centre, reserve MORE (smaller text) so there's room to
               // sit in the top/bottom portion over the camera.
-              reserveVerticalRatio={overVideo ? (verticalAlign !== "center" ? 0.42 : 0.07) : 0}
-              verticalAlign={overVideo ? verticalAlign : "center"}
+              reserveVerticalRatio={obsVAlign ? 0.42 : overVideo ? (verticalAlign !== "center" ? 0.42 : 0.07) : 0}
+              verticalAlign={obsVAlign ?? (overVideo ? verticalAlign : "center")}
               className={`text-white font-display font-semibold${animated ? " relative z-[1]" : ""}`}
               textStyle={{ ...themeTextStyle(appearance), ...objStyle }}
               editable={editable}
@@ -420,10 +450,10 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
       const designedContainerStyle: React.CSSProperties = showDesignedFooter
         ? { ...designBg, paddingBottom: projectorFit ? "8%" : "12%" }
         : { ...designBg };
-      if (transparentBg) designedContainerStyle.filter = OBS_OVERLAY_DROP_SHADOW;
+      if (transparentBg && obsHints?.textShadow !== "none") designedContainerStyle.filter = OBS_OVERLAY_DROP_SHADOW;
       return (
         <div className={`${base} relative ${className || ""}`} style={designedContainerStyle}>
-          <SlideObjectsLayer objects={objects} fontScale={fontScale} themedTextColor={themedTextColor} />
+          <SlideObjectsLayer objects={objects} fontScale={fontScale} themedTextColor={obsHints?.textColor ?? themedTextColor} referenceScale={referenceScale} referenceText={dRefText} />
           {showDesignedFooter && (
             <div className="absolute inset-x-0 bottom-0 flex justify-center pointer-events-none" style={{ paddingBottom: projectorFit ? "3.5%" : "2.5%" }}>
               <span className="font-display font-semibold uppercase tracking-wide" style={{
@@ -436,8 +466,23 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
         </div>
       );
     }
-    const bg = (overVideo || transparentBg) ? { background: "transparent" } : slideBg ? { background: slideBg } : themeBackgroundStyle(appearance, "#0b0b0b");
-    const animated = usesAnimatedBg(appearance, overVideo || transparentBg, slideBg);
+    // Per-slide background precedence mirrors the designed-objects path above so a
+    // plain (object-less) text/lyric slide with a dropped bgImageUrl actually
+    // renders that image: OBS transparent wins first, then an explicit per-slide
+    // image (opaque — covers a camera/template), then a per-slide colour, then the
+    // theme. Previously bgImageUrl was ignored here, so a full-screen image slide
+    // (or a background dropped onto a plain-lyric slide) rendered with no image
+    // (field bug 6C: "background not fully set to the back of the image").
+    const bg = transparentBg
+      ? obsTransparentBg
+      : slide.bgImageUrl
+        ? { background: `#000 url("${slide.bgImageUrl}") center/cover no-repeat` }
+        : overVideo
+          ? { background: "transparent" }
+          : slideBg
+            ? { background: slideBg }
+            : themeBackgroundStyle(appearance, "#0b0b0b");
+    const animated = usesAnimatedBg(appearance, overVideo || transparentBg, slideBg || slide.bgImageUrl);
     const refText = slide.reference?.trim();
     return (
       <div
@@ -467,10 +512,10 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
           // padding, which the canvas fit ignores) so a long verse body shrinks
           // to sit ABOVE the footer instead of overlapping it — on the normal
           // projector path too, not only over a camera (2026-08-29 R2 fix).
-          reserveVerticalRatio={refText ? (overVideo ? 0.16 : 0.12) : (overVideo ? (verticalAlign !== "center" ? 0.42 : 0.07) : 0)}
-          verticalAlign={overVideo && !refText ? verticalAlign : "center"}
+          reserveVerticalRatio={obsVAlign ? 0.42 : refText ? (overVideo ? 0.16 : 0.12) : (overVideo ? (verticalAlign !== "center" ? 0.42 : 0.07) : 0)}
+          verticalAlign={obsVAlign ?? (overVideo && !refText ? verticalAlign : "center")}
           className={`text-white font-display font-semibold${animated ? " relative z-[1]" : ""}`}
-          textStyle={transparentBg ? { ...themeTextStyle(appearance), textShadow: OBS_OVERLAY_TEXT_SHADOW } : themeTextStyle(appearance)}
+          textStyle={transparentBg ? { ...themeTextStyle(appearance), textShadow: OBS_OVERLAY_TEXT_SHADOW, ...obsTextOverride } : themeTextStyle(appearance)}
           editable={editable}
           onEditInput={onEditInput}
         />
@@ -496,10 +541,12 @@ export function SlideRenderer({ slide, className, textMinPx, disablePagination, 
                 opacity: 0.82,
                 ...themeTextStyle(appearance),
                 // Operator-chosen reference colour wins over the theme text colour.
+                ...(obsHints?.textColor ? { color: obsHints.textColor } : {}),
                 ...(referenceColor ? { color: referenceColor } : {}),
                 // OBS overlay: shadow the reference too, else the white footer
                 // washes out over a bright camera while the verse body is shadowed.
                 ...(transparentBg ? { textShadow: OBS_OVERLAY_TEXT_SHADOW } : {}),
+                ...(obsHints?.textShadow ? { textShadow: obsHints.textShadow } : {}),
               }}
             >
               {refText}

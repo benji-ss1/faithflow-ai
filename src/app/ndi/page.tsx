@@ -23,16 +23,15 @@
  * reaches here. CLEAR (§5) → empty slide → fully transparent frame (camera shows
  * through in OBS); the surface is never torn down, it just goes transparent.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
-import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
-import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
-import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
+import { useEffect, useRef, useState } from "react";
+import { OutputCompositor } from "@/components/live/OutputCompositor";
 import { PresentationCanvas } from "@/components/live/PresentationCanvas";
 import {
-  openLiveChannel, type LiveChannelLike, isValidLiveMessage, type SlidePayload,
+  openLiveChannel, type LiveChannelLike, coerceLiveMessage, type SlidePayload,
   type LiveMessage, type TransitionSpec, type ThemeAppearance, type VideoInputState, type BackgroundSpec,
+  type LayerWire,
 } from "@/lib/broadcast";
+import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStaleLayersSnapshot } from "@/lib/output-layers";
 
 // Prevent noisy non-Error unhandledrejections from an offscreen renderer.
 if (typeof window !== "undefined" && !(window as unknown as { __ffNdiGuarded?: boolean }).__ffNdiGuarded) {
@@ -54,6 +53,13 @@ export default function NdiOutputPage() {
   const [videoInput, setVideoInput] = useState<VideoInputState | null>(null);
   const [transition, setTransition] = useState<TransitionSpec | null>(null);
   const lastMsgAt = useRef<number>(Date.now());
+  // Decoupling Phase 2 (DORMANT): incoming single-layer patches are stored here
+  // but NOT rendered from — Phase 3 gates consumption behind NEXT_PUBLIC_LAYERS_V2.
+  const layerOverridesRef = useRef<Map<string, LayerWire>>(new Map());
+  // Y1b: the origin epoch last folded from a snapshot (fresh-tab authority).
+  const layerEpochRef = useRef<number | undefined>(undefined);
+  // Phase 3: re-render-triggering snapshot of the override map (see /live).
+  const [layerOverridesArr, setLayerOverridesArr] = useState<LayerWire[]>([]);
 
   // Params (read once).
   useEffect(() => {
@@ -89,19 +95,38 @@ export default function NdiOutputPage() {
     };
     const onMessage = (e: MessageEvent) => {
       try {
-        if (!isValidLiveMessage(e.data)) return;
-        const msg = e.data as LiveMessage;
+        // FAIL-OPEN salvage (parity with /live and /livestream): coerceLiveMessage
+        // returns a strictly-valid message as-is, else field-by-field sanitizes a
+        // projection-critical set/pong/output via sanitizeOutputState so a single
+        // bad neighbour field from a legacy/out-of-date sender can't blank the NDI
+        // surface (was: strict isValidLiveMessage, which rejected the WHOLE snapshot).
+        const msg = coerceLiveMessage(e.data);
+        if (!msg) return;
         lastMsgAt.current = Date.now();
         if (msg.type === "set") applySlide(msg.slide);
         else if (msg.type === "clear") applySlide({ kind: "empty" }); // §5
         else if (msg.type === "pong") applySlide(msg.slide);
         else if (msg.type === "output") {
+          // Ghost-operator guard (field wave 6B) — ignore a strictly-older
+          // operator tab's snapshot so it can't blank this surface. Inert when
+          // LAYERS_V2 is off or single-operator. See isStaleLayersSnapshot.
+          if (LAYERS_V2 && isStaleLayersSnapshot(msg.state.layersEpoch, layerEpochRef.current)) return;
           applySlide(msg.state.live);
           setFontScale(typeof msg.state.fontScale === "number" ? msg.state.fontScale : 1);
           setAppearance(msg.state.appearance ?? null);
           setBackground(msg.state.background ?? null);
           setVideoInput(msg.state.videoInput ?? null);
           setTransition(msg.state.transition ?? null);
+          if (LAYERS_V2) {
+            setLayerOverridesArr(rebuildOverridesFromSnapshot(layerOverridesRef.current, msg.state.layers, { snapEpoch: msg.state.layersEpoch, epochRef: layerEpochRef }));
+          }
+        } else if (msg.type === "layer-patch") {
+          // Phase 3: store the override + trigger a re-render (gated by LAYERS_V2).
+          // Bounded: existing ids update; a new id is dropped once full (MAX_LAYERS).
+          {
+            applyLayerPatchBounded(layerOverridesRef.current, msg.layer);
+            if (LAYERS_V2) setLayerOverridesArr(Array.from(layerOverridesRef.current.values()));
+          }
         }
       } catch { /* ignore */ }
     };
@@ -121,32 +146,23 @@ export default function NdiOutputPage() {
 
   if (test) return <NdiTestPattern transparent={transparent} />;
 
-  const hasBg = !!(background && background.type !== "none");
-  const overVideo = !transparent && hasBg && !videoInput;
-
   return (
     <div className="fixed inset-0 overflow-hidden cursor-none" style={{ background: transparent ? "transparent" : "#000" }}>
-      <PresentationCanvas canvasW={1920} canvasH={1080}>
-        {/* Full Canvas mode: theme Background Template behind the text. Never in
-            Transparent Graphics mode (that keys through to the camera). */}
-        {!transparent && hasBg && !videoInput && (
-          <BackgroundLayer key={background!.shaderPreset ?? background!.type} background={background!} />
-        )}
-        {!transparent && hasVideoBackground(videoInput, appearance) && !(hasBg && !videoInput) ? (
-          <OutputSlide slide={slide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} projectorFit />
-        ) : (
-          <SlideRenderer
-            slide={slide}
-            projectorFit
-            fontScale={fontScale}
-            appearance={appearance}
-            overVideo={overVideo}
-            transparentBg={transparent}
-            videoMuted
-          />
-        )}
-        {!transparent && <ThemeLogoLayer appearance={appearance} />}
-      </PresentationCanvas>
+      {/* Decoupling Phase 1: shared OutputCompositor. mode="ndi" encodes the
+          fixed 1920×1080 canvas, Transparent-Graphics-vs-Full-Canvas keying, no
+          transition wrapper (offscreen paint surface), and muted media. */}
+      <OutputCompositor
+        mode="ndi"
+        slide={slide}
+        appearance={appearance}
+        background={background}
+        videoInput={videoInput}
+        fontScale={fontScale}
+        transparent={transparent}
+        videoMuted
+        layersEnabled={LAYERS_V2}
+        layerOverrides={LAYERS_V2 ? layerOverridesArr : undefined}
+      />
     </div>
   );
 }

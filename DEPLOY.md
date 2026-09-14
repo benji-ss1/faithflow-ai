@@ -13,6 +13,12 @@ To make AI Listening work in production you need a separate long-lived host for 
 
 ---
 
+## ⚠️ DEPLOY ORDER — desktop sign-in hardening (2026-09-14)
+
+**Apply `docs/migrations/2026-09-14-desktop-signin-hardening.sql` to production BEFORE deploying this code.** `auth.ts` and 11+ user queries select `users.session_version`; without the column, sign-in fails for everyone. Order: (1) run the migration on prod Supabase, (2) verify the column exists, (3) then push/deploy the app.
+
+---
+
 ## 1. Prerequisites
 
 ```bash

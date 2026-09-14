@@ -1,7 +1,10 @@
 "use client";
-import { Check, RotateCcw, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import { Check, Palette, RotateCcw, Trash2 } from "lucide-react";
 import { useBackgroundState } from "../hooks/useBackgroundState";
 import { listBackgrounds, readSettings, writeSettings, resetSettings, removeCustomBackground } from "../store/backgroundStore";
+import { fetchThemes, switchToTheme, type QuickTheme } from "@/lib/theme-quick-apply";
 import { ShaderBackground } from "./ShaderBackground";
 import { BackgroundUploader } from "./BackgroundUploader";
 
@@ -73,6 +76,14 @@ export function BackgroundSelector() {
 
       <BackgroundUploader />
 
+      {/* Your themes — apply a theme you've made as the live look straight from
+          here. Clicking one makes it the active/default theme and pushes it live
+          (a theme that carries its own background takes over from the template
+          above under the mutually-exclusive rule; a text-only theme layers over
+          it). Gives operators one place to pick either a background template OR
+          one of their own themes. */}
+      <YourThemesRow />
+
       {/* Per-template settings. */}
       {active.type !== "none" && active.id !== "cleanSlate" && (
         <div className="flex flex-col gap-2.5 pt-2 mt-0.5 border-t" style={{ borderColor: "var(--color-border)" }}>
@@ -113,6 +124,64 @@ export function BackgroundSelector() {
           <div className="text-[10px] text-[var(--color-muted-foreground)]">Overlay dim darkens the background so text stays readable.</div>
         </div>
       )}
+    </div>
+  );
+}
+
+function YourThemesRow() {
+  const [themes, setThemes] = useState<QuickTheme[]>([]);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => { void fetchThemes().then((ts) => { if (!cancelled) setThemes(ts); }); };
+    load();
+    // Refresh when themes are created/edited/deleted elsewhere in the app.
+    const onChanged = () => load();
+    window.addEventListener("presentflow:themes-changed", onChanged);
+    return () => { cancelled = true; window.removeEventListener("presentflow:themes-changed", onChanged); };
+  }, []);
+
+  if (themes.length === 0) return null;
+
+  const apply = async (t: QuickTheme) => {
+    setBusyId(t.id);
+    try {
+      const ok = await switchToTheme(t);
+      if (ok) toast.success(`“${t.name}” is now live`);
+      else toast.error("Could not apply theme");
+    } catch {
+      toast.error("Could not apply theme");
+    } finally {
+      setBusyId(null); // never leave the row disabled if the call throws
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2 pt-2 mt-0.5 border-t" style={{ borderColor: "var(--color-border)" }}>
+      <div className="flex items-center gap-1.5">
+        <Palette className="w-3 h-3 text-[var(--color-muted-foreground)]" />
+        <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--color-muted-foreground)]">Your themes</div>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {themes.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => void apply(t)}
+            disabled={busyId != null}
+            title={`Make “${t.name}” the live theme`}
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 h-7 text-[11px] font-semibold transition-colors disabled:opacity-50 ${t.isDefault ? "border-2" : "hover:shadow-[var(--shadow-sm)]"}`}
+            style={{
+              borderColor: t.isDefault ? "var(--color-brand)" : "var(--color-border)",
+              background: "var(--color-card)",
+              color: "var(--color-foreground)",
+            }}
+          >
+            {t.isDefault && <Check className="w-2.5 h-2.5 text-[var(--color-brand)]" />}
+            <span className="truncate max-w-[120px]">{busyId === t.id ? "Applying…" : t.name}</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

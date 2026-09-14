@@ -19,6 +19,8 @@ import type { OperatorShellCtx } from "../shell/types";
 import type { CenterMode } from "./ProOperatorShell";
 import { phraseSearch } from "@/services/bible/phraseSearch";
 import { dispatchInternal } from "@/lib/internal-events";
+import { parseTypedReference } from "@/lib/bible-parser";
+import { requestSongOpen } from "@/lib/song-selection";
 
 type SongLite = { id: string; title: string; artist?: string | null };
 type MediaLite = { id: string; fileName?: string; name?: string };
@@ -117,7 +119,23 @@ export function SearchPalette({
                   <Command.Item
                     key={ref}
                     value={`bible ${ref}`}
-                    onSelect={() => { onCenterMode("bible"); onOpenChange(false); }}
+                    onSelect={() => {
+                      onCenterMode("bible");
+                      // J1: actually LOAD the picked reference into the Bible preview
+                      // (was only switching mode → landed on a stale grid). Parse the
+                      // typed ref and fire the same event the phrase results use.
+                      const parsed = parseTypedReference(ref)[0];
+                      if (parsed) {
+                        dispatchInternal("presentflow:bible-goto", {
+                          book: parsed.book,
+                          chapter: parsed.chapter,
+                          verseStart: parsed.verseStart,
+                          verseEnd: parsed.verseEnd,
+                          live: false,
+                        });
+                      }
+                      onOpenChange(false);
+                    }}
                     className="px-3 py-2.5 rounded-lg flex items-center gap-3 cursor-pointer text-[var(--color-foreground)] border-l-[3px] border-transparent transition-all duration-150 [transition-timing-function:var(--ease-house)] data-[selected=true]:bg-[var(--color-elevated)] data-[selected=true]:border-[var(--color-brand)] data-[selected=true]:shadow-[var(--edge-top),var(--shadow-sm)]"
                   >
                     <BookOpen className="w-4 h-4 shrink-0 text-[var(--color-muted-foreground)]" />
@@ -164,7 +182,15 @@ export function SearchPalette({
                     <Command.Item
                       key={s.id}
                       value={`song ${s.title} ${s.artist ?? ""}`}
-                      onSelect={() => { onCenterMode("songs"); onOpenChange(false); }}
+                      onSelect={() => {
+                        onCenterMode("songs");
+                        // Open the picked song. The event is caught by the ALWAYS-mounted
+                        // ProOperatorShell (like the Bible path), which stores it and passes
+                        // it to SongsBrowser as a prop — so it survives the mount race of
+                        // switching INTO songs mode (the in-panel listener couldn't).
+                        requestSongOpen({ id: s.id, title: s.title, artist: s.artist ?? null });
+                        onOpenChange(false);
+                      }}
                       className="px-3 py-2.5 rounded-lg flex items-center gap-3 cursor-pointer text-[var(--color-foreground)] border-l-[3px] border-transparent transition-all duration-150 [transition-timing-function:var(--ease-house)] data-[selected=true]:bg-[var(--color-elevated)] data-[selected=true]:border-[var(--color-brand)] data-[selected=true]:shadow-[var(--edge-top),var(--shadow-sm)]"
                     >
                       <Music className="w-4 h-4 shrink-0 text-[var(--color-muted-foreground)]" />

@@ -29,7 +29,11 @@ function AnnouncementLogo({ logo }: { logo: NonNullable<AnnouncementPayload["log
 
 export function AnnouncementLayer({ ann }: { ann: AnnouncementPayload | null | undefined }) {
   if (!ann) return null;
-  const { line1, line2, position, style, logo } = ann;
+  const { line1, line2, position, logo } = ann;
+  // Render-safety: a malformed payload that slipped past validation must never
+  // throw on the output routes. Valid announcements always carry a style object,
+  // so this fallback is inert for them (byte-identical output).
+  const style = (ann.style && typeof ann.style === "object" ? ann.style : {}) as Partial<AnnouncementPayload["style"]>;
   const logoEl = logo ? <AnnouncementLogo logo={logo} /> : null;
   const bgRgba = hexToRgba(style.bgColor || "#000000", (style.bgOpacity ?? 70) / 100);
   const base: React.CSSProperties = {

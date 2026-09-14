@@ -20,7 +20,9 @@ const cases: [string, boolean][] = [
   ["http://evil.com@localhost/x.png", true],       // userinfo is inert; host IS localhost
   ["http://localhost@evil.com/x.png", false],      // host is evil.com; userinfo=localhost ignored
   ["javascript:alert(1)", false],
-  ["data:image/png;base64,AAAA", false],
+  ["data:image/png;base64,AAAA", true],          // ONE URL POLICY 2026-09-14: raster data: accepted everywhere
+  ["data:image/svg+xml;base64,AAAA", false],
+  ["/api/media/95f5dd86-dc58-4674-9bd1-ca8af7d8abbc", true],                       // same-origin relative now survives output
   ["file:///etc/passwd", false],
   ['https://x.com/a".png', false],                // quote breakout rejected
 ];

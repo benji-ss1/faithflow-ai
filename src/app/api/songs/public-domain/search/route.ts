@@ -18,6 +18,7 @@
 
 import { NextResponse } from "next/server";
 import { apiUser } from "@/lib/session";
+import { isSubresourceRequest } from "@/lib/fetch-metadata";
 import { createLimiter } from "@/lib/rate-limit";
 import { GROQ_FALLBACK_MODEL, getGroqActiveModel, markGroqPrimaryLimited } from "@/lib/groq-fallback";
 
@@ -246,6 +247,8 @@ async function searchGroq(q: string): Promise<PublicDomainCandidate[]> {
 // Route handler
 // -----------------------------------------------------------------------
 export async function GET(req: Request) {
+  // Refuse <img>/CSS/media/iframe subresource loads before auth/rate-limit/Groq.
+  if (isSubresourceRequest(req.headers)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const user = await apiUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 

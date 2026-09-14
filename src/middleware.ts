@@ -19,6 +19,9 @@ const PUBLIC_PATHS = [
   // WhatsApp, Slack, X). Without this the middleware 307'd them to /login and
   // the preview fell back to a random on-page screenshot.
   "/opengraph-image", "/twitter-image", "/icon", "/apple-icon",
+  // /link: desktop pairing approval page — self-guards (redirects to /login
+  // with ?next= back to the code) so the code survives the sign-in hop.
+  "/link",
   "/login", "/signup", "/verify-email", "/forgot-password", "/reset-password", "/accept-invite",
   "/api/auth", "/api/health", "/api/stripe",
   // DEV-ONLY auto-login (sandbox). Route is hard-guarded to

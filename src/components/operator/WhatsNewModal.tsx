@@ -1,21 +1,22 @@
 "use client";
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Sparkles, X, Tag } from "lucide-react";
 import { CHANGELOG, type ChangelogEntry, type Highlight } from "@/lib/changelog";
+import { forwardLastSeen, launchDecision } from "@/lib/whats-new";
 
 const LAST_SEEN_KEY = "presentflow.whatsNew.lastSeenVersion";
 
-function cmpVersion(a: string, b: string): number {
-  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
-  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const na = pa[i] ?? 0;
-    const nb = pb[i] ?? 0;
-    if (na !== nb) return na - nb;
-  }
-  return 0;
+// last-seen only ever moves FORWARD (see src/lib/whats-new.ts): the desktop app
+// version can be behind CHANGELOG[0], and writing it back used to reset last-seen
+// and re-pop the modal every other launch.
+function writeLastSeen(candidate: string | null | undefined) {
+  try {
+    const prev = window.localStorage.getItem(LAST_SEEN_KEY);
+    const next = forwardLastSeen(prev, candidate);
+    if (next && next !== prev) window.localStorage.setItem(LAST_SEEN_KEY, next);
+  } catch { /* noop */ }
 }
 
 /**
@@ -24,38 +25,35 @@ function cmpVersion(a: string, b: string): number {
  *
  * On very first launch (no lastSeenVersion) we DON'T pop the modal —
  * first-time testers get the guided tour instead. Only true update-arrivals
- * see this. Dismissing marks the current version as seen.
+ * see this. Dismissing marks the newest shown CHANGELOG version as seen.
  *
- * Version source: electronAPI.app.version() when running inside the shell
- * (authoritative — matches what auto-updater installed). Falls back to the
- * top-of-changelog for pure-web sessions.
+ * Only CHANGELOG versions are ever stored — never the desktop app version
+ * (it can run ahead of or behind the notes).
  */
 export function WhatsNewModal() {
   const [newEntries, setNewEntries] = useState<ChangelogEntry[]>([]);
   const [open, setOpen] = useState(false);
   const [activeVersion, setActiveVersion] = useState<string | null>(null);
+  const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     let cancelled = false;
     let popTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const evaluate = (currentVersion: string) => {
+    const evaluate = () => {
       if (cancelled) return;
       let lastSeen: string | null = null;
       try { lastSeen = window.localStorage.getItem(LAST_SEEN_KEY); } catch { /* noop */ }
 
-      // First-ever visit: don't pop (the guided tour handles fresh testers).
-      // Just record so the next update actually shows the modal.
-      if (!lastSeen) {
-        try { window.localStorage.setItem(LAST_SEEN_KEY, currentVersion); } catch { /* noop */ }
-        return;
-      }
-      const newer = CHANGELOG.filter((e) => cmpVersion(e.version, lastSeen!) > 0);
-      if (newer.length === 0) {
-        try { window.localStorage.setItem(LAST_SEEN_KEY, currentVersion); } catch { /* noop */ }
-        return;
-      }
+      // First-ever visit: don't pop (the guided tour handles fresh testers) —
+      // record the newest CHANGELOG version so the next update shows the modal.
+      // Never store the app version: a desktop build ahead of the notes would
+      // hide every future note (see launchDecision).
+      const { newer, store } = launchDecision(CHANGELOG, lastSeen);
+      if (store) writeLastSeen(store);
+      if (newer.length === 0) return;
 
       // Auto-pop for ANY newer release, patches included — testers want to see
       // what changed each time something ships (2026-08-11, restored by request;
@@ -68,15 +66,7 @@ export function WhatsNewModal() {
       popTimer = setTimeout(() => { if (!cancelled) setOpen(true); }, 600);
     };
 
-    const w = window as Window & { electronAPI?: { app?: { version?: () => Promise<string> } } };
-    const versionApi = w.electronAPI?.app?.version;
-    if (versionApi) {
-      versionApi()
-        .then((v) => evaluate(v || CHANGELOG[0]?.version || "0.0.0"))
-        .catch(() => evaluate(CHANGELOG[0]?.version || "0.0.0"));
-    } else {
-      evaluate(CHANGELOG[0]?.version || "0.0.0");
-    }
+    evaluate();
 
     return () => {
       cancelled = true;
@@ -84,12 +74,46 @@ export function WhatsNewModal() {
     };
   }, []);
 
+  // Manual open on demand — the announcement bar's "See what's new" button
+  // dispatches this so testers can re-open the patch notes any time, even after
+  // dismissing the auto-pop. Shows the most recent releases.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onOpen = () => {
+      const recent = CHANGELOG.slice(0, 6);
+      if (recent.length === 0) return;
+      setNewEntries(recent);
+      setActiveVersion(recent[0].version);
+      setOpen(true);
+    };
+    window.addEventListener("presentflow:open-whats-new", onOpen);
+    return () => window.removeEventListener("presentflow:open-whats-new", onOpen);
+  }, []);
+
   const dismiss = () => {
     setOpen(false);
     const top = newEntries[0]?.version;
-    if (top) {
-      try { window.localStorage.setItem(LAST_SEEN_KEY, top); } catch { /* noop */ }
-    }
+    if (top) writeLastSeen(top);
+  };
+
+  // "Try it" / "Open operator →" handler. The modal is mounted INSIDE the
+  // operator (ProOperatorShell), so a plain <Link href="/operator"> was a
+  // no-op same-route navigation — the button looked dead (field bug
+  // 2026-09-08). Now: always close the modal, and either (a) if the target is
+  // a DIFFERENT route, navigate there; or (b) if we're already on the target
+  // route, honour any deep-link (?panel=layers) by asking the panel host to
+  // open that panel, so "Open Layers" actually surfaces the Layers panel.
+  const handleTryIt = (href: string) => {
+    dismiss();
+    try {
+      const [path, query] = href.split("?");
+      const panel = query ? new URLSearchParams(query).get("panel") : null;
+      if (path === pathname) {
+        if (panel) window.dispatchEvent(new CustomEvent("presentflow:open-panel", { detail: { panel } }));
+        return;
+      }
+      router.push(href);
+    } catch { /* noop */ }
   };
 
   if (newEntries.length === 0) return null;
@@ -168,9 +192,9 @@ export function WhatsNewModal() {
                             <span className="text-[12.5px] leading-relaxed text-[var(--color-muted-foreground)]">
                               {text}
                               {href && (
-                                <Link href={href} onClick={dismiss} className="ml-2 inline-flex items-center text-[var(--color-brand)] hover:underline font-semibold not-italic">
+                                <button type="button" onClick={() => handleTryIt(href)} className="ml-2 inline-flex items-center text-[var(--color-brand)] hover:underline font-semibold not-italic">
                                   {tryItLabel || "Try it"} →
-                                </Link>
+                                </button>
                               )}
                             </span>
                           </li>
@@ -185,6 +209,7 @@ export function WhatsNewModal() {
           <div className="px-5 py-3 border-t border-[var(--color-border)] flex justify-between items-center gap-2">
             <button
               onClick={async () => {
+                if (!window.confirm("Reset & re-sync reloads the app and clears saved settings on this computer. Don't do this during a live service. Continue?")) return;
                 // "Reset & re-sync" — nuclear option for stale caches:
                 //  1. Clear all Cache Storage entries (service-worker caches)
                 //  2. Unregister service workers

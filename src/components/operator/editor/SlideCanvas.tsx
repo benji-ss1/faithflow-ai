@@ -17,6 +17,7 @@ export function SlideCanvas({
   onRemoveObjects,
   readOnly,
   themeBgStyle,
+  backgroundNode,
 }: {
   slide: EditableSlide | null;
   // Full selection set. Length 1 = classic single-select (with resize handles);
@@ -34,6 +35,14 @@ export function SlideCanvas({
   // bgColor/bgImageUrl — lets the media "logo over theme" mode preview the live
   // theme in the editor (WYSIWYG). Callers that don't pass it are unaffected.
   themeBgStyle?: React.CSSProperties;
+  // Optional live React background rendered BEHIND the objects, inside the
+  // clipped canvas at preview scale — used by the media "logo on background"
+  // editor to preview the church's REAL active theme background (animated
+  // gradient / theme video / active Background Template shader/image/video) so
+  // the editor is 1:1 with the projector, not just a flat CSS approximation.
+  // When provided, the canvas container background is forced transparent so the
+  // node shows through. Takes precedence over themeBgStyle.
+  backgroundNode?: React.ReactNode;
 }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   // Snap guides — teal alignment lines (in canvas units) shown while a moving
@@ -238,13 +247,18 @@ export function SlideCanvas({
             // theme bg; else the neutral editor backdrop. Each branch is internally
             // consistent (never mixes the `background` shorthand with `background*`
             // longhands — that combination warns + can bug out on rerender).
+            // A live backgroundNode paints its own bg → keep the container
+            // transparent so it shows through (and still let an explicit
+            // per-slide bgColor/image win, matching the projector precedence).
             ...(slide.bgColor
               ? { background: slide.bgColor }
               : slide.bgImageUrl
                 ? { backgroundImage: `url("${slide.bgImageUrl}")`, backgroundSize: "cover", backgroundPosition: "center" }
-                : themeBgStyle
-                  ? themeBgStyle
-                  : { background: "#0b0b0b" }),
+                : backgroundNode
+                  ? { background: "transparent" }
+                  : themeBgStyle
+                    ? themeBgStyle
+                    : { background: "#0b0b0b" }),
             borderColor: "#2a3232",
             // Establish a query container so text objects' `cqh` font sizing
             // resolves against the CANVAS (not the viewport) — matching the
@@ -256,6 +270,14 @@ export function SlideCanvas({
             if (e.target === e.currentTarget) beginMarquee(e);
           }}
         >
+          {/* Live theme/background preview layer (media "logo on background"
+              editor) — clipped by the canvas, sits behind every object + guide.
+              pointer-events-none so it never intercepts drags. */}
+          {backgroundNode && (
+            <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden" aria-hidden>
+              {backgroundNode}
+            </div>
+          )}
           {/* Live Projection-Zone preview — the solid box is where the whole
               slide maps on the projector; the dashed box is the text area after
               margins. Updates in real time as the operator drags Size / Margins
@@ -466,7 +488,11 @@ function ObjectView({
             position: "relative", zIndex: 1,
             width: "100%", height: "100%", objectFit: obj.fit ?? "contain", display: "block", opacity: obj.opacity ?? 1,
             objectPosition: `${obj.posX ?? 50}% ${obj.posY ?? 50}%`,
-            transform: obj.zoom && obj.zoom !== 1 ? `scale(${obj.zoom})` : undefined,
+            // Mirror SlideObjectsLayer: a full-screen blurred BACKGROUND layer
+            // (obj.blur) so the editor canvas matches the projector 1:1.
+            ...(obj.blur
+              ? { filter: "blur(34px) brightness(0.62) saturate(1.08)", transform: "scale(1.15)" }
+              : { transform: obj.zoom && obj.zoom !== 1 ? `scale(${obj.zoom})` : undefined }),
             transformOrigin: `${obj.posX ?? 50}% ${obj.posY ?? 50}%`,
           }}
           draggable={false}

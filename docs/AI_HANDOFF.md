@@ -47,6 +47,7 @@ This is the single most important operational fact. Three deploy targets, and **
 
 ## 4. Traps & conventions (learned the hard way)
 
+- **DEPLOY ORDER for desktop sign-in hardening:** apply `docs/migrations/2026-09-14-desktop-signin-hardening.sql` to production BEFORE deploying the code — `auth.ts` and 11+ user queries select `users.session_version`; without the column sign-in fails for everyone.
 - **NEVER `git add -A`.** Commit specific files by path. Changelog merge conflicts happen constantly — rename your entry to the next free version.
 - **`churchId` is NOT on `plan`/`ExpandedPlan`.** Reading `(plan as {churchId})` gives `undefined` — this silently broke tenant scoping in several places. Thread it as a real prop from `user.churchId`.
 - **Electron has no `window.prompt`/`confirm`.** Use inline modals in the renderer.

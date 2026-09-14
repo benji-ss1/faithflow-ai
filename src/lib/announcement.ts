@@ -15,12 +15,23 @@ export type Announcement = {
   tone?: "brand" | "info";
 };
 
-// No active announcement right now. Example:
-//   export const ANNOUNCEMENT: Announcement | null = {
-//     id: "2026-08-wave-one",
-//     message: "Wave One is live — thanks for helping shape PresentFlow.",
-//     ctaLabel: "What's new",
-//     ctaHref: "/operator",
-//     tone: "brand",
-//   };
-export const ANNOUNCEMENT: Announcement | null = null;
+// DYNAMIC announcement — driven by the changelog so it updates itself. Every time
+// a new What's-New entry ships (a new version at the TOP of CHANGELOG), the bar
+// automatically shows that headline and, because the id is keyed to the version,
+// re-surfaces for everyone who dismissed the previous one — no manual editing here.
+// "See what's new" (ctaHref "#whats-new") opens the What's New modal in place.
+import { CHANGELOG } from "@/lib/changelog";
+
+function buildAnnouncement(): Announcement | null {
+  const latest = CHANGELOG[0];
+  if (!latest) return null;
+  return {
+    id: `whatsnew-${latest.version}`,
+    message: `New in ${latest.version}: ${latest.headline}`,
+    ctaLabel: "See what's new",
+    ctaHref: "#whats-new",
+    tone: "brand",
+  };
+}
+
+export const ANNOUNCEMENT: Announcement | null = buildAnnouncement();

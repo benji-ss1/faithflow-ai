@@ -99,9 +99,9 @@ export async function reChunkSongCore(
         sql`${serviceItems.payload} ? 'slideOrder'`,
       ));
     for (const it of affected) {
-      const payload = { ...(it.payload as Record<string, unknown>) };
-      delete payload.slideOrder;
-      await tx.update(serviceItems).set({ payload }).where(eq(serviceItems.id, it.id));
+      // Atomic single-key removal — never rewrites the rest of the payload, so a
+      // concurrent slideActions (or any other key) write can't be clobbered.
+      await tx.execute(sql`UPDATE service_items SET payload = (coalesce(payload, '{}'::jsonb) - 'slideOrder') WHERE id = ${it.id}`);
     }
   });
   return { before: slides.length, after: chunked.length };

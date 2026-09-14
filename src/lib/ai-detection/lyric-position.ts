@@ -122,6 +122,69 @@ export function scoreCoverage(recentWords: string[], slideText: string): number 
   return hits / target.length;
 }
 
+export type BestSlideMatch = {
+  /** Index of the best-matching slide, or -1 if nothing meaningful matched. */
+  index: number;
+  /** 0-100 confidence that the singer is on `index`. High only when the match
+   *  is both strong AND unambiguous (clearly beats the runner-up). */
+  confidence: number;
+  /** Longest consecutive opening-word run found on the winning slide. */
+  consecutiveMatches: number;
+  /** Fraction (0-1) of the winning slide's content words heard recently. */
+  coverage: number;
+};
+
+/**
+ * Given recent spoken words and the FULL ordered list of a song's slide texts,
+ * find which slide the singer is most likely on right now — used to SUGGEST
+ * (never auto-move) jumping the live output to the slide actually being sung.
+ *
+ * Confidence is deliberately conservative: it is only high when the winning
+ * slide has a strong signal (a long opening-word run OR high word coverage) AND
+ * it clearly beats the runner-up. Near-ties (the bane of repetitive worship
+ * songs with near-duplicate slides) collapse to LOW confidence, so the caller
+ * won't surface a misleading suggestion. Pure + framework-free (unit-testable);
+ * it NEVER touches live output.
+ *
+ * @param recentWords most recent spoken words, oldest→newest
+ * @param slides      the song's slide lyric texts, in order
+ */
+export function matchBestSlide(recentWords: string[], slides: string[]): BestSlideMatch {
+  const none: BestSlideMatch = { index: -1, confidence: 0, consecutiveMatches: 0, coverage: 0 };
+  if (recentWords.length === 0 || slides.length === 0) return none;
+
+  // Score every slide: a blend of the anchored opening-word run (strong signal
+  // that the singer STARTED this slide) and overall content coverage (they're
+  // somewhere in it). Stopword-only runs already score 0 inside matchNextSlide.
+  const scored = slides.map((text, i) => {
+    const run = matchNextSlide(recentWords, text, 2).consecutiveMatches;
+    const cov = scoreCoverage(recentWords, text);
+    // Weighted raw score. Run dominates (ordered opening match is the clearest
+    // "they're on this slide" evidence); coverage fills in when words arrive
+    // out of order or mid-slide.
+    const raw = run * 12 + cov * 55;
+    return { i, run, cov, raw };
+  });
+  scored.sort((a, b) => b.raw - a.raw);
+  const best = scored[0];
+  const second = scored[1];
+
+  // Require a genuinely strong signal on the winner before ANY confidence.
+  const strong = best.run >= 3 || best.cov >= 0.6;
+  if (!strong) return { ...none, consecutiveMatches: best.run, coverage: best.cov };
+
+  // Ambiguity check: the winner must clearly beat the runner-up, else it's a
+  // near-duplicate-slide tie → keep confidence low so no suggestion is shown.
+  const margin = best.raw - (second?.raw ?? 0);
+  const clear = margin >= 18 || (second == null);
+
+  // Base confidence from the raw strength, capped at 98 (never certainty).
+  let confidence = Math.min(98, Math.round(best.raw));
+  if (!clear) confidence = Math.min(confidence, 55); // ambiguous → below any surfacing bar
+
+  return { index: best.i, confidence, consecutiveMatches: best.run, coverage: best.cov };
+}
+
 /**
  * Detect "song appears to be ending": the live song is on its last slide
  * AND there's no further matching signal against that last slide's

@@ -1,36 +1,40 @@
 "use client";
-// "Put lyrics on your live stream" — a dead-simple, baby-steps guided wizard for
-// non-technical operators to show live lyrics/scripture as an overlay on their
+// "Put lyrics on your live stream" — a dead-simple guided wizard + a full OBS
+// EDITOR for non-technical operators to show live lyrics/scripture on their
 // Facebook/YouTube stream via OBS. Placed in Hardware → Screens.
 //
-// It offers TWO transports and picks the most reliable one it can:
+// TWO transports:
 //  - LAN (desktop only, RECOMMENDED for a separate streaming PC on the same
-//    network): the app runs a local server (electron/lan/LanOverlayServer.ts);
-//    OBS points at the operator PC's LAN address. No internet/cloud dependency,
-//    lowest latency, and it shows a live "device connected" count.
-//  - Internet link (works everywhere, incl. web): a private cloud link (pair
-//    code) fanned out via Supabase Realtime.
+//    network): electron/lan/LanOverlayServer.ts; OBS points at the LAN address.
+//  - Internet link (works everywhere, incl. web): private pair-code Realtime link.
 //
-// And TWO looks:
-//  - Over your camera (transparent) — words key over the live camera.
-//  - Full projector look — the church's theme background + words, exactly like
-//    the projector (for a words-on-a-background scene, no camera behind).
-//
-// The wizard reuses the EXISTING /livestream render page for both transports, so
-// whatever the projector shows, the stream shows (same theme/appearance path).
-import { useCallback, useEffect, useRef, useState } from "react";
+// THREE looks, all editable BEFORE and AFTER a link exists (2026-09-14):
+//  - Over your camera (transparent full-frame words)
+//  - Lower third (broadcast band)
+//  - Full projector look (theme background + words)
+// Every control is published LIVE as OutputState.obsLook / obsLowerThird via the
+// operator console (BroadcastChannel primary, Realtime + LAN fan-out) and read
+// ONLY by /livestream — the projector/stage never change. The preview renders the
+// ACTUAL live slide through the same OutputCompositor + resolveObsRender path the
+// OBS page uses, in a 1920×1080 frame scaled into the card → preview == OBS.
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Wifi, Globe, Copy, Check, HelpCircle, Download, ChevronDown, ChevronRight, CircleCheck, CircleDot, Radio } from "lucide-react";
 import { mintPairCode, revokePairCode } from "@/lib/device-pair-actions";
-import { obsBandParams, clampObsBand, placementToTop, topToPlacement, DEFAULT_OBS_BAND, OBS_BAND_STYLES, OBS_BAND_STYLE_META, type ObsBandConfig, type ObsBandStyle } from "@/lib/obs-lowerthird";
+import { obsBandParams, clampObsBand, placementToTop, topToPlacement, DEFAULT_OBS_BAND, OBS_BAND_STYLES, OBS_BAND_STYLE_META, type ObsBandConfig } from "@/lib/obs-lowerthird";
+import {
+  OBS_EDITOR_KEY, LEGACY_BAND_KEY, LEGACY_LOOK_KEY, DEFAULT_OBS_LOOK_SETTINGS, OBS_PREVIEW_EVENT, OBS_PREVIEW_SAMPLES,
+  readObsEditorStore, readObsPreviewState, resolveObsRender, obsThemeColorsOf,
+  type ObsEditorStore, type ObsLook, type ObsLookSettings, type ObsTextColor,
+} from "@/lib/obs-look";
+import { sanitizeOutputState, type OutputState, type SlidePayload } from "@/lib/broadcast";
+import { OutputCompositor } from "@/components/live/OutputCompositor";
 
 const CODE_KEY = "presentflow.obs.pairCode";
 const CHURCH_KEY = "presentflow.obs.pairChurch";
 const EXP_KEY = "presentflow.obs.pairExpiresAt";
-const LOOK_KEY = "presentflow.obs.look"; // "camera" | "full" | "lowerthird"
-const BAND_KEY = "presentflow.obs.lowerThird.v1"; // ObsBandConfig JSON (device-local)
 
-type Look = "camera" | "full" | "lowerthird";
+type Look = ObsLook;
 type Transport = "lan" | "cloud";
 type LanInfo = { running: boolean; ip: string | null; port: number | null; clients: number };
 type LanApi = {
@@ -49,23 +53,23 @@ function announce(code: string | null) {
   try { window.dispatchEvent(new CustomEvent("presentflow:obs-pair-code", { detail: { code } })); } catch { /* ignore */ }
 }
 
-/** Build the OBS Browser Source URL for the chosen transport + look. */
+/** Build the OBS Browser Source URL for the chosen transport + look. `&live=1`
+ *  opts THIS link into following the editor's live look choice; links pasted
+ *  before (no live=1) keep their URL look. */
 function buildUrl(opts: { transport: Transport; look: Look; code?: string | null; churchId?: string; lan?: LanInfo | null; band?: ObsBandConfig }): string {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
-  // camera = see-through over the camera; lowerthird = see-through band caption
-  // (obs=lowerthird already forces transparent on the render page + carries the
-  // movable band geometry); full = theme background renders (no transparent).
   const extra = opts.look === "camera"
     ? "&bg=transparent"
     : opts.look === "lowerthird"
       ? `&obs=lowerthird&${obsBandParams(opts.band ?? DEFAULT_OBS_BAND)}`
       : "";
+  const extra2 = `${extra}&live=1`;
   if (opts.transport === "lan" && opts.lan?.ip && opts.lan.port) {
     const base = `http://${opts.lan.ip}:${opts.lan.port}`;
-    return `${base}/livestream?lan=${opts.lan.ip}:${opts.lan.port}${extra}`;
+    return `${base}/livestream?lan=${opts.lan.ip}:${opts.lan.port}${extra2}`;
   }
   const churchQ = opts.churchId ? `&church=${encodeURIComponent(opts.churchId)}` : "";
-  return `${origin}/livestream?pair=${opts.code ?? ""}${churchQ}${extra}`;
+  return `${origin}/livestream?pair=${opts.code ?? ""}${churchQ}${extra2}`;
 }
 
 async function copyText(text: string): Promise<boolean> {
@@ -84,20 +88,19 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-/** Card-local band preview colours (the real render uses the church theme for
- *  "theme"; here we show a representative indigo/violet placeholder). */
-function bandPreview(style: ObsBandStyle, opacity: number): { bg: string; text: string } {
+/** Swatch colours for the style picker tiles only (the big preview is the real renderer). */
+function bandSwatch(style: ObsBandConfig["style"]): string {
   switch (style) {
-    case "grey":     return { bg: `rgba(75,85,99,${opacity})`, text: "#ffffff" };
-    case "black":    return { bg: `rgba(0,0,0,${opacity})`, text: "#ffffff" };
-    case "clear":    return { bg: "transparent", text: "#ffffff" };
-    case "gradient": return { bg: `linear-gradient(180deg, rgba(0,0,0,${opacity}), rgba(0,0,0,0))`, text: "#ffffff" };
-    case "frost":    return { bg: `rgba(255,255,255,${opacity})`, text: "#111111" };
-    case "theme":    return { bg: `linear-gradient(135deg, rgba(67,56,202,${opacity}), rgba(124,58,237,${opacity}))`, text: "#ffffff" };
+    case "grey": return "rgba(75,85,99,.8)";
+    case "black": return "rgba(0,0,0,.85)";
+    case "clear": return "transparent";
+    case "gradient": return "linear-gradient(180deg, rgba(0,0,0,.8), rgba(0,0,0,0))";
+    case "frost": return "rgba(255,255,255,.8)";
+    case "theme": return "linear-gradient(135deg, rgba(67,56,202,.8), rgba(124,58,237,.8))";
   }
 }
 
-/** A compact labelled slider for the lower-third band controls. */
+/** A compact labelled slider. */
 function BandSlider(props: { label: string; value: number; min: number; max: number; step: number; suffix?: string; onChange: (v: number) => void }) {
   return (
     <label className="block">
@@ -112,17 +115,147 @@ function BandSlider(props: { label: string; value: number; min: number; max: num
   );
 }
 
+/** Segmented picker. */
+function Segmented<T extends string>(props: { label: string; value: T; options: { id: T; label: string }[]; onChange: (v: T) => void }) {
+  return (
+    <div className="space-y-1">
+      <div className="text-[10px] text-[var(--color-muted-foreground)]">{props.label}</div>
+      <div className="flex rounded-md border border-[var(--color-border)] p-0.5 text-[10px]">
+        {props.options.map((o) => (
+          <button key={o.id} type="button" onClick={() => props.onChange(o.id)} aria-pressed={props.value === o.id}
+            className={`flex-1 px-1.5 py-1 rounded ${props.value === o.id ? "bg-[var(--color-brand)] text-white" : "text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"}`}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Text colour: Auto / White / Black / Theme / custom hex. */
+function TextColorPicker(props: { value: ObsTextColor; onChange: (v: ObsTextColor) => void }) {
+  const isCustom = props.value.startsWith("#");
+  const named: { id: ObsTextColor; label: string }[] = [
+    { id: "auto", label: "Auto" }, { id: "white", label: "White" }, { id: "black", label: "Black" }, { id: "theme", label: "Theme" },
+  ];
+  return (
+    <div className="space-y-1">
+      <div className="text-[10px] text-[var(--color-muted-foreground)]">Text colour</div>
+      <div className="flex items-center gap-1 text-[10px]">
+        {named.map((o) => (
+          <button key={o.id} type="button" onClick={() => props.onChange(o.id)} aria-pressed={props.value === o.id}
+            className={`px-1.5 py-1 rounded border ${props.value === o.id ? "border-[var(--color-brand)] bg-[var(--color-brand)]/15 text-[var(--color-foreground)]" : "border-[var(--color-border)] text-[var(--color-muted-foreground)]"}`}>
+            {o.label}
+          </button>
+        ))}
+        <label className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer ${isCustom ? "border-[var(--color-brand)] bg-[var(--color-brand)]/15" : "border-[var(--color-border)]"}`} title="Custom colour">
+          <input type="color" value={isCustom ? (props.value.length === 4 ? `#${props.value.slice(1).split("").map((c) => c + c).join("")}` : props.value) : "#ffd400"}
+            onChange={(e) => props.onChange(e.target.value as ObsTextColor)} className="w-4 h-4 p-0 border-0 bg-transparent cursor-pointer" />
+          <span className="text-[var(--color-muted-foreground)]">Custom</span>
+        </label>
+      </div>
+    </div>
+  );
+}
+
+/** Live 16:9 preview — the REAL renderer at 1920×1080, scaled into the card. */
+function ObsPreview(props: { store: ObsEditorStore; state: OutputState | null; sample: "song" | "verse" }) {
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const [scale, setScale] = useState(0);
+  useLayoutEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const fit = () => setScale(el.clientWidth / 1920);
+    fit();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(fit) : null;
+    ro?.observe(el);
+    return () => ro?.disconnect();
+  }, []);
+  const st = props.state;
+  const liveSlide: SlidePayload | null = st?.live ?? null;
+  const hasLive = !!liveSlide && liveSlide.kind !== "empty";
+  const slide = hasLive ? liveSlide! : OBS_PREVIEW_SAMPLES[props.sample];
+  const appearance = st?.appearance ?? null;
+  const themeColors = obsThemeColorsOf(appearance);
+  const { store } = props;
+  // Preview shows the SELECTED look (even before it's published live) with the
+  // editor's band + settings — resolved exactly as /livestream resolves them.
+  const r = resolveObsRender({
+    url: { transparent: store.look !== "full", mode: store.look === "lowerthird" ? "lower_third" : "full", band: store.band, live: true },
+    liveLook: { ...store.settings, look: store.look },
+    liveBand: store.band,
+    fontScale: typeof st?.fontScale === "number" ? st.fontScale : 1,
+    appearance,
+    themeColors,
+    lowerThird: st?.lowerThird ?? null,
+    hasTemplateBackground: !!st?.background,
+  });
+  const lt = st?.lowerThird ?? null;
+  return (
+    <div ref={boxRef} className="relative w-full rounded overflow-hidden border border-[var(--color-border)]"
+      style={{ aspectRatio: "16 / 9", background: r.transparent ? "linear-gradient(135deg,#3b4a5a,#6b7c8c)" : "#000" }}
+      data-obs-preview-look={r.look}>
+      {r.transparent && (
+        // Mock camera: a stage + a person silhouette so contrast is judged honestly.
+        <div className="absolute inset-0 pointer-events-none" aria-hidden>
+          <div className="absolute inset-x-0 bottom-0 h-1/3" style={{ background: "linear-gradient(180deg,#5b4a3a,#2e241b)" }} />
+          <div className="absolute left-1/2 -translate-x-1/2 bottom-[18%] w-[9%] h-[46%] rounded-t-full" style={{ background: "#1f2937" }} />
+          <div className="absolute left-1/2 -translate-x-1/2 bottom-[60%] w-[5%] aspect-square rounded-full" style={{ background: "#c8a27a" }} />
+        </div>
+      )}
+      {scale > 0 && (
+        <div className="absolute top-0 left-0" style={{ width: 1920, height: 1080, transform: `scale(${scale})`, transformOrigin: "top left" }}>
+          <OutputCompositor
+            mode="livestream"
+            slide={slide}
+            appearance={r.appearance}
+            background={st?.background ?? null}
+            videoInput={null}
+            fontScale={r.fontScale}
+            referenceScale={typeof st?.referenceScale === "number" ? st.referenceScale : 1}
+            referenceColor={typeof st?.referenceColor === "string" ? st.referenceColor : undefined}
+            transparent={r.transparent}
+            obsBand={r.obsBand}
+            obsThemeColors={themeColors}
+            obsBandExtras={r.obsBandExtras}
+            obsOverlay={r.obsOverlay}
+            backgroundDim={r.backgroundDim}
+            videoMuted
+            previewFrozen
+          />
+          {r.mode === "full" && lt && (
+            <div className="absolute bottom-16 left-16 right-16 max-w-[70%]">
+              <div className="bg-black/70 border-l-4 border-[color:var(--color-brand)] p-5">
+                <div className="text-white font-semibold text-2xl leading-tight">{lt.line1}</div>
+                {lt.line2 && <div className="text-white/70 text-lg mt-1">{lt.line2}</div>}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      <div className="absolute top-1 left-1 text-[8px] font-semibold px-1 py-0.5 rounded bg-black/60 text-white/90 pointer-events-none">
+        {hasLive ? "LIVE NOW" : "SAMPLE"}
+      </div>
+    </div>
+  );
+}
+
 export function ObsOverlayCard() {
   const lanApi = getLanApi();
   const isDesktop = !!lanApi;
 
-  const [look, setLook] = useState<Look>("camera");
-  const [band, setBand] = useState<ObsBandConfig>(DEFAULT_OBS_BAND);
+  const [store, setStore] = useState<ObsEditorStore>(() => readObsEditorStore(null, null, null));
+  const [hydrated, setHydrated] = useState(false);
+  const look = store.look;
+  const band = store.band;
+  const settings = store.settings;
   const [transport, setTransport] = useState<Transport>(isDesktop ? "lan" : "cloud");
   const [showWhat, setShowWhat] = useState(false);
   const [showSteps, setShowSteps] = useState(true);
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [previewState, setPreviewState] = useState<OutputState | null>(null);
+  const [sample, setSample] = useState<"song" | "verse">("song");
 
   // Cloud (pair) state
   const [code, setCode] = useState<string | null>(null);
@@ -132,31 +265,51 @@ export function ObsOverlayCard() {
   const [lan, setLan] = useState<LanInfo | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Restore the look preference + any still-valid cloud code on mount.
+  // Restore the editor (migrating the legacy band/look) + any still-valid cloud code.
   useEffect(() => {
     try {
-      const savedLook = localStorage.getItem(LOOK_KEY);
-      if (savedLook === "camera" || savedLook === "full" || savedLook === "lowerthird") setLook(savedLook);
-      const savedBand = localStorage.getItem(BAND_KEY);
-      if (savedBand) { try { setBand(clampObsBand(JSON.parse(savedBand))); } catch { /* ignore */ } }
+      setStore(readObsEditorStore(localStorage.getItem(OBS_EDITOR_KEY), localStorage.getItem(LEGACY_BAND_KEY), localStorage.getItem(LEGACY_LOOK_KEY)));
       const c = localStorage.getItem(CODE_KEY);
       const ch = localStorage.getItem(CHURCH_KEY) || "";
       const exp = localStorage.getItem(EXP_KEY);
       if (c && exp && Number(exp) > Date.now()) { setCode(c); setChurchId(ch); announce(c); }
       else { localStorage.removeItem(CODE_KEY); localStorage.removeItem(CHURCH_KEY); localStorage.removeItem(EXP_KEY); }
     } catch { /* ignore */ }
+    setHydrated(true);
   }, []);
 
-  useEffect(() => { try { localStorage.setItem(LOOK_KEY, look); } catch { /* ignore */ } }, [look]);
-  // Persist the band AND publish it live: OperatorConsole listens for this event
-  // and folds the config into OutputState so the OBS overlay updates INSTANTLY
-  // (projector/stage ignore it). No re-copying the link to change the look.
+  // Persist the editor AND publish it live: OperatorConsole folds it into
+  // OutputState (obsLook + obsLowerThird) so OBS updates INSTANTLY over every
+  // transport. Legacy keys are kept in sync so an older build still has the band.
+  // Gated on hydration so the mount default never clobbers a saved store.
   useEffect(() => {
+    if (!hydrated) return;
     try {
-      localStorage.setItem(BAND_KEY, JSON.stringify(band));
-      window.dispatchEvent(new CustomEvent("presentflow:obs-band-changed", { detail: band }));
+      localStorage.setItem(OBS_EDITOR_KEY, JSON.stringify(store));
+      localStorage.setItem(LEGACY_BAND_KEY, JSON.stringify(store.band));
+      localStorage.setItem(LEGACY_LOOK_KEY, store.look);
+      window.dispatchEvent(new CustomEvent("presentflow:obs-editor-changed", { detail: store }));
     } catch { /* ignore */ }
-  }, [band]);
+  }, [store, hydrated]);
+
+  // Real preview feed: the console's last emitted OutputState (same window).
+  useEffect(() => {
+    const take = (raw: unknown) => { const s = raw ? sanitizeOutputState(raw) : null; if (s) setPreviewState(s); };
+    take(readObsPreviewState());
+    const on = (e: Event) => take((e as CustomEvent).detail);
+    window.addEventListener(OBS_PREVIEW_EVENT, on);
+    return () => window.removeEventListener(OBS_PREVIEW_EVENT, on);
+  }, []);
+
+  const pickLook = useCallback((l: Look) => setStore((s) => ({ ...s, look: l, lookLive: true })), []);
+  const setBand = useCallback((fn: (b: ObsBandConfig) => ObsBandConfig) => setStore((s) => ({ ...s, band: clampObsBand(fn(s.band)) })), []);
+  const setSetting = useCallback(<K extends keyof ObsLookSettings>(k: K, v: ObsLookSettings[K]) => setStore((s) => ({ ...s, settings: { ...s.settings, [k]: v } })), []);
+  const resetLook = useCallback(() => setStore((s) => {
+    const d = DEFAULT_OBS_LOOK_SETTINGS;
+    if (s.look === "lowerthird") return { ...s, band: DEFAULT_OBS_BAND, settings: { ...s.settings, ltText: d.ltText, ltRef: d.ltRef } };
+    if (s.look === "camera") return { ...s, settings: { ...s.settings, camScale: d.camScale, camPos: d.camPos, camText: d.camText, camEffect: d.camEffect, camScrim: d.camScrim, camBandPosition: d.camBandPosition, camBandOffsetPct: d.camBandOffsetPct, camBandHeightPct: d.camBandHeightPct, camBandScale: d.camBandScale, camBandOpacity: d.camBandOpacity, camBandStyle: d.camBandStyle } };
+    return { ...s, settings: { ...s.settings, fullScale: d.fullScale, fullDim: d.fullDim } };
+  }), []);
 
   // Poll LAN status (device count) while the LAN transport is selected.
   useEffect(() => {
@@ -244,10 +397,10 @@ export function ObsOverlayCard() {
       if ((lan.clients ?? 0) > 0) return { tone: "on", label: `Connected — ${lan.clients} ${lan.clients === 1 ? "device" : "devices"}` };
       return { tone: "wait", label: "Waiting for OBS to connect…" };
     }
-    // Cloud can't confirm OBS actually connected (no device count), so say
-    // "ready", not "live" — don't imply a connection we can't verify.
     return cloudReady ? { tone: "on", label: "Link ready — add it in OBS" } : { tone: "off", label: "No link yet" };
   })();
+
+  const previewHasLive = !!previewState?.live && previewState.live.kind !== "empty";
 
   return (
     <div className="rounded-lg border border-[var(--color-border)] p-4 space-y-4">
@@ -275,75 +428,146 @@ export function ObsOverlayCard() {
         )}
       </div>
 
-      {/* Step 1 — the look */}
+      {/* Step 1 — the look + the editor (always visible) */}
       <div className="space-y-1.5">
         <div className="eyebrow">1 · How should the words look?</div>
         <div className="space-y-1.5">
           {([
-            { id: "camera" as const, title: "Over your camera", desc: "Words fill the frame, over the live camera." },
+            { id: "camera" as const, title: "Over your camera", desc: "See-through words over the live camera — a lower third or the full frame." },
             { id: "lowerthird" as const, title: "Lower third", desc: "Words in a neat band near the bottom, over the camera. Broadcast style." },
             { id: "full" as const, title: "Full projector look", desc: "Theme background + words, exactly like the projector. Its own scene." },
           ]).map((opt) => (
-            <button key={opt.id} type="button" onClick={() => setLook(opt.id)}
+            <button key={opt.id} type="button" onClick={() => pickLook(opt.id)} aria-pressed={look === opt.id}
               className={`w-full text-left rounded-md border px-2.5 py-2 transition flex items-baseline gap-2 ${look === opt.id ? "border-[var(--color-brand)] bg-[var(--color-brand)]/10" : "border-[var(--color-border)] hover:border-[var(--color-brand)]/40"}`}>
               <span className="text-[11px] font-semibold text-[var(--color-foreground)] shrink-0">{opt.title}</span>
               <span className="text-[10px] text-[var(--color-muted-foreground)] leading-tight">{opt.desc}</span>
             </button>
           ))}
         </div>
-        {/* This choice affects the OBS stream ONLY — your projector and operator
-            screen are never changed by it. */}
         <p className="text-[10px] text-[var(--color-muted-foreground)] leading-relaxed">
           This only changes your <span className="text-[var(--color-foreground)]">OBS stream</span>. Your projector and operator screen stay exactly as they are.
         </p>
+        <p className="text-[10px] text-[var(--color-muted-foreground)] leading-relaxed" data-obs-link-note>
+          Changes here reach links made with this editor straight away. Older OBS links don&apos;t follow these changes — copy a new link to use them.
+        </p>
 
-        {look === "lowerthird" && (
-          <div className="mt-1 rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/30 p-2.5 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <div className="text-[10px] font-semibold text-[var(--color-foreground)]">Fine-tune <span className="font-normal text-[var(--color-muted-foreground)]">— the fonts match your projector automatically</span></div>
-              <button type="button" onClick={() => setBand(DEFAULT_OBS_BAND)}
-                className="text-[10px] text-[var(--color-brand)] hover:underline">Reset</button>
-            </div>
-            {/* Live 16:9 preview of the band over a mock camera */}
-            <div className="relative w-full rounded overflow-hidden border border-[var(--color-border)]" style={{ aspectRatio: "16 / 9", background: "linear-gradient(135deg,#3b4a5a,#6b7c8c)" }}>
-              <div className="absolute inset-x-0 flex items-center justify-center"
-                style={{ top: `${band.topPct}%`, height: `${band.heightPct}%`, background: bandPreview(band.style, band.opacity).bg }}>
-                <span className="font-semibold leading-none px-2 text-center" style={{ color: bandPreview(band.style, band.opacity).text, fontSize: `${Math.max(7, band.fontScale * 11)}px`, textShadow: band.style === "frost" ? "none" : "0 1px 3px rgba(0,0,0,.8)" }}>He reigns forever more</span>
-              </div>
-            </div>
-            {/* Background style — the 6 looks */}
-            <div className="space-y-1">
-              <div className="text-[10px] text-[var(--color-muted-foreground)]">Background</div>
-              <div className="grid grid-cols-3 gap-1">
-                {OBS_BAND_STYLES.map((s) => (
-                  <button key={s} type="button" onClick={() => setBand((b) => ({ ...b, style: s }))} title={OBS_BAND_STYLE_META[s].hint}
-                    className={`rounded border overflow-hidden transition ${band.style === s ? "border-[var(--color-brand)] ring-1 ring-[var(--color-brand)]" : "border-[var(--color-border)] hover:border-[var(--color-brand)]/50"}`}>
-                    <span className="block h-6 relative" style={{ background: "linear-gradient(135deg,#3b4a5a,#6b7c8c)" }}>
-                      <span className="absolute inset-x-0 bottom-0 h-3 flex items-center justify-center" style={{ background: bandPreview(s, band.opacity).bg }}>
-                        <span className="text-[6px] font-bold leading-none" style={{ color: bandPreview(s, band.opacity).text }}>Aa</span>
-                      </span>
-                    </span>
-                    <span className="block text-[8px] text-center py-0.5 text-[var(--color-muted-foreground)] leading-none truncate px-0.5">{OBS_BAND_STYLE_META[s].label}</span>
-                  </button>
-                ))}
-              </div>
-              {band.style === "theme" && (
-                <p className="text-[9.5px] text-[var(--color-muted-foreground)] leading-relaxed">Uses your church&apos;s real theme background &amp; text colour — exactly like the projector.</p>
-              )}
-            </div>
-            <BandSlider label="Height" value={band.heightPct} min={10} max={60} step={1} suffix="%" onChange={(v) => setBand((b) => { const place = topToPlacement(b.topPct, b.heightPct); return clampObsBand({ ...b, heightPct: v, topPct: placementToTop(place, v) }); })} />
-            {/* Full 0-100 vertical placement: 0 = top, 100 = flush at the very
-                bottom — always full range, regardless of band height. */}
-            <BandSlider label="Position (0 = top · 100 = bottom)" value={topToPlacement(band.topPct, band.heightPct)} min={0} max={100} step={1} suffix="%" onChange={(v) => setBand((b) => clampObsBand({ ...b, topPct: placementToTop(v, b.heightPct) }))} />
-            <BandSlider label="Text size (smaller / bigger)" value={band.fontScale} min={0.5} max={2} step={0.05} onChange={(v) => setBand((b) => ({ ...b, fontScale: v }))} />
-            {band.style !== "clear" && (
-              <BandSlider label="Background opacity (see-through)" value={Math.round(band.opacity * 100)} min={0} max={100} step={5} suffix="%" onChange={(v) => setBand((b) => ({ ...b, opacity: v / 100 }))} />
-            )}
-            <div className="rounded bg-emerald-500/10 border border-emerald-500/30 px-2 py-1.5">
-              <p className="text-[10px] text-[var(--color-foreground)] leading-relaxed"><span className="font-semibold text-emerald-500">Changes apply to OBS live</span> — as long as the app is open and OBS is connected, every tweak shows on the stream instantly. You only need the link the first time you add it in OBS.</p>
+        <div className="mt-1 rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/30 p-2.5 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <div className="text-[10px] font-semibold text-[var(--color-foreground)]">OBS editor <span className="font-normal text-[var(--color-muted-foreground)]">— {look === "camera" ? "Over your camera" : look === "lowerthird" ? "Lower third" : "Full projector look"}</span></div>
+            <div className="flex items-center gap-1.5">
+              {look === "camera" && <span className="text-[9px] text-[var(--color-muted-foreground)]" data-obs-reset-hint>Reset keeps your Layout choice</span>}
+              <button type="button" onClick={() => { if (window.confirm("Reset this look to its defaults? If you're streaming, viewers will see the change straight away.")) resetLook(); }} className="text-[10px] text-[var(--color-brand)] hover:underline">Reset</button>
             </div>
           </div>
-        )}
+          <ObsPreview store={store} state={previewState} sample={sample} />
+          {!previewHasLive && (
+            <div className="flex items-center gap-1 text-[10px] text-[var(--color-muted-foreground)]">
+              <span>Nothing live — preview with a sample</span>
+              {(["song", "verse"] as const).map((s) => (
+                <button key={s} type="button" onClick={() => setSample(s)} aria-pressed={sample === s}
+                  className={`px-1.5 py-0.5 rounded border ${sample === s ? "border-[var(--color-brand)] text-[var(--color-foreground)]" : "border-[var(--color-border)]"}`}>{s === "song" ? "Song" : "Verse"}</button>
+              ))}
+            </div>
+          )}
+
+          {look === "lowerthird" && (
+            <>
+              <div className="space-y-1">
+                <div className="text-[10px] text-[var(--color-muted-foreground)]">Background</div>
+                <div className="grid grid-cols-3 gap-1">
+                  {OBS_BAND_STYLES.map((s) => (
+                    <button key={s} type="button" onClick={() => setBand((b) => ({ ...b, style: s }))} title={OBS_BAND_STYLE_META[s].hint} aria-pressed={band.style === s}
+                      className={`rounded border overflow-hidden transition ${band.style === s ? "border-[var(--color-brand)] ring-1 ring-[var(--color-brand)]" : "border-[var(--color-border)] hover:border-[var(--color-brand)]/50"}`}>
+                      <span className="block h-6 relative" style={{ background: "linear-gradient(135deg,#3b4a5a,#6b7c8c)" }}>
+                        <span className="absolute inset-x-0 bottom-0 h-3 flex items-center justify-center" style={{ background: bandSwatch(s) }}>
+                          <span className="text-[6px] font-bold leading-none" style={{ color: s === "frost" ? "#111" : "#fff" }}>Aa</span>
+                        </span>
+                      </span>
+                      <span className="block text-[8px] text-center py-0.5 text-[var(--color-muted-foreground)] leading-none truncate px-0.5">{OBS_BAND_STYLE_META[s].label}</span>
+                    </button>
+                  ))}
+                </div>
+                {band.style === "theme" && (
+                  <p className="text-[9.5px] text-[var(--color-muted-foreground)] leading-relaxed">Uses your church&apos;s real theme background &amp; text colour — exactly like the projector.</p>
+                )}
+              </div>
+              <BandSlider label="Height" value={band.heightPct} min={10} max={60} step={1} suffix="%" onChange={(v) => setBand((b) => { const place = topToPlacement(b.topPct, b.heightPct); return { ...b, heightPct: v, topPct: placementToTop(place, v) }; })} />
+              <BandSlider label="Position (0 = top · 100 = bottom)" value={topToPlacement(band.topPct, band.heightPct)} min={0} max={100} step={1} suffix="%" onChange={(v) => setBand((b) => ({ ...b, topPct: placementToTop(v, b.heightPct) }))} />
+              <BandSlider label="Text size (smaller / bigger)" value={band.fontScale} min={0.5} max={2} step={0.05} onChange={(v) => setBand((b) => ({ ...b, fontScale: v }))} />
+              {band.style !== "clear" && (
+                <BandSlider label="Background opacity (see-through)" value={Math.round(band.opacity * 100)} min={0} max={100} step={5} suffix="%" onChange={(v) => setBand((b) => ({ ...b, opacity: v / 100 }))} />
+              )}
+              <TextColorPicker value={settings.ltText} onChange={(v) => setSetting("ltText", v)} />
+              <label className="flex items-center gap-1.5 text-[10px] text-[var(--color-muted-foreground)] cursor-pointer">
+                <input type="checkbox" checked={settings.ltRef} onChange={(e) => setSetting("ltRef", e.target.checked)} className="accent-[var(--color-brand)]" />
+                Show the verse reference (e.g. John 3:16)
+              </label>
+              <p className="text-[9.5px] text-[var(--color-muted-foreground)] leading-relaxed">Your own lower-third titles (name / title lines) show in this band too, ahead of the lyrics.</p>
+            </>
+          )}
+
+          {look === "camera" && (
+            <Segmented label="Layout" value={settings.camLayout} options={[{ id: "lowerthird", label: "Lower third" }, { id: "full", label: "Full projector" }]} onChange={(v) => setSetting("camLayout", v)} />
+          )}
+
+          {look === "camera" && settings.camLayout === "lowerthird" && (
+            <>
+              <Segmented label="Band position" value={settings.camBandPosition} options={[{ id: "upper", label: "Upper" }, { id: "mid", label: "Mid" }, { id: "lower", label: "Lower" }, { id: "custom", label: "Custom" }]} onChange={(v) => setSetting("camBandPosition", v)} />
+              {settings.camBandPosition === "custom" && (
+                <BandSlider label="Position (0 = top · 100 = bottom)" value={settings.camBandOffsetPct} min={0} max={100} step={1} suffix="%" onChange={(v) => setSetting("camBandOffsetPct", v)} />
+              )}
+              <div className="space-y-1">
+                <div className="text-[10px] text-[var(--color-muted-foreground)]">Band background</div>
+                <div className="grid grid-cols-3 gap-1">
+                  {OBS_BAND_STYLES.map((st) => (
+                    <button key={st} type="button" onClick={() => setSetting("camBandStyle", st)} title={OBS_BAND_STYLE_META[st].hint} aria-pressed={settings.camBandStyle === st}
+                      className={`rounded border overflow-hidden transition ${settings.camBandStyle === st ? "border-[var(--color-brand)] ring-1 ring-[var(--color-brand)]" : "border-[var(--color-border)] hover:border-[var(--color-brand)]/50"}`}>
+                      <span className="block h-6 relative" style={{ background: "linear-gradient(135deg,#3b4a5a,#6b7c8c)" }}>
+                        <span className="absolute inset-x-0 bottom-0 h-3 flex items-center justify-center" style={{ background: bandSwatch(st) }}>
+                          <span className="text-[6px] font-bold leading-none" style={{ color: st === "frost" ? "#111" : "#fff" }}>Aa</span>
+                        </span>
+                      </span>
+                      <span className="block text-[8px] text-center py-0.5 text-[var(--color-muted-foreground)] leading-none truncate px-0.5">{OBS_BAND_STYLE_META[st].label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <BandSlider label="Band height" value={settings.camBandHeightPct} min={10} max={60} step={1} suffix="%" onChange={(v) => setSetting("camBandHeightPct", v)} />
+              <BandSlider label="Text size (smaller / bigger)" value={settings.camBandScale} min={0.5} max={2} step={0.05} onChange={(v) => setSetting("camBandScale", v)} />
+              {settings.camBandStyle !== "clear" && (
+                <BandSlider label="Background opacity (see-through)" value={Math.round(settings.camBandOpacity * 100)} min={0} max={100} step={5} suffix="%" onChange={(v) => setSetting("camBandOpacity", v / 100)} />
+              )}
+              <TextColorPicker value={settings.camText} onChange={(v) => setSetting("camText", v)} />
+            </>
+          )}
+
+          {look === "camera" && settings.camLayout === "full" && (
+            <>
+              <BandSlider label="Text size (smaller / bigger)" value={settings.camScale} min={0.5} max={2} step={0.05} onChange={(v) => setSetting("camScale", v)} />
+              <Segmented label="Text position" value={settings.camPos} options={[{ id: "top", label: "Top" }, { id: "middle", label: "Middle" }, { id: "bottom", label: "Bottom" }]} onChange={(v) => setSetting("camPos", v)} />
+              <TextColorPicker value={settings.camText} onChange={(v) => setSetting("camText", v)} />
+              <Segmented label="Make words easy to read" value={settings.camEffect} options={[{ id: "shadow", label: "Shadow" }, { id: "outline", label: "Outline" }, { id: "none", label: "None" }]} onChange={(v) => setSetting("camEffect", v)} />
+              <BandSlider label="Dark background behind words" value={Math.round(settings.camScrim * 100)} min={0} max={90} step={5} suffix="%" onChange={(v) => setSetting("camScrim", v / 100)} />
+            </>
+          )}
+
+          {look === "full" && (
+            <>
+              <BandSlider label="Text size (smaller / bigger)" value={settings.fullScale} min={0.5} max={2} step={0.05} onChange={(v) => setSetting("fullScale", v)} />
+              <BandSlider label="Darken background" value={Math.round(settings.fullDim * 100)} min={0} max={90} step={5} suffix="%" onChange={(v) => setSetting("fullDim", v / 100)} />
+            </>
+          )}
+
+          {ready ? (
+            <div className="rounded bg-emerald-500/10 border border-emerald-500/30 px-2 py-1.5">
+              <p className="text-[10px] text-[var(--color-foreground)] leading-relaxed"><span className="font-semibold text-emerald-500">Changes apply to OBS live</span> — as long as the app is open and OBS is connected, every tweak shows on the stream instantly (a look change reaches links created here). You only need the link the first time you add it in OBS.</p>
+            </div>
+          ) : (
+            <div className="rounded bg-[var(--color-muted)]/30 border border-[var(--color-border)] px-2 py-1.5">
+              <p className="text-[10px] text-[var(--color-muted-foreground)] leading-relaxed"><span className="font-semibold text-[var(--color-foreground)]">Preview only</span> — create your link below to send these to OBS.</p>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Step 2 — the connection + link */}

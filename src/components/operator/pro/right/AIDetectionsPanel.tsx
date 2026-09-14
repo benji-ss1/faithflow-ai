@@ -381,7 +381,7 @@ export function AIDetectionsPanel({ ctx, sections }: { ctx: OperatorShellCtx; se
         toast.error("No slides found for this song");
         return;
       }
-      ctx.onSendSlideToLive({ kind: "text", text: first.lyrics });
+      ctx.onSendSlideToLive({ kind: "text", text: first.lyrics }, undefined, { origin: { kind: "song", songId: row.songId } });
       // Mirror the Bible chip UX: switch the center panel so the operator can
       // see the content that just went live, not stare at a stale panel.
       // ProOperatorShell listens for this event and calls setCenterMode("slides").

@@ -23,6 +23,9 @@ export const MEDIA_STRIP_KEY = "presentflow.pro.mediaStripOpen";
 /** Slide thumbnail size ("sm" | "md" | "lg") */
 export const SLIDE_SIZE_KEY = "presentflow.pro.slideSize";
 
+/** Media Bin manual strip height (px), persisted per machine (field wave 6E) */
+export const MEDIA_BIN_HEIGHT_KEY = "presentflow.pro.mediaBinHeight.v1";
+
 /** Safe-mode toggle (double-click to go live vs single-click) */
 export const SAFE_MODE_KEY = "presentflow.operator.safeMode";
 
@@ -134,6 +137,22 @@ export const SONG_DISAMBIG_MARGIN = 12;
  *  Heuristic: if false triggers increase, +100ms until stable.
  */
 export const SONG_AUTO_LIVE_MIN_GAP_MS = 800;
+
+/** Min matchBestSlide confidence (0-100) to SUGGEST jumping the live output to
+ *  the slide the singer is actually on (2026-09-06, user directive "go to the
+ *  slide they're singing, not just slide 1"). This is a SUGGESTION only — the
+ *  operator taps to confirm; the projector never auto-moves within a song
+ *  (song auto-advance stays disabled per the 2026-08-16 sign-off). It also
+ *  picks the STARTING slide when a song first auto-projects. Deliberately below
+ *  the auto-live bar because it never fires live on its own. */
+export const SONG_JUMP_SUGGEST_CONFIDENCE = 80;
+
+/** While a DIFFERENT song is already live, the AI NEVER auto-switches the
+ *  projector (2026-09-14 user directive, supersedes the 2026-09-06 "auto-switch
+ *  at ≥95"). Any detection of a different song — even ≥ this bar — is staged as
+ *  a manual chip the operator pushes (G / tap). This value now only marks a
+ *  "strong switch" in the logs. */
+export const SONG_SWITCH_WHILE_LIVE_CONFIDENCE = 95;
 
 // ── Left panel dimensions ──────────────────────────────────────────────────
 

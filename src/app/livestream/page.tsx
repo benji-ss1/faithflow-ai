@@ -1,15 +1,13 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type RefCallback } from "react";
 import { Maximize2, X } from "lucide-react";
-import { SlideRenderer } from "@/components/live/SlideRenderer";
-import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, sanitizeOutputState, slideOutputIdentity, type OutputState, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState } from "@/lib/broadcast";
-import { OutputSlide, hasVideoBackground } from "@/components/live/OutputSlide";
-import { livestreamRenderPlan, parseObsBand, clampObsBand, DEFAULT_OBS_BAND, type ObsBandConfig, type ObsThemeColors } from "@/lib/obs-lowerthird";
-import { BackgroundLayer } from "@/backgrounds/components/BackgroundLayer";
-import { ThemeLogoLayer } from "@/components/live/ThemeLayers";
+import { OutputCompositor } from "@/components/live/OutputCompositor";
+import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, sanitizeOutputState, type OutputState, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState, type LayerWire, type ObsLookWire } from "@/lib/broadcast";
+import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStaleLayersSnapshot } from "@/lib/output-layers";
+import { livestreamRenderPlan, DEFAULT_OBS_BAND, type ObsBandConfig } from "@/lib/obs-lowerthird";
+import { parseObsUrl, resolveObsRender, obsThemeColorsOf, applyObsLiveFields, type ObsUrlDefaults } from "@/lib/obs-look";
 import { openOutputChannel, isValidPairCode, type RealtimeConnStatus } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
-import { TransitionWrapper } from "@/components/live/TransitionWrapper";
 
 if (typeof window !== "undefined" && !(window as unknown as { __ffLivestreamGuarded?: boolean }).__ffLivestreamGuarded) {
   (window as unknown as { __ffLivestreamGuarded: boolean }).__ffLivestreamGuarded = true;
@@ -54,7 +52,16 @@ export default function LivestreamPage() {
   // the dismiss countdown on content change; sweep stale messages after 5s.
   const lastMessageContentRef = useRef<string | null>(null);
   const lastMessageMsgAt = useRef<number>(0);
+  // Wave 7: extra simultaneous messages (public, allowWeb-gated).
+  const [extraMessages, setExtraMessages] = useState<Array<{ id: string; text: string }>>([]);
+  const lastExtraMsgAt = useRef<number>(0);
   const [timerOverlay, setTimerOverlay] = useState<{ name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed" } | null>(null);
+  // Wave 7: named (keyed) timers ride alongside the legacy default slot — mirrors
+  // /live and /stage so multiple named timers on the public OBS surface each
+  // render independently instead of one clobbering the others via setTimerOverlay.
+  type TimerItem = { id: string; name?: string; remainingSec: number; running: boolean; kind: "countdown" | "elapsed"; overrun?: boolean; scale?: number; color?: string };
+  const [namedTimers, setNamedTimers] = useState<Record<string, TimerItem>>({});
+  const namedTimerAtRef = useRef<Record<string, number>>({});
   const [connected, setConnected] = useState(false);
   // Cross-device realtime connection status (pair-code overlay). Drives the
   // setup-phase indicator so an operator can SEE the OBS overlay is connected
@@ -66,25 +73,35 @@ export default function LivestreamPage() {
   const [pairBadge, setPairBadge] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(true);
   const lastMsgAt = useRef<number>(Date.now());
+  // Decoupling Phase 2 (DORMANT): per-layer override store for incoming
+  // layer-patch messages. Nothing reads it yet (Phase 3, NEXT_PUBLIC_LAYERS_V2).
+  const layerOverridesRef = useRef<Map<string, LayerWire>>(new Map());
+  // Y1b: the origin epoch last folded from a snapshot (fresh-tab authority).
+  const layerEpochRef = useRef<number | undefined>(undefined);
+  // Phase 3: re-render-triggering snapshot of the override map (see /live).
+  const [layerOverridesArr, setLayerOverridesArr] = useState<LayerWire[]>([]);
   const videoElRef = useRef<HTMLVideoElement | null>(null);
   const broadcastChRef = useRef<LiveChannelLike | null>(null);
 
   // ?bg=transparent → strip our own bg so OBS chroma / alpha keys directly
-  const [transparent, setTransparent] = useState(false);
-  const [mode, setMode] = useState<"full" | "lower_third">("full");
-  const [obsBand, setObsBand] = useState<ObsBandConfig>(DEFAULT_OBS_BAND);
+  // URL defaults (legacy semantics, parseObsUrl): ?bg=transparent → camera look;
+  // ?mode=lower_third / ?obs=lowerthird (implies transparent) → lower third with
+  // the band geometry baked into the link. The OBS editor's LIVE look/settings
+  // (OutputState.obsLook / obsLowerThird) layer over these via resolveObsRender.
+  const [urlDefaults, setUrlDefaults] = useState<ObsUrlDefaults>({ transparent: false, mode: "full", band: DEFAULT_OBS_BAND, live: false });
+  const [liveBand, setLiveBand] = useState<ObsBandConfig | null>(null);
+  const [liveLook, setLiveLook] = useState<ObsLookWire | null>(null);
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
-    setTransparent(p.get("bg") === "transparent");
-    if (p.get("mode") === "lower_third") setMode("lower_third");
-    // P5: OBS-friendly `?obs=lowerthird` is an alias for the lower-third
-    // capture mode; it also implies a transparent background so OBS can key.
-    if (p.get("obs") === "lowerthird") { setMode("lower_third"); setTransparent(true); }
-    // OBS lower-third band geometry (movable, set in the OBS setup card, baked
-    // into the copied link). Purely overlay-side — never affects the projector.
-    setObsBand(parseObsBand((k) => p.get(k)));
+    setUrlDefaults(parseObsUrl((k) => p.get(k)));
     if (p.get("transitions") === "1") setTransitionsEnabled(true);
   }, []);
+  // Theme colours mirrored from the live appearance — used by the "theme" band
+  // style / "theme" text colour so OBS reproduces the projector's exact colours.
+  const themeColors = obsThemeColorsOf(appearance);
+  const obsRender = resolveObsRender({ url: urlDefaults, liveLook, liveBand, fontScale, appearance, themeColors, lowerThird, hasTemplateBackground: !!background });
+  const transparent = obsRender.transparent;
+  const mode = obsRender.mode;
 
   useEffect(() => {
     try {
@@ -161,8 +178,22 @@ export default function LivestreamPage() {
         else if (msg.type === "clear") applySlide({ kind: "empty" });
         else if (msg.type === "pong") applySlide(msg.slide);
         else if (msg.type === "output") {
+          // Ghost-operator guard (field wave 6B) — on the SAME-MACHINE
+          // BroadcastChannel, ignore a strictly-older operator tab's snapshot so a
+          // stale/duplicate operator can't blank this overlay. Scoped to this
+          // transport only (the LAN/Realtime applyOutputState below is a DIFFERENT
+          // machine with an unrelated epoch). Inert when LAYERS_V2 off / single-op.
+          if (LAYERS_V2 && isStaleLayersSnapshot(msg.state.layersEpoch, layerEpochRef.current)) return;
           applyOutputState(msg.state);
         } else if (msg.type === "message") {
+          // Wave 7: extra simultaneous messages — public surface, so only
+          // allowWeb messages render here (default true for old-format).
+          if (msg.messages) {
+            lastExtraMsgAt.current = Date.now();
+            setExtraMessages(msg.messages
+              .filter((m): m is Extract<typeof m, { text: string }> => "text" in m && typeof m.text === "string" && m.allowWeb !== false)
+              .map((m) => ({ id: (m as { id?: string }).id ?? m.text, text: m.text })));
+          }
           if ("clear" in msg.overlay && msg.overlay.clear) {
             if (messageTimerRef.current) { clearTimeout(messageTimerRef.current); messageTimerRef.current = null; }
             lastMessageContentRef.current = null;
@@ -181,8 +212,19 @@ export default function LivestreamPage() {
             }
           }
         } else if (msg.type === "timer") {
-          if ("clear" in msg.overlay && msg.overlay.clear) setTimerOverlay(null);
-          else setTimerOverlay(msg.overlay);
+          const ov = msg.overlay;
+          const oid = (ov as { id?: string }).id;
+          if (oid) {
+            // Wave 7: keyed named timer (per-id, mirrors /live).
+            if ("clear" in ov && ov.clear) {
+              setNamedTimers((m) => { const n = { ...m }; delete n[oid]; return n; });
+              delete namedTimerAtRef.current[oid];
+            } else if ("remainingSec" in ov) {
+              setNamedTimers((m) => ({ ...m, [oid]: { id: oid, name: ov.name, remainingSec: ov.remainingSec, running: ov.running, kind: ov.kind, overrun: ov.overrun, scale: ov.scale, color: ov.color } }));
+              namedTimerAtRef.current[oid] = Date.now();
+            }
+          } else if ("clear" in ov && ov.clear) setTimerOverlay(null);
+          else setTimerOverlay(ov);
         } else if (msg.type === "media-control") {
           const el = videoElRef.current;
           if (!el) return;
@@ -196,6 +238,14 @@ export default function LivestreamPage() {
             case "restart": el.currentTime = 0; el.play().catch(() => {}); break;
             case "loop": el.loop = true; break;
             case "unloop": el.loop = false; break;
+          }
+        } else if (msg.type === "layer-patch") {
+          // Decoupling Phase 2 (DORMANT): store the override; nothing renders from
+          // it yet — Phase 3 gates consumption behind NEXT_PUBLIC_LAYERS_V2.
+          // Bounded: existing ids update; a new id is dropped once full (MAX_LAYERS).
+          {
+            applyLayerPatchBounded(layerOverridesRef.current, msg.layer);
+            if (LAYERS_V2) setLayerOverridesArr(Array.from(layerOverridesRef.current.values()));
           }
         }
       } catch (err) {
@@ -236,6 +286,20 @@ export default function LivestreamPage() {
         if (messageTimerRef.current) { clearTimeout(messageTimerRef.current); messageTimerRef.current = null; }
         setMessageOverlay(null);
       }
+      // Wave 7: sweep extra messages if their shared heartbeat stops for 5s.
+      if (lastExtraMsgAt.current > 0 && Date.now() - lastExtraMsgAt.current > 5000) {
+        lastExtraMsgAt.current = 0;
+        setExtraMessages([]);
+      }
+      // Wave 7: sweep named timers whose per-id heartbeat has stopped for 5s.
+      {
+        const now = Date.now();
+        const staleIds = Object.keys(namedTimerAtRef.current).filter((id) => now - namedTimerAtRef.current[id] > 5000);
+        if (staleIds.length) {
+          for (const id of staleIds) delete namedTimerAtRef.current[id];
+          setNamedTimers((m) => { const n = { ...m }; for (const id of staleIds) delete n[id]; return n; });
+        }
+      }
       // Y4: silent-channel recovery — skip entirely when a remote transport is
       // the source (no operator on BroadcastChannel to recover; reopening churns).
       if (!remoteAlive && stale > 5000 && reopenCount < 20) {
@@ -263,14 +327,19 @@ export default function LivestreamPage() {
       // Apply the non-slide fields only when they actually changed (dedup).
       let sig: string;
       try {
-        sig = JSON.stringify([state.fontScale, state.referenceScale, state.referenceColor, state.appearance, state.background, state.videoInput, state.lowerThird, state.announcement, state.transition, state.obsLowerThird]);
+        sig = JSON.stringify([state.fontScale, state.referenceScale, state.referenceColor, state.appearance, state.background, state.videoInput, state.lowerThird, state.announcement, state.transition, state.obsLowerThird, state.obsLook ?? null, LAYERS_V2 ? (state.layers ?? null) : null, LAYERS_V2 ? (state.layersEpoch ?? null) : null]);
       } catch { sig = String(Date.now()); }
       if (sig === lastNonSlideSig) return;
       lastNonSlideSig = sig;
+      if (LAYERS_V2) {
+        setLayerOverridesArr(rebuildOverridesFromSnapshot(layerOverridesRef.current, state.layers, { snapEpoch: state.layersEpoch, epochRef: layerEpochRef }));
+      }
       // OBS lower-third live config: an edit in the operator's OBS card reaches
       // us here and updates the band INSTANTLY (overrides the URL-param default).
       // Only /livestream reads this; the projector/stage ignore it.
-      if (state.obsLowerThird) { try { setObsBand(clampObsBand(state.obsLowerThird as Partial<ObsBandConfig>)); } catch { /* ignore */ } }
+      // A null/absent band now CLEARS back to the link's band (Reset reaches OBS);
+      // obsLook absent → the link's URL decides the look (old links unchanged).
+      { const f = applyObsLiveFields(state); setLiveBand(f.liveBand); setLiveLook(f.liveLook); }
       setFontScale(typeof state.fontScale === "number" ? state.fontScale : 1);
       setReferenceScale(typeof state.referenceScale === "number" ? state.referenceScale : 1);
       setReferenceColor(typeof state.referenceColor === "string" ? state.referenceColor : undefined);
@@ -403,10 +472,21 @@ export default function LivestreamPage() {
   // Theme colours mirrored from the live appearance — used ONLY by the "theme"
   // band style so OBS reproduces the projector's exact background + text colour.
   // Only pass a solid/gradient bg colour (image/video themes have no solid fill).
-  const solidThemeBg = appearance && (appearance.bgType === "solid" || appearance.bgType === "gradient" || appearance.bgType === undefined) ? appearance.bgColor : undefined;
-  const themeColors: ObsThemeColors = { textColor: appearance?.textColor, bgColor: solidThemeBg, bgColor2: solidThemeBg ? appearance?.bgColor2 : undefined, bgAngle: appearance?.bgAngle };
-  // Lower-third: operator lowerThird lines win over the slide; no backdrop layers (prod a0f53c8 parity).
-  const { renderSlide, showBackdrop, showFullOverlays } = livestreamRenderPlan(mode, slide, lowerThird, obsBand, themeColors);
+  // Lower-third (prod fe1fd02 parity via livestreamRenderPlan): no backdrop
+  // layers (background / camera / theme video / logo), no full-frame overlays,
+  // and the operator's lowerThird line1[/line2] replaces the slide text. The
+  // compositor applies obsBand itself, so only the SOURCE slide is substituted
+  // here (never the plan's already-banded renderSlide — no double band). When a
+  // live look already routes lowerThird through obsBandExtras, HEAD's handling wins.
+  const { showBackdrop, showFullOverlays } = livestreamRenderPlan(mode, slide, lowerThird, obsRender.obsBand ?? DEFAULT_OBS_BAND, themeColors);
+  const ltLine1 = typeof lowerThird?.line1 === "string" ? lowerThird.line1.trim() : "";
+  const ltLine2 = typeof lowerThird?.line2 === "string" ? lowerThird.line2.trim() : "";
+  const compositorSlide: SlidePayload = mode === "lower_third" && ltLine1 && !obsRender.obsBandExtras?.lowerThird
+    ? { kind: "text", text: ltLine2 ? `${ltLine1}\n${ltLine2}` : ltLine1 }
+    : slide;
+  const compositorAppearance = !showBackdrop && obsRender.appearance
+    ? { ...obsRender.appearance, logoUrl: undefined, bgVideoUrl: undefined }
+    : obsRender.appearance;
   return (
     <div
       className="fixed inset-0 overflow-hidden cursor-none"
@@ -415,22 +495,35 @@ export default function LivestreamPage() {
     >
       {(
         <>
-          {/* Background Templates layer for the broadcast/NDI output. Never in
-              transparent (OBS-key) mode. When active the slide goes transparent. */}
-          {/* Live camera wins over a Background Template here too (mirrors /live). */}
-          {showBackdrop && !transparent && background && background.type !== "none" && !videoInput && <BackgroundLayer key={background.shaderPreset ?? background.type} background={background} />}
-          {showBackdrop && !transparent && hasVideoBackground(videoInput, appearance) && !(!transparent && background && background.type !== "none" && !videoInput) ? (
-            <OutputSlide slide={renderSlide} videoInput={videoInput} appearance={appearance} fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} projectorFit />
-          ) : transitionsEnabled ? (
-            <TransitionWrapper identityKey={slideOutputIdentity(renderSlide)} transition={transition}>
-              <SlideRenderer slide={renderSlide} projectorFit fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} overVideo={!!(showBackdrop && !transparent && background && background.type !== "none" && !videoInput)} transparentBg={transparent} videoMuted={false} onVideoRef={handleVideoRef} />
-            </TransitionWrapper>
-          ) : (
-            <SlideRenderer slide={renderSlide} projectorFit fontScale={fontScale} referenceScale={referenceScale} referenceColor={referenceColor} appearance={appearance} overVideo={!!(showBackdrop && !transparent && background && background.type !== "none" && !videoInput)} transparentBg={transparent} videoMuted={false} onVideoRef={handleVideoRef} />
-          )}
-          {/* No theme logo in OBS transparent mode — the overlay is text-only so
-              OBS composites just the lyrics/verse over the camera. */}
-          {showBackdrop && !transparent && <ThemeLogoLayer appearance={appearance} />}
+          {/* Decoupling Phase 1: shared OutputCompositor renders the full-bleed
+              background / camera / slide / theme-logo stack (no PresentationCanvas
+              wrapper for this route). mode="livestream" encodes the specifics:
+              transparent OBS-key handling, ?transitions=1 gating, the OBS
+              lower-third band (obsBand, applied only in lower_third capture mode),
+              and unmuted media. The announcement / lower-third / message / timer
+              overlays below stay route-owned (bespoke layout, not duplicated). */}
+          <OutputCompositor
+            mode="livestream"
+            slide={compositorSlide}
+            appearance={compositorAppearance}
+            background={showBackdrop ? background : null}
+            videoInput={showBackdrop ? videoInput : null}
+            transition={transition}
+            fontScale={obsRender.fontScale}
+            referenceScale={referenceScale}
+            referenceColor={referenceColor}
+            transparent={transparent}
+            transitionsEnabled={transitionsEnabled}
+            obsBand={obsRender.obsBand}
+            obsThemeColors={themeColors}
+            obsBandExtras={obsRender.obsBandExtras}
+            obsOverlay={obsRender.obsOverlay}
+            backgroundDim={obsRender.backgroundDim}
+            videoMuted={false}
+            onVideoRef={handleVideoRef}
+            layersEnabled={LAYERS_V2}
+            layerOverrides={LAYERS_V2 ? layerOverridesArr : undefined}
+          />
           {/* Announcement scrim is a FULL-frame overlay — keep it off the OBS
               lower-third caption (it would paint over the band). Full mode only. */}
           {showFullOverlays && <AnnouncementLayer ann={announcement} />}
@@ -445,7 +538,7 @@ export default function LivestreamPage() {
         </>
       )}
       {/* 2026-09-06: the OBS lower-third caption is now rendered by the SAME
-          SlideRenderer band branch as everything above (via `renderSlide`), so it
+          SlideRenderer band branch as everything above (via the OutputCompositor `obsBand` transform), so it
           uses the church's real fonts/style + auto-fit instead of the old
           hard-coded generic white-on-black div (which had no font parity and
           clipped long lyrics). In lower-third mode the operator's own lowerThird
@@ -461,14 +554,47 @@ export default function LivestreamPage() {
           </div>
         </div>
       )}
-      {timerOverlay && mode === "full" && (
-        <div className="absolute top-[6%] right-[6%] pointer-events-none">
-          <div className="bg-black/70 backdrop-blur-sm px-6 py-3 rounded-md border" style={{ borderColor: timerOverlay.remainingSec < 0 ? "#ef4444" : "var(--color-brand, #06b6d4)" }}>
-            {timerOverlay.name && <div className="text-white/70 text-xs uppercase tracking-wider mb-1">{timerOverlay.name}</div>}
-            <div className={`text-white text-3xl md:text-5xl font-mono font-bold tabular-nums leading-none ${timerOverlay.remainingSec < 0 ? "text-red-400" : ""}`}>
-              {(() => { const n = timerOverlay.remainingSec < 0; const a = Math.abs(Math.round(timerOverlay.remainingSec)); const m = Math.floor(a / 60); const s = a % 60; return `${n ? "-" : ""}${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`; })()}
+      {/* Wave 7: extra simultaneous messages, stacked above the legacy one. */}
+      {extraMessages.length > 0 && mode === "full" && (
+        <div className="absolute left-[6%] right-[6%] bottom-[18%] pointer-events-none flex flex-col gap-2">
+          {extraMessages.map((m) => (
+            <div key={m.id} className="bg-black/70 backdrop-blur-sm border-l-4 px-6 py-4 rounded-sm" style={{ borderColor: "var(--color-brand, #06b6d4)" }}>
+              <div className="text-white text-xl md:text-3xl font-semibold leading-tight text-left">{m.text}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      {timerOverlay && mode === "full" && (() => {
+        const over = timerOverlay.remainingSec < 0;
+        const color = over ? "#f87171" : "#ffffff";
+        const n = over; const a = Math.abs(Math.round(timerOverlay.remainingSec)); const m = Math.floor(a / 60); const s = a % 60;
+        return (
+          <div className="absolute top-[6%] right-[6%] pointer-events-none flex flex-col items-end leading-none">
+            {timerOverlay.name && <div className="uppercase tracking-[0.15em] font-semibold" style={{ color, opacity: 0.75, fontSize: "1.4vw", textShadow: "0 2px 10px rgba(0,0,0,0.6)" }}>{timerOverlay.name}</div>}
+            <div className="font-mono font-bold tabular-nums" style={{ color, fontSize: "7vw", textShadow: "0 4px 18px rgba(0,0,0,0.65)", lineHeight: 1 }}>
+              {`${n ? "-" : ""}${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`}
             </div>
           </div>
+        );
+      })()}
+      {/* Wave 7: named (keyed) timers — stacked top-right, below the legacy one.
+          Sized by the operator's per-timer scale (public OBS surface). */}
+      {Object.values(namedTimers).length > 0 && mode === "full" && (
+        <div className="absolute top-[20%] right-[6%] pointer-events-none flex flex-col items-end gap-[3vh] leading-none">
+          {Object.values(namedTimers).map((t) => {
+            const scale = t.scale ?? 1;
+            const over = t.remainingSec < 0;
+            const color = t.color ?? (over ? "#f87171" : "#ffffff");
+            const a = Math.abs(Math.round(t.remainingSec)); const mm = Math.floor(a / 60); const ss = a % 60;
+            return (
+              <div key={t.id} className="flex flex-col items-end leading-none">
+                {t.name && <div className="uppercase tracking-[0.15em] font-semibold" style={{ color, opacity: 0.75, fontSize: `${1.4 * scale}vw`, textShadow: "0 2px 10px rgba(0,0,0,0.6)" }}>{t.name}</div>}
+                <div className="font-mono font-bold tabular-nums" style={{ color, fontSize: `${7 * scale}vw`, textShadow: "0 4px 18px rgba(0,0,0,0.65)", lineHeight: 1 }}>
+                  {`${over ? "-" : ""}${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 

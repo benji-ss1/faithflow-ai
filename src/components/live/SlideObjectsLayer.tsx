@@ -13,13 +13,19 @@ import { themedObjectTextColor } from "@/lib/slide-objects";
  * No drag handles, no interaction — this is output only. Objects render in
  * array order (first = back). Sits above the slide background, below the logo.
  */
-export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor }: { objects: SlideObjectWire[]; fontScale?: number; themedTextColor?: string | null }) {
+export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor, referenceScale = 1, referenceText }: { objects: SlideObjectWire[]; fontScale?: number; themedTextColor?: string | null; referenceScale?: number; referenceText?: string | null }) {
   // Global font multiplier (operator A-/A+ × Projection-Zone Font). Previously
   // this layer ignored it, so the Font slider / A-/A+ had NO effect on the
   // projector for designed or song slides (only plain-lyric slides scaled).
   // Now every text object scales by it — matching the plain-lyric path and the
   // editor's live preview.
   const fs = Number.isFinite(fontScale) && fontScale > 0 ? fontScale : 1;
+  // H1 (2026-09-10): the REF −/+ control multiplies ONLY the reference text.
+  // For styled scripture slides the reference is a positioned OBJECT (not the
+  // fallback footer), so REF was a no-op. Identify it by matching the slide's
+  // reference text (the same identity the footer-dedupe uses) and scale it here.
+  const refScale = Number.isFinite(referenceScale) && referenceScale > 0 ? referenceScale : 1;
+  const refT = referenceText?.trim() || null;
   return (
     <div
       className="absolute inset-0 z-0"
@@ -56,13 +62,17 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor }: {
           : box;
         const animCls = animName ? "pf-obj-anim" : undefined;
         if (obj.kind === "text") {
+          // The reference object also tracks REF (referenceScale) on top of the
+          // global font scale; every other text object uses fs alone.
+          const isRef = !!refT && (obj as { text?: string }).text?.trim() === refT;
+          const objFs = isRef ? fs * refScale : fs;
           return (
             <div key={key} className={animCls} style={boxStyle}>
               <div
                 className="w-full h-full flex whitespace-pre-wrap overflow-hidden"
                 style={{
                   fontFamily: obj.fontFamily || "Inter, system-ui, sans-serif",
-                  fontSize: `${((obj.fontSize ?? 96) * fs / SLIDE_CANVAS_H) * 100}cqh`,
+                  fontSize: `${((obj.fontSize ?? 96) * objFs / SLIDE_CANVAS_H) * 100}cqh`,
                   fontWeight: obj.fontWeight ?? 600,
                   // Default-white text inherits the theme's textColor when the
                   // theme background is showing; an explicit colour still wins.
@@ -156,7 +166,11 @@ export function SlideObjectsLayer({ objects, fontScale = 1, themedTextColor }: {
                 position: "relative", zIndex: 1,
                 width: "100%", height: "100%", objectFit: obj.fit ?? "contain", display: "block", opacity: obj.opacity ?? 1,
                 objectPosition: `${obj.posX ?? 50}% ${obj.posY ?? 50}%`,
-                transform: obj.zoom && obj.zoom !== 1 ? `scale(${obj.zoom})` : undefined,
+                // obj.blur = the full-screen blurred BACKGROUND layer (behind a logo).
+                // Same look as the blurFill backdrop for visual consistency.
+                ...(obj.blur
+                  ? { filter: "blur(34px) brightness(0.62) saturate(1.08)", transform: "scale(1.15)" }
+                  : { transform: obj.zoom && obj.zoom !== 1 ? `scale(${obj.zoom})` : undefined }),
                 transformOrigin: `${obj.posX ?? 50}% ${obj.posY ?? 50}%`,
               }}
               draggable={false}

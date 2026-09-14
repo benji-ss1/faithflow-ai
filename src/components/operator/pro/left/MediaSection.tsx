@@ -9,10 +9,14 @@ import type { CenterMode } from "../ProOperatorShell";
 // categories show a lock icon and open the "coming soon" banner on click.
 // The MEDIA header carries a PRO badge so the section's premium nature
 // is obvious at a glance.
+// F1 (2026-09-10): this left-rail section is now "Transitions" (was "Media").
+// "Free" is first and opens the full transitions picker in the centre; the other
+// tiers are premium transition packs (locked on the free beta). The full media
+// library is still reachable from the top "Media" button.
 type Category = { name: string; locked: boolean };
 const CATEGORIES: Category[] = [
-  { name: "Cinematic", locked: true },
   { name: "Free", locked: false },
+  { name: "Cinematic", locked: true },
   { name: "Creators", locked: true },
   { name: "Intro Videos", locked: true },
 ];
@@ -35,8 +39,8 @@ export function MediaSection({
       toast.info("Pro plan is on the way — you're on the free beta.");
       return;
     }
-    // Toggle behavior — matches Songs/Bible topbar buttons.
-    onCenterMode?.(centerMode === "media" ? "slides" : "media");
+    // "Free" opens the full transitions picker in the centre (toggle back to slides).
+    onCenterMode?.(centerMode === "transitions" ? "slides" : "transitions");
   };
 
   return (
@@ -48,7 +52,7 @@ export function MediaSection({
           onClick={toggleOpen}
         >
           {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-          <span className="eyebrow">Media</span>
+          <span className="eyebrow">Transitions</span>
           <span
             className="text-[9px] font-mono font-bold uppercase tracking-[0.12em] px-1.5 py-[3px] rounded-md shadow-[var(--edge-top),var(--shadow-ember)]"
             style={{ background: "linear-gradient(180deg,#F2712E,#E8501A)", color: "#17130c" }}

@@ -1,13 +1,18 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 import { Pause, Play, SkipForward, SkipBack, HelpCircle, ArrowLeft, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import type { OperatorShellCtx } from "../shell/types";
 import { TransitionChooser } from "./BottomBar/TransitionChooser";
 import { cn } from "@/lib/utils";
 import { dispatchInternal } from "@/lib/internal-events";
+import { openLiveChannel, safePost, type LiveChannelLike, type LiveMessage } from "@/lib/broadcast";
 
 export const TRANSITION_KEY = "presentflow.pro.transition.v1";
+// Centralized so the bottom-bar chooser, the centre Transitions panel, and the
+// live-monitor preview can't silently desync on a mistyped event name.
+export const TRANSITION_UPDATED_EVENT = "presentflow:transition-updated";
+export const TRANSITION_PREVIEW_EVENT = "presentflow:transition-preview";
 
 export type SlideViewMode = "grid" | "list" | "text";
 
@@ -36,14 +41,64 @@ export const TRANSITION_NAME_TO_EFFECT_ID: Record<string, string | null> = {
 };
 
 export function BottomBar({
-  ctx, onOpenShortcutsHelp, centerMode,
+  ctx, onOpenShortcutsHelp, centerMode, videoRef,
 }: {
   ctx: OperatorShellCtx;
   onOpenShortcutsHelp?: () => void;
-  centerMode?: "slides" | "bible" | "songs" | "media" | "openflow";
+  centerMode?: "slides" | "bible" | "songs" | "media" | "openflow" | "transitions";
+  /** The operator's live preview <video> — the master clock element. K1 drives
+   *  pause/resume through THIS element so the projector heartbeat can't override it. */
+  videoRef?: RefObject<HTMLVideoElement | null>;
 }) {
   const [transitionName, setTransitionName] = useState("Amoeba");
   const [transitionDuration, setTransitionDuration] = useState(0.6);
+
+  // ── Video transport (K1) ────────────────────────────────────────────────────
+  // When a VIDEO is live, the leftmost transport button must PAUSE/RESUME the
+  // video (freeze the frame, keep it on the projector) — NOT blank the output to
+  // black. CRITICAL: the operator's local preview <video> (videoRef) is the
+  // MASTER clock — VideoControlBar broadcasts a 1s `media-sync {paused}` heartbeat
+  // from it, and the projector reconciles play/pause to that. So this button must
+  // pause the MASTER ELEMENT itself (not just post to the projector), else the
+  // heartbeat re-asserts play within ~1s and the pause doesn't hold. Driving the
+  // element is also the single source of truth, so this button and VideoControlBar
+  // never disagree. For non-video slides it stays the Blank toggle (unchanged).
+  const isVideoLive = ctx.liveSlide?.kind === "video";
+  const liveVideoUrl = isVideoLive ? (ctx.liveSlide as { url?: string }).url : undefined;
+  const [videoPaused, setVideoPaused] = useState(false);
+  const mediaChRef = useRef<LiveChannelLike | null>(null);
+  useEffect(() => {
+    const ch = openLiveChannel();
+    mediaChRef.current = ch;
+    return () => { try { ch?.close(); } catch { /* noop */ } };
+  }, []);
+  // Reflect the ACTUAL element paused-state (shared source of truth with
+  // VideoControlBar) so the icon is always right — even when the operator uses the
+  // other pause control. Poll lightly, only while a video is live.
+  useEffect(() => {
+    if (!isVideoLive) { setVideoPaused(false); return; }
+    const read = () => { const el = videoRef?.current; if (el) setVideoPaused(el.paused); };
+    read();
+    const iv = setInterval(read, 250);
+    return () => clearInterval(iv);
+  }, [isVideoLive, liveVideoUrl, videoRef]);
+  const toggleVideoPause = () => {
+    const el = videoRef?.current;
+    // The master element IS the source of truth. If it isn't mounted yet (the
+    // sub-second cold-start window right after a clip goes live), do NOTHING —
+    // posting a projector pause we can't hold on the master would just get
+    // re-asserted to play by the media-sync heartbeat ~1s later. A no-op click
+    // for that brief window is safe; the button works the instant the video is up.
+    if (!el) return;
+    const shouldPlay = el.paused;
+    if (shouldPlay) el.play().catch(() => {}); else el.pause();
+    // .play()/.pause() flip el.paused synchronously → read the real state (no
+    // optimistic guess that could disagree if play() is later rejected).
+    setVideoPaused(el.paused);
+    // Broadcast for INSTANT projector response (the heartbeat would follow within
+    // ~1s anyway, but operators expect an immediate freeze).
+    safePost(mediaChRef.current, { type: "media-control", command: shouldPlay ? "play" : "pause" } as LiveMessage);
+  };
   // Master OFF switch — when on, NO transition is ever published (hard cut on
   // every send) regardless of the selected effect. Persisted with the rest.
   const [transitionsOff, setTransitionsOff] = useState(false);
@@ -62,12 +117,32 @@ export function BottomBar({
     } catch { /* noop */ }
   }, []);
 
+  // F1: the full-screen Transitions panel (centre) shares this selection. When it
+  // changes the transition, mirror it here so the bottom-bar picker matches AND
+  // the persist/apply effect below re-fires (pushing it to the live output).
+  useEffect(() => {
+    const onUpdate = (e: Event) => {
+      const d = (e as CustomEvent<{ name?: string; durationMs?: number; off?: boolean }>).detail;
+      if (!d) return;
+      if (typeof d.name === "string") setTransitionName(d.name);
+      if (typeof d.durationMs === "number") setTransitionDuration(d.durationMs / 1000);
+      if (typeof d.off === "boolean") setTransitionsOff(d.off);
+    };
+    window.addEventListener(TRANSITION_UPDATED_EVENT, onUpdate);
+    return () => window.removeEventListener(TRANSITION_UPDATED_EVENT, onUpdate);
+  }, []);
+
   const ctxRef = useRef(ctx);
   ctxRef.current = ctx;
   useEffect(() => {
     const durationMs = Math.max(0, Math.min(5000, Math.round(transitionDuration * 1000)));
     try {
       window.localStorage.setItem(TRANSITION_KEY, JSON.stringify({ name: transitionName, durationMs, off: transitionsOff }));
+      // F1 reverse-sync: notify an open centre Transitions panel so it mirrors a
+      // change made HERE (same-tab localStorage writes don't fire `storage`).
+      // Safe from loops: the panel's listener only setState(readState()) and never
+      // re-dispatches, and our own listener re-setting identical values is a no-op.
+      window.dispatchEvent(new CustomEvent(TRANSITION_UPDATED_EVENT, { detail: { name: transitionName, durationMs, off: transitionsOff } }));
     } catch { /* noop */ }
     // Push into the live TransitionSpec so the OutputState effect picks it up.
     // ctxRef avoids re-running this on every OperatorConsole re-render (would cause infinite loop).
@@ -102,7 +177,7 @@ export function BottomBar({
     ctx.onJumpSlide(ctx.previewItemIdx, targetIdx);
     const targetSlide = item?.slides?.[targetIdx];
     if (targetSlide) {
-      try { ctx.onSendSlideToLive(targetSlide); }
+      try { ctx.onSendSlideToLive(targetSlide, undefined, item?.type === "song" ? { origin: { kind: "song", songId: (item as { songId?: string }).songId } } : undefined); }
       catch (e) { console.warn("[bottom-bar] prev sendSlideToLive failed", e); }
     }
   };
@@ -112,7 +187,7 @@ export function BottomBar({
     ctx.onJumpSlide(ctx.previewItemIdx, targetIdx);
     const targetSlide = item?.slides?.[targetIdx];
     if (targetSlide) {
-      try { ctx.onSendSlideToLive(targetSlide); }
+      try { ctx.onSendSlideToLive(targetSlide, undefined, item?.type === "song" ? { origin: { kind: "song", songId: (item as { songId?: string }).songId } } : undefined); }
       catch (e) { console.warn("[bottom-bar] next sendSlideToLive failed", e); }
     }
   };
@@ -157,12 +232,21 @@ export function BottomBar({
     <div className="h-11 shrink-0 border-t border-[var(--color-border)] bg-[linear-gradient(180deg,var(--color-app-bg),var(--color-panel))] shadow-[var(--edge-top)] flex items-center px-2.5 gap-2">
       {/* Left — transport cluster (segmented, with depth) */}
       <div className="flex items-center gap-0.5 h-[34px] rounded-xl border border-[var(--color-border)] bg-[var(--color-app-bg)] p-[3px] shadow-[var(--edge-top),inset_0_1px_2px_rgba(0,0,0,0.28)]">
-        <button
-          title={isBlank ? "Unblank live output" : "Blank live output"}
-          aria-pressed={isBlank}
-          onClick={ctx.onBlank}
-          className={cn(tBtn, isBlank && "text-[var(--color-brand)] bg-[var(--color-brand)]/12 hover:bg-[var(--color-brand)]/16")}
-        ><Pause className="w-4 h-4" strokeWidth={2.2} /></button>
+        {isVideoLive ? (
+          <button
+            title={videoPaused ? "Resume video" : "Pause video"}
+            aria-pressed={videoPaused}
+            onClick={toggleVideoPause}
+            className={cn(tBtn, videoPaused && "text-[var(--color-brand)] bg-[var(--color-brand)]/12 hover:bg-[var(--color-brand)]/16")}
+          >{videoPaused ? <Play className="w-4 h-4 fill-current" /> : <Pause className="w-4 h-4" strokeWidth={2.2} />}</button>
+        ) : (
+          <button
+            title={isBlank ? "Unblank live output" : "Blank live output"}
+            aria-pressed={isBlank}
+            onClick={ctx.onBlank}
+            className={cn(tBtn, isBlank && "text-[var(--color-brand)] bg-[var(--color-brand)]/12 hover:bg-[var(--color-brand)]/16")}
+          ><Pause className="w-4 h-4" strokeWidth={2.2} /></button>
+        )}
         <button title="Send to live" onClick={ctx.onSendToLive} className={cn(tBtn, "text-[var(--color-brand)] hover:text-[var(--color-brand)]")}><Play className="w-4 h-4 fill-current" /></button>
         <span className="w-px h-4 bg-[var(--color-border)] mx-0.5" aria-hidden />
         <button title="Previous slide" onClick={prev} disabled={!hasPrev} className={tBtn}><SkipBack className="w-4 h-4" strokeWidth={2.2} /></button>
@@ -196,7 +280,13 @@ export function BottomBar({
           transitionDuration={transitionDuration}
           transitionsOff={transitionsOff}
           onToggleOff={setTransitionsOff}
-          onSelect={(name) => { setTransitionName(name); setTransitionsOff(false); }}
+          onSelect={(name) => {
+            setTransitionName(name);
+            setTransitionsOff(false);
+            // Demo it in the live monitor too, so picking from the bottom bar behaves
+            // exactly like picking from the centre Transitions panel (coherence).
+            try { window.dispatchEvent(new CustomEvent(TRANSITION_PREVIEW_EVENT, { detail: { name, durationMs: Math.round(transitionDuration * 1000) } })); } catch { /* noop */ }
+          }}
           onDurationChange={(d) => setTransitionDuration(d)}
         />
         <input
