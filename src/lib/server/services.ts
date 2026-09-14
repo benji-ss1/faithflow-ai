@@ -21,7 +21,16 @@ import { cleanRenderUrl } from "../render-url";
 // the projector (the whole-OutputState wire validator would otherwise reject it).
 function projectableSongSlide(text: string, objectsJson: unknown): SlidePayload {
   const raw = objectsJson as { bgColor?: unknown; bgImageUrl?: unknown; objects?: unknown } | null | undefined;
-  return projectableTextSlide(text, raw?.bgColor, raw?.bgImageUrl, raw?.objects);
+  // Re-validate the stored per-slide background on READ with the same check the
+  // write path uses (setSongSlideBackgroundImage / createSongImageSlide).
+  return projectableTextSlide(text, raw?.bgColor, cleanRenderUrl(raw?.bgImageUrl) ?? undefined, raw?.objects);
+}
+
+// A legacy / hand-edited plan row can carry a non-UUID id; passing it to a uuid
+// column makes Postgres throw and fails the WHOLE plan load. Skip such ids.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function isUuid(v: unknown): v is string {
+  return typeof v === "string" && UUID_RE.test(v);
 }
 
 export type ExpandedItem = {
@@ -99,15 +108,16 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
     items
       .filter((it) => it.type === "song")
       .map((it) => ((it.payload || {}) as Record<string, unknown>).songId)
-      .filter((v): v is string => typeof v === "string" && v.length > 0),
+      .filter(isUuid),
   ));
   const candidateSet = new Set(candidateSongIds);
   const groupsBySong = new Map<string, GroupRow[]>();
   const arrBySong = new Map<string, ArrRow[]>();
   if (candidateSongIds.length > 0) {
+    // church_id filter (defence-in-depth): group/arrangement rows are tenant-owned.
     const [gRows, aRows] = await Promise.all([
-      db.select().from(songGroups).where(inArray(songGroups.songId, candidateSongIds)).orderBy(asc(songGroups.order)),
-      db.select().from(songArrangements).where(inArray(songArrangements.songId, candidateSongIds)).orderBy(asc(songArrangements.sort)),
+      db.select().from(songGroups).where(and(inArray(songGroups.songId, candidateSongIds), eq(songGroups.churchId, churchId))).orderBy(asc(songGroups.order)),
+      db.select().from(songArrangements).where(and(inArray(songArrangements.songId, candidateSongIds), eq(songArrangements.churchId, churchId))).orderBy(asc(songArrangements.sort)),
     ]);
     for (const g of gRows) { const l = groupsBySong.get(g.songId); if (l) l.push(g); else groupsBySong.set(g.songId, [g]); }
     for (const a of aRows) { const l = arrBySong.get(a.songId); if (l) l.push(a); else arrBySong.set(a.songId, [a]); }
@@ -134,8 +144,10 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
       // in actions.ts is the first line at write; this ensures a legacy row
       // or a future direct-DB write path can't leak another church's slides.
       const candidateSongId = String(payload.songId);
-      let [ownedSong] = await db.select({ id: songs.id }).from(songs)
-        .where(and(eq(songs.id, candidateSongId), eq(songs.churchId, churchId))).limit(1);
+      let [ownedSong]: { id: string }[] = isUuid(candidateSongId)
+        ? await db.select({ id: songs.id }).from(songs)
+          .where(and(eq(songs.id, candidateSongId), eq(songs.churchId, churchId))).limit(1)
+        : [];
       // Resilience: a dangling payload.songId (the song was re-imported/re-synced
       // under a NEW id while the plan item still points at the old one) would
       // otherwise fall through to a single blank slide with no lyrics. Resolve
@@ -179,8 +191,8 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
         } else {
           // Title-relinked song: resolved id wasn't in the candidate set.
           [allGroups, allArrangements] = await Promise.all([
-            db.select().from(songGroups).where(eq(songGroups.songId, songId)).orderBy(asc(songGroups.order)),
-            db.select().from(songArrangements).where(eq(songArrangements.songId, songId)).orderBy(asc(songArrangements.sort)),
+            db.select().from(songGroups).where(and(eq(songGroups.songId, songId), eq(songGroups.churchId, churchId))).orderBy(asc(songGroups.order)),
+            db.select().from(songArrangements).where(and(eq(songArrangements.songId, songId), eq(songArrangements.churchId, churchId))).orderBy(asc(songArrangements.sort)),
           ]);
         }
         // Wave 6G: carry groups + arrangements meta for EVERY song item — even a
@@ -266,7 +278,10 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
       // empty grid. Now: prefer `verses` (build verse-numbered slides with the
       // reference label appended, mirroring BibleMode.cardToSlide's output),
       // fall back to `slides` and `text` for older/imported payload shapes.
-      const versesRaw = Array.isArray(payload.verses) ? (payload.verses as { verse?: number; text?: string }[]) : [];
+      // Filter null / non-object entries (a legacy verses:[null] row used to throw).
+      const versesRaw = Array.isArray(payload.verses)
+        ? (payload.verses as unknown[]).filter((v): v is { verse?: number; text?: string } => !!v && typeof v === "object")
+        : [];
       const reference = typeof payload.reference === "string" ? payload.reference : it.title;
       if (versesRaw.length > 0) {
         slides = versesRaw
@@ -276,7 +291,9 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
             text: `${typeof v.verse === "number" ? `${v.verse} ` : ""}${v.text ?? ""}\n\n${reference}`,
           }));
       } else {
-        const scriptureSlides = Array.isArray(payload.slides) ? (payload.slides as { text: string }[]) : [];
+        const scriptureSlides = Array.isArray(payload.slides)
+          ? (payload.slides as unknown[]).filter((s): s is { text: string } => !!s && typeof s === "object" && typeof (s as { text?: unknown }).text === "string")
+          : [];
         slides = scriptureSlides.map((s) => ({ kind: "text" as const, text: s.text }));
         if (slides.length === 0 && typeof payload.text === "string") slides = [{ kind: "text", text: payload.text as string }];
       }
@@ -285,7 +302,7 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
       // slides. C1 defense-in-depth: scope by churchId; preserve the stored id
       // order; silently skip any id that isn't this church's (never leaks, never
       // throws on a stale id).
-      const ids = (payload.mediaAssetIds as unknown[]).filter((x): x is string => typeof x === "string");
+      const ids = (payload.mediaAssetIds as unknown[]).filter(isUuid);
       const fit = (payload.fitMode === "cover" ? "cover" : "contain") as "cover" | "contain";
       if (ids.length > 0) {
         const rows = await db.select().from(mediaAssets)
@@ -303,7 +320,7 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
         slides = out;
         mediaMeta = meta;
       }
-    } else if (it.type === "media" && payload.mediaAssetId) {
+    } else if (it.type === "media" && isUuid(payload.mediaAssetId)) {
       // C1 defense-in-depth: scope mediaAssets lookup by churchId.
       const [asset] = await db.select().from(mediaAssets)
         .where(and(eq(mediaAssets.id, String(payload.mediaAssetId)), eq(mediaAssets.churchId, churchId)))
@@ -316,7 +333,7 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
         // image" button + double-click-to-edit can resolve the assetId.
         mediaMeta = [{ id: asset.id, fileName: asset.fileName }];
       }
-    } else if (it.type === "sermon" && payload.pptxImportId) {
+    } else if (it.type === "sermon" && isUuid(payload.pptxImportId)) {
       // C1 defense-in-depth: two-hop verify the pptx_import belongs to
       // this church, then pull its slides. Without the join, a foreign
       // payload.pptxImportId would fetch another church's slide PNGs and

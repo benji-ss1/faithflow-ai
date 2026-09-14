@@ -92,6 +92,10 @@ export async function cleanupAdHocServicePlans(): Promise<Result<{ deleted: numb
 // that referenced library items belong to the same church. Any mismatch or
 // cross-church id must be rejected — this is the last-line church-scoping
 // check for drop/click add flows in the operator.
+// Write-path id shape check: a non-UUID id stored in a plan payload later makes
+// the plan expander's uuid-column queries throw (fails the whole plan load).
+const UUID_PAYLOAD_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function validateAddServiceItemPayload(
   db: ReturnType<typeof getDb>,
   churchId: string,
@@ -104,7 +108,7 @@ async function validateAddServiceItemPayload(
   switch (type) {
     case "song": {
       const songId = (payload as any).songId;
-      if (typeof songId !== "string" || !songId) return { ok: false, error: "song payload requires songId" };
+      if (typeof songId !== "string" || !UUID_PAYLOAD_RE.test(songId)) return { ok: false, error: "song payload requires songId" };
       const [row] = await db.select({ id: songs.id }).from(songs)
         .where(and(eq(songs.id, songId), eq(songs.churchId, churchId))).limit(1);
       if (!row) return { ok: false, error: "song not found in your church" };
@@ -125,7 +129,8 @@ async function validateAddServiceItemPayload(
       // expander re-scopes by churchId too).
       const groupIdsRaw = payload.mediaAssetIds; // Record<string, unknown> → unknown, narrowed below
       if (Array.isArray(groupIdsRaw)) {
-        const ids = groupIdsRaw.filter((x: unknown): x is string => typeof x === "string" && x.length > 0);
+        if (!groupIdsRaw.every((x: unknown) => typeof x === "string" && UUID_PAYLOAD_RE.test(x))) return { ok: false, error: "media group ids must be valid asset ids" };
+        const ids = groupIdsRaw as string[];
         if (ids.length === 0) return { ok: false, error: "media group requires at least one asset" };
         if (ids.length > 200) return { ok: false, error: "media group too large (max 200)" };
         const rows = await db.select({ id: mediaAssets.id }).from(mediaAssets)
@@ -134,7 +139,7 @@ async function validateAddServiceItemPayload(
         return { ok: true };
       }
       const mediaAssetId = (payload as any).mediaAssetId;
-      if (typeof mediaAssetId !== "string" || !mediaAssetId) return { ok: false, error: "media payload requires mediaAssetId" };
+      if (typeof mediaAssetId !== "string" || !UUID_PAYLOAD_RE.test(mediaAssetId)) return { ok: false, error: "media payload requires mediaAssetId" };
       const [row] = await db.select({ id: mediaAssets.id }).from(mediaAssets)
         .where(and(eq(mediaAssets.id, mediaAssetId), eq(mediaAssets.churchId, churchId))).limit(1);
       if (!row) return { ok: false, error: "media asset not found in your church" };
@@ -1018,8 +1023,8 @@ export async function setSongSlideBackgroundImage(slideId: string, url: string):
   const db = getDb();
   const owned = await assertSlideOwned(db, slideId, user.churchId);
   if (!owned) return { ok: false, error: "Slide not found" };
-  const clean = typeof url === "string" ? url.trim() : "";
-  if (!clean || clean.length > 2048 || !/^(https?:|blob:|data:image\/|\/)/i.test(clean)) {
+  const clean = cleanRenderUrl(url);
+  if (!clean) {
     return { ok: false, error: "That media has no usable image URL" };
   }
   const [row] = await db.select({ objectsJson: songSlides.objectsJson }).from(songSlides).where(eq(songSlides.id, slideId)).limit(1);
@@ -1061,8 +1066,8 @@ export async function setAllSongSlidesBackgroundImage(songId: string, url: strin
   const db = getDb();
   const song = await assertSongOwned(db, songId, user.churchId);
   if (!song) return { ok: false, error: "Song not found" };
-  const clean = typeof url === "string" ? url.trim() : "";
-  if (!clean || clean.length > 2048 || !/^(https?:|blob:|data:image\/|\/)/i.test(clean)) {
+  const clean = cleanRenderUrl(url);
+  if (!clean) {
     return { ok: false, error: "That media has no usable image URL" };
   }
   const rows = await db.select({ id: songSlides.id, objectsJson: songSlides.objectsJson })
@@ -1108,8 +1113,8 @@ export async function createSongImageSlide(songId: string, atIndex: number | und
   const db = getDb();
   const song = await assertSongOwned(db, songId, user.churchId);
   if (!song) return { ok: false, error: "Song not found" };
-  const clean = typeof url === "string" ? url.trim() : "";
-  if (!clean || clean.length > 2048 || !/^(https?:|blob:|data:image\/|\/)/i.test(clean)) {
+  const clean = cleanRenderUrl(url);
+  if (!clean) {
     return { ok: false, error: "That media has no usable image URL" };
   }
   const existing = await db.select({ id: songSlides.id, order: songSlides.order })
