@@ -6,9 +6,9 @@
   "author": "PresentFlow",
   "main": "dist-electron/main.js",
   "scripts": {
-    "predev": "node scripts/copy-pdf-worker.mjs",
+    "predev": "node scripts/build-changelog.mjs && node scripts/copy-pdf-worker.mjs",
     "dev": "next dev",
-    "prebuild": "node scripts/copy-pdf-worker.mjs",
+    "prebuild": "node scripts/build-changelog.mjs && node scripts/copy-pdf-worker.mjs",
     "electron:dev": "concurrently -k \"next dev\" \"wait-on http://localhost:3000 && npm run electron:build:tsc && cross-env NODE_ENV=development electron .\"",
     "electron:build:tsc": "tsc -p electron/tsconfig.json",
     "ndi:rebuild": "bash scripts/ndi-rebuild.sh",
@@ -34,6 +34,8 @@
     "cron:prune-transcripts": "tsx --env-file=.env.local scripts/prune-transcripts.ts",
     "db:reset": "tsx scripts/reset.ts",
     "typecheck": "tsc --noEmit",
+    "changelog:build": "node scripts/build-changelog.mjs",
+    "check:changes": "node scripts/check-changes.mjs && node scripts/build-changelog.mjs --check",
     "test:pair-code": "tsx --env-file=.env.local test/adversarial/pair-code.test.ts",
     "release": "./scripts/release.sh",
     "release:tag": "bash -c 'V=${npm_config_version:?Usage: npm run release:tag --version=vX.Y.Z}; npm version \"${V#v}\" --no-git-tag-version && git add package.json package-lock.json && git commit -m \"chore(release): $V\" && git tag \"$V\" && git push && git push --tags && echo \"✓ Pushed $V — GitHub Actions will build + publish the desktop release.\"'"
