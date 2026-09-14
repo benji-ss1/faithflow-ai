@@ -4,7 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Sparkles, X, Tag } from "lucide-react";
 import { CHANGELOG, type ChangelogEntry, type Highlight } from "@/lib/changelog";
-import { forwardLastSeen, newerEntries } from "@/lib/whats-new";
+import { forwardLastSeen, launchDecision } from "@/lib/whats-new";
 
 const LAST_SEEN_KEY = "presentflow.whatsNew.lastSeenVersion";
 
@@ -25,11 +25,10 @@ function writeLastSeen(candidate: string | null | undefined) {
  *
  * On very first launch (no lastSeenVersion) we DON'T pop the modal —
  * first-time testers get the guided tour instead. Only true update-arrivals
- * see this. Dismissing marks the current version as seen.
+ * see this. Dismissing marks the newest shown CHANGELOG version as seen.
  *
- * Version source: electronAPI.app.version() when running inside the shell
- * (authoritative — matches what auto-updater installed). Falls back to the
- * top-of-changelog for pure-web sessions.
+ * Only CHANGELOG versions are ever stored — never the desktop app version
+ * (it can run ahead of or behind the notes).
  */
 export function WhatsNewModal() {
   const [newEntries, setNewEntries] = useState<ChangelogEntry[]>([]);
@@ -43,22 +42,18 @@ export function WhatsNewModal() {
     let cancelled = false;
     let popTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const evaluate = (currentVersion: string) => {
+    const evaluate = () => {
       if (cancelled) return;
       let lastSeen: string | null = null;
       try { lastSeen = window.localStorage.getItem(LAST_SEEN_KEY); } catch { /* noop */ }
 
-      // First-ever visit: don't pop (the guided tour handles fresh testers).
-      // Just record so the next update actually shows the modal.
-      if (!lastSeen) {
-        writeLastSeen(currentVersion);
-        return;
-      }
-      const newer = newerEntries(CHANGELOG, lastSeen);
-      if (newer.length === 0) {
-        writeLastSeen(currentVersion);
-        return;
-      }
+      // First-ever visit: don't pop (the guided tour handles fresh testers) —
+      // record the newest CHANGELOG version so the next update shows the modal.
+      // Never store the app version: a desktop build ahead of the notes would
+      // hide every future note (see launchDecision).
+      const { newer, store } = launchDecision(CHANGELOG, lastSeen);
+      if (store) writeLastSeen(store);
+      if (newer.length === 0) return;
 
       // Auto-pop for ANY newer release, patches included — testers want to see
       // what changed each time something ships (2026-08-11, restored by request;
@@ -71,15 +66,7 @@ export function WhatsNewModal() {
       popTimer = setTimeout(() => { if (!cancelled) setOpen(true); }, 600);
     };
 
-    const w = window as Window & { electronAPI?: { app?: { version?: () => Promise<string> } } };
-    const versionApi = w.electronAPI?.app?.version;
-    if (versionApi) {
-      versionApi()
-        .then((v) => evaluate(v || CHANGELOG[0]?.version || "0.0.0"))
-        .catch(() => evaluate(CHANGELOG[0]?.version || "0.0.0"));
-    } else {
-      evaluate(CHANGELOG[0]?.version || "0.0.0");
-    }
+    evaluate();
 
     return () => {
       cancelled = true;

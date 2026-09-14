@@ -26,6 +26,35 @@ export function maxVersion(versions) {
   return newest;
 }
 
+/** Strict X.Y.Z: no leading zeros (except "0"), every part a safe integer. */
+export function isValidVersion(v) {
+  const m = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(String(v));
+  return !!m && m.slice(1).every((p) => Number(p) <= Number.MAX_SAFE_INTEGER);
+}
+
+/**
+ * Split a changes/ directory listing into note files (exact lowercase `.md`,
+ * README excluded) and badly-cased extensions (`.MD`, `.Md`, …) which build and
+ * check both reject — so a note can never be silently ignored.
+ */
+export function classifyChangeFiles(names) {
+  const files = [];
+  const badExt = [];
+  for (const f of names) {
+    if (!/\.md$/i.test(f) || f.toLowerCase() === "readme.md") continue;
+    (f.endsWith(".md") ? files : badExt).push(f);
+  }
+  return { files: files.sort(), badExt: badExt.sort() };
+}
+
+export const badExtMessage = (f) => `changes/${f}: the extension must be lowercase ".md" — rename it`;
+
+/** Best-effort sniff of a top-level frontmatter scalar (version/date) from raw text. */
+export function sniffField(text, key) {
+  const m = new RegExp(`^${key}:\\s*["']?([^"'\\s]+)["']?\\s*$`, "m").exec(String(text).replace(/\r/g, ""));
+  return m ? m[1] : undefined;
+}
+
 function unquote(s) {
   const t = s.trim();
   if (t.length >= 2 && ((t[0] === '"' && t.endsWith('"')) || (t[0] === "'" && t.endsWith("'")))) return t.slice(1, -1);
@@ -54,6 +83,7 @@ export function isCalendarDate(s) {
 export function parseChangeFile(text, slug) {
   const m = /^﻿?---\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/.exec(text);
   if (!m) throw new Error(`changes/${slug}.md: missing --- frontmatter ---`);
+  if (/[\u2028\u2029]/.test(m[1])) throw new Error(`changes/${slug}.md: contains a Unicode line/paragraph separator (U+2028/U+2029) — replace it with a normal space or new line`);
   const out = { slug, headline: "", highlights: [], audience: "operator", version: undefined, date: undefined, order: undefined };
   const seen = new Set();
   let inList = false;
@@ -84,7 +114,7 @@ export function parseChangeFile(text, slug) {
   }
   if (!out.headline) throw new Error(`changes/${slug}.md: headline is required`);
   if (!out.version) throw new Error(`changes/${slug}.md: version is required — create notes with \`npm run changes:new -- <slug>\``);
-  if (!/^\d+\.\d+\.\d+$/.test(out.version)) throw new Error(`changes/${slug}.md: version must look like 0.1.404`);
+  if (!isValidVersion(out.version)) throw new Error(`changes/${slug}.md: version must look like 0.1.404 (three whole numbers, no leading zeros; got "${out.version}")`);
   if (!out.date) throw new Error(`changes/${slug}.md: date is required (YYYY-MM-DD)`);
   if (!isCalendarDate(out.date)) throw new Error(`changes/${slug}.md: date must be a real YYYY-MM-DD date (got "${out.date}")`);
   if (!AUDIENCES.includes(out.audience)) throw new Error(`changes/${slug}.md: audience must be one of ${AUDIENCES.join("|")}`);

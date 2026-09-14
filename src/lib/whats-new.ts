@@ -25,6 +25,23 @@ export function forwardLastSeen(prev: string | null | undefined, candidate: stri
   return cmpVersion(candidate, prev) > 0 ? candidate : prev;
 }
 
+/**
+ * What to do on launch. last-seen is only ever a CHANGELOG version the operator
+ * was actually shown (or, on first run, the newest CHANGELOG version) — never the
+ * app/package version: a desktop build ahead of the notes (app 0.1.999, notes
+ * 0.1.405) would otherwise mask every future note forever.
+ *  - first run: store the newest entry's version, show nothing (tour handles it)
+ *  - nothing newer: store nothing
+ *  - newer entries: show them; the modal stores newer[0] on dismiss
+ */
+export function launchDecision<T extends { version: string }>(
+  entries: T[],
+  lastSeen: string | null | undefined,
+): { newer: T[]; store: string | null } {
+  if (!lastSeen) return { newer: [], store: entries[0]?.version ?? null };
+  return { newer: newerEntries(entries, lastSeen), store: null };
+}
+
 /** Entries strictly newer than last-seen (empty on first visit — the tour handles that). */
 export function newerEntries<T extends { version: string }>(entries: T[], lastSeen: string | null | undefined): T[] {
   if (!lastSeen) return [];

@@ -11,7 +11,7 @@
 // Strict (exit 1) when CI=true or --strict; otherwise it only warns.
 import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
-import { parseChangeFile, readHistory, maxVersion, cmpVersion, sniffVersion } from "./changelog-lib.mjs";
+import { parseChangeFile, readHistory, maxVersion, cmpVersion, sniffVersion, sniffField, badExtMessage } from "./changelog-lib.mjs";
 
 const strict = process.env.CI === "true" || process.argv.includes("--strict");
 const git = (...args) => execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
@@ -19,8 +19,9 @@ const fail = (msg) => {
   console[strict ? "error" : "warn"](`[check:changes] ${msg}`);
   process.exit(strict ? 1 : 0);
 };
-const isChangeFile = (f) => /^changes\/[^/]+\.md$/i.test(f) && f.toLowerCase() !== "changes/readme.md";
-const slugOf = (f) => f.replace(/^changes\//, "").replace(/\.md$/i, "");
+const isChangeFile = (f) => /^changes\/[^/]+\.md$/.test(f) && f.toLowerCase() !== "changes/readme.md";
+const isBadExt = (f) => /^changes\/[^/]+\.md$/i.test(f) && !f.endsWith(".md");
+const slugOf = (f) => f.replace(/^changes\//, "").replace(/\.md$/, "");
 
 const baseRef = process.env.CHANGES_BASE || (process.env.GITHUB_BASE_REF ? `origin/${process.env.GITHUB_BASE_REF}` : "origin/main");
 let base;
@@ -30,13 +31,15 @@ try {
   fail(`cannot find merge base with ${baseRef} (fetch-depth 0 / fetch the base branch)`);
 }
 
-const diffNames = (filter) => git("diff", "--name-only", `--diff-filter=${filter}`, `${base}...HEAD`).split("\n").filter(Boolean);
-const changed = git("diff", "--name-only", `${base}...HEAD`).split("\n").filter(Boolean);
+// --no-renames: a renamed note counts as delete + add, so it faces the added-note rule.
+const diffNames = (filter) => git("diff", "--no-renames", "--name-only", `--diff-filter=${filter}`, `${base}...HEAD`).split("\n").filter(Boolean);
+const changed = git("diff", "--no-renames", "--name-only", `${base}...HEAD`).split("\n").filter(Boolean);
 const added = diffNames("A").filter(isChangeFile);
-const addedOrModified = diffNames("AM").filter(isChangeFile);
+const modified = diffNames("M").filter(isChangeFile);
+const addedOrModified = [...added, ...modified];
 
 // Parse the touched change files (as they are at HEAD).
-const errors = [];
+const errors = diffNames("AM").filter(isBadExt).map((f) => badExtMessage(f.replace(/^changes\//, "")));
 const parsed = new Map();
 for (const f of addedOrModified) {
   try {
@@ -64,6 +67,19 @@ for (const f of added) {
   const c = parsed.get(f);
   if (c && cmpVersion(c.version, baseNewest) <= 0) {
     errors.push(`${f}: version ${c.version} must be above ${baseNewest} (the newest version on ${baseRef}) — a new note needs a new version. Re-create it with \`npm run changes:new -- ${slugOf(f)}\`.`);
+  }
+}
+// A note that already exists on the base is released: its version/date are frozen.
+for (const f of modified) {
+  const c = parsed.get(f);
+  if (!c) continue;
+  let baseText = "";
+  try { baseText = git("show", `${base}:${f}`); } catch { continue; }
+  for (const key of ["version", "date"]) {
+    const was = sniffField(baseText, key);
+    if (was !== undefined && was !== c[key]) {
+      errors.push(`${f}: released note version cannot be edited (${key} was ${was} on ${baseRef}, now ${c[key]}) — add a new note with \`npm run changes:new -- <slug>\` instead.`);
+    }
   }
 }
 if (errors.length) fail(`invalid change note(s):\n  ${errors.join("\n  ")}`);

@@ -8,7 +8,7 @@
 import { readFileSync, readdirSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readHistory, nextChangeVersion, sniffVersion } from "./changelog-lib.mjs";
+import { readHistory, nextChangeVersion, sniffVersion, classifyChangeFiles, isValidVersion } from "./changelog-lib.mjs";
 
 const root = process.env.PF_ROOT || join(dirname(fileURLToPath(import.meta.url)), "..");
 const slug = process.argv[2];
@@ -25,11 +25,16 @@ if (existsSync(file)) {
 const histPath = join(root, "src/lib/changelog.ts");
 const history = existsSync(histPath) ? readHistory(readFileSync(histPath, "utf8")) : [];
 const versions = existsSync(changesDir)
-  ? readdirSync(changesDir)
-      .filter((f) => f.endsWith(".md") && f.toLowerCase() !== "readme.md")
+  ? classifyChangeFiles(readdirSync(changesDir)).files
       .map((f) => sniffVersion(readFileSync(join(changesDir, f), "utf8")))
       .filter(Boolean)
   : [];
+// The desktop app version (package.json) can run ahead of the notes; a note
+// below it would sort under what a desktop user already has, so start above it.
+try {
+  const pkgVersion = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
+  if (isValidVersion(pkgVersion)) versions.push(pkgVersion);
+} catch { /* no package.json (tests) */ }
 const version = nextChangeVersion(history, versions);
 const d = new Date();
 const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;

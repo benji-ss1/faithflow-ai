@@ -6,7 +6,7 @@
 import { readFileSync, readdirSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseChangeFile, readHistory, buildEntries, renderModule, historyWarnings } from "./changelog-lib.mjs";
+import { parseChangeFile, readHistory, buildEntries, renderModule, historyWarnings, classifyChangeFiles, badExtMessage } from "./changelog-lib.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const changesDir = join(root, "changes");
@@ -14,9 +14,11 @@ const outFile = join(root, "src/lib/changelog.generated.ts");
 const check = process.argv.includes("--check");
 
 const history = readHistory(readFileSync(join(root, "src/lib/changelog.ts"), "utf8"));
-const files = existsSync(changesDir)
-  ? readdirSync(changesDir).filter((f) => f.endsWith(".md") && f.toLowerCase() !== "readme.md").sort()
-  : [];
+const { files, badExt } = classifyChangeFiles(existsSync(changesDir) ? readdirSync(changesDir) : []);
+if (badExt.length) {
+  console.error(`[changelog] ${badExt.map(badExtMessage).join("\n[changelog] ")}`);
+  process.exit(1);
+}
 const changes = files.map((f) => parseChangeFile(readFileSync(join(changesDir, f), "utf8"), f.replace(/\.md$/, "")));
 for (const w of historyWarnings(changes, history)) console.warn(`[changelog] WARNING ${w}`);
 const entries = buildEntries(changes, { history });

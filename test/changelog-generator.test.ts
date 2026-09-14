@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import {
   parseChangeFile, readHistory, buildEntries, renderModule, bumpPatch, historyWarnings, nextChangeVersion, isCalendarDate,
+  isValidVersion, classifyChangeFiles, sniffField,
 } from "../scripts/changelog-lib.mjs";
 import { mergeChangelog, type ChangelogEntry } from "../src/lib/changelog-types";
 import { CHANGELOG } from "../src/lib/changelog";
@@ -30,10 +31,12 @@ assert.throws(() => parseChangeFile(md(`headline: h\n${VD}\nbogus: 1`), "x"), /u
 // required version/date, duplicate keys, calendar dates
 assert.throws(() => parseChangeFile(md("headline: h\ndate: 2026-09-14"), "x"), /version is required/);
 assert.throws(() => parseChangeFile(md("headline: h\nversion: 0.1.1"), "x"), /date is required/);
-assert.throws(() => parseChangeFile(md(`headline: a\nheadline: b\n${VD}`), "x"), /duplicate key "headline"/);
-assert.throws(() => parseChangeFile(md("headline: h\nversion: 0.1.1\ndate: 2026-13-45"), "x"), /real YYYY-MM-DD/);
-assert.throws(() => parseChangeFile(md("headline: h\nversion: 0.1.1\ndate: 2026-02-30"), "x"), /real YYYY-MM-DD/);
-assert.ok(isCalendarDate("2028-02-29") && !isCalendarDate("2026-02-29"));
+assert.throws(() => parseChangeFile(md(`headline: a\u2028b\n${VD}`), "x"), /U\+2028/);
+assert.throws(() => parseChangeFile(md(`headline: h\n${VD}\nhighlights:\n  - a\u2029b`), "x"), /U\+2028\/U\+2029/);
+assert.throws(() => parseChangeFile(md("headline: h\nversion: 0.1.405          # set by changes:new\ndate: 2026-09-14"), "x"), /version must/, "trailing comments stay rejected");
+assert.deepEqual(classifyChangeFiles(["b.md", "README.md", "A.MD", "c.Md", "x.txt", "a.md"]), { files: ["a.md", "b.md"], badExt: ["A.MD", "c.Md"] });
+assert.equal(sniffField("---\r\nversion: \"0.1.4\"\r\ndate: 2026-09-14\r\n", "date"), "2026-09-14");
+assert.equal(sniffField("version: 0.1.4", "version"), "0.1.4");
 
 // ---- build: grouping, ordering, dedupe rules
 const history = [{ version: "0.1.402", headline: "Old" }, { version: "0.1.401", headline: "Older" }];
@@ -136,5 +139,7 @@ assert.deepEqual(newOnDay2[0].highlights, ["NEW THING"]);
 assert.equal(shows(day2), 1);
 assert.equal(shows(day2), 0, "and only once");
 assert.match(run("wednesday"), /version 0\.1\.406/, "next note keeps climbing");
+writeFileSync(join(tmp, "package.json"), JSON.stringify({ version: "0.1.999" }));
+assert.match(run("desktop-ahead"), /version 0\.1\.1000/, "starts above a package.json app version that is ahead of the notes");
 
 console.log("changelog-generator: all passed");

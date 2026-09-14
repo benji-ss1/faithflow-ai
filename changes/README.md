@@ -16,15 +16,25 @@ existing change file) and today's date. Fill in the headline and highlights:
 ```md
 ---
 headline: Signing in no longer locks out a whole church
-audience: operator        # operator | admin (default operator)
-version: 0.1.405          # REQUIRED — set by changes:new
-date: 2026-09-14          # REQUIRED — real YYYY-MM-DD, set by changes:new
-order: 1                  # optional — lower shows first within a release
+audience: operator
+version: 0.1.405
+date: 2026-09-14
+order: 1
 highlights:
   - Plain words describing what the operator SEES change.
   - One bullet per line. No markdown, no internal jargon.
 ---
 ```
+
+- `audience` — `operator` | `admin` (optional, default `operator`)
+- `version` — REQUIRED, set by `changes:new`: `X.Y.Z`, whole numbers, no
+  leading zeros (it starts above the curated history, every change file and the
+  `package.json` app version)
+- `date` — REQUIRED, set by `changes:new`: a real `YYYY-MM-DD`
+- `order` — optional, lower shows first within a release
+
+The parser is strict: no trailing `# comments` after a value, the file
+extension must be lowercase `.md`, and values may not contain U+2028/U+2029.
 
 ### Rules
 
@@ -65,7 +75,11 @@ bar pick it up with no code change.
 `origin/main` (or the PR base branch) and fails when:
 
 - a change file **added** in the branch doesn't parse, or its version is not
-  strictly above the highest version on the merge base;
+  strictly above the highest version on the merge base (a renamed note counts
+  as added);
+- a change file that already exists on the merge base (released) has its
+  `version` or `date` edited;
+- a change file has a non-lowercase extension (`.MD`);
 - files under `src/` changed but no change file was added/edited that parses
   (deleting a note doesn't count), and there is no `no-user-change` marker.
 
@@ -74,3 +88,9 @@ line containing only `no-user-change` in the PR description or a commit
 message, or add the `no-user-change` PR label. Locally the script only warns;
 it's strict when `CI=true` (where a missing merge base also fails) or with
 `--strict`.
+
+**Repo setting (required):** two open PRs can both run `changes:new` and claim
+the same next version; each passes CI against the old base. Enable GitHub branch
+protection on `main` → "Require branches to be up to date before merging" (or use
+a merge queue) so the second PR is re-checked against the merged first one and
+fails until it takes a new version.
