@@ -11,6 +11,8 @@ import { nextPreviewPosition } from "@/lib/operator-nav";
 import { dispatchInternal } from "@/lib/internal-events";
 import { useLiveLayers } from "./useLiveLayers";
 import { clampObsBand, type ObsBandConfig } from "@/lib/obs-lowerthird";
+import { OBS_EDITOR_KEY, readObsEditorStore, obsLookWireFromStore, publishObsPreviewState } from "@/lib/obs-look";
+import type { ObsLookWire } from "@/lib/broadcast";
 import { readFontScale, readReferenceScale, readReferenceColor } from "./pro/operatorConstants";
 import { applyChurchLayout, sourceForRelayout } from "./scripture/scriptureStyle";
 import { inferLiveOrigin, type LiveOrigin, recallOrigin, rememberOrigin, carriedOrigin } from "@/lib/song-switch-guard";
@@ -654,11 +656,27 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   // `obsLowerThird`, so this can't change what they show. Seeded from the same
   // localStorage key the card writes; updated live via the card's window event.
   const [obsLowerThird, setObsLowerThird] = useState<ObsBandConfig | null>(null);
+  // OBS EDITOR (2026-09-14): per-look settings + (once explicitly picked) the
+  // look itself, published live as OutputState.obsLook. Read ONLY by /livestream.
+  // Null until the new editor has saved anything → exactly the legacy snapshot.
+  const [obsLook, setObsLook] = useState<ObsLookWire | null>(null);
+  // Operator's own lower third (line1/line2) — held so the heartbeat/any state
+  // change keeps it on the stream until the operator clears it (was dropped to
+  // null by the next OutputState emit). Only /livestream renders it.
+  const [opLowerThird, setOpLowerThird] = useState<{ line1: string; line2: string } | null>(null);
   useEffect(() => {
     const read = () => {
       try {
+        const v2 = localStorage.getItem(OBS_EDITOR_KEY);
+        if (v2) {
+          const store = readObsEditorStore(v2, null, null);
+          setObsLowerThird(store.band);
+          setObsLook(obsLookWireFromStore(store));
+          return;
+        }
         const raw = localStorage.getItem("presentflow.obs.lowerThird.v1");
         setObsLowerThird(raw ? clampObsBand(JSON.parse(raw)) : null);
+        setObsLook(null);
       } catch { /* ignore */ }
     };
     read();
@@ -667,8 +685,22 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       if (detail && typeof detail === "object") { try { setObsLowerThird(clampObsBand(detail)); } catch { /* ignore */ } }
       else read();
     };
+    const onEditor = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && typeof detail === "object") {
+        try {
+          const store = readObsEditorStore(JSON.stringify(detail), null, null);
+          setObsLowerThird(store.band);
+          setObsLook(obsLookWireFromStore(store));
+        } catch { /* ignore */ }
+      } else read();
+    };
     window.addEventListener("presentflow:obs-band-changed", onChange);
-    return () => window.removeEventListener("presentflow:obs-band-changed", onChange);
+    window.addEventListener("presentflow:obs-editor-changed", onEditor);
+    return () => {
+      window.removeEventListener("presentflow:obs-band-changed", onChange);
+      window.removeEventListener("presentflow:obs-editor-changed", onEditor);
+    };
   }, []);
   // ── Decoupling Phase 3: operator layer store ──────────────────────────────
   // Gated on the global env kill-switch AND the per-church opt-in. When off,
@@ -713,7 +745,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       fitMode,
       safeArea,
       operatorMessage: null,
-      lowerThird: null,
+      lowerThird: opLowerThird,
       countdownEndsAt,
       announcement,
       transition: useFastTransition ? fastMarker!.transition : transitionSpec,
@@ -728,6 +760,8 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       // OBS lower-third config — inert for the projector/stage (they don't read
       // it); /livestream applies it live in its lower-third mode.
       obsLowerThird,
+      // OBS editor look + settings — omitted until the editor saved something.
+      ...(obsLook ? { obsLook } : {}),
       // Decoupling Phase 3: the operator's active layer-override patches. Empty
       // (and thus omitted below) unless the layers engine is on for this church,
       // so flag-off / no-patch churches emit exactly the legacy snapshot. Rides
@@ -755,6 +789,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     if (key === lastEmittedKeyRef.current) return;
     lastEmittedKeyRef.current = key;
     lastOutputStateRef.current = state; // cached for snapshot-on-join replay
+    publishObsPreviewState(state);
     safePost(chRef.current, { type: "output", state });
     // videoInput.deviceId only means something on THIS machine (the camera is
     // physically here), so it goes over same-machine BroadcastChannel only —
@@ -780,7 +815,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // marker cleanup at the top of this effect clears it the moment `live`
     // changes to a different slide.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, obsLowerThird, layerOverrides]);
+  }, [live, liveBroadcastRevision, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, plan.items, countdownEndsAt, announcement, transitionSpec, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone, obsLowerThird, obsLook, opLowerThird, layerOverrides]);
   const chRef = useRef<LiveChannelLike | null>(null);
   const liveRef = useRef<SlidePayload>(live);
   liveRef.current = live;
@@ -2029,7 +2064,10 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       videoInput,
       zone: activeZone,
     };
-    const rawLtState: OutputState = { ...base, lowerThird: (line1 || line2) ? { line1, line2 } : null };
+    const nextLt = (line1 || line2) ? { line1, line2 } : null;
+    // Hold it so later OutputState emits (heartbeat / slide change / LAN) keep it.
+    setOpLowerThird(nextLt);
+    const rawLtState: OutputState = { ...base, lowerThird: nextLt };
     // Fail-open sanitize before the wire — the null-fallback `base` above is built
     // from a RAW `next`/`live` (unlike the main emit effect), so guard this path
     // too so a malformed neighbour field can never blank the projector.
@@ -2037,6 +2075,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     safePost(chRef.current, { type: "output", state });
     publishRealtime(scrubOutputStateForRemote(state)); // scrub local-only camera id + local-scope layers
     lastOutputStateRef.current = state;
+    publishObsPreviewState(state);
     toast.success(line1 || line2 ? "Lower third sent" : "Lower third cleared");
   }, [live, nextSlideForStage, plan.items, preview.itemIdx, preview.slideIdx, aspectRatio, fitMode, safeArea, countdownEndsAt, announcement, transitionSpec, nextItemForStage, publishRealtime, fontScale, effectiveAppearance, videoInput, effectiveFontScale, referenceScale, referenceColor, backgroundSpec, activeZone]);
   // Actually CLEAR the lower third on the projector (was a placeholder toast

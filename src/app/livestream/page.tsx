@@ -2,9 +2,10 @@
 import { useCallback, useEffect, useRef, useState, type RefCallback } from "react";
 import { Maximize2, X } from "lucide-react";
 import { OutputCompositor } from "@/components/live/OutputCompositor";
-import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, sanitizeOutputState, type OutputState, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState, type LayerWire } from "@/lib/broadcast";
+import { openLiveChannel, type LiveChannelLike, coerceLiveMessage, sanitizeOutputState, type OutputState, type SlidePayload, type LiveMessage, type AnnouncementPayload, type TransitionSpec, type ThemeAppearance, type VideoInputState, type LayerWire, type ObsLookWire } from "@/lib/broadcast";
 import { LAYERS_V2, applyLayerPatchBounded, rebuildOverridesFromSnapshot, isStaleLayersSnapshot } from "@/lib/output-layers";
-import { parseObsBand, clampObsBand, DEFAULT_OBS_BAND, type ObsBandConfig, type ObsThemeColors } from "@/lib/obs-lowerthird";
+import { DEFAULT_OBS_BAND, type ObsBandConfig } from "@/lib/obs-lowerthird";
+import { parseObsUrl, resolveObsRender, obsThemeColorsOf, applyObsLiveFields, type ObsUrlDefaults } from "@/lib/obs-look";
 import { openOutputChannel, isValidPairCode, type RealtimeConnStatus } from "@/lib/realtime";
 import { AnnouncementLayer } from "@/components/live/AnnouncementLayer";
 
@@ -83,21 +84,24 @@ export default function LivestreamPage() {
   const broadcastChRef = useRef<LiveChannelLike | null>(null);
 
   // ?bg=transparent → strip our own bg so OBS chroma / alpha keys directly
-  const [transparent, setTransparent] = useState(false);
-  const [mode, setMode] = useState<"full" | "lower_third">("full");
-  const [obsBand, setObsBand] = useState<ObsBandConfig>(DEFAULT_OBS_BAND);
+  // URL defaults (legacy semantics, parseObsUrl): ?bg=transparent → camera look;
+  // ?mode=lower_third / ?obs=lowerthird (implies transparent) → lower third with
+  // the band geometry baked into the link. The OBS editor's LIVE look/settings
+  // (OutputState.obsLook / obsLowerThird) layer over these via resolveObsRender.
+  const [urlDefaults, setUrlDefaults] = useState<ObsUrlDefaults>({ transparent: false, mode: "full", band: DEFAULT_OBS_BAND, lookLock: false });
+  const [liveBand, setLiveBand] = useState<ObsBandConfig | null>(null);
+  const [liveLook, setLiveLook] = useState<ObsLookWire | null>(null);
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
-    setTransparent(p.get("bg") === "transparent");
-    if (p.get("mode") === "lower_third") setMode("lower_third");
-    // P5: OBS-friendly `?obs=lowerthird` is an alias for the lower-third
-    // capture mode; it also implies a transparent background so OBS can key.
-    if (p.get("obs") === "lowerthird") { setMode("lower_third"); setTransparent(true); }
-    // OBS lower-third band geometry (movable, set in the OBS setup card, baked
-    // into the copied link). Purely overlay-side — never affects the projector.
-    setObsBand(parseObsBand((k) => p.get(k)));
+    setUrlDefaults(parseObsUrl((k) => p.get(k)));
     if (p.get("transitions") === "1") setTransitionsEnabled(true);
   }, []);
+  // Theme colours mirrored from the live appearance — used by the "theme" band
+  // style / "theme" text colour so OBS reproduces the projector's exact colours.
+  const themeColors = obsThemeColorsOf(appearance);
+  const obsRender = resolveObsRender({ url: urlDefaults, liveLook, liveBand, fontScale, appearance, themeColors, lowerThird });
+  const transparent = obsRender.transparent;
+  const mode = obsRender.mode;
 
   useEffect(() => {
     try {
@@ -323,7 +327,7 @@ export default function LivestreamPage() {
       // Apply the non-slide fields only when they actually changed (dedup).
       let sig: string;
       try {
-        sig = JSON.stringify([state.fontScale, state.referenceScale, state.referenceColor, state.appearance, state.background, state.videoInput, state.lowerThird, state.announcement, state.transition, state.obsLowerThird, LAYERS_V2 ? (state.layers ?? null) : null, LAYERS_V2 ? (state.layersEpoch ?? null) : null]);
+        sig = JSON.stringify([state.fontScale, state.referenceScale, state.referenceColor, state.appearance, state.background, state.videoInput, state.lowerThird, state.announcement, state.transition, state.obsLowerThird, state.obsLook ?? null, LAYERS_V2 ? (state.layers ?? null) : null, LAYERS_V2 ? (state.layersEpoch ?? null) : null]);
       } catch { sig = String(Date.now()); }
       if (sig === lastNonSlideSig) return;
       lastNonSlideSig = sig;
@@ -333,7 +337,9 @@ export default function LivestreamPage() {
       // OBS lower-third live config: an edit in the operator's OBS card reaches
       // us here and updates the band INSTANTLY (overrides the URL-param default).
       // Only /livestream reads this; the projector/stage ignore it.
-      if (state.obsLowerThird) { try { setObsBand(clampObsBand(state.obsLowerThird as Partial<ObsBandConfig>)); } catch { /* ignore */ } }
+      // A null/absent band now CLEARS back to the link's band (Reset reaches OBS);
+      // obsLook absent → the link's URL decides the look (old links unchanged).
+      { const f = applyObsLiveFields(state); setLiveBand(f.liveBand); setLiveLook(f.liveLook); }
       setFontScale(typeof state.fontScale === "number" ? state.fontScale : 1);
       setReferenceScale(typeof state.referenceScale === "number" ? state.referenceScale : 1);
       setReferenceColor(typeof state.referenceColor === "string" ? state.referenceColor : undefined);
@@ -466,8 +472,6 @@ export default function LivestreamPage() {
   // Theme colours mirrored from the live appearance — used ONLY by the "theme"
   // band style so OBS reproduces the projector's exact background + text colour.
   // Only pass a solid/gradient bg colour (image/video themes have no solid fill).
-  const solidThemeBg = appearance && (appearance.bgType === "solid" || appearance.bgType === "gradient" || appearance.bgType === undefined) ? appearance.bgColor : undefined;
-  const themeColors: ObsThemeColors = { textColor: appearance?.textColor, bgColor: solidThemeBg, bgColor2: solidThemeBg ? appearance?.bgColor2 : undefined, bgAngle: appearance?.bgAngle };
   return (
     <div
       className="fixed inset-0 overflow-hidden cursor-none"
@@ -486,17 +490,20 @@ export default function LivestreamPage() {
           <OutputCompositor
             mode="livestream"
             slide={slide}
-            appearance={appearance}
+            appearance={obsRender.appearance}
             background={background}
             videoInput={videoInput}
             transition={transition}
-            fontScale={fontScale}
+            fontScale={obsRender.fontScale}
             referenceScale={referenceScale}
             referenceColor={referenceColor}
             transparent={transparent}
             transitionsEnabled={transitionsEnabled}
-            obsBand={mode === "lower_third" ? obsBand : null}
+            obsBand={obsRender.obsBand}
             obsThemeColors={themeColors}
+            obsBandExtras={obsRender.obsBandExtras}
+            obsOverlay={obsRender.obsOverlay}
+            backgroundDim={obsRender.backgroundDim}
             videoMuted={false}
             onVideoRef={handleVideoRef}
             layersEnabled={LAYERS_V2}
