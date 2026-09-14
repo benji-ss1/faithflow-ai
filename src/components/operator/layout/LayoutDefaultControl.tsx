@@ -81,7 +81,6 @@ export function LayoutDefaultControl({ churchId, compact }: { churchId?: string;
             <PanelBottom className="w-3.5 h-3.5" /> Lower third
           </button>
         </div>
-        <p className="text-[10px] text-[var(--color-foreground)] leading-relaxed mt-1.5">Default layout for new slides — sent to projector.</p>
         <p className="text-[10px] text-[var(--color-muted-foreground)] leading-relaxed mt-1.5">
           {isThird
             ? "Words sit in a band — put it in the upper, mid or lower third, over your own camera/graphics."

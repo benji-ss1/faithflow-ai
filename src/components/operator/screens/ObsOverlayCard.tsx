@@ -448,7 +448,7 @@ export function ObsOverlayCard() {
           This only changes your <span className="text-[var(--color-foreground)]">OBS stream</span>. Your projector and operator screen stay exactly as they are.
         </p>
         <p className="text-[10px] text-[var(--color-muted-foreground)] leading-relaxed" data-obs-link-note>
-          Links you already added to OBS keep their look. Create a new link for this look to follow live changes.
+          Changes here reach links made with this editor straight away. Older OBS links don&apos;t follow these changes — copy a new link to use them.
         </p>
 
         <div className="mt-1 rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/30 p-2.5 space-y-2.5">
@@ -456,7 +456,7 @@ export function ObsOverlayCard() {
             <div className="text-[10px] font-semibold text-[var(--color-foreground)]">OBS editor <span className="font-normal text-[var(--color-muted-foreground)]">— {look === "camera" ? "Over your camera" : look === "lowerthird" ? "Lower third" : "Full projector look"}</span></div>
             <div className="flex items-center gap-1.5">
               {look === "camera" && <span className="text-[9px] text-[var(--color-muted-foreground)]" data-obs-reset-hint>Reset keeps your Layout choice</span>}
-              <button type="button" onClick={resetLook} className="text-[10px] text-[var(--color-brand)] hover:underline">Reset</button>
+              <button type="button" onClick={() => { if (window.confirm("Reset this look to its defaults? If you're streaming, viewers will see the change straight away.")) resetLook(); }} className="text-[10px] text-[var(--color-brand)] hover:underline">Reset</button>
             </div>
           </div>
           <ObsPreview store={store} state={previewState} sample={sample} />

@@ -1,5 +1,6 @@
 "use client";
 import { useState, useTransition } from "react";
+import { toast } from "sonner";
 import { signOutAllDevices } from "@/lib/session-actions";
 
 /** Account security: revoke every session (web + desktop) for the signed-in user. */
@@ -18,7 +19,15 @@ export function SignOutAllDevices() {
           <button
             type="button"
             disabled={pending}
-            onClick={() => start(() => signOutAllDevices())}
+            onClick={() => start(async () => {
+              try {
+                await signOutAllDevices();
+              } catch (e) {
+                // signOut() redirects by throwing NEXT_REDIRECT — let that through.
+                if (e && typeof e === "object" && "digest" in e && String((e as { digest?: unknown }).digest).startsWith("NEXT_REDIRECT")) throw e;
+                toast.error("Couldn't sign out all devices — please try again.");
+              }
+            })}
             className="rounded-md bg-destructive px-3 py-2 text-sm font-semibold text-destructive-foreground disabled:opacity-50"
           >
             {pending ? "Signing out…" : "Yes, sign out all devices"}

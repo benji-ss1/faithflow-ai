@@ -209,6 +209,7 @@ export function WhatsNewModal() {
           <div className="px-5 py-3 border-t border-[var(--color-border)] flex justify-between items-center gap-2">
             <button
               onClick={async () => {
+                if (!window.confirm("Reset & re-sync reloads the app and clears saved settings on this computer. Don't do this during a live service. Continue?")) return;
                 // "Reset & re-sync" — nuclear option for stale caches:
                 //  1. Clear all Cache Storage entries (service-worker caches)
                 //  2. Unregister service workers
