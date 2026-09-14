@@ -59,6 +59,10 @@ export const users = pgTable("users", {
   // user so we don't hot-write on every RSC prefetch). Surfaces on the Team
   // page so admins can see who's been active recently.
   lastActiveAt: timestamp("last_active_at"),
+  // Embedded in the session JWT at sign-in; bumped by "sign out all devices"
+  // and password reset. The jwt refresh ends any session whose copy differs.
+  // docs/migrations/2026-09-14-desktop-signin-hardening.sql
+  sessionVersion: integer("session_version").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -72,6 +76,27 @@ export const authTokens = pgTable("auth_tokens", {
   usedAt: timestamp("used_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// Desktop pairing requests (one per code shown on a desktop). Records the
+// requesting device so the approver sees what they're approving, and gives an
+// atomic first-approver-wins claim. Server-only; RLS deny-all.
+// docs/migrations/2026-09-14-desktop-signin-hardening.sql
+export const devicePairRequests = pgTable("device_pair_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  codeHash: text("code_hash").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  ip: text("ip"),
+  userAgent: text("user_agent"),
+  country: text("country"),
+  city: text("city"),
+  claimedByUserId: uuid("claimed_by_user_id").references(() => users.id, { onDelete: "cascade" }),
+  claimedAt: timestamp("claimed_at"),
+  consumedAt: timestamp("consumed_at"),
+}, (t) => [
+  uniqueIndex("device_pair_requests_code_hash_uq").on(t.codeHash),
+  index("device_pair_requests_expires_idx").on(t.expiresAt),
+]);
 
 // Invitations: admin adds a teammate → email with a signed invite link.
 export const invitations = pgTable("invitations", {
