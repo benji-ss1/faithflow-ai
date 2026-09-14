@@ -178,6 +178,29 @@ export function readObsEditorStore(rawV2: string | null, rawLegacyBand: string |
   return { v: 2, look, lookLive: false, band, settings };
 }
 
+/**
+ * What the OPERATOR CONSOLE publishes from raw localStorage on startup (pure).
+ * - v2 key present (valid or corrupt) → the editor store (existing user).
+ * - no v2 but any legacy key → legacy band (if any), obsLook null (unchanged).
+ * - GENUINELY EMPTY (same "new install" rule as readObsEditorStore) → the
+ *   new-install obsLook defaults (camLayout "lowerthird") so a live=1 camera
+ *   link gets the band even if the card was never opened on this machine.
+ *   Band stays null so old obs=lowerthird links keep their URL band. Never
+ *   writes storage — the card still migrates/initialises normally later.
+ */
+export function consoleObsInitial(rawV2: string | null, rawLegacyBand: string | null, rawLegacyLook: string | null): { band: ObsBandConfig | null; look: ObsLookWire | null } {
+  if (rawV2) {
+    const store = readObsEditorStore(rawV2, rawLegacyBand, rawLegacyLook);
+    return { band: store.band, look: obsLookWireFromStore(store) };
+  }
+  if (rawV2 == null && rawLegacyBand == null && rawLegacyLook == null) {
+    return { band: null, look: obsLookWireFromStore(readObsEditorStore(null, null, null)) };
+  }
+  let band: ObsBandConfig | null = null;
+  if (rawLegacyBand) { try { band = clampObsBand(JSON.parse(rawLegacyBand)); } catch { band = null; } }
+  return { band, look: null };
+}
+
 /** v2 settings without a VALID camLayout (saved before it existed, or junk) →
  *  the user had full-frame camera words, so they keep "full". */
 function migrateV2Settings(raw: unknown): ObsLookSettings {
