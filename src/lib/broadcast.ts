@@ -71,6 +71,7 @@ export type ObsLookWire = {
   fullDim?: number;
   // "Over your camera" layout (see ObsLookSettings in obs-look.ts for the back-compat rule).
   camLayout?: "lowerthird" | "full";
+  /** RETIRED (never published, ignored by the renderer); validator kept tolerant for back-compat. */
   camLayoutSet?: boolean;
   camBandPosition?: "upper" | "mid" | "lower" | "custom";
   camBandOffsetPct?: number;

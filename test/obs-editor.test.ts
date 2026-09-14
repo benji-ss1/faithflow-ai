@@ -234,10 +234,22 @@ async function main() {
       assert.ok(html.includes("background:transparent") && html.includes("He reigns forever more"));
     });
   }
-  check("camLayout: live=1 link with NO live settings yet → lower third by default", () => {
-    const r = resolveObsRender({ url: parseObsUrl(q("bg=transparent&live=1")), fontScale: 1, appearance: theme, themeColors: obsThemeColorsOf(theme), lowerThird: null });
-    assert.equal(r.camLayout, "lowerthird"); assert.equal(r.mode, "lower_third"); assert.equal(r.transparent, true); assert.ok(r.obsBand);
-  });
+  // live=1 defaults: lower third ONLY on an explicit published camLayout:"lowerthird".
+  for (const [name, ll] of [
+    ["no live settings yet (null)", null], ["no live settings (undefined)", undefined],
+    ["older operator build (no camLayout)", { look: "camera", camScale: 1.4 }],
+    ["invalid camLayout 'sideways'", { look: "camera", camLayout: "sideways" }],
+    ["camLayout null", { look: "camera", camLayout: null }],
+    ["retired camLayoutSet only", { look: "camera", camLayoutSet: true }],
+  ] as const) {
+    check(`camLayout: live=1 link with ${name} → FULL-frame (legacy inputs)`, () => {
+      const base = { url: parseObsUrl(q("bg=transparent&live=1")), fontScale: 1, appearance: theme, themeColors: obsThemeColorsOf(theme), lowerThird: null };
+      const r = resolveObsRender({ ...base, liveLook: ll as unknown as ObsLookWire });
+      assert.equal(r.camLayout, undefined); assert.equal(r.mode, "full"); assert.equal(r.obsBand, null);
+      const stripped = ll ? (({ camLayout: _a, camLayoutSet: _b, ...rest }) => rest)(ll as Record<string, unknown>) : ll;
+      assert.equal(JSON.stringify(r), JSON.stringify(resolveObsRender({ ...base, liveLook: stripped as unknown as ObsLookWire })));
+    });
+  }
   check("camLayout: switch to full → legacy full-frame words (no band), full-frame controls apply", () => {
     const { resolved } = pipeline(camFull({ camScale: 1.5, camPos: "top" }), { url: "bg=transparent&live=1" });
     assert.equal(resolved.camLayout, "full"); assert.equal(resolved.mode, "full"); assert.equal(resolved.obsBand, null);
@@ -259,18 +271,36 @@ async function main() {
     const html = render(resolved, song);
     assert.ok(html.includes("opacity:0.8") && html.includes("color:#ff0000"));
   });
-  check("camLayout: OLD link (no live=1) stays full-frame unless explicitly changed", () => {
-    const old = pipeline(storeWith("camera", { camLayout: "lowerthird", camLayoutSet: false }), { url: "bg=transparent" }).resolved;
-    assert.equal(old.mode, "full"); assert.equal(old.obsBand, null); assert.equal(old.camLayout, undefined);
-    const picked = pipeline(storeWith("camera", { camLayout: "lowerthird", camLayoutSet: true }), { url: "bg=transparent" }).resolved;
-    assert.equal(picked.mode, "lower_third"); assert.ok(picked.obsBand);
-    const pickedFull = pipeline(storeWith("camera", { camLayout: "full", camLayoutSet: true }), { url: "bg=transparent" }).resolved;
-    assert.equal(pickedFull.mode, "full");
-    // camLayout never affects non-camera looks.
+  // SECURITY: an OLD link (no live=1) must NEVER change camera layout from the wire.
+  for (const u of ["bg=transparent", "bg=transparent&live=0", "bg=transparent&live=true", ""]) {
+    for (const cl of ["lowerthird", "full", undefined, "sideways", null]) {
+      for (const set of [true, false, undefined, "true"]) {
+        check(`camLayout: OLD link "${u}" × camLayout=${String(cl)} × camLayoutSet=${String(set)} → legacy full-frame, identical inputs`, () => {
+          const ll: Record<string, unknown> = { camScale: 1.3, camBandPosition: "upper", camBandStyle: "black" };
+          if (cl !== undefined) ll.camLayout = cl; if (set !== undefined) ll.camLayoutSet = set;
+          const base = { url: parseObsUrl(q(u)), fontScale: 1, appearance: theme, themeColors: obsThemeColorsOf(theme), lowerThird: { line1: "T", line2: "" } };
+          const raw = resolveObsRender({ ...base, liveLook: ll as ObsLookWire });
+          const legacy = resolveObsRender({ ...base, liveLook: { camScale: 1.3, camBandPosition: "upper", camBandStyle: "black" } as ObsLookWire });
+          assert.equal(raw.camLayout, undefined); assert.notEqual(raw.mode === "lower_third" && raw.look === "camera", true);
+          assert.equal(JSON.stringify(raw), JSON.stringify(legacy));
+          if (cl === "lowerthird" || cl === "full") {
+            const piped = pipeline(storeWith("camera", { camLayout: cl }), { url: u }).resolved;
+            assert.equal(piped.camLayout, undefined); assert.equal(piped.obsBand === null || piped.look !== "camera", true);
+          }
+        });
+      }
+    }
+  }
+  check("camLayout: never affects non-camera looks", () => {
     for (const u of ["", "obs=lowerthird", "live=1"]) {
-      const r = pipeline(storeWith(u === "live=1" ? "full" : "camera", { camLayout: "lowerthird", camLayoutSet: true, camBandPosition: "upper" }), { url: u }).resolved;
+      const r = pipeline(storeWith(u === "live=1" ? "full" : "camera", { camLayout: "lowerthird", camBandPosition: "upper" }), { url: u }).resolved;
       assert.notEqual(r.look, "camera"); assert.equal(r.camLayout, undefined);
     }
+  });
+  check("camLayout: store never publishes the retired camLayoutSet", () => {
+    assert.equal("camLayoutSet" in obsLookWireFromStore(storeWith("camera")), false);
+    assert.equal("camLayoutSet" in clampObsLookSettings({ camLayoutSet: true }), false);
+    assert.ok(sanitizeObsLook({ camLayoutSet: true, camScale: 1 }), "validator stays tolerant of the old field");
   });
   check("camLayout migration: pre-existing v2 store (no camLayout) keeps full-frame; legacy user too; new install lower third", () => {
     const pre = JSON.stringify({ v: 2, look: "camera", lookLive: true, band: DEFAULT_OBS_BAND, settings: { camScale: 1.4 } });
@@ -279,8 +309,25 @@ async function main() {
     assert.equal(pipeline(s, { url: "bg=transparent&live=1" }).resolved.mode, "full", "existing live=1 user keeps full-frame");
     assert.equal(readObsEditorStore(null, null, "camera").settings.camLayout, "full");
     assert.equal(readObsEditorStore(null, null, null).settings.camLayout, "lowerthird");
-    const rt = readObsEditorStore(JSON.stringify({ ...s, settings: { ...s.settings, camLayout: "lowerthird", camLayoutSet: true } }), null, null);
-    assert.equal(rt.settings.camLayout, "lowerthird"); assert.equal(rt.settings.camLayoutSet, true);
+    const rt = readObsEditorStore(JSON.stringify({ ...s, settings: { ...s.settings, camLayout: "lowerthird" } }), null, null);
+    assert.equal(rt.settings.camLayout, "lowerthird");
+  });
+  const v2s = (settings: unknown) => JSON.stringify({ v: 2, look: "camera", lookLive: true, band: DEFAULT_OBS_BAND, settings });
+  for (const [name, raw, want] of [
+    ["invalid camLayout 'sideways'", v2s({ camLayout: "sideways" }), "full"], ["camLayout null", v2s({ camLayout: null }), "full"],
+    ["settings null", v2s(null), "full"], ["settings array", v2s([]), "full"], ["corrupt JSON", "{oops", "full"],
+    ["unknown version", JSON.stringify({ v: 3, settings: { camLayout: "lowerthird" } }), "full"], ["'null'", "null", "full"],
+    ["empty string", "", "full"], ["__proto__ injection", '{"v":2,"settings":{"__proto__":{"camLayout":"lowerthird"}}}', "full"],
+    ["valid full", v2s({ camLayout: "full" }), "full"], ["valid lowerthird", v2s({ camLayout: "lowerthird" }), "lowerthird"],
+  ] as const) {
+    check(`camLayout migration: v2 store ${name} → ${want}`, () => {
+      assert.equal(readObsEditorStore(raw, null, null).settings.camLayout, want);
+    });
+  }
+  check("camLayout migration: only a genuinely empty store is a new install", () => {
+    assert.equal(readObsEditorStore(null, null, null).settings.camLayout, "lowerthird");
+    assert.equal(readObsEditorStore(null, "{bad", null).settings.camLayout, "full");
+    assert.equal(readObsEditorStore(null, null, "zzz").settings.camLayout, "full");
   });
 
   // ── Full projector look controls ─────────────────────────────────────────

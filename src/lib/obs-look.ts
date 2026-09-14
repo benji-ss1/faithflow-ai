@@ -16,6 +16,12 @@
  *     (every link the new editor creates/copies) follows the editor's look.
  *     A link pasted in OBS before this existed (no `live=1`) keeps its URL look
  *     forever; per-look SETTINGS still restyle the look that link shows.
+ *   - CAMERA LAYOUT RULE: a link WITHOUT live=1 NEVER changes camera layout from
+ *     the wire — it always renders the legacy full-frame camera words, whatever
+ *     camLayout (or the retired camLayoutSet) says. On a live=1 link the camera
+ *     lower third applies ONLY when the received settings explicitly carry
+ *     camLayout:"lowerthird"; missing settings, a missing camLayout (older
+ *     operator build) or an invalid value all render full-frame.
  *   - No live obsLook (or all-default settings) ⇒ resolveObsRender returns the
  *     exact legacy compositor inputs (same fontScale, same appearance object,
  *     no overlay hints) ⇒ byte-identical render.
@@ -49,15 +55,11 @@ export type ObsLookSettings = {
   fullScale: number;      // full: text size multiplier 0.5..2
   fullDim: number;        // full: background dim 0..0.9
   // ── Over your camera LAYOUT (2026-09-14) ──
-  // BACK-COMPAT RULE (locked by test/obs-editor.test.ts): the camera layout only
-  // takes effect when (a) the OBS link carries live=1, or (b) camLayoutSet is
-  // true (the operator explicitly changed a camera layout control). A link
-  // pasted before this existed (no live=1) with no explicit change keeps the
-  // legacy full-frame camera look byte-identically. New installs default the
-  // editor to "lowerthird"; a pre-existing v2 store (settings saved before this
-  // field existed) migrates to "full" so existing users keep full-frame.
+  // BACK-COMPAT RULE (locked by test/obs-editor.test.ts): see the CAMERA LAYOUT
+  // RULE in the file header — only live=1 links with an explicit "lowerthird"
+  // render the band. New installs (genuinely empty store) default the editor to
+  // "lowerthird"; any existing/corrupt/unknown store migrates to "full".
   camLayout: ObsCamLayout;
-  camLayoutSet: boolean;
   camBandPosition: ObsCamBandPosition;
   camBandOffsetPct: number; // 0 (top) .. 100 (bottom) — used when position = custom
   camBandHeightPct: number; // 10..60
@@ -70,7 +72,7 @@ export const DEFAULT_OBS_LOOK_SETTINGS: ObsLookSettings = {
   ltText: "auto", ltRef: true,
   camScale: 1, camPos: "middle", camText: "auto", camEffect: "shadow", camScrim: 0,
   fullScale: 1, fullDim: 0,
-  camLayout: "lowerthird", camLayoutSet: false, camBandPosition: "lower", camBandOffsetPct: 100,
+  camLayout: "lowerthird", camBandPosition: "lower", camBandOffsetPct: 100,
   camBandHeightPct: DEFAULT_OBS_BAND.heightPct, camBandScale: 1, camBandOpacity: 0.6, camBandStyle: "clear",
 };
 
@@ -96,7 +98,6 @@ export function clampObsLookSettings(raw: unknown): ObsLookSettings {
     fullScale: num(r.fullScale, 0.5, 2, d.fullScale),
     fullDim: num(r.fullDim, 0, 0.9, d.fullDim),
     camLayout: isObsCamLayout(r.camLayout) ? r.camLayout : d.camLayout,
-    camLayoutSet: r.camLayoutSet === true,
     camBandPosition: isObsCamBandPosition(r.camBandPosition) ? r.camBandPosition : d.camBandPosition,
     camBandOffsetPct: num(r.camBandOffsetPct, 0, 100, d.camBandOffsetPct),
     camBandHeightPct: num(r.camBandHeightPct, 10, 60, d.camBandHeightPct),
@@ -151,6 +152,8 @@ export type ObsEditorStore = {
  * users keep their band. Pure (caller passes the raw strings).
  */
 export function readObsEditorStore(rawV2: string | null, rawLegacyBand: string | null, rawLegacyLook: string | null): ObsEditorStore {
+  // Any v2 key at all (even corrupt / unknown version / "null") = existing user.
+  const hadV2 = rawV2 != null;
   if (rawV2) {
     try {
       const p = JSON.parse(rawV2) as Record<string, unknown>;
@@ -170,17 +173,18 @@ export function readObsEditorStore(rawV2: string | null, rawLegacyBand: string |
   const look: ObsLook = OBS_LOOKS.includes(rawLegacyLook as ObsLook) ? (rawLegacyLook as ObsLook) : "camera";
   // A legacy (pre-editor) user already has a full-frame camera link → keep the
   // editor on full-frame too; a brand-new install defaults to the lower third.
-  const legacyUser = rawLegacyBand != null || rawLegacyLook != null;
+  const legacyUser = hadV2 || rawLegacyBand != null || rawLegacyLook != null;
   const settings = { ...DEFAULT_OBS_LOOK_SETTINGS, ...(legacyUser ? { camLayout: "full" as const } : {}) };
   return { v: 2, look, lookLive: false, band, settings };
 }
 
-/** v2 settings saved before camLayout existed → the user had full-frame camera
- *  words, so they keep "full" (unless they pick lower third). */
+/** v2 settings without a VALID camLayout (saved before it existed, or junk) →
+ *  the user had full-frame camera words, so they keep "full". */
 function migrateV2Settings(raw: unknown): ObsLookSettings {
   const s = clampObsLookSettings(raw);
-  const hadLayout = !!raw && typeof raw === "object" && "camLayout" in (raw as Record<string, unknown>);
-  return hadLayout ? s : { ...s, camLayout: "full" };
+  const r = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null;
+  const valid = !!r && Object.prototype.hasOwnProperty.call(r, "camLayout") && isObsCamLayout(r.camLayout);
+  return valid ? s : { ...s, camLayout: "full" };
 }
 
 /** The obsLook wire the operator publishes for a store (look only when picked). */
@@ -296,15 +300,12 @@ export function resolveObsRender(i: ObsRenderInput): ObsRenderResolved {
   }
   let look = urlLook({ transparent, mode });
   const s = live ? clampObsLookSettings(live) : null;
-  // Camera layout (see the BACK-COMPAT RULE on ObsLookSettings.camLayout): only a
-  // live=1 link (default lower third) or an explicit operator change moves the
-  // camera look off legacy full-frame. Old links with no explicit change are
-  // untouched (camLayout stays undefined → exactly the legacy path below).
+  // CAMERA LAYOUT RULE (file header): only a live=1 link carrying a VALID
+  // camLayout sets it; old links (no live=1) never read it from the wire, and a
+  // missing/invalid value leaves camLayout undefined → the legacy full-frame path.
   let camLayout: ObsCamLayout | undefined;
-  if (look === "camera") {
-    const rawLayout = live && isObsCamLayout(live.camLayout) ? live.camLayout : undefined;
-    if (i.url.live) camLayout = rawLayout ?? "lowerthird";
-    else if (live?.camLayoutSet === true && rawLayout) camLayout = rawLayout;
+  if (look === "camera" && i.url.live && live && isObsCamLayout(live.camLayout)) {
+    camLayout = live.camLayout;
     if (camLayout === "lowerthird") mode = "lower_third";
   }
   const out: ObsRenderResolved = {
