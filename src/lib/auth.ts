@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { users } from "./db/schema";
 import { consumeAuthToken } from "./auth-tokens";
+import { sessionTokenVerdict } from "./desktop-auth-core";
 import { InvalidCredentialsError, RateLimitedError, chargeLoginAttempt, clientIpFromHeaders, refundLoginSuccess } from "./login-guard";
 
 // H1 brute-force protection lives in login-guard.ts (per-IP 30, per-email 5,
@@ -67,7 +68,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         refundLoginSuccess(ip, email);
 
-        return { id: user.id, email: user.email, name: user.name, churchId: user.churchId, role: user.role };
+        return { id: user.id, email: user.email, name: user.name, churchId: user.churchId, role: user.role, sessionVersion: user.sessionVersion };
       },
     }),
     // Desktop-app auto-login: exchanges a one-time device-link token (minted
@@ -84,7 +85,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const db = getDb();
         const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
         if (!user) return null;
-        return { id: user.id, email: user.email, name: user.name, churchId: user.churchId, role: user.role };
+        return { id: user.id, email: user.email, name: user.name, churchId: user.churchId, role: user.role, sessionVersion: user.sessionVersion };
       },
     }),
   ],
@@ -95,9 +96,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.uid = (user as { id: string }).id;
         token.churchId = (user as { churchId: string }).churchId;
         token.role = (user as { role: string }).role;
+        // Revocation + absolute-lifetime anchors (see sessionTokenVerdict).
+        token.sv = Number((user as { sessionVersion?: number }).sessionVersion ?? 0);
+        token.authTime = Date.now();
         token.refreshedAt = Date.now();
         return token;
       }
+      // Absolute cap: rolling refresh never extends past 180 days from the
+      // ORIGINAL sign-in. Checked every call (no DB). Returning null ends the session.
+      if (sessionTokenVerdict({ authTime: token.authTime }) === "expired") return null;
+      // Legacy (pre-hardening) tokens: start the 180-day clock now.
+      if (token.authTime === undefined) token.authTime = Date.now();
       // Refresh path: on explicit `session.update()` OR every 5 minutes,
       // re-select role/churchId from the DB so a removed teammate or
       // demoted admin can't keep operating on a stale session.
@@ -111,10 +120,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           if (uid) {
             const db = getDb();
             const [row] = await db
-              .select({ churchId: users.churchId, role: users.role })
+              .select({ churchId: users.churchId, role: users.role, sessionVersion: users.sessionVersion })
               .from(users)
               .where(eq(users.id, uid))
               .limit(1);
+            // "Sign out all devices" / password reset bumped the version → end this session.
+            if (row && sessionTokenVerdict({ authTime: token.authTime, tokenVersion: token.sv, dbVersion: row.sessionVersion }) !== "ok") {
+              return null;
+            }
             if (row) {
               token.churchId = row.churchId;
               token.role = row.role;

@@ -153,6 +153,9 @@ function AuthInner({ initialMode, isDesktop = false }: { initialMode: Mode; isDe
             {reason === "session_expired" && (
               <div className="banner" role="status">You were signed out. Sign back in to return to your live plan.</div>
             )}
+            {reason === "signed_out_all" && (
+              <div className="banner" role="status">You signed out of all devices. Sign in again on the computers you trust.</div>
+            )}
             {reason === "device_link_invalid" && (
               <div className="banner" role="status">That desktop sign-in link expired or was already used. Use &ldquo;Continue with the account you signed into on the web&rdquo; below, or sign in with your email and password.</div>
             )}

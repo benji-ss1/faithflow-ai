@@ -8,6 +8,7 @@ import { users } from "./db/schema";
 import { issueAuthToken, consumeAuthToken, invalidateUserTokens } from "./auth-tokens";
 import { sendVerificationEmail, sendPasswordResetEmail } from "./email";
 import { createLimiter } from "./rate-limit";
+import { revokeAllSessionsForUser } from "./session-revocation";
 
 type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
 
@@ -144,9 +145,13 @@ export async function resetPassword(token: string, newPassword: string): Promise
   const db = getDb();
   const passwordHash = await bcrypt.hash(newPassword, 12);
   await db.update(users).set({ passwordHash }).where(eq(users.id, userId));
-  // A password reset revokes any outstanding desktop sign-in links / pairing
-  // approvals so a link minted before the reset can't open a session after it.
-  await invalidateUserTokens(userId, ["device_link", "device_pair"]).catch(() => { /* best-effort */ });
+  // A password reset ends every existing session (session_version bump) and
+  // revokes outstanding desktop sign-in links / pairing approvals, so neither a
+  // stolen 90-day cookie nor a link minted before the reset survives it.
+  await revokeAllSessionsForUser(userId).catch(async (e) => {
+    console.error("[resetPassword] session revocation failed:", e instanceof Error ? e.message : e);
+    await invalidateUserTokens(userId, ["device_link", "device_pair"]).catch(() => { /* best-effort */ });
+  });
   return { ok: true };
 }
 
