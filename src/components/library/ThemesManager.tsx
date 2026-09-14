@@ -428,7 +428,7 @@ function SlidePreview({ config, mode = "lyrics", churchName = "Grace Community",
     bgType === "gradient"
       ? { background: `linear-gradient(${bgAngle}deg, ${bg1}, ${bg2})` }
       : bgType === "image" && bgImageUrl
-        ? { background: `#000 url(${bgImageUrl}) center/cover no-repeat` }
+        ? { background: `#000 url("${bgImageUrl}") center/cover no-repeat` }
         : bgType === "video"
           ? { background: "#000" } // video element renders on top; keep base black in case url fails
           : { background: bg1 };

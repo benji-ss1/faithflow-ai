@@ -12,8 +12,8 @@
 // /ndi. Projector pages are same-origin with the app, so a relative path resolves.
 //
 // Accepted:
-//   • same-origin absolute paths starting with a SINGLE "/" — "/api/media/<id>",
-//     "/marketing/x.jpg"
+//   • same-origin paths under an explicit prefix allowlist ONLY — "/api/media/<id>",
+//     "/marketing/x.jpg", "/brand/…", "/login/…" (see RELATIVE_PREFIXES)
 //   • https:// URLs (presigned S3 / Supabase storage)
 //   • http:// ONLY for localhost / 127.0.0.1 / [::1] AND only outside production
 //     (dev MinIO). Statically false in prod builds.
@@ -29,12 +29,27 @@ const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 // eslint-disable-next-line no-control-regex
 const UNSAFE_CHARS = /["'\s<>\\\u0000-\u001f\u007f]/;
 
+// RELATIVE-PATH ALLOWLIST (2026-09-14 security gate). Output pages are same-origin
+// and credentialed, so an arbitrary relative path (e.g.
+// "/api/auth/device-exchange?token=…") loaded as a background would make the
+// projector perform an authenticated GET against an app route. Only the prefixes
+// that real producers emit are allowed: stored media ("/api/media/<id>") and the
+// static public/ image folders (marketing, brand, login). No query/fragment (no
+// producer needs one), no dot segments, no percent-encoded dot/slash/backslash.
+const RELATIVE_PREFIXES = ["/api/media/", "/marketing/", "/brand/", "/login/"];
+function isAllowedRelativePath(p: string): boolean {
+  if (/[?#]/.test(p)) return false;
+  if (/%(2e|2f|5c)/i.test(p)) return false;
+  if (p.split("/").some((seg) => seg === "." || seg === "..")) return false;
+  return RELATIVE_PREFIXES.some((pre) => p.startsWith(pre) && p.length > pre.length);
+}
+
 export function cleanRenderUrl(url: unknown): string | null {
   const clean = typeof url === "string" ? url.trim() : "";
   if (!clean || clean.length > 2048) return null;
   if (UNSAFE_CHARS.test(clean)) return null;
   if (clean.startsWith("//")) return null;
-  if (clean.startsWith("/")) return clean; // same-origin relative (single slash)
+  if (clean.startsWith("/")) return isAllowedRelativePath(clean) ? clean : null;
   if (/^data:/i.test(clean)) {
     return /^data:image\/(png|jpe?g|gif|webp)[;,]/i.test(clean) ? clean : null;
   }

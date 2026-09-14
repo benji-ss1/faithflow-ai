@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { signIn, signOut } from "@/lib/auth";
+import { isTopLevelNavigation } from "@/lib/fetch-metadata";
 
 /**
  * DEV-ONLY auto-login. Signs in the demo/dev account so the operator console
@@ -18,6 +19,12 @@ function devEnabled() {
 
 export async function GET(req: NextRequest) {
   if (!devEnabled()) return NextResponse.json({ error: "not found" }, { status: 404 });
+  // Only act on a TOP-LEVEL NAVIGATION (the Electron shell's loadURL) — a
+  // subresource GET (<img>/CSS background on an output page, fetch, iframe) must
+  // never swap the session. See isTopLevelNavigation.
+  if (!isTopLevelNavigation(req.headers)) {
+    return NextResponse.json({ error: "navigation required" }, { status: 400 });
+  }
 
   const email = process.env.DEV_LOGIN_EMAIL;
   const password = process.env.DEV_LOGIN_PASSWORD;

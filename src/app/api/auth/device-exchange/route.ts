@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { signIn, signOut } from "@/lib/auth";
+import { isTopLevelNavigation } from "@/lib/fetch-metadata";
 
 /**
  * Desktop-app auto-login handoff. The Electron shell navigates its
@@ -10,6 +11,12 @@ import { signIn, signOut } from "@/lib/auth";
  * own cookie jar, exactly as if the user had typed a password in it.
  */
 export async function GET(req: NextRequest) {
+  // Only act on a TOP-LEVEL NAVIGATION (the Electron shell's loadURL) — a
+  // subresource GET (<img>/CSS background on an output page, fetch, iframe) must
+  // never swap the session. See isTopLevelNavigation.
+  if (!isTopLevelNavigation(req.headers)) {
+    return NextResponse.json({ error: "navigation required" }, { status: 400 });
+  }
   const token = req.nextUrl.searchParams.get("token");
   if (!token) {
     return NextResponse.redirect(new URL("/login", req.url));
