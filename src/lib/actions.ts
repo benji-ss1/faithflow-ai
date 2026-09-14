@@ -10,6 +10,7 @@ import { GROUP_KINDS } from "../engine/arrangements";
 import { stripClientSlideActions } from "./server/automations";
 import { preservedGroupIds } from "./song-group-preserve";
 import { cleanRenderUrl } from "./render-url";
+import { validateSermonItemPayload } from "./server/service-item-guards";
 import { remapSlideActionsForReorder } from "./slide-actions-remap";
 import { OVERLAY_POSITIONS } from "./broadcast";
 import { requireUser, requireRole, requireCap, hasCap } from "./session";
@@ -161,7 +162,13 @@ async function validateAddServiceItemPayload(
       }
       return { ok: true };
     }
-    case "sermon":
+    case "sermon": {
+      // A sermon may reference ONE PowerPoint import (library "add PPTX sermon").
+      // It must be a UUID that exists in pptx_imports FOR THIS CHURCH; any other
+      // library ref stays rejected.
+      const g = await validateSermonItemPayload(db, churchId, payload);
+      return g.ok ? { ok: true } : { ok: false, error: g.error };
+    }
     case "blank":
     case "logo":
       // No referenced library id; empty payload OK. Reject unknown ref keys
