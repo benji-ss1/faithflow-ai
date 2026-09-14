@@ -5,10 +5,10 @@ import { eq } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { users } from "./db/schema";
 import { consumeAuthToken } from "./auth-tokens";
-import { InvalidCredentialsError, RateLimitedError, loginLockedFor, recordLoginFailure, recordLoginSuccess } from "./login-guard";
+import { InvalidCredentialsError, RateLimitedError, chargeLoginAttempt, refundLoginSuccess } from "./login-guard";
 
 // H1 brute-force protection lives in login-guard.ts (per-IP 30, per-email 5,
-// per-IP+email 5, fail-only counting, success clears email counters).
+// per-IP+email 5, charge-first, success refunds/clears).
 
 // Constant dummy hash of the same cost as real passwords. When the target
 // email doesn't exist, we still run bcrypt.compare against this so timing
@@ -33,10 +33,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const email = String(creds.email).toLowerCase().trim();
         const ip = extractIp(request);
 
-        // Pre-flight lockout check — peek only, no charge. A stream of
-        // failures that trips the limit shouldn't extend the window with
-        // every subsequent attempt.
-        const lockedMin = await loginLockedFor(ip, email);
+        // CHARGE-FIRST: synchronous check-and-increment of all three buckets
+        // BEFORE any await (DB/bcrypt), so parallel requests can't all pass
+        // the check. A locked attempt is not charged (doesn't extend window).
+        const lockedMin = chargeLoginAttempt(ip, email);
         if (lockedMin !== null) throw new RateLimitedError(lockedMin);
 
         const db = getDb();
@@ -46,22 +46,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const hash = user?.passwordHash ?? DUMMY_BCRYPT;
         const ok = await bcrypt.compare(String(creds.password), hash);
 
-        if (!user || !ok) {
-          // Charge both counters on failure only.
-          await recordLoginFailure(ip, email);
-          throw new InvalidCredentialsError();
-        }
+        // Failure: already charged above.
+        if (!user || !ok) throw new InvalidCredentialsError();
 
         // H2: fail-closed 2FA guard. schema has totpSecret + totpEnabled
         // but the TOTP challenge UI hasn't shipped. If a user record ever
         // has totpEnabled=true, refuse password-only login rather than
         // silently ignoring the flag — that would be a false-safety signal
         // to any admin who enrolled 2FA out-of-band.
-        // Kept as a generic failure (not a distinct code) so the response
-        // never confirms the password was correct.
-        if (user.totpEnabled) return null;
+        // Throws the SAME error as a wrong password (and keeps the charge),
+        // so the response can't be used as a password-correctness oracle.
+        if (user.totpEnabled) throw new InvalidCredentialsError();
 
-        await recordLoginSuccess(ip, email);
+        refundLoginSuccess(ip, email);
 
         return { id: user.id, email: user.email, name: user.name, churchId: user.churchId, role: user.role };
       },

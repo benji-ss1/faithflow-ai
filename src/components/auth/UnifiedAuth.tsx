@@ -158,7 +158,7 @@ function AuthInner({ initialMode }: { initialMode: Mode }) {
                 <label htmlFor="pw">Password <button type="button" onClick={() => setForgotOpen((v) => !v)}>Forgot?</button></label>
                 <div style={{ position: "relative" }}>
                   <input id="pw" name="password" type={showPw ? "text" : "password"} required autoComplete="current-password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} style={{ paddingRight: 64 }} />
-                  <button type="button" aria-pressed={showPw} aria-controls="pw" aria-label={showPw ? "Hide password" : "Show password"} onClick={() => setShowPw((v) => !v)} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: 0, padding: "4px 6px", color: "var(--paper-dim)", cursor: "pointer", font: "inherit", fontSize: 12 }}>{showPw ? "Hide" : "Show"}</button>
+                  <button type="button" className="pw-toggle" aria-pressed={showPw} aria-controls="pw" aria-label={showPw ? "Hide password" : "Show password"} onClick={() => setShowPw((v) => !v)} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: 0, padding: "4px 6px", color: "var(--paper-dim)", cursor: "pointer", font: "inherit", fontSize: 12 }}>{showPw ? "Hide" : "Show"}</button>
                 </div>
               </div>
 
