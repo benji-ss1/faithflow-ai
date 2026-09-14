@@ -20,7 +20,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     headline: "Lower third for everything — songs, images and video, not just verses",
     highlights: [
       { text: "The lower / upper / mid third band now works for SONGS too, not only Bible verses. Set it once and your lyrics come up in the band automatically — same as your verses.", tryItHref: "/operator", tryItLabel: "Open operator" },
-      "New “Layout” tab in the song editor (and in the image editor): pick Full screen or a Lower / Upper / Mid third, set the band height, text size, push and colour. It saves as your default and applies to every slide going forward — verses, songs, images and video. Use “Apply to current slide” to update what's already live.",
+      "New “Layout” tab in the song editor (and a “Projection layout” section in the image editor): pick Full screen or Lower third, then place the band in the Upper / Mid / Lower third and set its height, text size, push and colour. It saves as your default and applies to every slide going forward — verses, songs, images and video. Use “Apply to the slide on screen now” to update what's already live.",
       "Images and videos follow the same setting — when your default is a third, they sit neatly in the band with your theme showing above and below (instead of full screen).",
       "Fixed (Windows): the desktop app build now packages correctly with NDI support.",
       "Fixed: the sign-in and sign-up pages now scroll on small or short screens, so nothing gets cut off.",
@@ -164,7 +164,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       "Fixed: dragging a song (or media item) from the center browser onto a Library row now actually files it there — hover to light the row, drop, and it pops in with a confirmation. (It used to look like nothing happened.)",
       "Copy a slide, paste it anywhere: right-click a slide → Copy Slide, then paste it into ANY song — including a different one — from the right-click menu or with Cmd/Ctrl+V while the slide grid is focused. The copied slide lands right after the slide you have selected.",
       "Honest Paste: on a Bible or media item (which can't be edited), Paste Slide now shows as disabled with a short reason instead of silently disappearing — so it's clear WHY, not that the app is broken.",
-      "New Media Bin in the left rail: docked below the Playlist, it holds a compact strip of your media. Drag a thumbnail onto the Playlist to add it, onto a Library to file it, or hover and tap 'Bg' to set it as your background. Collapse it from its header or the media toggle up top.",
+      "New Media Bin (it has since moved to the bottom of the centre area — see 0.1.392): it holds a compact strip of your media. Drag a thumbnail onto the Playlist to add it, onto a Library to file it, or hover and tap 'Bg' to set it as your background. Collapse it from its header or the media toggle up top.",
     ],
   },
   {

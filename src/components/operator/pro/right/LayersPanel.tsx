@@ -206,14 +206,15 @@ function LayerRowView({
         )}
       </span>
 
-      {/* Slide zone toggle (Full / Lower third). */}
+      {/* Slide zone toggle (Full / Lower third). Scope: THIS live output only —
+          the church's default layout for new slides lives in LayoutDefaultControl. */}
       {row.kind === "slide" && (
         <button
           type="button"
           onClick={() => { if (!zoneDisabled) onZone(isLowerThird); }}
           disabled={zoneDisabled}
-          title={zoneDisabled ? "Zones apply to text slides" : (isLowerThird ? "Lower third — tap for full" : "Full — tap for lower third")}
-          aria-label={zoneDisabled ? "Zones apply to text slides" : (isLowerThird ? "Switch slide to full" : "Switch slide to lower third")}
+          title={zoneDisabled ? "Zones apply to text slides" : (isLowerThird ? "Lower third — tap for full. This live output only." : "Full — tap for lower third. This live output only.")}
+          aria-label={zoneDisabled ? "Zones apply to text slides" : (isLowerThird ? "Switch slide to full (this live output only)" : "Switch slide to lower third (this live output only)")}
           className={cn(HIT, "text-[var(--color-muted-foreground)]", zoneDisabled ? "opacity-40 cursor-not-allowed" : "hover:bg-white/5 hover:text-[var(--color-foreground)]")}
         >
           {isLowerThird ? <RectangleHorizontal className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}

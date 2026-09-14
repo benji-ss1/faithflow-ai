@@ -4,18 +4,19 @@ import { usePathname, useRouter } from "next/navigation";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Sparkles, X, Tag } from "lucide-react";
 import { CHANGELOG, type ChangelogEntry, type Highlight } from "@/lib/changelog";
+import { forwardLastSeen, newerEntries } from "@/lib/whats-new";
 
 const LAST_SEEN_KEY = "presentflow.whatsNew.lastSeenVersion";
 
-function cmpVersion(a: string, b: string): number {
-  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
-  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const na = pa[i] ?? 0;
-    const nb = pb[i] ?? 0;
-    if (na !== nb) return na - nb;
-  }
-  return 0;
+// last-seen only ever moves FORWARD (see src/lib/whats-new.ts): the desktop app
+// version can be behind CHANGELOG[0], and writing it back used to reset last-seen
+// and re-pop the modal every other launch.
+function writeLastSeen(candidate: string | null | undefined) {
+  try {
+    const prev = window.localStorage.getItem(LAST_SEEN_KEY);
+    const next = forwardLastSeen(prev, candidate);
+    if (next && next !== prev) window.localStorage.setItem(LAST_SEEN_KEY, next);
+  } catch { /* noop */ }
 }
 
 /**
@@ -50,12 +51,12 @@ export function WhatsNewModal() {
       // First-ever visit: don't pop (the guided tour handles fresh testers).
       // Just record so the next update actually shows the modal.
       if (!lastSeen) {
-        try { window.localStorage.setItem(LAST_SEEN_KEY, currentVersion); } catch { /* noop */ }
+        writeLastSeen(currentVersion);
         return;
       }
-      const newer = CHANGELOG.filter((e) => cmpVersion(e.version, lastSeen!) > 0);
+      const newer = newerEntries(CHANGELOG, lastSeen);
       if (newer.length === 0) {
-        try { window.localStorage.setItem(LAST_SEEN_KEY, currentVersion); } catch { /* noop */ }
+        writeLastSeen(currentVersion);
         return;
       }
 
@@ -105,9 +106,7 @@ export function WhatsNewModal() {
   const dismiss = () => {
     setOpen(false);
     const top = newEntries[0]?.version;
-    if (top) {
-      try { window.localStorage.setItem(LAST_SEEN_KEY, top); } catch { /* noop */ }
-    }
+    if (top) writeLastSeen(top);
   };
 
   // "Try it" / "Open operator →" handler. The modal is mounted INSIDE the

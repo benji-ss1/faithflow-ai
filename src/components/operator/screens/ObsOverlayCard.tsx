@@ -339,9 +339,15 @@ export function ObsOverlayCard() {
             {band.style !== "clear" && (
               <BandSlider label="Background opacity (see-through)" value={Math.round(band.opacity * 100)} min={0} max={100} step={5} suffix="%" onChange={(v) => setBand((b) => ({ ...b, opacity: v / 100 }))} />
             )}
-            <div className="rounded bg-emerald-500/10 border border-emerald-500/30 px-2 py-1.5">
-              <p className="text-[10px] text-[var(--color-foreground)] leading-relaxed"><span className="font-semibold text-emerald-500">Changes apply to OBS live</span> — as long as the app is open and OBS is connected, every tweak shows on the stream instantly. You only need the link the first time you add it in OBS.</p>
-            </div>
+            {ready ? (
+              <div className="rounded bg-emerald-500/10 border border-emerald-500/30 px-2 py-1.5">
+                <p className="text-[10px] text-[var(--color-foreground)] leading-relaxed"><span className="font-semibold text-emerald-500">Changes apply to OBS live</span> — as long as the app is open and OBS is connected, every tweak shows on the stream instantly. You only need the link the first time you add it in OBS.</p>
+              </div>
+            ) : (
+              <div className="rounded bg-[var(--color-muted)]/30 border border-[var(--color-border)] px-2 py-1.5">
+                <p className="text-[10px] text-[var(--color-muted-foreground)] leading-relaxed"><span className="font-semibold text-[var(--color-foreground)]">Preview only</span> — create your link below to send these to OBS.</p>
+              </div>
+            )}
           </div>
         )}
       </div>
