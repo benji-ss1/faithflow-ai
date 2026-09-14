@@ -21,7 +21,7 @@ import {
 } from "../src/lib/broadcast";
 import { DEFAULT_OBS_BAND, parseObsBand, clampObsBand, overlayBandSlide, type ObsBandConfig } from "../src/lib/obs-lowerthird";
 import {
-  DEFAULT_OBS_LOOK_SETTINGS, OBS_OUTLINE_TEXT_SHADOW, readObsEditorStore, consoleObsInitial, obsLookWireFromStore, parseObsUrl,
+  DEFAULT_OBS_LOOK_SETTINGS, OBS_OUTLINE_TEXT_SHADOW, readObsEditorStore, obsLookWireFromStore, parseObsUrl,
   resolveObsRender, applyObsLiveFields, obsThemeColorsOf, clampObsLookSettings, urlLook, heldLowerThirdFor,
   createTrailingPublisher, OBS_MAX_FONT_SCALE, camBandTopPct, type HeldLowerThird,
   type ObsEditorStore, type ObsLook, type ObsRenderResolved,
@@ -522,29 +522,6 @@ async function main() {
     // obsOverlay only acts with transparent → a non-transparent surface is unchanged even if passed.
     const c = renderToStaticMarkup(React.createElement(OutputCompositor, { mode: "live", slide: song, appearance: theme, obsOverlay: { textColor: "#ff0000", scrim: 0.5 } }));
     assert.equal(a, c);
-  });
-
-  // ── Console initial publish (card never opened on this machine) ─────────
-  check("console: empty store → live=1 camera link renders band; existing full/corrupt → full; old link unchanged", () => {
-    const rq = (u: string) => { const sp = new URLSearchParams(u); return (k: string) => sp.get(k); };
-    const render = (init: ReturnType<typeof consoleObsInitial>, u: string) => resolveObsRender({ url: parseObsUrl(rq(u)), liveBand: init.band, liveLook: init.look, fontScale: 1, appearance: null, themeColors: {}, lowerThird: null });
-    const empty = consoleObsInitial(null, null, null);
-    assert.equal(empty.band, null);
-    assert.equal(empty.look?.camLayout, "lowerthird");
-    assert.equal(empty.look?.look, undefined, "look not published (URL decides)");
-    const e = render(empty, "bg=transparent&live=1");
-    assert.equal(e.camLayout, "lowerthird"); assert.ok(e.obsBand, "band rendered");
-    const full = readObsEditorStore(null, null, null); full.settings.camLayout = "full";
-    const f = render(consoleObsInitial(JSON.stringify(full), null, null), "bg=transparent&live=1");
-    assert.equal(f.camLayout, "full"); assert.equal(f.obsBand, null);
-    for (const c of [consoleObsInitial("{corrupt", null, null), consoleObsInitial(null, "{bad", null), consoleObsInitial(null, null, "camera"), consoleObsInitial(null, JSON.stringify(DEFAULT_OBS_BAND), null)]) {
-      const r = render(c, "bg=transparent&live=1");
-      assert.notEqual(r.camLayout, "lowerthird"); assert.equal(r.obsBand, null);
-    }
-    assert.equal(consoleObsInitial(null, null, "camera").look, null, "legacy-only keeps null");
-    for (const u of ["bg=transparent", "obs=lowerthird", "obs=lowerthird&ltStyle=frost&ltTop=10", ""]) {
-      assert.equal(JSON.stringify(render(empty, u)), JSON.stringify(render({ band: null, look: null }, u)), `old link ${u} unchanged`);
-    }
   });
 
   console.log(`\nobs-editor: ${pass} passed, ${fail} failed`);

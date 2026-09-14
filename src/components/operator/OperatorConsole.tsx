@@ -11,7 +11,7 @@ import { nextPreviewPosition } from "@/lib/operator-nav";
 import { dispatchInternal } from "@/lib/internal-events";
 import { useLiveLayers } from "./useLiveLayers";
 import { clampObsBand, type ObsBandConfig } from "@/lib/obs-lowerthird";
-import { OBS_EDITOR_KEY, LEGACY_BAND_KEY, LEGACY_LOOK_KEY, readObsEditorStore, consoleObsInitial, obsLookWireFromStore, publishObsPreviewState, heldLowerThirdFor, createTrailingPublisher, type HeldLowerThird } from "@/lib/obs-look";
+import { OBS_EDITOR_KEY, LEGACY_BAND_KEY, LEGACY_LOOK_KEY, readObsEditorStore, obsLookWireFromStore, publishObsPreviewState, heldLowerThirdFor, createTrailingPublisher, type HeldLowerThird } from "@/lib/obs-look";
 import type { ObsLookWire } from "@/lib/broadcast";
 import { readFontScale, readReferenceScale, readReferenceColor } from "./pro/operatorConstants";
 import { applyChurchLayout, sourceForRelayout } from "./scripture/scriptureStyle";
@@ -679,9 +679,17 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   useEffect(() => {
     const read = () => {
       try {
-        const init = consoleObsInitial(localStorage.getItem(OBS_EDITOR_KEY), localStorage.getItem(LEGACY_BAND_KEY), localStorage.getItem(LEGACY_LOOK_KEY));
-        setObsLowerThird(init.band);
-        setObsLook(init.look);
+        const v2 = localStorage.getItem(OBS_EDITOR_KEY);
+        if (v2) {
+          // Corrupt v2 JSON falls back to the legacy v1 band (not the default).
+          const store = readObsEditorStore(v2, localStorage.getItem(LEGACY_BAND_KEY), localStorage.getItem(LEGACY_LOOK_KEY));
+          setObsLowerThird(store.band);
+          setObsLook(obsLookWireFromStore(store));
+          return;
+        }
+        const raw = localStorage.getItem("presentflow.obs.lowerThird.v1");
+        setObsLowerThird(raw ? clampObsBand(JSON.parse(raw)) : null);
+        setObsLook(null);
       } catch { /* ignore */ }
     };
     read();
