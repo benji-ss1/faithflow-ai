@@ -9,6 +9,7 @@ import type { SlidePayload } from "../broadcast";
 import type { ServiceItemType } from "../db/schema";
 import { projectableTextSlide } from "../broadcast";
 import { expandArrangement } from "../../engine/arrangements";
+import { sanitizeSlideActions } from "../../engine/slide-actions";
 import { cleanRenderUrl } from "../render-url";
 
 // Build the projectable payload for a song slide. When the slide has a designed
@@ -213,7 +214,7 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
             );
             resolvedArrangementId = arrangementId;
             slideGroupIds = arranged.map((r) => r.groupId);
-            const actByRowArr = new Map(rows.map((r) => [r.id, Array.isArray(r.actions) ? (r.actions as unknown[]) : []]));
+            const actByRowArr = new Map(rows.map((r) => [r.id, sanitizeSlideActions(r.actions) as unknown[]]));
             slideActions = arranged.map((r) => actByRowArr.get(r.id) ?? []);
             songSlideRows = arranged.map((r) => ({ id: r.id, lyrics: sanitizeLyrics(r.lyrics), objectsJson: r.objectsJson }));
             slides = arranged.map((r) => projectableSongSlide(sanitizeLyrics(r.lyrics), r.objectsJson));
@@ -252,7 +253,9 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
         // assign sections per-slide. Always carried for song items (all-null for a
         // groupless song); the SlideGrid/strip only render chrome when groups exist.
         slideGroupIds = orderedRows.map((r) => r.groupId);
-        slideActions = orderedRows.map((r) => (Array.isArray(r.actions) ? (r.actions as unknown[]) : []));
+        // Sanitize on READ too (whitelist rebuild, guarded dropped, caps) so a
+        // legacy / direct-DB row can never hand the operator an unvetted spec.
+        slideActions = orderedRows.map((r) => sanitizeSlideActions(r.actions) as unknown[]);
       }
     } else if (it.type === "scripture") {
       // 2026-07-25 field bug fix — the client (BibleMode.addVerseToPlaylist)
@@ -391,7 +394,7 @@ export async function getExpandedServicePlan(planId: string, churchId: string): 
     if (slideActions === undefined) {
       const saMap = (payload.slideActions && typeof payload.slideActions === "object" && !Array.isArray(payload.slideActions))
         ? (payload.slideActions as Record<string, unknown>) : null;
-      if (saMap) slideActions = slides.map((_, i) => (Array.isArray(saMap[String(i)]) ? (saMap[String(i)] as unknown[]) : []));
+      if (saMap) slideActions = slides.map((_, i) => sanitizeSlideActions(saMap[String(i)]) as unknown[]);
     }
     expanded.push({ id: it.id, order: it.order, type: it.type, title: it.title, slides, ...extra, songId, songSlideRows, mediaMeta, arrangementId: resolvedArrangementId, arrangements: arrangementsMeta, groups: groupsMeta, slideGroupIds, slideActions });
   }

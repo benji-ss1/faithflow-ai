@@ -13,7 +13,7 @@
  * (the hard Phase-3 precondition — see docs/ENGINE_INTEGRATION.md §2 P2 note).
  */
 import type { EngineAction } from "../actions";
-import { specToEngineAction, validateForMacro, isGuardedSpec, type ActionSpec } from "../actions/spec";
+import { specToEngineAction, validateForMacro, isGuardedSpec, sanitizeActionList, rebuiltListBytes, MAX_ACTION_LIST_BYTES, type ActionSpec } from "../actions/spec";
 
 export const MAX_MACROS_PER_CHURCH = 50;
 export const MAX_ACTIONS_PER_MACRO = 20;
@@ -39,30 +39,28 @@ export function validateMacroActions(actions: unknown): MacroValidation {
     const r = validateForMacro(actions[i]);
     if (!r.ok) return { ok: false, reason: r.reason, index: i };
   }
+  if (rebuiltListBytes(actions) > MAX_ACTION_LIST_BYTES) return { ok: false, reason: "too-large" };
   return { ok: true };
 }
 
-/** Keep only valid macro-permitted specs (fail-open filter for READ). */
+/** Keep only valid macro-permitted specs, each REBUILT from its whitelisted
+ *  fields, count- and byte-capped. Applied on SAVE and on READ. */
 export function sanitizeMacroActions(actions: unknown): ActionSpec[] {
-  if (!Array.isArray(actions)) return [];
-  const out: ActionSpec[] = [];
-  for (const a of actions) {
-    if (out.length >= MAX_ACTIONS_PER_MACRO) break;
-    if (validateForMacro(a).ok) out.push(a as ActionSpec);
-  }
-  return out;
+  return sanitizeActionList(actions, validateForMacro, MAX_ACTIONS_PER_MACRO);
 }
 
 /** True iff any action in the macro is destructive (needs the panel confirm). */
 export function macroHasGuardedAction(def: MacroDefinition): boolean {
-  return def.actions.some(isGuardedSpec);
+  return sanitizeMacroActions(def.actions).some(isGuardedSpec);
 }
 
-/** Expand a macro to the ordered EngineActions it dispatches (skips unmappable /
- *  any stray macro spec — recursion is already barred at save). Pure. */
+/** Expand a macro to the ordered EngineActions it dispatches. DEFENSIVE: the
+ *  definition may come from a client cache / corrupted row, so the action list is
+ *  re-sanitized here (count + byte caps, shape validation, whitelist rebuild,
+ *  no macro-in-macro) before anything is mapped. Pure. */
 export function macroToEngineActions(def: MacroDefinition): EngineAction[] {
   const out: EngineAction[] = [];
-  for (const spec of def.actions) {
+  for (const spec of sanitizeMacroActions(def?.actions)) {
     if (spec.type === "macro") continue; // recursion guard (belt + suspenders)
     const ea = specToEngineAction(spec);
     if (ea) out.push(ea);
@@ -87,7 +85,7 @@ export function executeMacro(
   dispatch: DispatchEngineAction,
   opts: { confirmed?: boolean } = {},
 ): MacroOutcome[] {
-  if (!def.enabled) return [];
+  if (!def || !def.enabled) return [];
   const confirmed = opts.confirmed === true;
   const outcomes: MacroOutcome[] = [];
   for (const action of macroToEngineActions(def)) {

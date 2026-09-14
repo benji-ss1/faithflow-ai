@@ -1086,9 +1086,15 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       // the projector; otherwise it's staged as a manual chip (suggest) rather
       // than auto-swapping. Starting a song when nothing/other content is live
       // keeps the normal SONG_AUTOLIVE_CONFIDENCE bar.
+      // 2026-09-14 (user directive, supersedes the 95% auto-switch): while a
+      // DIFFERENT song is live the AI NEVER switches the projector on its own —
+      // even at ≥SONG_SWITCH_WHILE_LIVE_CONFIDENCE it only stages the new song
+      // as a manual chip ("give them the option in case you are wrong").
       const differentSongLive = liveSongRef.current !== null && liveSongRef.current.songId !== c.songId;
-      const autoLiveBar = differentSongLive ? SONG_SWITCH_WHILE_LIVE_CONFIDENCE : SONG_AUTOLIVE_CONFIDENCE;
-      if (c.confidence >= autoLiveBar && !musicHold && !ambiguous) {
+      if (differentSongLive && c.confidence >= SONG_SWITCH_WHILE_LIVE_CONFIDENCE) {
+        console.log(`[song-autolive] SWITCH HELD — "${c.title}" ${c.confidence}% while a different song is live → staging for operator confirm (never auto-switch)`);
+      }
+      if (!differentSongLive && c.confidence >= SONG_AUTOLIVE_CONFIDENCE && !musicHold && !ambiguous) {
         stagedOrHandledRef.current.set(c.songId, now);
         firedSuggestionIdsRef.current.add(c.suggestionId);
         // Prune fired-id set to last 200 entries (LRU-ish via clear+re-add

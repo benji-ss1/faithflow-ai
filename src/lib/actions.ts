@@ -7,11 +7,12 @@ import { bakeThemeIntoObjectsJson } from "./theme-bake";
 import { isHex6Color } from "./hex-color";
 import { servicePlans, serviceItems, songs, songSlides, songGroups, songArrangements, mediaAssets, pptxImports, pptxSlides, settings, detectedReferences, bibleTranslations, churches, churchPreferences, aiSuggestions, sermonMetadata, sermonSummaries, transcriptSegments, announcements, announcementPresets, themes, libraries, timerDefinitions, messageTemplates, macros, type ServiceItemType } from "./db/schema";
 import { GROUP_KINDS } from "../engine/arrangements";
-import { MAX_MACROS_PER_CHURCH } from "../engine/macros";
+import { stripClientSlideActions } from "./server/automations";
 import { preservedGroupIds } from "./song-group-preserve";
 import { cleanRenderUrl } from "./render-url";
+import { remapSlideActionsForReorder } from "./slide-actions-remap";
 import { OVERLAY_POSITIONS } from "./broadcast";
-import { requireUser, requireRole, requireCap } from "./session";
+import { requireUser, requireRole, requireCap, hasCap } from "./session";
 import { deleteObject, getBuffer, putBuffer } from "./s3";
 import { after } from "next/server";
 import { generateImageThumbnail } from "./media-thumbnail";
@@ -200,7 +201,9 @@ export async function addServiceItem(planId: string, type: ServiceItemType, titl
     }
   }
   const nextOrder = existing.length > 0 ? Math.max(...existing.map((e) => e.order)) + 1 : 0;
-  const [row] = await db.insert(serviceItems).values({ servicePlanId: planId, order: nextOrder, type, title, payload }).returning({ id: serviceItems.id });
+  // payload.slideActions is written ONLY by setServiceItemSlideActions (validated
+  // + sanitized) — never trust a client-supplied copy on insert.
+  const [row] = await db.insert(serviceItems).values({ servicePlanId: planId, order: nextOrder, type, title, payload: stripClientSlideActions(payload) }).returning({ id: serviceItems.id });
   revalidatePath(`/services/${planId}`);
   return { ok: true, data: { id: row.id } };
 }
@@ -258,7 +261,7 @@ export async function addServiceItems(
       if (reference && existingRefs.has(reference)) { skipped++; continue; }
       if (reference) existingRefs.add(reference); // also dedup within this same batch
     }
-    toInsert.push({ servicePlanId: planId, order: nextOrder++, type: it.type, title: it.title, payload });
+    toInsert.push({ servicePlanId: planId, order: nextOrder++, type: it.type, title: it.title, payload: stripClientSlideActions(payload) });
   }
 
   if (toInsert.length > 0) {
@@ -337,104 +340,140 @@ export async function reorderItemSlides(
     .limit(1);
   if (!plan) return { ok: false, error: "Plan not found" };
 
-  const [item] = await db.select().from(serviceItems)
-    .where(and(eq(serviceItems.id, itemId), eq(serviceItems.servicePlanId, planId)))
-    .limit(1);
-  if (!item) return { ok: false, error: "Item not part of this plan" };
+  // The item row is LOCKED for the read-compute-write below, and only the keys
+  // this path owns are merged back (`payload || {...}`) — so a concurrent
+  // setServiceItemSlideActions (or any other single-key writer) can never be
+  // clobbered by a stale snapshot, and the slideActions remap sees the latest map.
+  const result: Result = await db.transaction(async (tx) => {
+    const [item] = await tx.select().from(serviceItems)
+      .where(and(eq(serviceItems.id, itemId), eq(serviceItems.servicePlanId, planId)))
+      .limit(1)
+      .for("update");
+    if (!item) return { ok: false, error: "Item not part of this plan" };
 
-  const payload = (item.payload || {}) as Record<string, unknown>;
+    const payload = (item.payload || {}) as Record<string, unknown>;
+    // perm[newIdx] = oldIdx over the reordered base slides; used to keep
+    // payload.slideActions keys attached to their slides.
+    const withRemappedActions = (patch: Record<string, unknown>, perm: number[] | null) => {
+      if (perm) {
+        const remapped = remapSlideActionsForReorder(payload.slideActions, perm);
+        if (remapped) patch.slideActions = remapped;
+      }
+      return patch;
+    };
 
-  if (item.type === "song") {
-    const songId = typeof payload.songId === "string" ? payload.songId : null;
-    if (!songId) return { ok: false, error: "Song item missing songId" };
-    const rows = await db.select({ id: songSlides.id })
-      .from(songSlides)
-      .where(eq(songSlides.songId, songId));
-    const existingIds = rows.map((r) => r.id);
-    const guard = validateReorderItemSlides(newOrder, existingIds);
-    if (!guard.ok) return guard;
-    const nextPayload = { ...payload, slideOrder: newOrder };
-    await db.update(serviceItems)
-      .set({ payload: nextPayload })
-      .where(eq(serviceItems.id, itemId));
-  } else if (item.type === "media" && Array.isArray(payload.mediaAssetIds)) {
-    // Grouped media (e.g. "Images (4)", or a PowerPoint imported as images):
-    // the slides ARE the mediaAssetIds in order. The client sends synthetic
-    // "slide-<i>" ids (SlideGrid), so reorder the id array and persist it —
-    // getExpandedServicePlan renders media in mediaAssetIds order, so both the
-    // grid and the left playlist reflect the new order after refresh.
-    const ids = (payload.mediaAssetIds as unknown[]).filter((x): x is string => typeof x === "string");
-    if (ids.length === 0) return { ok: false, error: "Item has no reorderable slides" };
-    // Align to the DISPLAYABLE subset in stored order: getExpandedServicePlan
-    // renders only ids that still resolve to THIS church (skips deleted/foreign
-    // ones), so the client's newOrder covers just those. Reordering that same
-    // subset also self-heals — a stale/deleted id is pruned instead of
-    // permanently blocking reorder with a length mismatch.
-    const owned = ids.length
-      ? await db.select({ id: mediaAssets.id }).from(mediaAssets)
-          .where(and(inArray(mediaAssets.id, ids), eq(mediaAssets.churchId, user.churchId)))
-      : [];
-    const ownedSet = new Set(owned.map((r) => r.id));
-    const displayable = ids.filter((id) => ownedSet.has(id));
-    if (displayable.length === 0) return { ok: false, error: "Item has no reorderable slides" };
-    const existingIds = displayable.map((_, i) => `slide-${i}`);
-    const guard = validateReorderItemSlides(newOrder, existingIds);
-    if (!guard.ok) return guard;
-    const reordered = newOrder
-      .map((sid) => displayable[existingIds.indexOf(sid)])
-      .filter((x): x is string => typeof x === "string");
-    await db.update(serviceItems)
-      .set({ payload: { ...payload, mediaAssetIds: reordered } })
-      .where(eq(serviceItems.id, itemId));
-  } else if (item.type === "sermon" && typeof payload.pptxImportId === "string") {
-    // Grouped PowerPoint slides come from pptxSlides (shared, church-global).
-    // Reorder PER-PLAN via a payload.pptxSlideOrder override (mirrors song's
-    // slideOrder) so we never mutate the shared pptxSlides.order.
-    const [owned] = await db.select({ id: pptxImports.id }).from(pptxImports)
-      .where(and(eq(pptxImports.id, payload.pptxImportId), eq(pptxImports.churchId, user.churchId)))
-      .limit(1);
-    if (!owned) return { ok: false, error: "Presentation not found" };
-    const rows = await db.select({ id: pptxSlides.id }).from(pptxSlides)
-      .where(eq(pptxSlides.pptxImportId, owned.id)).orderBy(asc(pptxSlides.order));
-    const baseIds = rows.map((r) => r.id);
-    if (baseIds.length === 0) return { ok: false, error: "Item has no reorderable slides" };
-    const prev = Array.isArray(payload.pptxSlideOrder)
-      ? (payload.pptxSlideOrder as unknown[]).filter((x): x is string => typeof x === "string")
-      : [];
-    // Current display order = a valid existing override, else pptxSlides.order.
-    const curOrder = prev.length === baseIds.length && prev.every((id) => baseIds.includes(id)) ? prev : baseIds;
-    const existingIds = curOrder.map((_, i) => `slide-${i}`);
-    const guard = validateReorderItemSlides(newOrder, existingIds);
-    if (!guard.ok) return guard;
-    const reordered = newOrder
-      .map((sid) => curOrder[existingIds.indexOf(sid)])
-      .filter((x): x is string => typeof x === "string");
-    await db.update(serviceItems)
-      .set({ payload: { ...payload, pptxSlideOrder: reordered } })
-      .where(eq(serviceItems.id, itemId));
-  } else if (item.type === "scripture" || item.type === "sermon" || item.type === "media") {
-    // For payload.slides — treat newOrder as slide IDs when present,
-    // otherwise as stringified indices ("0", "1", …).
-    const slides = Array.isArray(payload.slides) ? [...(payload.slides as unknown[])] : [];
-    if (slides.length === 0) return { ok: false, error: "Item has no reorderable slides" };
-    const existingIds = slides.map((s, i) => {
-      const rec = s as Record<string, unknown>;
-      return typeof rec?.id === "string" ? rec.id : String(i);
-    });
-    const guard = validateReorderItemSlides(newOrder, existingIds);
-    if (!guard.ok) return guard;
-    const byId = new Map(existingIds.map((id, i) => [id, slides[i]]));
-    const reordered = newOrder.map((id) => byId.get(id));
-    const nextPayload = { ...payload, slides: reordered };
-    await db.update(serviceItems)
-      .set({ payload: nextPayload })
-      .where(eq(serviceItems.id, itemId));
-  } else {
-    return { ok: false, error: `Cannot reorder slides for item type ${item.type}` };
-  }
+    if (item.type === "song") {
+      const songId = typeof payload.songId === "string" ? payload.songId : null;
+      if (!songId) return { ok: false, error: "Song item missing songId" };
+      const rows = await tx.select({ id: songSlides.id })
+        .from(songSlides)
+        .where(eq(songSlides.songId, songId));
+      const existingIds = rows.map((r) => r.id);
+      const guard = validateReorderItemSlides(newOrder, existingIds);
+      if (!guard.ok) return guard;
+      // Song slide actions live on song_slides rows (move with the row) — no remap.
+      await mergeServiceItemPayload(tx, itemId, planId, { slideOrder: newOrder });
+    } else if (item.type === "media" && Array.isArray(payload.mediaAssetIds)) {
+      // Grouped media (e.g. "Images (4)", or a PowerPoint imported as images):
+      // the slides ARE the mediaAssetIds in order. The client sends synthetic
+      // "slide-<i>" ids (SlideGrid), so reorder the id array and persist it —
+      // getExpandedServicePlan renders media in mediaAssetIds order, so both the
+      // grid and the left playlist reflect the new order after refresh.
+      const ids = (payload.mediaAssetIds as unknown[]).filter((x): x is string => typeof x === "string");
+      if (ids.length === 0) return { ok: false, error: "Item has no reorderable slides" };
+      // Align to the DISPLAYABLE subset in stored order: getExpandedServicePlan
+      // renders only ids that still resolve to THIS church (skips deleted/foreign
+      // ones), so the client's newOrder covers just those. Reordering that same
+      // subset also self-heals — a stale/deleted id is pruned instead of
+      // permanently blocking reorder with a length mismatch.
+      const owned = ids.length
+        ? await tx.select({ id: mediaAssets.id }).from(mediaAssets)
+            .where(and(inArray(mediaAssets.id, ids), eq(mediaAssets.churchId, user.churchId)))
+        : [];
+      const ownedSet = new Set(owned.map((r) => r.id));
+      const displayable = ids.filter((id) => ownedSet.has(id));
+      if (displayable.length === 0) return { ok: false, error: "Item has no reorderable slides" };
+      const existingIds = displayable.map((_, i) => `slide-${i}`);
+      const guard = validateReorderItemSlides(newOrder, existingIds);
+      if (!guard.ok) return guard;
+      const reordered = newOrder
+        .map((sid) => displayable[existingIds.indexOf(sid)])
+        .filter((x): x is string => typeof x === "string");
+      const perm = newOrder.map((sid) => existingIds.indexOf(sid));
+      await mergeServiceItemPayload(tx, itemId, planId, withRemappedActions({ mediaAssetIds: reordered }, perm));
+    } else if (item.type === "sermon" && typeof payload.pptxImportId === "string") {
+      // Grouped PowerPoint slides come from pptxSlides (shared, church-global).
+      // Reorder PER-PLAN via a payload.pptxSlideOrder override (mirrors song's
+      // slideOrder) so we never mutate the shared pptxSlides.order.
+      const [owned] = await tx.select({ id: pptxImports.id }).from(pptxImports)
+        .where(and(eq(pptxImports.id, payload.pptxImportId), eq(pptxImports.churchId, user.churchId)))
+        .limit(1);
+      if (!owned) return { ok: false, error: "Presentation not found" };
+      const rows = await tx.select({ id: pptxSlides.id }).from(pptxSlides)
+        .where(eq(pptxSlides.pptxImportId, owned.id)).orderBy(asc(pptxSlides.order));
+      const baseIds = rows.map((r) => r.id);
+      if (baseIds.length === 0) return { ok: false, error: "Item has no reorderable slides" };
+      const prev = Array.isArray(payload.pptxSlideOrder)
+        ? (payload.pptxSlideOrder as unknown[]).filter((x): x is string => typeof x === "string")
+        : [];
+      // Current display order = a valid existing override, else pptxSlides.order.
+      const curOrder = prev.length === baseIds.length && prev.every((id) => baseIds.includes(id)) ? prev : baseIds;
+      const existingIds = curOrder.map((_, i) => `slide-${i}`);
+      const guard = validateReorderItemSlides(newOrder, existingIds);
+      if (!guard.ok) return guard;
+      const reordered = newOrder
+        .map((sid) => curOrder[existingIds.indexOf(sid)])
+        .filter((x): x is string => typeof x === "string");
+      const perm = newOrder.map((sid) => existingIds.indexOf(sid));
+      await mergeServiceItemPayload(tx, itemId, planId, withRemappedActions({ pptxSlideOrder: reordered }, perm));
+    } else if (item.type === "scripture" || item.type === "sermon" || item.type === "media") {
+      // For payload.slides — treat newOrder as slide IDs when present,
+      // otherwise as stringified indices ("0", "1", …).
+      const slides = Array.isArray(payload.slides) ? [...(payload.slides as unknown[])] : [];
+      if (slides.length === 0) return { ok: false, error: "Item has no reorderable slides" };
+      const existingIds = slides.map((s, i) => {
+        const rec = s as Record<string, unknown>;
+        return typeof rec?.id === "string" ? rec.id : String(i);
+      });
+      const guard = validateReorderItemSlides(newOrder, existingIds);
+      if (!guard.ok) return guard;
+      const byId = new Map(existingIds.map((id, i) => [id, slides[i]]));
+      const reordered = newOrder.map((id) => byId.get(id));
+      // Only remap when payload.slides IS what getExpandedServicePlan projects:
+      // a scripture item without renderable `verses`. (Sermon/media render from
+      // pptx/media ids, and scripture prefers `verses`, so reordering `slides`
+      // there doesn't move the displayed slides — keys must stay put.)
+      const verses = Array.isArray(payload.verses) ? (payload.verses as { text?: unknown }[]) : [];
+      const slidesAreDisplayed = item.type === "scripture"
+        && !verses.some((v) => v && typeof v.text === "string" && v.text.length > 0);
+      const perm = slidesAreDisplayed ? newOrder.map((id) => existingIds.indexOf(id)) : null;
+      await mergeServiceItemPayload(tx, itemId, planId, withRemappedActions({ slides: reordered }, perm));
+    } else {
+      return { ok: false, error: `Cannot reorder slides for item type ${item.type}` };
+    }
+    return { ok: true };
+  });
+  if (!result.ok) return result;
 
   revalidatePath(`/services/${planId}`);
   return { ok: true };
+}
+
+type PayloadTx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
+type PayloadWriter = ReturnType<typeof getDb> | PayloadTx;
+
+/** Atomically merge ONLY `patch`'s top-level keys into service_items.payload
+ *  (`payload || patch`) — equivalent to `{ ...payload, ...patch }` without
+ *  rewriting (and so clobbering) any key another writer touched concurrently. */
+async function mergeServiceItemPayload(q: PayloadWriter, itemId: string, planId: string | null, patch: Record<string, unknown>): Promise<void> {
+  await q.execute(sql`UPDATE service_items SET payload = (coalesce(payload, '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb)
+    WHERE id = ${itemId} AND (${planId}::uuid IS NULL OR service_plan_id = ${planId}::uuid)`);
+}
+
+/** Atomically remove ONE top-level key from service_items.payload. */
+async function removeServiceItemPayloadKey(q: PayloadWriter, itemId: string, planId: string | null, key: string): Promise<void> {
+  await q.execute(sql`UPDATE service_items SET payload = (coalesce(payload, '{}'::jsonb) - ${key}::text)
+    WHERE id = ${itemId} AND (${planId}::uuid IS NULL OR service_plan_id = ${planId}::uuid)`);
 }
 
 // Themes 2c — assign a "section theme" to one service item (or clear it with
@@ -460,11 +499,9 @@ export async function setServiceItemTheme(planId: string, itemId: string, themeI
     if (!theme) return { ok: false, error: "Theme not found" };
   }
 
-  const payload = (item.payload || {}) as Record<string, unknown>;
-  const nextPayload = { ...payload };
-  if (themeId) nextPayload.themeId = themeId;
-  else delete nextPayload.themeId;
-  await db.update(serviceItems).set({ payload: nextPayload }).where(eq(serviceItems.id, itemId));
+  // Atomic single-key write (never rewrites the rest of the payload).
+  if (themeId) await mergeServiceItemPayload(db, itemId, planId, { themeId });
+  else await removeServiceItemPayloadKey(db, itemId, planId, "themeId");
   revalidatePath(`/services/${planId}`);
   return { ok: true };
 }
@@ -1129,17 +1166,23 @@ export async function setServiceItemSlideBackground(itemId: string, slideIndex: 
   if (!Number.isInteger(slideIndex) || slideIndex < 0 || slideIndex >= ITEM_BG_MAX_SLIDES) {
     return { ok: false, error: "Invalid slide" };
   }
-  const raw = it.payload.slideBackgrounds;
-  const map: Record<string, string> = (raw && typeof raw === "object" && !Array.isArray(raw)) ? { ...(raw as Record<string, string>) } : {};
-  if (url === "") {
-    delete map[String(slideIndex)];
-  } else {
-    const clean = cleanRenderUrl(url);
+  let clean: string | null = null;
+  if (url !== "") {
+    clean = cleanRenderUrl(url);
     if (!clean) return { ok: false, error: "That media has no usable image URL" };
-    map[String(slideIndex)] = clean;
   }
-  const nextPayload = { ...it.payload, slideBackgrounds: map };
-  await db.update(serviceItems).set({ payload: nextPayload }).where(eq(serviceItems.id, itemId));
+  // Lock the row, re-read ONLY slideBackgrounds, and merge back just that key —
+  // same resulting payload as before, but no stale snapshot of other keys.
+  await db.transaction(async (tx) => {
+    const [row] = await tx.select({ payload: serviceItems.payload }).from(serviceItems)
+      .where(eq(serviceItems.id, itemId)).limit(1).for("update");
+    if (!row) return;
+    const raw = ((row.payload || {}) as Record<string, unknown>).slideBackgrounds;
+    const map: Record<string, string> = (raw && typeof raw === "object" && !Array.isArray(raw)) ? { ...(raw as Record<string, string>) } : {};
+    if (clean === null) delete map[String(slideIndex)];
+    else map[String(slideIndex)] = clean;
+    await mergeServiceItemPayload(tx, itemId, it.planId, { slideBackgrounds: map });
+  });
   revalidatePath(`/services/${it.planId}`);
   return { ok: true };
 }
@@ -1155,11 +1198,18 @@ export async function addServiceItemImageSlide(itemId: string, url: string): Pro
   if (it.type === "song") return { ok: false, error: "Use the song image-slide action for songs" };
   const clean = cleanRenderUrl(url);
   if (!clean) return { ok: false, error: "That media has no usable image URL" };
-  const raw = it.payload.extraImageSlides;
-  const list: string[] = Array.isArray(raw) ? (raw as unknown[]).filter((u): u is string => typeof u === "string") : [];
-  if (list.length >= ITEM_BG_MAX_SLIDES) return { ok: false, error: "Too many image slides on this item" };
-  const nextPayload = { ...it.payload, extraImageSlides: [...list, clean] };
-  await db.update(serviceItems).set({ payload: nextPayload }).where(eq(serviceItems.id, itemId));
+  // Lock the row, re-read ONLY extraImageSlides, append, merge back just that key.
+  const tooMany = await db.transaction(async (tx) => {
+    const [row] = await tx.select({ payload: serviceItems.payload }).from(serviceItems)
+      .where(eq(serviceItems.id, itemId)).limit(1).for("update");
+    if (!row) return false;
+    const raw = ((row.payload || {}) as Record<string, unknown>).extraImageSlides;
+    const list: string[] = Array.isArray(raw) ? (raw as unknown[]).filter((u): u is string => typeof u === "string") : [];
+    if (list.length >= ITEM_BG_MAX_SLIDES) return true;
+    await mergeServiceItemPayload(tx, itemId, it.planId, { extraImageSlides: [...list, clean] });
+    return false;
+  });
+  if (tooMany) return { ok: false, error: "Too many image slides on this item" };
   revalidatePath(`/services/${it.planId}`);
   return { ok: true };
 }
@@ -2893,124 +2943,61 @@ export async function getSongArrangementModel(songId: string): Promise<Result<{
 // store them on `song_slides.actions`; non-song items store them in
 // `service_items.payload.slideActions[slideIdx]` (JSONB, no column).
 
-/** Persist a song slide's attached actions. Church-scoped via assertSlideOwned;
- *  validated + sanitized (drops guarded/invalid) before write. */
+/** Persist a song slide's attached actions. Church-scoped (slide → song →
+ *  church); validated, then whitelist-rebuilt (drops guarded/invalid/extra keys)
+ *  before write. DB core: src/lib/server/automations.ts. */
 export async function setSongSlideActions(slideId: string, actions: unknown): Promise<Result> {
   const user = await requireCap("edit_library");
-  const db = getDb();
-  const owned = await assertSlideOwned(db, slideId, user.churchId);
-  if (!owned) return { ok: false, error: "Slide not found" };
-  const { validateSlideActions, sanitizeSlideActions } = await import("@/engine/slide-actions");
-  const v = validateSlideActions(actions);
-  if (!v.ok) return { ok: false, error: `Invalid slide action${v.index != null ? ` #${v.index + 1}` : ""}: ${v.reason}` };
-  const clean = sanitizeSlideActions(actions);
-  await db.update(songSlides).set({ actions: clean }).where(and(eq(songSlides.id, slideId), eq(songSlides.songId, owned.songId)));
-  revalidatePath(`/library/songs/${owned.songId}`);
+  const { setSongSlideActionsCore } = await import("./server/automations");
+  const res = await setSongSlideActionsCore(getDb(), user.churchId, slideId, actions);
+  if (!res.ok) return res;
+  if (res.data?.songId) revalidatePath(`/library/songs/${res.data.songId}`);
   return { ok: true };
 }
 
-/** Max distinct slide-index keys in one item's sparse slideActions map. */
-const MAX_SLIDE_ACTION_KEYS = 500;
-
 /** Persist a NON-song item's per-slide actions into service_items.payload.
- *  slideActions is a sparse map { [slideIdx]: ActionSpec[] }. Church-scoped. */
+ *  slideActions (sparse map { [slideIdx]: ActionSpec[] }). Church-scoped in the
+ *  UPDATE itself; atomic single-key jsonb write (no read-modify-write). This is
+ *  the ONLY writer of payload.slideActions — addServiceItem(s) strip it. */
 export async function setServiceItemSlideActions(itemId: string, slideIdx: number, actions: unknown): Promise<Result> {
   const user = await requireCap("operate_services");
-  const db = getDb();
-  const [item] = await db.select({ id: serviceItems.id, payload: serviceItems.payload })
-    .from(serviceItems)
-    .innerJoin(servicePlans, eq(servicePlans.id, serviceItems.servicePlanId))
-    .where(and(eq(serviceItems.id, itemId), eq(servicePlans.churchId, user.churchId)))
-    .limit(1);
-  if (!item) return { ok: false, error: "Item not found" };
-  if (!Number.isInteger(slideIdx) || slideIdx < 0 || slideIdx > 5000) return { ok: false, error: "Bad slide index" };
-  const { validateSlideActions, sanitizeSlideActions } = await import("@/engine/slide-actions");
-  const v = validateSlideActions(actions);
-  if (!v.ok) return { ok: false, error: `Invalid slide action: ${v.reason}` };
-  const clean = sanitizeSlideActions(actions);
-  const cur = (item.payload as { slideActions?: Record<string, unknown> })?.slideActions ?? {};
-  const nextMap: Record<string, unknown> = (cur && typeof cur === "object" && !Array.isArray(cur)) ? { ...cur } : {};
-  const key = String(slideIdx);
-  if (clean.length === 0) {
-    delete nextMap[key];
-  } else {
-    // Bound the sparse map so a crafted item can't accumulate an unbounded set of
-    // slide-index keys in the JSONB payload. Adding a NEW key past the cap is
-    // rejected with an honest error (updating an existing key is always allowed).
-    if (!(key in nextMap) && Object.keys(nextMap).length >= MAX_SLIDE_ACTION_KEYS) {
-      return { ok: false, error: `Slide-action limit reached (${MAX_SLIDE_ACTION_KEYS} slides). Clear actions on another slide first.` };
-    }
-    nextMap[key] = clean;
-  }
-  await db.execute(sql`UPDATE service_items SET payload = jsonb_set(coalesce(payload,'{}'::jsonb), '{slideActions}', ${JSON.stringify(nextMap)}::jsonb, true) WHERE id = ${itemId}`);
-  return { ok: true };
+  const { setServiceItemSlideActionsCore } = await import("./server/automations");
+  return setServiceItemSlideActionsCore(getDb(), user.churchId, itemId, slideIdx, actions);
 }
 
 // ── Phase 4: Automations (macros) — church-scoped CRUD ───────────────────────
-
-// Single source of truth: the cap lives in the engine (imported, not re-declared).
-const MAX_MACROS = MAX_MACROS_PER_CHURCH;
+// Thin session wrappers; the church-scoped DB logic (cap-safe create, typed
+// input normalization, .returning()-based not-found) is in server/automations.
 
 export type MacroInput = { name?: string; actions?: unknown; enabled?: boolean };
 
-async function sanitizeMacroInput(input: MacroInput): Promise<{ name: string; actions: unknown[]; enabled: boolean }> {
-  const { sanitizeMacroActions } = await import("@/engine/macros");
-  const name = (input.name ?? "Automation").trim().slice(0, 120) || "Automation";
-  const actions = sanitizeMacroActions(input.actions);
-  const enabled = input.enabled !== false;
-  return { name, actions, enabled };
-}
-
+/** Listing needs `operate_services` — the same capability that creates/edits/
+ *  deletes Automations and that fires slides live. The operator page itself is
+ *  only requireUser-gated, so a view-only role (pastor/viewer) can open it; for
+ *  them this returns a clean `{ok:false}` (NO redirect — a redirect from a
+ *  background console fetch would yank them off the page). The console treats a
+ *  failed load as "no automations" (macros are optional). */
 export async function listMacros(): Promise<Result<Array<{ id: string; name: string; actions: unknown[]; enabled: boolean; sortOrder: number }>>> {
   const user = await requireUser();
-  const db = getDb();
-  const rows = await db.select().from(macros)
-    .where(eq(macros.churchId, user.churchId))
-    .orderBy(asc(macros.sortOrder), asc(macros.createdAt));
-  const { sanitizeMacroActions } = await import("@/engine/macros");
-  return { ok: true, data: rows.map((r) => ({ id: r.id, name: r.name, actions: sanitizeMacroActions(r.actions), enabled: r.enabled, sortOrder: r.sortOrder })) };
+  if (!hasCap(user.role, "operate_services")) return { ok: false, error: "Not permitted" };
+  const { listMacrosCore } = await import("./server/automations");
+  return { ok: true, data: await listMacrosCore(getDb(), user.churchId) };
 }
 
 export async function createMacro(input: MacroInput): Promise<Result<{ id: string }>> {
   const user = await requireCap("operate_services");
-  const db = getDb();
-  const { validateMacroActions } = await import("@/engine/macros");
-  const v = validateMacroActions(Array.isArray(input.actions) ? input.actions : []);
-  if (!v.ok) return { ok: false, error: `Invalid action${v.index != null ? ` #${v.index + 1}` : ""}: ${v.reason}` };
-  const clean = await sanitizeMacroInput(input);
-  const existing = await db.select({ sortOrder: macros.sortOrder }).from(macros).where(eq(macros.churchId, user.churchId));
-  if (existing.length >= MAX_MACROS) return { ok: false, error: `Automation limit reached (${MAX_MACROS}). Delete one to add another.` };
-  const nextOrder = existing.length > 0 ? Math.max(...existing.map((e) => e.sortOrder)) + 1 : 0;
-  const [row] = await db.insert(macros).values({ churchId: user.churchId, name: clean.name, actions: clean.actions, enabled: clean.enabled, sortOrder: nextOrder }).returning({ id: macros.id });
-  return { ok: true, data: { id: row.id } };
+  const { createMacroCore } = await import("./server/automations");
+  return createMacroCore(getDb(), user.churchId, input);
 }
 
 export async function updateMacro(id: string, input: MacroInput): Promise<Result> {
   const user = await requireCap("operate_services");
-  const db = getDb();
-  // PARTIAL update: only touch the fields the caller actually provided. A
-  // `{ enabled: false }` toggle must NOT reset name to "Automation" or wipe the
-  // action list (the old full-row sanitize did exactly that). The panel still
-  // sends the full row, so its behaviour is unchanged.
-  const patch: Partial<{ name: string; actions: unknown[]; enabled: boolean; updatedAt: Date }> = { updatedAt: new Date() };
-  if (input.name !== undefined) patch.name = input.name.trim().slice(0, 120) || "Automation";
-  if (input.enabled !== undefined) patch.enabled = input.enabled !== false;
-  if (input.actions !== undefined) {
-    const { validateMacroActions, sanitizeMacroActions } = await import("@/engine/macros");
-    const v = validateMacroActions(Array.isArray(input.actions) ? input.actions : []);
-    if (!v.ok) return { ok: false, error: `Invalid action${v.index != null ? ` #${v.index + 1}` : ""}: ${v.reason}` };
-    patch.actions = sanitizeMacroActions(input.actions);
-  }
-  const res = await db.update(macros).set(patch)
-    .where(and(eq(macros.id, id), eq(macros.churchId, user.churchId)));
-  if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Automation not found" };
-  return { ok: true };
+  const { updateMacroCore } = await import("./server/automations");
+  return updateMacroCore(getDb(), user.churchId, id, input);
 }
 
 export async function deleteMacro(id: string): Promise<Result> {
   const user = await requireCap("operate_services");
-  const db = getDb();
-  const res = await db.delete(macros).where(and(eq(macros.id, id), eq(macros.churchId, user.churchId)));
-  if ((res as { rowCount?: number }).rowCount === 0) return { ok: false, error: "Automation not found" };
-  return { ok: true };
+  const { deleteMacroCore } = await import("./server/automations");
+  return deleteMacroCore(getDb(), user.churchId, id);
 }

@@ -20,7 +20,9 @@ import { parseMediaDropPayload, isImageAsset, resolveMediaDrop, MEDIA_DROP_MIME 
 import { applyTextToSlide, projectableTextSlide } from "@/lib/broadcast";
 import { loadMediaFrame, buildMediaFrameSlide } from "./mediaFrame";
 import { useRouter } from "next/navigation";
-import { X, Pencil, LayoutGrid, GripVertical, GripHorizontal, ChevronRight, Check, Layers, Zap, Image as ImageIcon, Palette } from "lucide-react";
+import { X, Pencil, LayoutGrid, GripVertical, GripHorizontal, ChevronRight, Check, Layers, Zap, Image as ImageIcon, Palette, Timer, MessageSquare, Sparkles, Captions, Workflow, Trash2 } from "lucide-react";
+import { describeSpec, specKey } from "@/engine/actions/describe";
+import { macroHasGuardedAction } from "@/engine/macros";
 import { DotGridBackground } from "../DotGridBackground";
 import { groupColor } from "@/engine/arrangements";
 
@@ -66,7 +68,36 @@ type SlideActionsMenu = {
   palette: { label: string; make: () => ActionSpec }[];
   current: ActionSpec[];
   onToggle: (spec: ActionSpec) => void;
+  /** Remove the attached action at index i (works for legacy timer/message too). */
+  onRemoveAt: (i: number) => void;
+  onClearAll: () => void;
+  /** Human label for an attached spec (macro names resolved when loaded). */
+  describe: (spec: ActionSpec) => string;
+  /** Enabled, NON-guarded Automations offered under "Run automation →". */
+  automations: { id: string; name: string }[];
 };
+
+// Badge icon per attached action type (up to 3 shown, then "+N").
+function actionTypeIcon(t: ActionSpec["type"]) {
+  switch (t) {
+    case "timer": return Timer;
+    case "show_message": case "clear_message": return MessageSquare;
+    case "logo": return Sparkles;
+    case "send_lower_third": case "clear_lower_third": return Captions;
+    case "macro": return Workflow;
+    case "set_background": case "set_background_media": return ImageIcon;
+    case "clear_layer": return Layers;
+    default: return Zap;
+  }
+}
+
+// Open a trigger's Radix context menu from the keyboard / a click by synthesising
+// a contextmenu event at the element's centre (Radix listens for onContextMenu).
+function openContextMenuAt(el: HTMLElement | null) {
+  if (!el) return;
+  const r = el.getBoundingClientRect();
+  el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }));
+}
 // Background submenu — IMAGE controls only (user model 2026-09-09): add via
 // drag-from-media-bin, use this slide's image on all slides, or clear one/all.
 type BgMenu = {
@@ -280,21 +311,60 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   const canEditSlideActions = item?.type === "song" && !!sectionSongId;
   // Non-destructive palette offered on a slide — SLIDE_MENU_PALETTE (module const)
   // is the background-focused subset (timer/message filtered out; see A1 above).
-  const toggleSlideAction = (idx: number, spec: ActionSpec) => {
+  const saveSlideActions = (idx: number, next: ActionSpec[], okMsg: string) => {
     const slideId = item?.type === "song" ? item.songSlideRows?.[idx]?.id : undefined;
     if (!sectionSongId || !slideId) return;
-    const current = slideActionSpecs?.[idx] ?? [];
-    const key = JSON.stringify(spec);
-    const exists = current.some((s) => JSON.stringify(s) === key);
-    const next = exists ? current.filter((s) => JSON.stringify(s) !== key) : [...current, spec];
     void (async () => {
       const { toast } = await import("sonner");
       const res = await setSongSlideActions(slideId, next);
       if (!res.ok) { toast.error(res.error ?? "Couldn't set slide action"); return; }
-      toast.success(exists ? "Removed slide action" : "Attached slide action");
+      toast.success(okMsg);
       router.refresh();
     })();
   };
+  const toggleSlideAction = (idx: number, spec: ActionSpec) => {
+    const current = slideActionSpecs?.[idx] ?? [];
+    const key = specKey(spec);
+    const exists = current.some((s) => specKey(s) === key);
+    const next = exists ? current.filter((s) => specKey(s) !== key) : [...current, spec];
+    saveSlideActions(idx, next, exists ? "Removed slide action" : "Attached slide action");
+  };
+  const removeSlideActionAt = (idx: number, i: number) => {
+    const current = slideActionSpecs?.[idx] ?? [];
+    if (i < 0 || i >= current.length) return;
+    saveSlideActions(idx, current.filter((_, j) => j !== i), "Removed slide action");
+  };
+  const clearSlideActions = (idx: number) => saveSlideActions(idx, [], "Removed all slide actions");
+
+  // Church Automations — for naming attached `macro` actions and the
+  // "Run automation →" submenu. Only loaded for editable song items; refreshed
+  // when the Automations panel changes. A failure just leaves ids unresolved.
+  const [churchMacros, setChurchMacros] = useState<{ id: string; name: string; enabled: boolean; guarded: boolean }[]>([]);
+  useEffect(() => {
+    if (!canEditSlideActions) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const { listMacros } = await import("@/lib/actions");
+        const res = await listMacros();
+        if (cancelled || !res.ok || !res.data) return;
+        setChurchMacros(res.data.map((m) => ({
+          id: m.id, name: m.name, enabled: m.enabled,
+          guarded: macroHasGuardedAction({ id: m.id, churchId: "", name: m.name, actions: m.actions as ActionSpec[], enabled: m.enabled }),
+        })));
+      } catch { /* optional */ }
+    };
+    void load();
+    const onChanged = () => { void load(); };
+    window.addEventListener("presentflow:macros-changed", onChanged);
+    return () => { cancelled = true; window.removeEventListener("presentflow:macros-changed", onChanged); };
+  }, [canEditSlideActions]);
+  const describeSlideSpec = (spec: ActionSpec) =>
+    describeSpec(spec, spec.type === "macro" ? churchMacros.find((m) => m.id === spec.macroId)?.name : undefined);
+  const runnableAutomations = useMemo(
+    () => churchMacros.filter((m) => m.enabled && !m.guarded).map((m) => ({ id: m.id, name: m.name })),
+    [churchMacros],
+  );
 
   // View mode is toggled by the BottomBar (fires "presentflow:slide-view-mode").
   // Persist per-machine so operators keep their preferred layout across launches.
@@ -794,10 +864,15 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                 index={idx + 1}
                 groupChip={groupChips?.[idx] ?? null}
                 actionCount={slideActionSpecs?.[idx]?.length ?? 0}
+                actionTypes={slideActionSpecs?.[idx]?.map((a) => a.type)}
                 actionsMenu={canEditSlideActions ? {
                   palette: SLIDE_MENU_PALETTE,
                   current: slideActionSpecs?.[idx] ?? [],
                   onToggle: (spec: ActionSpec) => toggleSlideAction(idx, spec),
+                  onRemoveAt: (i: number) => removeSlideActionAt(idx, i),
+                  onClearAll: () => clearSlideActions(idx),
+                  describe: describeSlideSpec,
+                  automations: runnableAutomations,
                 } : null}
                 sectionMenu={sectionSongId ? {
                   groups: songGroups,
@@ -1139,6 +1214,7 @@ function SortableSlideCard(props: {
   bgMenu?: BgMenu | null;
   themeMenu?: ThemeMenu | null;
   actionCount?: number;
+  actionTypes?: ActionSpec["type"][];
   actionsMenu?: SlideActionsMenu | null;
   appearance?: ThemeAppearance;
   background?: BackgroundSpec | null;
@@ -1195,6 +1271,7 @@ function SortableSlideCard(props: {
         bgMenu={props.bgMenu}
         themeMenu={props.themeMenu}
         actionCount={props.actionCount}
+        actionTypes={props.actionTypes}
         actionsMenu={props.actionsMenu}
         appearance={props.appearance}
         background={props.background}
@@ -1241,7 +1318,7 @@ function SortableSlideCard(props: {
 }
 
 function SlideCard({
-  slide, index, groupChip, sectionMenu, bgMenu, themeMenu, actionCount, actionsMenu, appearance, background, selected, canQuickEdit, canPaste, pasteReason, canPasteText, onSelect, onDouble, onDelete, onQuickEdit, onDuplicate, onCopyText, onCopySlide, onPasteSlide, onPasteText, onSendLive,
+  slide, index, groupChip, sectionMenu, bgMenu, themeMenu, actionCount, actionTypes, actionsMenu, appearance, background, selected, canQuickEdit, canPaste, pasteReason, canPasteText, onSelect, onDouble, onDelete, onQuickEdit, onDuplicate, onCopyText, onCopySlide, onPasteSlide, onPasteText, onSendLive,
 }: {
   slide: SlidePayload;
   index: number;
@@ -1250,6 +1327,7 @@ function SlideCard({
   bgMenu?: BgMenu | null;
   themeMenu?: ThemeMenu | null;
   actionCount?: number;
+  actionTypes?: ActionSpec["type"][];
   actionsMenu?: SlideActionsMenu | null;
   appearance?: ThemeAppearance;
   background?: BackgroundSpec | null;
@@ -1286,6 +1364,14 @@ function SlideCard({
           // The inner (this card's) menu still opens — stopPropagation only blocks
           // the ANCESTOR grid trigger, not this element's own Radix handler.
           onContextMenu={(e) => e.stopPropagation()}
+          // Keyboard access: Shift+F10 / the ContextMenu key open this card's menu.
+          onKeyDown={(e) => {
+            if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+              e.preventDefault();
+              e.stopPropagation();
+              openContextMenuAt(e.currentTarget);
+            }
+          }}
           // Staggered pop-in when a song's slides first mount (keyed by slide id,
           // so it fires on song switch, not on every re-render).
           style={{ animationDelay: `${Math.min(Math.max(index - 1, 0), 14) * 22}ms` }}
@@ -1315,7 +1401,7 @@ function SlideCard({
           <div
             className="absolute top-1.5 left-1.5 min-w-[20px] h-5 px-1 flex items-center justify-center rounded-md text-[10px] font-bold tabular-nums transition-colors"
             style={selected
-              ? { background: "var(--color-brand)", color: "#17130c", boxShadow: "var(--shadow-sm)" }
+              ? { background: "var(--color-brand)", color: "var(--color-primary-foreground)", boxShadow: "var(--shadow-sm)" }
               : { background: "rgba(0,0,0,0.55)", color: "rgba(255,255,255,0.82)", border: "1px solid rgba(255,255,255,0.14)" }}
             aria-hidden
           >
@@ -1335,15 +1421,26 @@ function SlideCard({
           )}
           {/* Slide-actions badge (Phase 4) — a tiny lightning row on the top-right
               when this slide has attached actions (ProPresenter-style). */}
-          {(actionCount ?? 0) > 0 && (
-            <div
-              className="absolute top-1.5 right-1.5 h-5 px-1.5 flex items-center gap-0.5 rounded-md text-[10px] font-bold shadow-sm"
-              style={{ background: "rgba(0,0,0,0.6)", color: "var(--color-brand)", border: "1px solid color-mix(in oklab, var(--color-brand) 40%, transparent)" }}
-              title={`${actionCount} slide action${actionCount === 1 ? "" : "s"} fire when this slide goes live`}
-            >
-              <Zap className="w-3 h-3" />{actionCount}
-            </div>
-          )}
+          {(actionCount ?? 0) > 0 && (() => {
+            const types = actionTypes ?? [];
+            const shown = types.slice(0, 3);
+            const extra = (actionCount ?? 0) - shown.length;
+            return (
+              <span
+                className="absolute top-1.5 right-1.5 h-5 px-1.5 flex items-center gap-0.5 rounded-md text-[10px] font-bold shadow-sm cursor-pointer"
+                style={{ background: "color-mix(in oklab, var(--color-shell) 70%, transparent)", color: "var(--color-brand)", border: "1px solid color-mix(in oklab, var(--color-brand) 40%, transparent)" }}
+                title={`${actionCount} slide action${actionCount === 1 ? "" : "s"} fire when this slide goes live — click to view`}
+                // Click opens the card menu (Actions → Attached list) instead of selecting/sending the slide.
+                onPointerDown={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); openContextMenuAt(e.currentTarget.closest("button")); }}
+              >
+                {shown.length === 0
+                  ? <><Zap className="w-3 h-3" />{actionCount}</>
+                  : <>{shown.map((t, i) => { const Icon = actionTypeIcon(t); return <Icon key={i} className="w-3 h-3" />; })}{extra > 0 && <span>+{extra}</span>}</>}
+              </span>
+            );
+          })()}
         </button>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
@@ -1365,10 +1462,36 @@ function SlideCard({
               </ContextMenu.SubTrigger>
               <ContextMenu.Portal>
                 <ContextMenu.SubContent className="min-w-[220px] rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
-                  <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)]">Fire when this slide goes live</div>
+                  <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)]">Attached — fire when this slide goes live</div>
+                  {actionsMenu.current.length === 0 && (
+                    <div className="px-3 py-1.5 text-[11px] text-[var(--color-muted-foreground)]">None attached</div>
+                  )}
+                  {actionsMenu.current.map((spec, i) => (
+                    <ContextMenu.Item
+                      key={`attached-${specKey(spec)}-${i}`}
+                      onSelect={(e) => { e.preventDefault(); actionsMenu.onRemoveAt(i); }}
+                      className="group flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]"
+                      aria-label={`Remove ${actionsMenu.describe(spec)}`}
+                    >
+                      <Check className="w-3.5 h-3.5 shrink-0 text-[var(--color-brand)]" />
+                      <span className="flex-1 min-w-0 truncate">{actionsMenu.describe(spec)}</span>
+                      <span className="ml-2 flex items-center gap-1 text-[10px] text-[var(--color-muted-foreground)] group-data-[highlighted]:text-[var(--color-destructive)]"><Trash2 className="w-3 h-3" />Remove</span>
+                    </ContextMenu.Item>
+                  ))}
+                  {actionsMenu.current.length > 1 && (
+                    <ContextMenu.Item
+                      onSelect={(e) => { e.preventDefault(); actionsMenu.onClearAll(); }}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer text-[var(--color-destructive)] data-[highlighted]:bg-[var(--color-panel)]"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                      Remove all actions
+                    </ContextMenu.Item>
+                  )}
+                  <ContextMenu.Separator className="h-px my-1 bg-[var(--color-border)]" />
+                  <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)]">Add</div>
                   {actionsMenu.palette.map((p, i) => {
                     const spec = p.make();
-                    const on = actionsMenu.current.some((c) => JSON.stringify(c) === JSON.stringify(spec));
+                    const on = actionsMenu.current.some((c) => specKey(c) === specKey(spec));
                     return (
                       <ContextMenu.Item
                         key={i}
@@ -1376,10 +1499,37 @@ function SlideCard({
                         className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]"
                       >
                         <span className="w-3.5 h-3.5 shrink-0">{on && <Check className="w-3.5 h-3.5 text-[var(--color-brand)]" />}</span>
-                        {p.label}
+                        <span className="min-w-0 truncate">{p.label}</span>
                       </ContextMenu.Item>
                     );
                   })}
+                  {actionsMenu.automations.length > 0 && (
+                    <ContextMenu.Sub>
+                      <ContextMenu.SubTrigger className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]">
+                        <Workflow className="w-3.5 h-3.5 shrink-0" />
+                        Run automation
+                        <ChevronRight className="w-3.5 h-3.5 ml-auto" />
+                      </ContextMenu.SubTrigger>
+                      <ContextMenu.Portal>
+                        <ContextMenu.SubContent className="min-w-[200px] max-w-[280px] max-h-72 overflow-y-auto rounded-md bg-[var(--color-elevated)] border border-[var(--color-border)] p-1 text-[12px] shadow-xl z-50">
+                          {actionsMenu.automations.map((m) => {
+                            const spec: ActionSpec = { type: "macro", macroId: m.id };
+                            const on = actionsMenu.current.some((c) => specKey(c) === specKey(spec));
+                            return (
+                              <ContextMenu.Item
+                                key={m.id}
+                                onSelect={(e) => { e.preventDefault(); actionsMenu.onToggle(spec); }}
+                                className="flex items-center gap-2 px-3 py-1.5 rounded outline-none cursor-pointer data-[highlighted]:bg-[var(--color-panel)]"
+                              >
+                                <span className="w-3.5 h-3.5 shrink-0">{on && <Check className="w-3.5 h-3.5 text-[var(--color-brand)]" />}</span>
+                                <span className="min-w-0 truncate">{m.name}</span>
+                              </ContextMenu.Item>
+                            );
+                          })}
+                        </ContextMenu.SubContent>
+                      </ContextMenu.Portal>
+                    </ContextMenu.Sub>
+                  )}
                 </ContextMenu.SubContent>
               </ContextMenu.Portal>
             </ContextMenu.Sub>

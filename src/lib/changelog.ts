@@ -67,9 +67,9 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: "2026-09-09",
     headline: "Slide Actions and Automations — attach things that happen when a slide goes live, and chain actions into one tap",
     highlights: [
-      "Right-click any song slide → Actions to attach things that fire the moment you send that slide live: switch or clear the background, start/stop a timer, show or clear a message. A small lightning badge on the slide shows how many actions are attached.",
+      "Right-click any song slide → Actions to attach things that fire the moment you send that slide live: show the logo, clear the lower third, or run one of your Automations. The menu also lists what's already attached so you can remove it. A small badge on the slide shows which actions are attached. (Backgrounds live in the slide's Background menu; timers and messages are run from Automations.)",
       "Slide actions only fire when YOU send the slide — the AI's auto-detect never triggers them — and they can only do safe things (they can never blank or clear the whole screen). Even if an automation with a 'clear everything' step is attached to a slide, that destructive step is quietly refused when the slide fires — only a deliberate, confirmed run can clear the screen.",
-      "New Automations tab (the lightning icon): build a named list of actions — e.g. 'start the sermon timer AND show a welcome message' — and fire them all in one tap. Test-run any automation to watch it play on the projector.",
+      "New Automations tab (right sidebar → Settings gear → Automations): build a named list of actions — e.g. 'start the sermon timer AND show a welcome message' — and fire them all in one tap. Test-run any automation to watch it play on the projector — Test run always asks you to confirm first and warns that it goes live on the real screen.",
       "Automations can include the powerful 'clear everything' actions, but those always ask you to confirm before they run.",
       "Set-as-background now works as a proper action too, so it can be part of a slide action or an automation.",
     ],

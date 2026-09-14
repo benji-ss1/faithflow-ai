@@ -49,6 +49,7 @@ import type { OperatorShellCtx } from "./shell/types";
 import { dispatchAction, type EngineAction, type DispatchResult } from "@/engine/actions";
 import { setMediaAsBackground, normalizeMediaKind } from "@/backgrounds/mediaAsBackground";
 import { sanitizeSlideActions, dispatchSlideActions } from "@/engine/slide-actions";
+import { describeSpec } from "@/engine/actions/describe";
 import type { MacroDefinition } from "@/engine/macros";
 import { useProjectionZoneStore } from "@/lib/projection-zone-store";
 import { normalizeZone, DEFAULT_ZONE, type ProjectionZone } from "@/lib/projection-zone";
@@ -1259,16 +1260,24 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   // Phase 4 — church Automations (macros) cache, for resolving a slide action of
   // type "macro". Loaded once; refreshed by the Automations panel via event.
   const macrosRef = useRef<MacroDefinition[]>([]);
+  // true only once listMacros actually succeeded. While false (still loading,
+  // failed, or refused for a role without operate_services) a macro slide
+  // action can't be judged "missing", so it's skipped silently — no toast.
+  const macrosLoadedRef = useRef(false);
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       try {
         const { listMacros } = await import("@/lib/actions");
         const res = await listMacros();
-        if (!cancelled && res.ok && res.data) {
+        if (cancelled) return;
+        if (res.ok && res.data) {
           macrosRef.current = res.data.map((m) => ({ id: m.id, churchId, name: m.name, actions: m.actions as MacroDefinition["actions"], enabled: m.enabled }));
+          macrosLoadedRef.current = true;
+        } else {
+          macrosLoadedRef.current = false;
         }
-      } catch { /* macros are optional; a failure just leaves macro slide-actions unresolved */ }
+      } catch { if (!cancelled) macrosLoadedRef.current = false; /* macros are optional */ }
     };
     void load();
     const onChanged = () => { void load(); };
@@ -1298,34 +1307,62 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // Observability: one compact toast ONLY when something didn't fire (a throw,
     // an unresolved macro, or a guarded spec refused). All-green stays silent so
     // the happy path is noise-free.
-    const failed = outcomes.filter((o) => !o.result.handled).length;
+    // Macro list unavailable (failed / refused for this role): unresolved macro
+    // specs are expected, not errors — drop them from the report silently.
+    const failedOutcomes = outcomes.filter((o) => !o.result.handled
+      && !(o.spec.type === "macro" && o.result.reason === "macro-not-found" && !macrosLoadedRef.current));
+    const failed = failedOutcomes.length;
     if (failed > 0) {
       const ran = outcomes.length - failed;
+      const reasonText = (r?: string) =>
+        r === "macro-not-found" ? "automation missing or disabled"
+        : r === "refused-guard" ? "destructive step blocked on slides"
+        : r === "threw" ? "error while running"
+        : r === "unmappable" ? "not supported"
+        : r || "not handled";
+      const detail = failedOutcomes.slice(0, 2).map((o) => {
+        const sp = o.spec;
+        const name = sp.type === "macro" ? macrosRef.current.find((m) => m.id === sp.macroId)?.name : undefined;
+        return `${describeSpec(sp, name)} (${reasonText(o.result.reason)})`;
+      }).join("; ") + (failed > 2 ? `; +${failed - 2} more` : "");
       void import("sonner").then(({ toast }) =>
-        toast.warning(`${ran} of ${outcomes.length} slide action${outcomes.length === 1 ? "" : "s"} ran — ${failed} need${failed === 1 ? "s" : ""} attention`),
+        toast.warning(`${ran} of ${outcomes.length} slide action${outcomes.length === 1 ? "" : "s"} ran — ${detail}`),
       );
     }
   }, [plan.items, dispatchEngineAction]);
 
   const sendPreview = useCallback(() => {
     sendSlideToLive(previewSlide, undefined, { instant: true });
-    fireSlideActions(preview.itemIdx, preview.slideIdx);
-  }, [previewSlide, sendSlideToLive, fireSlideActions, preview.itemIdx, preview.slideIdx]);
+    // A staged AI slide (e.g. a detected verse) is what projects here — the
+    // playlist position underneath is NOT being sent, so its actions must not fire.
+    if (!stagedAISlide) fireSlideActions(preview.itemIdx, preview.slideIdx);
+  }, [previewSlide, stagedAISlide, sendSlideToLive, fireSlideActions, preview.itemIdx, preview.slideIdx]);
 
+  // Mirror of `preview` so move() can compute the next cursor OUTSIDE the
+  // setState updater (side effects — live send + slide actions — must not run
+  // inside an updater, which StrictMode double-invokes). Advanced eagerly in
+  // move() so rapid presses between renders don't reuse a stale cursor.
+  const previewRef = useRef(preview);
+  previewRef.current = preview;
   const move = useCallback((dir: 1 | -1) => {
-    setPreview((cur) => {
-      // Y5: pure boundary-walk that SKIPS header items (slides:[]) in both
-      // directions so navigation never lands on a divider (no-op when nowhere
-      // valid to go). Returns `cur` unchanged at the ends.
-      const next = nextPreviewPosition(plan.items, cur, dir);
-      if (next === cur) return cur;
-      if (autoSend) {
-        const s = plan.items[next.itemIdx]?.slides[next.slideIdx];
-        if (s) { setLive(s); chRef.current?.postMessage({ type: "set", slide: s } as LiveMessage); }
+    const cur = previewRef.current;
+    // Y5: pure boundary-walk that SKIPS header items (slides:[]) in both
+    // directions so navigation never lands on a divider (no-op when nowhere
+    // valid to go). Returns `cur` unchanged at the ends.
+    const next = nextPreviewPosition(plan.items, cur, dir);
+    if (next === cur) return;
+    previewRef.current = next;
+    setPreview(next);
+    if (autoSend) {
+      const s = plan.items[next.itemIdx]?.slides[next.slideIdx];
+      if (s) {
+        setLive(s);
+        chRef.current?.postMessage({ type: "set", slide: s } as LiveMessage);
+        // Operator-initiated send → fire that slide's attached actions (AI paths never do).
+        fireSlideActions(next.itemIdx, next.slideIdx);
       }
-      return next;
-    });
-  }, [plan.items, autoSend]);
+    }
+  }, [plan.items, autoSend, fireSlideActions]);
 
   useEffect(() => {
     // Priority 4 / Y4: the desktop shell uses the centralized
@@ -1339,7 +1376,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
       if (e.key === " " || e.key === "ArrowRight" || e.key === "PageDown") { e.preventDefault(); move(1); }
       else if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); move(-1); }
-      else if (e.key === "Enter") { e.preventDefault(); sendPreview(); }
+      else if (e.key === "Enter") { e.preventDefault(); if (!e.repeat) sendPreview(); }
       else if (e.key === "b" || e.key === "B") { e.preventDefault(); goBlank(); }
       else if (e.key === "l" || e.key === "L") { e.preventDefault(); goLogo(); }
       else if (e.key === "Escape") { e.preventDefault(); clearLive(); }
@@ -1352,7 +1389,12 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     setPreview({ itemIdx, slideIdx });
     if (autoSend) {
       const s = plan.items[itemIdx]?.slides[slideIdx];
-      if (s) send(s);
+      if (s) {
+        send(s);
+        // ProPresenter semantics (2026-09-14 user sign-off): a slide's actions run
+        // whenever the OPERATOR puts it live — click, arrows, Enter, or a jump.
+        fireSlideActions(itemIdx, slideIdx);
+      }
     }
   }
 

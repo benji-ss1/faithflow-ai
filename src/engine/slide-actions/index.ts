@@ -15,7 +15,7 @@
  * OWN actions can never include another macro (validated at macro save).
  */
 import type { EngineAction } from "../actions";
-import { specToEngineAction, validateForSlide, type ActionSpec } from "../actions/spec";
+import { specToEngineAction, validateForSlide, sanitizeActionList, rebuiltListBytes, MAX_ACTION_LIST_BYTES, type ActionSpec } from "../actions/spec";
 import type { MacroDefinition } from "../macros";
 import { macroToEngineActions } from "../macros";
 
@@ -36,18 +36,15 @@ export function validateSlideActions(actions: unknown): SlideActionsValidation {
     const r = validateForSlide(actions[i]);
     if (!r.ok) return { ok: false, reason: r.reason, index: i };
   }
+  if (rebuiltListBytes(actions) > MAX_ACTION_LIST_BYTES) return { ok: false, reason: "too-large" };
   return { ok: true };
 }
 
-/** Keep only the valid, slide-permitted specs (fail-open filter for READ). */
+/** Keep only the valid, slide-permitted specs, each REBUILT from its whitelisted
+ *  fields (extra keys / __proto__ / junk never survive), count- and byte-capped.
+ *  Applied on SAVE and on READ. */
 export function sanitizeSlideActions(actions: unknown): ActionSpec[] {
-  if (!Array.isArray(actions)) return [];
-  const out: ActionSpec[] = [];
-  for (const a of actions) {
-    if (out.length >= MAX_SLIDE_ACTIONS) break;
-    if (validateForSlide(a).ok) out.push(a as ActionSpec);
-  }
-  return out;
+  return sanitizeActionList(actions, validateForSlide, MAX_SLIDE_ACTIONS);
 }
 
 export interface SlideActionOutcome { spec: ActionSpec; result: DispatchResultLike }
@@ -86,7 +83,10 @@ export function dispatchSlideActions(
   const outcomes: SlideActionOutcome[] = [];
   for (const spec of specs) {
     if (spec.type === "macro") {
-      const def = resolveMacro(spec.macroId);
+      // A throwing resolver (corrupt cache, bad lookup) must not abort the rest
+      // of the slide's actions — treat it as not found.
+      let def: MacroDefinition | null = null;
+      try { def = resolveMacro(spec.macroId); } catch { def = null; }
       if (!def) { outcomes.push({ spec, result: { handled: false, reason: "macro-not-found" } }); continue; }
       // confirmed:false — guarded macro contents are refused by dispatchAction
       // (a slide send is NOT an operator-facing confirm). See doc above.

@@ -170,7 +170,9 @@ export function dispatchAction(
   // Guard destructive actions BEFORE any handler runs — an unconfirmed guarded
   // action is refused (returns unhandled) so macro/timeline/remote surfaces can
   // never yank the projector without an operator-facing confirm.
-  if (ACTION_BINDINGS[action.type]?.requiresConfirm && !options.confirmed) {
+  // Strict `=== true`: a truthy non-boolean ("yes", 1, {}) from a replayed /
+  // deserialized options bag must NOT count as an operator confirm.
+  if (ACTION_BINDINGS[action.type]?.requiresConfirm && options?.confirmed !== true) {
     return { handled: false, reason: "refused-guard" };
   }
   switch (action.type) {

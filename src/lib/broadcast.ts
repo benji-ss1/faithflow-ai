@@ -1049,12 +1049,39 @@ function isValidSlide(s: unknown): s is SlidePayload {
   }
 }
 
+const ANNOUNCEMENT_POSITIONS = new Set<string>(["lower_third", "top_banner", "ticker", "center_card"]);
+const ANNOUNCEMENT_ALIGNS = new Set<string>(["left", "center", "right"]);
+const ANNOUNCEMENT_STYLE_STRING_KEYS = ["fontFamily", "textColor", "bgColor"] as const;
+const ANNOUNCEMENT_STYLE_NUMBER_KEYS = ["fontSizePx", "fontWeight", "bgOpacity", "padding", "borderRadius"] as const;
+
+/** Plain non-array object; each KNOWN field, when present, has its declared
+ *  type (strings ≤200 chars, finite numbers, align in its enum). Missing fields
+ *  are tolerated (the renderer has defaults). */
+export function isValidAnnouncementStyle(st: unknown): st is AnnouncementStyle {
+  if (!st || typeof st !== "object" || Array.isArray(st)) return false;
+  if (hasPollutionKey(st)) return false;
+  const s = st as Record<string, unknown>;
+  for (const k of ANNOUNCEMENT_STYLE_STRING_KEYS) {
+    if (s[k] !== undefined && typeof s[k] !== "string") return false;
+  }
+  for (const k of ANNOUNCEMENT_STYLE_NUMBER_KEYS) {
+    if (s[k] !== undefined && (typeof s[k] !== "number" || !Number.isFinite(s[k]))) return false;
+  }
+  if (s.align !== undefined && !ANNOUNCEMENT_ALIGNS.has(s.align as string)) return false;
+  return true;
+}
+
 export function isValidAnnouncement(a: unknown): a is AnnouncementPayload {
   if (!a || typeof a !== "object") return false;
   if (hasPollutionKey(a)) return false;
   const p = a as Record<string, unknown>;
   if (typeof p.line1 !== "string" || p.line1.length > 500) return false;
   if (p.line2 !== undefined && (typeof p.line2 !== "string" || p.line2.length > 500)) return false;
+  // position + style are dereferenced unconditionally by AnnouncementLayer —
+  // an announcement missing/garbling them must be rejected (fail-open: callers
+  // drop the announcement, never the slide).
+  if (!ANNOUNCEMENT_POSITIONS.has(p.position as string)) return false;
+  if (!isValidAnnouncementStyle(p.style)) return false;
   if (p.logo !== undefined && p.logo !== null) {
     if (typeof p.logo !== "object" || hasPollutionKey(p.logo)) return false;
     const lg = p.logo as Record<string, unknown>;

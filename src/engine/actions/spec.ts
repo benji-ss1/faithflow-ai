@@ -112,6 +112,8 @@ export function specToEngineAction(spec: ActionSpec): EngineAction | null {
 }
 
 const SAFE_TOKEN = /^[A-Za-z0-9_-]{1,64}$/;
+/** Media kinds accepted on an assetRef (mirrors normalizeMediaKind's domain). */
+const MEDIA_KIND_RE = /^(image|video)(\/[a-z0-9.+-]{1,32})?$/;
 
 /** Byte cap for an embedded BackgroundSpec / AnnouncementPayload / TransitionSpec
  *  (a stored/replayed spec must not be able to bloat the DB row or the wire). */
@@ -142,6 +144,9 @@ export function validateSpec(spec: unknown): ValidateResult {
       if (!isValidRenderUrl(a.url)) return { ok: false, reason: "bad-assetRef-url" };
       if (a.fileName.length === 0 || a.fileName.length > 260) return { ok: false, reason: "bad-fileName" };
       if (a.kind.length === 0 || a.kind.length > 40) return { ok: false, reason: "bad-kind" };
+      // Restrict to the media kinds normalizeMediaKind understands: the bare
+      // "image"/"video" union OR a MIME-ish "image/png" / "video/mp4".
+      if (!MEDIA_KIND_RE.test(a.kind)) return { ok: false, reason: "bad-kind" };
       if (a.mediaKey !== undefined && (typeof a.mediaKey !== "string" || a.mediaKey.length > 512)) return { ok: false, reason: "bad-mediaKey" };
       return { ok: true };
     }
@@ -158,7 +163,7 @@ export function validateSpec(spec: unknown): ValidateResult {
       return { ok: true };
     case "show_message":
       if (typeof s.text !== "string" || s.text.length === 0 || s.text.length > 2000) return { ok: false, reason: "bad-text" };
-      if (s.dismissAfterMs != null && (typeof s.dismissAfterMs !== "number" || s.dismissAfterMs < 0 || s.dismissAfterMs > 3_600_000))
+      if (s.dismissAfterMs != null && (typeof s.dismissAfterMs !== "number" || !Number.isFinite(s.dismissAfterMs) || s.dismissAfterMs < 0 || s.dismissAfterMs > 3_600_000))
         return { ok: false, reason: "bad-dismiss" };
       return { ok: true };
     case "clear_message":
@@ -174,6 +179,7 @@ export function validateSpec(spec: unknown): ValidateResult {
     case "send_lower_third":
       if (typeof s.line1 !== "string" || typeof s.line2 !== "string") return { ok: false, reason: "bad-lines" };
       if (s.line1.length > 500 || s.line2.length > 500) return { ok: false, reason: "line-too-long" };
+      if (s.line1.trim().length === 0 && s.line2.trim().length === 0) return { ok: false, reason: "empty-lines" };
       return { ok: true };
     case "set_announcement":
       if (s.announcement === null || s.announcement === undefined) return { ok: true };
@@ -208,4 +214,130 @@ export function validateForMacro(spec: unknown): ValidateResult {
   if (!base.ok) return base;
   if ((spec as ActionSpec).type === "macro") return { ok: false, reason: "no-macro-in-macro" };
   return { ok: true };
+}
+
+// ── Whitelist rebuild (sanitize) ────────────────────────────────────────────
+//
+// Validation only proves the ALLOWED fields are well-formed; it says nothing
+// about EXTRA keys (a 5MB junk string, `__proto__`, …). Everything we persist or
+// replay is therefore REBUILT from only its allowed fields, so the stored object
+// can never carry anything the validator didn't look at.
+
+/** Hard cap on the serialized size of ONE saved action list (slide or macro). */
+export const MAX_ACTION_LIST_BYTES = 32 * 1024;
+
+const utf8 = new TextEncoder();
+/** Real UTF-8 byte length of the JSON serialization (not UTF-16 code units). */
+function serializedLength(v: unknown): number {
+  try {
+    const s = JSON.stringify(v);
+    return s === undefined ? 0 : utf8.encode(s).length;
+  } catch { return Infinity; }
+}
+
+/** Copy only `keys` from `src` that are defined (own props only). */
+function pick(src: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of keys) {
+    if (Object.prototype.hasOwnProperty.call(src, k) && src[k] !== undefined) out[k] = src[k];
+  }
+  return out;
+}
+
+const BACKGROUND_KEYS = [
+  "type", "shaderPreset", "primaryColor", "secondaryColor", "speed", "intensity",
+  "imageUrl", "imageFit", "imageBlur", "videoUrl", "videoSpeed", "overlayColor", "overlayOpacity",
+] as const;
+const TRANSITION_KEYS = ["effectId", "durationMs", "easing", "name"] as const;
+const ANNOUNCEMENT_STYLE_KEYS = [
+  "fontFamily", "fontSizePx", "fontWeight", "textColor", "bgColor", "bgOpacity",
+  "padding", "borderRadius", "align",
+] as const;
+
+function rebuildAnnouncement(a: Record<string, unknown>): AnnouncementPayload {
+  const out: Record<string, unknown> = pick(a, ["line1", "line2", "position"]);
+  // validateSpec already guaranteed style is a well-typed plain object.
+  {
+    // Style fields are scalar render hints; keep only scalar values of known keys.
+    const st = pick(a.style as Record<string, unknown>, ANNOUNCEMENT_STYLE_KEYS);
+    for (const k of Object.keys(st)) {
+      const v = st[k];
+      if (!(typeof v === "string" || typeof v === "number" || typeof v === "boolean")) delete st[k];
+    }
+    out.style = st;
+  }
+  if (a.logo === null) out.logo = null;
+  else if (a.logo && typeof a.logo === "object") out.logo = pick(a.logo as Record<string, unknown>, ["url", "position", "sizePct", "opacity"]);
+  return out as unknown as AnnouncementPayload;
+}
+
+/**
+ * Validate a single spec and REBUILD it from only its whitelisted fields.
+ * Returns `null` when the spec is invalid. Pure; never returns the caller's
+ * object (or any nested object of it) by reference.
+ */
+export function sanitizeSpec(spec: unknown): ActionSpec | null {
+  if (!validateSpec(spec).ok) return null;
+  const s = spec as Record<string, unknown>;
+  switch (s.type as ActionSpecType) {
+    case "set_background_media": {
+      const a = s.assetRef as Record<string, unknown>;
+      const assetRef: MediaAssetRef = { id: a.id as string, url: a.url as string, fileName: a.fileName as string, kind: a.kind as string };
+      if (typeof a.mediaKey === "string") assetRef.mediaKey = a.mediaKey;
+      return { type: "set_background_media", assetRef };
+    }
+    case "set_background":
+      return { type: "set_background", spec: s.spec == null ? null : (pick(s.spec as Record<string, unknown>, BACKGROUND_KEYS) as unknown as BackgroundSpec) };
+    case "timer":
+      return { type: "timer", timerId: s.timerId as string, command: s.command as "start" | "stop" | "reset" };
+    case "show_message":
+      return s.dismissAfterMs == null
+        ? { type: "show_message", text: s.text as string }
+        : { type: "show_message", text: s.text as string, dismissAfterMs: s.dismissAfterMs as number };
+    case "clear_message": return { type: "clear_message" };
+    case "clear_layer": return { type: "clear_layer", layerId: s.layerId as string };
+    case "send_lower_third": return { type: "send_lower_third", line1: s.line1 as string, line2: s.line2 as string };
+    case "clear_lower_third": return { type: "clear_lower_third" };
+    case "set_announcement":
+      return { type: "set_announcement", announcement: s.announcement == null ? null : rebuildAnnouncement(s.announcement as Record<string, unknown>) };
+    case "set_transition":
+      return { type: "set_transition", transition: s.transition == null ? null : (pick(s.transition as Record<string, unknown>, TRANSITION_KEYS) as unknown as TransitionSpec) };
+    case "logo": return { type: "logo" };
+    case "blank": return { type: "blank" };
+    case "kill": return { type: "kill" };
+    case "clear_all_layers": return { type: "clear_all_layers" };
+    case "macro": return { type: "macro", macroId: s.macroId as string };
+    default: return null;
+  }
+}
+
+/**
+ * Shared list sanitizer: array-only, per-item `permit` gate, whitelist rebuild,
+ * count cap, and a total serialized-size cap (items that would push the list
+ * past `MAX_ACTION_LIST_BYTES` are dropped). Pure.
+ */
+export function sanitizeActionList(
+  actions: unknown,
+  permit: (spec: unknown) => ValidateResult,
+  maxCount: number,
+): ActionSpec[] {
+  if (!Array.isArray(actions)) return [];
+  const out: ActionSpec[] = [];
+  let bytes = 2; // "[]"
+  for (const a of actions) {
+    if (out.length >= maxCount) break;
+    if (!permit(a).ok) continue;
+    const clean = sanitizeSpec(a);
+    if (!clean) continue;
+    const len = serializedLength(clean) + (out.length > 0 ? 1 : 0);
+    if (bytes + len > MAX_ACTION_LIST_BYTES) continue;
+    bytes += len;
+    out.push(clean);
+  }
+  return out;
+}
+
+/** Serialized size of the whitelist-rebuilt list (what would actually be saved). */
+export function rebuiltListBytes(actions: unknown[]): number {
+  return serializedLength(actions.map((a) => sanitizeSpec(a)));
 }

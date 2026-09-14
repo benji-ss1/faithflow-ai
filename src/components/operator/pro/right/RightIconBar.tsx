@@ -249,7 +249,7 @@ export function RightIconBar({
       )}
       {openKey === "settings" && (
         <PopoverShell title="Settings" onClose={() => setOpenKey(null)}>
-          <SettingsPopoverBody key={settingsEpoch} initialTab={settingsInitialTab} />
+          <SettingsPopoverBody key={settingsEpoch} ctx={ctx} initialTab={settingsInitialTab} />
         </PopoverShell>
       )}
       {/* Change 5C — Screens popover render block removed. */}
@@ -353,15 +353,19 @@ function PopoverShell({
 }
 
 function SettingsPopoverBody({
+  ctx,
   initialTab = "macros",
 }: {
+  // Automations test-run fires through ctx.dispatchEngineAction — without it
+  // MacrosTab can only show "Test-run needs the live operator console".
+  ctx: OperatorShellCtx;
   // Messages + Timers moved to their OWN top-level icons (Wave 7, rec6): "take
   // out messages and timers from this section and give them their own sections."
   initialTab?: "macros" | "bible";
 }) {
   const [subTab, setSubTab] = useState<"macros" | "bible">(initialTab);
   const tabs: { k: typeof subTab; label: string }[] = [
-    { k: "macros", label: "Macros" },
+    { k: "macros", label: "Automations" },
     { k: "bible", label: "Bible" },
   ];
   return (
@@ -390,7 +394,7 @@ function SettingsPopoverBody({
         ))}
       </div>
       <div className="p-2 text-[12px]">
-        {subTab === "macros" && <MacrosTab />}
+        {subTab === "macros" && <MacrosTab ctx={ctx} />}
         {subTab === "bible" && <BibleLicensingTab />}
       </div>
     </div>

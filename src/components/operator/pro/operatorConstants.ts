@@ -147,11 +147,11 @@ export const SONG_AUTO_LIVE_MIN_GAP_MS = 800;
  *  the auto-live bar because it never fires live on its own. */
 export const SONG_JUMP_SUGGEST_CONFIDENCE = 80;
 
-/** While a DIFFERENT song is already live, a newly-detected song must clear this
- *  higher bar to auto-switch the projector — "don't change songs mid-song unless
- *  it's a massive change" (2026-09-06 user directive). Below it, the new song is
- *  staged as a manual chip instead of auto-switching. Above the normal auto-live
- *  bar (90) so only a clearly, strongly sung different song takes over live. */
+/** While a DIFFERENT song is already live, the AI NEVER auto-switches the
+ *  projector (2026-09-14 user directive, supersedes the 2026-09-06 "auto-switch
+ *  at ≥95"). Any detection of a different song — even ≥ this bar — is staged as
+ *  a manual chip the operator pushes (G / tap). This value now only marks a
+ *  "strong switch" in the logs. */
 export const SONG_SWITCH_WHILE_LIVE_CONFIDENCE = 95;
 
 // ── Left panel dimensions ──────────────────────────────────────────────────

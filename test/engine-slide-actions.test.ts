@@ -110,3 +110,44 @@ test("dispatchSlideActions reports macro-not-found", () => {
   assert.equal(outcomes.length, 1);
   assert.deepEqual(outcomes[0].result, { handled: false, reason: "macro-not-found" });
 });
+
+// ── Review-fix hardening ──
+test("sanitizeSlideActions strips extra keys and 5MB junk (whitelist rebuild)", () => {
+  const out = sanitizeSlideActions([{ ...timer, pad: "x".repeat(5 * 1024 * 1024), __evil: {} }, { ...msg, extra: 1 }]);
+  assert.deepEqual(out, [timer, msg]);
+  assert.ok(JSON.stringify(out).length < 200);
+});
+
+test("validate/sanitizeSlideActions enforce the 32KB serialized list cap", () => {
+  const big = Array.from({ length: MAX_SLIDE_ACTIONS }, () => ({ type: "show_message", text: "z".repeat(2000) }));
+  const v = validateSlideActions(big);
+  assert.ok(v.ok, "8 x 2000 chars is under 32KB");
+  const bigger = Array.from({ length: MAX_SLIDE_ACTIONS }, (_, i) => ({ type: "show_message", text: "z".repeat(2000), dismissAfterMs: i }));
+  assert.ok(validateSlideActions(bigger).ok);
+  // Force over the cap with announcements (8KB embedded each).
+  const ann = { type: "set_announcement", announcement: { line1: "a".repeat(500), line2: "b".repeat(500), position: "lower_third", style: { fontFamily: "f".repeat(3000) } } };
+  const list = Array.from({ length: MAX_SLIDE_ACTIONS }, () => ann);
+  assert.equal(validateSlideActions(list).reason, "too-large");
+  const s = sanitizeSlideActions(list);
+  assert.ok(JSON.stringify(s).length <= 32 * 1024, "sanitize trims to the byte cap");
+  assert.ok(s.length < MAX_SLIDE_ACTIONS);
+});
+
+test("dispatchAction: confirmed must be === true (truthy non-boolean refused)", () => {
+  const fired: string[] = [];
+  const ctx = { onKill: () => fired.push("KILL") } as unknown as Parameters<typeof dispatchAction>[0];
+  for (const c of ["yes", 1, {}, "true"]) {
+    const r = dispatchAction(ctx, { type: "KILL" }, { confirmed: c as unknown as boolean });
+    assert.deepEqual(r, { handled: false, reason: "refused-guard" }, `confirmed=${JSON.stringify(c)}`);
+  }
+  assert.deepEqual(fired, []);
+  assert.deepEqual(dispatchAction(ctx, { type: "KILL" }, { confirmed: true }), { handled: true });
+});
+
+test("dispatchSlideActions: a throwing resolveMacro becomes macro-not-found and the rest still fire", () => {
+  const calls: string[] = [];
+  const dispatch: DispatchEngineAction = (a) => { calls.push(a.type); return { handled: true }; };
+  const outcomes = dispatchSlideActions(dispatch, [macroRef, timer], () => { throw new Error("boom"); });
+  assert.deepEqual(outcomes[0].result, { handled: false, reason: "macro-not-found" });
+  assert.deepEqual(calls, ["TIMER_COMMAND"]);
+});
