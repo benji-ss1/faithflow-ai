@@ -338,7 +338,7 @@ export function SongsBrowser({
         return;
       }
       try { console.log("[songs-play-current] firing", { songId: selected.id, title: selected.title, slideLen: first.lyrics.length }); } catch { /* ignore */ }
-      ctx.onSendSlideToLive({ kind: "text", text: first.lyrics });
+      ctx.onSendSlideToLive({ kind: "text", text: first.lyrics }, undefined, { origin: { kind: "song", songId: selected.id } });
       toast.success(`"${selected.title}" — slide 1 → LIVE`, { duration: 1500 });
     };
     window.addEventListener("presentflow:songs-play-current", handler);
@@ -778,7 +778,7 @@ export function SongsBrowser({
                           toast.error("Live-send handler not wired — reload the app.");
                           return;
                         }
-                        ctx.onSendSlideToLive(payload);
+                        ctx.onSendSlideToLive(payload, undefined, selected ? { origin: { kind: "song", songId: selected.id } } : undefined);
                         toast.success(`Sent to LIVE: "${sl.lyrics.slice(0, 40).replace(/\n/g, " ")}${sl.lyrics.length > 40 ? "…" : ""}"`, { duration: 2000 });
                       }}
                       className="absolute inset-0 w-full h-full"

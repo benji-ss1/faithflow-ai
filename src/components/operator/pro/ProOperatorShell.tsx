@@ -79,7 +79,7 @@ import { parseContextCommand, terseCommandWordCount } from "@/lib/context-parser
 // machine itself lives in src/lib/audio/audioGuardian.ts, fed by
 // useAudioStream's native branch.
 import { GUARDIAN_STATE_EVENT, type GuardianStatus } from "@/lib/audio/audioGuardian";
-import { shouldHoldSongAutoSwitch } from "@/lib/song-switch-guard";
+import { shouldHoldSongAutoSwitch, liveOriginKey } from "@/lib/song-switch-guard";
 
 // PF trace gate (R2). Mirrors useAudioStream.isDevOrTraceOn — cheap re-impl
 // here so the shell doesn't have to receive it via ctx.
@@ -275,7 +275,7 @@ function AITranscriptTicker({ ctx }: { ctx: OperatorShellCtx }) {
       const slides = Array.isArray(res.slides) ? (res.slides as { lyrics: string }[]) : [];
       const firstLyric = slides.map((s) => (typeof s.lyrics === "string" ? s.lyrics : "")).find((t) => t.trim().length > 0);
       if (firstLyric) {
-        ctx.onSendSlideToLive({ kind: "text", text: firstLyric });
+        ctx.onSendSlideToLive({ kind: "text", text: firstLyric }, undefined, { origin: { kind: "song", songId } });
         songClickFiredAtRef.current.set(songId, Date.now());
         toast.success(`"${songTitle}" → LIVE (slide 1)`);
         // Navigate the center panel to slides so the operator sees the song
@@ -790,12 +790,30 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
   stagedSongRef.current = stagedSong;
   // Song auto-switch hold (rule 7, 2026-09-14). Conservative "a song is live by
   // ANY evidence" decision — see src/lib/song-switch-guard.ts for the signal choice.
-  const holdSongSwitch = useCallback((songId: string) => shouldHoldSongAutoSwitch({
-    targetSongId: songId,
-    trackedLiveSongId: liveSongRef.current?.songId,
-    liveSlide: ctx.liveSlide,
-    liveItemType: ctx.liveItemIdx >= 0 ? (ctx.plan.items[ctx.liveItemIdx] as { type?: string } | undefined)?.type : undefined,
-  }), [ctx.liveSlide, ctx.liveItemIdx, ctx.plan.items]);
+  // POSITIVE-EVIDENCE revision: holds only when a different song is provably live
+  // (tracked song, recorded song ORIGIN of the live output, or a plan song item).
+  const songSwitchInput = useCallback((songId: string) => {
+    const item = ctx.liveItemIdx >= 0 ? (ctx.plan.items[ctx.liveItemIdx] as { type?: string; songId?: string } | undefined) : undefined;
+    return {
+      targetSongId: songId,
+      trackedLiveSongId: liveSongRef.current?.songId,
+      liveSlide: ctx.liveSlide,
+      liveOrigin: ctx.getLiveOrigin?.() ?? null,
+      liveItemType: item?.type,
+      liveItemSongId: item?.songId,
+    };
+  }, [ctx.liveSlide, ctx.liveItemIdx, ctx.plan.items, ctx.getLiveOrigin]);
+  const holdSongSwitch = useCallback((songId: string) => shouldHoldSongAutoSwitch(songSwitchInput(songId)), [songSwitchInput]);
+  // Dedupe the "SWITCH HELD" log: once per songId per live-origin change (the
+  // detection loop re-evaluates on every transcript tick).
+  const heldLogKeysRef = useRef<Map<string, string>>(new Map());
+  const logSwitchHeld = useCallback((songId: string, msg: string) => {
+    const key = liveOriginKey(songSwitchInput(songId)) + "|" + (ctx.liveSlide && ctx.liveSlide.kind === "text" ? ctx.liveSlide.text : "");
+    if (heldLogKeysRef.current.get(songId) === key) return;
+    if (heldLogKeysRef.current.size > 100) heldLogKeysRef.current.clear();
+    heldLogKeysRef.current.set(songId, key);
+    console.log(msg);
+  }, [songSwitchInput, ctx.liveSlide]);
 
   // ---- Part 6: auto-stage on ≥85% confidence, AUTO on ---------------------
   const stageSong = useCallback(async (songId: string, title: string, confidence: number, source: "detection" | "progression") => {
@@ -831,7 +849,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     // (by ANY evidence, see song-switch-guard.ts) the AI never auto-switches the
     // projector. Keep/stage the song as a chip for the operator instead.
     if (holdSongSwitch(songId)) {
-      console.log(`[song-autolive] SWITCH HELD — "${title}" ${Math.round(confidence)}% while a different song is live → staged for operator confirm (never auto-switch)`);
+      logSwitchHeld(songId, `[song-autolive] SWITCH HELD — "${title}" ${Math.round(confidence)}% while a different song is live → staged for operator confirm (never auto-switch)`);
       if (!stagedSongRef.current) void stageSong(songId, title, confidence, "detection");
       return;
     }
@@ -896,7 +914,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       const text = slides[startIdx];
       // Re-check after the async fetch — a song may have gone live meanwhile.
       if (holdSongSwitch(songId)) {
-        console.log(`[song-autolive] SWITCH HELD (post-fetch) — "${title}" while a different song is live → staged`);
+        logSwitchHeld(songId, `[song-autolive] SWITCH HELD (post-fetch) — "${title}" while a different song is live → staged`);
         if (!stagedSongRef.current) setStagedSong({ songId, title, slides, currentIdx: startIdx, confidence, source: "detection" });
         return;
       }
@@ -952,7 +970,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     } finally {
       stagingInFlightRef.current.delete(songId);
     }
-  }, [ctx, stageSong, holdSongSwitch]);
+  }, [ctx, stageSong, holdSongSwitch, logSwitchHeld]);
 
   useEffect(() => {
     // 2026-07-26 policy change (user sign-off): song auto-fire is NO
@@ -1019,7 +1037,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       // autoLiveSong enforces the same hold; checking here too avoids clearing
       // the staged banner before autoLiveSong would refuse.
       if (risen && holdSongSwitch(risen.songId)) {
-        console.log(`[song-autolive] SWITCH HELD — risen staged "${risen.title}" ${risen.confidence}% while a different song is live → stays staged`);
+        logSwitchHeld(risen.songId, `[song-autolive] SWITCH HELD — risen staged "${risen.title}" ${risen.confidence}% while a different song is live → stays staged`);
       } else if (risen && !promotionInFlightRef.current.has(risen.songId)) {
         promotionInFlightRef.current.add(risen.songId);
         setStagedSong(null);
@@ -1126,7 +1144,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       // Conservative ANY-evidence check (covers library-sent / untracked songs).
       const differentSongLive = holdSongSwitch(c.songId);
       if (differentSongLive && c.confidence >= SONG_SWITCH_WHILE_LIVE_CONFIDENCE) {
-        console.log(`[song-autolive] SWITCH HELD — "${c.title}" ${c.confidence}% while a different song is live → staging for operator confirm (never auto-switch)`);
+        logSwitchHeld(c.songId, `[song-autolive] SWITCH HELD — "${c.title}" ${c.confidence}% while a different song is live → staging for operator confirm (never auto-switch)`);
       }
       if (!differentSongLive && c.confidence >= SONG_AUTOLIVE_CONFIDENCE && !musicHold && !ambiguous) {
         stagedOrHandledRef.current.set(c.songId, now);
@@ -1153,7 +1171,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     }
     // autoApprove intentionally NOT in deps — see 2026-07-26 policy note
     // above (song auto-fire no longer gated on the AUTO/MANUAL toggle).
-  }, [ctx.audio.suggestions, ctx.audio.songSuggestions, stagedSong, stageSong, autoLiveSong, holdSongSwitch]);
+  }, [ctx.audio.suggestions, ctx.audio.songSuggestions, stagedSong, stageSong, autoLiveSong, holdSongSwitch, logSwitchHeld]);
 
   // ---- Part 6: THE ONE confirm path that may touch ctx.onSendSlideToLive --
   const confirmStagedSongLive = useCallback(() => {
@@ -1166,7 +1184,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       // The single explicit human action (keypress) required by CLAUDE.md
       // rule 7 / the task invariant. Every other code path in this module
       // is forbidden from calling this.
-      ctx.onSendSlideToLive({ kind: "text", text });
+      ctx.onSendSlideToLive({ kind: "text", text }, undefined, { origin: { kind: "song", songId: stagedSong.songId } });
       liveSongRef.current = {
         songId: stagedSong.songId,
         title: stagedSong.title,
@@ -1402,7 +1420,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     if (matchStreakRef.current >= requiredStreak) {
       if (!tryAutoMoveRef.current(live.currentIdx, nextIdx)) { matchStreakRef.current = 0; return; }
       const text = live.slides[nextIdx];
-      ctx.onSendSlideToLive({ kind: "text", text });
+      ctx.onSendSlideToLive({ kind: "text", text }, undefined, { origin: { kind: "song", songId: live.songId } });
       liveSongRef.current = { ...live, currentIdx: nextIdx };
       lastAdvanceTsRef.current = Date.now();
       matchStreakRef.current = 0;
@@ -1455,7 +1473,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     if (interimMatchStreakRef.current >= 2) {
       if (!tryAutoMoveRef.current(live.currentIdx, nextIdx)) { interimMatchStreakRef.current = 0; return; }
       const text = live.slides[nextIdx];
-      ctx.onSendSlideToLive({ kind: "text", text });
+      ctx.onSendSlideToLive({ kind: "text", text }, undefined, { origin: { kind: "song", songId: live.songId } });
       liveSongRef.current = { ...live, currentIdx: nextIdx };
       lastAdvanceTsRef.current = Date.now();
       matchStreakRef.current = 0;
@@ -1495,7 +1513,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
       if (!tryAutoMoveRef.current(live.currentIdx, nextIdx)) return;
       // Silence after ≥ 65% of slide spoken → done, advance
       const text = live.slides[nextIdx];
-      sendLiveStableRef.current({ kind: "text", text });
+      sendLiveStableRef.current({ kind: "text", text }, undefined, { origin: { kind: "song", songId: live.songId } });
       liveSongRef.current = { ...live, currentIdx: nextIdx };
       lastAdvanceTsRef.current = Date.now();
       matchStreakRef.current = 0;
@@ -1536,7 +1554,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     if (bounceBackStreakRef.current >= 1) {
       if (!tryAutoMoveRef.current(live.currentIdx, live.currentIdx - 1)) { bounceBackStreakRef.current = 0; return; }
       const text = live.slides[live.currentIdx - 1];
-      ctx.onSendSlideToLive({ kind: "text", text });
+      ctx.onSendSlideToLive({ kind: "text", text }, undefined, { origin: { kind: "song", songId: live.songId } });
       liveSongRef.current = { ...live, currentIdx: live.currentIdx - 1 };
       lastAdvanceTsRef.current = Date.now();
       matchStreakRef.current = 0;
@@ -1596,7 +1614,7 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     const s = slideJumpSuggestion;
     const live = liveSongRef.current;
     if (!s || !live || live.songId !== s.songId || s.index >= live.slides.length) { setSlideJumpSuggestion(null); return; }
-    ctx.onSendSlideToLive({ kind: "text", text: s.text });
+    ctx.onSendSlideToLive({ kind: "text", text: s.text }, undefined, { origin: { kind: "song", songId: live.songId } });
     liveSongRef.current = { ...live, currentIdx: s.index };
     lastAdvanceTsRef.current = Date.now();
     matchStreakRef.current = 0;

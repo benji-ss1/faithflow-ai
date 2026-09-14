@@ -166,8 +166,11 @@ export type OperatorShellCtx = {
   onSendSlideToLive: (
     slide: SlidePayload,
     transition?: import("@/lib/broadcast").TransitionSpec | null,
-    options?: { preserveConfiguredTransition?: boolean; instant?: boolean; force?: boolean },
+    options?: { preserveConfiguredTransition?: boolean; instant?: boolean; force?: boolean; origin?: import("@/lib/song-switch-guard").LiveOrigin },
   ) => void;
+  /** Origin (song/scripture/media/text/other) of the CURRENT live output, or null
+   *  when unknown (set by another device / unstamped). Song auto-switch guard. */
+  getLiveOrigin?: () => import("@/lib/song-switch-guard").LiveOrigin | null;
   // Live projection undo/redo — step the projector back/forward through what was shown.
   onUndoLive: () => void;
   onRedoLive: () => void;

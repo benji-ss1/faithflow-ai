@@ -13,6 +13,7 @@ import { useLiveLayers } from "./useLiveLayers";
 import { clampObsBand, type ObsBandConfig } from "@/lib/obs-lowerthird";
 import { readFontScale, readReferenceScale, readReferenceColor } from "./pro/operatorConstants";
 import { applyChurchLayout, sourceForRelayout } from "./scripture/scriptureStyle";
+import { inferLiveOrigin, type LiveOrigin } from "@/lib/song-switch-guard";
 import { useBackgroundState } from "@/backgrounds/hooks/useBackgroundState";
 import { toBackgroundSpec } from "@/backgrounds/models/BackgroundTypes";
 import { openOutputChannel } from "@/lib/realtime";
@@ -508,8 +509,26 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
         try { if (JSON.stringify(slides[j]) === liveKey) return i; } catch { /* continue */ }
       }
     }
+    // 2026-09-14: every send is laid out (applyChurchLayout), so on a lower-third
+    // church the live slide is the BANDED form and never byte-equals the raw plan
+    // slide above. Fall back to content identity: the live slide reduced to its
+    // source (sourceForRelayout) vs the raw plan slide, or the live slide vs the
+    // plan slide run through the same church layout.
+    try {
+      const liveId = slideOutputIdentity(live);
+      const srcId = slideOutputIdentity(sourceForRelayout(live));
+      for (let i = 0; i < plan.items.length; i++) {
+        for (const ps of plan.items[i].slides) {
+          if (ps.kind !== live.kind) continue;
+          const pid = slideOutputIdentity(ps);
+          if (pid === srcId || pid === liveId) return i;
+          if (slideOutputIdentity(applyChurchLayout(ps, churchId)) === liveId) return i;
+        }
+      }
+    } catch { /* fall through */ }
     return -1;
-  }, [plan.items, live.kind, liveKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan.items, live.kind, liveKey, churchId]);
 
   // Themes 2c — resolve the LIVE item's section-theme override (if any) into its
   // own appearance. Anchored to the LIVE item (not the preview cursor) so that
@@ -772,6 +791,60 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   // record a source — undo/redo, a future caller) they fall back to reducing the
   // CURRENT live slide via sourceForRelayout, so they can never restore a stale slide.
   const lastSourceLiveIdRef = useRef<string | null>(null);
+  // LIVE ORIGIN (song auto-switch guard, rule 7 positive-evidence revision
+  // 2026-09-14): what KIND of content the current live output is, stamped at
+  // every local send path together with the styled slide's output identity.
+  // getLiveOrigin only trusts it while that identity is still what is live, so
+  // a slide set by another device / an unstamped path reads as UNKNOWN (→ the
+  // guard allows). originByIdRef remembers declared origins per identity so
+  // undo/redo, un-blank and layout re-sends keep a song attributed as a song.
+  const liveOriginRef = useRef<{ origin: LiveOrigin; identity: string } | null>(null);
+  const originByIdRef = useRef<Map<string, LiveOrigin>>(new Map());
+  const planItemsRef = useRef(plan.items);
+  planItemsRef.current = plan.items;
+  const stampLiveOrigin = useCallback((source: SlidePayload, styled: SlidePayload, declared?: LiveOrigin) => {
+    const identity = slideOutputIdentity(styled);
+    if (styled.kind === "blank" || styled.kind === "empty" || styled.kind === "logo") {
+      liveOriginRef.current = { origin: { kind: "other" }, identity };
+      return;
+    }
+    let origin: LiveOrigin | undefined = declared ?? originByIdRef.current.get(identity);
+    if (!origin && styled.kind === "text") {
+      // Resolve against the plan: a slide belonging to a plan item inherits its
+      // type (song items carry songId). Two different songs sharing the line →
+      // song with unknown id (conservative, the guard holds).
+      const srcId = slideOutputIdentity(source);
+      let found: LiveOrigin | undefined;
+      for (const it of planItemsRef.current) {
+        const hit = it.slides.some((ps) => {
+          if (ps.kind !== "text") return false;
+          const pid = slideOutputIdentity(ps);
+          if (pid === srcId || pid === identity) return true;
+          try { return slideOutputIdentity(applyChurchLayout(ps, churchId)) === identity; } catch { return false; }
+        });
+        if (!hit) continue;
+        const itType = (it as { type?: string }).type;
+        const songId = (it as { songId?: string }).songId;
+        const next: LiveOrigin = itType === "song" ? { kind: "song", songId } : itType === "scripture" ? { kind: "scripture" } : { kind: "text" };
+        if (!found) { found = next; continue; }
+        if (found.kind === "song" && next.kind === "song" && found.songId !== next.songId) found = { kind: "song" };
+        else if (next.kind === "song" && found.kind !== "song") found = next;
+      }
+      origin = found;
+    }
+    origin = origin ?? inferLiveOrigin(styled);
+    if (declared) {
+      const m = originByIdRef.current;
+      m.set(identity, declared);
+      if (m.size > 300) { const first = m.keys().next().value; if (first !== undefined) m.delete(first); }
+    }
+    liveOriginRef.current = { origin, identity };
+  }, [churchId]);
+  const getLiveOrigin = useCallback((): LiveOrigin | null => {
+    const r = liveOriginRef.current;
+    if (!r) return null;
+    try { return r.identity === slideOutputIdentity(liveRef.current) ? r.origin : null; } catch { return null; }
+  }, []);
 
   // Networked projector sync: when a pair code is minted the operator's
   // OutputState is ALSO published on the Supabase Realtime channel scoped by
@@ -1011,7 +1084,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   const sendSlideToLive = useCallback((
     slide: SlidePayload,
     spec?: import("@/lib/broadcast").TransitionSpec | null,
-    options?: { preserveConfiguredTransition?: boolean; instant?: boolean; force?: boolean },
+    options?: { preserveConfiguredTransition?: boolean; instant?: boolean; force?: boolean; origin?: LiveOrigin },
   ) => {
     // 2026-07-25 — added tracing + defensive guards after a field report
     // that "clicking a song slide does nothing" (v0.1.42 hunt). The pipeline
@@ -1031,8 +1104,15 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     // a per-slide layout override wins; media is untouched. See applyChurchLayout.
     // Runs BEFORE the identity checks so all downstream guards see the final slide.
     lastSourceRef.current = slide; // remember the pre-layout source (for a live toggle)
+    const originSource = slide;
     slide = applyChurchLayout(slide, churchId);
     lastSourceLiveIdRef.current = slideOutputIdentity(slide);
+    // Record what KIND of content this is for the song auto-switch guard. On the
+    // already-live skip below the identity is unchanged, so a re-stamp only ever
+    // refines the origin (a declared song origin wins over an inferred one).
+    if (options?.origin || slideOutputIdentity(slide) !== slideOutputIdentity(liveRef.current) || options?.force) {
+      stampLiveOrigin(originSource, slide, options?.origin);
+    }
     // ALREADY-LIVE SKIP (2026-08-20): if this EXACT slide is already on the
     // projector, sending it again is a no-op — do nothing. Re-clicking the live
     // verse card, or the preacher repeating the verse that's on screen, used to
@@ -1084,7 +1164,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     } as LiveMessage);
     liveLayersRef.current.rearmSlide(); // R1b: a real new slide re-arms the slide layer
     try { console.log("[live] setLive committed + broadcast posted", { posted: posted !== undefined ? "ok" : "no-channel" }); } catch { /* ignore */ }
-  }, [churchId]);
+  }, [churchId, stampLiveOrigin]);
   const stageSlide = useCallback((slide: SlidePayload) => setStagedAISlide(slide), []);
   // Direct (no-transition) send paths — send(), move autoSend, jumpTo, banked,
   // legacy voice nav — used to skip applyChurchLayout, so with a lower-third
@@ -1096,8 +1176,9 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     const styled = applyChurchLayout(slide, churchId);
     lastSourceRef.current = slide;
     lastSourceLiveIdRef.current = slideOutputIdentity(styled);
+    stampLiveOrigin(slide, styled); // every direct send path records its origin too
     return styled;
-  }, [churchId]);
+  }, [churchId, stampLiveOrigin]);
   const sendBankedToLive = useCallback((idx: number) => {
     const v = effectiveBank[idx];
     if (!v) return;
@@ -1168,6 +1249,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
   }, [layoutForDirectSend]);
 
   const clearLive = useCallback(() => {
+    liveOriginRef.current = { origin: { kind: "other" }, identity: slideOutputIdentity({ kind: "empty" }) };
     setLive({ kind: "empty" });
     chRef.current?.postMessage({ type: "clear" } as LiveMessage);
   }, []);
@@ -2193,6 +2275,7 @@ export function OperatorConsole({ plan: planProp, churchId, defaultTranslationCo
     churchId,
     // Bible-panel wiring
     onSendSlideToLive: sendSlideToLive,
+    getLiveOrigin,
     // Live projection undo/redo (back/forward through what was shown).
     onUndoLive: undoLive,
     onRedoLive: redoLive,
