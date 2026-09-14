@@ -8,7 +8,7 @@ import { users } from "./db/schema";
 import { issueAuthToken, consumeAuthToken, invalidateUserTokens } from "./auth-tokens";
 import { sendVerificationEmail, sendPasswordResetEmail } from "./email";
 import { createLimiter } from "./rate-limit";
-import { revokeAllSessionsForUser } from "./session-revocation";
+import { bumpSessionVersion, revokeAllSessionsForUser } from "./session-revocation";
 
 type Result<T = void> = { ok: true; data?: T } | { ok: false; error: string };
 
@@ -156,11 +156,17 @@ export async function resetPassword(token: string, newPassword: string): Promise
     return { ok: false, error: "We couldn't reset your password right now. Please request a new link and try again." };
   }
   // Also revoke outstanding desktop sign-in links / pairing approvals (version
-  // already bumped above).
-  await revokeAllSessionsForUser(userId, { bumpVersion: false }).catch(async (e) => {
-    console.error("[resetPassword] session revocation failed:", e instanceof Error ? e.message : e);
-    await invalidateUserTokens(userId, ["device_link", "device_pair"]).catch(() => { /* best-effort */ });
-  });
+  // already bumped above). Revocation retries + logs internally and never throws
+  // (the password has already changed, so we don't surface an error).
+  await revokeAllSessionsForUser(userId, { bumpVersion: false });
+  // Second bump AFTER revocation: any session minted by a desktop exchange that
+  // raced the revoke window captured at most the first bump's version, so it
+  // is revoked on refresh. Retry once; log loudly on failure.
+  try {
+    await bumpSessionVersion(userId);
+  } catch {
+    await bumpSessionVersion(userId).catch((e) => console.error("[resetPassword] post-revocation session_version bump FAILED:", e instanceof Error ? e.message : e));
+  }
   return { ok: true };
 }
 

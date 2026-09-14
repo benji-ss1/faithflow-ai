@@ -28,6 +28,8 @@ import {
 export const PAIR_EXCHANGE_TTL_MS = 2 * 60 * 1000;
 /** Expired rows are kept this long (so late polls/approvals get a clear answer), then deleted. */
 const CLEANUP_GRACE_MS = 60 * 60 * 1000;
+/** expires_at written by revokePendingPairings (to_timestamp(0)). */
+export const REVOKED_EXPIRES_AT = new Date(0);
 
 export type PairRequestMeta = { ip?: string | null; userAgent?: string | null; country?: string | null; city?: string | null };
 
@@ -139,7 +141,7 @@ export async function pollPairing(ticket: unknown): Promise<PollResult> {
       isNull(devicePairRequests.consumedAt),
       gt(devicePairRequests.expiresAt, now),
     ))
-    .returning({ id: devicePairRequests.id, userId: devicePairRequests.claimedByUserId });
+    .returning({ id: devicePairRequests.id, userId: devicePairRequests.claimedByUserId, expiresAt: devicePairRequests.expiresAt });
   const hit = consumed[0];
   if (!hit?.userId) {
     const [row] = await db
@@ -149,18 +151,21 @@ export async function pollPairing(ticket: unknown): Promise<PollResult> {
       .limit(1);
     // No row (cleaned up / never started) or already consumed → this ticket is done.
     if (!row || row.consumedAt) return { status: "invalid" };
-    // Row expired or revoked (password reset / sign-out-all) → stop polling.
-    if (row.expiresAt.getTime() <= Date.now()) return { status: "expired" };
+    // Row expired or revoked (password reset / sign-out-all → epoch) → stop polling.
+    if (row.expiresAt.getTime() <= REVOKED_EXPIRES_AT.getTime() || row.expiresAt.getTime() <= Date.now()) return { status: "expired" };
     return { status: "pending", expiresAt: t.expiresAt };
   }
   try {
     const token = await issueAuthToken(hit.userId, "device_link", PAIR_EXCHANGE_TTL_MS);
-    // Race guard vs revokeAllSessionsForUser: it expires this row FIRST, then
-    // burns device_link tokens. If the revoke landed before this re-read we burn
-    // the token ourselves; if after, our token already exists and its
-    // invalidateUserTokens pass burns it. Either way no token survives a reset.
+    // Race guard vs revokeAllSessionsForUser: it expires this row FIRST (sets
+    // expires_at to the epoch), then burns device_link tokens. If the revoke
+    // landed before this re-read we burn the token ourselves and answer
+    // "expired"; if after, our token already exists and its burn pass gets it.
+    // Compared against the expires_at we CLAIMED (not Date.now()), so no
+    // cross-server clock dependency and a legit poll near natural expiry is
+    // never burned.
     const [after] = await db.select({ expiresAt: devicePairRequests.expiresAt }).from(devicePairRequests).where(eq(devicePairRequests.id, hit.id)).limit(1);
-    if (!after || after.expiresAt.getTime() <= Date.now()) {
+    if (!after || after.expiresAt.getTime() !== hit.expiresAt.getTime()) {
       await consumeAuthToken(token, "device_link").catch(() => { /* best-effort; reset also burns it */ });
       return { status: "expired" };
     }
@@ -181,8 +186,14 @@ export async function pollPairing(ticket: unknown): Promise<PollResult> {
 export async function revokePendingPairings(userId: string): Promise<void> {
   await getDb()
     .update(devicePairRequests)
-    // JS Date (not SQL now()): columns are timestamp-without-tz written from JS
-    // Dates, so DB now() in a non-UTC session timezone would not compare correctly.
-    .set({ expiresAt: new Date(Date.now() - 1000) })
-    .where(and(eq(devicePairRequests.claimedByUserId, userId), gt(devicePairRequests.expiresAt, new Date())));
+    // Epoch sentinel (not "now - 1s"): no dependency on this server's clock; any
+    // changed expires_at is detected by pollPairing's claim-time comparison.
+    .set({ expiresAt: REVOKED_EXPIRES_AT })
+    // Row selection may use a generous clock window (skew of hours is harmless):
+    // anything not already revoked and not yet past cleanup grace.
+    .where(and(
+      eq(devicePairRequests.claimedByUserId, userId),
+      gt(devicePairRequests.expiresAt, REVOKED_EXPIRES_AT),
+      gt(devicePairRequests.expiresAt, new Date(Date.now() - CLEANUP_GRACE_MS)),
+    ));
 }

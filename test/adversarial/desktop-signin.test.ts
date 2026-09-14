@@ -21,11 +21,14 @@
 //  13. RACE: reset concurrent with a desktop mid-poll → no device_link token
 //      issued around the reset survives it (200 randomized runs).
 //  14. Poll on a revoked/expired pairing row → "expired" (desktop stops, "Start again").
+//  15. RACE: device-link EXCHANGE (auth.ts device-token authorize) vs
+//      resetPassword / sign-out-all → 0 sessions survive (1,000 randomized runs;
+//      captured sv vs final DB version through the real jwt verdict).
 
 import { eq, inArray } from "drizzle-orm";
 import { getDb } from "../../src/lib/db/client";
 import { churches, users, authTokens, devicePairRequests } from "../../src/lib/db/schema";
-import { consumeAuthToken, issueAuthToken, peekAuthTokenUser, mintToken } from "../../src/lib/auth-tokens";
+import { consumeAuthToken, exchangeDeviceLinkToken, issueAuthToken, peekAuthTokenUser, mintToken } from "../../src/lib/auth-tokens";
 import { approvePairingForUser, lookupPairingRequest, pollPairing, startPairing } from "../../src/lib/desktop-pair";
 import { revokeAllSessionsForUser } from "../../src/lib/session-revocation";
 import { resetPassword } from "../../src/lib/auth-actions";
@@ -157,7 +160,7 @@ async function main() {
     const svBefore = await sessionVersionOf(A.userId);
     await revokeAllSessionsForUser(A.userId);
     const svAfter = await sessionVersionOf(A.userId);
-    record("sign-out-all bumps session_version", svAfter === svBefore + 1, `${svBefore}→${svAfter}`);
+    record("sign-out-all bumps session_version (strictly, twice: before + after last burn)", svAfter === svBefore + 2, `${svBefore}→${svAfter}`);
     record("sign-out-all: old JWT (sv before) verdict revoked", sessionTokenVerdict({ authTime: Date.now(), tokenVersion: svBefore, dbVersion: svAfter }) === "revoked");
     record("sign-out-all: new JWT (sv after) verdict ok", sessionTokenVerdict({ authTime: Date.now(), tokenVersion: svAfter, dbVersion: svAfter }) === "ok");
     record("sign-out-all revokes outstanding device_link", (await consumeAuthToken(link, "device_link")) === null);
@@ -173,7 +176,7 @@ async function main() {
     const reset = await resetPassword(resetTok, "correct-horse-battery-staple");
     record("resetPassword succeeds", reset.ok, JSON.stringify(reset));
     const bSvAfter = await sessionVersionOf(B.userId);
-    record("password reset bumps session_version (old sessions end)", bSvAfter === bSv + 1 && sessionTokenVerdict({ tokenVersion: bSv, dbVersion: bSvAfter }) === "revoked");
+    record("password reset bumps session_version (old sessions end)", bSvAfter === bSv + 2 && sessionTokenVerdict({ tokenVersion: bSv, dbVersion: bSvAfter }) === "revoked");
     record("password reset revokes device_link", (await consumeAuthToken(bLink, "device_link")) === null);
     record("password reset revokes pending pairing", (await pollPairing(p4.ticket)).status !== "approved");
 
@@ -201,6 +204,39 @@ async function main() {
     await getDb().update(devicePairRequests).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(devicePairRequests.codeHash, pairCodeHash(p6.code)));
     const p6poll = await pollPairing(p6.ticket);
     record("poll on expired unapproved row → expired", p6poll.status === "expired", JSON.stringify(p6poll));
+
+    // 15. exchange-vs-revoke race (10 users × 100 runs in parallel; each user's
+    // runs are sequential so revokes never cross runs).
+    {
+      const racers = await Promise.all(Array.from({ length: 10 }, (_, i) => seed(`X${i}`)));
+      let exchanged = 0, survivors = 0, runs = 0;
+      await Promise.all(racers.map(async (R, w) => {
+        for (let i = 0; i < 100; i++) {
+          const tok = await issueAuthToken(R.userId, "device_link", 60_000);
+          const mode = i % 2;
+          const revoke: () => Promise<unknown> = mode === 0
+            ? () => revokeAllSessionsForUser(R.userId)
+            : async () => {
+                const rt = await issueAuthToken(R.userId, "password_reset", 60_000);
+                const r = await resetPassword(rt, "Race-exchange-pass!" + w);
+                if (!r.ok) throw new Error("reset failed");
+              };
+          const [u] = await Promise.all([
+            new Promise((r) => setTimeout(r, Math.random() * 8)).then(() => exchangeDeviceLinkToken(tok)),
+            new Promise((r) => setTimeout(r, Math.random() * 8)).then(revoke),
+          ]);
+          runs++;
+          if (u) {
+            exchanged++;
+            const finalSv = await sessionVersionOf(R.userId);
+            if (sessionTokenVerdict({ authTime: Date.now(), tokenVersion: u.sessionVersion, dbVersion: finalSv }) === "ok") survivors++;
+          }
+        }
+      }));
+      record("RACE: exchange vs reset/sign-out-all → 0 surviving sessions", survivors === 0 && runs === 1000, `${survivors} survived / ${exchanged} exchanged / ${runs} runs`);
+      const ok = await exchangeDeviceLinkToken(await issueAuthToken(racers[0].userId, "device_link", 60_000));
+      record("exchange without revoke → session verdict ok", !!ok && sessionTokenVerdict({ authTime: Date.now(), tokenVersion: ok.sessionVersion, dbVersion: await sessionVersionOf(racers[0].userId) }) === "ok");
+    }
 
     // 12. absolute cap
     record("180-day cap: session older than cap → expired", sessionTokenVerdict({ authTime: Date.now() - SESSION_ABSOLUTE_MAX_MS - 1000, tokenVersion: 0, dbVersion: 0 }) === "expired");

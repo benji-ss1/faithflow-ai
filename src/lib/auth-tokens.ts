@@ -5,7 +5,7 @@
 import crypto from "node:crypto";
 import { and, eq, isNull, gte, inArray } from "drizzle-orm";
 import { getDb } from "./db/client";
-import { authTokens } from "./db/schema";
+import { authTokens, users } from "./db/schema";
 
 export type AuthTokenKind = "verify_email" | "password_reset" | "device_link" | "device_pair";
 
@@ -45,6 +45,38 @@ export async function consumeAuthToken(plaintext: string, kind: AuthTokenKind): 
     ))
     .returning({ userId: authTokens.userId });
   return claimed[0]?.userId ?? null;
+}
+
+/**
+ * Desktop device-link exchange: burn the token AND read the user's
+ * session_version in ONE transaction. The burn's row lock on auth_tokens is held
+ * until commit, so revokeAllSessionsForUser's final token burn blocks behind it
+ * and its trailing session_version bump always lands AFTER this read — the new
+ * session can never capture a post-revocation version (it is revoked on refresh).
+ * FOR SHARE additionally blocks a concurrent version bump until we commit.
+ */
+export async function exchangeDeviceLinkToken(plaintext: string): Promise<{ id: string; email: string; name: string; churchId: string | null; role: string; sessionVersion: number } | null> {
+  const hash = hashToken(plaintext);
+  return getDb().transaction(async (tx) => {
+    const [claimed] = await tx
+      .update(authTokens)
+      .set({ usedAt: new Date() })
+      .where(and(
+        eq(authTokens.tokenHash, hash),
+        eq(authTokens.kind, "device_link"),
+        isNull(authTokens.usedAt),
+        gte(authTokens.expiresAt, new Date()),
+      ))
+      .returning({ userId: authTokens.userId });
+    if (!claimed) return null;
+    const [u] = await tx
+      .select({ id: users.id, email: users.email, name: users.name, churchId: users.churchId, role: users.role, sessionVersion: users.sessionVersion })
+      .from(users)
+      .where(eq(users.id, claimed.userId))
+      .limit(1)
+      .for("share");
+    return u ?? null;
+  });
 }
 
 // Non-consuming lookup: who a still-valid (unused, unexpired) token belongs to.

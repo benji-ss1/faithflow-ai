@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { users } from "./db/schema";
-import { consumeAuthToken } from "./auth-tokens";
+import { exchangeDeviceLinkToken } from "./auth-tokens";
 import { sessionTokenVerdict } from "./desktop-auth-core";
 import { InvalidCredentialsError, RateLimitedError, chargeLoginAttempt, clientIpFromHeaders, refundLoginSuccess } from "./login-guard";
 
@@ -80,10 +80,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       credentials: { token: {} },
       async authorize(creds) {
         if (!creds?.token) return null;
-        const userId = await consumeAuthToken(String(creds.token), "device_link");
-        if (!userId) return null;
-        const db = getDb();
-        const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+        // Burn + session_version read are atomic (see exchangeDeviceLinkToken).
+        const user = await exchangeDeviceLinkToken(String(creds.token));
         if (!user) return null;
         return { id: user.id, email: user.email, name: user.name, churchId: user.churchId, role: user.role, sessionVersion: user.sessionVersion };
       },
