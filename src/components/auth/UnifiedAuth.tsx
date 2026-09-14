@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { toast } from "sonner";
 import { requestPasswordReset, signUp } from "@/lib/auth-actions";
+import { normalizeEmail, signInErrorMessage } from "@/lib/auth-error-message";
 import { PfAuthScene } from "@/components/auth/PfAuthScene";
 
 /**
@@ -47,6 +48,7 @@ function AuthInner({ initialMode }: { initialMode: Mode }) {
   // shared
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   // sign-in extras
   const [forgotOpen, setForgotOpen] = useState(false);
@@ -67,10 +69,13 @@ function AuthInner({ initialMode }: { initialMode: Mode }) {
   async function onSignIn(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    const res = await signIn("credentials", { email, password, redirect: false });
+    const cleanEmail = normalizeEmail(email);
+    const res = await signIn("credentials", { email: cleanEmail, password, redirect: false });
     setLoading(false);
     if (res?.error) {
-      toast.error("Invalid credentials");
+      // Log the raw Auth.js error for support (MissingCSRF, Configuration, …).
+      console.error("[signin] failed", { error: res.error, code: res.code });
+      toast.error(signInErrorMessage(res.code));
       return;
     }
     let safe = false;
@@ -147,11 +152,14 @@ function AuthInner({ initialMode }: { initialMode: Mode }) {
             <form onSubmit={onSignIn}>
               <div className="field">
                 <label htmlFor="email">Email</label>
-                <input id="email" type="email" required autoComplete="email" placeholder="you@yourchurch.org" value={email} onChange={(e) => setEmail(e.target.value)} />
+                <input id="email" name="email" type="email" required autoComplete="email" autoCapitalize="none" spellCheck={false} placeholder="you@yourchurch.org" value={email} onChange={(e) => setEmail(e.target.value)} />
               </div>
               <div className="field">
                 <label htmlFor="pw">Password <button type="button" onClick={() => setForgotOpen((v) => !v)}>Forgot?</button></label>
-                <input id="pw" type="password" required autoComplete="current-password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} />
+                <div style={{ position: "relative" }}>
+                  <input id="pw" name="password" type={showPw ? "text" : "password"} required autoComplete="current-password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} style={{ paddingRight: 64 }} />
+                  <button type="button" aria-pressed={showPw} aria-controls="pw" aria-label={showPw ? "Hide password" : "Show password"} onClick={() => setShowPw((v) => !v)} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: 0, padding: "4px 6px", color: "var(--paper-dim)", cursor: "pointer", font: "inherit", fontSize: 12 }}>{showPw ? "Hide" : "Show"}</button>
+                </div>
               </div>
 
               <div className={`expand${forgotOpen ? " open" : ""}`}>
