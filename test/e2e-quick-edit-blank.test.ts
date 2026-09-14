@@ -75,21 +75,28 @@ async function main() {
     console.log(`gridcells before Add slide: ${before}`);
     // The header button is server-rendered, so an early click can land before
     // hydration attaches the handler. Retry until the row exists (max 3 clicks).
+    // Retry only if NO row appeared after a long poll — a slow (cold-compiled)
+    // action can land late, and extra clicks would add extra blank slides.
+    await page.waitForLoadState("load");
+    await page.waitForTimeout(3000);
+    const slideCount = async () => (await db.select({ id: songSlides.id }).from(songSlides).where(eq(songSlides.songId, songId!))).length;
     let added = false;
     for (let attempt = 0; attempt < 3 && !added; attempt++) {
       await page.getByRole("button", { name: /Add slide/ }).click();
-      for (let i = 0; i < 12; i++) {
-        const n = (await db.select({ id: songSlides.id }).from(songSlides).where(eq(songSlides.songId, songId))).length;
+      for (let i = 0; i < 40; i++) {
+        const n = await slideCount();
         if (n >= 3) { added = true; console.log(`DB has ${n} slides (click attempt ${attempt + 1}, ${i * 500}ms)`); break; }
         await page.waitForTimeout(500);
       }
     }
-    console.log(`gridcells after DB poll: ${await page.locator('[role="gridcell"]').count()}`);
-    await page.waitForFunction((n) => document.querySelectorAll('[role="gridcell"]').length === n + 1, before, { timeout: 30_000 });
+    await page.waitForTimeout(1500); // let any late duplicate land before counting
+    const dbCount = await slideCount();
+    await page.waitForFunction((n) => document.querySelectorAll('[role="gridcell"]').length === n, dbCount, { timeout: 30_000 });
+    console.log(`gridcells after refresh: ${dbCount}`);
     assert(true, "Add slide appended a card", `${before} → ${before + 1}`);
     const rows = await db.select().from(songSlides).where(eq(songSlides.songId, songId)).orderBy(asc(songSlides.order));
     const blank = rows[rows.length - 1];
-    assert(rows.length === 3 && blank.lyrics === "", "blank slide row created (empty lyrics)");
+    assert(rows.length === 3 && blank.lyrics === "", "exactly one blank slide row created (empty lyrics)", `rows=${rows.length}`);
 
     const liveBefore = await liveText(live);
     await page.locator('[role="gridcell"]').last().click({ button: "right" });

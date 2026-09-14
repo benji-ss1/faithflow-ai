@@ -80,7 +80,7 @@ import { parseContextCommand, terseCommandWordCount } from "@/lib/context-parser
 // useAudioStream's native branch.
 import { GUARDIAN_STATE_EVENT, type GuardianStatus } from "@/lib/audio/audioGuardian";
 import { shouldHoldSongAutoSwitch, liveOriginKey, resolveLyricIndex } from "@/lib/song-switch-guard";
-import { songSlidesChangedPlan, type SongSlidesChangedDetail } from "@/lib/song-slides-changed";
+import { songSlidesChangedPlan, refreshTrackedSong, type SongSlidesChangedDetail } from "@/lib/song-slides-changed";
 
 // PF trace gate (R2). Mirrors useAudioStream.isDevOrTraceOn — cheap re-impl
 // here so the shell doesn't have to receive it via ctx.
@@ -1306,7 +1306,17 @@ function SongAutopilotStaging({ ctx }: { ctx: OperatorShellCtx }) {
     const liveText = ctx.liveSlide?.kind === "text" ? ctx.liveSlide.text : null;
     if (liveText == null) { liveSongRef.current = null; return; }
     const norm = normalizeLyric(liveText);
-    const live = liveSongRef.current;
+    let live = liveSongRef.current;
+    // A kept track (Quick edit save → keepLiveTracking) must follow the RE-LOADED
+    // slides, not the pre-edit list: swap in the fresh cache entry and recompute
+    // the index against it (both branches below then read current lyrics). If the
+    // live text is gone from the song, drop tracking and fall through to the full
+    // search — the same outcome as main's clear-and-rebuild. No-op when the cache
+    // entry is the one already tracked.
+    if (live) {
+      const refreshed = refreshTrackedSong(live, songSlidesCacheRef.current.get(live.songId)?.slides, norm, normalizeLyric);
+      if (refreshed !== live) { liveSongRef.current = refreshed; live = refreshed; }
+    }
     const declared = ctx.getLiveOrigin?.();
     // A DECLARED (or plan-resolved — not merely inferred) NON-song origin → the operator
     // sent this as non-song content: stop following a song even if the line is

@@ -399,6 +399,7 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
   const [quickEdit, setQuickEdit] = useState<{ slideIdx: number; slideId?: string; text: string } | null>(null);
   const [qeSaving, setQeSaving] = useState(false);
   const editedTextRef = useRef("");
+  const qeSendingRef = useRef(false); // "Send this slide live" in flight (save → send)
   // Last persisted text for the open Quick Edit (seeded at open, advanced on a
   // successful save). Typed text !== this → unsaved changes.
   const qeBaselineRef = useRef("");
@@ -1213,12 +1214,20 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
             <div className="mt-2.5 flex items-center justify-center gap-2">
               <button
                 type="button"
+                // Not `disabled`: disabling the focused button drops focus to <body>,
+                // so Esc would no longer reach the panel. The ref guard below blocks
+                // a double-click instead.
+                aria-busy={qeSaving}
                 onClick={async () => {
+                  // In-flight guard: a double-click must not save + send twice.
+                  if (qeSendingRef.current) return;
                   const t = editedTextRef.current.trim();
                   if (!t) {
                     void import("sonner").then(({ toast }) => toast("Type something first"));
                     return;
                   }
+                  qeSendingRef.current = true;
+                  try {
                   // Unsaved typed text → save first (same church-scoped path + empty
                   // rejection) so the grid and projector agree. "Save" alone still
                   // never pushes live (2026-08-26 directive).
@@ -1226,8 +1235,11 @@ export function SlideGrid({ ctx, slideSize, onOpenEditor }: { ctx: OperatorShell
                     if (!(await handleQuickEditSave(editedTextRef.current))) return;
                   }
                   ctx.onSendSlideToLive(current ? applyTextToSlide(current, t) : { kind: "text", text: t }, undefined, itemSendOpts ?? { origin: { kind: "text" } });
+                  } finally {
+                    qeSendingRef.current = false;
+                  }
                 }}
-                className="h-8 px-3 rounded-md text-[12px] font-medium bg-white/10 border border-white/20 hover:bg-white/20 text-white backdrop-blur-sm"
+                className="h-8 px-3 rounded-md text-[12px] font-medium bg-white/10 border border-white/20 hover:bg-white/20 text-white backdrop-blur-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Send this slide live
               </button>
