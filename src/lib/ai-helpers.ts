@@ -234,6 +234,51 @@ export async function draftAnnouncement(topic: string, tone: "warm" | "formal" |
   };
 }
 
+/**
+ * Sarah — the audio setup assistant. GROUNDED: she may only use the facts in
+ * `context` (the church's confirmed setup, the deterministic diagnostic results,
+ * and the knowledge-base excerpts for the current step). She never decides
+ * pass/fail and never invents desk menu paths.
+ */
+export async function audioGuideReply(input: {
+  message: string;
+  history: { role: "user" | "assistant"; content: string }[];
+  context: { step: string; setup: Record<string, unknown>; diagnostics: unknown[]; knowledge: string };
+}): Promise<{ reply: string; mood: "think" | "nod" | "listen" | "ooh" | "focus" | "celebrate"; suggestions: string[]; correction?: { field: string; to: string } }> {
+  const clip = (s: string, n: number) => (s || "").slice(0, n);
+  const system = [
+    "You are Sarah, a warm, sharp church sound engineer inside PresentFlow's audio setup wizard.",
+    "Speak plainly to volunteers (many in Nigerian/African churches). Short sentences. 1-4 sentences max.",
+    "RULES: Use ONLY facts in CONTEXT. Never invent menu paths, channel numbers or readings.",
+    "If the knowledge doesn't cover their gear, say so and give the general method + 'check your desk's manual'.",
+    "Pass/fail comes only from DIAGNOSTICS — never claim a test passed if it didn't.",
+    "If the user corrects a setup fact (desk, os, connection, mixType), return it in `correction`.",
+    "When routing is discussed, remind them the feed must carry pulpit mics AND band (full mix).",
+    'Return JSON: {"reply":"...","mood":"think|nod|listen|ooh|focus|celebrate","suggestions":["short tappable reply"],"correction":{"field":"desk|os|connection|mixType","to":"..."} or null}',
+  ].join("\n");
+  const ctx = JSON.stringify({
+    step: clip(input.context.step, 40),
+    setup: input.context.setup,
+    diagnostics: (input.context.diagnostics ?? []).slice(0, 12),
+    knowledge: clip(input.context.knowledge, 4000),
+  });
+  const messages: ChatMessage[] = [
+    { role: "system", content: system },
+    { role: "system", content: `CONTEXT: ${ctx}` },
+    ...input.history.slice(-8).map((m) => ({ role: m.role, content: clip(m.content, 800) })),
+    { role: "user", content: clip(input.message, 800) },
+  ];
+  const out = await groqJson<{ reply?: unknown; mood?: unknown; suggestions?: unknown; correction?: unknown }>(messages, 0.3);
+  const moods = ["think", "nod", "listen", "ooh", "focus", "celebrate"] as const;
+  const mood = moods.includes(out.mood as (typeof moods)[number]) ? (out.mood as (typeof moods)[number]) : "nod";
+  const reply = typeof out.reply === "string" && out.reply.trim() ? clip(out.reply.trim(), 700) : "Sorry — could you say that another way?";
+  const suggestions = Array.isArray(out.suggestions) ? out.suggestions.filter((s): s is string => typeof s === "string").map((s) => clip(s, 60)).slice(0, 4) : [];
+  const c = out.correction as { field?: unknown; to?: unknown } | null | undefined;
+  const correction = c && typeof c.field === "string" && ["desk", "os", "connection", "mixType"].includes(c.field) && typeof c.to === "string" && c.to.trim()
+    ? { field: c.field, to: clip(c.to.trim(), 120) } : undefined;
+  return { reply, mood, suggestions, correction };
+}
+
 export async function fixSlide(slide: EditableSlide): Promise<{ patch: Partial<EditableSlide>; reason: string; warnings: string[] }> {
   // Summarise the slide for the LLM. We do NOT send unlimited detail.
   const summary = {
