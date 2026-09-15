@@ -95,7 +95,7 @@ export function SongsBrowser({
     });
   }, [selected, titleDraft, router]);
   // Shared slide-size preference — same event/localStorage key the CenterHeader
-  // and BottomBar use so a single slider works everywhere.
+  // uses so a single slider works everywhere.
   const [slideSize, setSlideSize] = useState(280);
   useEffect(() => {
     try {

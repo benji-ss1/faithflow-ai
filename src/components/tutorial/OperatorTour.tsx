@@ -27,7 +27,7 @@ const STEPS: Step[] = [
   { key: "left", title: "Library and playlist", body: "Songs, Bible, and Media live on top. Your ordered service items live below. Click one to load its slides." },
   { key: "center", title: "Slide grid", body: "Slides for whatever is selected. Single click selects, double click sends live, right click opens options." },
   { key: "right", title: "Live preview and tabs", body: "What's on the projector right now, plus tabs for timer, messages, and stage settings." },
-  { key: "bottom", title: "Transport and view", body: "Transitions, view options, and quick controls. The Send Live button is here too." },
+  { key: "bottom", title: "Transport", body: "Play/pause, previous/next slide, and keyboard shortcuts. The Send Live button is here too." },
   { key: "top", title: "Top bar", body: "Switch between Slides, Bible, Songs, and Media. AI Listening status shows on the far right." },
 ];
 
