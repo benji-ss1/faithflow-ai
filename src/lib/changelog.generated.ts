@@ -13,6 +13,7 @@ export const GENERATED_CHANGELOG: ChangelogEntry[] = [
       "When a passage is announced or on screen and read aloud, suggestions can follow along verse by verse.",
       "Suggestions never go on screen by themselves — click to load, Shift+click to send live."
     ]
+    ]
   },
   {
     "version": "0.1.407",
