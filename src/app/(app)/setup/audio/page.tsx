@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/session";
 import { AudioSetupWizard } from "@/components/setup/AudioSetupWizard";
+import { SarahSetupWizard } from "@/components/setup/sarah/SarahSetupWizard";
 import { PageHeader } from "@/components/layout/PageHeader";
 
 /**
@@ -14,9 +15,16 @@ import { PageHeader } from "@/components/layout/PageHeader";
  *
  * Detects common mixer / USB interface names (Focusrite, PreSonus, RME, Behringer)
  * and suggests them at the top of the list.
+ *
+ * Audio Lock-In (2026-09-15): the Sarah AI-guided wizard replaces this when
+ * NEXT_PUBLIC_AUDIO_LOCKIN=1 or ?sarah=1. The legacy wizard stays the default
+ * until Sarah is field-verified.
  */
-export default async function AudioSetupPage() {
+export default async function AudioSetupPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   await requireUser();
+  const sp = await searchParams;
+  const sarah = process.env.NEXT_PUBLIC_AUDIO_LOCKIN === "1" ? sp.sarah !== "0" : sp.sarah === "1";
+  if (sarah) return <SarahSetupWizard />;
   return (
     <div className="space-y-6">
       <PageHeader
