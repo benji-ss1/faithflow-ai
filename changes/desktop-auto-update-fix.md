@@ -1,7 +1,7 @@
 ---
 headline: The desktop app can update itself again
 audience: operator
-version: 0.1.411
+version: 0.1.412
 date: 2026-09-16
 highlights:
   - Fixed: the desktop app was never checking for new versions, so churches had to download and re-install by hand to get anything new. It now checks again automatically.

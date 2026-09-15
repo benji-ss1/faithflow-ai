@@ -4,7 +4,7 @@ import type { ChangelogEntry } from "./changelog-types";
 
 export const GENERATED_CHANGELOG: ChangelogEntry[] = [
   {
-    "version": "0.1.411",
+    "version": "0.1.412",
     "date": "2026-09-16",
     "headline": "The desktop app can update itself again",
     "highlights": [
