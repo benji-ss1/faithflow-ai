@@ -776,12 +776,20 @@ app.whenReady().then(async () => {
       // signed builds never auto-updated. Read BOTH streams.
       // Using spawnSync (100ms typical) once at startup — not in a hot path.
       const { spawnSync } = require("node:child_process") as typeof import("node:child_process");
-      const { isDeveloperIdSigned } = require("./codesign") as typeof import("./codesign");
-      const bundlePath = app.getAppPath().replace(/\/Contents\/Resources\/app(?:\.asar)?$/, "");
-      const res = spawnSync("codesign", ["-dv", "--verbose=2", bundlePath], { encoding: "utf8" });
-      // Fail closed: spawn failure, codesign missing, or non-zero exit.
-      if (res.error || res.status !== 0) return false;
-      return isDeveloperIdSigned(`${res.stdout || ""}\n${res.stderr || ""}`);
+      const { isSignedFromResult, resolveBundlePath } = require("./codesign") as typeof import("./codesign");
+      const bundlePath = resolveBundlePath(app.getAppPath());
+      // timeout is mandatory: this runs SYNCHRONOUSLY on the Electron main
+      // thread during startup, so a hung codesign (corrupt bundle, stalled
+      // trust/revocation check, unresponsive volume) would freeze the app with
+      // no window at all. On timeout spawnSync sets .error and leaves .status
+      // null — isSignedFromResult rejects both, so we simply fail closed.
+      const res = spawnSync("codesign", ["-dv", "--verbose=2", bundlePath], {
+        encoding: "utf8",
+        timeout: 5000,
+        killSignal: "SIGKILL",
+      });
+      // Fail closed: spawn failure, codesign missing, timeout, or non-zero exit.
+      return isSignedFromResult(res);
     } catch {
       return false;
     }
