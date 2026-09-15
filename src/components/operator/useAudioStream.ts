@@ -1818,7 +1818,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
             });
           }
           // Allusion v1: AFTER explicit detection, deferred so it never delays the reference path.
-          if (allusionV1Enabled() && typeof msg.text === "string") { const segId = msg.segmentId, txt = msg.text; setTimeout(() => runAllusionOnFinal(allusionRef, segId, txt, getCtxRef.current?.() as { mode?: "auto" | "worship" | "preacher"; liveText?: string; translationCode?: string } | undefined, songIndexRef.current, setState), 0); }
+          if (allusionV1Enabled() && typeof msg.text === "string") { const segId = msg.segmentId, txt = msg.text, gen = pipelineGenerationRef.current; const isCurrent = () => gen === pipelineGenerationRef.current; setTimeout(() => { if (isCurrent()) runAllusionOnFinal(allusionRef, segId, txt, getCtxRef.current?.() as { mode?: "auto" | "worship" | "preacher"; liveText?: string; translationCode?: string } | undefined, songIndexRef.current, setState, isCurrent); }, 0); }
           // Runtime hook — check user-added custom voice commands and, on
           // match, dispatch a `presentflow:voice-command` event. Shell owns
           // the actual side-effect (calls ctx callback + toast).

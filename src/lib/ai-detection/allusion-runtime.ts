@@ -223,6 +223,9 @@ export function runAllusionOnFinal<S extends AudioLike>(
   env: AllusionEnv | undefined,
   songIndex: SongIndex | null | undefined,
   setState: (fn: (prev: S) => S) => void,
+  /** Pipeline-generation guard: false after stop/restart/plan change → drop results. */
+  isCurrent: () => boolean = () => true,
+  lookup: (hit: AllusionMatch, code: string) => Promise<string> = lookupVerseText,
 ): void {
   try {
     if (!rtRef.current) rtRef.current = createAllusionRuntime();
@@ -230,14 +233,14 @@ export function runAllusionOnFinal<S extends AudioLike>(
     if (!rt.index) { warmAllusionIndex(rt); return; } // not loaded yet → emit nothing (load is idle, retry-limited)
     const ts = Date.now();
     const hit = decideAllusion(rt, text, env ?? {}, songIndex, ts);
-    if (!hit) return;
+    if (!hit || !isCurrent()) return;
     setState((prev) => applyAllusionToState(prev, segmentId, hit, ts));
     // Fill the rail row's verse text (same cached lookup the hover preview uses).
     const code = env?.translationCode || "KJV";
-    void lookupVerseText(hit, code)
-      .catch(() => (code !== "KJV" ? lookupVerseText(hit, "KJV") : ""))
+    void lookup(hit, code)
+      .catch(() => (code !== "KJV" ? lookup(hit, "KJV") : ""))
       .then((vt) => {
-        if (!vt) return;
+        if (!vt || !isCurrent()) return;
         const gid = `al-${segmentId}`;
         setState((prev) => ({
           ...prev,
