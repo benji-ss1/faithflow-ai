@@ -55,6 +55,10 @@ export type DetectAllContext = {
   library?: IndexedSong[];
   prebuiltIndex?: SongIndex;
   mode?: ServiceMode;
+  /** Allusion v1 (2026-09-15): when true the client allusion matcher owns
+   *  phrase-quote suggestions, so the curated topPhraseForSpeech fallback is
+   *  skipped. Absent/false → exactly the previous behaviour. */
+  skipPhraseFallback?: boolean;
   hasVerseContext: boolean;
   hasSlideContext: boolean;
   hasSongContext: boolean;
@@ -104,7 +108,7 @@ export async function detectAll(chunk: string, ctx: DetectAllContext): Promise<D
   // parser found nothing, run a spoken-phrase lookup on the last 40 words of
   // the transcript window. Direct references ALWAYS win — this branch is
   // guarded on scripture.length === 0.
-  if (scripture.length === 0) {
+  if (scripture.length === 0 && !ctx.skipPhraseFallback) {
     const window = lastWords(chunk, 40);
     const top = window ? topPhraseForSpeech(window) : null;
     if (top && phraseCooldownAllows(top.entry.reference, Date.now())) {

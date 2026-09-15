@@ -265,6 +265,8 @@ export type CanonicalCorrection = {
   dismissed?: boolean;
 };
 
+import { allusionV1Enabled, runAllusionOnFinal, type AllusionRuntime } from "@/lib/ai-detection/allusion-runtime";
+
 /**
  * Client-side mic capture → WebSocket bridge to Deepgram.
  * Captures 16kHz linear16 PCM via AudioWorklet + downsampling.
@@ -277,6 +279,7 @@ export type DetectContextProvider = () => {
   hasVerseContext: boolean;
   hasSlideContext: boolean;
   hasSongContext: boolean;
+  liveText?: string; // allusion v1 context (live slide text + reference footer)
 };
 
 // 2026-07-25 distant-mic improvements — capture-pipeline pre-processing knobs,
@@ -317,6 +320,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
   const slidePrefetchRef = useRef<Map<string, unknown>>(new Map());
   const inFlightSlideFetchRef = useRef<Set<string>>(new Set());
   const getCtxRef = useRef<DetectContextProvider | undefined>(opts?.getDetectContext);
+  const allusionRef = useRef<AllusionRuntime | null>(null); // allusion v1 (flag-gated)
   // Last book/chapter actually detected — resolves bare "verse 11" / "what
   // does verse 7 say" mentions (no book/chapter spoken) against whatever
   // passage is currently active in the service.
@@ -415,7 +419,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
     const capturedGeneration = pipelineGenerationRef.current;
     let result: DetectAllResult;
     try {
-      result = await detectAll(text, { ...base, library: libraryRef.current, prebuiltIndex: songIndexRef.current ?? undefined });
+      result = await detectAll(text, { ...base, library: libraryRef.current, prebuiltIndex: songIndexRef.current ?? undefined, ...(allusionV1Enabled() ? { skipPhraseFallback: true } : {}) });
     } catch (e) {
       console.warn("[presentflow-detect] detectAll failed", e);
       return;
@@ -1777,6 +1781,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           // Phase 5A: run unified detection client-side. Fire-and-forget.
           // R11: skip if we already ran detection on this text within 800ms
           // (e.g. from a preceding interim_final_candidate).
+          if (allusionV1Enabled() && typeof msg.text === "string") runAllusionOnFinal(allusionRef, msg.segmentId, msg.text, getCtxRef.current?.() as { mode?: "auto" | "worship" | "preacher"; liveText?: string } | undefined, songIndexRef.current, setState);
           if (!shouldSkipRedetect(msg.text)) {
             runDetectAll(msg.segmentId, msg.text, { dgConfidence: msg.confidence });
           } else {
@@ -1842,7 +1847,7 @@ export function useAudioStream(planId: string, opts?: { library?: IndexedSong[];
           } catch { /* ignore */ }
         }
         else if (msg.type === "detection") setState((s) => ({ ...s, detections: [msg.detection, ...s.detections].slice(0, 50) }));
-        else if (msg.type === "phrase_matches") setState((s) => ({
+        else if (msg.type === "phrase_matches" && !allusionV1Enabled()) setState((s) => ({
           ...s,
           phraseMatches: [{ segmentId: msg.segmentId, matchedText: msg.matchedText, candidates: msg.candidates, ts: Date.now() }, ...s.phraseMatches].slice(0, 10),
         }));

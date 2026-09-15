@@ -2,8 +2,7 @@
  * Precision-first allusion matcher (v1) — pure unit tests against the real generated index.
  * Run: npx tsx test/allusion-matcher.test.ts
  *
- * Not wired into the operator UI (eval gate did not pass recall — see PR report),
- * so there is no flag-OFF parity surface yet; these lock the matcher's behaviour.
+ * Wiring + flag-OFF parity live in test/allusion-wiring.test.ts.
  */
 import assert from "node:assert";
 import fs from "node:fs";

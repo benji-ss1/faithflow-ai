@@ -93,7 +93,7 @@ export const ALLUSION_CONFIG = {
   // Short-quote tier: one RARE 3-gram line ("train up a child in the way he should go")
   SHORT_ENABLED: true,
   SHORT_MIN_WORDS: 3,
-  SHORT_MIN_COVERAGE: 0.5,
+  SHORT_MIN_COVERAGE: 0.4,   // 95% operating point (eval: 40/42 precise, 12/61 gold recall)
   SHORT_MIN_WR: 120,         // max gram word-rarity (8 x sum word idf); kills "give God praise"
   DEDUPE_MS: 60_000,
   // Continuous reading of an announced/live passage (same book+chapter, near verse)
