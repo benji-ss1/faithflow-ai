@@ -70,6 +70,7 @@ import {
   clearNativeDevicePref,
   type NativeDeviceMode,
 } from "@/lib/audio/nativeDeviceStore";
+import { matchSavedDevice, savedToNativePref, type AvailableDevice } from "@/lib/audio/savedAudioDevices";
 // Unified native input system (2026-07-27) — rank/sort/auto-pick helpers.
 import {
   autoPickReason,
@@ -519,6 +520,20 @@ export function AudioTab() {
       // Re-check after the await — a manual pick or another effect run may
       // have written a pref while we were resolving.
       if (cancelled || readNativeDevicePref() !== null) return;
+      // Audio Lock-In (2026-09-15): a device config the operator SAVED as working
+      // on this machine wins over heuristic ranking — restores its channel + gain.
+      // Only reached when no pref exists, so it can never restart a live capture.
+      const saved = matchSavedDevice(nativeDevices as AvailableDevice[]);
+      if (saved) {
+        const restored = savedToNativePref(saved);
+        setNativeSelected(nativeDevices.find((d) => d.index === restored.index) ?? { index: restored.index, name: restored.name, platform: "darwin" });
+        setNativeGridMode(restored.mode ?? "sum-all");
+        setNativeSelectedChannels(restored.selectedChannels ?? []);
+        writeNativeDevicePref({ ...restored, autoPickedAt: Date.now() });
+        setAutoPickedIndex(restored.index);
+        toast.success(`Restored saved device ${restored.name}`);
+        return;
+      }
       const sysMatch = sys ? matchNativeDeviceByName(sys, nativeDevices) : null;
       if (sysMatch && rankNativeDevice(sysMatch.name) <= 1) {
         // System default is a mixer or NDI feed → follow it.
