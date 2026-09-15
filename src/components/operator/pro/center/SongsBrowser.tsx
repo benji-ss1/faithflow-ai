@@ -55,6 +55,9 @@ export function SongsBrowser({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [slides, setSlides] = useState<SlideRow[] | null>(null);
+  // Which song `slides` belongs to — the lyric-hit scroll must never run against
+  // the PREVIOUS song's slides while the newly clicked song is still loading.
+  const [slidesForId, setSlidesForId] = useState<string | null>(null);
   const [slidesLoading, setSlidesLoading] = useState(false);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState("");
@@ -320,7 +323,7 @@ export function SongsBrowser({
     setSlidesLoading(true);
     fetch(`/api/songs/${selected.id}/slides`)
       .then((r) => r.json())
-      .then((data) => { if (!cancelled) setSlides(data.slides || []); })
+      .then((data) => { if (!cancelled) { setSlides(data.slides || []); setSlidesForId(selected.id); } })
       .catch(() => { if (!cancelled) toast.error("Failed to load slides"); })
       .finally(() => { if (!cancelled) setSlidesLoading(false); });
     return () => { cancelled = true; };
@@ -372,7 +375,7 @@ export function SongsBrowser({
   // lyric hits are listed after them, limited to songs in the current library view.
   const lyricQueryWords = query.trim().split(/\s+/).filter(Boolean).length;
   const lyricEnabled = lyricQueryWords >= 3 || (query.trim().length >= 3 && filtered.length === 0);
-  const rawLyricHits = useSongLyricSearch(query, lyricEnabled, 40);
+  const { hits: rawLyricHits, indexing: lyricIndexing } = useSongLyricSearch(query, lyricEnabled, 40);
   const lyricHits = useMemo(() => {
     if (rawLyricHits.length === 0) return [];
     const inView = new Map(songs.map((s) => [s.id, s]));
@@ -386,11 +389,12 @@ export function SongsBrowser({
   // After a lyric-hit open, scroll to + highlight the matching slide once loaded.
   useEffect(() => {
     if (focusSlideOrder == null || !slides || slides.length === 0) return;
+    if (!selected || slidesForId !== selected.id) return; // wait for the new song's slides
     const idx = slides.findIndex((s) => s.order === focusSlideOrder);
     if (idx < 0) return;
     const el = document.querySelector<HTMLElement>(`[data-song-slide-idx="${idx}"]`);
     try { el?.scrollIntoView({ block: "center", behavior: "smooth" }); } catch { /* ignore */ }
-  }, [focusSlideOrder, slides]);
+  }, [focusSlideOrder, slides, slidesForId, selected]);
 
   const refreshSlides = (songId: string) => {
     fetch(`/api/songs/${songId}/slides`)
@@ -562,7 +566,7 @@ export function SongsBrowser({
           )}
         </div>
         <ul className="flex-1 overflow-y-auto">
-          {filtered.length === 0 && lyricHits.length === 0 && !loading && (
+          {filtered.length === 0 && lyricHits.length === 0 && !lyricIndexing && !loading && (
             <li className="p-3 text-[12px] text-[var(--color-muted-foreground)]">No songs found.</li>
           )}
           {filtered.map((s) => {
@@ -623,6 +627,11 @@ export function SongsBrowser({
             </ContextMenu.Root>
             );
           })}
+          {lyricIndexing && (
+            <li className="px-3 py-2 text-[11px] italic text-[var(--color-muted-foreground)] border-b border-[var(--color-border)]">
+              Indexing lyrics…
+            </li>
+          )}
           {lyricHits.length > 0 && (
             <li className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)] border-b border-[var(--color-border)]">
               Lyric matches

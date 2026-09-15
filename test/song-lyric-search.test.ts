@@ -4,7 +4,7 @@
  * Run: npx tsx test/song-lyric-search.test.ts
  */
 import assert from "node:assert";
-import { buildSongLyricIndex, searchSongLyrics, normaliseText, type LyricLibrarySong } from "../src/lib/song-lyric-search";
+import { buildSongLyricIndex, createSongLyricIndexBuilder, searchSongLyrics, normaliseText, type LyricLibrarySong } from "../src/lib/song-lyric-search";
 
 let passed = 0;
 function t(name: string, fn: () => void) {
@@ -163,6 +163,27 @@ t("performance: ~20k slides build < 1s, query < 20ms", () => {
   }
   console.log(`      per-query median: ${timings.join(", ")}`);
   console.log(`      perf: ${slideCount} slides, build ${buildMs.toFixed(0)}ms cpu (${buildWall.toFixed(0)}ms wall), worst query ${worst.toFixed(1)}ms (min of cpu/wall median)`);
+  // Chunked (UI) build: no single synchronous step may exceed ~60ms.
+  const builder = createSongLyricIndexBuilder(big, 500); // same batch size as song-lyric-search-store.ts
+  let longest = 0; let steps = 0; let finished = false;
+  while (!finished) {
+    const s0 = performance.now(); const sc = process.cpuUsage();
+    finished = builder.step(); steps++;
+    const u = process.cpuUsage(sc);
+    longest = Math.max(longest, Math.min(performance.now() - s0, (u.user + u.system) / 1000));
+  }
+  console.log(`      chunked build: ${steps} steps, longest chunk ${longest.toFixed(1)}ms`);
+  assert.ok(longest < 60, `longest chunk ${longest}ms`);
+  assert.equal(builder.index!.size, bigIdx.size);
+  // Query p95 across 40 lyric-line queries.
+  const lat: number[] = [];
+  for (let k = 0; k < 40; k++) {
+    const song = big[(k * 67) % big.length];
+    const q = song.slides[k % song.slides.length].lyrics.split("\n")[k % 3];
+    const q0 = performance.now(); searchSongLyrics(bigIdx, q); lat.push(performance.now() - q0);
+  }
+  lat.sort((a, b) => a - b);
+  console.log(`      query p95 ${lat[Math.floor(lat.length * 0.95)].toFixed(1)}ms (n=40)`);
   const hit = searchSongLyrics(bigIdx, target);
   assert.ok(hit.slice(0, 3).some((h) => h.songId === "s1234"), "synthetic target in top 3");
   assert.ok(buildMs < 1000, `build ${buildMs}ms`);

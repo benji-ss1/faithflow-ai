@@ -55,8 +55,15 @@ export function SearchPalette({
 
   // Lyric search over the shared song library (built lazily on first keystroke).
   // Needs ≥2 words so a single typed word stays a quick title/playlist lookup.
-  const lyricEnabled = open && query.trim().split(/\s+/).filter(Boolean).length >= 2 && !REF_SHAPE.test(query.trim());
-  const lyricHits = useSongLyricSearch(query, lyricEnabled, 8);
+  // Only a REAL Bible reference (known book + chapter, via the parser) hides
+  // lyrics — "bless the lord 10000 reasons" is a lyric, not a reference.
+  const looksLikeBibleRef = useMemo(() => {
+    const q = query.trim();
+    if (!REF_SHAPE.test(q)) return false;
+    try { return parseTypedReference(q).length > 0; } catch { return false; }
+  }, [query]);
+  const lyricEnabled = open && query.trim().split(/\s+/).filter(Boolean).length >= 2 && !looksLikeBibleRef;
+  const { hits: lyricHits, indexing: lyricIndexing } = useSongLyricSearch(query, lyricEnabled, 8);
 
   useEffect(() => {
     if (!open) return;
@@ -207,6 +214,9 @@ export function SearchPalette({
                 </Command.Group>
               )}
 
+              {lyricIndexing && lyricHits.length === 0 && (
+                <div className="px-4 py-2 text-[11px] italic text-[var(--color-muted-foreground)]">Indexing lyrics…</div>
+              )}
               {lyricHits.length > 0 && (
                 <Command.Group heading={<span className="eyebrow">Lyrics</span>} className="[&_[cmdk-group-heading]]:px-4 [&_[cmdk-group-heading]]:pt-3 [&_[cmdk-group-heading]]:pb-1.5">
                   {lyricHits.map((h) => (

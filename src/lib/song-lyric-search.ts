@@ -169,7 +169,18 @@ function bestLine(lyrics: string, queryTokens: string[], cache?: Map<string, boo
   return best;
 }
 
-export function buildSongLyricIndex(library: LyricLibrarySong[]): SongLyricIndex {
+export type SongLyricIndexBuilder = {
+  /** Index up to ~`batchSlides` more slides. Returns true when the index is complete. */
+  step(): boolean;
+  /** The finished index (null until step() has returned true). */
+  readonly index: SongLyricIndex | null;
+};
+
+/**
+ * Incremental builder so the UI can index a ~20k-slide library in small
+ * chunks during idle time (no single long task freezes audio/projection).
+ */
+export function createSongLyricIndexBuilder(library: LyricLibrarySong[], batchSlides = 2000): SongLyricIndexBuilder {
   const mini = new MiniSearch<SlideDoc>({
     idField: "id",
     fields: ["title", "line"],
@@ -179,32 +190,53 @@ export function buildSongLyricIndex(library: LyricLibrarySong[]): SongLyricIndex
   });
   const titles = new Map<string, string>();
   const lineTokens = new Map<string, string[]>();
-  const docs: SlideDoc[] = [];
-  for (const song of library ?? []) {
-    if (!song?.songId) continue;
-    titles.set(song.songId, normaliseText(song.title));
-    const slides = (song.slides ?? []).filter((s) => s && typeof s.lyrics === "string" && s.lyrics.trim());
-    if (slides.length === 0) {
-      // Title-only doc so a lyric-less song is still findable by title.
-      const id = `${song.songId}#t`;
-      docs.push({ id, songId: song.songId, title: song.title, artist: song.artist ?? "", slideOrder: -1, line: "" });
-      lineTokens.set(id, []);
-      continue;
-    }
-    for (const sl of slides) {
-      const id = `${song.songId}#${sl.order}`;
-      if (lineTokens.has(id)) continue; // duplicate order guard
-      docs.push({ id, songId: song.songId, title: song.title, artist: song.artist ?? "", slideOrder: sl.order, line: sl.lyrics });
-      lineTokens.set(id, tokenise(sl.lyrics));
-    }
-  }
-  mini.addAll(docs);
   const firstDoc = new Map<string, SlideDoc>();
-  for (const d of docs) if (!firstDoc.has(d.songId)) firstDoc.set(d.songId, d);
   const vocab = new Set<string>();
-  for (const toks of lineTokens.values()) for (const t of toks) vocab.add(t);
-  for (const tn of titles.values()) if (tn) for (const t of tn.split(" ")) vocab.add(t);
-  return { mini, titles, lineTokens, firstDoc, vocab, size: docs.length };
+  const songs = (library ?? []).filter((s) => s?.songId);
+  let songIdx = 0;
+  let size = 0;
+  let done: SongLyricIndex | null = null;
+  const addDoc = (d: SlideDoc, toks: string[], batch: SlideDoc[]) => {
+    batch.push(d);
+    lineTokens.set(d.id, toks);
+    if (!firstDoc.has(d.songId)) firstDoc.set(d.songId, d);
+    for (const t of toks) vocab.add(t);
+  };
+  return {
+    get index() { return done; },
+    step() {
+      if (done) return true;
+      const batch: SlideDoc[] = [];
+      while (songIdx < songs.length && batch.length < batchSlides) {
+        const song = songs[songIdx++];
+        const tn = normaliseText(song.title);
+        titles.set(song.songId, tn);
+        if (tn) for (const t of tn.split(" ")) vocab.add(t);
+        const slides = (song.slides ?? []).filter((s) => s && typeof s.lyrics === "string" && s.lyrics.trim());
+        if (slides.length === 0) {
+          // Title-only doc so a lyric-less song is still findable by title.
+          addDoc({ id: `${song.songId}#t`, songId: song.songId, title: song.title, artist: song.artist ?? "", slideOrder: -1, line: "" }, [], batch);
+          continue;
+        }
+        for (const sl of slides) {
+          const id = `${song.songId}#${sl.order}`;
+          if (lineTokens.has(id)) continue; // duplicate order guard
+          addDoc({ id, songId: song.songId, title: song.title, artist: song.artist ?? "", slideOrder: sl.order, line: sl.lyrics }, tokenise(sl.lyrics), batch);
+        }
+      }
+      mini.addAll(batch);
+      size += batch.length;
+      if (songIdx >= songs.length) done = { mini, titles, lineTokens, firstDoc, vocab, size };
+      return !!done;
+    },
+  };
+}
+
+/** Synchronous build (tests / scripts). The UI uses the chunked builder instead. */
+export function buildSongLyricIndex(library: LyricLibrarySong[]): SongLyricIndex {
+  const b = createSongLyricIndexBuilder(library, Number.MAX_SAFE_INTEGER);
+  while (!b.step()) { /* single step */ }
+  return b.index!;
 }
 
 export function searchSongLyrics(index: SongLyricIndex | null, query: string, limit = 20): SongLyricHit[] {
@@ -224,8 +256,12 @@ export function searchSongLyrics(index: SongLyricIndex | null, query: string, li
   let searchTerms = [...new Set(content.length > 0 ? content : qTokens)];
   const lastTerm = qTokens[last];
   const searchText = searchTerms.join(" ");
+  // Short (≤3-word) queries are usually titles → title-first ranking + 3x title
+  // boost. Longer queries are usually a remembered line → a contiguous lyric
+  // phrase must beat a title that only shares some words.
+  const shortQuery = qTokens.length <= 3;
   const baseOpts = {
-    boost: { title: 3 },
+    boost: { title: shortQuery ? 3 : 1 },
     combineWith: "OR" as const,
     prefix: (term: string) => term === lastTerm && term.length >= 2 && !index.vocab.has(term),
   };
@@ -299,7 +335,10 @@ export function searchSongLyrics(index: SongLyricIndex | null, query: string, li
     const lineRun = longestContiguousRun(qTokens, lineToks, matchCache);
     const titleRun = titleToks.length ? longestContiguousRun(qTokens, titleToks, matchCache) : 0;
     const tier = titleTier.get(songId) ?? 0;
-    const contiguity = Math.max(lineRun, titleRun) / qTokens.length;
+    // Long queries: only the lyric phrase counts for contiguity unless the title
+    // holds (nearly) the whole query.
+    const titleRunUse = shortQuery || titleRun >= qTokens.length - 1 ? titleRun : 0;
+    const contiguity = Math.max(lineRun, titleRunUse) / qTokens.length;
     const score = r.score * (1 + 2 * contiguity) * (0.5 + coverage);
     const cand: Agg = {
       songId,
